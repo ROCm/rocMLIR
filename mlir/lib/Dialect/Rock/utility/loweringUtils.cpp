@@ -108,16 +108,12 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                   ArrayRef<int64_t> filterDims) {
   assert(strideDims.size() == dilationDims.size());
   SmallVector<int64_t, 5> gcdStrideDilations;
-  assert(strideDims.size() == dilationDims.size());
-  for (const auto &[stride, dilation] : zip(strideDims, dilationDims)) {
+  for (const auto &[stride, dilation] : zip(strideDims, dilationDims))
     gcdStrideDilations.push_back(math_util::gcd(stride, dilation));
-  }
 
   SmallVector<int64_t, 5> filTilda;
-  for (const auto &[stride, gcdSD] : zip(strideDims, gcdStrideDilations)) {
+  for (const auto &[stride, gcdSD] : zip(strideDims, gcdStrideDilations))
     filTilda.push_back(stride / gcdSD);
-  }
-
 
   // Heuristic to determine if every pixel in the output would be written by the
   // backward data convolution algorithm.
@@ -138,9 +134,11 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
 
   // Populate the kernel IDs according to the current backward data convolution
   // algorithm implementation.
-  int64_t product = 1;
+  int64_t subproduct = 1;
+  int64_t product;
   for (size_t i = 1; i < filterDims.size(); i++)
-    product *= filTilda[i];
+    subproduct *= filTilda[i];
+  product = subproduct * filTilda[0];
   for (int64_t kernelId = 0; kernelId < product; ++kernelId) {
     // gemmK size is different for each GEMM
     SmallVector<int64_t, 3> iTilda;
@@ -156,8 +154,8 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
       iTilda[2] = kernelId % divisor;
       [[fallthrough]];
     case 2:
-      iTilda[1] = (kernelId % product) / divisor;
-      iTilda[0] = kernelId / product;
+      iTilda[1] = (kernelId % subproduct) / divisor;
+      iTilda[0] = kernelId / subproduct;
     }
     for (size_t i = 0; i < filterDims.size(); i++)
       iDotSlice.push_back(math_util::integer_divide_ceil(
