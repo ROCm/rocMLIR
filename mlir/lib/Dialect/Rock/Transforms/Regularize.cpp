@@ -199,36 +199,49 @@ struct PushTransformsUpRewritePattern
     LogicalResult lres = failure();
     Value buffer = alloc.getResult();
 
-    // find writer and readChains (must be a transform)
     bool hasTransforms = false;
     Operation *writer = nullptr;
     Operation *fusor = nullptr;
     SmallVector<SmallVector<Operation *>> readChains;
+
+    // find the fusor
+    for (auto &use : buffer.getUses()) {
+      Operation *useOp = use.getOwner();
+      Value result = buffer;
+      while (auto top = dyn_cast<rock::TransformOp>(useOp)) {
+        result = top.getResult();
+        useOp = (*result.getUses().begin()).getOwner();
+      }
+      if (isFusorOp(useOp)) {
+        fusor = useOp;
+      } else if (auto lgop = dyn_cast<linalg::GenericOp>(useOp)) {
+        if (!fusor && llvm::is_contained(lgop.getOutputs(), result))
+          fusor = useOp;
+      }
+    }
+
+    // find fusee's transform chains
     for (auto &use : buffer.getUses()) {
       Operation *useOp = use.getOwner();
       SmallVector<Operation *> chain;
       bool isWriter = collectChain(buffer, useOp, chain);
-
-      bool isFusor = isFusorOp(chain.back());
       if (isWriter) {
         assert(writer == nullptr);
         writer = useOp;
       }
-      if (isFusor) {
-        fusor = useOp;
-      } else {
+      if (!chain.empty() && chain.back() != fusor) {
         hasTransforms |= chain.size() > 1;
         readChains.push_back(chain);
       }
     }
+
+    // push transforms from fusee to fusor
     if (fusor && hasTransforms) {
       PatternRewriter::InsertionGuard guard(rw);
       rw.setInsertionPoint(alloc);
       Location loc = alloc.getLoc();
-
       for (auto readChain : readChains) {
         if (readChain.size() > 1) {
-
           Operation *readOp = readChain.back();
           readChain.pop_back();
           assert(!isa<rock::TransformOp>(readOp));
@@ -253,14 +266,14 @@ struct PushTransformsUpRewritePattern
             inverses.push_back(itx);
           }
 
-          // create new buffer (substitue in reader)
+          // create new buffer (substitue in fusee)
           MemRefType nbufferType = readInp.getType().cast<MemRefType>();
           Value nbuffer =
               rw.create<memref::AllocOp>(loc, nbufferType).getResult();
-          // update reader with new buffer input
+          // update fusee with new buffer input
           readOp->replaceUsesOfWith(readInp, nbuffer);
 
-          // insert inverse transforms after new buffer to writer chain
+          // insert inverse transforms after new buffer to fusor chain
           Value val = nbuffer;
           for (auto [itx, op] : llvm::zip(inverses, llvm::reverse(readChain))) {
             auto top = rw.create<rock::TransformOp>(loc, val, itx);

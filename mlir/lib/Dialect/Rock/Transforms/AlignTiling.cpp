@@ -226,7 +226,7 @@ void LinalgAlignRewriter::moveBeforeIfNeeded(Operation *toMove,
 }
 
 void LinalgAlignRewriter::moveBefore(Operation *toMove, Operation *latestOp) {
-  constexpr llvm::StringLiteral movePrefix("$$ Move    : ");
+  constexpr llvm::StringLiteral movePrefix("** Move    : ");
   constexpr llvm::StringLiteral beforePrefix("   before  : ");
   logOpActivity(movePrefix, toMove);
   logOpActivity(beforePrefix, latestOp);
@@ -581,7 +581,7 @@ template <typename TiledOp>
 static Value
 makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
                    ArrayRef<TransformMapAttr> globalCoordsToGenericViews,
-                   linalg::GenericOp laGeneric, Operation *sink) {
+                   linalg::GenericOp laGeneric) {
   // 0. capture the memref containing the outputs being written or
   // (in the case of propagating tiling informatinon up to gemm-independent
   // code) where the values will be written.
@@ -594,18 +594,14 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   for (Value idx : tiledOp.getExtraIndices()) {
     Operation *idxOp = idx.getDefiningOp();
     if (idxOp) {
-      if (idxOp->getBlock() == laGeneric->getBlock() &&
-          (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp))) {
+      if (!lastIdxDef || (lastIdxDef->getBlock() == idxOp->getBlock() &&
+                          lastIdxDef->isBeforeInBlock(idxOp))) {
         lastIdxDef = idxOp;
       }
     }
   }
-  if (lastIdxDef) {
-    if (laGeneric->getBlock() != lastIdxDef->getBlock())
-      laGeneric->moveAfter(lastIdxDef);
-    else
-      b.moveAfterIfNeeded(laGeneric, lastIdxDef);
-  }
+  if (lastIdxDef && laGeneric->getBlock() == lastIdxDef->getBlock())
+    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
 
   // 1. create a second allocation of the same type to hold loaded elements
   // where the laGeneric is located.
@@ -633,8 +629,8 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   // block of tiledOp, as their arguments may depend on that control flow. Later
   // we will also move linalg.generic into the block.
   if (laGeneric->getBlock() != tiledOp->getBlock() &&
-      laGeneric.getOperation() != sink)
-    b.setInsertionPoint(sink);
+      isa<ThreadwiseReadIntoOp>(tiledOp))
+    b.setInsertionPoint(tiledOp);
 
   // 2.0. apply transform chain from output
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
@@ -719,7 +715,7 @@ static void addRegisterReadsForTiledInput(
       newInput = twWriteOp.getSource();
     } else {
       newInput = makeExtraInputTile(b, twWriteOp, inp, relativeViewsOnWrite,
-                                    laGeneric, laGeneric);
+                                    laGeneric);
     }
     newInputs.push_back(newInput);
   }
@@ -733,8 +729,8 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
                                ArrayRef<TransformMapAttr> relativeViewsOnResult,
                                SmallVectorImpl<Value> &newInputs) {
   for (auto inp : laGeneric.getInputs()) {
-    Value newInput = makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult,
-                                        laGeneric, twReadOp);
+    Value newInput =
+        makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult, laGeneric);
     newInputs.push_back(newInput);
   }
 
@@ -841,9 +837,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   ThreadwiseReadIntoOp tileReadOp;
   if (!gemmStoreOp) {
     if (!out.getDefiningOp<memref::AllocOp>()) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "generic output is not suitable for input fusion\n");
-      return success();
+      return b.notifyMatchFailure(
+          loc, "generic output is not suitable for input fusion\n");
     }
     if (failed(findThreadwiseRead(laGeneric, tileReadOp,
                                   globalCoordsToGenericViews)))

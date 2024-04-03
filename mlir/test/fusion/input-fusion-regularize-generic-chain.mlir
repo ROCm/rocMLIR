@@ -1,3 +1,5 @@
+// RUN: rocmlir-driver --rock-regularize %s | FileCheck %s
+
 #general_gemm_params = #rock.general_gemm_params<blockSize = 128, kPerBlock = 16, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
 #map = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map1 = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
@@ -33,9 +35,10 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
 
 
   func.func @rock_gemm_tr(%arg0: memref<1x32x16xf16>, %arg1: memref<1x16x32xf32>, %arg2: memref<1x32x32xf32>) attributes {block_size = 128 : i32, enable_splik_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
-    // CHECK: %[[alloc:.+]] = memref.alloc() : memref<1x16x32xf32> 
+    // CHECK: %[[alloc:.+]] = memref.alloc() : memref<1x32x16xf32>
+    // CHECK-NEXT: %[[tr:.*]] = rock.transform %[[alloc]] by #[[MAP1]]
     %alloc = memref.alloc() : memref<1x16x32xf32>
-    // CHECK-NEXT: %[[out:.+]] =  rock.transform %[[alloc]] by #[[MAP]]
+    // CHECK-NEXT: %[[out:.+]] =  rock.transform %[[tr]] by #[[MAP]]
     %0 = rock.transform %alloc by #transform_map : memref<1x16x32xf32> to memref<1x32x16xf32>
     // CHECK-NEXT: linalg.generic {{.*}} outs(%[[out]]
     linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel", "parallel"]} ins(%arg0 : memref<1x32x16xf16>) outs(%0 : memref<1x32x16xf32>) {
@@ -47,10 +50,9 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     // CHECK-NEXT: %[[gemmIn:.+]] = rock.transform %[[alloc_0]] by #[[MAP1]]
     %alloc_0 = memref.alloc() : memref<1x16x32xf32>
     %1 = rock.transform %alloc_0 by #transform_map : memref<1x16x32xf32> to memref<1x32x16xf32>
-    // CHECK: %[[genIn:.+]] = rock.transform %[[alloc]] by #[[MAP]]
     %2 = rock.transform %alloc by #transform_map : memref<1x16x32xf32> to memref<1x32x16xf32>
     // CHECK-NEXT: linalg.generic
-    // CHECK-SAME: ins(%[[genIn]] : memref<1x32x16xf32>) outs(%[[alloc_0]]
+    // CHECK-SAME: ins(%[[alloc]] : memref<1x32x16xf32>) outs(%[[alloc_0]]
     linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel", "parallel"]} ins(%2 : memref<1x32x16xf32>) outs(%1 : memref<1x32x16xf32>) {
     ^bb0(%in: f32, %out: f32):
       %cst = arith.constant 2.000000e+00 : f32
