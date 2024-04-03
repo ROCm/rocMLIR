@@ -122,10 +122,9 @@ LogicalResult calculateKBlockNum(const int64_t batchSize,
 /// partipate the backward data convolution. The ID -1 represents a zero
 /// initialization utility kernel The zero initialization kernel, if needed,
 /// would be placed in the front of the vector.
-SmallVector<int64_t>
-backwardDataKernelIds(ArrayRef<int64_t> strideDims,
-                      ArrayRef<int64_t> dilationDims,
-                      ArrayRef<int64_t> filterDims);
+SmallVector<int64_t> backwardDataKernelIds(ArrayRef<int64_t> strideDims,
+                                           ArrayRef<int64_t> dilationDims,
+                                           ArrayRef<int64_t> filterDims);
 
 /// Return a vector type of length `len` if `len` is more than 1, otherwise,
 /// return `type`.

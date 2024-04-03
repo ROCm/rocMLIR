@@ -709,15 +709,17 @@ GemmSize ConvBwdDataOp::getGemmSize() {
     iTilda[0] = kernelId / product;
   }
   for (size_t i = 0; i < sizes.fil.size(); i++)
-    iDotSlice.push_back(math_util::integer_divide_ceil(
-        sizes.fil[i] - iTilda[i], filTilda[i]));
+    iDotSlice.push_back(
+        math_util::integer_divide_ceil(sizes.fil[i] - iTilda[i], filTilda[i]));
 
   int64_t g = sizes.g;
   int64_t m = sizes.c;
   int64_t k = sizes.k;
-  for (auto ds : iDotSlice) k *= ds;
+  for (auto ds : iDotSlice)
+    k *= ds;
   int64_t n = sizes.n;
-  for (auto ts : tildaSlice) n *= ts;
+  for (auto ts : tildaSlice)
+    n *= ts;
 
   return GemmSize(g, m, k, n);
 }
