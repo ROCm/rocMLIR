@@ -158,7 +158,7 @@ bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
   if (!rock::isSplitKRequested(mod, perfConfig)) {
     return true;
   }
-  return rock::testFusability(mod);
+  return rock::testFusibility(mod);
 }
 
 // TODO (ravil): document

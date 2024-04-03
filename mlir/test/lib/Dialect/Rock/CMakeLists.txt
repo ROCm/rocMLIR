@@ -3,6 +3,7 @@ add_rocmlir_test_library(MLIRRockTestPasses
   TestVectorizationInference.cpp
   TestRockMultibuffer.cpp
   TestBufferDependencyAnalysis.cpp
+  TestFunctionFusibility.cpp
   EXCLUDE_FROM_LIBMLIR
 
   LINK_LIBS PUBLIC

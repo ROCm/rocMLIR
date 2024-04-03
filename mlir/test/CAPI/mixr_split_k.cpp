@@ -16,23 +16,19 @@
 // RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 64 -n 64 -k 1024   2>&1 |
 // FileCheck %s --check-prefix=M64_N64_K1024
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -ew-type=none  2>&1 |
-// FileCheck %s --check-prefix=F32_EW_NONE_SK1
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -use-ew-op=false 2>&1
+// | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK1
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -ew-type=none  2>&1 |
-// FileCheck %s --check-prefix=F32_EW_NONE_SK4
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=false 2>&1
+// | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK4
 
 // RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4
-// -ew-type=ProgramOptions::dependant  2>&1 | FileCheck %s
-// --check-prefix=F32_EW_DEPENDANT_SK4
+// -use-ew-op=true  2>&1 | FileCheck %s
+// --check-prefix=F32_WITH_EW_SK4
 
 // RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1
-// -ew-type=ProgramOptions::dependant  2>&1 | FileCheck %s
-// --check-prefix=F32_EW_DEPENDANT_SK1
-
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4
-// -ew-type=ProgramOptions::dependant  2>&1 | FileCheck %s
-// --check-prefix=F32_EW_INDEPENDANT_SK4
+// -use-ew-op=true  2>&1 | FileCheck %s
+// --check-prefix=F32_WITH_EW_SK1
 
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/BuiltinTypes.h"
@@ -166,12 +162,7 @@ struct ProgramOptions {
   std::string targetArch;
   RocmlirTuningParamSetKind tuningLevel;
   int32_t verbosityLevel;
-
-  enum ElementwiseOpType {
-    none,
-    dependant,
-    independant,
-  } elementwiseOpType;
+  bool useElementwiseOp;
 };
 
 std::ostream &operator<<(std::ostream &stream,
@@ -295,13 +286,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location,
   MlirValue dotValue = mlirOperationGetResult(dotOp, 0);
 
   MlirValue returnValue = dotValue;
-  if (options.elementwiseOpType != ProgramOptions::ElementwiseOpType::none) {
+  if (options.useElementwiseOp) {
     //-------------- rely = migraphx.relu
     MlirValue reluOperands[] = {dotValue};
-    if (options.elementwiseOpType ==
-        ProgramOptions::ElementwiseOpType::independant) {
-      reluOperands[0] = funcArg0;
-    }
     MlirType reluType = rocmlirMIXRShapedTypeGet(
         cDescr.getNumDims(), cDescr.dims, cDescr.strides, mlirFPType);
     MlirOperationState reluState = mlirOperationStateGet(
@@ -311,11 +298,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location,
 
     MlirOperation reluOp = mlirOperationCreate(&reluState);
     mlirBlockAppendOwnedOperation(funcBody, reluOp);
-    MlirValue reulResult = mlirOperationGetResult(reluOp, 0);
-    if (options.elementwiseOpType ==
-        ProgramOptions::ElementwiseOpType::dependant) {
-      returnValue = reulResult;
-    }
+    returnValue = mlirOperationGetResult(reluOp, 0);
   }
 
   //-------------- func.return
@@ -377,11 +360,10 @@ static bool constructAndTraverseIr(MlirContext ctx,
   // descr -> test whether the generated migraphx module is fusible
   const bool isFusible = mlirIsModuleFusible(moduleOp.get(), perfStr);
   std::cout << "is fusible: " << isFusible << std::endl;
-  // F32_EW_NONE_SK1: is fusible: true
-  // F32_EW_NONE_SK4: is fusible: true
-  // F32_EW_DEPENDANT_SK4: is fusible: false
-  // F32_EW_DEPENDANT_SK1: is fusible: true
-  // F32_EW_INDEPENDANT_SK4: is fusible: true
+  // F32_WITHOUT_EW_SK1: is fusible: true
+  // F32_WITHOUT_EW_SK4: is fusible: true
+  // F32_WITH_EW_SK4: is fusible: false
+  // F32_WITH_EW_SK1: is fusible: true
 
   // set perf config string
   bool isOk = mlirRockTuningSetFromStr(moduleOp.get(), perfStr);
@@ -417,8 +399,8 @@ static bool constructAndTraverseIr(MlirContext ctx,
   // descr -> prefill args logic
   size_t numPrefillArgs = mlirGetNumPrefillArgs(moduleOp.get());
   std::cout << "num prefill args: " << numPrefillArgs << '\n';
-  // F32_EW_NONE_SK1" num prefill args: 0
-  // F32_EW_NONE_SK4: num prefill args: 1
+  // F32_WITHOUT_EW_SK1" num prefill args: 0
+  // F32_WITHOUT_EW_SK4: num prefill args: 1
 
   std::vector<size_t> prefillArgIndices(numPrefillArgs);
   std::vector<MlirAttribute> prefillArgValues(numPrefillArgs);
@@ -426,18 +408,18 @@ static bool constructAndTraverseIr(MlirContext ctx,
                          prefillArgValues.data());
 
   std::cout << "prefill arg indices: " << prefillArgIndices << '\n';
-  // F32_EW_NONE_SK1" prefill arg indices:
-  // F32_EW_NONE_SK4: prefill arg indices: 2
+  // F32_WITHOUT_EW_SK1" prefill arg indices:
+  // F32_WITHOUT_EW_SK4: prefill arg indices: 2
 
   std::cout << "prefill arg init values: " << prefillArgValues << '\n';
-  // F32_EW_NONE_SK1: prefill arg init values:
-  // F32_EW_NONE_SK4: prefill arg init values: 0.00
+  // F32_WITHOUT_EW_SK1: prefill arg init values:
+  // F32_WITHOUT_EW_SK4: prefill arg init values: 0.00
 
   // descr -> auxiliary buffers logic
   size_t numAuxBuffers = mlirGetNumAuxBuffers(moduleOp.get());
   std::cout << "num aux buffers: " << numAuxBuffers << '\n';
-  // F32_EW_NONE_SK1: num aux buffers: 0
-  // F32_EW_NONE_SK4: num aux buffers: 0
+  // F32_WITHOUT_EW_SK1: num aux buffers: 0
+  // F32_WITHOUT_EW_SK4: num aux buffers: 0
 
   std::vector<size_t> auxBuffersSizes(numAuxBuffers);
   std::vector<MlirAttribute> auxBuffersInitValues(numAuxBuffers);
@@ -445,12 +427,12 @@ static bool constructAndTraverseIr(MlirContext ctx,
                         auxBuffersInitValues.data());
 
   std::cout << "aux buffers sizes: " << auxBuffersSizes << '\n';
-  // F32_EW_NONE_SK1: aux buffers sizes:
-  // F32_EW_NONE_SK4: aux buffers sizes:
+  // F32_WITHOUT_EW_SK1: aux buffers sizes:
+  // F32_WITHOUT_EW_SK4: aux buffers sizes:
 
   std::cout << "aux buffers init values: " << auxBuffersInitValues << '\n';
-  // F32_EW_NONE_SK1: aux buffers init values:
-  // F32_EW_NONE_SK4: aux buffers init values:
+  // F32_WITHOUT_EW_SK1: aux buffers init values:
+  // F32_WITHOUT_EW_SK4: aux buffers init values:
 
   return true;
 }
@@ -484,12 +466,10 @@ llvm::cl::opt<RocmlirTuningParamSetKind> tuningLevel(
     llvm::cl::init(
         RocmlirTuningParamSetKind::RocmlirTuningParamSetKindExhaustive));
 
-llvm::cl::opt<ProgramOptions::ElementwiseOpType> elementwiseOpType(
-    "ew-type", llvm::cl::desc("elementwise operaion appendend to gemm/conv"),
-    llvm::cl::values(clEnumVal(ProgramOptions::none, "none"),
-                     clEnumVal(ProgramOptions::dependant, "dependant"),
-                     clEnumVal(ProgramOptions::independant, "independant")),
-    llvm::cl::init(ProgramOptions::ElementwiseOpType::none));
+llvm::cl::opt<bool>
+    useElementwiseOp("use-ew-op",
+                     llvm::cl::desc("use elementwise op after gemm"),
+                     llvm::cl::init(false));
 
 llvm::cl::opt<int32_t> verbosityLevel("v", llvm::cl::desc("verbosity level"),
                                       llvm::cl::init(0));
@@ -500,8 +480,7 @@ int main(int argc, char *argv[]) {
       mDim.getValue(),           nDim.getValue(),
       kDim.getValue(),           splitKFactor.getValue(),
       targetArch.getValue(),     tuningLevel.getValue(),
-      verbosityLevel.getValue(), elementwiseOpType.getValue(),
-  };
+      verbosityLevel.getValue(), useElementwiseOp.getValue()};
 
   auto ctx = CRAIIWrapper<MlirContext>(mlirContextCreate());
   MlirDialectRegistry registry = mlirDialectRegistryCreate();

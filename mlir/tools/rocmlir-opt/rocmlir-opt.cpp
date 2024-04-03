@@ -24,6 +24,7 @@ void registerCollapseContiguousMergesTestPass();
 void registerVectorizationInferenceTestPass();
 void registerMultiBufferingTestPass();
 void registerBufferDependencyAnalysisTestPass();
+void registerFusibilityTestPass();
 } // end namespace rock
 } // end namespace mlir
 
@@ -33,6 +34,7 @@ void registerRockTestPasses() {
   rock::registerVectorizationInferenceTestPass();
   rock::registerMultiBufferingTestPass();
   rock::registerBufferDependencyAnalysisTestPass();
+  rock::registerFusibilityTestPass();
 }
 #endif
 

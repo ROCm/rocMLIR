@@ -19,9 +19,19 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-bool mlir::rock::testFusability(ModuleOp mod) {
+bool mlir::rock::testFusibility(ModuleOp mod) {
+  WalkResult result = mod->walk([](func::FuncOp func) -> WalkResult {
+    if (!testFusibility(func)) {
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return !result.wasInterrupted();
+}
+
+bool mlir::rock::testFusibility(func::FuncOp func) {
   llvm::SmallVector<memref::AllocOp, 8> memAllocOps;
-  mod.walk([&](memref::AllocOp allocOp) { memAllocOps.push_back(allocOp); });
+  func.walk([&](memref::AllocOp allocOp) { memAllocOps.push_back(allocOp); });
 
   if (memAllocOps.empty()) {
     return true;
@@ -30,16 +40,27 @@ bool mlir::rock::testFusability(ModuleOp mod) {
   auto maps = BufferDependencyAnalysis::run(memAllocOps);
 
   WalkResult walkResult =
-      mod.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
+      func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
         auto gemmResult = gemmOp->getOperand(2);
         while (auto viewOp =
                    dyn_cast<ViewLikeOpInterface>(gemmResult.getDefiningOp())) {
           gemmResult = viewOp.getViewSource();
         }
         Operation *gemmResultSrc = gemmResult.getDefiningOp();
+
+        // make sure that no `linalg::GenericOp` reads from a gemm output
         if (auto allocOp = dyn_cast<memref::AllocOp>(gemmResultSrc)) {
           if (maps.readers.contains(allocOp)) {
             for (Operation *op : maps.readers[allocOp]) {
+              if (dyn_cast<linalg::GenericOp>(op)) {
+                return WalkResult::interrupt();
+              }
+            }
+          }
+
+          // make sure that no `linalg::GenericOp` writes to a gemm output
+          if (maps.writers.contains(allocOp)) {
+            for (Operation *op : maps.writers[allocOp]) {
               if (dyn_cast<linalg::GenericOp>(op)) {
                 return WalkResult::interrupt();
               }

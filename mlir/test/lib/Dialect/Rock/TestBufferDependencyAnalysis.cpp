@@ -35,7 +35,7 @@ struct BufferDependencyAnalysisTestPass
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(BufferDependencyAnalysisTestPass)
 
   StringRef getArgument() const final {
-    return "rock-buffer-dependency-analysis";
+    return "rock-buffer-dependency-analysis-test";
   }
   StringRef getDescription() const final {
     return "Tests the buffer dependency analysis in Rock";
@@ -76,6 +76,7 @@ extractExpectedResults(func::FuncOp func,
 }
 
 static LogicalResult analyse(func::FuncOp func) {
+  static std::mutex mutex;
   DenseMap<StringRef, ExpectedOpNames> expectedResults;
   extractExpectedResults(func, expectedResults);
 
@@ -93,6 +94,7 @@ static LogicalResult analyse(func::FuncOp func) {
     for (auto *testReaderOp : testResults.readers) {
       auto testReaderOpName = testReaderOp->getName().getStringRef();
       if (!expectedOpNames.readers.contains(testReaderOpName)) {
+        std::lock_guard<std::mutex> guard(mutex);
         llvm::errs() << "failed to find `" << testReaderOpName
                      << "` reader for `" << allocName << "`\n";
         return WalkResult::interrupt();
@@ -103,6 +105,7 @@ static LogicalResult analyse(func::FuncOp func) {
     for (auto *testWriterOp : testResults.writers) {
       auto testWriterOpName = testWriterOp->getName().getStringRef();
       if (!expectedOpNames.writers.contains(testWriterOpName)) {
+        std::lock_guard<std::mutex> guard(mutex);
         llvm::errs() << "failed to find `" << testWriterOpName
                      << "` writer for `" << allocName << "`\n";
         return WalkResult::interrupt();
@@ -111,6 +114,11 @@ static LogicalResult analyse(func::FuncOp func) {
 
     return WalkResult::advance();
   });
+
+  OpBuilder builder(func->getContext());
+  if (!result.wasInterrupted()) {
+    func->setAttr("passed", builder.getUnitAttr());
+  }
 
   return failure(result.wasInterrupted());
 }

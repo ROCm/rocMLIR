@@ -8,11 +8,13 @@
 #ifndef ROCK_UTILITY_FISION_H
 #define ROCK_UTILITY_FISION_H
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 
 namespace mlir {
 namespace rock {
-bool testFusability(ModuleOp mod);
+bool testFusibility(ModuleOp mod);
+bool testFusibility(func::FuncOp func);
 } // end namespace rock
 } // end namespace mlir
 
