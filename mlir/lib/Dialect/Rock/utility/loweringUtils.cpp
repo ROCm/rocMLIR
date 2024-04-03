@@ -118,8 +118,8 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
   // backward data convolution algorithm.
   auto isEveryPixelWritten = [&]() -> bool {
     bool result = true;
-    for (const auto &[stride, dilation, filterSize] : zip(strideDims, dilationDims,
-                                                          filterDims)) {
+    for (const auto &[stride, dilation, filterSize] :
+         zip(strideDims, dilationDims, filterDims)) {
       if (!(dilation == 1 && stride <= filterSize))
         result = false;
     }
