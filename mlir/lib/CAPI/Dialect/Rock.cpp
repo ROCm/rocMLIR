@@ -146,7 +146,7 @@ MLIR_CAPI_EXPORTED
 enum RocmlirSplitKSelectionLikelihood
 mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
                    int64_t numCUs, RocmlirTuningParamSetKind tuningLevel) {
-  return rock::mlirIsSplitKFaster(gDim, mDim, nDim, kDim, numCUs);
+  return rock::isSplitKFaster(gDim, mDim, nDim, kDim, numCUs);
 }
 
 // TODO (ravil): document

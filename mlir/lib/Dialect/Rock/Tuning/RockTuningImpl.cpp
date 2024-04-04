@@ -929,9 +929,9 @@ bool isSplitKRequested(ModuleOp &mod, StringRef &perfConfig) {
   return gemmWalkResult.wasInterrupted();
 }
 
-RocmlirSplitKSelectionLikelihood mlirIsSplitKFaster(int64_t gDim, int64_t mDim,
-                                                    int64_t nDim, int64_t kDim,
-                                                    int64_t numCUs) {
+RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
+                                                int64_t nDim, int64_t kDim,
+                                                int64_t numCUs) {
 
   // M/block N/block K/block M/wave N/wave kPack
   const std::vector<std::vector<uint32_t>> rangeGemmParams = {

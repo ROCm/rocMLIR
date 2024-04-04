@@ -8,14 +8,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/BufferDependencyAnalysis.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cassert>
-#include <cstdint>
-#include <utility>
+#include <optional>
 
 using namespace mlir;
 
@@ -58,33 +57,87 @@ EffectType getMemoryEffect(UserWrapper &user) {
   return EffectType::unknown;
 }
 
-BufferDependencyAnalysis::LocalResult
-BufferDependencyAnalysis::findReadersAndWriters(memref::AllocOp allocOp) {
+template <typename Impl>
+void assign(EffectType effect, UserWrapper &user, Impl &impl) {
+  if (effect == Impl::type) {
+    impl.push_back(user.op);
+  }
+}
+
+template <typename Impl, typename... Impls>
+void assign(EffectType effect, UserWrapper &user, Impl &impl, Impls &...impls) {
+  assign(effect, user, impl);
+  assign(effect, user, impls...);
+}
+
+template <typename Impl, typename... Impls>
+void find(memref::AllocOp allocOp, Impl &impl, Impls &...impls) {
   BufferDependencyAnalysis::LocalResult result;
 
   llvm::SmallVector<UserWrapper> users;
   findAllUsers(allocOp, users);
   for (auto &user : users) {
     EffectType memoryEffect = getMemoryEffect(user);
-    switch (memoryEffect) {
-    case EffectType::read: {
-      result.readers.push_back(user.op);
-      break;
-    }
-    case EffectType::write: {
-      result.writers.push_back(user.op);
-      break;
-    }
-    default:
-      break;
-    }
+    assign(memoryEffect, user, impl, impls...);
   }
+}
+
+struct Readers : public llvm::SmallVector<Operation *> {
+  static inline constexpr EffectType type = EffectType::read;
+};
+
+struct Writers : public llvm::SmallVector<Operation *> {
+  static inline constexpr EffectType type = EffectType::write;
+};
+
+llvm::SmallVector<Operation *>
+BufferDependencyAnalysis::getReaders(memref::AllocOp allocOp) {
+  Readers readers;
+  find(allocOp, readers);
+  return std::move(readers);
+}
+
+llvm::SmallVector<Operation *>
+BufferDependencyAnalysis::getWriters(memref::AllocOp allocOp) {
+  Writers writers;
+  find(allocOp, writers);
+  return std::move(writers);
+}
+
+BufferDependencyAnalysis::LocalResult
+BufferDependencyAnalysis::findReadersAndWriters(memref::AllocOp allocOp) {
+  Readers readers;
+  Writers writers;
+  find(allocOp, readers, writers);
+
+  BufferDependencyAnalysis::LocalResult result;
+  result.readers = std::move(readers);
+  result.writers = std::move(writers);
 
   return result;
 }
 
-BufferDependencyAnalysis::AnalysisResults BufferDependencyAnalysis::run(
-    llvm::SmallVectorImpl<memref::AllocOp> &allocOps) {
+std::optional<memref::AllocOp>
+BufferDependencyAnalysis::getAllocation(Value value) {
+  while (auto viewOp = dyn_cast<ViewLikeOpInterface>(value.getDefiningOp())) {
+    value = viewOp.getViewSource();
+  }
+  if (auto allocOp = dyn_cast<memref::AllocOp>(value.getDefiningOp())) {
+    return allocOp;
+  }
+  return std::nullopt;
+}
+
+std::optional<BufferDependencyAnalysis::AnalysisResults>
+BufferDependencyAnalysis::run(func::FuncOp func) {
+
+  llvm::SmallVector<memref::AllocOp, 8> allocOps;
+  func.walk([&](memref::AllocOp allocOp) { allocOps.push_back(allocOp); });
+
+  if (allocOps.empty()) {
+    return std::nullopt;
+  }
+
   BufferDependencyAnalysis::AnalysisResults results;
 
   for (auto &allocOp : allocOps) {

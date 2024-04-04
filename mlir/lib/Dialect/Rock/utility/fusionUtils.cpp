@@ -30,40 +30,34 @@ bool mlir::rock::testFusibility(ModuleOp mod) {
 }
 
 bool mlir::rock::testFusibility(func::FuncOp func) {
-  llvm::SmallVector<memref::AllocOp, 8> memAllocOps;
-  func.walk([&](memref::AllocOp allocOp) { memAllocOps.push_back(allocOp); });
-
-  if (memAllocOps.empty()) {
+  auto analysisResult = BufferDependencyAnalysis::run(func);
+  if (!analysisResult.has_value()) {
     return true;
   }
 
-  auto maps = BufferDependencyAnalysis::run(memAllocOps);
-
+  auto tables = analysisResult.value();
   WalkResult walkResult =
       func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
         auto gemmResult = gemmOp->getOperand(2);
-        while (auto viewOp =
-                   dyn_cast<ViewLikeOpInterface>(gemmResult.getDefiningOp())) {
-          gemmResult = viewOp.getViewSource();
+        auto allocOp = BufferDependencyAnalysis::getAllocation(gemmResult);
+        if (!allocOp.has_value()) {
+          return WalkResult::advance();
         }
-        Operation *gemmResultSrc = gemmResult.getDefiningOp();
 
         // make sure that no `linalg::GenericOp` reads from a gemm output
-        if (auto allocOp = dyn_cast<memref::AllocOp>(gemmResultSrc)) {
-          if (maps.readers.contains(allocOp)) {
-            for (Operation *op : maps.readers[allocOp]) {
-              if (dyn_cast<linalg::GenericOp>(op)) {
-                return WalkResult::interrupt();
-              }
+        if (tables.readers.contains(allocOp.value())) {
+          for (Operation *op : tables.readers[allocOp.value()]) {
+            if (dyn_cast<linalg::GenericOp>(op)) {
+              return WalkResult::interrupt();
             }
           }
+        }
 
-          // make sure that no `linalg::GenericOp` writes to a gemm output
-          if (maps.writers.contains(allocOp)) {
-            for (Operation *op : maps.writers[allocOp]) {
-              if (dyn_cast<linalg::GenericOp>(op)) {
-                return WalkResult::interrupt();
-              }
+        // make sure that no `linalg::GenericOp` writes to a gemm output
+        if (tables.writers.contains(allocOp.value())) {
+          for (Operation *op : tables.writers[allocOp.value()]) {
+            if (dyn_cast<linalg::GenericOp>(op)) {
+              return WalkResult::interrupt();
             }
           }
         }

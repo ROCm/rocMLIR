@@ -76,9 +76,9 @@ LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
 
 bool isSplitKRequested(ModuleOp &mod, StringRef &perfConfig);
 
-RocmlirSplitKSelectionLikelihood mlirIsSplitKFaster(int64_t gDim, int64_t mDim,
-                                                    int64_t nDim, int64_t kDim,
-                                                    int64_t numCUs);
+RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
+                                                int64_t nDim, int64_t kDim,
+                                                int64_t numCUs);
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
