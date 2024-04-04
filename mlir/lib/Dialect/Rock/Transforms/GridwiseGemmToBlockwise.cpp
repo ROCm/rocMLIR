@@ -1000,13 +1000,15 @@ struct GridwiseAttentionAccelRewritePattern
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     int64_t numOutputElements = params.numOutputVectorElements();
-    ArrayRef<int64_t> shape = {numOutputElements};
+    MemRefType gemmOutScalarBufferType;
     if(numBuffers > 1){
-        shape = ArrayRef<int64_t>{numBuffers, numOutputElements};
-    }
-    auto gemmOutScalarBufferType =
-        MemRefType::get(numOutputElements, gemmOutElemType, AffineMap{},
+        gemmOutScalarBufferType = MemRefType::get({numBuffers, numOutputElements}, gemmOutElemType, AffineMap{},
                         /*memorySpace=*/privateMemoryAddressSpace);
+    }
+    else{
+        gemmOutScalarBufferType = MemRefType::get({numOutputElements}, gemmOutElemType, AffineMap{},
+                        /*memorySpace=*/privateMemoryAddressSpace);
+    }
     Value gemmOutScalarBuffer =
         rewriter.create<rock::GpuAllocOp>(loc, gemmOutScalarBufferType);
     return gemmOutScalarBuffer;
@@ -1922,9 +1924,6 @@ struct GridwiseAttentionAccelRewritePattern
             loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
-      zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
-#endif
       // The grid coordinates for gemm0 is almost simliar
       // to gemm1 except the n_block should be read iteratively
       // from gemm0's N axis. Hence, the replacement is done as
@@ -2174,6 +2173,9 @@ struct GridwiseAttentionAccelRewritePattern
             OpBuilder::InsertionGuard guard(rewriter);
             rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
             Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
+#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+            zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
+#endif
             auto gridCoordsGemm1 = layout::makeGxNGridLayout(rewriter, loc, bid, g1MLoopIndVar, gemm0NBlocks);
 
                                     LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
@@ -2299,8 +2301,12 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
             Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
             auto gridCoordsGemm1 = layout::makeGxNGridLayout(rewriter, loc, bid, g1MLoopIndVar, gemm0NBlocks);
+            Value attentionOutAccBufferPerG1MBlock = attentionOutAccBufferOutTyped;
+            if(gemm1MBlocks > 1){
+                attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(rewriter, loc, attentionOutAccBufferOutTyped, g1MLoopIndVar);
+            }
             rewriter.create<ThreadwiseWriteAllOp>(
-                loc, attentionOutAccBufferOutTyped, trOut,
+                loc, attentionOutAccBufferPerG1MBlock, trOut,
                 gemm1OutSubTileViews.gridSubTile,
                 /*extraIndices=*/
                 ValueRange{gridCoordsGemm1.g_block, g1MLoopIndVar,
