@@ -59,8 +59,8 @@ GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
 GridCoordinates makeGxMxNGridLayout(PatternRewriter &b, Location loc, Value bid,
                                     GridLayoutInfo info);
 
-GridCoordinates makeGxNGridLayout(PatternRewriter &b, Location loc, Value bid,  Value mIter,
-                                  int64_t nBlocks);                
+GridCoordinates makeGxNGridLayout(PatternRewriter &b, Location loc, Value bid,
+                                  Value mIter, int64_t nBlocks);
 
 } // namespace layout
 } // namespace rock
