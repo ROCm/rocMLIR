@@ -562,7 +562,6 @@ AttentionRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                      /*n=*/queriesShape[2]);
 
   int64_t gridSize = ((gemm0Size.n) / accelParams0.getNPerBlock()) *
-                     ((gemm1Size.m) / accelParams1.getMPerBlock()) *
                      gemm0Size.g;
 
   IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);

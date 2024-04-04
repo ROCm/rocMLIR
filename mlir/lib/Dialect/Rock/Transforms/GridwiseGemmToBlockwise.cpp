@@ -2181,7 +2181,7 @@ struct GridwiseAttentionAccelRewritePattern
           zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
 #endif
           auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-              rewriter, loc, bid, g1MLoopIndVar, gemm0NBlocks);
+              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks);
 
           LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
               loc, inV,
@@ -2321,7 +2321,7 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
         Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
         auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-            rewriter, loc, bid, g1MLoopIndVar, gemm0NBlocks);
+            rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks);
         Value attentionOutAccBufferPerG1MBlock = attentionOutAccBufferOutTyped;
         if (gemm1MBlocks > 1) {
           attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
