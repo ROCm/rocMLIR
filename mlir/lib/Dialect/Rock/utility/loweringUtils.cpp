@@ -702,3 +702,11 @@ AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
   auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
   return affineMap;
 }
+
+ReassociationIndices
+mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
+  ReassociationIndices reassociation;
+  for (int i = 0, e = srcTp.getRank(); i < e; i++)
+    reassociation.push_back(i);
+  return reassociation;
+}

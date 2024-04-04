@@ -1624,6 +1624,20 @@ struct GridwiseAttentionAccelRewritePattern
     return enableQLDSBypass && (gemm0K == gemm0KPerBlock);
   }
 
+  TransformMapAttr getFlatToMiterMap(PatternRewriter &rewriter, int64_t gBlocks,
+                                     int64_t mIterLen, int64_t nBlocks,
+                                     int64_t blockSize,
+                                     int64_t numElements) const {
+    TopDownTMBuilder viewBuilder(rewriter,
+                                 {"gblock", "nblock", "tid", "flatiter"},
+                                 {gBlocks, nBlocks, blockSize, numElements});
+    viewBuilder.passThrough({"gblock", "nblock", "tid"}, {0, 2, 3},
+                            {"gblock", "nblock", "tid"});
+    viewBuilder.merge({"mIter", "iter"}, {1, 4}, "flatiter",
+                      {mIterLen, numElements / mIterLen});
+    return viewBuilder.get();
+  }
+
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -2343,30 +2357,39 @@ struct GridwiseAttentionAccelRewritePattern
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
     attentionOutAccBufferOutTyped = gemm1OutBuffer;
 #endif
-    {
-      affine::AffineForOp g1MLoopOp =
-          rewriter.create<affine::AffineForOp>(loc, 0, gemm1MBlocks, 1);
-      {
-        OpBuilder::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
-        Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
-        auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-            rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks);
-        Value attentionOutAccBufferPerG1MBlock = attentionOutAccBufferOutTyped;
-        if (gemm1MBlocks > 1) {
-          attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
-              rewriter, loc, attentionOutAccBufferOutTyped, g1MLoopIndVar);
-        }
-        rewriter.create<ThreadwiseWriteAllOp>(
-            loc, attentionOutAccBufferPerG1MBlock, trOut,
-            gemm1OutSubTileViews.gridSubTile,
-            /*extraIndices=*/
-            ValueRange{gridCoordsGemm1.g_block, g1MLoopIndVar,
-                       gridCoordsGemm1.n_block, tid},
-            op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
-            /*useIndexDiffs=*/true);
-      }
-    }
+    // We flatten output buffer in case gemm1MBlocks > 1
+    // where those are iterated.
+    MemRefType attentionOutAccBufferOutType =
+        attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
+    int64_t numElementsAttnOut = attentionOutAccBufferOutType.getNumElements();
+    Type attentionOutAccBufferOutTypedElType =
+        attentionOutAccBufferOutType.getElementType();
+    auto attentionOutAccBufferOutTypedFlatType = MemRefType::get(
+        {numElementsAttnOut}, attentionOutAccBufferOutTypedElType, AffineMap{},
+        privateMemoryAddressSpace);
+    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
+    auto reassociation =
+        getReassociationForFlattening(attentionOutAccBufferOutType);
+    auto attentionOutAccBufferOutTypedFlat =
+        rewriter.create<memref::CollapseShapeOp>(
+            loc, attentionOutAccBufferOutTypedFlatType,
+            attentionOutAccBufferOutTyped, reassociation);
+    // This map with create upper view [gblock, nblock, flatiter] -> [gblock,
+    // miter, nblock, iter]
+    TransformMapAttr flatToMiterMap =
+        getFlatToMiterMap(rewriter, gemm0G, gemm1MBlocks, gemm1NBlocks,
+                          blockSize, numElementsAttnOut);
+    ArrayAttr outGridSubTile =
+        prependUpperViews(rewriter, rewriter.getArrayAttr({flatToMiterMap}),
+                          gemm1OutSubTileViews.gridSubTile);
+    auto gridCoordsGemm1 =
+        layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks);
+    rewriter.create<ThreadwiseWriteAllOp>(
+        loc, attentionOutAccBufferOutTypedFlat, trOut, outGridSubTile,
+        /*extraIndices=*/
+        ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
+        op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
+        /*useIndexDiffs=*/true);
     rewriter.eraseOp(op);
     return success();
   }

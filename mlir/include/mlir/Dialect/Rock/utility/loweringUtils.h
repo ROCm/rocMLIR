@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -177,6 +178,9 @@ FailureOr<IntegerAttr> getGridSize(Operation *op);
 
 // Return an affine map to reverse loop coordinates
 AffineMap getIdxReversalMap(OpBuilder &b);
+
+// helper to create ReassociationIndices for flattening
+ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
 
 } // end namespace rock
 } // end namespace mlir
