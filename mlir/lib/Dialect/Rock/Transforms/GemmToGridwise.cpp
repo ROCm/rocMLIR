@@ -132,7 +132,6 @@ LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
-
   if (!adaptor.getA().getType().isa<MemRefType>())
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
