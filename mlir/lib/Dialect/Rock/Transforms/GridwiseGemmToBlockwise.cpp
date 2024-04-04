@@ -1887,11 +1887,6 @@ struct GridwiseAttentionAccelRewritePattern
     rewriter.create<FillOp>(loc, sumRowBuffer,
                             createZeroConstantOp(rewriter, loc, elemTypeQxK));
 
-    // auto gridCoordsGemm1 = layout::makeGxMxNGridLayout(
-    //     rewriter, loc, bid,
-    //     {gemm1MBlocks, gemm1NBlocks, /*op.getNumCU()=*/-1, elemTypeV,
-    //      elemTypeOut});
-
     zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
     zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
