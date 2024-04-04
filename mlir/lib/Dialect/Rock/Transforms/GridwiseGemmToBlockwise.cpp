@@ -978,7 +978,7 @@ struct GridwiseAttentionAccelRewritePattern
   // This function creates the accumulator register buffer
   Value createBufferForAccelGemmOut(Location loc,
                                     rock::accel::AccelEmitterParams params,
-                                    PatternRewriter &rewriter) const {
+                                    PatternRewriter &rewriter, int64_t numBuffers = 1) const {
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     int64_t nResultVectors = params.nResultVectors;
@@ -986,9 +986,16 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t nRepeats = params.nRepeats;
     VectorType accVectorType = params.accVectorType;
     int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
-    MemRefType regCAllocType =
+    MemRefType regCAllocType;
+    if (numBuffers > 1) {
+        regCAllocType = MemRefType::get({numBuffers, nOutputVectors}, accVectorType, AffineMap{},
+                                       /*memorySpace=*/privateMemoryAddressSpace);
+    }
+    else{
+       regCAllocType =
         MemRefType::get(nOutputVectors, accVectorType, AffineMap{},
-                        /*memorySpace=*/privateMemoryAddressSpace);
+                        /*memorySpace=*/privateMemoryAddressSpace); 
+    }
     Value regCAllocOp = rewriter.create<rock::GpuAllocOp>(loc, regCAllocType);
     return regCAllocOp;
   }
@@ -1809,8 +1816,14 @@ struct GridwiseAttentionAccelRewritePattern
         createRegInterrimBufferForAccel(loc, accelParamsGemm1, rewriter);
     Value accRegBufferGemm1 =
         createBufferForAccelGemmOut(loc, accelParamsGemm1, rewriter);
+#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+    accRegBufferGemm1 = createBufferForAccelGemmOut(loc, accelParamsGemm1, rewriter, gemm1MBlocks);
+#endif
     Value gemm1OutBuffer =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm1, rewriter);
+#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+    gemm1OutBuffer = createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm1, rewriter, gemm1MBlocks);
+#endif
 
     SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm1MBlocks,
                                                    gemm1NBlocks};
@@ -2179,6 +2192,11 @@ struct GridwiseAttentionAccelRewritePattern
           Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
           zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
+#else
+          if (gemm1MBlocks > 1) {
+            accRegBufferGemm1 = createSliceOfFirstDim(
+                rewriter, loc, accRegBufferGemm1, g1MLoopIndVar);
+          }
 #endif
           auto gridCoordsGemm1 = layout::makeGxNGridLayout(
               rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks);
@@ -2266,18 +2284,25 @@ struct GridwiseAttentionAccelRewritePattern
 
           // There is no second k-loop
           // Therefore can get the output straight away
+          Value gemm1OutBufferPerG1MBlock = gemm1OutBuffer;
+#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+          if (gemm1MBlocks > 1) {
+            gemm1OutBufferPerG1MBlock = createSliceOfFirstDim(
+                rewriter, loc, gemm1OutBuffer, g1MLoopIndVar);
+          }
+#endif
           accelEmitterPtrGemm1->computeOutputConversion(
-              rewriter, loc, accRegBufferGemm1, gemm1OutBuffer, forceUnroll);
-          ArrayAttr invertedGemm1threadSubTileMaps = invertTransforms(
-              rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
-          Value gemm1MNThreadwiseView = transform(
-              rewriter, gemm1OutBuffer, invertedGemm1threadSubTileMaps);
-          // Rescale/correct output, rowMax and rowSums
+              rewriter, loc, accRegBufferGemm1, gemm1OutBufferPerG1MBlock, forceUnroll);
           Value attentionOutAccBufferPerG1MBlock = attentionOutAccBuffer;
           if (gemm1MBlocks > 1) {
             attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
                 rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
           }
+          ArrayAttr invertedGemm1threadSubTileMaps = invertTransforms(
+              rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
+          Value gemm1MNThreadwiseView = transform(
+              rewriter, gemm1OutBufferPerG1MBlock, invertedGemm1threadSubTileMaps);
+          // Rescale/correct output, rowMax and rowSums
           Value attentionOutAccBufferView =
               transform(rewriter, attentionOutAccBufferPerG1MBlock,
                         attentionOutAccBufferThreadSubTileViewMaps);
