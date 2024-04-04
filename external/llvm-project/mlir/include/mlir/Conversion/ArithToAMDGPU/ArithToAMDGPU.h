@@ -21,7 +21,9 @@ class Pass;
 
 namespace arith {
 void populateArithToAMDGPUConversionPatterns(RewritePatternSet &patterns,
-                                             bool saturateFP8Truncf);
+                                             bool convertFP8Arithmetic,
+                                             bool saturateFP8Truncf,
+                                             bool allowPackedF16Rtz);
 } // namespace arith
 } // namespace mlir
 

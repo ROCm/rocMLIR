@@ -700,6 +700,16 @@ struct PackedTruncFp8x2OpLowering final
                   ConversionPatternRewriter &rewriter) const override;
 };
 
+struct PackedTruncFp16x2OpLowering final
+    : public ConvertOpToLLVMPattern<PackedTruncFp16x2Op> {
+  PackedTruncFp16x2OpLowering(LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<amdgpu::PackedTruncFp16x2Op>(converter) {}
+
+  LogicalResult
+  matchAndRewrite(PackedTruncFp16x2Op op, PackedTruncFp16x2OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
 struct PackedStochRoundFp8OpLowering final
     : public ConvertOpToLLVMPattern<PackedStochRoundFp8Op> {
   PackedStochRoundFp8OpLowering(LLVMTypeConverter &converter, Chipset chipset)
@@ -755,6 +765,23 @@ LogicalResult ExtPackedFp8OpLowering::matchAndRewrite(
     rewriter.replaceOpWithNewOp<ROCDL::CvtF32Fp8Op>(op, f32, i32Source,
                                                     wordSel);
   }
+  return success();
+}
+
+LogicalResult PackedTruncFp16x2OpLowering::matchAndRewrite(
+    PackedTruncFp16x2Op op, PackedTruncFp16x2OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+
+  // Thin wrapper to emit the ROCDL intrinsic. Handle the case wehre the
+  // second input is null
+  Type resultType = op.getResult().getType();
+  Value sourceA = adaptor.getSourceA();
+  Value sourceB = adaptor.getSourceB();
+  if (!sourceB)
+    sourceB = rewriter.create<LLVM::UndefOp>(loc, sourceA.getType());
+  rewriter.replaceOpWithNewOp<ROCDL::CvtPkRtz>(
+      op, getTypeConverter()->convertType(resultType), sourceA, sourceB);
   return success();
 }
 
@@ -883,7 +910,8 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
            LDSBarrierOpLowering, MFMAOpLowering, WMMAOpLowering,
            ExtPackedFp8OpLowering, PackedTruncFp8x2OpLowering,
-           PackedStochRoundFp8OpLowering>(converter, chipset);
+           PackedTruncFp16x2OpLowering, PackedStochRoundFp8OpLowering>(
+          converter, chipset);
 }
 
 std::unique_ptr<Pass> mlir::createConvertAMDGPUToROCDLPass() {
