@@ -561,8 +561,8 @@ AttentionRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                      /*k=*/valuesShape[1],
                      /*n=*/queriesShape[2]);
 
-  int64_t gridSize = ((gemm0Size.n) / accelParams0.getNPerBlock()) *
-                     gemm0Size.g;
+  int64_t gridSize =
+      ((gemm0Size.n) / accelParams0.getNPerBlock()) * gemm0Size.g;
 
   IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
