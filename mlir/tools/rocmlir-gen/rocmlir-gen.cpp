@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
@@ -429,6 +430,12 @@ static llvm::cl::opt<bool>
     populateDefaultValues("p", llvm::cl::desc("To populate default values"),
                           llvm::cl::value_desc("To populate default values"),
                           llvm::cl::init(false));
+
+static llvm::cl::opt<bool> emitSplitKSelectionLikelihood(
+    "emit-split-k-selection-likelihood",
+    llvm::cl::desc(
+        "Print SplitK selection likelihood for the specified kernel"),
+    llvm::cl::init(false));
 
 static llvm::cl::opt<rock::TuningParamSetKind> emitTuningSpace(
     "emit-tuning-space",
@@ -3718,6 +3725,30 @@ int main(int argc, char **argv) {
     module = populateCloneHarnessLogic(module);
   } else if (!hasUserKernel) {
     module = generateKernel(&context, genParams, module);
+  }
+
+  if (emitSplitKSelectionLikelihood) {
+    module->walk([](rock::RockGemmWrapperInterface gemmOp) {
+      const int32_t numCU = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
+      const rock::GemmSize gemmSize = gemmOp.getGemmSize();
+      const auto likelihood = rock::isSplitKFaster(
+          gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);
+      switch (likelihood) {
+      case RocmlirSplitKSelectionLikelihood::always: {
+        llvm::outs() << "always\n";
+        break;
+      }
+      case RocmlirSplitKSelectionLikelihood::maybe: {
+        llvm::outs() << "maybe\n";
+        break;
+      }
+      case RocmlirSplitKSelectionLikelihood::never: {
+        llvm::outs() << "never\n";
+        break;
+      }
+      }
+    });
+    return 0;
   }
 
   if (emitTuningSpace.getNumOccurrences() > 0) {
