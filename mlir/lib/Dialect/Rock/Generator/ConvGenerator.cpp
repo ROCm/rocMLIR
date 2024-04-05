@@ -129,15 +129,17 @@ LogicalResult ConvGenerator::isApplicable(bool checkChip) const {
 }
 
 LogicalResult ConvGenerator::hasValidDimension() const {
-  if (any_of(llvm::concat<const int64_t>(config.dilationDims, config.strideDims),
-                  [](const int64_t &a) { return a <= 0; })) {
+  if (any_of(
+          llvm::concat<const int64_t>(config.dilationDims, config.strideDims),
+          [](const int64_t &a) { return a <= 0; })) {
     LLVM_DEBUG(llvm::dbgs()
                << "Dilation and stride must be a positive integer\n");
     return failure();
   }
 
-  if (any_of(llvm::concat<const int64_t>(config.paddingLeftDims, config.paddingRightDims),
-                  [](const int64_t &a) { return a < 0; })) {
+  if (any_of(llvm::concat<const int64_t>(config.paddingLeftDims,
+                                         config.paddingRightDims),
+             [](const int64_t &a) { return a < 0; })) {
     LLVM_DEBUG(llvm::dbgs() << "Padding values cannot be negative\n");
     return failure();
   }
@@ -157,7 +159,7 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   }
 
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
-      return all_of(dims, [](const int64_t &a) { return a > 0; });
+    return all_of(dims, [](const int64_t &a) { return a > 0; });
   };
 
   if (!checkDimSizes(config.inputDimension)) {
@@ -208,24 +210,27 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     return failure();
   }
 
-  for (size_t i = 0;  i < config.strideDims.size();  i++) {
+  for (size_t i = 0; i < config.strideDims.size(); i++) {
     auto ii = std::to_string(i);
-    int64_t expected = outputDim(inDim[ii], filDim[ii],
-                                 config.paddingLeftDims[i], config.paddingRightDims[i],
-                                 config.strideDims[i], config.dilationDims[i]);
+    int64_t expected =
+        outputDim(inDim[ii], filDim[ii], config.paddingLeftDims[i],
+                  config.paddingRightDims[i], config.strideDims[i],
+                  config.dilationDims[i]);
     if (outDim[ii] != expected) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Output dimension " << i << " " << outDim[ii]
-                 << " doesn't match " << expected << " computed from other parameters\n");
+      LLVM_DEBUG(llvm::dbgs() << "Output dimension " << i << " " << outDim[ii]
+                              << " doesn't match " << expected
+                              << " computed from other parameters\n");
       return failure();
     }
   }
 
-  for (size_t i = 0;  i < config.paddingLeftDims.size();  i++) {
+  for (size_t i = 0; i < config.paddingLeftDims.size(); i++) {
     auto ii = std::to_string(i);
-    if (inDim[ii] + config.paddingLeftDims[i] + config.paddingRightDims[i] < filDim[ii]) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Input, including padding, is smaller than the filter in dimension " << i << "\n");
+    if (inDim[ii] + config.paddingLeftDims[i] + config.paddingRightDims[i] <
+        filDim[ii]) {
+      LLVM_DEBUG(llvm::dbgs() << "Input, including padding, is smaller than "
+                                 "the filter in dimension "
+                              << i << "\n");
       return failure();
     }
   }
