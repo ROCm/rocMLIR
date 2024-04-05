@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
+#include "mlir/Support/LogicalResult.h"
 #include <cassert>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
@@ -158,7 +159,7 @@ bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
   if (!rock::isSplitKRequested(mod, perfConfig)) {
     return true;
   }
-  return rock::testFusibility(mod);
+  return succeeded(rock::testFusibility(mod));
 }
 
 // TODO (ravil): document

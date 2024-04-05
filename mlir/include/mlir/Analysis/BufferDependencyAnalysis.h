@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -18,21 +19,35 @@
 namespace mlir {
 
 struct BufferDependencyAnalysis {
+  BufferDependencyAnalysis(Operation *op);
+
   static std::optional<memref::AllocOp> getAllocation(Value value);
   static llvm::SmallVector<Operation *> getReaders(memref::AllocOp allocOp);
   static llvm::SmallVector<Operation *> getWriters(memref::AllocOp allocOp);
 
-  struct LocalResult {
+  struct Pair {
     llvm::SmallVector<Operation *> readers;
     llvm::SmallVector<Operation *> writers;
   };
-  static LocalResult findReadersAndWriters(memref::AllocOp allocOps);
+  static Pair getReadersAndWriters(memref::AllocOp allocOps);
 
-  struct AnalysisResults {
-    llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> readers;
-    llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> writers;
-  };
-  static std::optional<AnalysisResults> run(func::FuncOp func);
+  LogicalResult run();
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>>
+  getReadersTable() {
+    return readersTable;
+  }
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>>
+  getWritersTable() {
+    return writersTable;
+  }
+  func::FuncOp getFuncton() const { return func; }
+
+private:
+  // The function this analysis was constructed from.
+  func::FuncOp func;
+
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> readersTable;
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> writersTable;
 };
 
 } // namespace mlir

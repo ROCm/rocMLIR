@@ -10,11 +10,12 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Support/LogicalResult.h"
 
 namespace mlir {
 namespace rock {
-bool testFusibility(ModuleOp mod);
-bool testFusibility(func::FuncOp func);
+LogicalResult testFusibility(ModuleOp mod);
+LogicalResult testFusibility(func::FuncOp func);
 } // end namespace rock
 } // end namespace mlir
 

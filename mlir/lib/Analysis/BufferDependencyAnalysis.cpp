@@ -72,7 +72,7 @@ void assign(EffectType effect, UserWrapper &user, Impl &impl, Impls &...impls) {
 
 template <typename Impl, typename... Impls>
 void find(memref::AllocOp allocOp, Impl &impl, Impls &...impls) {
-  BufferDependencyAnalysis::LocalResult result;
+  BufferDependencyAnalysis::Pair result;
 
   llvm::SmallVector<UserWrapper> users;
   findAllUsers(allocOp, users);
@@ -90,6 +90,12 @@ struct Writers : public llvm::SmallVector<Operation *> {
   static inline constexpr EffectType type = EffectType::write;
 };
 
+BufferDependencyAnalysis::BufferDependencyAnalysis(Operation *op) {
+  func = dyn_cast<func::FuncOp>(op);
+  assert(func &&
+         "expected func::FuncOp as the top level operation for the analysis");
+}
+
 llvm::SmallVector<Operation *>
 BufferDependencyAnalysis::getReaders(memref::AllocOp allocOp) {
   Readers readers;
@@ -104,13 +110,13 @@ BufferDependencyAnalysis::getWriters(memref::AllocOp allocOp) {
   return std::move(writers);
 }
 
-BufferDependencyAnalysis::LocalResult
-BufferDependencyAnalysis::findReadersAndWriters(memref::AllocOp allocOp) {
+BufferDependencyAnalysis::Pair
+BufferDependencyAnalysis::getReadersAndWriters(memref::AllocOp allocOp) {
   Readers readers;
   Writers writers;
   find(allocOp, readers, writers);
 
-  BufferDependencyAnalysis::LocalResult result;
+  BufferDependencyAnalysis::Pair result;
   result.readers = std::move(readers);
   result.writers = std::move(writers);
 
@@ -128,24 +134,20 @@ BufferDependencyAnalysis::getAllocation(Value value) {
   return std::nullopt;
 }
 
-std::optional<BufferDependencyAnalysis::AnalysisResults>
-BufferDependencyAnalysis::run(func::FuncOp func) {
-
+LogicalResult BufferDependencyAnalysis::run() {
   llvm::SmallVector<memref::AllocOp, 8> allocOps;
   func.walk([&](memref::AllocOp allocOp) { allocOps.push_back(allocOp); });
 
   if (allocOps.empty()) {
-    return std::nullopt;
+    return failure();
   }
-
-  BufferDependencyAnalysis::AnalysisResults results;
 
   for (auto &allocOp : allocOps) {
-    auto localResult = findReadersAndWriters(allocOp);
+    auto result = BufferDependencyAnalysis::getReadersAndWriters(allocOp);
 
-    results.readers.insert(std::make_pair(allocOp, localResult.readers));
-    results.writers.insert(std::make_pair(allocOp, localResult.writers));
+    readersTable.insert(std::make_pair(allocOp, result.readers));
+    writersTable.insert(std::make_pair(allocOp, result.writers));
   }
 
-  return results;
+  return success();
 }

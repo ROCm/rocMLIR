@@ -43,8 +43,7 @@ struct FunctionFusibilityTestPass
 
 static LogicalResult analyse(func::FuncOp func) {
   OpBuilder builder(func.getContext());
-  const bool testResult = rock::testFusibility(func);
-  if (testResult) {
+  if (succeeded(rock::testFusibility(func))) {
     func->setAttr("fusibile", builder.getStringAttr("yes"));
   } else {
     func->setAttr("fusibile", builder.getStringAttr("no"));

@@ -87,7 +87,7 @@ static LogicalResult analyse(func::FuncOp func) {
       return WalkResult::interrupt();
     }
 
-    auto testResults = BufferDependencyAnalysis::findReadersAndWriters(allocOp);
+    auto testResults = BufferDependencyAnalysis::getReadersAndWriters(allocOp);
     auto expectedOpNames = expectedResults[allocName];
 
     // test readers
