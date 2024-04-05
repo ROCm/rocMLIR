@@ -9,6 +9,8 @@
 #ifndef ROCK_UTILITY_LOWERINGUTILS_H
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Support/LLVM.h"
@@ -178,6 +180,9 @@ FailureOr<IntegerAttr> getGridSize(Operation *op);
 // Return an affine map to reverse loop coordinates
 AffineMap getIdxReversalMap(OpBuilder &b);
 
+// Return `mhal::PrefillAttr` attributes for a given function
+SmallVector<mhal::PrefillAttr>
+getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func);
 } // end namespace rock
 } // end namespace mlir
 #endif

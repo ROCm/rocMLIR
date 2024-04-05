@@ -11,13 +11,13 @@
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/CAPI/Wrap.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
+#include <cassert>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningSpace, mlir::rock::TuningParamSet)
@@ -165,22 +165,16 @@ bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
 MLIR_CAPI_EXPORTED
 size_t mlirGetNumPrefillArgs(MlirModule module) {
   auto mod = unwrap(module);
-  assert(mod->getNumRegions() == 1 && "expected a single region in a module");
+  assert(mod.getRegion().getBlocks().size() == 1 &&
+         "expected a single block/function in a module");
 
-  size_t prefillAttrCounter = 0;
-  mod.walk([&](mlir::LLVM::LLVMFuncOp func) {
-    auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
-    if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
-      if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
-        for (auto attr : arrayAttr) {
-          if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
-            ++prefillAttrCounter;
-          }
-        }
-      }
-    }
-  });
-  return prefillAttrCounter;
+  std::optional<LLVM::LLVMFuncOp> func = std::nullopt;
+  mod.walk([&](LLVM::LLVMFuncOp op) { func = op; });
+
+  if (!func.has_value())
+    return 0;
+  auto attrs = rock::getStoredPrefillAttributes(func.value());
+  return attrs.size();
 }
 
 // TODO (ravil): document
@@ -188,23 +182,20 @@ MLIR_CAPI_EXPORTED
 void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
                             MlirAttribute *initValues) {
   auto mod = unwrap(module);
-  assert(mod->getNumRegions() == 1 && "expected a single region in a module");
+  assert(mod.getRegion().getBlocks().size() == 1 &&
+         "expected a single block/function in a module");
 
-  size_t counter = 0;
-  mod.walk([&](mlir::LLVM::LLVMFuncOp func) {
-    auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
-    if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
-      if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
-        for (auto attr : arrayAttr) {
-          if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
-            indices[counter] = prefillAttr.getArgIndex();
-            initValues[counter] = wrap(prefillAttr.getInitValue());
-            ++counter;
-          }
-        }
-      }
-    }
-  });
+  std::optional<LLVM::LLVMFuncOp> func = std::nullopt;
+  mod.walk([&](LLVM::LLVMFuncOp op) { func = op; });
+
+  if (!func.has_value())
+    return;
+  auto attrs = rock::getStoredPrefillAttributes(func.value());
+
+  for (auto prefillAttr : llvm::enumerate(attrs)) {
+    indices[prefillAttr.index()] = prefillAttr.value().getArgIndex();
+    initValues[prefillAttr.index()] = wrap(prefillAttr.value().getInitValue());
+  }
 }
 
 // TODO (ravil): document

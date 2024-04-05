@@ -18,7 +18,6 @@ add_rocmlir_public_c_api_library(MLIRCAPIRock
   MLIRCAPIIR
   MLIRRockOps
   MLIRRockTuning
-
   MLIRMHAL
   MLIRRockUtility
 )

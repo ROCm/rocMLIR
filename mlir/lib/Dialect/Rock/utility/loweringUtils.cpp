@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -701,4 +702,20 @@ AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
   auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
   auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
   return affineMap;
+}
+
+SmallVector<mhal::PrefillAttr>
+mlir::rock::getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func) {
+  SmallVector<mhal::PrefillAttr> storedAttrs;
+  auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
+  if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
+    if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
+      for (auto attr : arrayAttr) {
+        if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
+          storedAttrs.push_back(prefillAttr);
+        }
+      }
+    }
+  }
+  return storedAttrs;
 }

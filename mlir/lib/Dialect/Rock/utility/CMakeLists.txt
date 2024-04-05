@@ -18,4 +18,5 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRMemRefDialect
   MLIRSupport
   MLIRRockAnalysis
+  MLIRMHAL
 )
