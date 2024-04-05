@@ -137,8 +137,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
   funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-  funcPm.addPass(rock::createRockPipelinePass());
-  funcPm.addPass(createCanonicalizerPass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
@@ -147,6 +145,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
        * --convert-linalg-to-affine-loops
        */
       funcPm.addPass(rock::createRockLinalgAlignPass());
+      funcPm.addPass(rock::createRockPipelinePass());
       funcPm.addPass(createCanonicalizerPass());
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     }
