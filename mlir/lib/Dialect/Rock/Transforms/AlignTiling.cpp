@@ -26,6 +26,7 @@
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -39,6 +40,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Rewrite/PatternApplicator.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
@@ -46,8 +48,10 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ScopedPrinter.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <deque>
 #include <numeric>
@@ -135,6 +139,9 @@ public:
   /// the IR.
   void moveBeforeIfNeeded(Operation *toMove, Operation *latestOp);
 
+  /// Move `toMove` before `latestPoint` unconditionally
+  void moveBefore(Operation *toMove, Operation *latestOp);
+
   /// Debug utilities.
   void notifyOperationModified(Operation *op) override;
   void notifyOperationInserted(Operation *op) override;
@@ -212,11 +219,18 @@ void LinalgAlignRewriter::moveBeforeIfNeeded(Operation *toMove,
   constexpr llvm::StringLiteral beforePrefix("   before  : ");
   logOpActivity(movePrefix, toMove);
   logOpActivity(beforePrefix, latestOp);
-  if (latestOp->getBlock() != toMove->getBlock() ||
-      latestOp->isBeforeInBlock(toMove))
+  if (latestOp->isBeforeInBlock(toMove))
     toMove->moveBefore(latestOp);
   else
     LLVM_DEBUG(logger.startLine() << "   No move needed.\n");
+}
+
+void LinalgAlignRewriter::moveBefore(Operation *toMove, Operation *latestOp) {
+  constexpr llvm::StringLiteral movePrefix("** Move    : ");
+  constexpr llvm::StringLiteral beforePrefix("   before  : ");
+  logOpActivity(movePrefix, toMove);
+  logOpActivity(beforePrefix, latestOp);
+  toMove->moveBefore(latestOp);
 }
 
 void LinalgAlignRewriter::scheduleVisit(Operation *op) {
@@ -539,7 +553,8 @@ static void markGenericWritersToRevisit(LinalgAlignRewriter &b, Value rawSrc) {
     b.scheduleVisit(genericWriter);
 }
 
-template <typename TiledOp> Value getRegisterValue(TiledOp op);
+template <typename TiledOp>
+Value getRegisterValue(TiledOp op);
 template <>
 Value getRegisterValue<ThreadwiseReadIntoOp>(ThreadwiseReadIntoOp op) {
   return op.getDest();
@@ -573,7 +588,24 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   Location loc = tiledOp.getLoc();
   Value tile = getRegisterValue(tiledOp);
 
+  // move linalg.generic after the definitions of threadwiseReadIntoOp's
+  // inputs to maintaine correct def-use chain.
+  Operation *lastIdxDef = nullptr;
+  for (Value idx : tiledOp.getExtraIndices()) {
+    Operation *idxOp = idx.getDefiningOp();
+    if (idxOp) {
+      if (!lastIdxDef || (lastIdxDef->getBlock() == idxOp->getBlock() &&
+                          lastIdxDef->isBeforeInBlock(idxOp))) {
+        lastIdxDef = idxOp;
+      }
+    }
+  }
+  if (lastIdxDef && laGeneric->getBlock() == lastIdxDef->getBlock())
+    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
+
   // 1. create a second allocation of the same type to hold loaded elements
+  // where the laGeneric is located.
+  b.setInsertionPoint(laGeneric);
   MemRefType::Builder mrb(tile.getType().cast<MemRefType>());
   Value alloc = makeRegs(b, mrb, loc, src.getType());
 
@@ -591,31 +623,19 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << src.getType()
                           << " tile type: " << tile.getType() << "\n");
 
+  // Reset the insertion point if laGeneric and tiledOp are in different blocks
+  // and tiledOp reads from the output of linalg.generic. In such cases, we
+  // should insert new transform operations and threadwiseReadIntoOp inside the
+  // block of tiledOp, as their arguments may depend on that control flow. Later
+  // we will also move linalg.generic into the block.
+  if (laGeneric->getBlock() != tiledOp->getBlock() &&
+      isa<ThreadwiseReadIntoOp>(tiledOp))
+    b.setInsertionPoint(tiledOp);
+
   // 2.0. apply transform chain from output
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
 
-  // 2.1. move linalg.generic if needed
-  // move linalg.generic after the definitions of threadwiseReadIntoOp's
-  // inputs to maintaine correct def-use chain.
-  Operation *lastIdxDef = nullptr;
-  for (Value idx : tiledOp.getExtraIndices()) {
-    Operation *idxOp = idx.getDefiningOp();
-    if (idxOp) {
-      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
-        lastIdxDef = idxOp;
-      }
-    }
-  }
-  if (lastIdxDef)
-    b.moveAfterIfNeeded(laGeneric, lastIdxDef);
-
-  // move linalg.generic in the same block of threadwiseReadIntoOp
-  if (laGeneric->getBlock() != tiledOp->getBlock()) {
-    b.moveBeforeIfNeeded(laGeneric, tiledOp);
-    b.setInsertionPoint(laGeneric);
-  }
-
-  // 2.2. load into registers
+  // 2.1. load into registers
   ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
       loc, src, alloc, tiledOp.getExtraViews(),
       /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs);
@@ -713,6 +733,10 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
         makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult, laGeneric);
     newInputs.push_back(newInput);
   }
+
+  // move linalg.generic into the same block with threadwiseReadIntoOp
+  if (laGeneric->getBlock() != twReadOp->getBlock())
+    b.moveBefore(laGeneric, twReadOp);
 }
 
 static void reconfigureLAGeneric(LinalgAlignRewriter &b,
@@ -741,6 +765,33 @@ static void reconfigureLAGeneric(LinalgAlignRewriter &b,
   laGeneric.setIteratorTypesAttr(ArrayAttr::get(ctx, iteratorTypes));
 }
 
+static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
+                                         linalg::GenericOp laGeneric) {
+  bool isLegal = true;
+  for (auto &region : laGeneric->getRegions()) {
+    for (auto &block : region) {
+      for (auto &op : block) {
+        if (llvm::isa<arith::TruncFOp>(op)) {
+          Type resultType = op.getResult(0).getType();
+          isLegal = resultType == b.getF32Type();
+          isLegal |= resultType == b.getF16Type();
+        } else if (llvm::isa<arith::TruncIOp>(op)) {
+          Type resultType = op.getResult(0).getType();
+          isLegal = resultType == b.getI32Type();
+        } else if (llvm::isa<linalg::YieldOp>(op)) {
+          isLegal = true;
+        } else {
+          isLegal = false;
+        }
+
+        if (!isLegal)
+          break;
+      }
+    }
+  }
+  return success(isLegal);
+}
+
 LogicalResult
 LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                          LinalgAlignRewriter &b) const {
@@ -756,7 +807,6 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (laGeneric.getOutputs().size() != 1)
     return laGeneric.emitOpError("only 1 output supported");
   Value out = *laGeneric.getOutputs().begin();
-
   // 0.2. Prevent re-applying pattern to existing fusions.
   if (out.getDefiningOp<rock::GpuAllocOp>())
     return b.notifyMatchFailure(loc,
@@ -773,10 +823,23 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   Value laGenericArgLeadingToTile =
       findThreadwiseWrite(laGeneric, gemmStoreOp, globalCoordsToGenericViews);
 
+  if (gemmStoreOp) {
+    if (gemmStoreOp.getStoreMethod() != rock::StoreMethod::Set) {
+      if (failed(canFuseAcrossAtomic(b, laGeneric))) {
+        return laGeneric.emitOpError(
+            "is infusible with non-`Set` store method");
+      }
+    }
+  }
+
   // 1.2. If there is no input being written, try to find a threadwise_read_into
   // operation that reads from the output of this generic. If there is such an
   ThreadwiseReadIntoOp tileReadOp;
   if (!gemmStoreOp) {
+    if (!out.getDefiningOp<memref::AllocOp>()) {
+      return b.notifyMatchFailure(
+          loc, "generic output is not suitable for input fusion\n");
+    }
     if (failed(findThreadwiseRead(laGeneric, tileReadOp,
                                   globalCoordsToGenericViews)))
       return b.notifyMatchFailure(
@@ -810,7 +873,10 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     addRegisterReadsForTiledOutput(b, laGeneric, tileReadOp,
                                    globalCoordsToGenericViews, newInputs);
     // Prevent SSA weirdness from register allocations introduced too late.
-    b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
+    // addRegisterReadsForTiledOutput() may have moved laGeneric into a
+    // different block. In this case, SSA is already in good shape.
+    if (newOutput.getDefiningOp()->getBlock() == laGeneric->getBlock())
+      b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     reconfigureLAGeneric(b, laGeneric, newInputs, newOutput);
     b.eraseOp(tileReadOp);
     return success();

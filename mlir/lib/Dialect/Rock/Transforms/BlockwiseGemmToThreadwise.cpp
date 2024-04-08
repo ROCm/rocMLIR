@@ -157,7 +157,7 @@ struct BlockwiseFillRewritePattern
 //===----------------------------------------------------------------------===//
 
 // The structure of this lowing is documented at
-// https://github.com/ROCmSoftwarePlatform/rocMLIR/issues/719
+// https://github.com/ROCm/rocMLIR/issues/719
 struct BlockwiseGemmRewritePattern
     : public OpConversionPattern<BlockwiseGemmOp> {
   using OpConversionPattern<BlockwiseGemmOp>::OpConversionPattern;
@@ -456,7 +456,7 @@ struct BlockwiseGemmAccelRewritePattern
     //       threadwise_gemm(regsA, regsB)
     //
     // Which mimics:
-    // https://github.com/ROCmSoftwarePlatform/composable_kernel/blob/develop/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp#L304
+    // https://github.com/ROCm/composable_kernel/blob/develop/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp#L304
     //
     // Please note that different schedules might exist, so this can be
     // considered a temporary hack until we have a proper way of "searching"
@@ -476,9 +476,9 @@ struct BlockwiseGemmAccelRewritePattern
       Value i = mLoop.getInductionVar();
 
       // regsA = read A from LDS
-      b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadA,
-                                     op.getBufferA(), b.getArrayAttr({}),
-                                     ValueRange{tid, i}, true, true);
+      b.create<ThreadwiseReadIntoOp>(
+          loc, wrappedLDSBufferForLoadA, op.getBufferA(), b.getArrayAttr({}),
+          ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
 
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
@@ -487,9 +487,9 @@ struct BlockwiseGemmAccelRewritePattern
         Value j = nLoop.getInductionVar();
 
         // regsB = read B from LDS
-        b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadB,
-                                       op.getBufferB(), b.getArrayAttr({}),
-                                       ValueRange{tid, j}, true, true);
+        b.create<ThreadwiseReadIntoOp>(
+            loc, wrappedLDSBufferForLoadB, op.getBufferB(), b.getArrayAttr({}),
+            ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
 
         // regsC += regsA * regsB
         auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
@@ -1035,16 +1035,16 @@ struct BlockwiseReduceRewritePattern
             loc, rewriter, threadsToTensorTrs, rDim, /*makeRDimZero-*/ true);
         ArrayRef<int64_t> threadViewShape =
             threadToLDSViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
-        ArrayRef<int64_t> ldsBufferShape =
-            threadToLDSViewTrs[threadToLDSViewTrs.size() - 1]
-                .cast<TransformMapAttr>()
-                .getLowerBounds();
         constexpr size_t nrIterDim = 1;
         constexpr size_t rIterDim = 2;
 
-        int64_t nrIterVectorLen = getMaxVectorizationForDatatype(
-            threadToLDSViewTrs, nrIterDim, threadViewShape[nrIterDim],
-            ldsBufferShape, elemType);
+        // Note: This currently creates a bunch of dead IR because vectorization
+        // needs access to a `Value` in order to account for scalarized buffers.
+        Value threadToLDSViewed =
+            transform(rewriter, workspaceLDSBuffer, threadToLDSViewTrs);
+        VectorizationResult nrIterVectorRes =
+            getMaxVectorization(threadToLDSViewed, nrIterDim);
+        int64_t nrIterVectorLen = nrIterVectorRes.max;
         // Create the accumulation register
         // This will be accumulated over non-reduction iterations.
         auto accRegType = MemRefType::get(
@@ -1063,9 +1063,9 @@ struct BlockwiseReduceRewritePattern
             nrIter = zeroConstantOp;
           }
           rewriter.create<FillOp>(loc, accReg, initVal);
-          int64_t rIterVectorLen = getMaxVectorizationForDatatype(
-              threadToLDSViewTrs, rIterDim, threadViewShape[rIterDim],
-              ldsBufferShape, elemType);
+          VectorizationResult rIterVectorRes =
+              getMaxVectorization(threadToLDSViewed, rIterDim);
+          int64_t rIterVectorLen = rIterVectorRes.max;
           SmallVector<Value, 4> inits{tid, nrIter, zeroConstantOp};
           SmallVector<int64_t> bounds{1, 1, threadViewShape[rIterDim]};
           SmallVector<int64_t> strides{1, 1, rIterVectorLen};
@@ -1152,16 +1152,14 @@ struct BlockwiseReduceRewritePattern
             createLDSWorkspaceView(loc, rewriter, threadToTensorViewTrs, rDim);
         ArrayRef<int64_t> threadViewShape =
             threadToLDSViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
-        ArrayRef<int64_t> ldsBufferShape =
-            threadToLDSViewTrs[threadToLDSViewTrs.size() - 1]
-                .cast<TransformMapAttr>()
-                .getLowerBounds();
         constexpr size_t rTidDim = 1;
         constexpr size_t rIterDim = 2;
 
-        int64_t rIterVectorLen = getMaxVectorizationForDatatype(
-            threadToLDSViewTrs, rIterDim, threadViewShape[rIterDim],
-            ldsBufferShape, elemType);
+        Value threadToLDSViewed =
+            transform(rewriter, workspaceLDSBuffer, threadToLDSViewTrs);
+        VectorizationResult rIterVectorRes =
+            getMaxVectorization(threadToLDSViewed, rIterDim);
+        int64_t rIterVectorLen = rIterVectorRes.max;
         Value nrDimSizeProductConst = rewriter.create<arith::ConstantIndexOp>(
             loc, nonReductionDimSizeProduct);
         Value rtid =

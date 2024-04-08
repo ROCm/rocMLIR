@@ -2,7 +2,7 @@
 
 // -----
 
-#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1>
+#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1, splitKFactor = 1>
 func.func @gridwise_gemm_i32_wants_i8(%a: memref<1x16x16xf32>,
                         %b: memref<1x16x16xf32>,
                         %c: memref<1x16x16xi32>) {
@@ -17,7 +17,7 @@ func.func @gridwise_gemm_i32_wants_i8(%a: memref<1x16x16xf32>,
 
 // -----
 
-#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1>
+#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1, splitKFactor = 1>
 func.func @gridwise_gemm_i8_wants_i32(%a: memref<1x16x16xi8>,
                         %b: memref<1x16x16xi8>,
                         %c: memref<1x16x16xf32>) {
@@ -32,7 +32,7 @@ func.func @gridwise_gemm_i8_wants_i32(%a: memref<1x16x16xi8>,
 
 // -----
 
-#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1>
+#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1, splitKFactor = 1>
 func.func @gridwise_gemm_m_too_big(%a: memref<1x1x2147483648xf32>,
                         %b: memref<1x1x1xf32>,
                         %c: memref<1x2147483648x1xf32>) {
@@ -47,7 +47,7 @@ func.func @gridwise_gemm_m_too_big(%a: memref<1x1x2147483648xf32>,
 
 // -----
 
-#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1>
+#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1, splitKFactor = 1>
 func.func @gridwise_gemm_k_too_big(%a: memref<1x2147483648x1xf32>,
                         %b: memref<1x2147483648x1xf32>,
                         %c: memref<1x1x1xf32>) {
@@ -61,7 +61,7 @@ func.func @gridwise_gemm_k_too_big(%a: memref<1x2147483648x1xf32>,
 }
 // -----
 
-#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1>
+#general_gemm_params0 = #rock.general_gemm_params<blockSize = 256, mPerBlock = 16, kPerBlock = 16, nPerBlock = 16, mPerThread = 1, kPerThread = 16, nPerThread = 1, kpack = 1, splitKFactor = 1>
 func.func @gridwise_gemm_m_too_big(%a: memref<1x1x1xf32>,
                         %b: memref<1x1x2147483648xf32>,
                         %c: memref<1x1x2147483648xf32>) {

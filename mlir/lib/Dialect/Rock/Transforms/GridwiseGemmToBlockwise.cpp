@@ -100,22 +100,17 @@ static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
 static std::pair<GemmDimension, int64_t>
 bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyDPerThread,
                         int64_t copyKPerThread, GemmDimension tiebreaker,
-                        int64_t kPerBlock, int64_t dPerBlock,
-                        Type elementType) {
-  Value tensor;
-  ArrayAttr transforms;
-  std::tie(tensor, transforms, std::ignore) = untransform(b, matrix);
-  ArrayRef<int64_t> tensorShape =
-      tensor.getType().cast<MemRefType>().getShape();
-  int64_t kVectorLen = getMaxVectorizationForDatatype(
-      transforms, static_cast<uint32_t>(GemmDimension::K),
-      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock), tensorShape,
-      elementType);
-
-  int64_t dVectorLen = getMaxVectorizationForDatatype(
-      transforms, static_cast<uint32_t>(GemmDimension::MorN),
-      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock), tensorShape,
-      elementType);
+                        int64_t kPerBlock, int64_t dPerBlock) {
+  // A future commit will account for the underlying buffer's vectorization
+  // here.
+  VectorizationResult kVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
+      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock));
+  int64_t kVectorLen = kVectorRes.max;
+  VectorizationResult dVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
+      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock));
+  int64_t dVectorLen = dVectorRes.max;
 
   if (kVectorLen > dVectorLen) {
     kVectorLen = math_util::gcd(kVectorLen, copyKPerThread);
@@ -232,30 +227,12 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
 
 static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
-  auto func = op->getParentOfType<func::FuncOp>();
-
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
-  // Set sharedMemSize attribute for this kernel
-  int64_t totalLDS = ldsBytes;
-  if (auto ldsAttr =
-          func->getAttrOfType<IntegerAttr>("rock.shared_buffer_size")) {
-    totalLDS += ldsAttr.getInt();
-  }
-  auto intTy = IntegerType::get(func->getContext(), 32);
-  func->setAttr("rock.shared_buffer_size", IntegerAttr::get(intTy, totalLDS));
-
   // Check for arch limitations exceeded
-  StringAttr arch = op->getAttrOfType<StringAttr>("arch");
-  if (!arch)
-    arch = func->getAttrOfType<StringAttr>("mhal.arch");
-  if (!arch) {
-    auto mod = func->getParentOfType<ModuleOp>();
-    arch = mod->getAttrOfType<StringAttr>("mhal.arch");
-  }
-
-  if (arch) {
+  FailureOr<StringAttr> maybeArch = getArch(op);
+  if (succeeded(maybeArch)) {
+    StringAttr arch = maybeArch.value();
     const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-
     return success(ldsBytes <= ldsSize);
   }
   return success();
@@ -454,12 +431,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
-    std::tie(aVectorDim, aVectorLen) = bestGlobalVectorization(
-        b, op.getA(), copyMPerThread, aCopyKPerThread, vectorTiebreaker,
-        kPerBlock, mPerBlock, elementTypeA);
-    std::tie(bVectorDim, bVectorLen) = bestGlobalVectorization(
-        b, op.getB(), copyNPerThread, bCopyKPerThread, vectorTiebreaker,
-        kPerBlock, nPerBlock, elementTypeB);
+    std::tie(aVectorDim, aVectorLen) =
+        bestGlobalVectorization(b, op.getA(), copyMPerThread, aCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, mPerBlock);
+    std::tie(bVectorDim, bVectorLen) =
+        bestGlobalVectorization(b, op.getB(), copyNPerThread, bCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, nPerBlock);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -841,9 +818,9 @@ struct GridwiseAttentionAccelRewritePattern
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t vectorLen;
     GemmDimension vectorDim;
-    std::tie(vectorDim, vectorLen) = bestGlobalVectorization(
-        rewriter, in, copyDPerThread, copyKPerThread, vectorTiebreaker,
-        kPerBlock, dPerBlock, elemType);
+    std::tie(vectorDim, vectorLen) =
+        bestGlobalVectorization(rewriter, in, copyDPerThread, copyKPerThread,
+                                vectorTiebreaker, kPerBlock, dPerBlock);
     FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews;
     if (!isDestBufferLDS) {
       maybeInBufferViews = accelEmitter.createAccelGemmOperandTransforms(
@@ -1701,8 +1678,8 @@ struct GridwiseAttentionAccelRewritePattern
     // Calculate different size derivations
     int64_t gemm0KPerBlock = gemm0kpack * gemm0KpacksPerBlock;
     int64_t gemm1KPerBlock = gemm0MPerBlock;
-    int64_t gemm1MPerBlock = gemm0MPerBlock;
-    int64_t gemm1NPerBlock = gemm0NPerBlock;
+    int64_t gemm1MPerBlock = gemm1TuningParams.getMPerBlock();
+    int64_t gemm1NPerBlock = gemm1TuningParams.getNPerBlock();
     // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
     // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
     // Note that nPerBlock for Gemm1B is nPerBlock of Gemm0 out
@@ -1923,13 +1900,23 @@ struct GridwiseAttentionAccelRewritePattern
       }
     }
 
+    bool isReverseGrid = succeeded(rock::getReverseGrid(op));
     affine::AffineForOp mLoopOp =
         rewriter.create<affine::AffineForOp>(loc, 0, gemm0MBlocks, 1);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(mLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
+      Value kIterationsGemm0Val =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
+      Value mIterationsGemm0Val =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value mLoopIV = mLoopOp.getInductionVar();
+      if (isReverseGrid) {
+        AffineMap reverseMap = rock::getIdxReversalMap(rewriter);
+        mLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
+            loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
+      }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
 #ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
@@ -1946,6 +1933,16 @@ struct GridwiseAttentionAccelRewritePattern
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
+        // Purpose of reversing the grid is to exploit
+        // (if any) temporal locality between producers
+        // and consumers of data between kernels.
+        // Towards that goal, the kLoop has to be reversed
+        // to use latest producer.
+        if (isReverseGrid) {
+          AffineMap reverseMap = rock::getIdxReversalMap(rewriter);
+          kLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
+              loc, reverseMap, ValueRange{kLoopIV, kIterationsGemm0Val});
+        }
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
         if (gemm0K != gemm0KPerBlock) {
@@ -2363,12 +2360,12 @@ struct GridwiseGemmAccelRewritePattern
     // Find the best way of vectorizing the layout
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    std::tie(aVectorDim, aVectorLen) = bestGlobalVectorization(
-        b, matA, copyMPerThread, aCopyKPerThread, vectorTiebreaker, kPerBlock,
-        mPerBlock, elementTypeA);
-    std::tie(bVectorDim, bVectorLen) = bestGlobalVectorization(
-        b, matB, copyNPerThread, bCopyKPerThread, vectorTiebreaker, kPerBlock,
-        nPerBlock, elementTypeB);
+    std::tie(aVectorDim, aVectorLen) =
+        bestGlobalVectorization(b, matA, copyMPerThread, aCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, mPerBlock);
+    std::tie(bVectorDim, bVectorLen) =
+        bestGlobalVectorization(b, matB, copyNPerThread, bCopyKPerThread,
+                                vectorTiebreaker, kPerBlock, nPerBlock);
 
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
@@ -2601,8 +2598,18 @@ struct GridwiseGemmAccelRewritePattern
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
-
       Value iv = loopOp.getInductionVar();
+      bool isReverseGrid = succeeded(rock::getReverseGrid(op));
+      // Purpose of reversing the grid is to exploit
+      // (if any) temporal locality between producers
+      // and consumers of data between kernels.
+      // Towards that goal, the kLoop has to be reversed
+      // to use latest producer.
+      if (isReverseGrid) {
+        AffineMap reverseMap = rock::getIdxReversalMap(b);
+        iv = b.createOrFold<affine::AffineApplyOp>(loc, reverseMap,
+                                                   ValueRange{iv, nIterations});
+      }
       auto stage0 = b.create<StageOp>(loc, "GlobalRead");
       {
         PatternRewriter::InsertionGuard guard(b);

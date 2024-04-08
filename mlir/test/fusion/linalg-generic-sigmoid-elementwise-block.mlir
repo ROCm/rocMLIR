@@ -16,7 +16,7 @@
 #transform_map35 = #rock.transform_map<#map22 by [<AddDim{1} ["exp0"] at [0] -> [] at []>, <PassThrough ["dim0"] at [1] -> ["dim0"] at [0]>] bounds = [1, 5] -> [5]>
 #transform_map36 = #rock.transform_map<#map10 by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>] bounds = [2, 5] -> [1, 5]>
 // Cut down version of a MIGraphX test that triggered a crash, see
-// https://github.com/ROCmSoftwarePlatform/rocMLIR/issues/1188
+// https://github.com/ROCm/rocMLIR/issues/1188
 // Arguments have been rearranged to make pattern matching easier.
 
 module {
@@ -60,7 +60,7 @@ module {
     // correctness.
     // CHECK: rock.threadwise_read_into
     // CHECK: rock.threadwise_read_into
-    // CHECK-NEXT: [[cst_alloc1:%.+]] = rock.alloc
+    // CHECK: [[cst_alloc1:%.+]] = rock.alloc
     // CHECK-NEXT: linalg.generic
     // CHECK-SAME: outs([[cst_alloc1]]
     linalg.generic {indexing_maps = [#map20, #map20, #map20], iterator_types = ["parallel", "parallel"]} ins(%arg0, %arg1 : memref<2x5xf32>, memref<2x5xf32>) outs(%alloc_13 : memref<2x5xf32>) {

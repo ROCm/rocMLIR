@@ -211,14 +211,38 @@ TEST_F(TMBuilderTest, ConstDim) {
 
 TEST_F(TMBuilderTest, Broadcast) {
   auto buildUp = makeBottomUp({"a", "b"}, {1, 3});
+  auto buildDown = makeTopDown({"a", "b"}, {3, 3});
 
   buildUp.passThrough({1}, {1});
-  buildUp.broadcast({0}, {1});
+  buildUp.broadcast({0}, {3});
+
+  buildDown.passThrough({1}, {1});
+  buildDown.takeRemainder("a", 1);
 
   TransformMapAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
 
   EXPECT_EQ(resUp.getMap().getAffineMap(),
             AffineMap::get(2, 0, {affC(0), affD(1)}, &context));
+  EXPECT_EQ(resUp, resDown);
+}
+
+TEST_F(TMBuilderTest, LongBroadcast) {
+  auto buildUp = makeBottomUp({"a", "b"}, {2, 3});
+  auto buildDown = makeTopDown({"a", "b"}, {3, 3});
+
+  buildUp.passThrough({1}, {1});
+  buildUp.broadcast({0}, {3});
+
+  buildDown.passThrough({1}, {1});
+  buildDown.takeRemainder("a", 2);
+
+  TransformMapAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
+
+  EXPECT_EQ(resUp.getMap().getAffineMap(),
+            AffineMap::get(2, 0, {affD(0) % affC(2), affD(1)}, &context));
+  EXPECT_EQ(resUp, resDown);
 }
 
 TEST_F(TMBuilderTest, GemmOut) {

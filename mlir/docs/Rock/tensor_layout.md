@@ -37,7 +37,7 @@ weight_groups = tf.split(axis=3, num_or_size_splits=groups,value=weights)
 YXCK=>YXCGK
 <br/>
 ##### but tensorflow will  transform filter from YXCK to KYXC, weights layout become [GKYXC]:
-https://github.com/ROCmSoftwarePlatform/tensorflow-upstream/blob/develop-upstream/tensorflow/core/kernels/conv_ops.cc#L1040-L1048
+https://github.com/ROCm/tensorflow-upstream/blob/develop-upstream/tensorflow/core/kernels/conv_ops.cc#L1040-L1048
 weight_groups = tf.split(axis=3, num_or_size_splits=groups,value=weights)
 YXCK=>YXCGK , after transform => GKYXC
 <br/>
@@ -51,7 +51,7 @@ conv = tf.concat(axis=3, values=output_groups)
 ### NCHW
 <br/>
 <br/>
-match Rock: https://github.com/ROCmSoftwarePlatform/Rock/blob/35142af8a2978d2cb4e3d7854553767943057841/test/cpu_conv.hpp#L85
+match Rock: https://github.com/ROCm/Rock/blob/35142af8a2978d2cb4e3d7854553767943057841/test/cpu_conv.hpp#L85
 #### input:[NGCHW]
 #### filter:[GKCYX] <= tensorflow transform filter from YXCK to KCYX
 #### output:[NGKHW]

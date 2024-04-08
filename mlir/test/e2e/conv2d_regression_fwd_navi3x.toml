@@ -29,7 +29,7 @@ config = "-p -rand_side filter"
 config = "-p -rand_side input"
 
 #############################################################################################
-# Cases reported in https://github.com/ROCmSoftwarePlatform/llvm-project-private/issues/127 #
+# Cases reported in https://github.com/ROCm/rocMLIR-internal/issues/127 #
 #############################################################################################
 [[suite.test]]
 config = "-groupsize=1 -batchsize=128 -in_channels=256 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"

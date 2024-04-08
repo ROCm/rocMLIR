@@ -28,7 +28,7 @@
 #map24 = affine_map<(d0, d1, d2) -> (d0, d1, d2 floordiv 64, (d2 mod 64) floordiv 32, d2 mod 32)>
 #map25 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, (d2 * 32 + d4) * 2 + d3)>
 #map26 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-#xldops_gemm_params = #rock.xdlops_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, forceUnroll = true>
+#xldops_gemm_params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>
 #transform_map = #rock.transform_map<#map by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmK", "gemmM"] at [1, 2] -> ["gemmK", "gemmM"] at [2, 1]>] bounds = [1, 1024, 384] -> [1, 384, 1024]>
 #transform_map1 = #rock.transform_map<#map1 by [<PassThrough ["g_block"] at [1] -> ["g"] at [0]>, <Unmerge{16, 8, 8} ["k_loop", "k_thread", "k_iter"] at [0, 5, 7] -> ["k"] at [1]>, <Unmerge{6, 32, 2} ["m_block", "m_thread", "m_iter"] at [2, 4, 6] -> ["m"] at [2]>, <AddDim{16} ["n_block"] at [3] -> [] at []>] bounds = [16, 1, 6, 16, 32, 8, 2, 8] -> [1, 1024, 384]>
 #transform_map2 = #rock.transform_map<#map2 by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{32, 8} ["tid"] at [4] -> ["m_thread", "k_thread"] at [4, 5]>, <Merge{2, 8} ["iter"] at [5] -> ["m_iter", "k_iter"] at [6, 7]>] bounds = [16, 1, 6, 16, 256, 16] -> [16, 1, 6, 16, 32, 8, 2, 8]>

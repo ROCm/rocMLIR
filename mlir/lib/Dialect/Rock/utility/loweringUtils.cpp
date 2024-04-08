@@ -7,8 +7,10 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
@@ -255,8 +257,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
                           {0, 1}, isKContigousDim);
     TransformMapAttr splitIdAttr = threadwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"k_iter"}, {kPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dIterName}, {dPerThread});
+    toGlobalIdx.passThrough({"k"}, 0, {"k_iter"});
+    toGlobalIdx.passThrough({dName}, 1, {dIterName});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.threadSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
@@ -356,7 +358,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
     toGlobalIdx.unmerge("k", 0, {"kouterPerThread", "kpackPerThread"},
                         {kOuterPerThread, kpackPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dIterName}, {dPerThread});
+    toGlobalIdx.passThrough({dName}, 1, {dIterName});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.threadSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
@@ -615,4 +617,88 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
                                 rewriter.getArrayAttr(threadSubTileMaps),
                                 std::nullopt};
   }
+}
+
+template <typename RetAttrType>
+static FailureOr<RetAttrType> getAttrFromOpOrParents(
+    Operation *op, StringRef opAttr,
+    std::optional<StringRef> maybeDialectAttr = std::nullopt) {
+  StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
+  Operation *func;
+  if (isa<func::FuncOp, gpu::GPUFuncOp>(op)) {
+    func = op;
+  } else {
+    func = op->getParentOfType<func::FuncOp>();
+    if (!func) {
+      func = op->getParentOfType<gpu::GPUFuncOp>();
+    }
+  }
+  RetAttrType attr;
+  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
+    for (StringRef attrName : attrNames) {
+      if (!attr) {
+        attr = op->getAttrOfType<RetAttrType>(attrName);
+      } else {
+        return;
+      }
+    }
+  };
+  getAnyAttr({opAttr}, op);
+  if (!attr) {
+    getAnyAttr({opAttr, dialectAttr}, func);
+  }
+  if (!attr) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    getAnyAttr({opAttr, dialectAttr}, mod);
+  }
+  if (!attr) {
+    if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
+      getAnyAttr({opAttr, dialectAttr}, mod);
+    }
+  }
+  if (!attr) {
+    return failure();
+  }
+  return attr;
+}
+
+FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
+  return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
+}
+
+FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
+  FailureOr<StringAttr> maybeArch = getArch(op);
+  if (failed(maybeArch)) {
+    return failure();
+  }
+  StringAttr arch = maybeArch.value();
+  FailureOr<IntegerAttr> maybeNumCU =
+      getAttrFromOpOrParents<IntegerAttr>(op, "num_cu");
+  if (failed(maybeNumCU)) {
+    return failure();
+  }
+  IntegerAttr numCU = maybeNumCU.value();
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (numCU.getValue().getSExtValue() < archInfo.minNumCU) {
+    return op->emitError() << "num_cu=" << numCU
+                           << " cannot be lower than arch minNumCU="
+                           << archInfo.minNumCU;
+  }
+  return numCU.getValue().getSExtValue();
+}
+
+FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
+  return getAttrFromOpOrParents<UnitAttr>(
+      op, rock::ReverseGridAttrAttr::getMnemonic());
+}
+
+FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
+  return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
+}
+
+AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
+  auto dimExpr = mlir::getAffineDimExpr(0, b.getContext());
+  auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
+  auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
+  return affineMap;
 }

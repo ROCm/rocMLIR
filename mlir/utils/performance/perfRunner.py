@@ -32,9 +32,9 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-DATA_TYPES_GEMM = ['f32', 'f16', 'i8']
+DATA_TYPES_GEMM = ['f32', 'f16', 'i8', 'fp8']
 DATA_TYPES_ATTENTION = ['f32', 'f16']
-OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'i8': 'i32',
+OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'i8': 'i32', 'fp8':'f32',
                          'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
                          'bf8_bf8': 'f32'}
 
@@ -139,6 +139,16 @@ def getNanoSeconds(fileName):
             result += int(row['AverageNs'])
         csv_file.close()
         return result
+
+def getMetricArgsForRocprof(arch):
+    chip = GFX_CHIP_RE.search(arch).group(0)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
+    metrics = []
+    if (chip not in ["gfx942"]):
+       metrics = ['-i', metrics_path]
+    return metrics
+
 
 # Bank conflict functions.The percentage of GPUTime LDS is stalled by bank
 # conflicts. Value range: 0% (optimal) to 100% (bad).
@@ -451,7 +461,7 @@ class ConvConfiguration(PerfConfiguration):
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
                     convStrideH: int, convStrideW: int, paddingH: int, paddingW: int,
                     dilationH: int, dilationW: int, group: int, arch: str, numCU: int):
-        if dtype not in {"f16", "f32", "bf16", "i8"}:
+        if dtype not in {"f16", "f32", "bf16", "i8", "fp8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
             raise ValueError(f"Invalid direction: {direction}")
@@ -691,7 +701,7 @@ class GemmConfiguration(PerfConfiguration):
 
     def __init__(self, dtype: str, outDataType: str, g: int, m: int, k: int, n: int,
                  transA: bool, transB: bool, arch: str, numCU: int, perf_config: str = ''):
-        if dtype not in {"f16", "f32", "bf16", "i8"}:
+        if dtype not in {"f16", "f32", "bf16", "i8", "fp8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         self.MLIR_N_REPEATS = 5
         self.dataType = dtype
@@ -710,14 +720,16 @@ class GemmConfiguration(PerfConfiguration):
 
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
-    def __init__(self, dtype: str, g: int, seq_len: int, head_dim: int, with_attn_scale: int,
+    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: int,
                  transQ: bool, transK: bool, transV: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
         if dtype not in {"f16", "f32"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         self.dataType = dtype
         self.g = g
-        self.seq_len = seq_len
-        self.head_dim = head_dim
+        self.seq_len_q = seq_len_q
+        self.seq_len_k = seq_len_k
+        self.head_dim_qk = head_dim_qk
+        self.head_dim_v = head_dim_v
         self.with_attn_scale = with_attn_scale
         self.transQ = transQ
         self.transK = transK
@@ -733,10 +745,10 @@ class AttentionConfiguration(PerfConfiguration):
     def computeTFlops(self, ns, only_matmul_flops=True):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        first_matmul_flops = 2.0 * self.g * self.seq_len * self.head_dim * self.seq_len
+        first_matmul_flops = 2.0 * self.g * self.seq_len_q * self.head_dim_qk * self.seq_len_k
         # max, sub, exp, sum, div
-        softmax_flops = 5.0 * self.g * self.seq_len * self.seq_len
-        second_matmul_flops = 2.0 * self.g * self.seq_len * self.seq_len * self.head_dim
+        softmax_flops = 5.0 * self.g * self.seq_len_q * self.seq_len_k
+        second_matmul_flops = 2.0 * self.g * self.seq_len_q * self.seq_len_k * self.head_dim_v
         total_flops = first_matmul_flops + second_matmul_flops
         # Weirdly, triton does not account for flops coming from
         # non matmul operations as per FA2 paper. Hence not including
@@ -747,7 +759,7 @@ class AttentionConfiguration(PerfConfiguration):
         if not only_matmul_flops:
             total_flops += softmax_flops
             if self.with_attn_scale:
-                total_flops += self.seq_len * self.seq_len
+                total_flops += self.seq_len_q * self.seq_len_k
         return total_flops / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
@@ -762,8 +774,10 @@ class AttentionConfiguration(PerfConfiguration):
             self.transO,
             self.with_attn_scale,
             self.g,
-            self.seq_len,
-            self.head_dim,
+            self.seq_len_q,
+            self.seq_len_k,
+            self.head_dim_qk,
+            self.head_dim_v,
             self.perfConfig,
             self.computeTFlops(nanoSeconds)
         ]
@@ -773,7 +787,7 @@ class AttentionConfiguration(PerfConfiguration):
         return result
 
     def __repr__(self):
-        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len={self.seq_len!r}, head_dim={self.head_dim!r}, with_attn_scale={self.with_attn_scale!r},
+        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r},
                 transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
@@ -785,8 +799,10 @@ class AttentionConfiguration(PerfConfiguration):
                            '--arch', self.arch,
                            '--num_cu', str(self.numCU),
                            '-g', str(self.g),
-                           '-seq_len', str(self.seq_len),
-                           '-head_dim', str(self.head_dim),
+                           '-seq_len_q', str(self.seq_len_q),
+                           '-seq_len_k', str(self.seq_len_k),
+                           '-head_dim_qk', str(self.head_dim_qk),
+                           '-head_dim_v', str(self.head_dim_v),
                            f"-with-attn-scale={self.with_attn_scale}",
                            f"-transQ={self.transQ}",
                            f"-transK={self.transK}",
@@ -816,10 +832,14 @@ class AttentionConfiguration(PerfConfiguration):
                 dtype = val
             elif opt.endswith("-g"):
                 g = int(val)
-            elif opt.endswith("-seq_len"):
-                seq_len = int(val)
-            elif opt.endswith("-head_dim"):
-                head_dim = int(val)
+            elif opt.endswith("-seq_len_q"):
+                seq_len_q = int(val)
+            elif opt.endswith("-seq_len_k"):
+                seq_len_k = int(val)
+            elif opt.endswith("-head_dim_qk"):
+                head_dim_qk = int(val)
+            elif opt.endswith("-head_dim_v"):
+                head_dim_v = int(val)
             elif opt.endswith("-with-attn-scale"):
                 with_attn_scale = (val.lower() in ["1", "true"])
             elif opt.endswith("-transQ"):
@@ -834,18 +854,18 @@ class AttentionConfiguration(PerfConfiguration):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
-        for v in [dtype, g, seq_len, head_dim, with_attn_scale, transQ, transK, transV, transO]:
+        for v in [dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, transQ, transK, transV, transO]:
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len, head_dim, with_attn_scale, transQ, transK, transV, transO, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, transQ, transK, transV, transO, arch, numCU, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
                 + f"-transQ {str(self.transQ).lower()} -transK {str(self.transK).lower()} "
                 + f"-transV {str(self.transV).lower()} -transO {str(self.transO).lower()} "
                 + f"-g {self.g} "
-                + f"-seq_len {str(self.seq_len)} -head_dim {str(self.head_dim)} "
+                + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
                 + f"-with-attn-scale {str(self.with_attn_scale).lower()}")
 
 
@@ -860,17 +880,14 @@ class RocBLASGemmConfig(GemmConfiguration):
         benchmarkArgs = config.generateMlirDriverCommandLine("")
         # remove the result file generated by rocprof in previous benchmarking
         os.system("rm -f "+BENCHMARKING_RESULT_FILE_NAME)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
         print(f"Running rocBLAS benchmark {config!r}")
-        profilerCommand = [ROCPROF,'-i', metrics_path, '--stats', \
-            '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.rocblas_benchmark_driver_path] + \
+        profilerCommand = [paths.mlir_paths.rocblas_benchmark_driver_path] + \
             benchmarkArgs.split()
         p = subprocess.Popen(profilerCommand, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # get output.
         try:
-            _, errs = p.communicate(timeout=60)
+            outs, errs = p.communicate(timeout=60)
             if len(errs) > 0:
                 print("Test printed errors: ", errs.decode('utf-8'))
                 print("Failing command line: ", profilerCommand)
@@ -879,8 +896,9 @@ class RocBLASGemmConfig(GemmConfiguration):
         except subprocess.TimeoutExpired:
             print("Test timed out: ", profilerCommand)
             p.kill()
-            _, errs = p.communicate()
-        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+            outs, errs = p.communicate()
+        milliSeconds = getMilliseconds(outs)
+        nanoSeconds = milliSeconds*1e6
         return config.tableEntry(nanoSeconds)
 
 class CKGemmConfig(GemmConfiguration):
@@ -917,18 +935,16 @@ class CKGemmConfig(GemmConfiguration):
         nanoSeconds = milliSeconds*1e6
         return config.tableEntry(nanoSeconds)
 
-def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags, debug=True):
+def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen_flags, debug=True):
     # remove the result file generated by rocprof in previous benchmarking
     os.system("rm -f "+BENCHMARKING_RESULT_FILE_NAME)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '-i', metrics_path, '--stats', '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF] +  getMetricArgsForRocprof(arch) + ['--stats', '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
 
     # invoke rocmlir-gen.
     p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -961,7 +977,7 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
         else: # Tuning DB present but doesn't contain config, return N/A
             return config.tableEntry(np.nan)
 
-    runConfigWithMLIR(config, paths, rocmlir_gen_flags)
+    runConfigWithMLIR(config, paths, arch, rocmlir_gen_flags)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
@@ -1029,7 +1045,7 @@ def getSolverName(testVector, arch, numCU):
         solverName = 'ConvMlirIgemmBwd'
     else:
         solverName = 'ConvMlirIgemmWrW'
-    if config.chip in ['gfx908', 'gfx90a']:
+    if config.chip in ['gfx908', 'gfx90a', 'gfx942']:
         solverName+='Xdlops'
     return solverName
 
@@ -1215,7 +1231,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
             continue
 
         # Run gemm or conv op with the same configuration
-        runConfigWithMLIR(config, paths, '')
+        runConfigWithMLIR(config, paths, arch, '')
         # Get nanoseconds of gemm/conv
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
         oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
@@ -1261,7 +1277,7 @@ def tuneMLIRKernels(configs, arch, numCU):
 
 def is_xdlops_present() -> bool:
     """This function checks whether a GPU with xdlops support is present"""
-    xdlop_supported_gpus = ['gfx908', 'gfx90a']
+    xdlop_supported_gpus = ['gfx908', 'gfx90a', 'gfx942']
     xdlop_supported_gpus_str = xdlop_supported_gpus[0]
     for gpu in xdlop_supported_gpus[1:]:
         xdlop_supported_gpus_str += '|' + gpu
@@ -1286,16 +1302,18 @@ def getArch():
 def parseDataTypes(data_types):
     if not data_types:
         return DATA_TYPES_GEMM, OUTPUT_DATA_TYPES_MAP
-
     datatypes = []
     outMap = {}
     for dpair in data_types:
         dt = dpair.split('_')
         datatypes.append(dt[0])
-        outMap[dt[0]] = 'i32' if dt[0] == 'i8' else dt[0]
+        outMap[dt[0]] = dt[0]
         if len(dt) == 2:
             outMap[dt[0]] = dt[1]
-
+        elif dt[0] == 'i8':
+            outMap[dt[0]] = 'i32'
+        elif dt[0] == 'fp8':
+            outMap[dt[0]] = 'f32'
     return datatypes, outMap
 
 def getChip():
@@ -1458,7 +1476,7 @@ def main(args=None):
     parser.add_argument(
         '--data-type',
          nargs='+',
-         choices=["f32", "f16", "i8", "i8_i32", "i8_i8"],
+         choices=["f32", "f16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_fp8", "fp8_f32"],
          default=["f32", "f16", "i8"],
          help='Force a set of datatypes'
     )

@@ -20,7 +20,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
@@ -114,6 +114,12 @@ static llvm::cl::opt<int> num_cu(
                    "gfx803(36/64), gfx900(56/64), "
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
+
+static llvm::cl::opt<bool> reverse_grid(
+    "reverse_grid",
+    llvm::cl::desc(
+        "Indicates whether to reverse the workgroup indices in the kernel"),
+    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
 
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
@@ -449,13 +455,21 @@ static llvm::cl::opt<bool> emitTuningKey(
 // Attention related args
 // ----------------------
 
-static llvm::cl::opt<int64_t>
-    sequenceLength("seq_len", llvm::cl::desc("sequence length of attention()"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(-1));
+static llvm::cl::opt<int64_t> sequenceLengthQ(
+    "seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t> sequenceLengthK(
+    "seq_len_k", llvm::cl::desc("sequence length of K in attention()"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t>
-    headDims("head_dim", llvm::cl::desc("head dimension of attention()"),
+    headDimQK("head_dim_qk",
+              llvm::cl::desc("head dimension of Q,K in attention()"),
+              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t>
+    headDimV("head_dim_v", llvm::cl::desc("head dimension of v in attention()"),
              llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<bool>
@@ -469,29 +483,29 @@ static llvm::cl::opt<bool> hasAttnBias(
     llvm::cl::desc("Generate an attention kernel that is using a bias"),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeQ("transQ",
-               llvm::cl::desc("whether matrix Q of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeQ(
+    "transQ",
+    llvm::cl::desc("whether matrix Q of attention op is "
+                   "Gxseq_len_qxhead_qk (default) or Gxhead_qkxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeK("transK",
-               llvm::cl::desc("whether matrix K of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeK(
+    "transK",
+    llvm::cl::desc("whether matrix K of attention op is "
+                   "Gxseq_len_kxhead_qk (default) or Gxheadxseq_len_q"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeV("transV",
-               llvm::cl::desc("whether matrix V of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeV(
+    "transV",
+    llvm::cl::desc("whether matrix V of attention op is "
+                   "Gxseq_len_kxhead_v (default) or Gxhead_vxseq_len_k"),
+    llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    transposeO("transO",
-               llvm::cl::desc("whether matrix O of attention op is "
-                              "Gxseq_lenxhead (default) or Gxheadxseq_len"),
-               llvm::cl::init(false));
+static llvm::cl::opt<bool> transposeO(
+    "transO",
+    llvm::cl::desc("whether matrix O of attention op is "
+                   "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
+    llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
@@ -705,6 +719,12 @@ static llvm::cl::opt<bool> applyBufferizationPipeline(
     llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
     llvm::cl::init(true));
 
+// TODO[split-K]: remove after integrating with MIGraphX
+static llvm::cl::opt<bool> disableSplitKForTuning(
+    "disable-split-k-for-tuning",
+    llvm::cl::desc("disable split-K GEMM scheme for tuning"),
+    llvm::cl::init(false));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -746,8 +766,7 @@ struct GenParams {
   std::optional<rock::KernelType> operation = std::nullopt;
   SmallVector<Type, 5> types;
   rock::GemmFeatures features = rock::GemmFeatures::none;
-  std::optional<const rock::Conv2dGenerator::Config *> convConfig =
-      std::nullopt;
+  std::optional<const rock::ConvGenerator::Config *> convConfig = std::nullopt;
   StringRef arch;
   StringRef perfConfig;
 };
@@ -896,8 +915,10 @@ static void populateDefaults() {
     }
     if (isAttention) {
       groupSize = 1;
-      sequenceLength = 1024;
-      headDims = 32;
+      sequenceLengthQ = 1024;
+      sequenceLengthK = 1024;
+      headDimQK = 32;
+      headDimV = 32;
     }
     if (isConv) {
       if (mfmaFeature != FeatureToggle::on) {
@@ -939,13 +960,13 @@ static void populateDefaults() {
   }
 
   if (isConv && outputHeight.getNumOccurrences() == 0) {
-    outputHeight = rock::Conv2dGenerator::outputDim(
+    outputHeight = rock::ConvGenerator::outputDim(
         inputHeight.getValue(), filterHeight.getValue(),
         paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
         strideHeight.getValue(), dilationHeight.getValue());
   }
   if (isConv && outputWidth.getNumOccurrences() == 0) {
-    outputWidth = rock::Conv2dGenerator::outputDim(
+    outputWidth = rock::ConvGenerator::outputDim(
         inputWidth.getValue(), filterWidth.getValue(),
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
@@ -962,7 +983,7 @@ auto getRequiredArgs(std::optional<rock::KernelType> kernelType) {
   }
   case rock::KernelType::Attention: {
     const static RequiredArgsType requiredAttenArgs = {
-        &groupSize, &sequenceLength, &headDims};
+        &groupSize, &sequenceLengthQ, &sequenceLengthK, &headDimQK, &headDimV};
     return requiredAttenArgs;
   }
   default: {
@@ -1355,7 +1376,7 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
 
 static std::tuple<int64_t, int64_t, int64_t>
 getConv2dBounds(rock::ConvOpType dir,
-                const rock::Conv2dGenerator::Config &genConfig) {
+                const rock::ConvGenerator::Config &genConfig) {
   int64_t dim, dimH, dimW;
   char channel;
   StringRef layout;
@@ -1539,7 +1560,7 @@ Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref, Type floatType) {
 
 static void
 createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
-                      const rock::Conv2dGenerator::Config &genConfig) {
+                      const rock::ConvGenerator::Config &genConfig) {
   OpBuilder b(module.getContext());
 
   Block *block = func.addEntryBlock();
@@ -1573,23 +1594,26 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   AffineExpr outputHeightExpr, outputWidthExpr;
   AffineMap outputHeightMap, outputWidthMap;
 
+  auto HEIGHT = mlir::rock::ConvGenerator::DIM::HEIGHT;
+  auto WIDTH = mlir::rock::ConvGenerator::DIM::WIDTH;
+
   switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
   case rock::ConvOpType::BwdWeight:
     // d0 * stride + d1 * dilation - padding
-    heightExpr = b.getAffineDimExpr(0) * genConfig.strideHeight +
-                 b.getAffineDimExpr(1) * genConfig.dilationHeight -
-                 genConfig.paddingHeightLeft;
-    widthExpr = b.getAffineDimExpr(0) * genConfig.strideWidth +
-                b.getAffineDimExpr(1) * genConfig.dilationWidth -
-                genConfig.paddingWidthLeft;
+    heightExpr = b.getAffineDimExpr(0) * genConfig.strideDims[HEIGHT] +
+                 b.getAffineDimExpr(1) * genConfig.dilationDims[HEIGHT] -
+                 genConfig.paddingLeftDims[HEIGHT];
+    widthExpr = b.getAffineDimExpr(0) * genConfig.strideDims[WIDTH] +
+                b.getAffineDimExpr(1) * genConfig.dilationDims[WIDTH] -
+                genConfig.paddingLeftDims[WIDTH];
     break;
   case rock::ConvOpType::BwdData:
     // d0 + padding - d1 * dilation
-    heightExpr = b.getAffineDimExpr(0) + genConfig.paddingHeightLeft -
-                 b.getAffineDimExpr(1) * genConfig.dilationHeight;
-    widthExpr = b.getAffineDimExpr(0) + genConfig.paddingWidthLeft -
-                b.getAffineDimExpr(1) * genConfig.dilationWidth;
+    heightExpr = b.getAffineDimExpr(0) + genConfig.paddingLeftDims[HEIGHT] -
+                 b.getAffineDimExpr(1) * genConfig.dilationDims[HEIGHT];
+    widthExpr = b.getAffineDimExpr(0) + genConfig.paddingLeftDims[WIDTH] -
+                b.getAffineDimExpr(1) * genConfig.dilationDims[WIDTH];
     break;
   }
   heightMap = AffineMap::get(2, 0, {heightExpr}, b.getContext());
@@ -1598,8 +1622,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   // Create extra maps for backward data
   if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
     // d0 / stride
-    outputHeightExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideHeight);
-    outputWidthExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideWidth);
+    outputHeightExpr =
+        b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[HEIGHT]);
+    outputWidthExpr =
+        b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[WIDTH]);
     outputHeightMap = AffineMap::get(1, 0, {outputHeightExpr}, b.getContext());
     outputWidthMap = AffineMap::get(1, 0, {outputWidthExpr}, b.getContext());
   }
@@ -1610,9 +1636,9 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   IntegerSet condition;
   if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
     // out_h_tmp % stride_h == 0, out_w_tmp % stride_w == 0
-    exprs.push_back(b.getAffineDimExpr(2) % genConfig.strideHeight);
+    exprs.push_back(b.getAffineDimExpr(2) % genConfig.strideDims[HEIGHT]);
     eqFlags.push_back(true);
-    exprs.push_back(b.getAffineDimExpr(3) % genConfig.strideWidth);
+    exprs.push_back(b.getAffineDimExpr(3) % genConfig.strideDims[WIDTH]);
     eqFlags.push_back(true);
   }
   // out_h_idx >= 0, out_h_idx < out_height, out_w_idx >= 0, out_w_idx <
@@ -1646,16 +1672,16 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   case rock::ConvOpType::Fwd:
     llvm::copy(genConfig.outputDimension, std::back_inserter(upperBounds));
     upperBounds.push_back(dimX);
-    upperBounds.push_back(genConfig.filterHeight);
-    upperBounds.push_back(genConfig.filterWidth);
+    upperBounds.push_back(genConfig.filterDims[HEIGHT]);
+    upperBounds.push_back(genConfig.filterDims[WIDTH]);
     loopIVs.append(genConfig.outputLayout);
     loopIVs.append("cyx");
     break;
   case rock::ConvOpType::BwdData:
     llvm::copy(genConfig.inputDimension, std::back_inserter(upperBounds));
     upperBounds.push_back(dimX);
-    upperBounds.push_back(genConfig.filterHeight);
-    upperBounds.push_back(genConfig.filterWidth);
+    upperBounds.push_back(genConfig.filterDims[HEIGHT]);
+    upperBounds.push_back(genConfig.filterDims[WIDTH]);
     loopIVs.append(genConfig.inputLayout);
     loopIVs.append("kyx");
     break;
@@ -1864,9 +1890,8 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   b.create<func::ReturnOp>(loc, ValueRange{});
 }
 
-static void
-createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
-                     const rock::Conv2dGenerator::Config &genConfig) {
+static void createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
+                                 const rock::ConvGenerator::Config &genConfig) {
   OpBuilder b(module.getContext());
 
   Block *block = func.addEntryBlock();
@@ -1911,29 +1936,32 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   // Emit ConstantOps to be used for strides, paddings and dilations
   auto intType = b.getIntegerType(32);
 
-  auto strideHeightConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.strideHeight, intType);
+  auto HEIGHT = mlir::rock::ConvGenerator::DIM::HEIGHT;
+  auto WIDTH = mlir::rock::ConvGenerator::DIM::WIDTH;
+
+  auto strideHeightConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.strideDims[HEIGHT], intType);
 
   auto strideWidthConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.strideWidth, intType);
+      b.create<arith::ConstantIntOp>(loc, genConfig.strideDims[WIDTH], intType);
 
-  auto paddingHeightLeftConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.paddingHeightLeft, intType);
+  auto paddingHeightLeftConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.paddingLeftDims[HEIGHT], intType);
 
   auto paddingHeightRightConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.paddingHeightRight, intType);
+      loc, genConfig.paddingRightDims[HEIGHT], intType);
 
-  auto paddingWidthLeftConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.paddingWidthLeft, intType);
+  auto paddingWidthLeftConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.paddingLeftDims[WIDTH], intType);
 
-  auto paddingWidthRightConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.paddingWidthRight, intType);
+  auto paddingWidthRightConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.paddingRightDims[WIDTH], intType);
 
-  auto dilationHeightConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.dilationHeight, intType);
+  auto dilationHeightConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.dilationDims[HEIGHT], intType);
 
-  auto dilationWidthConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.dilationWidth, intType);
+  auto dilationWidthConstantOp = b.create<arith::ConstantIntOp>(
+      loc, genConfig.dilationDims[WIDTH], intType);
 
   // Emit ConstantIndex ops
   // %c_0 = constant 0 : index
@@ -2079,7 +2107,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 
 static func::FuncOp
 createCPUConvFunc(ModuleOp module,
-                  const rock::Conv2dGenerator::Config &genConfig) {
+                  const rock::ConvGenerator::Config &genConfig) {
   assert(genConfig.operation.has_value());
   std::string funcName =
       rock::getNameForConvOpType(genConfig.operation.value()).str();
@@ -2113,10 +2141,10 @@ createCPUConvFunc(ModuleOp module,
   auto outputType = MemRefType::get(outputDimension, outputElemType);
 
   // Create conv2d_host function
-  rock::Conv2dGenerator conv2dGenerator(genConfig);
+  rock::ConvGenerator convGenerator(genConfig);
 
   bool hasWorkspace = false;
-  if (failed(conv2dGenerator.hasWorkspace(b, hasWorkspace))) {
+  if (failed(convGenerator.hasWorkspace(b, hasWorkspace))) {
     assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
   }
   Type workspaceArgType;
@@ -2192,6 +2220,9 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   auto func =
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
                              b.getFunctionType(argTypes, {}), funcAttrs);
+  if (reverse_grid) {
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), b.getUnitAttr());
+  }
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
@@ -2208,7 +2239,13 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
+
   b.create<func::ReturnOp>(loc);
+
+  // TODO[split-K]: remove after integrating split-K into MIGraphX
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSpliKForTuningAttr::getMnemonic(),
+                  b.getUnitAttr());
 
   module.push_back(func);
   return func;
@@ -2216,16 +2253,22 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
                               ArrayRef<Type> elemTypes) {
-  SmallVector<int64_t> dims{groupSize, sequenceLength, headDims};
-  SmallVector<int64_t> transposedDims{groupSize, headDims, sequenceLength};
+  SmallVector<int64_t> qDims{groupSize, sequenceLengthQ, headDimQK};
+  SmallVector<int64_t> transposedQDims{groupSize, headDimQK, sequenceLengthQ};
+  SmallVector<int64_t> kDims{groupSize, sequenceLengthK, headDimQK};
+  SmallVector<int64_t> transposedKDims{groupSize, headDimQK, sequenceLengthK};
+  SmallVector<int64_t> vDims{groupSize, sequenceLengthK, headDimV};
+  SmallVector<int64_t> transposedVDims{groupSize, headDimV, sequenceLengthK};
+  SmallVector<int64_t> oDims{groupSize, sequenceLengthQ, headDimV};
+  SmallVector<int64_t> transposedODims{groupSize, headDimV, sequenceLengthQ};
   bool isQuantized =
       elemTypes[0] == IntegerType::get(elemTypes[0].getContext(), 8);
 
-  MemRefType qType = MemRefType::get(transposeQ ? transposedDims : dims,
+  MemRefType qType = MemRefType::get(transposeQ ? transposedQDims : qDims,
                                      elemTypes[0]),
-             kType = MemRefType::get(transposeK ? dims : transposedDims,
+             kType = MemRefType::get(transposeK ? kDims : transposedKDims,
                                      elemTypes[1]),
-             vType = MemRefType::get(transposeV ? transposedDims : dims,
+             vType = MemRefType::get(transposeV ? transposedVDims : vDims,
                                      elemTypes[2]);
 
   result.push_back(qType);
@@ -2245,19 +2288,19 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
     result.push_back(qsType);
   }
   if (hasAttnScale) {
-    SmallVector<int64_t> scaleDims{groupSize, sequenceLength, sequenceLength};
+    SmallVector<int64_t> scaleDims{groupSize, sequenceLengthQ, sequenceLengthK};
     MemRefType sType =
         MemRefType::get(scaleDims, elemTypes[optionalArgsCounter++]);
     result.push_back(sType);
   }
   if (hasAttnBias) {
-    SmallVector<int64_t> biasDims{groupSize, sequenceLength, sequenceLength};
+    SmallVector<int64_t> biasDims{groupSize, sequenceLengthQ, sequenceLengthK};
     MemRefType bType =
         MemRefType::get(biasDims, elemTypes[optionalArgsCounter++]);
     result.push_back(bType);
   }
   MemRefType outType =
-      MemRefType::get(transposeO ? transposedDims : dims, elemTypes.back());
+      MemRefType::get(transposeO ? transposedODims : oDims, elemTypes.back());
   result.push_back(outType);
 }
 
@@ -2311,6 +2354,10 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
       loc, kernelName, builder.getFunctionType(argTypes, {}), funcAttrs);
+  if (reverse_grid) {
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
+                  builder.getUnitAttr());
+  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -2358,7 +2405,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       qkElemType = IntegerType::get(ctx, 32);
     }
     MemRefType qkMemRefType = MemRefType::get(
-        {qShape[0], sequenceLength, sequenceLength}, qkElemType);
+        {qShape[0], sequenceLengthQ, sequenceLengthK}, qkElemType);
     Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);
     Value qkTensor = rock::getAsTensor(builder, loc, qkMemRef);
     if (isQuantized) {
@@ -2393,7 +2440,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
           biasTensor);
     }
     MemRefType resMemRefType =
-        MemRefType::get({qShape[0], sequenceLength, sequenceLength},
+        MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
                         qkTensor.getType().cast<ShapedType>().getElementType());
     Value resMemref =
         builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, qkTensor);
@@ -2961,22 +3008,22 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
       const auto &genConfig = **genParams.convConfig;
-      rock::Conv2dGenerator conv2dGenerator(genConfig);
+      rock::ConvGenerator convGenerator(genConfig);
       if (heuristicValidation || hasAccel)
-        conv2dGenerator.setPerfConfig("");
+        convGenerator.setPerfConfig("");
       // use non-accel kernels to verify accel kernels except when
       // verifying a tuning case
       if (hasAccel)
-        conv2dGenerator.flipAccel();
+        convGenerator.flipAccel();
       if (!((hasAccel || heuristicValidation) &&
             genConfig.inputDataTypeStr == "i8"))
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdlops or tuned is verified with i8 non-xdlops.
-        conv2dGenerator.setDataTypes("f32");
+        convGenerator.setDataTypes("f32");
 
       int kernelStart = genConfig.kernelId;
       int kernelCount = 0;
-      if (failed(conv2dGenerator.getKernelCount(b, kernelCount))) {
+      if (failed(convGenerator.getKernelCount(b, kernelCount))) {
         llvm::errs() << "Getting kernel count failed.\n";
         exit(1);
       }
@@ -2989,25 +3036,25 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       std::string kernelBaseName = genConfig.kernelBaseName;
       llvm::errs() << kernelBaseName << "\n";
       for (int i = kernelStart; i < kernelCount; ++i) {
-        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(conv2dGenerator.genConvModule(module, i, true,
-                                                 /*ignoreTuning=*/true))) {
+        convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+        if (failed(convGenerator.genConvModule(module, i, true,
+                                               /*ignoreTuning=*/true))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
-        KernelIF kernel(conv2dGenerator.getKernelFunc());
+        KernelIF kernel(convGenerator.getKernelFunc());
         auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
         // Decide whether to trim the last workspace argument to the verifier
         // GPU kernel.
-        rock::Conv2dGenerator originalConv2dGenerator(genConfig);
+        rock::ConvGenerator originalConvGenerator(genConfig);
         bool originalHasWorkspace = false, verifierHasWorkspace = false;
-        if (failed(originalConv2dGenerator.hasWorkspace(
-                b, originalHasWorkspace))) {
+        if (failed(
+                originalConvGenerator.hasWorkspace(b, originalHasWorkspace))) {
           llvm::errs() << "Getting workspace failed.\n";
           exit(1);
         }
-        if (failed(conv2dGenerator.hasWorkspace(b, verifierHasWorkspace))) {
+        if (failed(convGenerator.hasWorkspace(b, verifierHasWorkspace))) {
           llvm::errs() << "Getting workspace failed.\n";
           exit(1);
         }
@@ -3017,7 +3064,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
 
         b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       }
-      conv2dGenerator.setKernelName(kernelBaseName);
+      convGenerator.setKernelName(kernelBaseName);
     } else { // gemm GPU validation
       GenParams newParams = genParams;
 
@@ -3376,7 +3423,7 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
 static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
                                ModuleOp module) {
   OpBuilder builder(context);
-  static rock::Conv2dGenerator conv2dGenerator;
+  static rock::ConvGenerator convGenerator;
 
   const bool isGemm = operation == rock::KernelType::Gemm;
   const bool isAttention = operation == rock::KernelType::Attention;
@@ -3394,14 +3441,14 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
 
   // Scenario 1: We use conv config to initialize everything
   if (!convConfig.empty()) {
-    if (failed(conv2dGenerator.parseConvConfig(builder, convConfig.c_str()))) {
+    if (failed(convGenerator.parseConvConfig(builder, convConfig.c_str()))) {
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }
-    genParams.types.push_back(conv2dGenerator.getFilterDataType(builder));
-    genParams.types.push_back(conv2dGenerator.getInputDataType(builder));
-    genParams.types.push_back(conv2dGenerator.getOutputDataType(builder));
-    const auto *convConfig = &conv2dGenerator.getConfig();
+    genParams.types.push_back(convGenerator.getFilterDataType(builder));
+    genParams.types.push_back(convGenerator.getInputDataType(builder));
+    genParams.types.push_back(convGenerator.getOutputDataType(builder));
+    const auto *convConfig = &convGenerator.getConfig();
     genParams.convConfig = convConfig;
     genParams.features = convConfig->features;
     genParams.operation =
@@ -3510,11 +3557,12 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuAttentionKernel(module, genParams);
     } else {
-      conv2dGenerator = rock::Conv2dGenerator(
+      convGenerator = rock::ConvGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
-          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
+          reverse_grid, enabledFeatures,
+          rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilationHeight.getValue(),
           dilationWidth.getValue(), strideHeight.getValue(),
@@ -3523,7 +3571,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
           paddingWidthRight.getValue(), filterLayout.getValue(),
           inputLayout.getValue(), outputLayout.getValue());
 
-      status = conv2dGenerator.parseConvDims(
+      status = convGenerator.parseConvDims(
           batchSize, groupSize, inputChannel, inputHeight, inputWidth,
           outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
       if (failed(status)) {
@@ -3531,15 +3579,15 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
         exit(1);
       }
 
-      genParams.types.push_back(conv2dGenerator.getFilterDataType(builder));
-      genParams.types.push_back(conv2dGenerator.getInputDataType(builder));
-      genParams.types.push_back(conv2dGenerator.getOutputDataType(builder));
-      genParams.convConfig = &conv2dGenerator.getConfig();
+      genParams.types.push_back(convGenerator.getFilterDataType(builder));
+      genParams.types.push_back(convGenerator.getInputDataType(builder));
+      genParams.types.push_back(convGenerator.getOutputDataType(builder));
+      genParams.convConfig = &convGenerator.getConfig();
     }
   }
 
   // TODO: Extract isApplicable check to be its own component
-  if (isConv && failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
+  if (isConv && failed(convGenerator.isApplicable(/* checkChip = */ false))) {
     llvm::errs() << "Convolution configuration does not have valid dimension\n";
     exit(1);
   }
@@ -3552,7 +3600,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       // Populate the module.
       int kernelStart = genConfig.kernelId;
       int kernelCount = 0;
-      if (failed(conv2dGenerator.getKernelCount(builder, kernelCount))) {
+      if (failed(convGenerator.getKernelCount(builder, kernelCount))) {
         llvm::errs() << "Getting kernel count failed.\n";
         exit(1);
       }
@@ -3564,13 +3612,13 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       // generate all sub-kernels, and get corresponding gemmId
       std::string kernelBaseName = genConfig.kernelBaseName;
       for (int i = kernelStart; i < kernelCount; ++i) {
-        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(conv2dGenerator.genConvModule(module, i))) {
+        convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+        if (failed(convGenerator.genConvModule(module, i))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
       }
-      conv2dGenerator.setKernelName(kernelBaseName);
+      convGenerator.setKernelName(kernelBaseName);
     }
   }
 
@@ -3631,6 +3679,7 @@ int main(int argc, char **argv) {
   mlir::registerMLIRContextCLOptions();
   mlir::registerPassManagerCLOptions();
   MLIRContext context(registry);
+  context.disableMultithreading();
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
                       affine::AffineDialect, memref::MemRefDialect,
                       math::MathDialect, arith::ArithDialect,

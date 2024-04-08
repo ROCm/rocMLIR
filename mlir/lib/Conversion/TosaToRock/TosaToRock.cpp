@@ -115,22 +115,16 @@ getArchAttributes(Operation *op, Type inputType) {
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
+  FailureOr<StringAttr> maybeArch = rock::getArch(op);
+  if (succeeded(maybeArch)) {
+    arch = maybeArch.value();
+  }
   std::optional<uint32_t> num_cu = std::nullopt;
+  FailureOr<int64_t> maybeNumCU = rock::getNumCU(op);
+  if (succeeded(maybeNumCU)) {
+    num_cu = (uint32_t)maybeNumCU.value();
+  }
   std::optional<bool> xdlopsV2 = std::nullopt;
-
-  if (auto attr = op->getAttrOfType<StringAttr>("arch"))
-    arch = attr;
-  else if (auto attr = func->getAttrOfType<StringAttr>("mhal.arch"))
-    arch = attr;
-  else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
-    arch = attr;
-  else if (auto attr = mod->getAttrOfType<StringAttr>("mhal.arch"))
-    arch = attr;
-
-  if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
-    num_cu = attr.getValue().getZExtValue();
-  else if (auto attr = func->getAttrOfType<IntegerAttr>("num_cu"))
-    num_cu = attr.getValue().getZExtValue();
 
   if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();
@@ -178,9 +172,9 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   ArrayRef<int64_t> pad64 = pad;
   ArrayRef<int64_t> stride64 = stride;
   ArrayRef<int64_t> dilation64 = dilation;
-  SmallVector<int32_t, 4> paddingArray;
-  SmallVector<int32_t, 2> strideArray;
-  SmallVector<int32_t, 2> dilationArray;
+  SmallVector<int64_t, 4> paddingArray;
+  SmallVector<int64_t, 2> strideArray;
+  SmallVector<int64_t, 2> dilationArray;
   for (auto i : pad64)
     paddingArray.push_back(i);
   for (auto i : stride64)
@@ -194,8 +188,8 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-      rw.getI32ArrayAttr(paddingArray), rw.getI32ArrayAttr(strideArray),
-      rw.getI32ArrayAttr(dilationArray),
+      rw.getIndexArrayAttr(paddingArray), rw.getIndexArrayAttr(strideArray),
+      rw.getIndexArrayAttr(dilationArray),
       /*params=*/nullptr, numCUAttr);
 
   // specify layout attributes

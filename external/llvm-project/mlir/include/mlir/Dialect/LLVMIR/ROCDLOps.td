@@ -39,6 +39,9 @@ def ROCDL_Dialect : Dialect {
     static constexpr ::llvm::StringLiteral getMinWavesPerEu() {
       return ::llvm::StringLiteral("rocdl.waves_per_eu");
     }
+    static constexpr ::llvm::StringLiteral getUnsafeFpAtomics() {
+      return ::llvm::StringLiteral("rocdl.unsafe_fp_atomics");
+    }
 
     /// The address space value that represents global memory.
     static constexpr unsigned kGlobalMemoryAddressSpace = 1;

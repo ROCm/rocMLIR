@@ -1,4 +1,4 @@
-#include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -34,10 +34,10 @@ using namespace mlir::rock;
 
 #define DEBUG_TYPE "conv2d-gen"
 
-Conv2dGenerator::Conv2dGenerator(
+ConvGenerator::ConvGenerator(
     const std::string &arch, const std::string &chip, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig,
-    std::optional<int> num_cu, GemmFeatures features,
+    std::optional<int> num_cu, bool reverseGrid, GemmFeatures features,
     const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, int dilationHeight, int dilationWidth,
@@ -51,19 +51,16 @@ Conv2dGenerator::Conv2dGenerator(
              chipFeatures,
              perfConfig,
              num_cu,
+             reverseGrid,
              features,
              operation,
              filterDataTypeStr,
              inputDataTypeStr,
              outputDataTypeStr,
-             dilationHeight,
-             dilationWidth,
-             strideHeight,
-             strideWidth,
-             paddingHeightLeft,
-             paddingHeightRight,
-             paddingWidthLeft,
-             paddingWidthRight,
+             {dilationHeight, dilationWidth},
+             {strideHeight, strideWidth},
+             {paddingHeightLeft, paddingWidthLeft},
+             {paddingHeightRight, paddingWidthRight},
              filterLayout,
              inputLayout,
              outputLayout,
@@ -72,10 +69,9 @@ Conv2dGenerator::Conv2dGenerator(
              {},
              {},
              {},
-             -1,
-             -1} {}
+             {-1, -1}} {}
 
-Conv2dGenerator::Conv2dGenerator(const Conv2dGenerator::Config &_config)
+ConvGenerator::ConvGenerator(const ConvGenerator::Config &_config)
     : config(_config) {}
 
 static void strToTokens(const std::string &arguments,
@@ -120,7 +116,7 @@ static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   return success();
 }
 
-LogicalResult Conv2dGenerator::isApplicable(bool checkChip) const {
+LogicalResult ConvGenerator::isApplicable(bool checkChip) const {
   if (failed(hasValidDimension())) {
     return failure();
   }
@@ -132,10 +128,10 @@ LogicalResult Conv2dGenerator::isApplicable(bool checkChip) const {
   return success();
 }
 
-LogicalResult Conv2dGenerator::hasValidDimension() const {
+LogicalResult ConvGenerator::hasValidDimension() const {
   static const SmallVector<int64_t, 4> strictlyPositiveParams{
-      config.dilationHeight, config.dilationWidth, config.strideHeight,
-      config.strideWidth};
+      config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
+      config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH]};
   if (std::any_of(strictlyPositiveParams.begin(), strictlyPositiveParams.end(),
                   [](const int64_t &a) { return a <= 0; })) {
     LLVM_DEBUG(llvm::dbgs()
@@ -144,8 +140,8 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   }
 
   static const SmallVector<int64_t, 4> nonNegativeParams{
-      config.paddingHeightLeft, config.paddingHeightRight,
-      config.paddingWidthLeft, config.paddingWidthRight};
+      config.paddingLeftDims[DIM::HEIGHT], config.paddingRightDims[DIM::HEIGHT],
+      config.paddingLeftDims[DIM::WIDTH], config.paddingRightDims[DIM::WIDTH]};
   if (std::any_of(nonNegativeParams.begin(), nonNegativeParams.end(),
                   [](const int64_t &a) { return a < 0; })) {
     LLVM_DEBUG(llvm::dbgs() << "Padding values cannot be negative\n");
@@ -220,11 +216,13 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   }
 
   int64_t expectedOutHeight = outputDim(
-      inDim["h"], filDim["y"], config.paddingHeightLeft,
-      config.paddingHeightRight, config.strideHeight, config.dilationHeight);
-  int64_t expectedOutWidth = outputDim(
-      inDim["w"], filDim["x"], config.paddingWidthLeft,
-      config.paddingWidthRight, config.strideWidth, config.dilationWidth);
+      inDim["h"], filDim["y"], config.paddingLeftDims[DIM::HEIGHT],
+      config.paddingRightDims[DIM::HEIGHT], config.strideDims[DIM::HEIGHT],
+      config.dilationDims[DIM::HEIGHT]);
+  int64_t expectedOutWidth =
+      outputDim(inDim["w"], filDim["x"], config.paddingLeftDims[DIM::WIDTH],
+                config.paddingRightDims[DIM::WIDTH],
+                config.strideDims[DIM::WIDTH], config.dilationDims[DIM::WIDTH]);
   if (outDim["h"] != expectedOutHeight) {
     LLVM_DEBUG(llvm::dbgs()
                << "Output height " << outDim["h"] << " doesn't match height "
@@ -238,14 +236,16 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
     return failure();
   }
 
-  if (inDim["h"] + config.paddingHeightLeft + config.paddingHeightRight <
+  if (inDim["h"] + config.paddingLeftDims[DIM::HEIGHT] +
+          config.paddingRightDims[DIM::HEIGHT] <
       filDim["y"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is shorter than the filter\n");
     return failure();
   }
 
-  if (inDim["w"] + config.paddingWidthLeft + config.paddingWidthRight <
+  if (inDim["w"] + config.paddingLeftDims[DIM::WIDTH] +
+          config.paddingRightDims[DIM::WIDTH] <
       filDim["x"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is narrower than the filter\n");
@@ -255,7 +255,7 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   return success();
 }
 
-LogicalResult Conv2dGenerator::hasValidChip() const {
+LogicalResult ConvGenerator::hasValidChip() const {
   // We support in between gfx900 to gfx908 and gfx1030 for nonxdlops algorithm
   // For example, gfx803, gfx90c are unsupported now
   unsigned int chipHexNumber = 0;
@@ -284,8 +284,8 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   return success();
 }
 
-LogicalResult Conv2dGenerator::getKernelCount(OpBuilder &builder,
-                                              int &kernelCount) const {
+LogicalResult ConvGenerator::getKernelCount(OpBuilder &builder,
+                                            int &kernelCount) const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     kernelCount = 1;
     return success();
@@ -305,8 +305,8 @@ LogicalResult Conv2dGenerator::getKernelCount(OpBuilder &builder,
   llvm_unreachable("Invalid conv2d operation");
 }
 
-LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
-                                                       int &kernelCount) const {
+LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
+                                                     int &kernelCount) const {
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
@@ -345,10 +345,11 @@ LogicalResult Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   return success();
 }
 
-int Conv2dGenerator::getBwdDataKernelCount() const {
+int ConvGenerator::getBwdDataKernelCount() const {
   llvm::SmallVector<int64_t> gemmIds = backwardDataKernelIds(
-      config.strideHeight, config.strideWidth, config.dilationHeight,
-      config.dilationWidth, config.filterHeight, config.filterWidth);
+      config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
+      config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
+      config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
   return static_cast<int>(gemmIds.size());
 }
 
@@ -372,17 +373,17 @@ static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
   return *type;
 }
 
-Type Conv2dGenerator::getFilterDataType(OpBuilder &builder) const {
+Type ConvGenerator::getFilterDataType(OpBuilder &builder) const {
   if (config.filterDataTypeStr.empty())
     return getInputDataType(builder);
   return strToType(config.filterDataTypeStr, builder);
 }
 
-Type Conv2dGenerator::getInputDataType(OpBuilder &builder) const {
+Type ConvGenerator::getInputDataType(OpBuilder &builder) const {
   return strToType(config.inputDataTypeStr, builder);
 }
 
-Type Conv2dGenerator::getOutputDataType(OpBuilder &builder) const {
+Type ConvGenerator::getOutputDataType(OpBuilder &builder) const {
   if (config.outputDataTypeStr.empty()) {
     // Special-case i8 -> i32 translation as a default
     Type inType = getInputDataType(builder);
@@ -392,8 +393,8 @@ Type Conv2dGenerator::getOutputDataType(OpBuilder &builder) const {
   return strToType(config.outputDataTypeStr, builder);
 }
 
-LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
-                                                     bool &needExtraPad) const {
+LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
+                                                   bool &needExtraPad) const {
   Type dataType = getInputDataType(builder);
   ConvOpType dir = config.operation.value();
   assert(dir == ConvOpType::BwdWeight &&
@@ -416,9 +417,8 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   if (isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     InitParamsAccel validParams;
-    uint32_t blockSize;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
-        info, config.perfConfig, validParams, blockSize);
+        builder, info, config.perfConfig, validParams);
     if (succeeded(res)) {
       needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
                           validParams, gemmSize) != 0);
@@ -427,8 +427,8 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   } else {
     PopulateParams populateParams;
     InitParamsNonAccel validParams;
-    auto res = populateParams.obtainTuningParameters(info, config.perfConfig,
-                                                     validParams);
+    auto res = populateParams.obtainTuningParameters(
+        builder, info, config.perfConfig, validParams);
 
     if (succeeded(res)) {
       needExtraPad =
@@ -439,8 +439,8 @@ LogicalResult Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   return failure();
 }
 
-LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
-                                            bool &needWorkspace) const {
+LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
+                                          bool &needWorkspace) const {
   // Decide if a workspace is needed.
   // Preconditions:
   // - data type: fp16
@@ -465,8 +465,8 @@ LogicalResult Conv2dGenerator::hasWorkspace(OpBuilder &builder,
   return success();
 }
 
-LogicalResult Conv2dGenerator::getWorkspaceSize(ModuleOp &module,
-                                                int &workspaceSize) const {
+LogicalResult ConvGenerator::getWorkspaceSize(ModuleOp &module,
+                                              int &workspaceSize) const {
   // Currently onlt in the following condition would a workspace is needed.
   // - data type: fp16
   // - operation: backward weight conv2d.
@@ -487,13 +487,13 @@ LogicalResult Conv2dGenerator::getWorkspaceSize(ModuleOp &module,
   return success();
 }
 
-uint32_t Conv2dGenerator::getNumCU() const {
+uint32_t ConvGenerator::getNumCU() const {
   return config.num_cu.has_value() ? config.num_cu.value()
                                    : rock::lookupArchInfo(config.arch).minNumCU;
 }
 
-LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
-                                               const char *arguments) {
+LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
+                                             const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
 
@@ -561,6 +561,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
+  strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -584,14 +585,14 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
   config.filterDataTypeStr = canonicalizeDataType(argMap["fil_type"]);
   config.inputDataTypeStr = canonicalizeDataType(argMap["in_type"]);
   config.outputDataTypeStr = canonicalizeDataType(argMap["out_type"]);
-  strToInt("dilation_h", config.dilationHeight);
-  strToInt("dilation_w", config.dilationWidth);
-  strToInt("conv_stride_h", config.strideHeight);
-  strToInt("conv_stride_w", config.strideWidth);
-  strToInt("padding_h", config.paddingHeightLeft);
-  strToInt("padding_h", config.paddingHeightRight);
-  strToInt("padding_w", config.paddingWidthLeft);
-  strToInt("padding_w", config.paddingWidthRight);
+  strToInt("dilation_h", config.dilationDims[DIM::HEIGHT]);
+  strToInt("dilation_w", config.dilationDims[DIM::WIDTH]);
+  strToInt("conv_stride_h", config.strideDims[DIM::HEIGHT]);
+  strToInt("conv_stride_w", config.strideDims[DIM::WIDTH]);
+  strToInt("padding_h", config.paddingLeftDims[DIM::HEIGHT]);
+  strToInt("padding_h", config.paddingRightDims[DIM::HEIGHT]);
+  strToInt("padding_w", config.paddingLeftDims[DIM::WIDTH]);
+  strToInt("padding_w", config.paddingRightDims[DIM::WIDTH]);
 
   strToStr("kernel_name", config.kernelBaseName);
 
@@ -647,13 +648,13 @@ LogicalResult Conv2dGenerator::parseConvConfig(OpBuilder &builder,
 }
 
 LogicalResult
-Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
-                               int64_t inputChannel, int64_t inputHeight,
-                               int64_t inputWidth, int64_t outputChannel,
-                               int64_t outputHeight, int64_t outputWidth,
-                               int64_t filterHeight, int64_t filterWidth) {
-  config.filterHeight = filterHeight;
-  config.filterWidth = filterWidth;
+ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
+                             int64_t inputChannel, int64_t inputHeight,
+                             int64_t inputWidth, int64_t outputChannel,
+                             int64_t outputHeight, int64_t outputWidth,
+                             int64_t filterHeight, int64_t filterWidth) {
+  config.filterDims[DIM::HEIGHT] = filterHeight;
+  config.filterDims[DIM::WIDTH] = filterWidth;
   static const std::string filterKeys = "kgcyx";
   int64_t filterVals[] = {outputChannel / groupSize, groupSize,
                           inputChannel / groupSize, filterHeight, filterWidth};
@@ -711,25 +712,25 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   return success();
 }
 
-void Conv2dGenerator::setKernelName(const std::string &newName) {
+void ConvGenerator::setKernelName(const std::string &newName) {
   config.kernelBaseName = newName;
 }
 
-void Conv2dGenerator::setDataTypes(const std::string &dataTypeStr) {
+void ConvGenerator::setDataTypes(const std::string &dataTypeStr) {
   config.filterDataTypeStr = config.inputDataTypeStr =
       config.outputDataTypeStr = dataTypeStr;
 }
 
-void Conv2dGenerator::flipAccel() {
+void ConvGenerator::flipAccel() {
   config.features = bitEnumClear(config.features, GemmFeatures::mfma);
   config.features = bitEnumClear(config.features, GemmFeatures::wmma);
 }
 
-void Conv2dGenerator::setPerfConfig(StringRef perfConfig) {
+void ConvGenerator::setPerfConfig(StringRef perfConfig) {
   config.perfConfig = perfConfig.str();
 }
 
-ConvolutionDims Conv2dGenerator::getConvolutionDims() const {
+ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
   auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
@@ -738,9 +739,9 @@ ConvolutionDims Conv2dGenerator::getConvolutionDims() const {
                          inDim["n"], inDim["g"]);
 }
 
-LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
-                                             bool is_verifier,
-                                             bool ignoreTuning) {
+LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
+                                           bool is_verifier,
+                                           bool ignoreTuning) {
   OpBuilder builder(module.getContext());
 
   Type filterDataType = getFilterDataType(builder);
@@ -811,6 +812,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
+  if (config.reverseGrid) {
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
+                  builder.getUnitAttr());
+  }
   module.push_back(func);
   if (!is_verifier)
     module->setAttr(archAttr.getName(), archAttr.getValue());
@@ -843,8 +848,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // kernel ID.
   if (config.operation.value() == ConvOpType::BwdData) {
     llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
-        config.strideHeight, config.strideWidth, config.dilationHeight,
-        config.dilationWidth, config.filterHeight, config.filterWidth);
+        config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
+        config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
+        config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
     assert(kernelIds.size() > static_cast<size_t>(rawKernelId));
     kernelId = kernelIds[rawKernelId];
   }
@@ -878,21 +884,22 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       builder.getAttr<GemmFeaturesAttr>(config.features);
   attributes.push_back(builder.getNamedAttr("features", features));
 
-  SmallVector<int32_t, 4> paddingArray{
-      config.paddingHeightLeft, config.paddingHeightRight,
-      config.paddingWidthLeft, config.paddingWidthRight};
-  SmallVector<int32_t, 2> strideArray{config.strideHeight, config.strideWidth};
-  SmallVector<int32_t, 2> dilationArray{config.dilationHeight,
-                                        config.dilationWidth};
+  SmallVector<int64_t, 4> paddingArray{
+      config.paddingLeftDims[DIM::HEIGHT], config.paddingRightDims[DIM::HEIGHT],
+      config.paddingLeftDims[DIM::WIDTH], config.paddingRightDims[DIM::WIDTH]};
+  SmallVector<int64_t, 2> strideArray{config.strideDims[DIM::HEIGHT],
+                                      config.strideDims[DIM::WIDTH]};
+  SmallVector<int64_t, 2> dilationArray{config.dilationDims[DIM::HEIGHT],
+                                        config.dilationDims[DIM::WIDTH]};
 
   attributes.push_back(
-      builder.getNamedAttr("padding", builder.getI32ArrayAttr(paddingArray)));
+      builder.getNamedAttr("padding", builder.getIndexArrayAttr(paddingArray)));
 
   attributes.push_back(
-      builder.getNamedAttr("strides", builder.getI32ArrayAttr(strideArray)));
+      builder.getNamedAttr("strides", builder.getIndexArrayAttr(strideArray)));
 
   attributes.push_back(builder.getNamedAttr(
-      "dilations", builder.getI32ArrayAttr(dilationArray)));
+      "dilations", builder.getIndexArrayAttr(dilationArray)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {
@@ -964,4 +971,4 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   return success();
 }
 
-func::FuncOp Conv2dGenerator::getKernelFunc() const { return kernelFunc; }
+func::FuncOp ConvGenerator::getKernelFunc() const { return kernelFunc; }

@@ -329,8 +329,8 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     ThreadwiseCopyOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
-  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
-  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
+  Value sourceView = adaptor.getSource();
+  Value destView = adaptor.getDest();
   auto srcViewShape = op.getSource().getType().getShape();
   auto dstViewShape = op.getDest().getType().getShape();
 
@@ -345,21 +345,30 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     extraIndicesSourceShape.push_back(srcViewShape[i]);
   }
 
-  auto [rawLoadBuffer, loadBufferView, sourceNeeds64BitIdx] =
-      untransform(b, sourceView);
-  auto [rawStoreBuffer, storeBufferView, dstNeeds64BitIdx] =
-      untransform(b, destView);
-
   // We need to normalize the maps. I.e., if i0,...,iD-1 are the extra
   // destination indices and j0, ..., jS-1 are the extra source indices, both
   // source and destination views need to be [(i0, ..., iD-1), (j0, ..., jS-1),
   // ..., (other dest/source transform indices)]. It is important that the extra
   // dimensions are propagated top to bottom, otherwise the transformation stack
-  // might loose invertibility
-  loadBufferView = addPassThroughIndices(
-      b, loadBufferView, extraIndicesDestShape, extraIndicesSourceSize);
-  storeBufferView =
-      addPassThroughIndices(b, storeBufferView, extraIndicesSourceShape, 0);
+  // might loose invertibility. Note that the this will add an additional series
+  // of AddDim{} operators below the existing transforms to protect against
+  // shape mismatches.
+  sourceView = addPassThroughIndices(b, sourceView, extraIndicesDestShape,
+                                     extraIndicesSourceSize);
+  destView = addPassThroughIndices(b, destView, extraIndicesSourceShape, 0);
+
+  // Almost certainly a noop, since adding extra indices creates fresh
+  // IR, but we call it just in case.
+  sourceView = isolateTransforms(b, sourceView);
+  destView = isolateTransforms(b, destView);
+
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
+
+  auto [rawLoadBuffer, loadBufferView, sourceNeeds64BitIdx] =
+      untransform(b, sourceView);
+  auto [rawStoreBuffer, storeBufferView, dstNeeds64BitIdx] =
+      untransform(b, destView);
 
   assert(!sourceNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
   assert(!dstNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
@@ -373,9 +382,6 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     return op.emitOpError(
         "Raw store buffers have to be flat or multi buffers.");
 
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
-
   // Basic copy loop. Copy element by element from src to dest view. Only
   // consider un-extended start/stride/bounds. We will extend those later to
   // match our normalized structure
@@ -388,18 +394,38 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   int64_t vecLen = 1;
 
   // If we can invert the store view, we can easily find out the common
-  // vectorization length
-  auto storeBufferViewInverted = invertTransforms(b, loc, storeBufferView);
+  // vectorization length.
+  // When inverting, we need to peel off the final AddDim{}s used to maintain
+  // type consistency if any are needed.
+  Attribute storeBufferLoadIdxsAttr;
+  ArrayAttr storeBufferViewForInverse = storeBufferView;
+  if (extraIndicesSourceSize > 0) {
+    ArrayRef<Attribute> storeBufferViews = storeBufferViewForInverse.getValue();
+    storeBufferViewForInverse = b.getArrayAttr(storeBufferViews.drop_back());
+    storeBufferLoadIdxsAttr = storeBufferViews.back();
+  }
+  auto storeBufferViewInverted =
+      invertTransforms(b, loc, storeBufferViewForInverse);
   if (storeBufferViewInverted) {
-    auto srcToDstView =
-        prependUpperViews(b, storeBufferViewInverted, loadBufferView);
-    int64_t maxVlen = 128 / elemType.getIntOrFloatBitWidth();
-    auto shape = srcToDstView[0].cast<TransformMapAttr>().getUpperBounds();
-    vecLen = getMaxVectorizationForDatatype(
-        srcToDstView, /*dim=*/extraIndicesSourceSize + extraIndicesDestSize,
-        maxVlen, shape, elemType);
-    copyFromView = collapseContiguousMerges(srcToDstView, rawStoreBufferShape);
-    copyToView = b.getArrayAttr({});
+    Value srcToDestView = transform(b, sourceView, storeBufferViewInverted);
+    // It may be the case that we had an isolated transform stack and didn't
+    // need to add extra indices. In that case, all the possible sources of
+    // cloning will have declined to trigger on account of everything already
+    // being in the right form. However, adding the inverses will introduce
+    // additional uses, causing sanity-check assertions to trip in
+    // collapseContiguousMerges(). To handle this case, we force a shallow
+    // clone.
+    srcToDestView = isolateTransforms(b, srcToDestView);
+    VectorizationResult vecRes = getMaxVectorization(
+        srcToDestView, extraIndicesSourceSize + extraIndicesDestSize);
+    vecLen = vecRes.max;
+    collapseContiguousMerges(srcToDestView);
+    std::tie(rawLoadBuffer, copyFromView, std::ignore) =
+        untransform(b, srcToDestView);
+    if (storeBufferLoadIdxsAttr)
+      copyToView = b.getArrayAttr({storeBufferLoadIdxsAttr});
+    else
+      copyToView = b.getArrayAttr({});
     start = SmallVector<Value>{zero};
     strides = SmallVector<int64_t>{vecLen};
     bounds = SmallVector<int64_t>{rawStoreBufferShape.back()};
@@ -431,81 +457,50 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
     Type loadType = vectorTypeOrSelf(elemType, vecLen);
-
-    // Load coords: get rid of the extra destination indices. The lower source
-    // buffer is in the form of [sourceIndices*,extraDestIndices,rawIndex].
-    auto loadCoords = SmallVector<Value>(copyLoop.getLowerCoords(0).begin(),
-                                         copyLoop.getLowerCoords(0).end() - 1 -
-                                             extraIndicesDestSize);
-    loadCoords.push_back(copyLoop.getLowerCoords(0).back());
-
-    // Store coords: get rid of the extra source indices. The lower dest buffer
-    // is in the form of [extraSourceIndices,destIndices*,rawIndex].
-    auto storeCoords = SmallVector<Value>(copyLoop.getLowerCoords(1).begin() +
-                                              extraIndicesSourceSize,
-                                          copyLoop.getLowerCoords(1).end() - 1);
-    storeCoords.push_back(copyLoop.getLowerCoords(1).back());
-
-    auto val =
-        b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer, loadCoords);
-    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer, storeCoords);
+    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
+                                        copyLoop.getLowerCoords(0));
+    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
+                              copyLoop.getLowerCoords(1));
   }
   b.eraseOp(op);
   return success();
 }
 
-/// Amend the operation chain (and computed shape) for a read/write to add a
-/// length-1 iteration index to 0-dimensional (scalar) buffers.
-static void addIterationIndexIfScalar(PatternRewriter &b, Location loc,
-                                      ArrayRef<int64_t> &shape,
-                                      ArrayAttr &extraViews) {
-  if (!shape.empty())
-    return;
+/// Add a length-1 iteration index to scalar buffers.
+static Value addIterationIndexIfScalar(PatternRewriter &b, Location loc,
+                                       Value buffer) {
+  auto bufferType = cast<MemRefType>(buffer.getType());
+  if (bufferType.getRank() != 0)
+    return buffer;
   TopDownTMBuilder addZero(b, {"zero"}, {1}, loc);
   addZero.ignore("zero");
   TransformMapAttr addZeroAttr = addZero.get();
-  shape = addZeroAttr.getUpperBounds().asArrayRef();
-  SmallVector<Attribute, 4> views = {addZeroAttr};
-  if (extraViews)
-    views.append(extraViews.begin(), extraViews.end());
-  extraViews = b.getArrayAttr(views);
+  Value withIter = b.create<TransformOp>(loc, buffer, addZeroAttr);
+  return withIter;
 }
 
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
-  auto sourceView = cast<TypedValue<MemRefType>>(adaptor.getSource());
+  Value sourceView = adaptor.getSource();
   ArrayAttr extraViews = op.getExtraViews();
-  auto dest = cast<TypedValue<MemRefType>>(adaptor.getDest());
-  ArrayRef<int64_t> inputShape;
-  if (extraViews.empty())
-    inputShape = sourceView.getType().getShape();
-  else
-    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
-  addIterationIndexIfScalar(b, loc, inputShape, extraViews);
-
-  auto [buffer, transforms, needs64BitIdx] =
-      untransform(b, sourceView, extraViews);
-
-  int64_t numValues = dest.getType().getNumElements();
-  MemRefType srcBufferType = buffer.getType().cast<MemRefType>();
+  sourceView =
+      cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
+  sourceView = addIterationIndexIfScalar(b, loc, sourceView);
+  sourceView = isolateTransforms(b, sourceView);
+  auto sourceViewType = cast<MemRefType>(sourceView.getType());
+  Value dest = adaptor.getDest();
   MemRefType dstBufferType = dest.getType().cast<MemRefType>();
 
-  bool isSrcVectorBuffer = srcBufferType.getElementType().isa<VectorType>();
+  int64_t numValues = dstBufferType.getNumElements();
+
+  bool isSrcVectorBuffer = sourceViewType.getElementType().isa<VectorType>();
   bool isDstVectorBuffer = dstBufferType.getElementType().isa<VectorType>();
-  ArrayRef<int64_t> bufferShape = srcBufferType.getShape();
+
   size_t extraIdxCount = op.getExtraIndices().size();
-
-  // Unless specified it is assumed to be global
-  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
-  if (srcBufferType.getMemorySpace()) {
-    srcAddrSpace =
-        srcBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
-  }
-
   // We are vectorizing in the iter dimension, not block ID or thread ID
-  auto elementType = sourceView.getType().getElementType();
+  auto elementType = sourceViewType.getElementType();
   Type loadType;
   int64_t vectorSrcLen, vectorDstLen;
   int64_t srcStride;
@@ -515,12 +510,17 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     loadType = elementType;
     vectorSrcLen = elementType.dyn_cast<VectorType>().getNumElements();
     elementType = elementType.dyn_cast<VectorType>().getElementType();
+    collapseContiguousMerges(sourceView);
     srcStride = 1;
+    if (!isDstVectorBuffer) {
+      numValues = numValues / vectorSrcLen;
+    }
   } else {
-    vectorSrcLen = getMaxVectorizationForDatatype(
-        transforms, /*dim=*/extraIdxCount, numValues, bufferShape, elementType);
+    VectorizationResult vectorSrcRes = getMaxVectorization(
+        sourceView, extraIdxCount, /*inputDimLen=*/numValues);
+    vectorSrcLen = vectorSrcRes.max;
     // In the future, this might get merged into the vectorizer.
-    transforms = collapseContiguousMerges(transforms, bufferShape);
+    collapseContiguousMerges(sourceView);
     srcStride = vectorSrcLen;
     loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
   }
@@ -532,6 +532,15 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     if (isSrcVectorBuffer) {
       numValues = numValues / vectorSrcLen;
     }
+  }
+
+  auto [buffer, transforms, needs64BitIdx] = untransform(b, sourceView);
+  // Unless specified it is assumed to be global
+  auto srcBufferType = cast<MemRefType>(buffer.getType());
+  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
+  if (srcBufferType.getMemorySpace()) {
+    srcAddrSpace =
+        srcBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
   }
 
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
@@ -664,23 +673,42 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
 
-  auto source = cast<TypedValue<MemRefType>>(adaptor.getSource());
-  auto destView = cast<TypedValue<MemRefType>>(adaptor.getDest());
+  Value source = adaptor.getSource();
+  Value destView = adaptor.getDest();
 
   ArrayAttr extraViews = op.getExtraViews();
-  ArrayRef<int64_t> outputShape;
-  if (extraViews.empty())
-    outputShape = destView.getType().getShape();
-  else
-    outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
-  addIterationIndexIfScalar(b, loc, outputShape, extraViews);
-
-  auto [buffer, transforms, needs64BitIdx] =
-      untransform(b, destView, extraViews);
-
-  MemRefType dstBufferType = buffer.getType().cast<MemRefType>();
-  ArrayRef<int64_t> bufferShape = dstBufferType.getShape();
+  destView = transform(b, destView, extraViews);
+  destView = addIterationIndexIfScalar(b, loc, destView);
+  destView = isolateTransforms(b, destView);
+  auto destViewType = cast<MemRefType>(destView.getType());
+  ArrayRef<int64_t> outputShape = destViewType.getShape();
   size_t extraIdxCount = op.getExtraIndices().size();
+
+  int64_t iterLen = outputShape[extraIdxCount];
+  auto destElemType = destViewType.getElementType();
+  // We are vectorizing in the iter dimension, not block ID or thread ID
+  int64_t vectorLen;
+  Type elementType = destElemType;
+  // If the dest is already being viewed as vector-typed, there's no good
+  // mechanism to, for example, store a vector<8xf32> as two consecutive
+  // vector<4xf32>s, and there's unlikely to be any performance benefit from
+  // doing so. Therefore, don't bother. This currently implicitly assumes
+  // a scalarized view on top of the destination buffer, which'll be cleaned up
+  // in the future.
+  if (auto elemVecType = destElemType.dyn_cast<VectorType>()) {
+    vectorLen = elemVecType.getNumElements();
+    elementType = elemVecType.getElementType();
+  } else {
+    VectorizationResult vectorRes =
+        getMaxVectorization(destView, extraIdxCount);
+    vectorLen = vectorRes.max;
+  }
+  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
+                          << "\n");
+
+  collapseContiguousMerges(destView);
+  auto [buffer, transforms, needs64BitIdx] = untransform(b, destView);
+  MemRefType dstBufferType = buffer.getType().cast<MemRefType>();
 
   // Unless specified it is assumed to be global
   gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Global;
@@ -688,37 +716,15 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     dstAddrSpace =
         dstBufferType.getMemorySpace().cast<gpu::AddressSpaceAttr>().getValue();
   }
-  int64_t iterLen = outputShape[extraIdxCount];
-  auto destElemType = buffer.getType().cast<MemRefType>().getElementType();
-  // We are vectorizing in the iter dimension, not block ID or thread ID
-  int64_t maxVecLen = iterLen;
-  Type elementType = destElemType;
-  int64_t implicitStride = 1;
-  // If the dest is already being viewed as vector-typed, there's no good
-  // mechanism to, for example, store a vector<8xf32> as two consecutive
-  // vector<4xf32>s, and there's unlikely to be any performance benefit from
-  // doing so. Therefore, don't bother.
-  if (auto elemVecType = destElemType.dyn_cast<VectorType>()) {
-    implicitStride = elemVecType.getNumElements();
-    maxVecLen = elemVecType.getNumElements();
-    elementType = elemVecType.getElementType();
-  }
-  int64_t vectorLen = getMaxVectorizationForDatatype(
-      transforms, /*dim=*/extraIdxCount, maxVecLen, bufferShape, elementType,
-      implicitStride);
-  LLVM_DEBUG(llvm::dbgs() << "Max vectorization for write_all = " << vectorLen
-                          << "\n");
 
   bool forceUnroll = op.getForceUnroll();
   bool useIndexDiffs = op.getUseIndexDiffs();
-
-  transforms = collapseContiguousMerges(transforms, bufferShape);
 
   // Constant / consistent arguments
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
   SmallVector<Value, 3> writeStartCoords =
-      llvm::to_vector<3>(op.getExtraIndices());
+      llvm::to_vector<3>(adaptor.getExtraIndices());
   writeStartCoords.push_back(zero);
   SmallVector<int64_t, 3> bounds(writeStartCoords.size() - 1, 1);
   bounds.push_back(iterLen);

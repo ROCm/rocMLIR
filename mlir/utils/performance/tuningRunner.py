@@ -37,6 +37,7 @@ class Options:
     rocmlir_gen_flags: str
     verifyMode: str
     tflops: bool
+    compact_print: bool
 
 def verifyModeFlags(verifyMode: str) -> str:
     if verifyMode == "none":
@@ -98,7 +99,7 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
     winningConfig = "None"
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
-        if not options.quiet and i > 0 and i % 100 == 0:
+        if not options.quiet and not options.compact_print and i > 0 and i % 100 == 0:
             print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
         if options.debug:
             print(result, file=sys.stderr)
@@ -116,6 +117,8 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
             winningConfig = perfConfig
+            if options.compact_print and not options.quiet:
+                print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
 
     return winningConfig, maxTFlops
 
@@ -124,17 +127,33 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     allData = []
     winners = {}
     for testVector in configs:
-        commandLine = testVector.split(sep=' ')
-        config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
-        config.MLIR_N_REPEATS=1
-        print("Tuning:", testVector, file=sys.stderr)
-        commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
-        # Note, we don't need the -ph, this goes to the tuning driver
-        kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
-        kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
-            stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        kernelGen.stdout.close()
+        if not testVector.endswith(".mlir"):
+            commandLine = testVector.split(sep=' ')
+            config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
+            config.MLIR_N_REPEATS=1
+            print("Tuning:", testVector, file=sys.stderr)
+            commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
+            # Note, we don't need the -ph, this goes to the tuning driver
+            kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
+            kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            tuningLoop = subprocess.Popen(
+                [paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
+                stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            kernelGen.stdout.close()
+        else:
+            # pipe to rocmlir_gen --emit-tuning-key
+            tuningKey = subprocess.Popen(
+                [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', testVector],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            output, _ = tuningKey.communicate()
+            result = output.decode('utf-8').strip().split('\t')
+            print(f"Tuning:{result[2]} from {testVector}", file=sys.stderr)
+            commandLine = result[2].split(sep=' ')
+            config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
+            tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}", testVector],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts
         winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, config, allData, options)
@@ -288,7 +307,7 @@ def main(args=None):
     parser.add_argument(
         '--data-type',
          nargs='+',
-         choices=["f32", "f16", "i8", "i8_i32", "i8_i8"],
+         choices=["f32", "f16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_f32", "fp8_fp8"],
          default=["f32", "f16", "i8"],
          help='Force a set of datatypes'
     )
@@ -298,6 +317,12 @@ def main(args=None):
         action='store_true',
         default=False,
         help="Include the TFlops along with the winning perf-configs")
+
+    parser.add_argument(
+        "--compact-print",
+        action='store_true',
+        default=False,
+        help="Print info only when a change happens")
 
     parsed_args = parser.parse_args(args)
 
@@ -320,7 +345,8 @@ def main(args=None):
         tuningSpaceKind=parsed_args.tuning_space,
         rocmlir_gen_flags=rocmlir_gen_flags,
         verifyMode=parsed_args.verify_mode,
-        tflops=parsed_args.tflops)
+        tflops=parsed_args.tflops,
+        compact_print=parsed_args.compact_print)
 
     if opType == Operation.FUSION:
         opType = extractFusionConfigs(parsed_args.test_dir, paths, options)
