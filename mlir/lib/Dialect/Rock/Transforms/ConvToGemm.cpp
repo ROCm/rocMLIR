@@ -492,26 +492,27 @@ struct MatchLayoutsToInput final
   LogicalResult matchAndRewrite(RockConvInterface op,
                                 PatternRewriter &b) const override {
     TypedValue<ShapedType> filter = op.getFilter(), output = op.getOutput();
-    // +++pf:  generalise me
-    const llvm::StringMap<StringAttr> inputToFilter = {
+    llvm::StringMap<StringAttr> inputToFilter = {
         {"ci", b.getStringAttr("c")},
-        {"0i", b.getStringAttr("0")},
-        {"1i", b.getStringAttr("1")},
         {"hi", b.getStringAttr("y")},
         {"wi", b.getStringAttr("x")}};
-    const llvm::StringMap<StringAttr> inputToOutput = {
+    llvm::StringMap<StringAttr> inputToOutput = {
         {"ni", b.getStringAttr("no")},
-        {"0i", b.getStringAttr("0o")},
-        {"1i", b.getStringAttr("1o")},
         {"hi", b.getStringAttr("ho")},
         {"wi", b.getStringAttr("wo")}};
 
-    LogicalResult didRelayoutFilter = makeToLayoutLikeFromLayoutAlong(
+    for (auto i = 0;  i < filter.getType().getRank() - 3;  i++) {
+      auto key = b.getStringAttr(Twine(i) + Twine("i"));
+      inputToFilter.insert_or_assign(key, b.getStringAttr(Twine(i)));
+      inputToOutput.insert_or_assign(key, b.getStringAttr(Twine(i)+Twine("o")));
+    }
+
+    LogicalResult didReLayoutFilter = makeToLayoutLikeFromLayoutAlong(
         b, op, "input_layout", filter, "filter_layout", inputToFilter);
-    LogicalResult didRelayoutOutput = makeToLayoutLikeFromLayoutAlong(
+    LogicalResult didReLayoutOutput = makeToLayoutLikeFromLayoutAlong(
         b, op, "input_layout", output, "output_layout", inputToOutput);
-    return success(didRelayoutFilter.succeeded() ||
-                   didRelayoutOutput.succeeded());
+    return success(didReLayoutFilter.succeeded() ||
+                   didReLayoutOutput.succeeded());
   }
 };
 
