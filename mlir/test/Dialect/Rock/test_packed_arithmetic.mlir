@@ -4,6 +4,8 @@
 // RUN:  rocmlir-driver --kernel-pipeline=gpu,rocdl --arch=gfx942 %s | FileCheck %s --check-prefix=ROCDL
 // RUN:  rocmlir-driver --kernel-pipeline=gpu,rocdl --arch=gfx942 %s | \
 // RUN:  rocmlir-translate --gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | FileCheck %s --check-prefix=LLVM
+// RUN:  rocmlir-driver --kernel-pipeline=gpu,rocdl --arch=gfx942 %s | \
+// RUN:  rocmlir-translate --gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | llc -O3 -mcpu=gfx942 |  FileCheck %s --check-prefix=ASM
 #map = affine_map<(d0, d1) -> (0, d0, d1)>
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 #map2 = affine_map<(d0, d1, d2) -> (d0 * 128 + d1, d2)>
@@ -25,6 +27,7 @@
 // LLVM: %[[extract14:.*]] = extractelement <16 x float> {{.*}}, i64 14
 // LLVM: %[[extract15:.*]] = extractelement <16 x float> {{.*}}, i64 15
 // LLVM: tail call <2 x half> @llvm.amdgcn.cvt.pkrtz(float %[[extract14]], float %[[extract15]])
+// ASM: v_pk_add_f16 {{.*}}, {{.*}}, {{.*}}
 module {
   func.func @test_fusion(%arg0: memref<1x128x128xf16> {func.read_access}, %arg1: memref<1x128x128xf16> {func.read_access}, %arg2: memref<1x128x128xf16> {func.read_access}, %arg3: memref<1x128x128xf16> {func.write_access}) attributes {arch = "gfx942", kernel} {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x128xf16>

@@ -9,7 +9,10 @@
 #include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -266,7 +269,7 @@ void TruncfToFloat8RewritePattern::rewrite(arith::TruncFOp op,
 
 LogicalResult TruncfToFloat16RewritePattern::match(arith::TruncFOp op) const {
   Type outType = op.getOut().getType();
-  Type inputType = op.getIn().getType();
+  Type inputType = getElementTypeOrSelf(op.getIn());
   if (auto outVecType = outType.dyn_cast<VectorType>()) {
     if (outVecType.isScalable())
       return failure();
@@ -274,11 +277,6 @@ LogicalResult TruncfToFloat16RewritePattern::match(arith::TruncFOp op) const {
       // Multi-dimensional vectors are currently unsupported.
       return failure();
     outType = outVecType.getElementType();
-
-    // If the output type is a vector, we can assume the input type is a vector
-    // too
-    auto inputVecType = inputType.dyn_cast<VectorType>();
-    inputType = inputVecType.getElementType();
   }
   return success(outType.isF16() && inputType.isF32());
 }
@@ -292,8 +290,9 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
 
   // Handle the case where input type is not a vector type
   if (!in.getType().isa<VectorType>()) {
-    Value asF16s = rewriter.create<amdgpu::PackedTruncFp16x2Op>(
-        loc, truncResType, in, /*sourceB=*/nullptr);
+    auto sourceB = rewriter.create<LLVM::PoisonOp>(loc, rewriter.getF32Type());
+    Value asF16s =
+        rewriter.create<ROCDL::CvtPkRtz>(loc, truncResType, in, sourceB);
     Value result = rewriter.create<vector::ExtractElementOp>(
         loc, asF16s, rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0));
     return rewriter.replaceOp(op, result);
@@ -311,15 +310,15 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
     Value thisResult = nullptr;
     Value elemA = rewriter.create<vector::ExtractElementOp>(
         loc, in, rewriter.create<arith::ConstantIndexOp>(loc, i));
-    Value elemB = nullptr;
+    Value elemB = rewriter.create<LLVM::PoisonOp>(loc, rewriter.getF32Type());
 
     if (elemsThisOp == 2) {
       elemB = rewriter.create<vector::ExtractElementOp>(
           loc, in, rewriter.createOrFold<arith::ConstantIndexOp>(loc, i + 1));
     }
 
-    thisResult = rewriter.create<amdgpu::PackedTruncFp16x2Op>(loc, truncResType,
-                                                              elemA, elemB);
+    thisResult =
+        rewriter.create<ROCDL::CvtPkRtz>(loc, truncResType, elemA, elemB);
     // Place back the truncated result into the possibly larger vector. If we
     // are operating on a size 2 vector, these operations should be folded away
     thisResult = rewriter.create<vector::ExtractStridedSliceOp>(
@@ -345,7 +344,16 @@ void mlir::arith::populateArithToAMDGPUConversionPatterns(
 
 void ArithToAMDGPUConversionPass::runOnOperation() {
   Operation *op = getOperation();
+  MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(op->getContext());
+  FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
+  if (failed(maybeChipset)) {
+    emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
+    return signalPassFailure();
+  }
+
+  bool convertFP8Arithmetic =
+      (*maybeChipset).majorVersion == 9 && (*maybeChipset).minorVersion >= 0x40;
   arith::populateArithToAMDGPUConversionPatterns(
       patterns, convertFP8Arithmetic, saturateFP8Truncf, allowPackedF16Rtz);
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
