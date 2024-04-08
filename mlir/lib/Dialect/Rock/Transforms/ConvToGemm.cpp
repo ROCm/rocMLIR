@@ -492,19 +492,18 @@ struct MatchLayoutsToInput final
   LogicalResult matchAndRewrite(RockConvInterface op,
                                 PatternRewriter &b) const override {
     TypedValue<ShapedType> filter = op.getFilter(), output = op.getOutput();
-    llvm::StringMap<StringAttr> inputToFilter = {
-        {"ci", b.getStringAttr("c")},
-        {"hi", b.getStringAttr("y")},
-        {"wi", b.getStringAttr("x")}};
-    llvm::StringMap<StringAttr> inputToOutput = {
-        {"ni", b.getStringAttr("no")},
-        {"hi", b.getStringAttr("ho")},
-        {"wi", b.getStringAttr("wo")}};
+    llvm::StringMap<StringAttr> inputToFilter = {{"ci", b.getStringAttr("c")},
+                                                 {"hi", b.getStringAttr("y")},
+                                                 {"wi", b.getStringAttr("x")}};
+    llvm::StringMap<StringAttr> inputToOutput = {{"ni", b.getStringAttr("no")},
+                                                 {"hi", b.getStringAttr("ho")},
+                                                 {"wi", b.getStringAttr("wo")}};
 
-    for (auto i = 0;  i < filter.getType().getRank() - 3;  i++) {
+    for (auto i = 0; i < filter.getType().getRank() - 3; i++) {
       auto key = b.getStringAttr(Twine(i) + Twine("i"));
       inputToFilter.insert_or_assign(key, b.getStringAttr(Twine(i)));
-      inputToOutput.insert_or_assign(key, b.getStringAttr(Twine(i)+Twine("o")));
+      inputToOutput.insert_or_assign(key,
+                                     b.getStringAttr(Twine(i) + Twine("o")));
     }
 
     LogicalResult didReLayoutFilter = makeToLayoutLikeFromLayoutAlong(
