@@ -18,10 +18,10 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Utils.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -70,10 +70,12 @@ void RockVectorizeFusionsPass::runOnOperation() {
     WalkResult canVectorize =
         loop.getLoopBody().walk([&loopTypes](Operation *op) -> WalkResult {
           if (auto affineLoad = dyn_cast<affine::AffineLoadOp>(op)) {
-            if (getAddressSpace(affineLoad.getMemref()) == AddressSpace::Private)
+            if (getAddressSpace(affineLoad.getMemref()) ==
+                AddressSpace::Private)
               loopTypes.push_back(affineLoad.getType());
           } else if (auto affineStore = dyn_cast<affine::AffineStoreOp>(op)) {
-            if (getAddressSpace(affineStore.getMemref()) == AddressSpace::Private)
+            if (getAddressSpace(affineStore.getMemref()) ==
+                AddressSpace::Private)
               loopTypes.push_back(affineStore.getMemRefType().getElementType());
           } else if (dyn_cast<affine::AffineForOp>(op)) {
             return WalkResult::interrupt();
