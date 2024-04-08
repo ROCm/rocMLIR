@@ -87,9 +87,12 @@ class ROCDL_SpecialRegisterOp<string mnemonic,
     list<Trait> traits = []> :
   ROCDL_Op<mnemonic, !listconcat(traits, [Pure])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
-  string llvmBuilder = "$res = createIntrinsicCallWithRange(builder,"
+  string llvmBuilder = "llvm::Value *theRes = createIntrinsicCallWithRange(builder,"
     # "llvm::Intrinsic::amdgcn_" # !subst(".","_", mnemonic)
-    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));";
+    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));"
+    // TEMPORARY UGLY WORKAROUND TO HOPFULLY DODGE A REGISTER ALLOCATION BUG.
+    # "::llvm::cast<::llvm::CallInst>(theRes)->addRetAttr(::llvm::Attribute::NoUndef);"
+    # "$res = theRes;";
   let assemblyFormat = "attr-dict `:` type($res)";
 }
 
