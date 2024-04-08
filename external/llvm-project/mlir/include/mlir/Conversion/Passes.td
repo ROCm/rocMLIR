@@ -106,9 +106,9 @@ def ArithToAMDGPUConversionPass : Pass<"convert-arith-to-amdgpu"> {
   let dependentDialects = ["amdgpu::AMDGPUDialect", "vector::VectorDialect"];
 
   let options = [
-    Option<"convertFP8Arithmetic", "convert-fp8-arithmetic", "bool",
-           /*default=*/"true",
-           "Whether truncation to 8-bit float types should be saturating">,
+    Option<"chipset", "chipset", "std::string",
+                        /*default=*/"\"gfx000\"",
+                        "Chipset that these operations will run on">,
     Option<"saturateFP8Truncf", "saturate-fp8-truncf", "bool",
            /*default=*/"false",
            "Whether truncation to 8-bit float types should be saturating">,

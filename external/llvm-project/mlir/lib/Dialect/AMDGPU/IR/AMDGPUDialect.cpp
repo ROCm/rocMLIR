@@ -14,6 +14,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
@@ -42,11 +43,6 @@ void AMDGPUDialect::initialize() {
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUAttributes.cpp.inc"
       >();
 }
-
-//===----------------------------------------------------------------------===//
-// 16-bit float ops
-//===----------------------------------------------------------------------===//
-LogicalResult PackedTruncFp16x2Op::verify() { return success(); }
 
 //===----------------------------------------------------------------------===//
 // 8-bit float ops

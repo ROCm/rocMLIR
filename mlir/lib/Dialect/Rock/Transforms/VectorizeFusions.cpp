@@ -18,6 +18,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -39,6 +40,18 @@ namespace rock {
 #define DEBUG_TYPE "rock-vectorize-fusions"
 
 using namespace mlir;
+using mlir::gpu::AddressSpace;
+
+template <typename MemrefTypedValue>
+static AddressSpace getAddressSpace(MemrefTypedValue val) {
+  if (val.getType().getMemorySpace()) {
+    return val.getType()
+        .getMemorySpace()
+        .template cast<gpu::AddressSpaceAttr>()
+        .getValue();
+  }
+  return gpu::AddressSpace::Global;
+}
 
 namespace {
 struct RockVectorizeFusionsPass
@@ -52,37 +65,29 @@ void RockVectorizeFusionsPass::runOnOperation() {
   func::FuncOp op = getOperation();
   IRRewriter b(op.getContext());
   op.walk([&](affine::AffineForOp loop) -> WalkResult {
-    // Try to isolate fusion loops
-
-    // Only vectorize loops without nested loops
-    WalkResult containsOtherLoops = loop.getLoopBody().walk(
-        [](affine::AffineForOp nestedLoop) -> WalkResult {
-          return WalkResult::interrupt();
-        });
-
-    if (containsOtherLoops.wasInterrupted()) {
-      return WalkResult::advance();
-    }
-
-    // Only vectorize loops whose parent is the kernel itself
-    if (loop->getParentOp() != op.getOperation()) {
-      return WalkResult::advance();
-    }
-
     // Collect data types
     SmallVector<Type> loopTypes;
-    loop.getLoopBody().walk([&loopTypes](Operation *op) {
-      if (auto affineLoad = dyn_cast<affine::AffineLoadOp>(op)) {
-        loopTypes.push_back(affineLoad.getType());
-      } else if (auto affineStore = dyn_cast<affine::AffineStoreOp>(op)) {
-        loopTypes.push_back(affineStore.getMemRefType().getElementType());
-      }
-    });
+    WalkResult canVectorize =
+        loop.getLoopBody().walk([&loopTypes](Operation *op) -> WalkResult {
+          if (auto affineLoad = dyn_cast<affine::AffineLoadOp>(op)) {
+            if (getAddressSpace(affineLoad.getMemref()) == AddressSpace::Private)
+              loopTypes.push_back(affineLoad.getType());
+          } else if (auto affineStore = dyn_cast<affine::AffineStoreOp>(op)) {
+            if (getAddressSpace(affineStore.getMemref()) == AddressSpace::Private)
+              loopTypes.push_back(affineStore.getMemRefType().getElementType());
+          } else if (dyn_cast<affine::AffineForOp>(op)) {
+            return WalkResult::interrupt();
+          }
+          return WalkResult::advance();
+        });
+
+    if (canVectorize.wasInterrupted())
+      return WalkResult::advance();
 
     if (loopTypes.empty())
       return WalkResult::advance();
 
-    LLVM_DEBUG(llvm::dbgs() << "Vectorizing: " << loop << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "Try to vectorize: " << loop << "\n");
     const int64_t ub = loop.getConstantUpperBound();
     const int64_t lb = loop.getConstantLowerBound();
     const int64_t step = loop.getStep();

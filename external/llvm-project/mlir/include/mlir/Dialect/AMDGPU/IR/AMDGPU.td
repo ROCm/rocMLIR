@@ -25,6 +25,7 @@ def AMDGPU_Dialect : Dialect {
 
 
   let dependentDialects = [
+    "ROCDL::ROCDLDialect",
     "arith::ArithDialect",
     "gpu::GPUDialect"
   ];
@@ -87,24 +88,6 @@ def AMDGPU_PackedTruncFp8x2Op :
     `into` ($existing^):(`undef`)? `[` `word` $wordIndex `]`
     `:` type($sourceA) `to` type($res) (`into` type($existing)^)?
   }];
-  let hasVerifier = 1;
-}
-
-def AMDGPU_PackedTruncFp16x2Op :
-  AMDGPU_Op<"packed_trunc_fp16x2", [Pure]>,
-    Arguments<(ins F32:$sourceA,
-      Optional<F32>:$sourceB)>,
-    Results<(outs FixedVectorOfLengthAndType<[2], [F16]>:$res)> {
-  let summary = "Round two floats into a packed vector of 16-bit floats";
-  let description = [{
-    Round the inputs `sourceA` and `sourceB` (which is undefined if not
-    specified) into a vector<2xf16>. This is the only way sub-registers can be
-    represented.
-  }];
-  let assemblyFormat = [{
-    attr-dict $sourceA `,` ($sourceB^):(`undef`)?
-    `:` type($sourceA) `to` type($res)
-   }];
   let hasVerifier = 1;
 }
 
