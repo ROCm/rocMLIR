@@ -16,6 +16,7 @@
 #include "rtl.h"
 
 #include "OpenMP/InternalTypes.h"
+#include "OpenMP/Mapping.h"
 #include "OpenMP/OMPT/Interface.h"
 #include "OpenMP/omp.h"
 #include "Shared/Profile.h"
@@ -35,6 +36,13 @@ EXTERN int ompx_get_team_procs(int DeviceNum) {
   int TeamProcs = DeviceOrErr->getTeamProcs();
   DP("Call to ompx_get_team_procs returning %d\n", TeamProcs);
   return TeamProcs;
+}
+
+EXTERN void ompx_dump_mapping_tables() {
+  ident_t Loc = {0, 0, 0, 0, ";libomptarget;libomptarget;0;0;;"};
+  auto ExclusiveDevicesAccessor = PM->getExclusiveDevicesAccessor();
+  for (auto &Device : PM->devices(ExclusiveDevicesAccessor))
+    dumpTargetPointerMappings(&Loc, Device, true);
 }
 
 #ifdef OMPT_SUPPORT
@@ -135,8 +143,9 @@ EXTERN void *llvm_omp_target_alloc_multi_devices(size_t size, int num_devices,
   // accessed by any device and host under xnack+ mode
   void *ptr =
       targetAllocExplicit(size, DeviceNums[0], TARGET_ALLOC_DEFAULT, __func__);
-  if (Device.RTL->enable_access_to_all_agents)
-    Device.RTL->enable_access_to_all_agents(ptr, DeviceNums[0]);
+  // TODO: not implemented yet
+  // if (Device.RTL->enable_access_to_all_agents)
+  //   Device.RTL->enable_access_to_all_agents(DeviceNums[0], ptr);
   return ptr;
 }
 
@@ -652,10 +661,17 @@ EXTERN int omp_target_disassociate_ptr(const void *HostPtr, int DeviceNum) {
 }
 
 EXTERN int omp_is_coarse_grain_mem_region(void *ptr, size_t size) {
-  DeviceTy &Device = *PM->getDevice(omp_get_default_device());
-  if (!Device.RTL->query_coarse_grain_mem_region)
+  if (!(PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY))
     return 0;
-  return Device.RTL->query_coarse_grain_mem_region(Device.DeviceID, ptr, size);
+  auto DeviceOrErr = PM->getDevice(omp_get_default_device());
+  if (!DeviceOrErr)
+    FATAL_MESSAGE(omp_get_default_device(), "%s",
+                  toString(DeviceOrErr.takeError()).c_str());
+
+  if (!DeviceOrErr->RTL->query_coarse_grain_mem_region)
+    return 0;
+  return DeviceOrErr->RTL->query_coarse_grain_mem_region(
+      omp_get_default_device(), ptr, size);
 }
 
 EXTERN void *omp_get_mapped_ptr(const void *Ptr, int DeviceNum) {

@@ -270,8 +270,8 @@ private:
 /// generic device class.
 struct CUDADeviceTy : public GenericDeviceTy {
   // Create a CUDA device with a device id and the default CUDA grid values.
-  CUDADeviceTy(int32_t DeviceId, int32_t NumDevices)
-      : GenericDeviceTy(DeviceId, NumDevices, NVPTXGridValues),
+  CUDADeviceTy(GenericPluginTy &Plugin, int32_t DeviceId, int32_t NumDevices)
+      : GenericDeviceTy(Plugin, DeviceId, NumDevices, NVPTXGridValues),
         CUDAStreamManager(*this), CUDAEventManager(*this) {}
 
   ~CUDADeviceTy() {}
@@ -486,7 +486,7 @@ struct CUDADeviceTy : public GenericDeviceTy {
   /// Allocate and construct a CUDA kernel.
   Expected<GenericKernelTy &> constructKernel(const char *Name) override {
     // Allocate and construct the CUDA kernel.
-    CUDAKernelTy *CUDAKernel = Plugin::get().allocate<CUDAKernelTy>();
+    CUDAKernelTy *CUDAKernel = Plugin.allocate<CUDAKernelTy>();
     if (!CUDAKernel)
       return Plugin::error("Failed to allocate memory for CUDA kernel");
 
@@ -544,7 +544,7 @@ struct CUDADeviceTy : public GenericDeviceTy {
       return std::move(Err);
 
     // Allocate and initialize the image object.
-    CUDADeviceImageTy *CUDAImage = Plugin::get().allocate<CUDADeviceImageTy>();
+    CUDADeviceImageTy *CUDAImage = Plugin.allocate<CUDADeviceImageTy>();
     new (CUDAImage) CUDADeviceImageTy(ImageId, *this, TgtImage);
 
     // Load the CUDA module.
@@ -1175,15 +1175,13 @@ private:
     // automatically so we must create it ourselves. The backend will emit
     // several globals that contain function pointers we can call. These are
     // prefixed with a known name due to Nvidia's lack of section support.
-    const ELF64LEObjectFile *ELFObj =
-        Handler.getOrCreateELFObjectFile(*this, Image);
-    if (!ELFObj)
-      return Plugin::error("Unable to create ELF object for image %p",
-                           Image.getStart());
+    auto ELFObjOrErr = Handler.getELFObjectFile(Image);
+    if (!ELFObjOrErr)
+      return ELFObjOrErr.takeError();
 
     // Search for all symbols that contain a constructor or destructor.
     SmallVector<std::pair<StringRef, uint16_t>> Funcs;
-    for (ELFSymbolRef Sym : ELFObj->symbols()) {
+    for (ELFSymbolRef Sym : (*ELFObjOrErr)->symbols()) {
       auto NameOrErr = Sym.getName();
       if (!NameOrErr)
         return NameOrErr.takeError();
@@ -1388,6 +1386,17 @@ struct CUDAPluginTy final : public GenericPluginTy {
   /// Deinitialize the plugin.
   Error deinitImpl() override { return Plugin::success(); }
 
+  /// Creates a CUDA device to use for offloading.
+  GenericDeviceTy *createDevice(GenericPluginTy &Plugin, int32_t DeviceId,
+                                int32_t NumDevices) override {
+    return new CUDADeviceTy(Plugin, DeviceId, NumDevices);
+  }
+
+  /// Creates a CUDA global handler.
+  GenericGlobalHandlerTy *createGlobalHandler() override {
+    return new CUDAGlobalHandlerTy();
+  }
+
   /// Get the ELF code for recognizing the compatible image binary.
   uint16_t getMagicElfBits() const override { return ELF::EM_CUDA; }
 
@@ -1519,18 +1528,10 @@ Error CUDADeviceTy::dataExchangeImpl(const void *SrcPtr,
   return Plugin::check(Res, "Error in cuMemcpyDtoDAsync: %s");
 }
 
-GenericPluginTy *Plugin::createPlugin() { return new CUDAPluginTy(); }
-
-GenericDeviceTy *Plugin::createDevice(int32_t DeviceId, int32_t NumDevices) {
-  return new CUDADeviceTy(DeviceId, NumDevices);
-}
-
-GenericGlobalHandlerTy *Plugin::createGlobalHandler() {
-  return new CUDAGlobalHandlerTy();
-}
+GenericPluginTy *PluginTy::createPlugin() { return new CUDAPluginTy(); }
 
 template <typename... ArgsTy>
-Error Plugin::check(int32_t Code, const char *ErrFmt, ArgsTy... Args) {
+static Error Plugin::check(int32_t Code, const char *ErrFmt, ArgsTy... Args) {
   CUresult ResultCode = static_cast<CUresult>(Code);
   if (ResultCode == CUDA_SUCCESS)
     return Error::success();

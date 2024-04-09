@@ -29,6 +29,8 @@
 
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/bit.h"
+#include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "llvm/Object/ObjectFile.h"
 
 #include <cassert>
 #include <cstdint>
@@ -297,10 +299,6 @@ static int initLibrary(DeviceTy &Device) {
   static BoolEnvar FSTEnvVar = BoolEnvar("OMPX_FORCE_SYNC_REGIONS", false);
   Device.ForceSynchronousTargetRegions = FSTEnvVar.get();
 
-  static BoolEnvar OMPX_EagerMaps =
-      BoolEnvar("OMPX_EAGER_ZERO_COPY_MAPS", false);
-  Device.EagerZeroCopyMaps = OMPX_EagerMaps.get();
-
   return OFFLOAD_SUCCESS;
 }
 
@@ -465,12 +463,10 @@ void *targetLockExplicit(void *HostPtr, size_t Size, int DeviceNum,
     FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
 
   int32_t Err = 0;
-  if (!DeviceOrErr->RTL->data_lock) {
-    Err = DeviceOrErr->RTL->data_lock(DeviceNum, HostPtr, Size, &RC);
-    if (Err) {
-      DP("Could not lock ptr %p\n", HostPtr);
-      return nullptr;
-    }
+  Err = DeviceOrErr->RTL->data_lock(DeviceNum, HostPtr, Size, &RC);
+  if (Err) {
+    DP("Could not lock ptr %p\n", HostPtr);
+    return nullptr;
   }
   DP("%s returns device ptr " DPxMOD "\n", Name, DPxPTR(RC));
   return RC;
@@ -483,9 +479,7 @@ void targetUnlockExplicit(void *HostPtr, int DeviceNum, const char *Name) {
   if (!DeviceOrErr)
     FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
 
-  if (!DeviceOrErr->RTL->data_unlock)
-    DeviceOrErr->RTL->data_unlock(DeviceNum, HostPtr);
-
+  DeviceOrErr->RTL->data_unlock(DeviceNum, HostPtr);
   DP("%s returns\n", Name);
 }
 
@@ -1754,7 +1748,7 @@ int target_replay(ident_t *Loc, DeviceTy &Device, void *HostPtr,
   Device.submitData(TgtPtr, DeviceMemory, DeviceMemorySize, AsyncInfo);
 
   KernelArgsTy KernelArgs = {0};
-  KernelArgs.Version = 3;
+  KernelArgs.Version = OMP_KERNEL_ARG_VERSION;
   KernelArgs.NumArgs = NumArgs;
   KernelArgs.Tripcount = LoopTripCount;
   KernelArgs.NumTeams[0] = NumTeams;

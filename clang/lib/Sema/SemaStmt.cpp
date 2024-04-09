@@ -527,6 +527,13 @@ Sema::ActOnCaseStmt(SourceLocation CaseLoc, ExprResult LHSVal,
     return StmtError();
   }
 
+  if (LangOpts.OpenACC &&
+      getCurScope()->isInOpenACCComputeConstructScope(Scope::SwitchScope)) {
+    Diag(CaseLoc, diag::err_acc_branch_in_out_compute_construct)
+        << /*branch*/ 0 << /*into*/ 1;
+    return StmtError();
+  }
+
   auto *CS = CaseStmt::Create(Context, LHSVal.get(), RHSVal.get(),
                               CaseLoc, DotDotDotLoc, ColonLoc);
   getCurFunction()->SwitchStack.back().getPointer()->addSwitchCase(CS);
@@ -544,6 +551,13 @@ Sema::ActOnDefaultStmt(SourceLocation DefaultLoc, SourceLocation ColonLoc,
   if (getCurFunction()->SwitchStack.empty()) {
     Diag(DefaultLoc, diag::err_default_not_in_switch);
     return SubStmt;
+  }
+
+  if (LangOpts.OpenACC &&
+      getCurScope()->isInOpenACCComputeConstructScope(Scope::SwitchScope)) {
+    Diag(DefaultLoc, diag::err_acc_branch_in_out_compute_construct)
+        << /*branch*/ 0 << /*into*/ 1;
+    return StmtError();
   }
 
   DefaultStmt *DS = new (Context) DefaultStmt(DefaultLoc, ColonLoc, SubStmt);
@@ -566,6 +580,11 @@ Sema::ActOnLabelStmt(SourceLocation IdentLoc, LabelDecl *TheDecl,
       !Context.getSourceManager().isInSystemHeader(IdentLoc))
     Diag(IdentLoc, diag::warn_reserved_extern_symbol)
         << TheDecl << static_cast<int>(Status);
+
+  // If this label is in a compute construct scope, we need to make sure we
+  // check gotos in/out.
+  if (getCurScope()->isInOpenACCComputeConstructScope())
+    setFunctionHasBranchProtectedScope();
 
   // Otherwise, things are good.  Fill in the declaration and return it.
   LabelStmt *LS = new (Context) LabelStmt(IdentLoc, TheDecl, SubStmt);
@@ -3307,6 +3326,12 @@ StmtResult Sema::ActOnGotoStmt(SourceLocation GotoLoc,
                                SourceLocation LabelLoc,
                                LabelDecl *TheDecl) {
   setFunctionHasBranchIntoScope();
+
+  // If this goto is in a compute construct scope, we need to make sure we check
+  // gotos in/out.
+  if (getCurScope()->isInOpenACCComputeConstructScope())
+    setFunctionHasBranchProtectedScope();
+
   TheDecl->markUsed(Context);
   return new (Context) GotoStmt(TheDecl, GotoLoc, LabelLoc);
 }
@@ -3334,6 +3359,11 @@ Sema::ActOnIndirectGotoStmt(SourceLocation GotoLoc, SourceLocation StarLoc,
   E = ExprRes.get();
 
   setFunctionHasIndirectGoto();
+
+  // If this goto is in a compute construct scope, we need to make sure we
+  // check gotos in/out.
+  if (getCurScope()->isInOpenACCComputeConstructScope())
+    setFunctionHasBranchProtectedScope();
 
   return new (Context) IndirectGotoStmt(GotoLoc, StarLoc, E);
 }
@@ -3364,8 +3394,9 @@ Sema::ActOnContinueStmt(SourceLocation ContinueLoc, Scope *CurScope) {
   // of a compute construct counts as 'branching out of' the compute construct,
   // so diagnose here.
   if (S->isOpenACCComputeConstructScope())
-    return StmtError(Diag(ContinueLoc, diag::err_acc_branch_in_out)
-                     << /*out of */ 0);
+    return StmtError(
+        Diag(ContinueLoc, diag::err_acc_branch_in_out_compute_construct)
+        << /*branch*/ 0 << /*out of */ 0);
 
   CheckJumpOutOfSEHFinally(*this, ContinueLoc, *S);
 
@@ -3393,8 +3424,9 @@ Sema::ActOnBreakStmt(SourceLocation BreakLoc, Scope *CurScope) {
   if (S->isOpenACCComputeConstructScope() ||
       (S->isLoopScope() && S->getParent() &&
        S->getParent()->isOpenACCComputeConstructScope()))
-    return StmtError(Diag(BreakLoc, diag::err_acc_branch_in_out)
-                     << /*out of */ 0);
+    return StmtError(
+        Diag(BreakLoc, diag::err_acc_branch_in_out_compute_construct)
+        << /*branch*/ 0 << /*out of */ 0);
 
   CheckJumpOutOfSEHFinally(*this, BreakLoc, *S);
 
@@ -3950,6 +3982,12 @@ Sema::ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
       RetValExp, nullptr, /*RecoverUncorrectedTypos=*/true);
   if (RetVal.isInvalid())
     return StmtError();
+
+  if (getCurScope()->isInOpenACCComputeConstructScope())
+    return StmtError(
+        Diag(ReturnLoc, diag::err_acc_branch_in_out_compute_construct)
+        << /*return*/ 1 << /*out of */ 0);
+
   StmtResult R =
       BuildReturnStmt(ReturnLoc, RetVal.get(), /*AllowRecovery=*/true);
   if (R.isInvalid() || ExprEvalContexts.back().isDiscardedStatementContext())

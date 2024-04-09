@@ -152,7 +152,7 @@ if ($HIP_PLATFORM eq "amd") {
         $HIPLDFLAGS .= " --ld-path=" . get_normalized_path("$HIP_CLANG_PATH/lld-link.exe");
     }
 
-    # get Clang RT Builtin path 
+    # get Clang RT Builtin path
     $HIP_CLANG_RT_LIB = `$HIPCC --print-runtime-dir`;
     chomp($HIP_CLANG_RT_LIB);
 
@@ -212,7 +212,7 @@ my $printLDFlags = 0;       # print HIPLDFLAGS
 my $runCmd = 1;
 my $buildDeps = 0;
 my $hsacoVersion = 0;
-my $funcSupp = 0;      # enable function support
+my $funcSupp = 1;      # enable function support
 my $rdc = 0;           # whether -fgpu-rdc is on
 
 my @options = ();
@@ -229,11 +229,12 @@ if($HIP_PLATFORM eq "nvidia"){
     if($ARGV[0] eq "--genco"){
         foreach $isaarg (@ARGV[1..$#ARGV]){
             $ISACMD .= " ";
-            # ignore --rocm-path=xxxx on nvcc nvidia platform
-            if ($isaarg !~ /--rocm-path/) {
-              $ISACMD .= $isaarg;
+            # use the headers from rocm-path or hip-path
+            if (($isaarg =~ /--rocm-path/) or ($isaarg =~ /--hip-path/)) {
+              my @header_path = split('=', $isaarg);
+              $ISACMD .= '-I' . $header_path[1] .'/include';
             } else {
-              print "Ignoring --rocm-path= on nvidia nvcc platform.\n";
+              $ISACMD .= $isaarg;
             }
         }
         if ($verbose & 0x1) {

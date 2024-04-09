@@ -36,6 +36,7 @@ enum Kind {
   exclaim, // !
   bar,     // |
   colon,   // :
+  hash,    // #
 
   kw_vscale,
   kw_x,
@@ -180,6 +181,7 @@ enum Kind {
   kw_tailcc,
   kw_m68k_rtdcc,
   kw_graalcc,
+  kw_riscv_vector_cc,
 
   // Attributes:
   kw_attributes,
@@ -481,6 +483,7 @@ enum Kind {
   DwarfMacinfo,     // DW_MACINFO_foo
   ChecksumKind,     // CSK_foo
   DIOp,             // DIOpFoo
+  DbgRecordType,    // dbg_foo
 
   // Type valued tokens (TyVal).
   Type,

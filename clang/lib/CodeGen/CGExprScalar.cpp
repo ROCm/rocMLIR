@@ -52,6 +52,10 @@ using llvm::Value;
 //                         Scalar Expression Emitter
 //===----------------------------------------------------------------------===//
 
+namespace llvm {
+extern cl::opt<bool> EnableSingleByteCoverage;
+} // namespace llvm
+
 namespace {
 
 /// Determine whether the given binary operation may overflow.
@@ -2246,7 +2250,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
     // performed and the object is not of the derived type.
     if (CGF.sanitizePerformTypeCheck())
       CGF.EmitTypeCheck(CodeGenFunction::TCK_DowncastPointer, CE->getExprLoc(),
-                        Derived.getPointer(), DestTy->getPointeeType());
+                        Derived, DestTy->getPointeeType());
 
     if (CGF.SanOpts.has(SanitizerKind::CFIDerivedCast))
       CGF.EmitVTablePtrCheckForCast(DestTy->getPointeeType(), Derived,
@@ -2254,13 +2258,14 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
                                     CodeGenFunction::CFITCK_DerivedCast,
                                     CE->getBeginLoc());
 
-    return Derived.getPointer();
+    return CGF.getAsNaturalPointerTo(Derived, CE->getType()->getPointeeType());
   }
   case CK_UncheckedDerivedToBase:
   case CK_DerivedToBase: {
     // The EmitPointerWithAlignment path does this fine; just discard
     // the alignment.
-    return CGF.EmitPointerWithAlignment(CE).getPointer();
+    return CGF.getAsNaturalPointerTo(CGF.EmitPointerWithAlignment(CE),
+                                     CE->getType()->getPointeeType());
   }
 
   case CK_Dynamic: {
@@ -2270,7 +2275,8 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   }
 
   case CK_ArrayToPointerDecay:
-    return CGF.EmitArrayToPointerDecay(E).getPointer();
+    return CGF.getAsNaturalPointerTo(CGF.EmitArrayToPointerDecay(E),
+                                     CE->getType()->getPointeeType());
   case CK_FunctionToPointerDecay:
     return EmitLValue(E).getPointer(CGF);
 
@@ -2323,6 +2329,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_FloatingComplexToIntegralComplex:
   case CK_ConstructorConversion:
   case CK_ToUnion:
+  case CK_HLSLArrayRValue:
     llvm_unreachable("scalar cast to non-scalar value");
 
   case CK_LValueToRValue:
@@ -4925,8 +4932,13 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
 
     // If the dead side doesn't have labels we need, just emit the Live part.
     if (!CGF.ContainsLabel(dead)) {
-      if (CondExprBool)
+      if (CondExprBool) {
+        if (llvm::EnableSingleByteCoverage) {
+          CGF.incrementProfileCounter(lhsExpr);
+          CGF.incrementProfileCounter(rhsExpr);
+        }
         CGF.incrementProfileCounter(E);
+      }
       Value *Result = Visit(live);
 
       // If the live part is a throw expression, it acts like it has a void
@@ -5005,7 +5017,12 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     llvm::Value *CondV = CGF.EvaluateExprAsBool(condExpr);
     llvm::Value *StepV = Builder.CreateZExtOrBitCast(CondV, CGF.Int64Ty);
 
-    CGF.incrementProfileCounter(E, StepV);
+    if (llvm::EnableSingleByteCoverage) {
+      CGF.incrementProfileCounter(lhsExpr);
+      CGF.incrementProfileCounter(rhsExpr);
+      CGF.incrementProfileCounter(E);
+    } else
+      CGF.incrementProfileCounter(E, StepV);
 
     llvm::Value *LHS = Visit(lhsExpr);
     llvm::Value *RHS = Visit(rhsExpr);
@@ -5037,7 +5054,11 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
   if (CGF.MCDCLogOpStack.empty())
     CGF.maybeUpdateMCDCTestVectorBitmap(condExpr);
 
-  CGF.incrementProfileCounter(E);
+  if (llvm::EnableSingleByteCoverage)
+    CGF.incrementProfileCounter(lhsExpr);
+  else
+    CGF.incrementProfileCounter(E);
+
   eval.begin(CGF);
   Value *LHS = Visit(lhsExpr);
   eval.end(CGF);
@@ -5052,6 +5073,9 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
   // may also contain a boolean expression.
   if (CGF.MCDCLogOpStack.empty())
     CGF.maybeUpdateMCDCTestVectorBitmap(condExpr);
+
+  if (llvm::EnableSingleByteCoverage)
+    CGF.incrementProfileCounter(rhsExpr);
 
   eval.begin(CGF);
   Value *RHS = Visit(rhsExpr);
@@ -5070,6 +5094,11 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
   llvm::PHINode *PN = Builder.CreatePHI(LHS->getType(), 2, "cond");
   PN->addIncoming(LHS, LHSBlock);
   PN->addIncoming(RHS, RHSBlock);
+
+  // When single byte coverage mode is enabled, add a counter to continuation
+  // block.
+  if (llvm::EnableSingleByteCoverage)
+    CGF.incrementProfileCounter(E);
 
   return PN;
 }
@@ -5561,4 +5590,17 @@ CodeGenFunction::EmitCheckedInBoundsGEP(llvm::Type *ElemTy, Value *Ptr,
   EmitCheck(Checks, SanitizerHandler::PointerOverflow, StaticArgs, DynamicArgs);
 
   return GEPVal;
+}
+
+Address CodeGenFunction::EmitCheckedInBoundsGEP(
+    Address Addr, ArrayRef<Value *> IdxList, llvm::Type *elementType,
+    bool SignedIndices, bool IsSubtraction, SourceLocation Loc, CharUnits Align,
+    const Twine &Name) {
+  if (!SanOpts.has(SanitizerKind::PointerOverflow))
+    return Builder.CreateInBoundsGEP(Addr, IdxList, elementType, Align, Name);
+
+  return RawAddress(
+      EmitCheckedInBoundsGEP(Addr.getElementType(), Addr.emitRawPointer(*this),
+                             IdxList, SignedIndices, IsSubtraction, Loc, Name),
+      elementType, Align);
 }

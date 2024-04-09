@@ -1,12 +1,5 @@
 cmake_minimum_required(VERSION 3.20.0)
 
-if(${ENABLE_DEVEL_PACKAGE})
-  set(DEVEL_PACKAGE "devel/")
-endif()
-if(${ENABLE_RUN_PACKAGE})
-  set(RUN_PACKAGE "runtime/")
-endif()
-
 if(DEFINED LIBOMP_SHARED_LINKER_FLAGS)
   set(CMAKE_SHARED_LINKER_FLAGS "${LIBOMP_SHARED_LINKER_FLAGS}")
 endif()
@@ -63,9 +56,15 @@ if (OPENMP_STANDALONE_BUILD)
   set(CMAKE_CXX_EXTENSIONS NO)
 else()
   set(OPENMP_ENABLE_WERROR ${LLVM_ENABLE_WERROR})
-  # If building in tree, we honor the same install suffix LLVM uses.
-  set(OPENMP_INSTALL_LIBDIR "lib${LLVM_LIBDIR_SUFFIX}" CACHE STRING
-      "Path where built OpenMP libraries should be installed.")
+
+  # When building in tree we install the runtime according to the LLVM settings.
+  if(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR AND NOT APPLE)
+    set(OPENMP_INSTALL_LIBDIR lib${LLVM_LIBDIR_SUFFIX}/${LLVM_DEFAULT_TARGET_TRIPLE} CACHE STRING
+        "Path where built openmp libraries should be installed.")
+  else()
+    set(OPENMP_INSTALL_LIBDIR "lib${LLVM_LIBDIR_SUFFIX}" CACHE STRING
+        "Path where built OpenMP libraries should be installed.")
+  endif()
 
   if (NOT MSVC)
     set(OPENMP_TEST_C_COMPILER ${LLVM_RUNTIME_OUTPUT_INTDIR}/clang)
@@ -94,6 +93,12 @@ else()
   set(CMAKE_CXX_STANDARD 17)
   set(CMAKE_CXX_STANDARD_REQUIRED NO)
   set(CMAKE_CXX_EXTENSIONS NO)
+endif()
+
+if(SANITIZER_AMDGPU)
+  add_definitions(-DSANITIZER_AMDGPU=1)
+  # Check for COMGr package , ASan requires COMGr with minimum version 2.4
+  find_package(amd_comgr QUIET 2.4.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
 endif()
 
 if((CMAKE_BUILD_TYPE MATCHES Debug) AND (${LIBOMPTARGET_NVPTX_DEBUG}))

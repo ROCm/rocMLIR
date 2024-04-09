@@ -2,6 +2,9 @@ revert: breaks MIOpen composableKernel build
 [clang][Sema] Add -Wswitch-default warning option (#73077)  
    https://ontrack-internal.amd.com/browse/SWDEV-436625
 
-Reverts: breaks HIP tests in wPSDB and nPSDB
-[AMDGPU] Add dynamic LDS size implicit kernel argument t
+Revert: breaks build of hipCUB
+commit 55783bd0 [HIP] fix host min/max in header (#82956)
 
+Revert :breaks hip catch tests.
+1de7e6c8cba2 [clang] move -Wcast-function-type under -Wextra (#77178)
+999d4f840777 Split -Wcast-function-type into a separate group (#86131)   

@@ -1663,6 +1663,12 @@ extern "C" __device__ double test_j1(double x) {
   return j1(x);
 }
 
+//
+
+
+//
+
+
 // DEFAULT-LABEL: @test_jnf(
 // DEFAULT-NEXT:  entry:
 // DEFAULT-NEXT:    switch i32 [[X:%.*]], label [[IF_END4_I:%.*]] [
@@ -1765,6 +1771,14 @@ extern "C" __device__ double test_j1(double x) {
 extern "C" __device__ float test_jnf(int x, float y) {
   return jnf(x, y);
 }
+
+
+
+//
+
+
+//
+
 
 // DEFAULT-LABEL: @test_jn(
 // DEFAULT-NEXT:  entry:
@@ -4200,6 +4214,14 @@ extern "C" __device__ double test_y1(double x) {
   return y1(x);
 }
 
+
+
+//
+
+
+//
+
+
 // DEFAULT-LABEL: @test_ynf(
 // DEFAULT-NEXT:  entry:
 // DEFAULT-NEXT:    switch i32 [[X:%.*]], label [[IF_END4_I:%.*]] [
@@ -4302,6 +4324,14 @@ extern "C" __device__ double test_y1(double x) {
 extern "C" __device__ float test_ynf(int x, float y) {
   return ynf(x, y);
 }
+
+
+
+//
+
+
+//
+
 
 // DEFAULT-LABEL: @test_yn(
 // DEFAULT-NEXT:  entry:
