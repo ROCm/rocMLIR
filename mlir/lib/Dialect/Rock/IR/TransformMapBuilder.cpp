@@ -261,7 +261,8 @@ StringRef TransformMapBuilder::endName(uint32_t dim) {
 
 uint32_t TransformMapBuilder::startIndex(StringRef name) {
   if (startIndices.count(name) != 1) {
-    llvm::report_fatal_error(Twine("Key not in starting set of names: ") + name);
+    llvm::report_fatal_error(Twine("Key not in starting set of names: ") +
+                             name);
   }
   return startIndices[name];
 }
