@@ -8,7 +8,7 @@ module {
                                     %arg2: !migraphx.shaped<1x64x32xf16, 2048x32x1> {func.read_access},
                                     %arg3: !migraphx.shaped<1x64x64xf16, 4096x64x1> {func.read_access},
                                     %qscale: !migraphx.shaped<1x1x1xf16, 1x1x1> {func.read_access}) 
-                                    -> (!migraphx.shaped<1x64x32xf16, 2048x32x1> {func.write_access})  attributes {kernel, mhal.arch = "gfx90a"} 
+                                    -> (!migraphx.shaped<1x64x32xf16, 2048x32x1> {func.write_access})
                                     {
     %0 = migraphx.quant_dot %arg0, %arg1: <1x64x32xi8, 2048x32x1>, <1x32x64xi8, 2048x64x1> -> <1x64x64xi32, 4096x64x1>
     %1 = migraphx.dequantizelinear %0, %qscale : <1x64x64xi32, 4096x64x1>, <1x1x1xf16, 1x1x1> -> <1x64x64xf16, 4096x64x1>
