@@ -2354,21 +2354,23 @@ struct GridwiseAttentionAccelRewritePattern
 #endif
     // We flatten output buffer in case gemm1MBlocks > 1
     // where those are iterated.
+    Value attentionOutAccBufferOutTypedFlat = attentionOutAccBufferOutTyped;
     MemRefType attentionOutAccBufferOutType =
         attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
     int64_t numElementsAttnOut = attentionOutAccBufferOutType.getNumElements();
+    if(attentionOutAccBufferOutType.getRank() > 1) {
     Type attentionOutAccBufferOutTypedElType =
         attentionOutAccBufferOutType.getElementType();
     auto attentionOutAccBufferOutTypedFlatType = MemRefType::get(
         {numElementsAttnOut}, attentionOutAccBufferOutTypedElType, AffineMap{},
         privateMemoryAddressSpace);
-    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto reassociation =
         getReassociationForFlattening(attentionOutAccBufferOutType);
-    auto attentionOutAccBufferOutTypedFlat =
+    attentionOutAccBufferOutTypedFlat =
         rewriter.create<memref::CollapseShapeOp>(
             loc, attentionOutAccBufferOutTypedFlatType,
             attentionOutAccBufferOutTyped, reassociation);
+    }
     // This map with create upper view [gblock, nblock, flatiter] -> [gblock,
     // miter, nblock, iter]
     TransformMapAttr flatToMiterMap =
@@ -2377,6 +2379,7 @@ struct GridwiseAttentionAccelRewritePattern
     ArrayAttr outGridSubTile =
         prependUpperViews(rewriter, rewriter.getArrayAttr({flatToMiterMap}),
                           gemm1OutSubTileViews.gridSubTile);
+    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto gridCoordsGemm1 =
         layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks);
     rewriter.create<ThreadwiseWriteAllOp>(
