@@ -14,5 +14,5 @@
 -transO false -transV false -transK true -transQ false -with-attn-scale false -g 20 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 64 -head_dim_v 64 -t f16
 -transO false -transV false -transK true -transQ false -with-attn-scale false -g 20 -seq_len_q 4096 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64 -t f16
 ## vae
--t f16 -g 1 -seq_len_q 16384 -seq_len_k 16384 -head_dim_qk 512 -head_dim_v 512
--t f32 -g 1 -seq_len_q 16384 -seq_len_k 16384 -head_dim_qk 512 -head_dim_v 512
+-transO false -transV false -transK true -transQ false -with-attn-scale false -t f16 -g 1 -seq_len_q 16384 -seq_len_k 16384 -head_dim_qk 512 -head_dim_v 512
+-transO false -transV false -transK true -transQ false -with-attn-scale false -t f32 -g 1 -seq_len_q 16384 -seq_len_k 16384 -head_dim_qk 512 -head_dim_v 512
