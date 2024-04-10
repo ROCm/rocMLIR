@@ -1890,7 +1890,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value attentionOutAccBufferOutTyped = attentionOutAccBuffer;
     if (elemTypeQxK != elemTypeOut) {
       attentionOutAccBufferOutTyped =
-          createBufferForGemmOut(loc, elemTypeOut, accelParamsGemm1, rewriter);
+          createBufferForGemmOut(loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
     }
     ArrayAttr attentionOutAccBufferThreadSubTileViewMaps =
         invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
@@ -2373,32 +2373,20 @@ struct GridwiseAttentionAccelRewritePattern
                          sumRowBuffer);
       }
     }
+    // We flatten output buffer in case gemm1MBlocks > 1
+    // where those are iterated.
+    Value attentionOutAccBufferFlat = getFlattenedMemref(rewriter, attentionOutAccBuffer);
+    Value attentionOutAccBufferOutTypedFlat = getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
     if (elemTypeQxK != elemTypeOut) {
-      createTypeConversionStore(rewriter, loc, attentionOutAccBuffer,
-                                attentionOutAccBufferOutTyped);
+      createTypeConversionStore(rewriter, loc, attentionOutAccBufferFlat,
+                                attentionOutAccBufferOutTypedFlat);
     }
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
     attentionOutAccBufferOutTyped = gemm1OutBuffer;
 #endif
-    // We flatten output buffer in case gemm1MBlocks > 1
-    // where those are iterated.
-    Value attentionOutAccBufferOutTypedFlat = attentionOutAccBufferOutTyped;
     MemRefType attentionOutAccBufferOutType =
         attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
     int64_t numElementsAttnOut = attentionOutAccBufferOutType.getNumElements();
-    if (attentionOutAccBufferOutType.getRank() > 1) {
-      Type attentionOutAccBufferOutTypedElType =
-          attentionOutAccBufferOutType.getElementType();
-      auto attentionOutAccBufferOutTypedFlatType = MemRefType::get(
-          {numElementsAttnOut}, attentionOutAccBufferOutTypedElType,
-          AffineMap{}, privateMemoryAddressSpace);
-      auto reassociation =
-          getReassociationForFlattening(attentionOutAccBufferOutType);
-      attentionOutAccBufferOutTypedFlat =
-          rewriter.create<memref::CollapseShapeOp>(
-              loc, attentionOutAccBufferOutTypedFlatType,
-              attentionOutAccBufferOutTyped, reassociation);
-    }
     // This map with create upper view [gblock, nblock, flatiter] -> [gblock,
     // miter, nblock, iter]
     TransformMapAttr flatToMiterMap =

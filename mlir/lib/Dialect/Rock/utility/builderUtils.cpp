@@ -140,12 +140,13 @@ void createTypeConversionStore(PatternRewriter &rewriter, Location loc,
       VectorType::get(srcMemRefType.getShape(), srcMemRefType.getElementType());
   auto superDestVecType =
       VectorType::get(dstMemRefType.getShape(), dstMemRefType.getElementType());
+  SmallVector<Value, 2> zeros {(size_t)srcMemRefType.getRank(), zeroConstantOp};
   auto vectorSrc = rewriter.create<vector::LoadOp>(loc, superSrcVecType, src,
-                                                   ValueRange{zeroConstantOp});
+                                                   zeros);
   auto vectorSrcCast =
       createTypeConversionOp(rewriter, loc, vectorSrc, superDestVecType);
   rewriter.create<vector::StoreOp>(loc, vectorSrcCast, dst,
-                                   ValueRange{zeroConstantOp});
+                                   zeros);
 }
 
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {

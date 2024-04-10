@@ -182,6 +182,9 @@ AffineMap getIdxReversalMap(OpBuilder &b);
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
 
+// helper to obtained a flattened memref
+Value getFlattenedMemref(OpBuilder& b, Value nonFlatMemRef);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
