@@ -2358,18 +2358,18 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType attentionOutAccBufferOutType =
         attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
     int64_t numElementsAttnOut = attentionOutAccBufferOutType.getNumElements();
-    if(attentionOutAccBufferOutType.getRank() > 1) {
-    Type attentionOutAccBufferOutTypedElType =
-        attentionOutAccBufferOutType.getElementType();
-    auto attentionOutAccBufferOutTypedFlatType = MemRefType::get(
-        {numElementsAttnOut}, attentionOutAccBufferOutTypedElType, AffineMap{},
-        privateMemoryAddressSpace);
-    auto reassociation =
-        getReassociationForFlattening(attentionOutAccBufferOutType);
-    attentionOutAccBufferOutTypedFlat =
-        rewriter.create<memref::CollapseShapeOp>(
-            loc, attentionOutAccBufferOutTypedFlatType,
-            attentionOutAccBufferOutTyped, reassociation);
+    if (attentionOutAccBufferOutType.getRank() > 1) {
+      Type attentionOutAccBufferOutTypedElType =
+          attentionOutAccBufferOutType.getElementType();
+      auto attentionOutAccBufferOutTypedFlatType = MemRefType::get(
+          {numElementsAttnOut}, attentionOutAccBufferOutTypedElType,
+          AffineMap{}, privateMemoryAddressSpace);
+      auto reassociation =
+          getReassociationForFlattening(attentionOutAccBufferOutType);
+      attentionOutAccBufferOutTypedFlat =
+          rewriter.create<memref::CollapseShapeOp>(
+              loc, attentionOutAccBufferOutTypedFlatType,
+              attentionOutAccBufferOutTyped, reassociation);
     }
     // This map with create upper view [gblock, nblock, flatiter] -> [gblock,
     // miter, nblock, iter]
