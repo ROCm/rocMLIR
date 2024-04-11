@@ -125,7 +125,34 @@ func.func @test_need_for_clone(%arg0: memref<4x3x2x5xf32>) {
   "use"(%1) : (memref<5x24xf32>) -> ()
   return
 }
+// CHECK-LABEL: "pre-split-mark-negative-test_reuse_dim"
+"pre-split-mark-negative-test_reuse_dim"() : () -> ()
+// Please note that in the following test we should find two groups in the
+// unmerge {3,5} and {4,6}.  The group {3,5} has a singleton dimension in the
+// middle. If we add that dimension we are creating a single {3,4,5,6} group,
+// which is wrong. So once the dimension 4 is used (either as singleton in
+// the {3,4,5} group or in the {4,6} group) it must not be reused
+// -----
+// CHECK: affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, ((d1 * 4 + d7 + d3) * 2 + d5) * 8 + d9, (d2 * 4 + d8 + d4) * 16 + d6)>
+// CHECK: affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, 0, 0, d3 floordiv 16, d3 mod 16, d4 floordiv 32, (d4 mod 32) floordiv 8, d4 mod 8)>
+#merge_map = #rock.transform_map<
+      affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, 0, 0, d3 floordiv 16, d3 mod 16, d4 floordiv 32, (d4 mod 32) floordiv 8, d4 mod 8)>
+         by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>,
+             <Merge{1, 1, 2, 16} ["tid"] at [3] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [3, 4, 5, 6]>,
+             <Merge{4, 4, 8} ["item"] at [4] -> ["rep_i", "rep_j", "item_i"] at [7, 8, 9]>] bounds = [1, 2, 2, 32, 128] -> [1, 2, 2, 1, 1, 2, 16, 4, 4, 8]>
 
+#unmerge_map = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, ((d1 * 4 + d7 + d3) * 2 + d5) * 8 + d9, (d2 * 4 + d8 + d4) * 16 + d6)>
+               by [<PassThrough ["g_block"] at [0] -> ["gemmG"] at [0]>,
+                   <Unmerge{2, 4, 1, 2, 8} ["m_block", "rep_i", "wave_m", "m_tid", "item_i"] at [1, 7, 3, 5, 9] -> ["gemmM"] at [1]>,
+                   <Unmerge{2, 4, 1, 16} ["n_block", "rep_j", "wave_n", "n_tid"] at [2, 8, 4, 6] -> ["gemmN"] at [2]>] bounds = [1, 2, 2, 1, 1, 2, 16, 4, 4, 8] -> [1, 128, 128]>
+
+func.func @negative_test_reuse_dim(%arg0: memref<1x128x128xf32>) {
+  %0 = rock.transform %arg0 by #unmerge_map: memref<1x128x128xf32> to  memref<1x2x2x1x1x2x16x4x4x8xf32>
+  %1 = rock.transform %0 by #merge_map: memref<1x2x2x1x1x2x16x4x4x8xf32> to memref<1x2x2x32x128xf32>
+  "collapse_merges"(%1) : (memref<1x2x2x32x128xf32>) -> ()
+  "use"(%1) : (memref<1x2x2x32x128xf32>) -> ()
+  return
+}
 
 // CHECK-LABEL: "pre-split-mark-no_test_yet"
 "pre-split-mark-no_test_yet"() : () -> ()
