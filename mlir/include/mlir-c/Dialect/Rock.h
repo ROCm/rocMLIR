@@ -133,32 +133,38 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
                                                size_t bufLen);
 
-// TODO (ravil): document
+// Returns likelihood of the Split-K scheme being faster than Data Parallel
+// GEMM implementation
 MLIR_CAPI_EXPORTED
 enum RocmlirSplitKSelectionLikelihood
 mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
                    int64_t numCUs, RocmlirTuningParamSetKind tuningLevel);
 
-// TODO (ravil): document
+// Checks whether input or output fusion is legal or not
 MLIR_CAPI_EXPORTED
 bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr);
 
+// Returns the number of arguments which require pre-filling the
+// associated memory
 MLIR_CAPI_EXPORTED
 size_t mlirGetNumPrefillArgs(MlirModule module);
 
-// TODO (ravil): document
+// Returns vectors of argument indices and the corresponding values
+// which need to be used for pre-filling the associated memory
 MLIR_CAPI_EXPORTED
 void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
-                            MlirAttribute *initValues);
+                            MlirAttribute *initValues, size_t length);
 
-// TODO (ravil): document
+// Returns the number of auxiliary buffers required by the operations
+// enclosed in a module
 MLIR_CAPI_EXPORTED
 size_t mlirGetNumAuxBuffers(MlirModule module);
 
-// TODO (ravil): document
+// Returns the sizes and initial values  of auxiliary buffers
+// required by the operations enclosed in a module
 MLIR_CAPI_EXPORTED
 void mlirGetAuxBuffersInfo(MlirModule module, size_t *sizes,
-                           MlirAttribute *initValues);
+                           MlirAttribute *initValues, size_t length);
 
 #ifdef __cplusplus
 }

@@ -8,14 +8,36 @@
 #ifndef ROCK_UTILITY_FISION_H
 #define ROCK_UTILITY_FISION_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
 namespace mlir {
+namespace memref {
+class AllocOp;
+} // namespace memref
+
+namespace func {
+class FuncOp;
+} // namespace func
+
 namespace rock {
-LogicalResult testFusibility(ModuleOp mod);
-LogicalResult testFusibility(func::FuncOp func);
+// Returns the associated `memref::AllocOp` for a given `Value`.
+// The traverses the corresponding chain of parrents skipping
+// operations implementing `ViewLikeOpInterface` - e.g., `rock.transform`
+std::optional<memref::AllocOp> getAllocation(Value value);
+
+// Checks whether a function contains any `linalg::GenericOp` which
+// reads or writes to the output of any `Operation` implementing
+// `RockGemmWrapperInterface`. The result of this test can be ignored
+// if the Data Parallel GEMM scheme is used.
+LogicalResult testFusionLegality(func::FuncOp func);
+
+// This is an overload of the `testFusionLegality` which is more convenient
+// to use in CAPI. Given a `ModuleOp`, the function retrieve the embedded
+// `func:FuncOp` and calls the implementation `testFusionLegality` (see above).
+// Note, this overloaded function assumes that `ModuleOp` contains
+// a single `func:FuncOp`
+LogicalResult testFusionLegality(ModuleOp mod);
 } // end namespace rock
 } // end namespace mlir
 

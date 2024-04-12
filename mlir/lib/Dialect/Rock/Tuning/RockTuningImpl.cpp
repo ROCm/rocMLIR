@@ -151,10 +151,11 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return splitKValues;
   }
 
-  if (!gemmOp.getNumCU().has_value()) {
-    return splitKValues;
+  uint32_t numCUs = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
+  if (gemmOp.getNumCU().has_value()) {
+    numCUs = gemmOp.getNumCU().value();
   }
-  const uint32_t numCUs = gemmOp.getNumCU().value();
+
   return computeOptimalSplitKFactors(info.gemmSize, gemmMPerBlock,
                                      gemmNPerBlock, gemmKPerBlock, kPack,
                                      numCUs);
@@ -916,7 +917,7 @@ int64_t retrieveSplitKValue(rock::RockGemmWrapperInterface op,
   return retrieveSplitKValueImpl<rock::InitParamsNonAccel>(perfConfig);
 }
 
-bool isSplitKRequested(ModuleOp &mod, StringRef &perfConfig) {
+bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
   WalkResult gemmWalkResult =
       mod.walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
         int64_t splitKFactor = retrieveSplitKValue(op, perfConfig);
@@ -933,6 +934,8 @@ RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
                                                 int64_t nDim, int64_t kDim,
                                                 int64_t numCUs) {
 
+  // Note, the following values are aggregated from `createGemmTuningRangeBF`,
+  // see above.
   // M/block N/block K/block M/wave N/wave kPack
   const std::vector<std::vector<uint32_t>> rangeGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
@@ -954,9 +957,9 @@ RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
           llvm::SmallVector<int64_t> currSplitKValues =
               computeOptimalSplitKFactors(gemmSize, mPerBlock, nPerBlock,
                                           kPerBlock, kPack, numCUs);
-          std::for_each(
-              currSplitKValues.begin(), currSplitKValues.end(),
-              [&splitKValues](int64_t value) { splitKValues.insert(value); });
+          llvm::for_each(currSplitKValues, [&splitKValues](int64_t value) {
+            splitKValues.insert(value);
+          });
         }
       }
     }

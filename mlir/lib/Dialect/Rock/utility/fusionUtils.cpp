@@ -23,64 +23,57 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-struct TestFusibilityPass
-    : public PassWrapper<TestFusibilityPass, OperationPass<func::FuncOp>> {
-  void runOnOperation() override {
-    BufferDependencyAnalysis &analysis =
-        getAnalysis<BufferDependencyAnalysis>();
-    if (failed(analysis.run())) {
-      return;
-    }
-
-    const auto &readersTable = analysis.getReadersTable();
-    const auto &writersTable = analysis.getWritersTable();
-
-    func::FuncOp func = getOperation();
-    WalkResult walkResult =
-        func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
-          auto gemmResult = gemmOp->getOperand(2);
-          auto allocOp = BufferDependencyAnalysis::getAllocation(gemmResult);
-          if (!allocOp.has_value()) {
-            return WalkResult::advance();
-          }
-
-          // make sure that no `linalg::GenericOp` reads from a gemm output
-          if (readersTable.contains(allocOp.value())) {
-            for (Operation *op : readersTable.at(allocOp.value())) {
-              if (dyn_cast<linalg::GenericOp>(op)) {
-                return WalkResult::interrupt();
-              }
-            }
-          }
-
-          // make sure that no `linalg::GenericOp` writes to a gemm output
-          if (writersTable.contains(allocOp.value())) {
-            for (Operation *op : writersTable.at(allocOp.value())) {
-              if (dyn_cast<linalg::GenericOp>(op)) {
-                return WalkResult::interrupt();
-              }
-            }
-          }
-
-          return WalkResult::advance();
-        });
-
-    if (walkResult.wasInterrupted()) {
-      return signalPassFailure();
-    }
+std::optional<memref::AllocOp> mlir::rock::getAllocation(Value value) {
+  while (auto viewOp = dyn_cast<ViewLikeOpInterface>(value.getDefiningOp())) {
+    value = viewOp.getViewSource();
   }
-};
-
-LogicalResult mlir::rock::testFusibility(ModuleOp mod) {
-  PassManager pm = PassManager::on<ModuleOp>(mod->getContext(),
-                                             PassManager::Nesting::Implicit);
-  pm.addPass(std::make_unique<TestFusibilityPass>());
-  return pm.run(mod);
+  if (auto allocOp = dyn_cast<memref::AllocOp>(value.getDefiningOp())) {
+    return allocOp;
+  }
+  return std::nullopt;
 }
 
-LogicalResult mlir::rock::testFusibility(func::FuncOp func) {
-  PassManager pm = PassManager::on<func::FuncOp>(
-      func->getContext(), PassManager::Nesting::Implicit);
-  pm.addPass(std::make_unique<TestFusibilityPass>());
-  return pm.run(func);
+LogicalResult mlir::rock::testFusionLegality(func::FuncOp func) {
+  auto analysis = BufferDependencyAnalysis(func.getOperation());
+  const auto &readersTable = analysis.getReadersTable();
+  const auto &writersTable = analysis.getWritersTable();
+
+  WalkResult walkResult =
+      func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
+        auto gemmResult = gemmOp->getOperand(2);
+        auto allocOp = getAllocation(gemmResult);
+        if (!allocOp.has_value()) {
+          return WalkResult::advance();
+        }
+
+        // make sure that no `linalg::GenericOp` reads from a gemm output
+        if (readersTable.contains(allocOp.value())) {
+          for (Operation *op : readersTable.at(allocOp.value())) {
+            if (dyn_cast<linalg::GenericOp>(op)) {
+              return WalkResult::interrupt();
+            }
+          }
+        }
+
+        // make sure that no `linalg::GenericOp` writes to a gemm output
+        if (writersTable.contains(allocOp.value())) {
+          for (Operation *op : writersTable.at(allocOp.value())) {
+            if (dyn_cast<linalg::GenericOp>(op)) {
+              return WalkResult::interrupt();
+            }
+          }
+        }
+
+        return WalkResult::advance();
+      });
+
+  return success(!walkResult.wasInterrupted());
+}
+
+LogicalResult mlir::rock::testFusionLegality(ModuleOp mod) {
+  auto funcs = mod.getOps<func::FuncOp>();
+  assert(std::distance(funcs.begin(), funcs.end()) &&
+         "expected ModuleOp containing a single func::FuncOp");
+  func::FuncOp func = *(funcs.begin());
+  return testFusionLegality(func);
 }

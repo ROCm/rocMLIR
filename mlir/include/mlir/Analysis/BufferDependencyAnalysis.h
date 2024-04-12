@@ -17,39 +17,38 @@
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
-
+// Given an operation (e.g., func::FuncOp), the analysis finds readers
+// and writers associated with memory created by each `allocOp` operation.
+//
+// Users can use `getReaders` and/or `getWriters` methods to look-up
+// readers/writers associated with a specific `allocOp`.
+//
+// Note, the analysis is intended to be performed after bufferization.
 struct BufferDependencyAnalysis {
   BufferDependencyAnalysis(Operation *op);
 
-  static std::optional<memref::AllocOp> getAllocation(Value value);
-  static llvm::SmallVector<Operation *> getReaders(memref::AllocOp allocOp);
-  static llvm::SmallVector<Operation *> getWriters(memref::AllocOp allocOp);
+  std::optional<llvm::SmallVector<Operation *>>
+  getReaders(memref::AllocOp allocOp);
+  std::optional<llvm::SmallVector<Operation *>>
+  getWriters(memref::AllocOp allocOp);
 
-  struct Pair {
-    llvm::SmallVector<Operation *> readers;
-    llvm::SmallVector<Operation *> writers;
-  };
-  static Pair getReadersAndWriters(memref::AllocOp allocOps);
-
-  LogicalResult run();
-  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>>
+  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> &
   getReadersTable() {
     return readersTable;
   }
-  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>>
+  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> &
   getWritersTable() {
     return writersTable;
   }
-  func::FuncOp getFuncton() const { return func; }
+
+  // Returns the operation this analysis was constructed from.
+  Operation *getOperation() const { return op; }
 
 private:
-  // The function this analysis was constructed from.
-  func::FuncOp func;
-
+  Operation *op;
   llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> readersTable;
   llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> writersTable;
 };
-
 } // namespace mlir
 
 #endif // ROCK_ANALYSIS_LOWERINGUTILS_H

@@ -142,15 +142,20 @@ MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
   return perfStr.size();
 }
 
-// TODO (ravil)
 MLIR_CAPI_EXPORTED
 enum RocmlirSplitKSelectionLikelihood
 mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
                    int64_t numCUs, RocmlirTuningParamSetKind tuningLevel) {
+  if (tuningLevel ==
+      RocmlirTuningParamSetKind::RocmlirTuningParamSetKindQuick) {
+    // Note, we return `never` because we don't provide splitK values
+    // in the case of `Quick` tuning. If we decide to remove this restriction
+    // in the future, we must remove this if-statement
+    return RocmlirSplitKSelectionLikelihood::never;
+  }
   return rock::isSplitKFaster(gDim, mDim, nDim, kDim, numCUs);
 }
 
-// TODO (ravil): document
 MLIR_CAPI_EXPORTED
 bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
   auto mod = unwrap(module);
@@ -159,10 +164,9 @@ bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
   if (!rock::isSplitKRequested(mod, perfConfig)) {
     return true;
   }
-  return succeeded(rock::testFusibility(mod));
+  return succeeded(rock::testFusionLegality(mod));
 }
 
-// TODO (ravil): document
 MLIR_CAPI_EXPORTED
 size_t mlirGetNumPrefillArgs(MlirModule module) {
   auto mod = unwrap(module);
@@ -178,10 +182,9 @@ size_t mlirGetNumPrefillArgs(MlirModule module) {
   return attrs.size();
 }
 
-// TODO (ravil): document
 MLIR_CAPI_EXPORTED
 void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
-                            MlirAttribute *initValues) {
+                            MlirAttribute *initValues, size_t length) {
   auto mod = unwrap(module);
   assert(mod.getRegion().getBlocks().size() == 1 &&
          "expected a single block/function in a module");
@@ -193,17 +196,16 @@ void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
     return;
   auto attrs = rock::getStoredPrefillAttributes(func.value());
 
-  for (auto prefillAttr : llvm::enumerate(attrs)) {
-    indices[prefillAttr.index()] = prefillAttr.value().getArgIndex();
-    initValues[prefillAttr.index()] = wrap(prefillAttr.value().getInitValue());
+  assert(attrs.size() >= length && "length cannot exceed the attr size");
+  for (size_t i = 0; i < length; ++i) {
+    indices[i] = attrs[i].getArgIndex();
+    initValues[i] = wrap(attrs[i].getInitValue());
   }
 }
 
-// TODO (ravil): document
 MLIR_CAPI_EXPORTED
 size_t mlirGetNumAuxBuffers(MlirModule module) { return 0; }
 
-// TODO (ravil): document
 MLIR_CAPI_EXPORTED
 void mlirGetAuxBuffersInfo(MlirModule module, size_t *sizes,
-                           MlirAttribute *initValues) {}
+                           MlirAttribute *initValues, size_t length) {}

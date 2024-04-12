@@ -79,6 +79,8 @@ static LogicalResult analyse(func::FuncOp func) {
   static std::mutex mutex;
   DenseMap<StringRef, ExpectedOpNames> expectedResults;
   extractExpectedResults(func, expectedResults);
+  BufferDependencyAnalysis analysis =
+      BufferDependencyAnalysis(func.getOperation());
 
   auto result = func.walk([&](memref::AllocOp allocOp) -> WalkResult {
     auto allocName = allocOp->getAttr("name").cast<StringAttr>().getValue();
@@ -87,28 +89,33 @@ static LogicalResult analyse(func::FuncOp func) {
       return WalkResult::interrupt();
     }
 
-    auto testResults = BufferDependencyAnalysis::getReadersAndWriters(allocOp);
     auto expectedOpNames = expectedResults[allocName];
 
     // test readers
-    for (auto *testReaderOp : testResults.readers) {
-      auto testReaderOpName = testReaderOp->getName().getStringRef();
-      if (!expectedOpNames.readers.contains(testReaderOpName)) {
-        std::lock_guard<std::mutex> guard(mutex);
-        llvm::errs() << "failed to find `" << testReaderOpName
-                     << "` reader for `" << allocName << "`\n";
-        return WalkResult::interrupt();
+    auto testReaders = analysis.getReaders(allocOp);
+    if (testReaders.has_value()) {
+      for (auto *testReaderOp : testReaders.value()) {
+        auto testReaderOpName = testReaderOp->getName().getStringRef();
+        if (!expectedOpNames.readers.contains(testReaderOpName)) {
+          std::lock_guard<std::mutex> guard(mutex);
+          llvm::errs() << "failed to find `" << testReaderOpName
+                       << "` reader for `" << allocName << "`\n";
+          return WalkResult::interrupt();
+        }
       }
     }
 
     // test writers
-    for (auto *testWriterOp : testResults.writers) {
-      auto testWriterOpName = testWriterOp->getName().getStringRef();
-      if (!expectedOpNames.writers.contains(testWriterOpName)) {
-        std::lock_guard<std::mutex> guard(mutex);
-        llvm::errs() << "failed to find `" << testWriterOpName
-                     << "` writer for `" << allocName << "`\n";
-        return WalkResult::interrupt();
+    auto testWriters = analysis.getWriters(allocOp);
+    if (testWriters.has_value()) {
+      for (auto *testWriterOp : testWriters.value()) {
+        auto testWriterOpName = testWriterOp->getName().getStringRef();
+        if (!expectedOpNames.writers.contains(testWriterOpName)) {
+          std::lock_guard<std::mutex> guard(mutex);
+          llvm::errs() << "failed to find `" << testWriterOpName
+                       << "` writer for `" << allocName << "`\n";
+          return WalkResult::interrupt();
+        }
       }
     }
 

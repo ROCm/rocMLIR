@@ -405,7 +405,7 @@ static bool constructAndTraverseIr(MlirContext ctx,
   std::vector<size_t> prefillArgIndices(numPrefillArgs);
   std::vector<MlirAttribute> prefillArgValues(numPrefillArgs);
   mlirGetPrefillArgsInfo(moduleOp.get(), prefillArgIndices.data(),
-                         prefillArgValues.data());
+                         prefillArgValues.data(), numPrefillArgs);
 
   std::cout << "prefill arg indices: " << prefillArgIndices << '\n';
   // F32_WITHOUT_EW_SK1" prefill arg indices:
@@ -424,7 +424,7 @@ static bool constructAndTraverseIr(MlirContext ctx,
   std::vector<size_t> auxBuffersSizes(numAuxBuffers);
   std::vector<MlirAttribute> auxBuffersInitValues(numAuxBuffers);
   mlirGetAuxBuffersInfo(moduleOp.get(), auxBuffersSizes.data(),
-                        auxBuffersInitValues.data());
+                        auxBuffersInitValues.data(), numAuxBuffers);
 
   std::cout << "aux buffers sizes: " << auxBuffersSizes << '\n';
   // F32_WITHOUT_EW_SK1: aux buffers sizes:

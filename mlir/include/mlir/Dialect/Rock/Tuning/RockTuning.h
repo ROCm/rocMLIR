@@ -74,7 +74,7 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
                                      SmallVectorImpl<char> &out);
 
-bool isSplitKRequested(ModuleOp &mod, StringRef &perfConfig);
+bool isSplitKRequested(ModuleOp mod, StringRef perfConfig);
 
 RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
                                                 int64_t nDim, int64_t kDim,

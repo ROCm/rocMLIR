@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Transform/IR/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
@@ -691,6 +692,53 @@ GemmSize Conv2DBwdDataOp::getGemmSize() {
 GemmSize Conv2DBwdWeightOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::BwdWeight, sizes);
+}
+
+void Conv2DOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), getOutput(),
+                       transform::TransformMappingResource::get());
+
+  effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+                       transform::TransformMappingResource::get());
+}
+
+void Conv2DBwdDataOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), getInput(),
+                       transform::TransformMappingResource::get());
+
+  effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+                       transform::TransformMappingResource::get());
+}
+
+void Conv2DBwdWeightOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  const bool hasWorkspace = getWorkspace() != nullptr;
+  if (hasWorkspace) {
+    effects.emplace_back(MemoryEffects::Read::get(), getWorkspace(),
+                         transform::TransformMappingResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), getWorkspace(),
+                         transform::TransformMappingResource::get());
+  } else {
+    effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+                         transform::TransformMappingResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), getFilter(),
+                         transform::TransformMappingResource::get());
+  }
+  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+                       transform::TransformMappingResource::get());
+
+  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+                       transform::TransformMappingResource::get());
 }
 
 //===-----------------------------------------------------===//
