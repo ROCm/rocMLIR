@@ -360,7 +360,7 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
       uint32_t fastestDim = groupCandidate.back();
       size_t fastestDimPosInMerge = dimPosition.back();
       size_t slowestDimPosInMerge = dimPosition.front();
-      for (auto d : groupCandidate){
+      for (auto d : groupCandidate) {
         // Make sure that the dimension cannot be reused
         dimToMerge.erase(d);
         contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
@@ -382,7 +382,7 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
                thisMergeParams.slice(slowestDimPosInMerge,
                                      fastestDimPosInMerge -
                                          slowestDimPosInMerge))) {
-        if (p == 1 && dimToMerge.contains(d) ){
+        if (p == 1 && dimToMerge.contains(d)) {
           // Make sure that the dimension cannot be reused
           dimToMerge.erase(d);
           contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
