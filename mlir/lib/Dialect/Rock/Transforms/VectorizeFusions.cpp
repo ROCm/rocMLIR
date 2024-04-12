@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -64,26 +65,26 @@ struct RockVectorizeFusionsPass
 void RockVectorizeFusionsPass::runOnOperation() {
   func::FuncOp op = getOperation();
   IRRewriter b(op.getContext());
-  op.walk([&](affine::AffineForOp loop) -> WalkResult {
-    // Collect data types
-    SmallVector<Type> loopTypes;
-    WalkResult canVectorize =
-        loop.getLoopBody().walk([&loopTypes](Operation *op) -> WalkResult {
-          if (auto affineLoad = dyn_cast<affine::AffineLoadOp>(op)) {
-            if (getAddressSpace(affineLoad.getMemref()) ==
-                AddressSpace::Private)
-              loopTypes.push_back(affineLoad.getType());
-          } else if (auto affineStore = dyn_cast<affine::AffineStoreOp>(op)) {
-            if (getAddressSpace(affineStore.getMemref()) ==
-                AddressSpace::Private)
-              loopTypes.push_back(affineStore.getMemRefType().getElementType());
-          } else if (dyn_cast<affine::AffineForOp>(op)) {
-            return WalkResult::interrupt();
-          }
-          return WalkResult::advance();
-        });
 
-    if (canVectorize.wasInterrupted())
+  op.walk([&](affine::AffineForOp loop) -> WalkResult {
+    // Collect data types and information about the vectorization feasibility
+    SmallVector<Type> loopTypes;
+    bool canVectorize = true;
+    for (auto &bodyOp : loop.getBody()->getOperations()) {
+      if (auto affineLoad = dyn_cast<affine::AffineLoadOp>(bodyOp)) {
+        if (getAddressSpace(affineLoad.getMemref()) == AddressSpace::Private)
+          loopTypes.push_back(affineLoad.getType());
+      } else if (auto affineStore = dyn_cast<affine::AffineStoreOp>(bodyOp)) {
+        if (getAddressSpace(affineStore.getMemref()) == AddressSpace::Private)
+          loopTypes.push_back(affineStore.getMemRefType().getElementType());
+      } else if (!isa<affine::AffineYieldOp>(bodyOp) &&
+                 !isa<arith::ArithDialect>(bodyOp.getDialect()) &&
+                 !isa<math::MathDialect>(bodyOp.getDialect())) {
+        canVectorize = false;
+      }
+    }
+
+    if (!canVectorize)
       return WalkResult::advance();
 
     if (loopTypes.empty())
@@ -114,19 +115,22 @@ void RockVectorizeFusionsPass::runOnOperation() {
     affine::vectorizeAffineLoops(op, loops,
                                  SmallVector<int64_t>{vectorizationFactor}, {});
 
-    // Make sure the transfer reads are in bounds
     return WalkResult::advance();
   });
-  op.walk([&](vector::TransferReadOp op) {
-    VectorType readType = op.getVector().getType();
-    SmallVector<bool> inBounds(readType.getRank(), true);
-    op.setInBoundsAttr(b.getBoolArrayAttr(inBounds));
-  });
 
-  // Make sure the transfer writes are in bounds
-  op.walk([&](vector::TransferWriteOp op) {
-    VectorType readType = op.getVector().getType();
-    SmallVector<bool> inBounds(readType.getRank(), true);
-    op.setInBoundsAttr(b.getBoolArrayAttr(inBounds));
+  op.walk([&](affine::AffineForOp loop) {
+    // Make sure the transfer reads are in bounds
+    for (auto trReadOp : loop.getLoopBody().getOps<vector::TransferReadOp>()) {
+      VectorType readType = trReadOp.getVector().getType();
+      SmallVector<bool> inBounds(readType.getRank(), true);
+      trReadOp.setInBoundsAttr(b.getBoolArrayAttr(inBounds));
+    }
+
+    // Make sure the transfer writes are in bounds
+    for (auto trWrtOp : loop.getLoopBody().getOps<vector::TransferWriteOp>()) {
+      VectorType writeType = trWrtOp.getVector().getType();
+      SmallVector<bool> inBounds(writeType.getRank(), true);
+      trWrtOp.setInBoundsAttr(b.getBoolArrayAttr(inBounds));
+    }
   });
 }

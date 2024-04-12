@@ -203,9 +203,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   arithOptions.allowPackedF16Rtz = true;
   arithOptions.saturateFP8Truncf = true;
   gpuPm.addPass(createArithToAMDGPUConversionPass(arithOptions));
-  if (archInfo.hasFp8ConversionInstrs)
-    gpuPm.addPass(createArithToAMDGPUConversionPass());
-  else
+  gpuPm.addPass(createArithToAMDGPUConversionPass());
+  if (!archInfo.hasFp8ConversionInstrs)
     gpuPm.addPass(createEmulateFp8ExtTruncPass());
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
   // We need to lower affine again, because the expand strided metadata pass
