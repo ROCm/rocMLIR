@@ -56,8 +56,9 @@ class AttributeImpl;
 class AttributeListImpl;
 class AttributeSetNode;
 class BasicBlock;
+class ConstantRangeAttributeImpl;
 struct DiagnosticHandler;
-class DPMarker;
+class DbgMarker;
 class ElementCount;
 class Function;
 class GlobalObject;
@@ -440,7 +441,7 @@ template <> struct MDNodeKeyImpl<DIEnumerator> {
   bool IsUnsigned;
 
   MDNodeKeyImpl(APInt Value, bool IsUnsigned, MDString *Name)
-      : Value(Value), Name(Name), IsUnsigned(IsUnsigned) {}
+      : Value(std::move(Value)), Name(Name), IsUnsigned(IsUnsigned) {}
   MDNodeKeyImpl(int64_t Value, bool IsUnsigned, MDString *Name)
       : Value(APInt(64, Value, !IsUnsigned)), Name(Name),
         IsUnsigned(IsUnsigned) {}
@@ -540,6 +541,7 @@ template <> struct MDNodeKeyImpl<DIDerivedType> {
   uint32_t AlignInBits;
   std::optional<unsigned> DWARFAddressSpace;
   dwarf::MemorySpace DWARFMemorySpace;
+  std::optional<DIDerivedType::PtrAuthData> PtrAuthData;
   unsigned Flags;
   Metadata *ExtraData;
   Metadata *Annotations;
@@ -548,20 +550,20 @@ template <> struct MDNodeKeyImpl<DIDerivedType> {
                 Metadata *Scope, Metadata *BaseType, uint64_t SizeInBits,
                 uint32_t AlignInBits, uint64_t OffsetInBits,
                 std::optional<unsigned> DWARFAddressSpace,
-                dwarf::MemorySpace DWARFMemorySpace, unsigned Flags,
-                Metadata *ExtraData, Metadata *Annotations)
+                dwarf::MemorySpace DWARFMemorySpace, std::optional<DIDerivedType::PtrAuthData> PtrAuthData,
+                unsigned Flags, Metadata *ExtraData, Metadata *Annotations)
       : Tag(Tag), Name(Name), File(File), Line(Line), Scope(Scope),
         BaseType(BaseType), SizeInBits(SizeInBits), OffsetInBits(OffsetInBits),
         AlignInBits(AlignInBits), DWARFAddressSpace(DWARFAddressSpace),
-        DWARFMemorySpace(DWARFMemorySpace), Flags(Flags), ExtraData(ExtraData),
+        DWARFMemorySpace(DWARFMemorySpace), PtrAuthData(PtrAuthData), Flags(Flags), ExtraData(ExtraData),
         Annotations(Annotations) {}
   MDNodeKeyImpl(const DIDerivedType *N)
       : Tag(N->getTag()), Name(N->getRawName()), File(N->getRawFile()),
         Line(N->getLine()), Scope(N->getRawScope()),
         BaseType(N->getRawBaseType()), SizeInBits(N->getSizeInBits()),
         OffsetInBits(N->getOffsetInBits()), AlignInBits(N->getAlignInBits()),
-        DWARFAddressSpace(N->getDWARFAddressSpace()),
-        DWARFMemorySpace(N->getDWARFMemorySpace()), Flags(N->getFlags()),
+        DWARFAddressSpace(N->getDWARFAddressSpace()), DWARFMemorySpace(N->getDWARFMemorySpace()), 
+        PtrAuthData(N->getPtrAuthData()), Flags(N->getFlags()),
         ExtraData(N->getRawExtraData()), Annotations(N->getRawAnnotations()) {}
 
   bool isKeyOf(const DIDerivedType *RHS) const {
@@ -572,7 +574,7 @@ template <> struct MDNodeKeyImpl<DIDerivedType> {
            AlignInBits == RHS->getAlignInBits() &&
            OffsetInBits == RHS->getOffsetInBits() &&
            DWARFAddressSpace == RHS->getDWARFAddressSpace() &&
-           DWARFMemorySpace == RHS->getDWARFMemorySpace() &&
+           DWARFMemorySpace == RHS->getDWARFMemorySpace() && PtrAuthData == RHS->getPtrAuthData() &&
            Flags == RHS->getFlags() && ExtraData == RHS->getRawExtraData() &&
            Annotations == RHS->getRawAnnotations();
   }
@@ -1592,6 +1594,8 @@ public:
 
   BumpPtrAllocator Alloc;
   UniqueStringSaver Saver{Alloc};
+  SpecificBumpPtrAllocator<ConstantRangeAttributeImpl>
+      ConstantRangeAttributeAlloc;
 
   DenseMap<unsigned, IntegerType *> IntegerTypes;
 
@@ -1697,35 +1701,33 @@ public:
   /// LLVMContext is used by compilation.
   void setOptPassGate(OptPassGate &);
 
-  /// Mapping of blocks to collections of "trailing" DPValues. As part of the
-  /// "RemoveDIs" project, debug-info variable location records are going to
-  /// cease being instructions... which raises the problem of where should they
-  /// be recorded when we remove the terminator of a blocks, such as:
+  /// Mapping of blocks to collections of "trailing" DbgVariableRecords. As part
+  /// of the "RemoveDIs" project, debug-info variable location records are going
+  /// to cease being instructions... which raises the problem of where should
+  /// they be recorded when we remove the terminator of a blocks, such as:
   ///
   ///    %foo = add i32 0, 0
   ///    br label %bar
   ///
   /// If the branch is removed, a legitimate transient state while editing a
   /// block, any debug-records between those two instructions will not have a
-  /// location. Each block thus records any DPValue records that "trail" in
-  /// such a way. These are stored in LLVMContext because typically LLVM only
-  /// edits a small number of blocks at a time, so there's no need to bloat
-  /// BasicBlock with such a data structure.
-  SmallDenseMap<BasicBlock *, DPMarker *> TrailingDPValues;
+  /// location. Each block thus records any DbgVariableRecord records that
+  /// "trail" in such a way. These are stored in LLVMContext because typically
+  /// LLVM only edits a small number of blocks at a time, so there's no need to
+  /// bloat BasicBlock with such a data structure.
+  SmallDenseMap<BasicBlock *, DbgMarker *> TrailingDbgRecords;
 
-  // Set, get and delete operations for TrailingDPValues.
-  void setTrailingDPValues(BasicBlock *B, DPMarker *M) {
-    assert(!TrailingDPValues.count(B));
-    TrailingDPValues[B] = M;
+  // Set, get and delete operations for TrailingDbgRecords.
+  void setTrailingDbgRecords(BasicBlock *B, DbgMarker *M) {
+    assert(!TrailingDbgRecords.count(B));
+    TrailingDbgRecords[B] = M;
   }
 
-  DPMarker *getTrailingDPValues(BasicBlock *B) {
-    return TrailingDPValues.lookup(B);
+  DbgMarker *getTrailingDbgRecords(BasicBlock *B) {
+    return TrailingDbgRecords.lookup(B);
   }
 
-  void deleteTrailingDPValues(BasicBlock *B) {
-    TrailingDPValues.erase(B);
-  }
+  void deleteTrailingDbgRecords(BasicBlock *B) { TrailingDbgRecords.erase(B); }
 };
 
 } // end namespace llvm

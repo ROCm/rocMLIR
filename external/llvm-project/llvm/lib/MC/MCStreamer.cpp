@@ -141,7 +141,7 @@ void MCStreamer::emitIntValue(uint64_t Value, unsigned Size) {
   unsigned Index = IsLittleEndian ? 0 : 8 - Size;
   emitBytes(StringRef(reinterpret_cast<char *>(&Swapped) + Index, Size));
 }
-void MCStreamer::emitIntValue(APInt Value) {
+void MCStreamer::emitIntValue(const APInt &Value) {
   if (Value.getNumWords() == 1) {
     emitIntValue(Value.getLimitedValue(), Value.getBitWidth() / 8);
     return;
@@ -643,6 +643,45 @@ void MCStreamer::emitCFIGnuArgsSize(int64_t Size, SMLoc Loc) {
   if (!CurFrame)
     return;
   CurFrame->Instructions.push_back(Instruction);
+}
+
+void MCStreamer::emitCFILLVMRegisterPair(int64_t Register, int64_t R1,
+                                         int64_t R1Size, int64_t R2,
+                                         int64_t R2Size, SMLoc Loc) {
+  MCSymbol *Label = emitCFILabel();
+  MCCFIInstruction Instruction = MCCFIInstruction::createLLVMRegisterPair(
+      Label, Register, R1, R1Size, R2, R2Size, Loc);
+  MCDwarfFrameInfo *CurFrame = getCurrentDwarfFrameInfo();
+  if (!CurFrame)
+    return;
+  CurFrame->Instructions.push_back(std::move(Instruction));
+}
+
+void MCStreamer::emitCFILLVMVectorRegisters(
+    int64_t Register, std::vector<MCCFIInstruction::VectorRegisterWithLane> VRs,
+    SMLoc Loc) {
+  MCSymbol *Label = emitCFILabel();
+  MCCFIInstruction Instruction = MCCFIInstruction::createLLVMVectorRegisters(
+      Label, Register, std::move(VRs), Loc);
+  MCDwarfFrameInfo *CurFrame = getCurrentDwarfFrameInfo();
+  if (!CurFrame)
+    return;
+  CurFrame->Instructions.push_back(std::move(Instruction));
+}
+
+void MCStreamer::emitCFILLVMVectorOffset(int64_t Register,
+                                         int64_t RegisterSizeInBits,
+                                         int64_t MaskRegister,
+                                         int64_t MaskRegisterSizeInBits,
+                                         int64_t Offset, SMLoc Loc) {
+  MCSymbol *Label = emitCFILabel();
+  MCCFIInstruction Instruction = MCCFIInstruction::createLLVMVectorOffset(
+      Label, Register, RegisterSizeInBits, MaskRegister, MaskRegisterSizeInBits,
+      Offset, Loc);
+  MCDwarfFrameInfo *CurFrame = getCurrentDwarfFrameInfo();
+  if (!CurFrame)
+    return;
+  CurFrame->Instructions.push_back(std::move(Instruction));
 }
 
 void MCStreamer::emitCFISignalFrame() {

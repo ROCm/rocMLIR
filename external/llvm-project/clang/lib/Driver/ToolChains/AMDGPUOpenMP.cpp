@@ -76,29 +76,6 @@ static const char *getOutputFileName(Compilation &C, StringRef Base,
   return OutputFileName;
 }
 
-static bool checkSystemForAMDGPU(const ArgList &Args, const AMDGPUToolChain &TC,
-                                 std::string &GPUArch) {
-  auto CheckError = [&](llvm::Error Err) -> bool {
-    std::string ErrMsg =
-        llvm::formatv("{0}", llvm::fmt_consume(std::move(Err)));
-    TC.getDriver().Diag(diag::err_drv_undetermined_gpu_arch)
-        << llvm::Triple::getArchTypeName(TC.getArch()) << ErrMsg << "-march";
-    return false;
-  };
-
-  auto ArchsOrErr = TC.getSystemGPUArchs(Args);
-  if (!ArchsOrErr)
-    return CheckError(ArchsOrErr.takeError());
-
-  if (ArchsOrErr->size() > 1)
-    if (!llvm::all_equal(*ArchsOrErr))
-      return CheckError(llvm::createStringError(
-          std::error_code(), "Multiple AMD GPUs found with different archs"));
-
-  GPUArch = ArchsOrErr->front();
-  return true;
-}
-
 static void addOptLevelArg(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs, bool IsLlc) {
   StringRef OOpt = "2"; // Default if no user command line specification
@@ -262,15 +239,16 @@ const char *amdgpu::dlr::getLinkCommandArgs(
 
   llvm::SmallVector<std::string, 12> BCLibs;
 
+  std::string AsanRTL;
   if (Args.hasFlag(options::OPT_fgpu_sanitize, options::OPT_fno_gpu_sanitize,
                    true) &&
       TC.getSanitizerArgs(Args).needsAsanRt()) {
-    std::string AsanRTL(RocmInstallation.getAsanRTLPath());
-    if (AsanRTL.empty()) {
-      if (!Args.hasArg(options::OPT_nogpulib))
+    if (!Args.hasArg(options::OPT_nogpulib)){
+      AsanRTL = RocmInstallation.getAsanRTLPath();
+      if(AsanRTL.empty())
         TC.getDriver().Diag(diag::err_drv_no_asan_rt_lib);
-    } else {
-      BCLibs.push_back(AsanRTL);
+      else
+        BCLibs.push_back(AsanRTL);
     }
   }
   StringRef GPUArch = getProcessorFromTargetID(Triple, TargetID);
@@ -280,12 +258,25 @@ const char *amdgpu::dlr::getLinkCommandArgs(
   // where it is expected it means we are using the build tree compiler
   // not the installed compiler.
   std::string LibDeviceName = "/libomptarget-amdgpu-" + GPUArch.str() + ".bc";
+
   SmallString<128> Path(Args.MakeArgString(libpath + LibDeviceName));
   if (LibSuffix != "lib" || llvm::sys::fs::exists(Path)) {
     BCLibs.push_back(Args.MakeArgString(Path));
   } else {
     std::string RtDir = "/../runtimes/runtimes-bins/openmp/libomptarget";
     BCLibs.push_back(Args.MakeArgString(libpath + RtDir + LibDeviceName));
+  }
+
+  if (!AsanRTL.empty()) {
+    if (!Args.hasArg(options::OPT_nogpulib)) {
+      // asanrtl is dependent on ockl so for every asanrtl bitcode linking
+      // requires ockl but viceversa is not true.
+      std::string OcklRTL(RocmInstallation.getOCKLPath());
+      if (OcklRTL.empty())
+        TC.getDriver().Diag(diag::err_drv_no_rocm_device_lib);
+      else
+        BCLibs.push_back(OcklRTL);
+    }
   }
 
   // Add the generic set of libraries, OpenMP subset only
@@ -387,42 +378,21 @@ AMDGPUOpenMPToolChain::AMDGPUOpenMPToolChain(const Driver &D, const llvm::Triple
   getProgramPaths().push_back(getDriver().Dir);
 }
 
-AMDGPUOpenMPToolChain::AMDGPUOpenMPToolChain(const Driver &D,
-                                             const llvm::Triple &Triple,
-                                             const ToolChain &HostTC,
-                                             const ArgList &Args,
-                                             const Action::OffloadKind OK,
-                                             const std::string TargetID)
-    : ROCMToolChain(D, Triple, Args), HostTC(HostTC), OK(OK) {
-  // Lookup binaries into the driver directory, this is used to
-  // discover the clang-offload-bundler executable.
-  getProgramPaths().push_back(getDriver().Dir);
-  this->TargetID = std::move(TargetID);
-}
-
 void AMDGPUOpenMPToolChain::addClangTargetOptions(
     const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args,
     Action::OffloadKind DeviceOffloadingKind) const {
   HostTC.addClangTargetOptions(DriverArgs, CC1Args, DeviceOffloadingKind);
 
-  std::string TargetIDStr = getTargetID().str();
-  if (TargetIDStr.empty()) {
-    if (!checkSystemForAMDGPU(DriverArgs, *this, TargetIDStr))
-      return;
-  }
-  StringRef TargetID = StringRef(TargetIDStr);
-  assert((DeviceOffloadingKind == Action::OFK_HIP ||
-          DeviceOffloadingKind == Action::OFK_OpenMP) &&
-         "Only HIP offloading kinds are supported for GPUs.");
+  StringRef GPUArch = DriverArgs.getLastArgValue(options::OPT_march_EQ);
+  assert(!GPUArch.empty() && "Must have an explicit GPU arch.");
 
   CC1Args.push_back("-target-cpu");
-  StringRef GPUArch = getProcessorFromTargetID(getTriple(), TargetID);
   CC1Args.push_back(DriverArgs.MakeArgStringRef(GPUArch));
 
   // Extract all the -m options
   std::vector<llvm::StringRef> Features;
   amdgpu::getAMDGPUTargetFeatures(getDriver(), getTriple(), DriverArgs,
-                                  Features, TargetIDStr);
+                                  Features, GPUArch);
 
   for (auto OneFeature : unifyTargetFeatures(Features)) {
     CC1Args.push_back("-target-feature");
@@ -514,11 +484,18 @@ llvm::opt::DerivedArgList *AMDGPUOpenMPToolChain::TranslateArgs(
     }
 
     if (!DAL->hasArg(options::OPT_march_EQ)) {
-      std::string Arch = BoundArch.str();
+      StringRef Arch = BoundArch;
       if (Arch.empty()) {
-        Arch = getTargetID().str(); // arch may have come from --Offload-Arch=
-        if (Arch.empty())
-          checkSystemForAMDGPU(Args, *this, Arch);
+        auto ArchsOrErr = getSystemGPUArchs(Args);
+        if (!ArchsOrErr) {
+          std::string ErrMsg =
+              llvm::formatv("{0}", llvm::fmt_consume(ArchsOrErr.takeError()));
+          getDriver().Diag(diag::err_drv_undetermined_gpu_arch)
+              << llvm::Triple::getArchTypeName(getArch()) << ErrMsg << "-march";
+          Arch = CudaArchToString(CudaArch::HIPDefault);
+        } else {
+          Arch = Args.MakeArgString(ArchsOrErr->front());
+        }
       }
       DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ), Arch);
     }
@@ -598,7 +575,7 @@ void AMDGPUOpenMPToolChain::AddFlangSystemIncludeArgs(const ArgList &DriverArgs,
     return;
 
   {
-    SmallString<128> P(D.InstalledDir);
+    SmallString<128> P(D.Dir);
     llvm::sys::path::append(P, "../include");
     IncludePathList.push_back(DriverArgs.MakeArgString(P.str()));
   }

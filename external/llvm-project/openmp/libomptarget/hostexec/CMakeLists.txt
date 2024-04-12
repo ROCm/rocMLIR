@@ -64,9 +64,6 @@ endif()
       target_link_libraries(amdgcn_hostexec_services ${HOSTEXEC_DEP_LIBRARIES})
    )
 
-   if(SANITIZER_AMDGPU)
-      add_definitions(-DSANITIZER_AMDGPU=1)
-   endif()
    add_compile_options($<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:-UNDEBUG>)
    set_property(TARGET amdgcn_hostexec_services PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -181,6 +178,7 @@ foreach(archname ${HOSTRPC_ARCHS})
       elseif(${archname} STREQUAL "nvptx")
          set(openmp_device_args 
 	      -I../../runtime/src  # to pickup omp.h, we may need a dependency
+        -I${CMAKE_CURRENT_SOURCE_DIR}/../DeviceRTL/include # pickup Platform.h
 	      -fopenmp -fopenmp-cuda-mode -mllvm -openmp-opt-disable 
 	      -std=c++17 -fvisibility=hidden 
 	      -fopenmp-targets=${triple} -Xopenmp-target=${triple} -march=${mcpu}
@@ -237,5 +235,5 @@ foreach(archname ${HOSTRPC_ARCHS})
    endforeach() # end for each mcpu
 endforeach() # end foreach archs
 
-install(FILES ${h_file} DESTINATION ${DEVEL_PACKAGE}lib/clang/${LLVM_VERSION_MAJOR}/include)
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/disable_dynamic_devmem.ll" DESTINATION ${DEVEL_PACKAGE}${OPENMP_INSTALL_LIBDIR})
+install(FILES ${h_file} DESTINATION lib/clang/${LLVM_VERSION_MAJOR}/include)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/disable_dynamic_devmem.ll" DESTINATION ${OPENMP_INSTALL_LIBDIR})

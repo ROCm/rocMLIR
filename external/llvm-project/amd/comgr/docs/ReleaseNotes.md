@@ -23,6 +23,8 @@ process, which is an issue because -h is a common short form for -help.
 device library from v4 to v5
 -  Updated shared library name on Windows 64-bit to include Comgr major version
 (libamd\_comgr.dll -> libamd\_comgr\_X.dll, where X is the major version)
+- oclc_daz_opt_on.bc and oclc_daz_opt_off.bc, and the corresponding
+  variable __oclc_daz_opt are no longer necessary.
 
 New Features
 ------------
@@ -36,6 +38,8 @@ an std::scoped\_lock()
 - Added support for bitcode and archive unbundling during linking via the new
 llvm OffloadBundler API.
 - Added support for code object v6 and generic targets.
+- Added mechanism to bypass device library file system writes if Comgr is able
+to locate a local device library directory via the clang-resource-dir
 
 Bug Fixes
 ---------
@@ -150,6 +154,7 @@ where reporters provide Comgr logs.
 - Update default arch for test binaries from gfx830 to gfx900
 - Refactor nested kernel behavior into new test, as this behavior is less common
 and shouldn't be featured in the baseline tests
+- Add metadata parsing tests for code objects with multiple AMDGPU metadata note entries.
 
 New Targets
 -----------

@@ -740,7 +740,7 @@ public:
   /// Special case of EmitValue that avoids the client having
   /// to pass in a MCExpr for constant integers.
   virtual void emitIntValue(uint64_t Value, unsigned Size);
-  virtual void emitIntValue(APInt Value);
+  virtual void emitIntValue(const APInt &Value);
 
   /// Special case of EmitValue that avoids the client having to pass
   /// in a MCExpr for constant integers & prints in Hex format for certain
@@ -1054,6 +1054,18 @@ public:
                                SMLoc Loc = {});
   virtual void emitCFIWindowSave(SMLoc Loc = {});
   virtual void emitCFINegateRAState(SMLoc Loc = {});
+  virtual void emitCFILLVMRegisterPair(int64_t Register, int64_t R1,
+                                       int64_t R1SizeInBits, int64_t R2,
+                                       int64_t R2SizeInBits, SMLoc Loc = {});
+  virtual void emitCFILLVMVectorRegisters(
+      int64_t Register,
+      std::vector<MCCFIInstruction::VectorRegisterWithLane> VRs,
+      SMLoc Loc = {});
+  virtual void emitCFILLVMVectorOffset(int64_t Register,
+                                       int64_t RegisterSizeInBits,
+                                       int64_t MaskRegister,
+                                       int64_t MaskRegisterSizeInBits,
+                                       int64_t Offset, SMLoc Loc = {});
 
   virtual void emitWinCFIStartProc(const MCSymbol *Symbol, SMLoc Loc = SMLoc());
   virtual void emitWinCFIEndProc(SMLoc Loc = SMLoc());

@@ -486,7 +486,7 @@ void HipBinAmd::executeHipCCCmd(vector<string> argv) {
   bool runCmd = 1;
   bool buildDeps = 0;
   string hsacoVersion;
-  bool funcSupp = 0;      // enable function support
+  bool funcSupp = 1;      // enable function support
   bool rdc = 0;           // whether -fgpu-rdc is on
 
   string prevArg;  //  previous argument
@@ -555,6 +555,10 @@ void HipBinAmd::executeHipCCCmd(vector<string> argv) {
     const string& rocmPathOption = "--rocm-path=";
     if (arg.compare(0,rocmPathOption.length(),rocmPathOption) == 0)
     	rocm_pathOption_ = arg.substr(rocmPathOption.length());
+    // Process --hip-path option
+    const string& hipPathOption = "--hip-path=";
+    if (arg.compare(0,hipPathOption.length(),hipPathOption) == 0)
+    	hip_pathOption_ = arg.substr(hipPathOption.length());
 
     // Check target selection option: --offload-arch= and --amdgpu-target=...
     for (unsigned int i = 0; i <targetOpts.size(); i++) {
@@ -564,7 +568,7 @@ void HipBinAmd::executeHipCCCmd(vector<string> argv) {
       if (hipBinUtilPtr_->stringRegexMatch(arg, pattern))  {
         if (targetOpt == "--amdgpu-target=") {
           std::cerr << "Warning: The --amdgpu-target option has been deprecated and will be removed in the future."
-                    << "  Use --offload-arch instead.\n";  
+                    << "  Use --offload-arch instead.\n";
         }
         // If targets string is not empty,
         // add a comma before adding new target option value.
@@ -863,6 +867,11 @@ void HipBinAmd::executeHipCCCmd(vector<string> argv) {
                                   + deviceLibPath + "\"";
       HIPCXXFLAGS += hip_device_lib_str;
     }
+  }
+
+  // to avoid using dk linker or MSVC linker
+  if (isWindows()) {
+    HIPLDFLAGS += " -fuse-ld=lld --ld-path=\"" + hipClangPath + "/lld-link.exe\"";
   }
 
   if (!compileOnly) {

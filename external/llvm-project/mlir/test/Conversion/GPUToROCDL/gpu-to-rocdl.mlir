@@ -635,3 +635,11 @@ gpu.module @test_module {
     func.return %shfl, %shfli : f32, f32
   }
 }
+
+// -----
+
+// CHECK-LABEL: @test_custom_data_layout
+// CHECK-SAME: llvm.data_layout = "e"
+gpu.module @test_custom_data_layout attributes {llvm.data_layout = "e"} {
+
+}

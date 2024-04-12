@@ -507,18 +507,20 @@ void NVPTX::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
       Exec, CmdArgs, Inputs, Output));
 }
 
-static bool shouldIncludePTX(const ArgList &Args, const char *gpu_arch) {
-  bool includePTX = true;
-  for (Arg *A : Args) {
-    if (!(A->getOption().matches(options::OPT_cuda_include_ptx_EQ) ||
-          A->getOption().matches(options::OPT_no_cuda_include_ptx_EQ)))
-      continue;
+static bool shouldIncludePTX(const ArgList &Args, StringRef InputArch) {
+  // The new driver does not include PTX by default to avoid overhead.
+  bool includePTX = !Args.hasFlag(options::OPT_offload_new_driver,
+                                  options::OPT_no_offload_new_driver, false);
+  for (Arg *A : Args.filtered(options::OPT_cuda_include_ptx_EQ,
+                              options::OPT_no_cuda_include_ptx_EQ)) {
     A->claim();
     const StringRef ArchStr = A->getValue();
-    if (ArchStr == "all" || ArchStr == gpu_arch) {
-      includePTX = A->getOption().matches(options::OPT_cuda_include_ptx_EQ);
-      continue;
-    }
+    if (A->getOption().matches(options::OPT_cuda_include_ptx_EQ) &&
+        (ArchStr == "all" || ArchStr == InputArch))
+      includePTX = true;
+    else if (A->getOption().matches(options::OPT_no_cuda_include_ptx_EQ) &&
+             (ArchStr == "all" || ArchStr == InputArch))
+      includePTX = false;
   }
   return includePTX;
 }
@@ -616,6 +618,10 @@ void NVPTX::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   // Add paths specified in LIBRARY_PATH environment variable as -L options.
   addDirectoryList(Args, CmdArgs, "-L", "LIBRARY_PATH");
 
+  // Add standard library search paths passed on the command line.
+  Args.AddAllArgs(CmdArgs, options::OPT_L);
+  getToolChain().AddFilePathLibArgs(Args, CmdArgs);
+
   // Add paths for the default clang library path.
   SmallString<256> DefaultLibPath =
       llvm::sys::path::parent_path(TC.getDriver().Dir);
@@ -630,11 +636,6 @@ void NVPTX::Linker::ConstructJob(Compilation &C, const JobAction &JA,
       continue;
     }
 
-    // Currently, we only pass the input files to the linker, we do not pass
-    // any libraries that may be valid only for the host.
-    if (!II.isFilename())
-      continue;
-
     AddStaticDeviceLibsLinking(C, *this, JA, Inputs, Args, CmdArgs, "nvptx",
                              GPUArch, /*isBitCodeSDL=*/false,
                              /*postClangLink=*/false);
@@ -643,26 +644,30 @@ void NVPTX::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     // file and device linking when given a '.cubin' file. We always want to
     // perform device linking, so just rename any '.o' files.
     // FIXME: This should hopefully be removed if NVIDIA updates their tooling.
-    auto InputFile = getToolChain().getInputFilename(II);
-    if (llvm::sys::path::extension(InputFile) != ".cubin") {
-      // If there are no actions above this one then this is direct input and we
-      // can copy it. Otherwise the input is internal so a `.cubin` file should
-      // exist.
-      if (II.getAction() && II.getAction()->getInputs().size() == 0) {
-        const char *CubinF =
-            Args.MakeArgString(getToolChain().getDriver().GetTemporaryPath(
-                llvm::sys::path::stem(InputFile), "cubin"));
-        if (llvm::sys::fs::copy_file(InputFile, C.addTempFile(CubinF)))
-          continue;
+    if (II.isFilename()) {
+      auto InputFile = getToolChain().getInputFilename(II);
+      if (llvm::sys::path::extension(InputFile) != ".cubin") {
+        // If there are no actions above this one then this is direct input and
+        // we can copy it. Otherwise the input is internal so a `.cubin` file
+        // should exist.
+        if (II.getAction() && II.getAction()->getInputs().size() == 0) {
+          const char *CubinF =
+              Args.MakeArgString(getToolChain().getDriver().GetTemporaryPath(
+                  llvm::sys::path::stem(InputFile), "cubin"));
+          if (llvm::sys::fs::copy_file(InputFile, C.addTempFile(CubinF)))
+            continue;
 
-        CmdArgs.push_back(CubinF);
+          CmdArgs.push_back(CubinF);
+        } else {
+          SmallString<256> Filename(InputFile);
+          llvm::sys::path::replace_extension(Filename, "cubin");
+          CmdArgs.push_back(Args.MakeArgString(Filename));
+        }
       } else {
-        SmallString<256> Filename(InputFile);
-        llvm::sys::path::replace_extension(Filename, "cubin");
-        CmdArgs.push_back(Args.MakeArgString(Filename));
+        CmdArgs.push_back(Args.MakeArgString(InputFile));
       }
-    } else {
-      CmdArgs.push_back(Args.MakeArgString(InputFile));
+    } else if (!II.isNothing()) {
+      II.getInputArg().renderAsInput(Args, CmdArgs);
     }
   }
 
@@ -740,10 +745,8 @@ NVPTXToolChain::NVPTXToolChain(const Driver &D, const llvm::Triple &Triple,
                                const ArgList &Args,
                                const std::string TargetID)
     : ToolChain(D, Triple, Args), CudaInstallation(D, HostTriple, Args) {
-  if (CudaInstallation.isValid()) {
-    CudaInstallation.WarnIfUnsupportedVersion();
+  if (CudaInstallation.isValid())
     getProgramPaths().push_back(std::string(CudaInstallation.getBinPath()));
-  }
   // Lookup binaries into the driver directory, this is used to
   // discover the clang-offload-bundler executable.
   getProgramPaths().push_back(getDriver().Dir);
@@ -771,10 +774,12 @@ NVPTXToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
     if (!llvm::is_contained(*DAL, A))
       DAL->append(A);
 
-  // TODO: We should accept 'generic' as a valid architecture.
   if (!DAL->hasArg(options::OPT_march_EQ) && OffloadKind != Action::OFK_None) {
     DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ),
                       CudaArchToString(CudaArch::CudaDefault));
+  } else if (DAL->getLastArgValue(options::OPT_march_EQ) == "generic" &&
+             OffloadKind == Action::OFK_None) {
+    DAL->eraseArg(options::OPT_march_EQ);
   } else if (DAL->getLastArgValue(options::OPT_march_EQ) == "native") {
     auto GPUsOrErr = getSystemGPUArchs(Args);
     if (!GPUsOrErr) {
@@ -933,7 +938,7 @@ void CudaToolChain::addClangTargetOptions(
       return;
 
     addOpenMPDeviceRTL(getDriver(), DriverArgs, CC1Args, GpuArch.str(),
-                       getTriple());
+                       getTriple(), HostTC);
     AddStaticDeviceLibsPostLinking(getDriver(), DriverArgs, CC1Args, "nvptx",
                                    GpuArch, /*isBitCodeSDL=*/true,
                                    /*postClangLink=*/true);
@@ -998,20 +1003,31 @@ CudaToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
       if (!llvm::is_contained(*DAL, A))
         DAL->append(A);
 
-    StringRef Arch = DAL->getLastArgValue(options::OPT_march_EQ);
-    if (Arch.empty())
-      Arch = getProcessorFromTargetID(this->getTriple(), this->getTargetID());
-
-    if (Arch.empty())
-      DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ),
-                        !BoundArch.empty() ? BoundArch
-                                           : CLANG_OPENMP_NVPTX_DEFAULT_ARCH);
+    if (!DAL->hasArg(options::OPT_march_EQ)) {
+      StringRef Arch = BoundArch;
+      if (Arch.empty()) {
+        auto ArchsOrErr = getSystemGPUArchs(Args);
+        if (!ArchsOrErr) {
+          std::string ErrMsg =
+              llvm::formatv("{0}", llvm::fmt_consume(ArchsOrErr.takeError()));
+          getDriver().Diag(diag::err_drv_undetermined_gpu_arch)
+              << llvm::Triple::getArchTypeName(getArch()) << ErrMsg << "-march";
+          Arch = CudaArchToString(CudaArch::CudaDefault);
+        } else {
+          Arch = Args.MakeArgString(ArchsOrErr->front());
+        }
+      }
+      DAL->AddJoinedArg(nullptr, Opts.getOption(options::OPT_march_EQ), Arch);
+    }
 
     return DAL;
   }
 
   for (Arg *A : Args) {
-    DAL->append(A);
+    // Make sure flags are not duplicated.
+    if (!llvm::is_contained(*DAL, A)) {
+      DAL->append(A);
+    }
   }
 
   if (!BoundArch.empty()) {
