@@ -52,7 +52,7 @@
 // BINARY_MI300-NEXT: {{^}}builtin.module(strip-debuginfo,
 // BINARY_MI300-SAME: gpu.module(amdgpu-emulate-atomics{chipset=gfx940},
 // BINARY_MI300-SAME: arith-emulate-unsupported-floats{source-types=bf16,f8E4M3FNUZ,f8E5M2FNUZ target-type=f32},
-// BINARY_MI300-SAME: convert-arith-to-amdgpu{saturate-fp8-truncf=true},
+// BINARY_MI300-SAME: convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=true chipset=gfx940 saturate-fp8-truncf=true},
 // BINARY_MI300-SAME: expand-strided-metadata,
 // BINARY_MI300-SAME: convert-gpu-to-rocdl{chipset=gfx940 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true use-opaque-pointers=true},
 // BINARY_MI300-SAME: llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
