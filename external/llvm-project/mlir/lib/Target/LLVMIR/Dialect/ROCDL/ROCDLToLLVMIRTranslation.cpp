@@ -173,7 +173,7 @@ public:
       llvm::SmallString<8> llvmAttrValue;
       llvm::raw_svector_ostream attrValueStream(llvmAttrValue);
       attrValueStream << "preserve-sign";
-      llvmFunc->addFnAttr("denormal-fp-math-f32", llvmAttrValue);
+      llvmFunc->addFnAttr("denormal-fp-math", llvmAttrValue);
     }
 
     // Set reqd_work_group_size metadata

@@ -318,8 +318,8 @@ void mlir::populateGpuToROCDLConversionPatterns(
                                   "__ocml_cos_f64");
   populateOpPatterns<math::ExpOp>(converter, patterns, "__ocml_exp_f32",
                                   "__ocml_exp_f64");
-  populateOpPatterns<math::Exp2Op>(converter, patterns, "llvm.exp2.f32",
-                                   "llvm.exp2.f64");
+  populateOpPatterns<math::Exp2Op>(converter, patterns, "__ocml_exp2_f32",
+                                  "__ocml_exp2_f64");
   populateOpPatterns<math::ExpM1Op>(converter, patterns, "__ocml_expm1_f32",
                                     "__ocml_expm1_f64");
   populateOpPatterns<math::FloorOp>(converter, patterns, "__ocml_floor_f32",
