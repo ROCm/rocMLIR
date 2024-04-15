@@ -2490,18 +2490,10 @@ static bool allowApproxFunc(const SelectionDAG &DAG, SDNodeFlags Flags) {
 
 static bool needsDenormHandlingF32(const SelectionDAG &DAG, SDValue Src,
                                    SDNodeFlags Flags) {
-  if(DAG.getMachineFunction()
-                 .getDenormalMode(APFloat::IEEEsingle())
-                 .Input != DenormalMode::PreserveSign){
-  }
-  if(valueIsKnownNeverF32Denorm(Src)){
-    Src.dump();
-  }
-  bool ret = !valueIsKnownNeverF32Denorm(Src) &&
+  return !valueIsKnownNeverF32Denorm(Src) &&
          DAG.getMachineFunction()
                  .getDenormalMode(APFloat::IEEEsingle())
                  .Input != DenormalMode::PreserveSign;
-  return ret;
 }
 
 SDValue AMDGPUTargetLowering::getIsLtSmallestNormal(SelectionDAG &DAG,
