@@ -521,8 +521,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
       loc, queries, keys, values, adaptor.getPreSoftmaxElemWiseInputs(), out,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
-      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, op.getQkTypeAttr(), params0,
-      params1);
+      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
+      op.getQkTypeAttr(), params0, params1);
   bool linalgOpFound = false;
   op.getPreSoftmaxBody().walk(
       [&](linalg::GenericOp genOp) { linalgOpFound = true; });

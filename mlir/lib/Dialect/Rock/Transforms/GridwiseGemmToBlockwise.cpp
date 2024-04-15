@@ -1888,8 +1888,8 @@ struct GridwiseAttentionAccelRewritePattern
         loc, elemTypeQxK, accelParamsGemm1, rewriter, gemm1MBlocks);
     Value attentionOutAccBufferOutTyped = attentionOutAccBuffer;
     if (elemTypeQxK != elemTypeOut) {
-      attentionOutAccBufferOutTyped =
-          createBufferForGemmOut(loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
+      attentionOutAccBufferOutTyped = createBufferForGemmOut(
+          loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
     }
     ArrayAttr attentionOutAccBufferThreadSubTileViewMaps =
         invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
@@ -2374,8 +2374,10 @@ struct GridwiseAttentionAccelRewritePattern
     }
     // We flatten output buffer in case gemm1MBlocks > 1
     // where those are iterated.
-    Value attentionOutAccBufferFlat = getFlattenedMemref(rewriter, attentionOutAccBuffer);
-    Value attentionOutAccBufferOutTypedFlat = getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
+    Value attentionOutAccBufferFlat =
+        getFlattenedMemref(rewriter, attentionOutAccBuffer);
+    Value attentionOutAccBufferOutTypedFlat =
+        getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
     if (elemTypeQxK != elemTypeOut) {
       createTypeConversionStore(rewriter, loc, attentionOutAccBufferFlat,
                                 attentionOutAccBufferOutTypedFlat);

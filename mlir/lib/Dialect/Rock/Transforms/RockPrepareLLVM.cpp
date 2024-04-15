@@ -132,7 +132,8 @@ void RockPrepareLLVMPass::runOnOperation() {
   // NOTE: this need to introduced as a proper LLVMIR attr
   // after upstream merge.
   SmallVector<Attribute> passthroughs;
-  passthroughs.push_back(b.getArrayAttr({b.getStringAttr("denormal-fp-math"), b.getStringAttr("preserve-sign")}));
+  passthroughs.push_back(b.getArrayAttr(
+      {b.getStringAttr("denormal-fp-math"), b.getStringAttr("preserve-sign")}));
   func.setPassthroughAttr(b.getArrayAttr(passthroughs));
 
   // We'd like to do a bunch of annotating on loads and stores.

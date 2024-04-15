@@ -711,22 +711,18 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
   return reassociation;
 }
 
-Value mlir::rock::getFlattenedMemref(OpBuilder& b, Value nonFlatMemRef) {
+Value mlir::rock::getFlattenedMemref(OpBuilder &b, Value nonFlatMemRef) {
   Location loc = nonFlatMemRef.getLoc();
-  MemRefType nonFlatMemRefType =
-      nonFlatMemRef.getType().cast<MemRefType>();
+  MemRefType nonFlatMemRefType = nonFlatMemRef.getType().cast<MemRefType>();
   int64_t numElements = nonFlatMemRefType.getNumElements();
   if (nonFlatMemRefType.getRank() > 1) {
-    Type nonFlatMemRefElType =
-        nonFlatMemRefType.getElementType();
-    auto flatMemRefType = MemRefType::get(
-        {numElements}, nonFlatMemRefElType,
-        AffineMap{}, nonFlatMemRefType.getMemorySpace());
-    auto reassociation =
-        getReassociationForFlattening(nonFlatMemRefType);
-    return  b.create<memref::CollapseShapeOp>(
-            loc, flatMemRefType,
-            nonFlatMemRef, reassociation);
+    Type nonFlatMemRefElType = nonFlatMemRefType.getElementType();
+    auto flatMemRefType =
+        MemRefType::get({numElements}, nonFlatMemRefElType, AffineMap{},
+                        nonFlatMemRefType.getMemorySpace());
+    auto reassociation = getReassociationForFlattening(nonFlatMemRefType);
+    return b.create<memref::CollapseShapeOp>(loc, flatMemRefType, nonFlatMemRef,
+                                             reassociation);
   }
   return nonFlatMemRef;
 }
