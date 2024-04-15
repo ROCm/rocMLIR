@@ -164,18 +164,6 @@ public:
       llvmFunc->addFnAttr("amdgpu-unsafe-fp-atomics", llvmAttrValue);
     }
 
-    {
-      auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
-      if (!func)
-        return failure();
-      llvm::Function *llvmFunc =
-            moduleTranslation.lookupFunction(func.getName());
-      llvm::SmallString<8> llvmAttrValue;
-      llvm::raw_svector_ostream attrValueStream(llvmAttrValue);
-      attrValueStream << "preserve-sign";
-      llvmFunc->addFnAttr("denormal-fp-math", llvmAttrValue);
-    }
-
     // Set reqd_work_group_size metadata
     if (ROCDL::ROCDLDialect::getReqdWorkGroupSizeAttrName() ==
         attribute.getName()) {

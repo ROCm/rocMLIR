@@ -117,6 +117,7 @@ void RockPrepareLLVMPass::runOnOperation() {
   LLVM::LLVMFuncOp func = getOperation();
   if (!func->hasAttr(ROCDL::ROCDLDialect::getKernelFuncAttrName()))
     return;
+
   // We're willing to assert that our GEPs are in bounds, unless we're dealing
   // with buffer fat pointers (in which case, the offset is unsigned)
   func.walk([](LLVM::GEPOp gepOp) {
@@ -124,6 +125,15 @@ void RockPrepareLLVMPass::runOnOperation() {
       gepOp.setInbounds(true);
   });
   OpBuilder b(&getContext());
+
+  // Our kernels are fine with preserving sign in denorm fp
+  // handling. This helps to avoid extra code that'd be
+  // otherwise generated for exp2.
+  // NOTE: this need to introduced as a proper LLVMIR attr
+  // after upstream merge.
+  SmallVector<Attribute> passthroughs;
+  passthroughs.push_back(b.getArrayAttr({b.getStringAttr("denormal-fp-math"), b.getStringAttr("preserve-sign")}));
+  func.setPassthroughAttr(b.getArrayAttr(passthroughs));
 
   // We'd like to do a bunch of annotating on loads and stores.
   // One thing we need to do is fix up alignments: MLIR's `vector.load` lowers

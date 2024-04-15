@@ -2493,17 +2493,14 @@ static bool needsDenormHandlingF32(const SelectionDAG &DAG, SDValue Src,
   if(DAG.getMachineFunction()
                  .getDenormalMode(APFloat::IEEEsingle())
                  .Input != DenormalMode::PreserveSign){
-    // errs() << "preserve flag is not set\n";
   }
   if(valueIsKnownNeverF32Denorm(Src)){
     Src.dump();
-    // errs() << "Src is known never F32 Denorm" << "\n";
   }
   bool ret = !valueIsKnownNeverF32Denorm(Src) &&
          DAG.getMachineFunction()
                  .getDenormalMode(APFloat::IEEEsingle())
                  .Input != DenormalMode::PreserveSign;
-  // errs() << "needsDenormHandlingF32::" << ret << "\n";
   return ret;
 }
 
