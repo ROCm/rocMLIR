@@ -217,6 +217,7 @@ def Rock_AttentionOp :
     UnitAttr:$oTransposed,
     StrAttr:$arch,
     Rock_GemmFeaturesAttr:$features,
+    OptionalAttr<TypeAttr>:$qkType,
     OptionalAttr<RockTuningParamAttrInterface>:$params0,
     OptionalAttr<RockTuningParamAttrInterface>:$params1
   )>,
@@ -439,6 +440,7 @@ def Rock_GridwiseAttentionAccelOp :
                    UnitAttr:$disableQBypassLDS,
                    OptionalAttr<IndexAttr>:$prePadG0M,
                    OptionalAttr<IndexAttr>:$prePadG0N,
+                   OptionalAttr<TypeAttr>:$qkType,
                    RockAccelTuningParamAttrInterface:$params0,
                    RockAccelTuningParamAttrInterface:$params1)> {
   let summary = "Gridwise attention accelerated version";

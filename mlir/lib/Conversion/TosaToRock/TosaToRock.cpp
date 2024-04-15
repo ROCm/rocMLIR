@@ -968,6 +968,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, arch,
         rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+        /*qkType=*/nullptr,
         /*params0=*/nullptr, /*params1=*/nullptr);
 
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();

@@ -1686,9 +1686,8 @@ struct GridwiseAttentionAccelRewritePattern
     ArrayRef<int64_t> outShape = trOut.getType().cast<MemRefType>().getShape();
     Type elemTypeOut = trOut.getType().cast<MemRefType>().getElementType();
 
-    // Gemm0 out is casted to be elemTypeV
-    Type elemTypeQxK = rewriter.getF32Type();
-    // Type elemTypeQxK = elemTypeV;
+    // It is defaulted to F32.
+    Type elemTypeQxK = op.getQkType().value_or(rewriter.getF32Type());
 
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());

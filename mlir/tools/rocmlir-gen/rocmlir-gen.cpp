@@ -2392,7 +2392,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
       transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
-      /*params0=*/nullptr, /*params1=*/nullptr);
+      /*qkType=*/nullptr, /*params0=*/nullptr, /*params1=*/nullptr);
   {
     Block *preSoftmaxElemwiseBlock =
         &attention.getPreSoftmaxBody().emplaceBlock();
