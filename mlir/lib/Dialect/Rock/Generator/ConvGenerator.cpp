@@ -209,6 +209,10 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     return failure();
   }
 
+  assert(config.strideDims.size() == config.dilationDims.size() &&
+         config.strideDims.size() == config.paddingLeftDims.size() &&
+         config.strideDims.size() == config.paddingRightDims.size());
+
   for (size_t i = 0; i < config.strideDims.size(); i++) {
     auto ii = std::to_string(i);
     int64_t expected =
