@@ -165,14 +165,23 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
     inputNames.push_back(inputAttr.getValue());
     outputNames.push_back(outputAttr.getValue());
   }
-  if (failed(
-          checkNames(filterNames, {"k", "g", "c", "0", "1"}, "filter", op)) ||
-      failed(checkNames(inputNames, {"ni", "gi", "ci", "0i", "1i"}, "input",
-                        op)) ||
-      failed(checkNames(outputNames, {"no", "go", "ko", "0o", "1o"}, "output",
-                        op))) {
+
+  SmallVector<StringRef> filterCheck{"k", "g", "c"};
+  SmallVector<StringRef> inputCheck{"ni", "gi", "ci"};
+  SmallVector<StringRef> outputCheck{"no", "go", "ko"};
+  auto ctx = op.getContext();
+  for (size_t i = 0;  i < filterNames.size() - 3;  i++) {
+    filterCheck.push_back(StringAttr::get(ctx, std::to_string(i)));
+    inputCheck.push_back(StringAttr::get(ctx, std::to_string(i) + "i"));
+    outputCheck.push_back(StringAttr::get(ctx, std::to_string(i) + "o"));
+  }
+
+  if (failed(checkNames(filterNames, filterCheck, "filter", op)) ||
+      failed(checkNames(inputNames, inputCheck, "input", op)) ||
+      failed(checkNames(outputNames, outputCheck, "output", op))) {
     return failure();
   }
+
   return success();
 }
 
