@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
@@ -23,16 +24,6 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-std::optional<memref::AllocOp> mlir::rock::getAllocation(Value value) {
-  while (auto viewOp = dyn_cast<ViewLikeOpInterface>(value.getDefiningOp())) {
-    value = viewOp.getViewSource();
-  }
-  if (auto allocOp = dyn_cast<memref::AllocOp>(value.getDefiningOp())) {
-    return allocOp;
-  }
-  return std::nullopt;
-}
-
 LogicalResult mlir::rock::testFusionLegality(func::FuncOp func) {
   auto analysis = BufferDependencyAnalysis(func.getOperation());
   const auto &readersTable = analysis.getReadersTable();
@@ -41,14 +32,14 @@ LogicalResult mlir::rock::testFusionLegality(func::FuncOp func) {
   WalkResult walkResult =
       func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
         auto gemmResult = gemmOp->getOperand(2);
-        auto allocOp = getAllocation(gemmResult);
-        if (!allocOp.has_value()) {
+        auto maybeAlloc = findMemrefAlloc(gemmResult);
+        if (failed(maybeAlloc)) {
           return WalkResult::advance();
         }
 
         // make sure that no `linalg::GenericOp` reads from a gemm output
-        if (readersTable.contains(allocOp.value())) {
-          for (Operation *op : readersTable.at(allocOp.value())) {
+        if (readersTable.contains(*maybeAlloc)) {
+          for (Operation *op : readersTable.at(*maybeAlloc)) {
             if (dyn_cast<linalg::GenericOp>(op)) {
               return WalkResult::interrupt();
             }
@@ -56,8 +47,8 @@ LogicalResult mlir::rock::testFusionLegality(func::FuncOp func) {
         }
 
         // make sure that no `linalg::GenericOp` writes to a gemm output
-        if (writersTable.contains(allocOp.value())) {
-          for (Operation *op : writersTable.at(allocOp.value())) {
+        if (writersTable.contains(maybeAlloc.value())) {
+          for (Operation *op : writersTable.at(*maybeAlloc)) {
             if (dyn_cast<linalg::GenericOp>(op)) {
               return WalkResult::interrupt();
             }

@@ -21,11 +21,6 @@ class FuncOp;
 } // namespace func
 
 namespace rock {
-// Returns the associated `memref::AllocOp` for a given `Value`.
-// The traverses the corresponding chain of parrents skipping
-// operations implementing `ViewLikeOpInterface` - e.g., `rock.transform`
-std::optional<memref::AllocOp> getAllocation(Value value);
-
 // Checks whether a function contains any `linalg::GenericOp` which
 // reads or writes to the output of any `Operation` implementing
 // `RockGemmWrapperInterface`. The result of this test can be ignored

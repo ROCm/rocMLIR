@@ -517,9 +517,10 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
   return subview;
 }
 
-FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
-  auto curOp = value.getDefiningOp();
-  auto maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+template <typename AllocType>
+FailureOr<AllocType> findAlloc(Value value) {
+  auto *curOp = value.getDefiningOp();
+  auto maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   while (!maybeAllocOp) {
     // Keep going until the operation that defines the value is a
     // view-like operation
@@ -543,12 +544,20 @@ FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
     } else {
       return failure();
     }
-    maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+    maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   }
   if (!maybeAllocOp)
     return failure();
 
   return maybeAllocOp;
+}
+
+FailureOr<rock::GpuAllocOp> mlir::rock::findGpuAlloc(Value value) {
+  return findAlloc<rock::GpuAllocOp>(value);
+}
+
+FailureOr<memref::AllocOp> mlir::rock::findMemrefAlloc(Value value) {
+  return findAlloc<memref::AllocOp>(value);
 }
 
 std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
