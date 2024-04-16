@@ -48,7 +48,7 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   int64_t numChiplets = 8;
   assert(info.numCU / numChiplets == 38);
   int64_t groupSize =
-      std::ceil(std::sqrt(info.numCU / numChiplets)) * (bitWidthOut / bitWidthIn);
+      std::ceil(std::sqrt(info.numCU)) * (bitWidthOut / bitWidthIn);
 
   Value mBlocksPerGroup = b.createOrFold<ConstantIndexOp>(loc, groupSize);
   Value blocksPerGroup =
@@ -57,24 +57,62 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
 
   // Re-order workgroup-id to make chiplets slowest moving dimension
   int64_t gridSize = info.gBlocks * info.mBlocks * info.nBlocks;
-  Value gridSizeVal =
-      b.createOrFold<ConstantIndexOp>(loc, info.gBlocks * info.mBlocks * info.nBlocks);
-  // We use the GCD because if the gridsize is not divisble by number
-  // of chiplets then the following bid bit re-ordering might make it
-  // larger than the gridsize. In this scenarios we will try to cater
-  // to some chiplets by using the gcd.
-  int64_t logicalNumChiplets = math_util::gcd(gridSize, numChiplets);
-  Value logicalNumChipletsVal = b.createOrFold<ConstantIndexOp>(loc, logicalNumChiplets);
-  int64_t wgsPerLogicalChiplet = math_util::integer_divide_ceil(gridSize, logicalNumChiplets);
-  Value wgsPerLogicalChipletVal = b.createOrFold<ConstantIndexOp>(loc, wgsPerLogicalChiplet);
-  Value logicalChipletId = b.create<RemUIOp>(loc, bid, logicalNumChipletsVal);
-  Value wgIdPerLogicalChiplet = b.create<DivUIOp>(loc, bid, logicalNumChipletsVal);
+//   if(gridSize >= info.numCU){
+    Value gridSizeVal =
+        b.createOrFold<ConstantIndexOp>(loc, gridSize);
+    // We use the GCD because if the gridsize is not divisble by number
+    // of chiplets then the following bid bit re-ordering might make it
+    // larger than the gridsize. In this scenarios we will try to cater
+    // to some chiplets by using the gcd.
+    // int64_t logicalNumChiplets = math_util::gcd(gridSize, numChiplets);
+    Value numChipletsVal = b.createOrFold<ConstantIndexOp>(loc, numChiplets);
+    int64_t cusPerChiplet = info.numCU / numChiplets;
+    Value cusPerChipletVal = b.createOrFold<ConstantIndexOp>(loc, cusPerChiplet);
 
-  // construct new bid
-  bid = b.create<AddIOp>(
-      loc, wgIdPerLogicalChiplet, 
-      b.create<MulIOp>(loc, logicalChipletId, wgsPerLogicalChipletVal)
-  );
+    Value numCUVal = b.createOrFold<ConstantIndexOp>(loc, info.numCU);
+    Value GpuIters = b.create<DivUIOp>(loc, bid, numCUVal);
+    Value bidPerGrid = b.create<RemUIOp>(loc, bid, numCUVal);
+    Value logicalChipletId = b.create<RemUIOp>(loc, bidPerGrid, numChipletsVal);
+    Value wgIdPerLogicalChiplet = b.create<DivUIOp>(loc, bidPerGrid, numChipletsVal);
+
+    // construct new bid
+    Value bid_new = b.create<AddIOp>(
+        loc, 
+        wgIdPerLogicalChiplet, 
+        b.create<MulIOp>(
+            loc, 
+            logicalChipletId, 
+            cusPerChipletVal
+        )
+    );
+    bid_new = b.create<AddIOp>(
+        loc,
+        bid_new,
+        b.create<MulIOp>(
+            loc, 
+            numCUVal, 
+            GpuIters
+        )
+    );
+
+    int64_t lastNumCuMultiple = (gridSize - 1) - (gridSize % info.numCU);
+    Value lastNumCuMultipleVal = b.createOrFold<ConstantIndexOp>(loc, lastNumCuMultiple);
+    Value isBidLargerThanlastNumCuMultiple = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ugt,
+                                             bid, lastNumCuMultipleVal);
+    bid = b.create<arith::SelectOp>(loc, isBidLargerThanlastNumCuMultiple, bid, bid_new);
+//   }
+
+//   Value g1MxNBlockCountVal =
+//       b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
+//   Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.nBlocks);
+//   Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1MxNBlockCountVal);
+//   Value nonGBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1MxNBlockCountVal);
+//   Value mBlockIdx =
+//       b.create<arith::DivUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
+//   Value nBlockIdx =
+//       b.create<arith::RemUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
+
+//   return {gBlockIdx, mBlockIdx, nBlockIdx};
 
   // Compute g_block first and the bid in the actual group g_block
   Value mnBlocks =
