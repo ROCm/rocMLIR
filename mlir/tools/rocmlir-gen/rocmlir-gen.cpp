@@ -3556,7 +3556,7 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
 static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
                                ModuleOp module) {
   OpBuilder builder(context);
-  rock::ConvGenerator convGenerator;
+  static rock::ConvGenerator convGenerator; // genParams keeps pointer to config
 
   const bool isGemm = operation == rock::KernelType::Gemm;
   const bool isAttention = operation == rock::KernelType::Attention;
@@ -3690,6 +3690,31 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuAttentionKernel(module, genParams);
     } else {
+      int nDims = filterLayout.getValue().size() - 3; // +++pf: magic number.
+      SmallVector<int,4> dilations;
+      SmallVector<int,4> strides;
+      SmallVector<int,4> paddingLeft;
+      SmallVector<int,4> paddingRight;
+
+      // +++pf: needs generalising, coupled with command-line options.
+      dilations.push_back(dilationHeight.getValue());
+      strides.push_back(strideHeight.getValue());
+      paddingLeft.push_back(paddingHeightLeft.getValue());
+      paddingRight.push_back(paddingHeightRight.getValue());
+
+      if (nDims > 1) {
+        dilations.push_back(dilationWidth.getValue());
+        strides.push_back(strideWidth.getValue());
+        paddingLeft.push_back(paddingWidthLeft.getValue());
+        paddingRight.push_back(paddingWidthRight.getValue());
+      }
+      if (nDims > 2) {
+        dilations.push_back(dilationDepth.getValue());
+        strides.push_back(strideDepth.getValue());
+//         paddingLeft.push_back(paddingDepthLeft.getValue());
+//         paddingRight.push_back(paddingDepthRight.getValue());
+      }
+
       convGenerator = rock::ConvGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
@@ -3698,10 +3723,7 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
           rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(),
-          {dilationHeight.getValue(), dilationWidth.getValue(),dilationDepth.getValue()},
-          {strideHeight.getValue(), strideWidth.getValue(), strideDepth.getValue()},
-          {paddingHeightLeft.getValue(), paddingWidthLeft.getValue()},
-          {paddingHeightRight.getValue(), paddingWidthRight.getValue()},
+          dilations, strides, paddingLeft, paddingRight,
           filterLayout.getValue(),
           inputLayout.getValue(), outputLayout.getValue());
 
