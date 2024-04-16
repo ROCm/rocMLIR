@@ -570,7 +570,8 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   if ((isDisjointed("filter_layout", "y", "x") &&
        isDisjointed("filter_layout", "0", "1")) ||
       (isDisjointed("input_layout", "hi", "wi") &&
-       isDisjointed("input_layout", "0i", "1i")))
+       isDisjointed("input_layout", "0i", "1i") &&
+       isDisjointed("input_layout", "0", "1")))
     return op->emitError("Disjointed yx or hw!");
 
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
