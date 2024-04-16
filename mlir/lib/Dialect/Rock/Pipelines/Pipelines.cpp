@@ -201,7 +201,6 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     ArithToAMDGPUConversionPassOptions options;
     options.saturateFP8Truncf = true;
     gpuPm.addPass(createArithToAMDGPUConversionPass(options));
-    gpuPm.addPass(createArithToAMDGPUConversionPass());
   } else {
     gpuPm.addPass(createEmulateFp8ExtTruncPass());
   }
