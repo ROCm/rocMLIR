@@ -595,6 +595,17 @@ void TopDownTMBuilder::merge(ArrayRef<StringRef> lowerNames,
                lowerDims);
 }
 
+void TopDownTMBuilder::takeRemainder(StringRef name, int64_t length) {
+  assert(length > 0 && "Remainder can't be zero");
+  uint32_t dim = startIndex(name);
+  // WE're not recording this, but we should be.
+  // int64_t size = startSize(dim);
+  defineDim(name, dim, length);
+  // The semantics of Broadcast are x -> x % l so we might as well use it.
+  addTransform(TransformType::Broadcast, {length}, {name}, {dim}, {name},
+               {dim});
+}
+
 llvm::SmallVector<uint32_t>
 TopDownTMBottomDimsWrapper::toBottomDims(ArrayRef<StringRef> names) {
   llvm::SmallVector<uint32_t> ret;

@@ -581,7 +581,7 @@ template <typename TiledOp>
 static Value
 makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
                    ArrayRef<TransformMapAttr> globalCoordsToGenericViews,
-                   linalg::GenericOp laGeneric, Operation *sink) {
+                   linalg::GenericOp laGeneric) {
   // 0. capture the memref containing the outputs being written or
   // (in the case of propagating tiling informatinon up to gemm-independent
   // code) where the values will be written.
@@ -594,12 +594,13 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   for (Value idx : tiledOp.getExtraIndices()) {
     Operation *idxOp = idx.getDefiningOp();
     if (idxOp) {
-      if (!lastIdxDef || lastIdxDef->isBeforeInBlock(idxOp)) {
+      if (!lastIdxDef || (lastIdxDef->getBlock() == idxOp->getBlock() &&
+                          lastIdxDef->isBeforeInBlock(idxOp))) {
         lastIdxDef = idxOp;
       }
     }
   }
-  if (lastIdxDef)
+  if (lastIdxDef && laGeneric->getBlock() == lastIdxDef->getBlock())
     b.moveAfterIfNeeded(laGeneric, lastIdxDef);
 
   // 1. create a second allocation of the same type to hold loaded elements
@@ -628,8 +629,8 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   // block of tiledOp, as their arguments may depend on that control flow. Later
   // we will also move linalg.generic into the block.
   if (laGeneric->getBlock() != tiledOp->getBlock() &&
-      laGeneric.getOperation() != sink)
-    b.setInsertionPoint(sink);
+      isa<ThreadwiseReadIntoOp>(tiledOp))
+    b.setInsertionPoint(tiledOp);
 
   // 2.0. apply transform chain from output
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
@@ -714,7 +715,7 @@ static void addRegisterReadsForTiledInput(
       newInput = twWriteOp.getSource();
     } else {
       newInput = makeExtraInputTile(b, twWriteOp, inp, relativeViewsOnWrite,
-                                    laGeneric, laGeneric);
+                                    laGeneric);
     }
     newInputs.push_back(newInput);
   }
@@ -728,8 +729,8 @@ addRegisterReadsForTiledOutput(LinalgAlignRewriter &b,
                                ArrayRef<TransformMapAttr> relativeViewsOnResult,
                                SmallVectorImpl<Value> &newInputs) {
   for (auto inp : laGeneric.getInputs()) {
-    Value newInput = makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult,
-                                        laGeneric, twReadOp);
+    Value newInput =
+        makeExtraInputTile(b, twReadOp, inp, relativeViewsOnResult, laGeneric);
     newInputs.push_back(newInput);
   }
 
@@ -806,7 +807,6 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (laGeneric.getOutputs().size() != 1)
     return laGeneric.emitOpError("only 1 output supported");
   Value out = *laGeneric.getOutputs().begin();
-
   // 0.2. Prevent re-applying pattern to existing fusions.
   if (out.getDefiningOp<rock::GpuAllocOp>())
     return b.notifyMatchFailure(loc,
@@ -836,6 +836,10 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // operation that reads from the output of this generic. If there is such an
   ThreadwiseReadIntoOp tileReadOp;
   if (!gemmStoreOp) {
+    if (!out.getDefiningOp<memref::AllocOp>()) {
+      return b.notifyMatchFailure(
+          loc, "generic output is not suitable for input fusion\n");
+    }
     if (failed(findThreadwiseRead(laGeneric, tileReadOp,
                                   globalCoordsToGenericViews)))
       return b.notifyMatchFailure(
@@ -865,13 +869,14 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
       b.setInsertionPoint(laGeneric);
     }
     Value newOutput = tileReadOp.getDest();
-    // Prevent SSA weirdness from register allocations introduced too late.
-    // Do this before calling addRegisterReadsForTiledOutput() as
-    // addRegisterReadsForTiledOutput() may move laGeneric.
-    b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     SmallVector<Value> newInputs;
     addRegisterReadsForTiledOutput(b, laGeneric, tileReadOp,
                                    globalCoordsToGenericViews, newInputs);
+    // Prevent SSA weirdness from register allocations introduced too late.
+    // addRegisterReadsForTiledOutput() may have moved laGeneric into a
+    // different block. In this case, SSA is already in good shape.
+    if (newOutput.getDefiningOp()->getBlock() == laGeneric->getBlock())
+      b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     reconfigureLAGeneric(b, laGeneric, newInputs, newOutput);
     b.eraseOp(tileReadOp);
     return success();

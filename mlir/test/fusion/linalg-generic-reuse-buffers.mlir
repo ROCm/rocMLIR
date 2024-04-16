@@ -76,9 +76,7 @@ module {
     %2 = rock.workitem_id : index
     %3 = rock.transform %alloc by #transform_map : memref<64x64x64xf32> to memref<4x64x1x1x16x16x4x1xf32>
     %4 = rock.transform %3 by #transform_map1 : memref<4x64x1x1x16x16x4x1xf32> to memref<4x64x1x1x256x4xf32>
-    // CHECK: [[tiled_out:%.+]] = rock.alloc() : memref<2xf32
     // CHECK: [[out:%.+]] = rock.alloc() : memref<4xf32
-    // CHECK: [[tiled_out_1:%.+]] = rock.alloc() : memref<2xf32
     // CHECK: [[out_1:%.+]] = rock.alloc() : memref<4xf32
     %9 = rock.transform %alloc_0 by #transform_map : memref<64x64x64xf32> to memref<4x64x1x1x16x16x1x4xf32>
     %10 = rock.transform %9 by #transform_map1 : memref<4x64x1x1x16x16x1x4xf32> to memref<4x64x1x1x256x4xf32>
@@ -114,6 +112,8 @@ module {
     // CHECK: [[arg1_alloc:%.+]] = rock.alloc() : memref<2xf16
     // CHECK: [[arg0_alloc:%.+]] = rock.alloc() : memref<2xf16
     // CHECK: [[arg3_alloc:%.+]] = rock.alloc() : memref<2xf32
+    // CHECK: [[tiled_out:%.+]] = rock.alloc() : memref<2xf32
+    // CHECK: [[tiled_out_1:%.+]] = rock.alloc() : memref<2xf32
     affine.for %arg4 = 1 to 4 {
       // CHECK: [[arg0_tf:%.+]] = rock.transform %arg0 by [[MAP]]
       // CHECK-NEXT: [[arg0_v:%.+]] = rock.transform [[arg0_tf]] by [[MAP1]]

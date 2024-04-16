@@ -18,8 +18,8 @@ module {
 func.func @no_transform_to_affine() {
     %c0 = arith.constant 0 : index
     // CHECK: %[[true:.*]] = arith.constant true
-    // CHECK: affine.for %[[arg0:.*]] = {{.*}}to 2
-    // CHECK: affine.for %[[arg1:.*]] = {{.*}}to 3
+    // CHECK: affine.for %[[arg0:.*]] = 0 to 2
+    // CHECK: affine.for %[[arg1:.*]] = 0 to 3
     // CHECK: gpu.printf "%d, %d, %d" %[[arg0]], %[[arg1]], %[[true]]
     rock.transforming_for (%arg0, %arg1) = [](%c0, %c0) (%arg2) = validity bounds [2, 3] strides [1, 1] {
         gpu.printf "%d, %d, %d" %arg0, %arg1, %arg2 : index, index, i1
@@ -31,15 +31,56 @@ func.func @no_transform_to_affine() {
 func.func @no_transform_to_affine_strided() {
     %c0 = arith.constant 0 : index
     // CHECK: %[[true:.*]] = arith.constant true
-    // CHECK: affine.for %[[arg0:.*]] = {{.*}}to 2 step 2
-    // CHECK: affine.for %[[arg1:.*]] = {{.*}}to 3
+    // CHECK: affine.for %[[arg0:.*]] = 0 to 4 step 2
+    // CHECK: affine.for %[[arg1:.*]] = 0 to 3
     // CHECK: gpu.printf "%d, %d, %d" %[[arg0]], %[[arg1]], %[[true]]
+    rock.transforming_for (%arg0, %arg1) = [](%c0, %c0) (%arg2) = validity bounds [4, 3] strides [2, 1] {
+        gpu.printf "%d, %d, %d" %arg0, %arg1, %arg2 : index, index, i1
+    }
+    return
+}
+
+// CHECK-LABEL: func.func @no_transform_to_affine_strided_one_iter
+func.func @no_transform_to_affine_strided_one_iter() {
+    %c0 = arith.constant 0 : index
+    // CHECK-DAG: %[[c0:.*]] = arith.constant 0
+    // CHECK-DAG: %[[true:.*]] = arith.constant true
+    // CHECK: affine.for %[[arg0:.*]] = {{.*}}to 3
+    // CHECK: gpu.printf "%d, %d, %d" %[[c0]], %[[arg0]], %[[true]]
     rock.transforming_for (%arg0, %arg1) = [](%c0, %c0) (%arg2) = validity bounds [2, 3] strides [2, 1] {
         gpu.printf "%d, %d, %d" %arg0, %arg1, %arg2 : index, index, i1
     }
     return
 }
 
+// CHECK-LABEL: func.func @no_transform_drop_unit_dims
+func.func @no_transform_drop_unit_dims() {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    // CHECK-DAG: %[[c1:.*]] = arith.constant 1
+    // CHECK-DAG: %[[true:.*]] = arith.constant true
+    // CHECK: affine.for %[[arg0:.*]] = 0 to 2
+    // CHECK: gpu.printf "%d, %d, %d" %[[arg0]], %[[c1]], %[[true]]
+    rock.transforming_for (%arg0, %arg1) = [](%c0, %c1) (%arg2) = validity bounds [2, 1] strides [1, 1] {
+        gpu.printf "%d, %d, %d" %arg0, %arg1, %arg2 : index, index, i1
+    }
+    return
+}
+
+// CHECK-LABEL: func.func @no_transform_one_iteration_no_loop
+func.func @no_transform_one_iteration_no_loop() {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    // CHECK-DAG: %[[c0:.*]] = arith.constant 0
+    // CHECK-DAG: %[[c1:.*]] = arith.constant 1
+    // CHECK-DAG: %[[true:.*]] = arith.constant true
+    // CHECK-NOT: affine.for
+    // CHECK: gpu.printf "%d, %d, %d" %[[c0]], %[[c1]], %[[true]]
+    rock.transforming_for (%arg0, %arg1) = [](%c0, %c1) (%arg2) = validity bounds [1, 1] strides [1, 1] {
+        gpu.printf "%d, %d, %d" %arg0, %arg1, %arg2 : index, index, i1
+    }
+    return
+}
 
 // CHECK-LABEL: func.func @no_transform_unrolled
 func.func @no_transform_unrolled() {
@@ -198,6 +239,24 @@ func.func @loop_result(%arg0: index, %arg1: index) -> index {
     // CHECK: return %[[ret]]
     return %ret : index
 }
+
+// CHECK-LABEL: func.func @no_loop_loop_result
+// CHECK-SAME: (%[[arg0:.*]]: index, %[[arg1:.*]]: index)
+func.func @no_loop_loop_result(%arg0: index, %arg1: index) -> index {
+    // CHECK-DAG: %[[c4:.*]] = arith.constant 4
+    %c0 = arith.constant 0 : index
+    // CHECK: %[[mul:.*]] = arith.muli %[[arg0]], %[[c4]]
+    // CHECK: %[[ret:.*]] = arith.addi %[[arg1]], %[[mul]]
+    %ret = rock.transforming_for (%arg2) = [#transform_map0](%arg0, %arg1)
+            (%arg3) = validity
+            iter_args(%arg4 = %c0) -> (index) bounds [1, 1] strides [1, 1] {
+        %i = arith.addi %arg4, %arg2 : index
+        rock.yield %i : index
+    }
+    // CHECK: return %[[ret]]
+    return %ret : index
+}
+
 
 // CHECK-LABEL: func.func @bounds_check_pad
 // CHECK-DAG: %[[c8:.*]] = arith.constant 8
