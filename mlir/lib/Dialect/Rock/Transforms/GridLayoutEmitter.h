@@ -42,6 +42,7 @@ struct GridCoordinates {
 
 /// Struct containing information that guide the layout heuristic selection
 struct GridLayoutInfo {
+  int64_t gBlocks;
   int64_t mBlocks;
   int64_t nBlocks;
   int64_t numCU;

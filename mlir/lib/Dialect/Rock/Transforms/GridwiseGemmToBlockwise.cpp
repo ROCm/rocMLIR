@@ -476,7 +476,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid, {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
         /*extraIndices=*/
@@ -1854,7 +1854,7 @@ struct GridwiseAttentionAccelRewritePattern
 
     auto gridCoordsGemm1 = layout::makeGxMxNGridLayout(
         rewriter, loc, bid,
-        {gemm1MBlocks, gemm1NBlocks, /*op.getNumCU()=*/20, elemTypeV,
+        {gemm0G, gemm1MBlocks, gemm1NBlocks, /*op.getNumCU()=*/20, elemTypeV,
          elemTypeOut});
 
     zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
@@ -2418,7 +2418,7 @@ struct GridwiseGemmAccelRewritePattern
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid, {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
 
     Value storeBufferA =
         gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
