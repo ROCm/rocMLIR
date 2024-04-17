@@ -21,6 +21,8 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include <string>
+
 namespace mlir {
 #define GEN_PASS_DEF_ARITHTOAMDGPUCONVERSIONPASS
 #include "mlir/Conversion/Passes.h.inc"
