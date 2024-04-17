@@ -92,6 +92,11 @@ def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
   let summary = "Pipeline loops";
 }
 
+def RockVectorizeFusionsPass : Pass<"rock-vectorize-fusions", "::mlir::func::FuncOp"> {
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect"];
+  let summary = "Vectorize affine element-wise loops";
+}
+
 def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::FuncOp"> {
   let summary = "Merge identical memory loads to buffers only read. Assumes noalias.";
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];

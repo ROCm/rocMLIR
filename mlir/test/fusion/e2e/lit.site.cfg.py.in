@@ -66,7 +66,7 @@ if config.rocm_path:
             agents = set(p.stdout.decode("utf-8").split())
         config.arch = ','.join(agents)
         for x in agents:
-            if "gfx908" in x or "gfx90a" in x:
+            if any([arch in x for arch in ["gfx908", "gfx90a", "gfx940", "gfx941", "gfx942"]]):
                 config.arch_support_mfma = True
             elif "gfx11" in x:
                 config.arch_support_wmma = True
