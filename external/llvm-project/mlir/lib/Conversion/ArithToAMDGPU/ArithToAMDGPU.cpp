@@ -11,6 +11,7 @@
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -328,8 +329,8 @@ void mlir::arith::populateArithToAMDGPUConversionPatterns(
     bool saturateFP8Truncf, bool allowPackedF16Rtz) {
 
   if (convertFP8Arithmetic) {
-    patterns.add<ExtfOnFloat8RewritePattern>(patterns.getContext());
-    patterns.add<TruncfToFloat8RewritePattern>(patterns.getContext(),
+    patterns.add<ExtFOnFloat8RewritePattern>(patterns.getContext());
+    patterns.add<TruncFToFloat8RewritePattern>(patterns.getContext(),
                                                saturateFP8Truncf);
   }
   if (allowPackedF16Rtz)
