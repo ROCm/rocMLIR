@@ -342,20 +342,6 @@ llvm.func @rocdl.raw.buffer.i32(%rsrc : vector<4xi32>,
   llvm.return
 }
 
-llvm.func @rocdl.waitcnt(%arg0 : i32) {
-  // CHECK-LABEL: rocdl.waitcnt
-  // CHECK: rocdl.waitcnt
-  rocdl.waitcnt %arg0
-  llvm.return
-}
-
-llvm.func @rocdl.s.barrier() {
-  // CHECK-LABEL: rocdl.s.barrier
-  // CHECK: rocdl.s.barrier
-  rocdl.s.barrier
-  llvm.return
-}
-
 llvm.func @rocdl_8bit_floats(%source: i32, %stoch: i32) -> i32 {
 // CHECK-LABEL: @rocdl_8bit_floats
 // CHECK: rocdl.cvt.f32.bf8
