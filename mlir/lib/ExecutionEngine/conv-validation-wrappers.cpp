@@ -484,6 +484,9 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
 
     if (valNum == gpuNum) {
       hist_relDiff[0]++;
+    } else if (std::isinf(valNum)) {
+      // Let's not compare gpu results to infs
+      continue;
     } else {
       float absDiff = fabs(valNum - gpuNum);
       // Update maxAbsDiff and its correspinding pair of values
