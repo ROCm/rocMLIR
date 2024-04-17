@@ -484,10 +484,13 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
 
     if (valNum == gpuNum) {
       hist_relDiff[0]++;
-    } else if (std::isinf(valNum)) {
-      // Let's not compare gpu results to infs
-      continue;
     } else {
+      // We know valNum != gpuNum. If valNum is inf, this branch will simply
+      // return nan. Let's instead represent infinite with max<fp16> and let's
+      // test for it
+      constexpr float fp16MaxVal = 65504;
+      if (std::isinf(valNum))
+        valNum = (valNum > 0 ? fp16MaxVal : -fp16MaxVal);
       float absDiff = fabs(valNum - gpuNum);
       // Update maxAbsDiff and its correspinding pair of values
       if (absDiff > maxAbsDiff) {

@@ -2891,9 +2891,9 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
         testElemType.isF16() ? defaultRMSThresholdFP16 : defaultRMSThreshold;
     if (RMSThreshold)
       RMSThresholdValue = RMSThreshold.getValue();
-    auto thr_RMS = getF32Val(RMSThresholdValue);
-    auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
-    auto thr_relDiff = getF32Val(relDiffThreshold.getValue());
+    Value thr_RMS = getF32Val(RMSThresholdValue);
+    Value thr_absDiff = getF32Val(absDiffThreshold.getValue());
+    Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
     if (testElemType.isF16())
       thr_relDiff = getF32Val(100.0f);
 
