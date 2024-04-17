@@ -664,7 +664,7 @@ static llvm::cl::opt<int>
 // Verification function options
 static llvm::cl::opt<float>
     RMSThreshold("RMS_threshold", llvm::cl::desc("Threshold for RMS metric"),
-                 llvm::cl::value_desc("error"), llvm::cl::init(0.00003f));
+                 llvm::cl::value_desc("error"));
 
 static llvm::cl::opt<float>
     absDiffThreshold("absDiff_threshold",
@@ -2306,7 +2306,7 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
 
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
-                               Args &&...args) {
+                               Args &&... args) {
   auto op =
       builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -2885,9 +2885,15 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   func::FuncOp verifyFuncDecl;
 
   if (testElemType.isa<FloatType>()) {
-    auto thr_RMS = getF32Val(RMSThreshold.getValue());
+    constexpr float defaultRMSThreshold(0.00003f);
+    constexpr float defaultRMSThresholdFP16(0.001f);
+    float RMSThresholdValue =
+        testElemType.isF16() ? defaultRMSThresholdFP16 : defaultRMSThreshold;
+    if (RMSThreshold)
+      RMSThresholdValue = RMSThreshold.getValue();
+    auto thr_RMS = getF32Val(RMSThresholdValue);
     auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
-    Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
+    auto thr_relDiff = getF32Val(relDiffThreshold.getValue());
     if (testElemType.isF16())
       thr_relDiff = getF32Val(100.0f);
 
