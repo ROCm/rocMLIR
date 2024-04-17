@@ -27,6 +27,7 @@
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
+#include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -150,6 +151,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(rock::createRockPipelinePass());
       funcPm.addPass(createCanonicalizerPass());
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
+      funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
@@ -197,13 +199,14 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   floatEmuOpts.sourceTypeStrs = unsupportedFloats;
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
-  if (archInfo.hasFp8ConversionInstrs) {
-    ArithToAMDGPUConversionPassOptions options;
-    options.saturateFP8Truncf = true;
-    gpuPm.addPass(createArithToAMDGPUConversionPass(options));
-  } else {
+  ArithToAMDGPUConversionPassOptions arithOptions;
+  arithOptions.chipset = options.chip;
+  arithOptions.allowPackedF16Rtz = true;
+  arithOptions.saturateFP8Truncf = true;
+  gpuPm.addPass(createArithToAMDGPUConversionPass(arithOptions));
+  gpuPm.addPass(createArithToAMDGPUConversionPass());
+  if (!archInfo.hasFp8ConversionInstrs)
     gpuPm.addPass(createEmulateFp8ExtTruncPass());
-  }
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview

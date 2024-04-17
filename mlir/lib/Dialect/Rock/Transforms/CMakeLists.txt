@@ -22,6 +22,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   ViewToTransform.cpp
   LowerRockReduce.cpp
   RockPrepareLLVM.cpp
+  VectorizeFusions.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
@@ -40,6 +41,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRIR
   MLIRPass
   MLIRLinalgUtils
+  MLIRLinalgTransforms
   MLIRLLVMDialect
   MLIRMathToLLVM
   MLIRMemRefTransforms

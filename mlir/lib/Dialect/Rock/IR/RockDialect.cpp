@@ -1720,54 +1720,6 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// InWarpTransposeOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult InWarpTransposeOp::verify() {
-  InWarpTransposeOp &op = *this;
-  constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
-  if (!llvm::isPowerOf2_32(op.getSize())) {
-    return op.emitOpError("transpose size " + Twine(op.getSize()) +
-                          "must be a power of 2");
-  }
-  if (op.getSize() <= 0) {
-    return op.emitOpError("transpose size must be strictly positive");
-  }
-
-  auto vectorLen =
-      static_cast<size_t>(op.getVector().getType().getNumElements());
-  if (vectorLen < swizzleGroupSize) {
-    return op.emitOpError("Vector input must have at least" +
-                          Twine(swizzleGroupSize) + "elements");
-  }
-  if (vectorLen < op.getSize()) {
-    return op.emitError("Vector input can't be shorter than transpose size");
-  }
-
-  if (op.getVector().getType().getRank() != 1) {
-    return op.emitError("Input vector must be 1-dimensional");
-  }
-
-  auto inGroupPerm = op.getInGroupPerm();
-
-  llvm::SmallSet<uint32_t, swizzleGroupSize> expected;
-  llvm::SmallSet<uint32_t, swizzleGroupSize> found;
-
-  for (uint32_t i = 0; i < swizzleGroupSize; i++) {
-    expected.insert(i);
-  }
-
-  for (auto &i : inGroupPerm) {
-    found.insert(i.cast<IntegerAttr>().getValue().getZExtValue());
-  }
-
-  if (found != expected) {
-    return op.emitOpError("inGroupPerm is not a permutation on the output row");
-  }
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // WorkgroupIdOp and WorkitemIdOp
 //===----------------------------------------------------------------------===//
 static ConstantIntRanges

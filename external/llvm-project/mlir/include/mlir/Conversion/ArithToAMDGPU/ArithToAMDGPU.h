@@ -26,7 +26,9 @@ namespace arith {
 /// to the largest value of that type instead of being rewritten to Inf (aka
 /// NaN).
 void populateArithToAMDGPUConversionPatterns(RewritePatternSet &patterns,
-                                             bool saturateFP8TruncF);
+                                             bool convertFP8Arithmetic,
+                                             bool saturateFP8Truncf,
+                                             bool allowPackedF16Rtz);
 } // namespace arith
 } // namespace mlir
 
