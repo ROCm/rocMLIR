@@ -819,11 +819,17 @@ findPostFusionTransforms(Value buffer, Operation *currentUser) {
       }
       Value genericOut = genericOp.getOutputs().front();
       if (genericOut == buffer) {
-        LLVM_DEBUG(llvm::dbgs() << "[vectorization] Currently can't analyze "
-                                   "through input fusions\n");
-        return failure();
-      }
-      candidate = genericOut;
+        if (!genericOp->hasAttr("majorTensorNumber")) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "[vectorization] can't analyze linalg.generic "
+                        "without majorTensorNumber\n");
+          return failure();
+        }
+        int32_t index =
+            genericOp->getAttrOfType<IntegerAttr>("majorTensorNumber").getInt();
+        candidate = genericOp.getInputs()[index];
+      } else
+        candidate = genericOut;
     } else {
       LLVM_DEBUG(llvm::dbgs()
                  << "[vectorization] Unexpected user of temporary buffer: "
@@ -1326,6 +1332,7 @@ mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
   for (auto pair : llvm::zip(inps, idxMaps)) {
     if (auto inp = std::get<0>(pair)) {
       auto imap = std::get<1>(pair);
+
       if (imap != outIdxMap) {
         // inject a broadcast
         auto invertOutIdxMap = inversePermutation(outIdxMap);
