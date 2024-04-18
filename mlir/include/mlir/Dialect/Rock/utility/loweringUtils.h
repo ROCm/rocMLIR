@@ -9,6 +9,9 @@
 #ifndef ROCK_UTILITY_LOWERINGUTILS_H
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Support/LLVM.h"
@@ -156,9 +159,13 @@ swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
 Value createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
                             Value buffer, Value sliceIdx);
 
-// Given a `value` traverses its "views" until it finds the real allocation
-// or fails.
-FailureOr<rock::GpuAllocOp> findAlloc(Value value);
+// Given a `value` traverses its "views" until it finds the real
+// `rock::GpuAllocOp` or fails.
+FailureOr<rock::GpuAllocOp> findGpuAlloc(Value value);
+
+// Given a `value` traverses its "views" until it finds the real
+// `memref::AllocOp` or fails.
+FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 
 /// Compute, if possible, the constant different between two values.
 std::optional<int64_t> computeConstDiff(Value l, Value u);
@@ -178,6 +185,9 @@ FailureOr<IntegerAttr> getGridSize(Operation *op);
 // Return an affine map to reverse loop coordinates
 AffineMap getIdxReversalMap(OpBuilder &b);
 
+// Return `mhal::PrefillAttr` attributes for a given function
+SmallVector<mhal::PrefillAttr>
+getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func);
 } // end namespace rock
 } // end namespace mlir
 #endif
