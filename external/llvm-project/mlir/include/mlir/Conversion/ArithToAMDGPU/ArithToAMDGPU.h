@@ -10,6 +10,7 @@
 #define MLIR_CONVERSION_ARITHTOAMDGPU_ARITHTOAMDGPU_H
 
 #include <memory>
+#include <string>
 
 namespace mlir {
 
