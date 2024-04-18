@@ -1069,7 +1069,7 @@ static void populateDefaults() {
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
   }
-  if (isConv && outputDepth.getNumOccurrences() == 0) {
+  if (isConv && outputDepth.getNumOccurrences() == 0 && inputDepth.getNumOccurrences() > 0) {
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
@@ -1093,8 +1093,7 @@ auto getRequiredArgs(std::optional<rock::KernelType> kernelType) {
   default: {
     const static RequiredArgsType requiredConvArgs = {
         &groupSize,  &batchSize,     &inputChannel, &inputHeight,
-        &inputWidth, &inputDepth,    &outputChannel, &filterWidth,
-        &filterHeight, &filterDepth};
+        &inputWidth, &outputChannel, &filterWidth, &filterHeight};
     return requiredConvArgs;
   }
   };
@@ -3739,10 +3738,19 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           filterLayout.getValue(),
           inputLayout.getValue(), outputLayout.getValue());
 
+      SmallVector<int64_t> inDims{inputHeight, inputWidth};
+      if (nDims > 2)
+        inDims.push_back(inputDepth);
+      SmallVector<int64_t> outDims{outputHeight, outputWidth};
+      if (nDims > 2)
+        outDims.push_back(outputDepth);
+      SmallVector<int64_t> filDims{filterHeight, filterWidth};
+      if (nDims > 2)
+        filDims.push_back(filterDepth);
+
       status = convGenerator.parseConvDims(
-          batchSize, groupSize, inputChannel, inputHeight, inputWidth, inputDepth,
-          outputChannel, outputHeight, outputWidth, outputDepth,
-          filterHeight, filterWidth, filterDepth);
+          batchSize, groupSize, inputChannel, inDims,
+          outputChannel, outDims, filDims);
       if (failed(status)) {
         llvm::errs() << "Could not parse convolution dimensions\n";
         exit(1);

@@ -506,7 +506,7 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   }
 
   auto strToLong = [&argMap](const std::string &argKey) {
-    return std::stoul(argMap[argKey]);
+    return std::stol(argMap[argKey]);
   };
 
   auto strToInt = [&argMap](const std::string &key, auto &setting) {
@@ -620,16 +620,18 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
       argMap["out_layout"], std::string("NGCHWD012"), std::string("ngkhwd012"));
 
   // Determine tensor dimensions.
-  int64_t in_d = argMap.count("in_d") > 0 ? strToLong("in_d") : 1;
-  int64_t out_d = argMap.count("out_d") > 0 ? strToLong("out_d") : 1;
-  int64_t fil_d = argMap.count("fil_d") > 0 ? strToLong("fil_d") : 1;
+  SmallVector<int64_t> inDims{strToLong("in_h"), strToLong("in_w")};
+  if (argMap.count("in_d") > 0)
+    inDims.push_back(strToLong("in_d"));
+  SmallVector<int64_t> outDims{strToLong("out_h"), strToLong("out_w")};
+  if (argMap.count("out_d") > 0)
+    outDims.push_back(strToLong("out_d"));
+  SmallVector<int64_t> filDims{strToLong("fil_h"), strToLong("fil_w")};
+  if (argMap.count("fil_d") > 0)
+    filDims.push_back(strToLong("fil_d"));
   auto status = parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
-                              strToLong("in_channels"), strToLong("in_h"),
-                              strToLong("in_w"), in_d,
-                              strToLong("out_channels"), strToLong("out_h"),
-                              strToLong("out_w"), out_d,
-                              strToLong("fil_w"), strToLong("fil_h"),
-                              fil_d);
+                              strToLong("in_channels"), inDims,
+                              strToLong("out_channels"), outDims, filDims);
 
   if (status.failed()) {
     return failure();
@@ -640,33 +642,32 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
 LogicalResult
 ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
-                             int64_t inputChannel, int64_t inputHeight,
-                             int64_t inputWidth, int64_t inputDepth,
-                             int64_t outputChannel, int64_t outputHeight,
-                             int64_t outputWidth, int64_t outputDepth,
-                             int64_t filterHeight, int64_t filterWidth,
-                             int64_t filterDepth) {
+                             int64_t inputChannel, ArrayRef<int64_t> inputDims,
+                             int64_t outputChannel, ArrayRef<int64_t> outputDims,
+                             ArrayRef<int64_t> filterDims) {
   config.filterDims.clear();
-  config.filterDims.push_back(filterHeight);
-  config.filterDims.push_back(filterWidth);
-  config.filterDims.push_back(filterDepth);
+  for (auto dim : filterDims)
+    config.filterDims.push_back(dim);
 
   llvm::StringMap<int64_t> filterMap = {{"k", outputChannel / groupSize},
                                         {"g", groupSize},
                                         {"c", inputChannel / groupSize},
-                                        {"y", filterHeight},
-                                        {"x", filterWidth},
-                                        {"0", filterHeight},
-                                        {"1", filterWidth},
-                                        {"2", filterDepth}};
+                                        {"y", filterDims[0]},
+                                        {"x", filterDims[1]}};
+  for (size_t i = 0;  i < filterDims.size();  i++)
+    filterMap[std::to_string(i)] = filterDims[i];
+
   llvm::StringMap<int64_t> inputMap = {
       {"n", batchSize},   {"g", groupSize},  {"c", inputChannel / groupSize},
-      {"h", inputHeight}, {"w", inputWidth}, {"0", inputHeight},
-      {"1", inputWidth},  {"2", inputDepth}};
+      {"h", inputDims[0]}, {"w", inputDims[1]}};
+  for (size_t i = 0;  i < inputDims.size();  i++)
+    inputMap[std::to_string(i)] = inputDims[i];
+
   llvm::StringMap<int64_t> outputMap = {
       {"n", batchSize},    {"g", groupSize},   {"k", outputChannel / groupSize},
-      {"h", outputHeight}, {"w", outputWidth}, {"0", outputHeight},
-      {"1", outputWidth},  {"2", outputDepth}};
+      {"h", outputDims[0]}, {"w", outputDims[1]}};
+  for (size_t i = 0;  i < outputDims.size();  i++)
+    outputMap[std::to_string(i)] = outputDims[i];
 
   auto convertLayout = [](char &key, llvm::StringMap<int64_t> &kmap,
                           auto &dims) {
