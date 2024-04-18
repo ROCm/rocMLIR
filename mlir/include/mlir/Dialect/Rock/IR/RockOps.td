@@ -62,18 +62,19 @@ class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayMinCount<n>]>
 
 class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
-                       DeclareOpInterfaceMethods<RockConvInterface>]>{
+                       DeclareOpInterfaceMethods<RockConvInterface>,
+                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>{
     dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5,6]>:$filter,
-                   TensorOrMemRefRankOf<inputTypes, [5,6]>:$input,
-                   TensorOrMemRefRankOf<outputTypes, [5,6]>:$output,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$derivedBlockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
-                   IndexArrayLength<4>:$padding,
-                   IndexArrayLength<2>:$strides,
-                   IndexArrayLength<2>:$dilations,
-                   OptionalAttr<RockTuningParamAttrInterface>:$params);
+                              TensorOrMemRefRankOf<inputTypes, [5,6]>:$input,
+                              TensorOrMemRefRankOf<outputTypes, [5,6]>:$output,
+                              StrAttr:$arch,
+                              Rock_GemmFeaturesAttr:$features,
+                              OptionalAttr<I32Attr>:$derivedBlockSize,
+                              OptionalAttr<I32Attr>:$gridSize,
+                              IndexArrayLength<4>:$padding,
+                              IndexArrayLength<2>:$strides,
+                              IndexArrayLength<2>:$dilations,
+                              OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
@@ -1275,64 +1276,6 @@ def Rock_BlockwiseBroadcastReduceOp:
   }];
 
   let hasVerifier = 1;
-}
-
-/// ONLY NEEDEF FOR in_warp_transpose BELOW. DEAD BUT LEFT IN FOR FUTURE
-/// USE, JUST LIKE in_warp_transpose ITSELF.
-
-// Whether the vector's length is divisible by `divisor`
-class IsVectorOfDivisibleLengthPred<int divisor> :
-  And<[IsVectorTypePred,
-       CPred<[{$_self.cast<::mlir::VectorType>().getNumElements()
-                           % }] # divisor # [{ == 0 }]>]>;
-
-// Any vector where the number of elements is from the given
-// `allowedLengths` list
-class VectorOfDivisibleLength<int divisor> : Type<
-  IsVectorOfDivisibleLengthPred<divisor>,
-  " with length divisble by " # divisor,
-  "::mlir::VectorType">;
-class VectorOfDivisibleLengthAndType<int  divisor,
-                          list<Type> allowedTypes> : Type<
-  And<[VectorOf<allowedTypes>.predicate,
-       VectorOfDivisibleLength<divisor>.predicate]>,
-  VectorOf<allowedTypes>.summary # VectorOfDivisibleLength<divisor>.summary,
-  "::mlir::VectorType">;
-
-defvar swizzleGroupSize = 4;
-def Rock_InWarpTransposeOp :
-    Rock_Op<"in_warp_transpose", [AllTypesMatch<["vector", "res"]>]>,
-    Arguments<(ins VectorOfDivisibleLengthAndType<swizzleGroupSize,
-                                                          [F32, I32]>:$vector,
-                  Index:$laneId,
-                  ConfinedAttr<I32Attr, [IntMaxValue<swizzleGroupSize>]>:$size,
-                  DefaultValuedAttr<ConfinedAttr<I32ArrayAttr,
-                        [ArrayCount<swizzleGroupSize>]>,
-                    "{0, 1, 2, 3}">:$inGroupPerm)>,
-    Results<(outs VectorOfDivisibleLengthAndType<swizzleGroupSize, [F32, I32]>:$res)> {
-  let summary = "Transpose blocks of data distributed accross a warp";
-  let description = [{
-    NOTE: THIS IS CURRENTLY DEAD CODE LEFT IN IN CASE WE FIND A USE FOR IT
-    AND TO PROVIDE TESTCASES FOR A PLANNED amdgpu.dpp. YOU CAN, IF NEED
-    BE, REMOVE THIS and gpu.warp_swizzle.
-
-    `rock.in_warp_transpose` takes a vector representing a matrix of values
-    stored accross the threads in a warp and transposes `size`x`size` blocks
-    of this matrix. The rows of the output (if we regard each thread's vector
-    as a row in the matrix) are further permuted with the `inGroupPerm`
-    permutation.
-
-    It is an ***unchecked invariant*** that laneId contanes the ID of the current
-    lane with the wave, and thus is an integer in [0, waveSize).
-  }];
-
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    attr-dict $vector `,` $laneId `:` type($vector) `,` type($laneId)
-  }];
-
-  let extraClassDeclaration = "static constexpr size_t swizzleGroupSize = "
-    # !cast<string>(swizzleGroupSize) # ";\n";
 }
 
 def Rock_ThreadwiseCopyOp :

@@ -223,45 +223,7 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addLegalOp<gpu::YieldOp, gpu::GPUModuleOp, gpu::ModuleEndOp>();
 }
 
-namespace mlir {
-struct WarpSwizzleOpLowering : ConvertOpToLLVMPattern<gpu::WarpSwizzleOp> {
-  using ConvertOpToLLVMPattern<gpu::WarpSwizzleOp>::ConvertOpToLLVMPattern;
-
-  LogicalResult
-  matchAndRewrite(gpu::WarpSwizzleOp op, gpu::WarpSwizzleOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-
-    auto mlirI32Type = rewriter.getI32Type();
-    auto llvmI32Type = typeConverter->convertType(mlirI32Type);
-    auto llvmI1Type = typeConverter->convertType(rewriter.getI1Type());
-
-    int32_t permConst = 0;
-    const ArrayRef<mlir::Attribute> selector = adaptor.getSelector().getValue();
-    for (auto v = selector.rbegin(); v != selector.rend(); ++v) {
-      permConst = (permConst << 2) |
-                  v->cast<mlir::IntegerAttr>().getValue().getZExtValue();
-    }
-
-    auto dppCtrlConstImm = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmI32Type, rewriter.getI32IntegerAttr(permConst));
-
-    // DPP instructions support a mask that allows selectively disabling
-    // rows and/or banks of VGPRs during the shuffle. Since we want to shuffle
-    // all lanes, we use all 1s to avoid disabling any writes
-    auto noMaskConstImm = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmI32Type, rewriter.getI32IntegerAttr(0b1111));
-    auto noBoundsControlConstImm = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmI1Type, rewriter.getBoolAttr(true));
-
-    auto intrinsic = rewriter.create<ROCDL::DPPMovOp>(
-        loc, llvmI32Type, adaptor.getIn(), dppCtrlConstImm, noMaskConstImm,
-        noMaskConstImm, noBoundsControlConstImm);
-    rewriter.replaceOp(op, ValueRange(intrinsic.getRes()));
-    return success();
-  }
-};
-} // namespace mlir
+// namespace mlir
 template <typename OpTy>
 static void populateOpPatterns(LLVMTypeConverter &converter,
                                RewritePatternSet &patterns, StringRef f32Func,
@@ -301,8 +263,6 @@ void mlir::populateGpuToROCDLConversionPatterns(
     // Use address space = 4 to match the OpenCL definition of printf()
     patterns.add<GPUPrintfOpToLLVMCallLowering>(converter, /*addressSpace=*/4);
   }
-
-  patterns.add<WarpSwizzleOpLowering>(converter);
 
   populateOpPatterns<math::AbsFOp>(converter, patterns, "__ocml_fabs_f32",
                                    "__ocml_fabs_f64");

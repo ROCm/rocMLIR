@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -541,9 +542,10 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
   return subview;
 }
 
-FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
-  auto curOp = value.getDefiningOp();
-  auto maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+template <typename AllocType>
+FailureOr<AllocType> findAlloc(Value value) {
+  auto *curOp = value.getDefiningOp();
+  auto maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   while (!maybeAllocOp) {
     // Keep going until the operation that defines the value is a
     // view-like operation
@@ -567,12 +569,20 @@ FailureOr<rock::GpuAllocOp> mlir::rock::findAlloc(Value value) {
     } else {
       return failure();
     }
-    maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+    maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   }
   if (!maybeAllocOp)
     return failure();
 
   return maybeAllocOp;
+}
+
+FailureOr<rock::GpuAllocOp> mlir::rock::findGpuAlloc(Value value) {
+  return findAlloc<rock::GpuAllocOp>(value);
+}
+
+FailureOr<memref::AllocOp> mlir::rock::findMemrefAlloc(Value value) {
+  return findAlloc<memref::AllocOp>(value);
 }
 
 std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
@@ -726,4 +736,20 @@ AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
   auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
   auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
   return affineMap;
+}
+
+SmallVector<mhal::PrefillAttr>
+mlir::rock::getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func) {
+  SmallVector<mhal::PrefillAttr> storedAttrs;
+  auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
+  if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
+    if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
+      for (auto attr : arrayAttr) {
+        if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
+          storedAttrs.push_back(prefillAttr);
+        }
+      }
+    }
+  }
+  return storedAttrs;
 }

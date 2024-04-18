@@ -1540,22 +1540,6 @@ def GPU_SubgroupMmaElementwiseOp : GPU_Op<"subgroup_mma_elementwise",
   }];
 }
 
-def GPU_WarpSwizzleOp :
-    GPU_Op<"warp_swizzle">,
-    Arguments<(ins I32:$in, ConfinedAttr<I32ArrayAttr, [ArrayCount<4>]>:$selector)>,
-    Results<(outs I32:$out)> {
-  let summary = "Swizzle a value accross lanes/threads according to `selector``";
-  let description = [{
-    For a thread with ID t, the result of the operation will be the value of in
-    on thread s = (t / 4) * 4 + selector[t % 4]
-    If s is not executing, the result of this operation is undefined.
-    selector is not required to be a permutation of {0, 1, 2, 3}, but can't contain
-    any values from outside of that set
-  }];
-  let assemblyFormat = "attr-dict $in `:` type($in)";
-  let hasVerifier = 1;
-}
-
 //
 // Operation on sparse matrices, called from the host
 // (currently lowers to cuSparse for CUDA only, no ROCM lowering).

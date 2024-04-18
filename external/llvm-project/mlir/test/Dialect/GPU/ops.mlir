@@ -271,13 +271,6 @@ module attributes {gpu.container_module} {
     return
   }
 
-  func.func @warp_swizzle(%in : i32) -> i32 {
-    // CHECK-LABEL func @warp_swizzle
-    // CHECK %{{.*}} gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32]} %{{.*}} : i32
-    %0 = gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32] } %in : i32
-    return %0 : i32
-  }
-
   func.func @memset(%dst : memref<3x7xf32>, %value : f32) {
     // CHECK-LABEL: func @memset
     // CHECK: gpu.memset {{.*}}, {{.*}} : memref<3x7xf32>, f32

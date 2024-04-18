@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Transform/IR/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
@@ -727,6 +728,53 @@ GemmSize ConvBwdDataOp::getGemmSize() {
 GemmSize ConvBwdWeightOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::BwdWeight, sizes);
+}
+
+void Conv2DOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), getOutput(),
+                       transform::TransformMappingResource::get());
+
+  effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+                       transform::TransformMappingResource::get());
+}
+
+void Conv2DBwdDataOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), getInput(),
+                       transform::TransformMappingResource::get());
+
+  effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+                       transform::TransformMappingResource::get());
+}
+
+void Conv2DBwdWeightOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  const bool hasWorkspace = getWorkspace() != nullptr;
+  if (hasWorkspace) {
+    effects.emplace_back(MemoryEffects::Read::get(), getWorkspace(),
+                         transform::TransformMappingResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), getWorkspace(),
+                         transform::TransformMappingResource::get());
+  } else {
+    effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+                         transform::TransformMappingResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), getFilter(),
+                         transform::TransformMappingResource::get());
+  }
+  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+                       transform::TransformMappingResource::get());
+
+  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+                       transform::TransformMappingResource::get());
 }
 
 //===-----------------------------------------------------===//
@@ -1751,54 +1799,6 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (linalgOpCount > 1) {
     return emitError(
         "More than 1 linalg generic op found in pre softmax fusion point.");
-  }
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// InWarpTransposeOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult InWarpTransposeOp::verify() {
-  InWarpTransposeOp &op = *this;
-  constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
-  if (!llvm::isPowerOf2_32(op.getSize())) {
-    return op.emitOpError("transpose size " + Twine(op.getSize()) +
-                          "must be a power of 2");
-  }
-  if (op.getSize() <= 0) {
-    return op.emitOpError("transpose size must be strictly positive");
-  }
-
-  auto vectorLen =
-      static_cast<size_t>(op.getVector().getType().getNumElements());
-  if (vectorLen < swizzleGroupSize) {
-    return op.emitOpError("Vector input must have at least" +
-                          Twine(swizzleGroupSize) + "elements");
-  }
-  if (vectorLen < op.getSize()) {
-    return op.emitError("Vector input can't be shorter than transpose size");
-  }
-
-  if (op.getVector().getType().getRank() != 1) {
-    return op.emitError("Input vector must be 1-dimensional");
-  }
-
-  auto inGroupPerm = op.getInGroupPerm();
-
-  llvm::SmallSet<uint32_t, swizzleGroupSize> expected;
-  llvm::SmallSet<uint32_t, swizzleGroupSize> found;
-
-  for (uint32_t i = 0; i < swizzleGroupSize; i++) {
-    expected.insert(i);
-  }
-
-  for (auto &i : inGroupPerm) {
-    found.insert(i.cast<IntegerAttr>().getValue().getZExtValue());
-  }
-
-  if (found != expected) {
-    return op.emitOpError("inGroupPerm is not a permutation on the output row");
   }
   return success();
 }
