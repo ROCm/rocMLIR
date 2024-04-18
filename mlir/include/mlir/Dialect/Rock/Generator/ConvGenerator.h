@@ -112,12 +112,9 @@ public:
   LogicalResult parseConvConfig(OpBuilder &builder, const char *arguments);
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,
-                              int64_t inputChannel, int64_t inputHeight,
-                              int64_t inputWidth, int64_t inputDepth,
-                              int64_t outputChannel, int64_t outputHeight,
-                              int64_t outputWidth, int64_t outputDepth,
-                              int64_t filterHeight, int64_t filterWidth,
-                              int64_t filterDepth);
+                              int64_t inputChannel, ArrayRef<int64_t> inputDims,
+                              int64_t outputChannel, ArrayRef<int64_t> outputDims,
+                              ArrayRef<int64_t> filterDims);
 
   LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1,
                               bool is_verifier = false,
