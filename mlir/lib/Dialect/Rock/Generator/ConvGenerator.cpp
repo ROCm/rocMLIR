@@ -41,9 +41,10 @@ ConvGenerator::ConvGenerator(
     const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, ArrayRef<int> dilations,
-    ArrayRef<int> strides, ArrayRef<int> paddingLeft, ArrayRef<int> paddingRight,
-    const std::string &filterLayout, const std::string &inputLayout,
-    const std::string &outputLayout, const std::string &kernelBaseName)
+    ArrayRef<int> strides, ArrayRef<int> paddingLeft,
+    ArrayRef<int> paddingRight, const std::string &filterLayout,
+    const std::string &inputLayout, const std::string &outputLayout,
+    const std::string &kernelBaseName)
     : config{arch,
              chip,
              triple,
@@ -494,8 +495,8 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
                      })) {
       return false;
     }
-    return (argMap["fil_layout"].length() == argMap["in_layout"].length())
-      &&   (argMap["in_layout"].length() == argMap["out_layout"].length());
+    return (argMap["fil_layout"].length() == argMap["in_layout"].length()) &&
+           (argMap["in_layout"].length() == argMap["out_layout"].length());
 
   };
 
@@ -640,11 +641,12 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   return success();
 }
 
-LogicalResult
-ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
-                             int64_t inputChannel, ArrayRef<int64_t> inputDims,
-                             int64_t outputChannel, ArrayRef<int64_t> outputDims,
-                             ArrayRef<int64_t> filterDims) {
+LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
+                                           int64_t inputChannel,
+                                           ArrayRef<int64_t> inputDims,
+                                           int64_t outputChannel,
+                                           ArrayRef<int64_t> outputDims,
+                                           ArrayRef<int64_t> filterDims) {
   config.filterDims.clear();
   for (auto dim : filterDims)
     config.filterDims.push_back(dim);
@@ -654,19 +656,23 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                                         {"c", inputChannel / groupSize},
                                         {"y", filterDims[0]},
                                         {"x", filterDims[1]}};
-  for (size_t i = 0;  i < filterDims.size();  i++)
+  for (size_t i = 0; i < filterDims.size(); i++)
     filterMap[std::to_string(i)] = filterDims[i];
 
-  llvm::StringMap<int64_t> inputMap = {
-      {"n", batchSize},   {"g", groupSize},  {"c", inputChannel / groupSize},
-      {"h", inputDims[0]}, {"w", inputDims[1]}};
-  for (size_t i = 0;  i < inputDims.size();  i++)
+  llvm::StringMap<int64_t> inputMap = {{"n", batchSize},
+                                       {"g", groupSize},
+                                       {"c", inputChannel / groupSize},
+                                       {"h", inputDims[0]},
+                                       {"w", inputDims[1]}};
+  for (size_t i = 0; i < inputDims.size(); i++)
     inputMap[std::to_string(i)] = inputDims[i];
 
-  llvm::StringMap<int64_t> outputMap = {
-      {"n", batchSize},    {"g", groupSize},   {"k", outputChannel / groupSize},
-      {"h", outputDims[0]}, {"w", outputDims[1]}};
-  for (size_t i = 0;  i < outputDims.size();  i++)
+  llvm::StringMap<int64_t> outputMap = {{"n", batchSize},
+                                        {"g", groupSize},
+                                        {"k", outputChannel / groupSize},
+                                        {"h", outputDims[0]},
+                                        {"w", outputDims[1]}};
+  for (size_t i = 0; i < outputDims.size(); i++)
     outputMap[std::to_string(i)] = outputDims[i];
 
   auto convertLayout = [](char &key, llvm::StringMap<int64_t> &kmap,
@@ -692,8 +698,7 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
     if (!convertLayout(config.filterLayout[i], filterMap,
                        config.filterDimension))
       return failure();
-    if (!convertLayout(config.inputLayout[i], inputMap,
-                       config.inputDimension))
+    if (!convertLayout(config.inputLayout[i], inputMap, config.inputDimension))
       return failure();
     if (!convertLayout(config.outputLayout[i], outputMap,
                        config.outputDimension)) {
@@ -738,13 +743,13 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
   SmallVector<int64_t> inDims;
-  for (size_t i = 0;  i < config.inputLayout.size() - 3;  i++)
+  for (size_t i = 0; i < config.inputLayout.size() - 3; i++)
     inDims.push_back(inDim[std::to_string(i)]);
   SmallVector<int64_t> filDims;
-  for (size_t i = 0;  i < config.filterLayout.size() - 3;  i++)
+  for (size_t i = 0; i < config.filterLayout.size() - 3; i++)
     filDims.push_back(filDim[std::to_string(i)]);
   SmallVector<int64_t> outDims;
-  for (size_t i = 0;  i < config.outputLayout.size() - 3;  i++)
+  for (size_t i = 0; i < config.outputLayout.size() - 3; i++)
     outDims.push_back(outDim[std::to_string(i)]);
 
   return ConvolutionDims(filDims, outDims, inDims, filDim["k"], filDim["c"],
@@ -843,11 +848,11 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   SmallVector<StringAttr, 5> filterLayoutSpec;
   SmallVector<StringAttr, 5> inputLayoutSpec;
   SmallVector<StringAttr, 5> outputLayoutSpec;
-  for (auto& key : config.filterLayout)
+  for (auto &key : config.filterLayout)
     filterLayoutSpec.push_back(builder.getStringAttr(StringRef(&key, 1)));
-  for (auto& key : config.inputLayout)
+  for (auto &key : config.inputLayout)
     inputLayoutSpec.push_back(builder.getStringAttr(StringRef(&key, 1) + "i"));
-  for (auto& key : config.outputLayout)
+  for (auto &key : config.outputLayout)
     outputLayoutSpec.push_back(builder.getStringAttr(StringRef(&key, 1) + "o"));
 
   // Set kernel ID to  be the same as the raw kernel ID.
@@ -893,7 +898,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   attributes.push_back(builder.getNamedAttr("features", features));
 
   SmallVector<int64_t, 8> paddingArray;
-  for (const auto &[left, right] : zip(config.paddingLeftDims, config.paddingRightDims)) {
+  for (const auto &[left, right] :
+       zip(config.paddingLeftDims, config.paddingRightDims)) {
     paddingArray.push_back(left);
     paddingArray.push_back(right);
   }
@@ -901,8 +907,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   attributes.push_back(
       builder.getNamedAttr("padding", builder.getIndexArrayAttr(paddingArray)));
 
-  attributes.push_back(
-      builder.getNamedAttr("strides", builder.getIndexArrayAttr(config.strideDims)));
+  attributes.push_back(builder.getNamedAttr(
+      "strides", builder.getIndexArrayAttr(config.strideDims)));
 
   attributes.push_back(builder.getNamedAttr(
       "dilations", builder.getIndexArrayAttr(config.dilationDims)));
