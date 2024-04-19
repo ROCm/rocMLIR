@@ -730,7 +730,7 @@ GemmSize ConvBwdWeightOp::getGemmSize() {
   return GemmSize::fromConvolution(ConvOpType::BwdWeight, sizes);
 }
 
-void Conv2DOp::getEffects(
+void ConvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
                        transform::TransformMappingResource::get());
@@ -743,7 +743,7 @@ void Conv2DOp::getEffects(
                        transform::TransformMappingResource::get());
 }
 
-void Conv2DBwdDataOp::getEffects(
+void ConvBwdDataOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), getInput(),
                        transform::TransformMappingResource::get());
@@ -756,7 +756,7 @@ void Conv2DBwdDataOp::getEffects(
                        transform::TransformMappingResource::get());
 }
 
-void Conv2DBwdWeightOp::getEffects(
+void ConvBwdWeightOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   const bool hasWorkspace = getWorkspace() != nullptr;
   if (hasWorkspace) {
