@@ -170,7 +170,7 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   SmallVector<StringRef> inputCheck{"ni", "gi", "ci"};
   SmallVector<StringRef> outputCheck{"no", "go", "ko"};
   auto ctx = op.getContext();
-  for (size_t i = 0;  i < filterNames.size() - 3;  i++) {
+  for (size_t i = 0; i < filterNames.size() - 3; i++) {
     filterCheck.push_back(StringAttr::get(ctx, std::to_string(i)));
     inputCheck.push_back(StringAttr::get(ctx, std::to_string(i) + "i"));
     outputCheck.push_back(StringAttr::get(ctx, std::to_string(i) + "o"));

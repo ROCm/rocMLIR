@@ -61,25 +61,22 @@ public:
     SmallVector<int64_t, 4> filterDims;
   };
 
-  ConvGenerator(const std::string &arch = "", const std::string &chip = "",
-                const std::string &triple = "",
-                const std::string &chipFeatures = "",
-                const std::string &perfConfig = "",
-                std::optional<int> num_cu = std::nullopt,
-                bool reverseGrid = false,
-                GemmFeatures features = GemmFeatures::none,
-                const std::optional<rock::ConvOpType> operation = std::nullopt,
-                const std::string &filterDataTypeStr = "f32",
-                const std::string &inputDataTypeStr = "f32",
-                const std::string &outputDataTypeStr = "",
-                ArrayRef<int> dilations = {1, 1},
-                ArrayRef<int> strides = {1, 1},
-                ArrayRef<int> paddingLeft = {0, 0},
-                ArrayRef<int> paddingRight = {0, 0},
-                const std::string &filterLayout = "kcyx",
-                const std::string &inputLayout = "nchw",
-                const std::string &outputLayout = "nkhw",
-                const std::string &kernelBaseName = "");
+  ConvGenerator(
+      const std::string &arch = "", const std::string &chip = "",
+      const std::string &triple = "", const std::string &chipFeatures = "",
+      const std::string &perfConfig = "",
+      std::optional<int> num_cu = std::nullopt, bool reverseGrid = false,
+      GemmFeatures features = GemmFeatures::none,
+      const std::optional<rock::ConvOpType> operation = std::nullopt,
+      const std::string &filterDataTypeStr = "f32",
+      const std::string &inputDataTypeStr = "f32",
+      const std::string &outputDataTypeStr = "",
+      ArrayRef<int> dilations = {1, 1}, ArrayRef<int> strides = {1, 1},
+      ArrayRef<int> paddingLeft = {0, 0}, ArrayRef<int> paddingRight = {0, 0},
+      const std::string &filterLayout = "kcyx",
+      const std::string &inputLayout = "nchw",
+      const std::string &outputLayout = "nkhw",
+      const std::string &kernelBaseName = "");
 
   ConvGenerator(const Config &_config);
 
@@ -113,7 +110,8 @@ public:
 
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,
                               int64_t inputChannel, ArrayRef<int64_t> inputDims,
-                              int64_t outputChannel, ArrayRef<int64_t> outputDims,
+                              int64_t outputChannel,
+                              ArrayRef<int64_t> outputDims,
                               ArrayRef<int64_t> filterDims);
 
   LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1,
@@ -142,7 +140,7 @@ public:
         targetLayout.push_back(std::tolower(ch));
       }
     }
-#endif  /* 1 */
+#endif /* 1 */
 
     // +++pf:  update old key names.
     std::replace(targetLayout.begin(), targetLayout.end(), 'y', '0');

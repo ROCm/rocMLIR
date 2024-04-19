@@ -45,18 +45,18 @@ ConvolutionDims ConvolutionContext::getConvDims() {
   llvm::SmallVector<int64_t, 4> fil;
   llvm::SmallVector<int64_t, 4> out;
   llvm::SmallVector<int64_t, 4> in;
-  for (int i = 0; ; i++) {
+  for (int i = 0;; i++) {
     std::string key = std::to_string(i);
     if (!dimIndexAndSize.contains(key))
       break;
     fil.push_back(dimIndexAndSize[key].size);
-    out.push_back(dimIndexAndSize[key+"o"].size);
-    in.push_back(dimIndexAndSize[key+"i"].size);
+    out.push_back(dimIndexAndSize[key + "o"].size);
+    in.push_back(dimIndexAndSize[key + "i"].size);
   }
 
-  return ConvolutionDims(fil, out, in,
-      dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
-      dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
+  return ConvolutionDims(fil, out, in, dimIndexAndSize["k"].size,
+                         dimIndexAndSize["c"].size, dimIndexAndSize["ni"].size,
+                         dimIndexAndSize["g"].size);
 }
 
 ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
