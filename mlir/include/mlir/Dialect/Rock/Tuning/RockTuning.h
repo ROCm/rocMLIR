@@ -48,7 +48,7 @@ struct TuningParamSet {
   KernelType primaryOpType;
 };
 
-TuningParamSet *createTunableParamSpace(ModuleOp &mod, TuningParamSetKind kind);
+TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind);
 // Get a parameters from the set of tunable parameters.
 bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
                     ParamEntry *paramEntry);
@@ -66,7 +66,7 @@ struct TuningTable {
 
 TuningTable *tuningTableCreate();
 size_t getTuningHash(ModuleOp &mod);
-LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out);
+LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out);
 bool tuningTableUpdate(TuningTable *perfTable, StringRef problem,
                        StringRef perfConfig, float time);
 LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
