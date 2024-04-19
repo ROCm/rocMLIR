@@ -124,7 +124,7 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
     return a.workImbalance < b.workImbalance;
   });
 
-  const size_t maxVariants = std::min(static_cast<size_t>(4), factors.size());
+  const size_t maxVariants = std::min(static_cast<size_t>(6), factors.size());
   llvm::ArrayRef<LocalData> view(factors.data(), maxVariants);
   llvm::for_each(view, [&](const LocalData &item) {
     splitKValues.push_back(item.splitKValue);
