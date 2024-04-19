@@ -170,7 +170,7 @@ struct PushBarrierDownRewritePattern
     bool moveDown = true;
     // Make sure that the "nextOp" doesn't modify LDS
     for (Value operand : nextOp->getOperands()) {
-      auto maybeAlloc = rock::findAlloc(operand);
+      auto maybeAlloc = rock::findGpuAlloc(operand);
       if (succeeded(maybeAlloc) &&
           getAddressSpace(*maybeAlloc) == AddressSpace::Workgroup)
         moveDown = false;
@@ -205,7 +205,7 @@ DagType createDependencyGraph(ArrayRef<rock::StageOp> stages,
     stage.walk([&](Operation *op) {
       for (Value operand : op->getOperands()) {
         MemoryAccessType accessType = getOperandAccessType(op, operand);
-        auto maybeAlloc = rock::findAlloc(operand);
+        auto maybeAlloc = rock::findGpuAlloc(operand);
         if (accessType != MemoryAccessType::UNKNOWN && succeeded(maybeAlloc) &&
             allocs.contains(*maybeAlloc)) {
           resourceMap[stage][*maybeAlloc] = accessType;

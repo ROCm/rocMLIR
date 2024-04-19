@@ -1454,12 +1454,14 @@ void RockSugarToLoopsPass::runOnOperation() {
   // Apply loop invariant code motion to all loops before unrolling.
   WalkResult loopMinimizationResult = op.walk<WalkOrder::PostOrder>(
       [&b](LoopLikeOpInterface loop) -> WalkResult {
-        (void)loop.promoteIfSingleIteration(b);
+        if (succeeded(loop.promoteIfSingleIteration(b)))
+          return WalkResult::advance();
         // Affine loops don't implement the iteration promoter interface and
         // need their own method.
         if (auto affineLoop =
                 dyn_cast<affine::AffineForOp>(loop.getOperation())) {
-          (void)affine::promoteIfSingleIteration(affineLoop);
+          if (succeeded(affine::promoteIfSingleIteration(affineLoop)))
+            return WalkResult::advance();
         }
         moveLoopInvariantCode(loop);
         return WalkResult::advance();

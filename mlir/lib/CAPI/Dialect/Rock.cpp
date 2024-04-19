@@ -11,11 +11,14 @@
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/CAPI/Wrap.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-
-#include <vector>
+#include "mlir/Dialect/Rock/utility/fusionUtils.h"
+#include "mlir/Support/LogicalResult.h"
+#include <cassert>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningSpace, mlir::rock::TuningParamSet)
@@ -138,3 +141,71 @@ MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
   strncpy(buf, perfStr.c_str(), bufLen);
   return perfStr.size();
 }
+
+MLIR_CAPI_EXPORTED
+enum RocmlirSplitKSelectionLikelihood
+mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
+                   int64_t numCUs, RocmlirTuningParamSetKind tuningLevel) {
+  if (tuningLevel ==
+      RocmlirTuningParamSetKind::RocmlirTuningParamSetKindQuick) {
+    // Note, we return `never` because we don't provide splitK values
+    // in the case of `Quick` tuning. If we decide to remove this restriction
+    // in the future, we must remove this if-statement
+    return RocmlirSplitKSelectionLikelihood::never;
+  }
+  return rock::isSplitKFaster(gDim, mDim, nDim, kDim, numCUs);
+}
+
+MLIR_CAPI_EXPORTED
+bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
+  auto mod = unwrap(module);
+  StringRef perfConfig = unwrap(perfStr);
+
+  if (!rock::isSplitKRequested(mod, perfConfig)) {
+    return true;
+  }
+  return succeeded(rock::testFusionLegality(mod));
+}
+
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumPrefillArgs(MlirModule module) {
+  auto mod = unwrap(module);
+  assert(mod.getRegion().getBlocks().size() == 1 &&
+         "expected a single block/function in a module");
+
+  std::optional<LLVM::LLVMFuncOp> func = std::nullopt;
+  mod.walk([&](LLVM::LLVMFuncOp op) { func = op; });
+
+  if (!func.has_value())
+    return 0;
+  auto attrs = rock::getStoredPrefillAttributes(func.value());
+  return attrs.size();
+}
+
+MLIR_CAPI_EXPORTED
+void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
+                            MlirAttribute *initValues, size_t length) {
+  auto mod = unwrap(module);
+  assert(mod.getRegion().getBlocks().size() == 1 &&
+         "expected a single block/function in a module");
+
+  std::optional<LLVM::LLVMFuncOp> func = std::nullopt;
+  mod.walk([&](LLVM::LLVMFuncOp op) { func = op; });
+
+  if (!func.has_value())
+    return;
+  auto attrs = rock::getStoredPrefillAttributes(func.value());
+
+  assert(attrs.size() >= length && "length cannot exceed the attr size");
+  for (size_t i = 0; i < length; ++i) {
+    indices[i] = attrs[i].getArgIndex();
+    initValues[i] = wrap(attrs[i].getInitValue());
+  }
+}
+
+MLIR_CAPI_EXPORTED
+size_t mlirGetNumAuxBuffers(MlirModule module) { return 0; }
+
+MLIR_CAPI_EXPORTED
+void mlirGetAuxBuffersInfo(MlirModule module, size_t *sizes,
+                           MlirAttribute *initValues, size_t length) {}

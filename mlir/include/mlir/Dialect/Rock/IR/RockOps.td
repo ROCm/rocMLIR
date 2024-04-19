@@ -62,18 +62,19 @@ class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayCount<n>]>;
 
 class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
-                       DeclareOpInterfaceMethods<RockConvInterface>]>{
+                       DeclareOpInterfaceMethods<RockConvInterface>,
+                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>{
     dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5]>:$filter,
-                   TensorOrMemRefRankOf<inputTypes, [5]>:$input,
-                   TensorOrMemRefRankOf<outputTypes, [5]>:$output,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$derivedBlockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
-                   IndexArrayLength<4>:$padding,
-                   IndexArrayLength<2>:$strides,
-                   IndexArrayLength<2>:$dilations,
-                   OptionalAttr<RockTuningParamAttrInterface>:$params);
+                              TensorOrMemRefRankOf<inputTypes, [5]>:$input,
+                              TensorOrMemRefRankOf<outputTypes, [5]>:$output,
+                              StrAttr:$arch,
+                              Rock_GemmFeaturesAttr:$features,
+                              OptionalAttr<I32Attr>:$derivedBlockSize,
+                              OptionalAttr<I32Attr>:$gridSize,
+                              IndexArrayLength<4>:$padding,
+                              IndexArrayLength<2>:$strides,
+                              IndexArrayLength<2>:$dilations,
+                              OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
