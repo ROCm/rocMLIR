@@ -192,7 +192,7 @@ static llvm::cl::opt<int64_t>
 // Z
 static llvm::cl::opt<int64_t>
     filterDepth("fil_d", llvm::cl::desc("Filter depth"),
-                 llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
+                llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
 // Ho
 static llvm::cl::opt<int64_t> outputHeight(
@@ -948,7 +948,7 @@ static void correctConvParameters() {
   int conv_stride_d = strideDepth.getValue();
   int conv_dilation_d = dilationDepth.getValue();
   int d_o = getOutputDim(di, z, in_left_pad_d, in_right_pad_d, conv_stride_d,
-                        conv_dilation_d);
+                         conv_dilation_d);
 
   int di_minimum = 1 + (z - 1) * conv_dilation_d + (d_o - 1) * conv_stride_d;
   int di_specified = di + in_left_pad_d + in_right_pad_d;
@@ -1069,7 +1069,8 @@ static void populateDefaults() {
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
   }
-  if (isConv && outputDepth.getNumOccurrences() == 0 && inputDepth.getNumOccurrences() > 0) {
+  if (isConv && outputDepth.getNumOccurrences() == 0 &&
+      inputDepth.getNumOccurrences() > 0) {
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
@@ -1093,7 +1094,7 @@ auto getRequiredArgs(std::optional<rock::KernelType> kernelType) {
   default: {
     const static RequiredArgsType requiredConvArgs = {
         &groupSize,  &batchSize,     &inputChannel, &inputHeight,
-        &inputWidth, &outputChannel, &filterWidth, &filterHeight};
+        &inputWidth, &outputChannel, &filterWidth,  &filterHeight};
     return requiredConvArgs;
   }
   };
@@ -3727,10 +3728,10 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       (void)createGpuAttentionKernel(module, genParams);
     } else {
       int nDims = filterLayout.getValue().size() - 3; // +++pf: magic number.
-      SmallVector<int,4> dilations;
-      SmallVector<int,4> strides;
-      SmallVector<int,4> paddingLeft;
-      SmallVector<int,4> paddingRight;
+      SmallVector<int, 4> dilations;
+      SmallVector<int, 4> strides;
+      SmallVector<int, 4> paddingLeft;
+      SmallVector<int, 4> paddingRight;
 
       // +++pf: needs generalising, coupled with command-line options.
       dilations.push_back(dilationHeight.getValue());
@@ -3747,8 +3748,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       if (nDims > 2) {
         dilations.push_back(dilationDepth.getValue());
         strides.push_back(strideDepth.getValue());
-//         paddingLeft.push_back(paddingDepthLeft.getValue());
-//         paddingRight.push_back(paddingDepthRight.getValue());
+        //         paddingLeft.push_back(paddingDepthLeft.getValue());
+        //         paddingRight.push_back(paddingDepthRight.getValue());
       }
 
       convGenerator = rock::ConvGenerator(
@@ -3758,10 +3759,9 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           reverse_grid, enabledFeatures,
           rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
-          outputDataType.getValue(),
-          dilations, strides, paddingLeft, paddingRight,
-          filterLayout.getValue(),
-          inputLayout.getValue(), outputLayout.getValue());
+          outputDataType.getValue(), dilations, strides, paddingLeft,
+          paddingRight, filterLayout.getValue(), inputLayout.getValue(),
+          outputLayout.getValue());
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
       if (nDims > 2)
@@ -3773,9 +3773,9 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       if (nDims > 2)
         filDims.push_back(filterDepth);
 
-      status = convGenerator.parseConvDims(
-          batchSize, groupSize, inputChannel, inDims,
-          outputChannel, outDims, filDims);
+      status =
+          convGenerator.parseConvDims(batchSize, groupSize, inputChannel,
+                                      inDims, outputChannel, outDims, filDims);
       if (failed(status)) {
         llvm::errs() << "Could not parse convolution dimensions\n";
         exit(1);
