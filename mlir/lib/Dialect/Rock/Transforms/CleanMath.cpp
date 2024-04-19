@@ -56,11 +56,11 @@ static LogicalResult deleteTrivialRemainder(DataFlowSolver &solver,
   Value result = op.getResult(0);
   Value lhs = op.getOperand(0);
   Value rhs = op.getOperand(1);
-  auto rhsConstVal = rhs.getDefiningOp<arith::ConstantOp>();
+  auto rhsConstVal = rhs.getDefiningOp<arith::ConstantIntOp>();
   if (!rhsConstVal)
     return failure();
-  APInt modulus = cast<IntegerAttr>(rhsConstVal.getValue()).getValue();
-  if (!modulus.isStrictlyPositive())
+  int64_t modulus = rhsConstVal.value();
+  if (modulus <= 0)
     return failure();
   auto *maybeLhsRange = solver.lookupState<IntegerValueRangeLattice>(lhs);
   if (!maybeLhsRange || maybeLhsRange->getValue().isUninitialized())
