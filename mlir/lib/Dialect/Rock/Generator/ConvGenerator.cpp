@@ -738,13 +738,13 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
   SmallVector<int64_t> inDims;
-  for (size_t i = 0;  i < inDim.size();  i++)
+  for (size_t i = 0;  i < config.inputLayout.size() - 3;  i++)
     inDims.push_back(inDim[std::to_string(i)]);
   SmallVector<int64_t> filDims;
-  for (size_t i = 0;  i < filDim.size();  i++)
+  for (size_t i = 0;  i < config.filterLayout.size() - 3;  i++)
     filDims.push_back(filDim[std::to_string(i)]);
   SmallVector<int64_t> outDims;
-  for (size_t i = 0;  i < outDim.size();  i++)
+  for (size_t i = 0;  i < config.outputLayout.size() - 3;  i++)
     outDims.push_back(outDim[std::to_string(i)]);
 
   return ConvolutionDims(filDims, outDims, inDims, filDim["k"], filDim["c"],
