@@ -153,16 +153,20 @@ void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
     int32_t majorTensorIdx = -1;
     int32_t inputIdx = 0;
     size_t argIdx = -1;
+    if (lgop.getInputs().size() == 1) {
+      lgop->setAttr("majorTensorNumber",
+                    IntegerAttr::get(IndexType::get(ctx), 1));
+      return;
+    }
     for (auto inp : lgop.getInputs()) {
-      while (auto transform = inp.getDefiningOp<TransformOp>())
-        inp = transform.getInput();
+      while (auto viewOp =
+                 dyn_cast_or_null<ViewLikeOpInterface>(inp.getDefiningOp()))
+        inp = viewOp.getViewSource();
 
       if (inp.isa<BlockArgument>()) {
         auto arg = dyn_cast<BlockArgument>(inp);
-        auto shape = inp.getType().cast<ShapedType>().getShape();
-        int64_t argSize = 1;
-        for (size_t dim = 0; dim < shape.size(); dim++)
-          argSize *= shape[dim];
+        auto shape = inp.getType().cast<ShapedType>();
+        int64_t argSize = shape.getNumElements();
         if (majorTensorIdx == -1 || argSize > majorTensorSize ||
             (argSize == majorTensorSize && argIdx > arg.getArgNumber())) {
           majorTensorIdx = inputIdx;

@@ -819,15 +819,14 @@ findPostFusionTransforms(Value buffer, Operation *currentUser) {
       }
       Value genericOut = genericOp.getOutputs().front();
       if (genericOut == buffer) {
-        if (!genericOp->hasAttr("majorTensorNumber")) {
+        if (auto index =
+                genericOp->getAttrOfType<IntegerAttr>("majorTensorNumber")) {
           LLVM_DEBUG(llvm::dbgs()
                      << "[vectorization] can't analyze linalg.generic "
                         "without majorTensorNumber\n");
           return failure();
-        }
-        int32_t index =
-            genericOp->getAttrOfType<IntegerAttr>("majorTensorNumber").getInt();
-        candidate = genericOp.getInputs()[index];
+        } else
+          candidate = genericOp.getInputs()[index.getInt()];
       } else
         candidate = genericOut;
     } else {
