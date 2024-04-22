@@ -147,9 +147,9 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
 
   // TODO[split-K]: remove after integrating split-K into MIGraphX
   auto func = cast<func::FuncOp>(gemmOp->getParentOp());
-  if (!func->hasAttr(rock::EnableSpliKForTuningAttr::getMnemonic())) {
+  /*if (!func->hasAttr(rock::EnableSpliKForTuningAttr::getMnemonic())) {
     return splitKValues;
-  }
+  }*/
 
   uint32_t numCUs = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
   if (gemmOp.getNumCU().has_value()) {
