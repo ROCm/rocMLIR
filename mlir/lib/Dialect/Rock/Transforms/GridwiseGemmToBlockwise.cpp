@@ -2417,7 +2417,7 @@ struct GridwiseGemmAccelRewritePattern
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     // Compute grid coordinates
-    auto gridCoords = layout::makeGroupedGridLayout(
+    auto gridCoords = layout::makeGroupedGridLayoutXCCMiddle(
         b, loc, bid, {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
 
     Value storeBufferA =

@@ -36,6 +36,15 @@ using namespace mlir::rock;
 using namespace mlir::arith;
 using namespace mlir::rock::layout;
 
+std::tuple<int64_t, int64_t> getSqaureLikeRectangularDims(int64_t area){
+    int64_t width = std::ceil(std::sqrt(area));
+    while(width % area == 0){
+       width--; 
+    }
+    int64_t height = area / width;
+    return {width, height};
+}
+
 GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
                                                     Location loc, Value bid,
                                                     GridLayoutInfo info) {
@@ -82,12 +91,12 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCMiddle(PatternRewriter &b,
   int64_t bitWidthOut = info.outputType.getIntOrFloatBitWidth();
   int64_t numChiplets = 8;
   assert(info.numCU / numChiplets == 38);
-  int64_t groupSize =
-      std::ceil(std::sqrt(info.numCU)) * (bitWidthOut / bitWidthIn);
 
-  Value mBlocksPerGroup = b.createOrFold<ConstantIndexOp>(loc, groupSize);
+  int64_t mBlocksPerGroup; 
+  std::tie(std::ignore, mBlocksPerGroup) = getSqaureLikeRectangularDims(info.numCU / numChiplets);
+  Value mBlocksPerGroupVal = b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup);
   Value blocksPerGroup =
-      b.createOrFold<ConstantIndexOp>(loc, groupSize * info.nBlocks);
+      b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup * info.nBlocks);
   Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
 
   // Re-order workgroup-id to make chiplets slowest moving dimension
@@ -145,9 +154,9 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCMiddle(PatternRewriter &b,
 
   // Group together the workgroups in g_block
   Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
-  Value firstBidM = b.create<MulIOp>(loc, groupId, mBlocksPerGroup);
+  Value firstBidM = b.create<MulIOp>(loc, groupId, mBlocksPerGroupVal);
   Value thisMBlocksPerGroup = b.create<MinUIOp>(
-      loc, b.create<SubIOp>(loc, mBlocksValue, firstBidM), mBlocksPerGroup);
+      loc, b.create<SubIOp>(loc, mBlocksValue, firstBidM), mBlocksPerGroupVal);
   Value m_block = b.create<AddIOp>(
       loc, firstBidM, b.create<RemUIOp>(loc, bid, thisMBlocksPerGroup));
   Value n_block = b.create<DivUIOp>(
@@ -165,12 +174,13 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCSlowest(PatternRewriter &b
   int64_t bitWidthOut = info.outputType.getIntOrFloatBitWidth();
   int64_t numChiplets = 8;
   assert(info.numCU / numChiplets == 38);
-  int64_t groupSize =
-      std::ceil(std::sqrt(info.numCU)) * (bitWidthOut / bitWidthIn);
 
-  Value mBlocksPerGroup = b.createOrFold<ConstantIndexOp>(loc, groupSize);
+  int64_t mBlocksPerGroup; 
+  std::tie(std::ignore, mBlocksPerGroup) = getSqaureLikeRectangularDims(info.numCU / numChiplets);
+
+  Value mBlocksPerGroupVal = b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup);
   Value blocksPerGroup =
-      b.createOrFold<ConstantIndexOp>(loc, groupSize * info.nBlocks);
+      b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup * info.nBlocks);
   Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
 
   // Re-order workgroup-id to make chiplets slowest moving dimension
@@ -211,44 +221,44 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCSlowest(PatternRewriter &b
     bid = b.create<arith::SelectOp>(loc, isBidLargerThanlastNumChipletMultiple, bid, bid_new);
   }
 
-  Value g1MxNBlockCountVal =
-      b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
-  Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1MxNBlockCountVal);
-  Value nonGBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1MxNBlockCountVal);
-  Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.nBlocks);
-  Value g1MBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
-  Value nBlockIdx, mBlockIdx;
-  if(info.nBlocks > info.mBlocks){
-    nBlockIdx =
-        b.create<arith::DivUIOp>(loc, nonGBlockIdx, g1MBlockCountVal);
-    mBlockIdx =
-        b.create<arith::RemUIOp>(loc, nonGBlockIdx, g1MBlockCountVal);
-  }
-  else{
-    mBlockIdx =
-        b.create<arith::DivUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
-    nBlockIdx =
-        b.create<arith::RemUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
-  }
-
-  return {gBlockIdx, mBlockIdx, nBlockIdx};
-
-//   // Compute g_block first and the bid in the actual group g_block
-//   Value mnBlocks =
+//   Value g1MxNBlockCountVal =
 //       b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
-//   Value g_block = b.create<DivUIOp>(loc, bid, mnBlocks);
-//   bid = b.create<RemUIOp>(loc, bid, mnBlocks);
+//   Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1MxNBlockCountVal);
+//   Value nonGBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1MxNBlockCountVal);
+//   Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.nBlocks);
+//   Value g1MBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
+//   Value nBlockIdx, mBlockIdx;
+//   if(info.nBlocks > info.mBlocks){
+//     nBlockIdx =
+//         b.create<arith::DivUIOp>(loc, nonGBlockIdx, g1MBlockCountVal);
+//     mBlockIdx =
+//         b.create<arith::RemUIOp>(loc, nonGBlockIdx, g1MBlockCountVal);
+//   }
+//   else{
+//     mBlockIdx =
+//         b.create<arith::DivUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
+//     nBlockIdx =
+//         b.create<arith::RemUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
+//   }
 
-//   // Group together the workgroups in g_block
-//   Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
-//   Value firstBidM = b.create<MulIOp>(loc, groupId, mBlocksPerGroup);
-//   Value thisMBlocksPerGroup = b.create<MinUIOp>(
-//       loc, b.create<SubIOp>(loc, mBlocksValue, firstBidM), mBlocksPerGroup);
-//   Value m_block = b.create<AddIOp>(
-//       loc, firstBidM, b.create<RemUIOp>(loc, bid, thisMBlocksPerGroup));
-//   Value n_block = b.create<DivUIOp>(
-//       loc, b.create<RemUIOp>(loc, bid, blocksPerGroup), thisMBlocksPerGroup);
-//   return {g_block, m_block, n_block};
+//   return {gBlockIdx, mBlockIdx, nBlockIdx};
+
+  // Compute g_block first and the bid in the actual group g_block
+  Value mnBlocks =
+      b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
+  Value g_block = b.create<DivUIOp>(loc, bid, mnBlocks);
+  bid = b.create<RemUIOp>(loc, bid, mnBlocks);
+
+  // Group together the workgroups in g_block
+  Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
+  Value firstBidM = b.create<MulIOp>(loc, groupId, mBlocksPerGroupVal);
+  Value thisMBlocksPerGroup = b.create<MinUIOp>(
+      loc, b.create<SubIOp>(loc, mBlocksValue, firstBidM), mBlocksPerGroupVal);
+  Value m_block = b.create<AddIOp>(
+      loc, firstBidM, b.create<RemUIOp>(loc, bid, thisMBlocksPerGroup));
+  Value n_block = b.create<DivUIOp>(
+      loc, b.create<RemUIOp>(loc, bid, blocksPerGroup), thisMBlocksPerGroup);
+  return {g_block, m_block, n_block};
 }
 
 GridCoordinates rock::layout::makeGxMxNGridLayout(PatternRewriter &b,
