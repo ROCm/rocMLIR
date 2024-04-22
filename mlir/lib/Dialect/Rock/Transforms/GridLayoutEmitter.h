@@ -57,6 +57,12 @@ struct GridLayoutInfo {
 GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
                                       Value bid, GridLayoutInfo info);
 
+GridCoordinates makeGroupedGridLayoutXCCMiddle(PatternRewriter &b, Location loc,
+                                      Value bid, GridLayoutInfo info);
+
+GridCoordinates makeGroupedGridLayoutXCCSlowest(PatternRewriter &b, Location loc,
+                                      Value bid, GridLayoutInfo info);
+
 GridCoordinates makeGxMxNGridLayout(PatternRewriter &b, Location loc, Value bid,
                                     GridLayoutInfo info);
 
