@@ -13,6 +13,7 @@
 #ifndef MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
 #define MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
 
+#include "mlir-c/Dialect/RockEnums.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -73,6 +74,11 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
                                      SmallVectorImpl<char> &out);
 
+bool isSplitKRequested(ModuleOp mod, StringRef perfConfig);
+
+RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
+                                                int64_t nDim, int64_t kDim,
+                                                int64_t numCUs);
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H

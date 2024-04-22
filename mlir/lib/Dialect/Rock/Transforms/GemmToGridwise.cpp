@@ -132,7 +132,6 @@ LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
-
   if (!adaptor.getA().getType().isa<MemRefType>())
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
@@ -177,10 +176,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();
   if (splitKFactor > 1) {
-    const auto isAllowedTypeA =
-        elemTypeA == rw.getF32Type() || elemTypeA == rw.getF16Type();
-    const auto isAllowedTypeB =
-        elemTypeB == rw.getF32Type() || elemTypeB == rw.getF16Type();
     const auto isAllowedTypeC =
         elemTypeC == rw.getF32Type() || elemTypeC == rw.getF16Type();
 
@@ -189,7 +184,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
           "Split-K `GemmOp` requires support of `atomic_add` hardware feature");
     }
 
-    if (!(isAllowedTypeA && isAllowedTypeB && isAllowedTypeC)) {
+    if (!isAllowedTypeC) {
       return op.emitError(
           "Split-K `GemmOp` currently supports only f32/f16 element types");
     }

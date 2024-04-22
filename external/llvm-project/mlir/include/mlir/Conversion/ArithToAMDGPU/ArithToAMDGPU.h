@@ -10,6 +10,7 @@
 #define MLIR_CONVERSION_ARITHTOAMDGPU_ARITHTOAMDGPU_H
 
 #include <memory>
+#include <string>
 
 namespace mlir {
 
@@ -21,7 +22,9 @@ class Pass;
 
 namespace arith {
 void populateArithToAMDGPUConversionPatterns(RewritePatternSet &patterns,
-                                             bool saturateFP8Truncf);
+                                             bool convertFP8Arithmetic,
+                                             bool saturateFP8Truncf,
+                                             bool allowPackedF16Rtz);
 } // namespace arith
 } // namespace mlir
 

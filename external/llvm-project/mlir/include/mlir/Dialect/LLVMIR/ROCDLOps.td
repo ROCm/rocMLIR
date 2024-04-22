@@ -317,11 +317,38 @@ def ROCDL_RawPtrBufferAtomicFaddOp : ROCDL_RawPtrBufferAtomicNoRet<"fadd">;
 // DPP Move intrinsic
 def ROCDL_DPPMovOp : ROCDL_IntrOp<"mov.dpp", [], [0],
     [AllTypesMatch<["res", "src"]>], 1>,
-  Arguments<(ins LLVM_Type:$src, I32:$dppCtrl, I32:$rowMask,
-      I32:$bankMask, I1:$boundCtrl)> {
+  Arguments<(ins LLVM_Type:$src, I32Attr:$dppCtrl, I32Attr:$rowMask,
+      I32Attr:$bankMask, I1Attr:$boundCtrl)> {
   let results = (outs LLVM_Type:$res);
   let assemblyFormat = [{
     attr-dict $src `with` $dppCtrl `,` $rowMask `,` $bankMask `,` $boundCtrl `:` type($src)
+  }];
+  string llvmBuilder = [{
+      auto vdataType = moduleTranslation.convertType(op.getSrc().getType());
+      llvm::Value *args[] = {
+        moduleTranslation.lookupValue(op.getSrc()),
+          builder.getInt32(op.getDppCtrl()),  
+          builder.getInt32(op.getRowMask()),  
+          builder.getInt32(op.getBankMask()),  
+          builder.getInt1(op.getBoundCtrl())
+      }; 
+      $res = createIntrinsicCall(builder,
+        llvm::Intrinsic::amdgcn_mov_dpp, args, {vdataType});
+  }];
+}
+
+//===---------------------------------------------------------------------===//
+// 16-bit float intrinsics
+//===---------------------------------------------------------------------===//
+def ROCDL_CvtPkRtz:
+    ROCDL_IntrOp<"cvt.pkrtz", [], [], [Pure], 1>,
+    Arguments<(ins F32:$srcA, F32:$srcB)> {
+  let summary = "Convert two f32 input into a vector<2xf16>";
+  let description = [{
+    Convert two f32 values into a packed vector<2xf16>.
+  }];
+  let assemblyFormat = [{
+    attr-dict $srcA `,` $srcB `:` type($res)
   }];
 }
 

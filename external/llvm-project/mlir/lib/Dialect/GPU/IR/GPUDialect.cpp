@@ -1776,17 +1776,6 @@ void AllocOp::getCanonicalizationPatterns(RewritePatternSet &results,
   results.add<SimplifyDimOfAllocOp>(context);
 }
 
-LogicalResult WarpSwizzleOp::verify() {
-  for (auto &&v : this->getSelector()) {
-    int32_t val = v.cast<::mlir::IntegerAttr>().getValue().getZExtValue();
-    if (val < 0 || val > 3) {
-      return this->emitOpError("value outside of range in selector");
-    }
-  }
-
-  return success();
-}
-
 #include "mlir/Dialect/GPU/IR/GPUOpInterfaces.cpp.inc"
 #include "mlir/Dialect/GPU/IR/GPUOpsEnums.cpp.inc"
 

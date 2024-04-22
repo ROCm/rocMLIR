@@ -4,6 +4,7 @@ add_rocmlir_dialect_library(MLIRRockUtility
   builderUtils.cpp
   loweringUtils.cpp
   transformMapUtils.cpp
+  fusionUtils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
@@ -16,4 +17,6 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRIR
   MLIRMemRefDialect
   MLIRSupport
+  MLIRRockAnalysis
+  MLIRMHAL
 )

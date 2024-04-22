@@ -196,6 +196,7 @@ MLIRMIGraphXDialect
 MLIRMIGraphXPipeline
 MLIRMIGraphXToTosa
 MLIRMIGraphXTransforms
+MLIRRockAnalysis
 MLIRRockConv2dGenerator
 MLIRRockOps
 MLIRRockPipeline
