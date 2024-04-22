@@ -154,7 +154,7 @@ void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
     int32_t inputIdx = 0;
     size_t argIdx = -1;
     if (lgop.getInputs().size() == 1) {
-      lgop->setAttr("majorTensorNumber",
+      lgop->setAttr("rock.majorTensorNumber",
                     IntegerAttr::get(IndexType::get(ctx), 1));
       return;
     }
@@ -177,7 +177,7 @@ void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
       inputIdx++;
     }
     if (majorTensorIdx >= 0)
-      lgop->setAttr("majorTensorNumber",
+      lgop->setAttr("rock.majorTensorNumber",
                     IntegerAttr::get(IndexType::get(ctx), majorTensorIdx));
   }
   return;

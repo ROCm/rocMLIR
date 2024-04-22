@@ -15,6 +15,6 @@ func.func @rock_gemm(%arg0: memref<64x64x64xf16>, %arg1: memref<64x64x64xf32>, %
   return
 }
 
-// Annotate linalg.generic with majorTensorNumber
+// Annotate linalg.generic with rock.majorTensorNumber
 // CHECK: linalg.generic
-// CHECK-SAME: {majorTensorNumber = 0
+// CHECK-SAME: {rock.majorTensorNumber = 0
