@@ -112,14 +112,17 @@ public:
                             << "  Blocks Per CU:      " << blocksPerCU << "\n");
 
     // All blocks resident
-    int64_t numCUsRequired = (gridSize / blocksPerCU);
-    bool allBlocksResident = arch.minNumCU >= numCUsRequired;
+    if (blocksPerCU != 0) {
+      int64_t numCUsRequired = (gridSize / blocksPerCU);
+      bool allBlocksResident = arch.minNumCU >= numCUsRequired;
 
-    // Add attribute to kernel func
-    auto intTy = IntegerType::get(func->getContext(), 32);
-    func->setAttr("rock.blocks_per_cu", IntegerAttr::get(intTy, blocksPerCU));
+      // Add attribute to kernel func
+      auto intTy = IntegerType::get(func->getContext(), 32);
+      func->setAttr("rock.blocks_per_cu", IntegerAttr::get(intTy, blocksPerCU));
 
-    if (hasGlobalSync && !allBlocksResident)
+      if (hasGlobalSync && !allBlocksResident)
+	return removeBinary();
+    } else
       return removeBinary();
     return success();
   }
