@@ -11,7 +11,7 @@
 // UNSUPPORTED: c++03, c++11, c++14, c++17
 // UNSUPPORTED: no-filesystem, no-localization, no-tzdb
 
-// XFAIL: libcpp-has-no-incomplete-tzdb
+// XFAIL: libcpp-has-no-experimental-tzdb
 // XFAIL: availability-tzdb-missing
 
 // <chrono>
@@ -47,7 +47,9 @@ void test() {
   crno::remote_version(); // expected-warning {{ignoring return value of function declared with 'nodiscard' attribute}}
 
   {
+    std::chrono::sys_seconds s{};
     tz.name();           // expected-warning {{ignoring return value of function declared with 'nodiscard' attribute}}
+    tz.get_info(s);      // expected-warning {{ignoring return value of function declared with 'nodiscard' attribute}}
     operator==(tz, tz);  // expected-warning {{ignoring return value of function declared with 'nodiscard' attribute}}
     operator<=>(tz, tz); // expected-warning {{ignoring return value of function declared with 'nodiscard' attribute}}
   }

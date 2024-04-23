@@ -652,6 +652,13 @@ PassBuilder::buildFunctionSimplificationPipeline(OptimizationLevel Level,
   LPM2.addPass(LoopIdiomRecognizePass());
   LPM2.addPass(IndVarSimplifyPass());
 
+  {
+    ExtraSimpleLoopUnswitchPassManager ExtraPasses;
+    ExtraPasses.addPass(SimpleLoopUnswitchPass(/* NonTrivial */ Level ==
+                                               OptimizationLevel::O3));
+    LPM2.addPass(std::move(ExtraPasses));
+  }
+
   invokeLateLoopOptimizationsEPCallbacks(LPM2, Level);
 
   LPM2.addPass(LoopDeletionPass());
@@ -1163,7 +1170,7 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   if (EnableSyntheticCounts && !PGOOpt)
     MPM.addPass(SyntheticCountsPropagation());
 
-  if (EnablePGOForceFunctionAttrs)
+  if (EnablePGOForceFunctionAttrs && PGOOpt)
     MPM.addPass(PGOForceFunctionAttrsPass(PGOOpt->ColdOptType));
 
   if (EnableModuleInliner)

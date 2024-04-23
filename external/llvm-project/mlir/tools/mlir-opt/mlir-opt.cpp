@@ -130,6 +130,7 @@ void registerTestOneToNTypeConversionPass();
 void registerTestOpaqueLoc();
 void registerTestPadFusion();
 void registerTestRecursiveTypesPass();
+void registerTestSCFUpliftWhileToFor();
 void registerTestSCFUtilsPass();
 void registerTestSCFWhileOpBuilderPass();
 void registerTestSCFWrapInZeroTripCheckPasses();
@@ -259,6 +260,7 @@ void registerTestPasses() {
   mlir::test::registerTestOpaqueLoc();
   mlir::test::registerTestPadFusion();
   mlir::test::registerTestRecursiveTypesPass();
+  mlir::test::registerTestSCFUpliftWhileToFor();
   mlir::test::registerTestSCFUtilsPass();
   mlir::test::registerTestSCFWhileOpBuilderPass();
   mlir::test::registerTestSCFWrapInZeroTripCheckPasses();

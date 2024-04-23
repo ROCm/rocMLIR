@@ -571,7 +571,7 @@ static bool hasNestedSPMDDirective(ASTContext &Ctx,
       }
       return false;
     case OMPD_target_teams:
-      return isOpenMPParallelDirective(DKind);
+      return isOpenMPParallelDirective(DKind) || (DKind == OMPD_loop);
     case OMPD_target_simd:
     case OMPD_target_parallel:
     case OMPD_target_parallel_for:
@@ -666,7 +666,9 @@ static bool supportsSPMDExecutionMode(CodeGenModule &CGM,
   case OMPD_target_teams_loop:
     // Whether this is true or not depends on how the directive will
     // eventually be emitted.
-    return CGM.TeamsLoopCanBeParallelFor(D);
+    if (auto *TTLD = dyn_cast<OMPTargetTeamsGenericLoopDirective>(&D))
+      return TTLD->canBeParallelFor();
+    return false;
   case OMPD_parallel:
   case OMPD_for:
   case OMPD_parallel_for:
@@ -3690,7 +3692,7 @@ void CGOpenMPRuntimeGPU::processRequiresDirective(
       case CudaArch::SM_20:
       case CudaArch::SM_21:
       case CudaArch::SM_30:
-      case CudaArch::SM_32:
+      case CudaArch::SM_32_:
       case CudaArch::SM_35:
       case CudaArch::SM_37:
       case CudaArch::SM_50:
