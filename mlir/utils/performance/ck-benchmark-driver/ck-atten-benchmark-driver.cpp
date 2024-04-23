@@ -93,22 +93,18 @@ struct Data {
     const auto oElems = getSize(oLengths);
     const auto biasElems = getSize(biasLengths);
 
-    const auto qBytes =
-        benchmark::getByteSize(options.elementType, qElems, false);
-    const auto kBytes =
-        benchmark::getByteSize(options.elementType, kElems, false);
-    const auto vBytes =
-        benchmark::getByteSize(options.elementType, vElems, false);
-    const auto oBytes =
-        benchmark::getByteSize(options.elementType, oElems, true);
+    const auto qBytes = benchmark::getByteSize(options.elementType, qElems);
+    const auto kBytes = benchmark::getByteSize(options.elementType, kElems);
+    const auto vBytes = benchmark::getByteSize(options.elementType, vElems);
+    const auto oBytes = benchmark::getByteSize(options.elementType, oElems);
     const auto biasBytes =
-        benchmark::getByteSize(options.elementType, biasElems, false);
+        benchmark::getByteSize(options.elementType, biasElems);
 
-    qHost = benchmark::allocAndFill(options.elementType, qBytes, false);
-    kHost = benchmark::allocAndFill(options.elementType, kBytes, false);
-    vHost = benchmark::allocAndFill(options.elementType, vBytes, false);
-    oHost = benchmark::allocAndFill(options.elementType, oBytes, true);
-    biasHost = benchmark::allocAndFill(options.elementType, biasBytes, false);
+    qHost = benchmark::allocAndFill(options.elementType, qBytes);
+    kHost = benchmark::allocAndFill(options.elementType, kBytes);
+    vHost = benchmark::allocAndFill(options.elementType, vBytes);
+    oHost = benchmark::allocAndFill(options.elementType, oBytes);
+    biasHost = benchmark::allocAndFill(options.elementType, biasBytes);
 
     qDevice = benchmark::getGpuBuffer(qHost, qBytes);
     kDevice = benchmark::getGpuBuffer(kHost, kBytes);

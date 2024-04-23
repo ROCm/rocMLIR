@@ -9,9 +9,9 @@ if (composable_kernel_FOUND)
   target_link_libraries(ck-common INTERFACE ${LIBS})
   target_compile_options(ck-common INTERFACE "-std=c++17")
 
-  add_executable(ck-benchmark-driver EXCLUDE_FROM_ALL ck-benchmark-driver.cpp)
-  target_link_libraries(ck-benchmark-driver PRIVATE ck-common)
-  set_target_properties(ck-benchmark-driver
+  add_executable(ck-gemm-benchmark-driver EXCLUDE_FROM_ALL ck-gemm-benchmark-driver.cpp)
+  target_link_libraries(ck-gemm-benchmark-driver PRIVATE ck-common)
+  set_target_properties(ck-gemm-benchmark-driver
     PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   )
@@ -32,6 +32,8 @@ if (composable_kernel_FOUND)
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   )
 
+  add_custom_target(ck-benchmark-driver)
+  add_dependencies(ck-benchmark-driver ck-gemm-benchmark-driver ck-atten-benchmark-driver)
 else()
   message(FATAL_ERROR "Could not find composable-kernels, not building a CK benchmark driver")
 endif()
