@@ -14,7 +14,7 @@
 
 #include <version>
 // Enable the contents of the header only when libc++ was built with experimental features enabled.
-#if !defined(_LIBCPP_HAS_NO_INCOMPLETE_TZDB)
+#if !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
 
 #  include <__chrono/duration.h>
 #  include <__chrono/system_clock.h>
@@ -22,6 +22,7 @@
 #  include <__compare/ordering.h>
 #  include <__compare/three_way_comparable.h>
 #  include <__config>
+#  include <__utility/private_constructor_tag.h>
 
 #  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #    pragma GCC system_header
@@ -35,9 +36,8 @@ namespace chrono {
 
 class leap_second {
 public:
-  struct __constructor_tag;
   [[nodiscard]]
-  _LIBCPP_HIDE_FROM_ABI explicit constexpr leap_second(__constructor_tag&&, sys_seconds __date, seconds __value)
+  _LIBCPP_HIDE_FROM_ABI explicit constexpr leap_second(__private_constructor_tag, sys_seconds __date, seconds __value)
       : __date_(__date), __value_(__value) {}
 
   _LIBCPP_HIDE_FROM_ABI leap_second(const leap_second&)            = default;
@@ -121,6 +121,6 @@ _LIBCPP_HIDE_FROM_ABI constexpr auto operator<=>(const leap_second& __x, const s
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // !defined(_LIBCPP_HAS_NO_INCOMPLETE_TZDB)
+#endif // !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
 
 #endif // _LIBCPP___CHRONO_LEAP_SECOND_H
