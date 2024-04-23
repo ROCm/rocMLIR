@@ -121,7 +121,7 @@ public:
       func->setAttr("rock.blocks_per_cu", IntegerAttr::get(intTy, blocksPerCU));
 
       if (hasGlobalSync && !allBlocksResident)
-	return removeBinary();
+        return removeBinary();
     } else
       return removeBinary();
     return success();
