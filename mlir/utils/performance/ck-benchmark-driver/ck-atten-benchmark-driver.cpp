@@ -8,11 +8,9 @@
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 #include "ck/utility/data_type.hpp"
 #include <algorithm>
-#include <cstddef>
 #include <iostream>
 #include <limits>
 #include <numeric>
-#include <ostream>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -23,12 +21,13 @@ struct Options {
   ck::index_t headDimsQK{64};
   ck::index_t headDimsV{64};
   ck::index_t groupSize{1};
-  bool hasAttnBias{false};
+  bool withAttnScale{false};
+  bool withAttnBias{false};
   bool transposeQ{false};
   bool transposeK{false};
   bool transposeV{false};
   bool transposeO{false};
-  bool onlyMatmulFlops{true};
+  bool onlyMatmulFlops{false};
   bool verbose{false};
   benchmark::DataType elementType{benchmark::DataType::F16};
 };
@@ -174,7 +173,9 @@ std::ostream &operator<<(std::ostream &os, Data &data) {
   return os;
 }
 
-double getGemmsFlopCount(const Options &options) {
+// Note, this implementation is in sync with the one from
+// `perfRunner.py` (see `computeTFlops`)
+double computeBaseFlopCount(const Options &options) {
   const auto g{static_cast<double>(options.groupSize)};
   const auto SQ{static_cast<double>(options.sequenceLengthQ)};
   const auto SK{static_cast<double>(options.sequenceLengthK)};
@@ -182,7 +183,7 @@ double getGemmsFlopCount(const Options &options) {
   const auto HV{static_cast<double>(options.headDimsV)};
 
   const auto gemm1 = 2.0 * SQ * HQK * SK;
-  const auto scale = SQ * SK;
+  const auto scale = options.withAttnScale ? SQ * SK : 0.0;
   const auto gemm2 = 2.0 * SQ * SK * HV;
   const auto softmax = 5.0 * SQ * SK;
 
@@ -208,6 +209,7 @@ struct AttentionWithoutBias {
   using B1DataType = DataElementType;
   using CDataType = DataElementType;
 
+  // Note, the CK always expects some scaling factor
   using Acc0ElementOp = ck::tensor_operation::element_wise::Scale;
 
   // clang-format off
@@ -234,6 +236,10 @@ struct AttentionWithoutBias {
   using Dptr = std::unique_ptr<DeviceOp>;
 
   static auto makeArgs(const Dptr &opPtr, Data &data, const Options &options) {
+    Acc0ElementOp scale{1};
+    if (options.withAttnScale)
+      scale = Acc0ElementOp{1 / sqrtf(options.sequenceLengthK)};
+
     // clang-format off
     auto argumentPtr = opPtr->MakeArgumentPointer(
         data.qDevice,
@@ -256,7 +262,7 @@ struct AttentionWithoutBias {
         {},
         AElementOp{},
         B0ElementOp{},
-        Acc0ElementOp{1 / sqrtf(options.sequenceLengthK)},
+        scale,
         B1ElementOp{},
         CElementOp{});
     // clang-format on
@@ -268,8 +274,8 @@ struct AttentionWithoutBias {
         DeviceOperationInstanceFactory<DeviceOp>::GetInstances();
   }
 
-  static double getFlopCount(const Options &options) {
-    return getGemmsFlopCount(options);
+  static double computeFlopCount(const Options &options) {
+    return computeBaseFlopCount(options);
   }
 };
 
@@ -281,6 +287,7 @@ struct AttentionWithBias {
   using D0DataType = DataElementType;
   using CDataType = DataElementType;
 
+  // Note, the CK always expects some scaling factor
   using Acc0ElementOp = ck::tensor_operation::element_wise::ScaleAdd;
 
   // clang-format off
@@ -307,6 +314,10 @@ struct AttentionWithBias {
   using Dptr = std::unique_ptr<DeviceOp>;
 
   static auto makeArgs(const Dptr &opPtr, Data &data, const Options &options) {
+    Acc0ElementOp scale{1};
+    if (options.withAttnScale)
+      scale = Acc0ElementOp{1 / sqrtf(options.sequenceLengthK)};
+
     // clang-format off
     auto argumentPtr = opPtr->MakeArgumentPointer(
         data.qDevice,
@@ -329,7 +340,7 @@ struct AttentionWithBias {
         {},
         AElementOp{},
         B0ElementOp{},
-        Acc0ElementOp{1 / sqrtf(options.sequenceLengthK)},
+        scale,
         B1ElementOp{},
         CElementOp{});
     // clang-format on
@@ -341,13 +352,13 @@ struct AttentionWithBias {
         DeviceOperationInstanceFactory<DeviceOp>::GetInstances();
   }
 
-  static double getFlopCount(const Options &options) {
+  static double computeFlopCount(const Options &options) {
     const auto g{static_cast<double>(options.groupSize)};
     const auto SQ{static_cast<double>(options.sequenceLengthQ)};
     const auto SK{static_cast<double>(options.sequenceLengthK)};
     const auto biasAddFlopCount = g * SQ * SK;
 
-    const auto flopCount = getGemmsFlopCount(options);
+    const auto flopCount = computeBaseFlopCount(options);
     return flopCount + biasAddFlopCount;
   }
 };
@@ -402,7 +413,7 @@ void runBenchmark(const Options &options) {
   }
 
   if (bestKernelId >= 0) {
-    const auto flop = Operation::getFlopCount(options);
+    const auto flop = Operation::computeFlopCount(options);
     const float tflops = static_cast<float>(flop) / 1.E9 / minTime;
 
     std::cout << "Best kernel report:"
@@ -442,7 +453,7 @@ struct Selector {
 
   template <typename Type>
   void selectOperation(Options &options) {
-    if (options.hasAttnBias) {
+    if (options.withAttnBias) {
       runBenchmark<AttentionWithBias<Type>>(options);
     } else {
       runBenchmark<AttentionWithoutBias<Type>>(options);
@@ -452,7 +463,7 @@ struct Selector {
 
 int main(int argc, char *argv[]) {
   Options options{};
-  CLI::App app{"elementwise example with multi-dim block/grid"};
+  CLI::App app{"CK flash attention benchmark"};
 
   app.add_option("--seq_len_q", options.sequenceLengthQ,
                  "sequence length of Q in attention");
@@ -462,13 +473,13 @@ int main(int argc, char *argv[]) {
                  "head dimension of Q,K in attention");
   app.add_option("--head_dim_v", options.headDimsV,
                  "head dimension of V in attention");
-  app.add_option("--group_dim", options.groupSize,
-                 "group dimension of attention");
-  app.add_flag("--with-bias", options.hasAttnBias, "has bias term");
-  app.add_flag("--trans-q", options.transposeQ, "transpose Q");
-  app.add_flag("--trans-k", options.transposeK, "transpose K");
-  app.add_flag("--trans-v", options.transposeV, "transpose V");
-  app.add_flag("--trans-o", options.transposeO, "transpose O");
+  app.add_option("-g", options.groupSize, "group dimension of attention");
+  app.add_flag("--with-attn-scale", options.withAttnScale, "use scaling");
+  app.add_flag("--with-attn-bias", options.withAttnBias, "use the bias term");
+  app.add_flag("--transQ", options.transposeQ, "transpose Q");
+  app.add_flag("--transK", options.transposeK, "transpose K");
+  app.add_flag("--transV", options.transposeV, "transpose V");
+  app.add_flag("--transO", options.transposeO, "transpose O");
   app.add_flag("--only-matmul-flops", options.onlyMatmulFlops,
                "ignore softmax flops");
 
@@ -476,7 +487,7 @@ int main(int argc, char *argv[]) {
       {"f32", benchmark::DataType::F32},
       {"f16", benchmark::DataType::F16},
       {"i8", benchmark::DataType::I8}};
-  app.add_option("--type", options.elementType, "data type")
+  app.add_option("-t", options.elementType, "data type")
       ->transform(CLI::CheckedTransformer(map, CLI::ignore_case));
 
   app.add_flag("-v", options.verbose, "verbose");

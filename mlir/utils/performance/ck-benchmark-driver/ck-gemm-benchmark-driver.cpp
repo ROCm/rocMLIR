@@ -273,7 +273,8 @@ void runDataType(GemmMemoryParameters params,
 }
 
 int main(int argc, char **argv) {
-  auto args = benchmark::parseCommandLine("ck-gemm-benchmark-driver", argc, argv);
+  auto args =
+      benchmark::parseCommandLine("ck-gemm-benchmark-driver", argc, argv);
   if (args.verbose) {
     std::cout << "Problem Config:\n";
     benchmark::printProblem(args);
