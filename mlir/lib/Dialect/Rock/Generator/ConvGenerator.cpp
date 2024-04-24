@@ -158,7 +158,7 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     }
   }
 
-  auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
+  auto checkDimSizes = [](const ArrayRef<int64_t> dims) -> bool {
     return all_of(dims, [](const int64_t &a) { return a > 0; });
   };
 
@@ -484,15 +484,20 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   auto isValid = [&argMap]() {
     // only require tensor configs
-    static const std::vector<std::string> validKeys = {
+    static std::vector<std::string> validKeys = {
         "batchsize",   "groupsize",    "in_layout", "in_type",
         "in_channels", "in_h",         "in_w",      "out_layout",
         "out_type",    "out_channels", "out_h",     "out_w",
         "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
-    if (!std::all_of(validKeys.cbegin(), validKeys.cend(),
-                     [&argMap](const std::string &key) {
-                       return argMap.count(key) > 0;
-                     })) {
+    if (argMap["in_layout"].length() > 5) { // Ie, 3-D.
+      validKeys.push_back("in_d");
+      validKeys.push_back("out_d");
+      validKeys.push_back("fil_d");
+    }
+    auto isPresent = [&argMap](const std::string &key) {
+      return argMap.count(key) > 0;
+    };
+    if (!llvm::all_of(validKeys, isPresent)) {
       return false;
     }
     return (argMap["fil_layout"].length() == argMap["in_layout"].length()) &&
@@ -696,10 +701,13 @@ LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   // Determine dimensions.
   for (size_t i = 0; i < layoutLen; ++i) {
     if (!convertLayout(config.filterLayout[i], filterMap,
-                       config.filterDimension))
+                       config.filterDimension)) {
       return failure();
-    if (!convertLayout(config.inputLayout[i], inputMap, config.inputDimension))
+    }
+    if (!convertLayout(config.inputLayout[i], inputMap,
+                       config.inputDimension)) {
       return failure();
+    }
     if (!convertLayout(config.outputLayout[i], outputMap,
                        config.outputDimension)) {
       return failure();
