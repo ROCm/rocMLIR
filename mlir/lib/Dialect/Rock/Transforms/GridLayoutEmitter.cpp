@@ -36,14 +36,22 @@ using namespace mlir::rock;
 using namespace mlir::arith;
 using namespace mlir::rock::layout;
 
-std::tuple<int64_t, int64_t> getSqaureLikeRectangularDims(int64_t area, int64_t maxh, int64_t maxw){
-    int64_t minWidth = std::ceil(area / maxh);
-    int64_t width = std::min((int64_t)std::ceil(std::sqrt(area)), maxw);
-    width = std::max(minWidth, width);
-    while(area % width == 0 && width > minWidth){
+static std::tuple<int64_t, int64_t> getSqaureLikeRectangularDims(int64_t area, int64_t maxh, int64_t maxw){
+    // int64_t minWidth = math_util::integer_divide_ceil(area, maxh);
+    // int64_t width = std::min((int64_t)std::ceil(std::sqrt(area)), maxw);
+    // width = std::max(minWidth, width);
+    int64_t width = (int64_t)std::ceil(std::sqrt(area));
+    while(area % width != 0){
       width--; 
     }
+    // llvm::errs() << "minWidth=" << minWidth << "\n";
+    // llvm::errs() << "maxh=" << maxh << "\n";
+    // llvm::errs() << "maxw=" << maxw << "\n";
+    assert(area % width == 0);
     int64_t height = area / width;
+    // height = std::min(maxh, height);
+    // llvm::errs() << "width=" << width << "\n";
+    // llvm::errs() << "height=" << height << "\n";
     return {width, height};
 }
 
@@ -63,23 +71,25 @@ std::tuple<Value, Value> getGroupedMNIdx(PatternRewriter &b,
   Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
 
   // Calculate current super-group dims for M
+  assert(nBlocks % nBlocksPerGroup == 0);
   int64_t groupsPerN = math_util::integer_divide_ceil(nBlocks, nBlocksPerGroup);
   Value groupsPerNVal = b.createOrFold<ConstantIndexOp>(loc, groupsPerN);
   Value groupIdxM = b.create<DivUIOp>(loc, groupId, groupsPerNVal);
   Value mGroupFirstIdx =  b.create<MulIOp>(loc, groupIdxM, mBlocksPerGroupVal);
-  Value maybeLastGroupSizeM = b.create<SubIOp>(loc, mBlocksValue, mGroupFirstIdx);
-  Value groupDimM = b.create<MinUIOp>(loc, maybeLastGroupSizeM, mBlocksPerGroupVal);
+//   Value maybeLastGroupSizeM = b.create<SubIOp>(loc, mBlocksValue, mGroupFirstIdx);
+//   Value groupDimM = b.create<MinUIOp>(loc, maybeLastGroupSizeM, mBlocksPerGroupVal);
   
   // Calculate current super-group dims for N
+  assert(mBlocks % mBlocksPerGroup == 0);
   Value groupIdxN = b.create<RemUIOp>(loc, groupId, groupsPerNVal);
   Value nGroupFirstIdx =  b.create<MulIOp>(loc, groupIdxN, nBlocksPerGroupVal);
-  Value maybeLastGroupSizeN = b.create<SubIOp>(loc, nBlocksValue, nGroupFirstIdx);
-  Value groupDimN = b.create<MinUIOp>(loc, maybeLastGroupSizeN, nBlocksPerGroupVal);
+//   Value maybeLastGroupSizeN = b.create<SubIOp>(loc, nBlocksValue, nGroupFirstIdx);
+//   Value groupDimN = b.create<MinUIOp>(loc, maybeLastGroupSizeN, nBlocksPerGroupVal);
 
   // Calculate final m_block and n_block
   Value intraGroupBlockId = b.create<RemUIOp>(loc, bid, blocksPerGroup);
-  Value mBlock = b.create<AddIOp>(loc, mGroupFirstIdx, b.create<DivUIOp>(loc, intraGroupBlockId, groupDimN));
-  Value nBlock = b.create<AddIOp>(loc, nGroupFirstIdx, b.create<RemUIOp>(loc, intraGroupBlockId, groupDimN));
+  Value mBlock = b.create<AddIOp>(loc, mGroupFirstIdx, b.create<DivUIOp>(loc, intraGroupBlockId, nBlocksPerGroupVal));
+  Value nBlock = b.create<AddIOp>(loc, nGroupFirstIdx, b.create<RemUIOp>(loc, intraGroupBlockId, nBlocksPerGroupVal));
   return {mBlock, nBlock};
 }
 
@@ -125,6 +135,9 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCMiddle(PatternRewriter &b,
 
   // Re-order workgroup-id to make chiplets slowest moving dimension
   int64_t gridSize = info.gBlocks * info.mBlocks * info.nBlocks;
+  llvm::errs() << "gridSize=" << gridSize << "\n";
+  llvm::errs() << "info.mBlocks=" << info.mBlocks << "\n";
+  llvm::errs() << "info.nBlocks=" << info.nBlocks << "\n";
   if(gridSize >= info.numCU){
     Value gridSizeVal =
         b.createOrFold<ConstantIndexOp>(loc, gridSize);

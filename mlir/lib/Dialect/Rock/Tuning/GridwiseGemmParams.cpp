@@ -84,6 +84,25 @@ PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
   return info;
 }
 
+static std::tuple<int64_t, int64_t> getSqaureLikeRectangularDims(int64_t area, int64_t maxh, int64_t maxw){
+    // int64_t minWidth = math_util::integer_divide_ceil(area, maxh);
+    // int64_t width = std::min((int64_t)std::ceil(std::sqrt(area)), maxw);
+    // width = std::max(minWidth, width);
+    int64_t width = (int64_t)std::ceil(std::sqrt(area));
+    while(area % width != 0){
+      width--; 
+    }
+    // llvm::errs() << "minWidth=" << minWidth << "\n";
+    // llvm::errs() << "maxh=" << maxh << "\n";
+    // llvm::errs() << "maxw=" << maxw << "\n";
+    assert(area % width == 0);
+    int64_t height = area / width;
+    // height = std::min(maxh, height);
+    // llvm::errs() << "width=" << width << "\n";
+    // llvm::errs() << "height=" << height << "\n";
+    return {width, height};
+}
+
 std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
                                                      int64_t mPerBlock,
                                                      int64_t nPerBlock,
@@ -93,6 +112,37 @@ std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
                    math_util::mod_1_to_n(gemmSize.k, kPerBlock * kPack);
   int64_t mExtra = mPerBlock - math_util::mod_1_to_n(gemmSize.m, mPerBlock);
   int64_t nExtra = nPerBlock - math_util::mod_1_to_n(gemmSize.n, nPerBlock);
+
+  int64_t mNew = gemmSize.m + mExtra;
+  int64_t nNew = gemmSize.n + nExtra;
+
+  int64_t groupSize = 304;
+  int64_t mblocks = mNew / mPerBlock;
+  int64_t nblocks = nNew / nPerBlock;
+  auto [nblocksPerGroup, mblocksPerGroup] = getSqaureLikeRectangularDims(
+    groupSize, 
+    mblocks, 
+    nblocks 
+  );
+  llvm::errs() << "mblocks=" << mblocks << "\n";
+  llvm::errs() << "nblocks=" << nblocks << "\n";
+  llvm::errs() << "mblocksPerGroup=" << mblocksPerGroup << "\n";
+  llvm::errs() << "nblocksPerGroup=" << nblocksPerGroup << "\n";
+  mblocks += mblocksPerGroup - math_util::mod_1_to_n(mblocks, mblocksPerGroup);
+  nblocks += nblocksPerGroup - math_util::mod_1_to_n(nblocks, nblocksPerGroup);
+
+  llvm::errs() << "mblocks=" << mblocks << "\n";
+  llvm::errs() << "nblocks=" << nblocks << "\n";
+
+  mNew = mblocks * mPerBlock;
+  nNew = nblocks * nPerBlock;
+
+  mExtra = mNew - gemmSize.m;
+  nExtra = nNew - gemmSize.n;
+
+  assert(mNew >= gemmSize.m);
+  assert(nNew >= gemmSize.n);
+
   if (mExtra == 0 && kExtra == 0 && nExtra == 0)
     return std::nullopt;
   return GemmSize(0, mExtra, kExtra, nExtra);

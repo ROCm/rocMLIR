@@ -475,7 +475,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     // Compute grid coordinates
-    auto gridCoords = layout::makeGroupedGridLayoutXCCSlowest(
+    auto gridCoords = layout::makeGroupedGridLayoutXCCMiddle(
         b, loc, bid, {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
