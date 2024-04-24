@@ -85,6 +85,7 @@ static void strToTokens(const std::string &arguments,
       argKey = token.substr(pos + 2);
     } else {
       if (!argKey.empty()) {
+        llvm::errs() << "argMap[" << argKey << "] = '" << token << "'\n";
         argMap[argKey] = token;
         argKey.clear();
       }
@@ -158,11 +159,15 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     }
   }
 
-  auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
+  auto checkDimSizes = [](const ArrayRef<int64_t> dims) -> bool {
     return all_of(dims, [](const int64_t &a) { return a > 0; });
   };
 
   if (!checkDimSizes(config.inputDimension)) {
+    llvm::errs() << "----\n";
+    for (auto x : config.inputDimension)
+      llvm::errs() << x << "\n";
+    llvm::errs() << "----\n";
     LLVM_DEBUG(llvm::dbgs()
                << "Input tensor dimensions must be strictly positive\n");
     return failure();
@@ -177,6 +182,7 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     return failure();
   }
 
+  llvm::errs() << "config.inputLayout (m) is " << config.inputLayout << "\n";
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
   auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
@@ -209,6 +215,8 @@ LogicalResult ConvGenerator::hasValidDimension() const {
                   "channels in filter\n");
     return failure();
   }
+
+  llvm::errs() << config.strideDims.size() << "," << config.dilationDims.size() << "," << config.paddingLeftDims.size() << "," << config.paddingRightDims.size() << "\n";
 
   assert(config.strideDims.size() == config.dilationDims.size() &&
          config.strideDims.size() == config.paddingLeftDims.size() &&
@@ -479,6 +487,7 @@ uint32_t ConvGenerator::getNumCU() const {
 
 LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
                                              const char *arguments) {
+  llvm::errs() << "arguments: '" << arguments << "'\n";
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
 
@@ -486,9 +495,10 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     // only require tensor configs
     static const std::vector<std::string> validKeys = {
         "batchsize",   "groupsize",    "in_layout", "in_type",
-        "in_channels", "in_h",         "in_w",      "out_layout",
-        "out_type",    "out_channels", "out_h",     "out_w",
-        "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
+        "in_channels", "in_h",         "in_w",      "in_d",
+        "out_layout",  "out_type",     "out_channels", "out_h",
+        "out_w",       "out_d",        "fil_layout", "fil_type",
+        "fil_w",       "fil_h",        "fil_d"};
     if (!std::all_of(validKeys.cbegin(), validKeys.cend(),
                      [&argMap](const std::string &key) {
                        return argMap.count(key) > 0;
@@ -630,6 +640,7 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   SmallVector<int64_t> filDims{strToLong("fil_h"), strToLong("fil_w")};
   if (argMap.count("fil_d") > 0)
     filDims.push_back(strToLong("fil_d"));
+  llvm::errs() << "one (inDims.size() is " << inDims.size() << ")\n";
   auto status = parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
                               strToLong("in_channels"), inDims,
                               strToLong("out_channels"), outDims, filDims);
@@ -647,6 +658,7 @@ LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                                            int64_t outputChannel,
                                            ArrayRef<int64_t> outputDims,
                                            ArrayRef<int64_t> filterDims) {
+  llvm::errs() << "foo\n";
   config.filterDims.clear();
   for (auto dim : filterDims)
     config.filterDims.push_back(dim);
@@ -664,6 +676,7 @@ LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                                        {"c", inputChannel / groupSize},
                                        {"h", inputDims[0]},
                                        {"w", inputDims[1]}};
+  llvm::errs() << "inputDims.size() is " << inputDims.size() << "\n";
   for (size_t i = 0; i < inputDims.size(); i++)
     inputMap[std::to_string(i)] = inputDims[i];
 
@@ -691,17 +704,26 @@ LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   size_t layoutLen = config.filterLayout.length();
   if (layoutLen != config.inputLayout.length() ||
       layoutLen != config.outputLayout.length()) {
+    llvm::errs() << "fail 1\n";
+    llvm::errs() << config.filterLayout << "\n";
+    llvm::errs() << config.inputLayout << "\n";
+    llvm::errs() << config.outputLayout << "\n";
     return failure();
   }
   // Determine dimensions.
   for (size_t i = 0; i < layoutLen; ++i) {
     if (!convertLayout(config.filterLayout[i], filterMap,
-                       config.filterDimension))
+                       config.filterDimension)) {
+      llvm::errs() << "fail 2\n";
       return failure();
-    if (!convertLayout(config.inputLayout[i], inputMap, config.inputDimension))
+    }
+    if (!convertLayout(config.inputLayout[i], inputMap, config.inputDimension)) {
+      llvm::errs() << "fail 3\n";
       return failure();
+    }
     if (!convertLayout(config.outputLayout[i], outputMap,
                        config.outputDimension)) {
+      llvm::errs() << "fail 4\n";
       return failure();
     }
   }
@@ -743,6 +765,7 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
   SmallVector<int64_t> inDims;
+  llvm::errs() << "config.inputLayout (n) is " << config.inputLayout << "\n";
   for (size_t i = 0; i < config.inputLayout.size() - 3; i++)
     inDims.push_back(inDim[std::to_string(i)]);
   SmallVector<int64_t> filDims;

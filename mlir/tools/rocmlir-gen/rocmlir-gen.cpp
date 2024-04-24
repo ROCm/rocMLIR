@@ -835,13 +835,17 @@ static void correctConvParameters() {
     filterLayout = "gkcyx";
   else if (filterLayoutValue == "kyxc")
     filterLayout = "gkyxc";
-  else if (filterLayoutValue.size() == 4)
+  else if (filterLayoutValue == "kc012")
+    filterLayout = "gkc012";
+  else if (filterLayoutValue.size() == 4) // +++pf: needs generalising.
     filterLayout = "g" + filterLayoutValue;
 
   if (outputLayoutValue == "nkhw")
     outputLayout = "ngkhw";
   else if (outputLayoutValue == "nhwk")
     outputLayout = "nhwgk";
+  else if (outputLayoutValue == "nk012")
+    outputLayout = "ngk012";
   else if (outputLayoutValue.size() == 4)
     outputLayout = "g" + outputLayoutValue;
 
@@ -849,6 +853,8 @@ static void correctConvParameters() {
     inputLayout = "ngchw";
   else if (inputLayoutValue == "nhwc")
     inputLayout = "nhwgc";
+  else if (inputLayoutValue == "nc012")
+    inputLayout = "ngc012";
   else if (inputLayoutValue.size() == 4)
     inputLayout = "g" + inputLayoutValue;
 
@@ -942,6 +948,7 @@ static void correctConvParameters() {
     paddingWidthRight = in_right_pad_w + (wi_minimum - wi_specified);
 
   int di = inputDepth.getValue();
+  llvm::errs() << "di is " << di << "\n";
   int z = filterDepth.getValue();
   int in_left_pad_d = paddingDepthLeft.getValue();
   int in_right_pad_d = paddingDepthRight.getValue();
@@ -966,13 +973,17 @@ static void verifyConvLayout() {
   std::string inputLayoutValue = inputLayout.getValue();
 
   if (filterLayoutValue.find("yx") == std::string::npos &&
-      filterLayoutValue.find("xy") == std::string::npos) {
+      filterLayoutValue.find("xy") == std::string::npos &&
+      filterLayoutValue.find("01") == std::string::npos &&
+      filterLayoutValue.find("10") == std::string::npos) {
     llvm::errs() << "Unsupported filter layout: disjointed yx!\n";
     exit(1);
   }
 
   if (inputLayoutValue.find("hw") == std::string::npos &&
-      inputLayoutValue.find("wh") == std::string::npos) {
+      inputLayoutValue.find("wh") == std::string::npos &&
+      inputLayoutValue.find("01") == std::string::npos &&
+      inputLayoutValue.find("10") == std::string::npos) {
 
     llvm::errs() << "Unsupported input layout: disjointed hw!\n";
     exit(1);
@@ -1071,6 +1082,7 @@ static void populateDefaults() {
   }
   if (isConv && outputDepth.getNumOccurrences() == 0 &&
       inputDepth.getNumOccurrences() > 0) {
+    llvm::errs() << "inputDepth (1) is " << inputDepth.getValue() << "\n";
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
@@ -3727,7 +3739,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuAttentionKernel(module, genParams);
     } else {
-      int nDims = filterLayout.getValue().size() - 3; // +++pf: magic number.
+      llvm::errs() << "filterLayout is " << filterLayout << "\n";
+      int nDims = filterLayout.getValue().size() - 2; // +++pf: magic number.
       SmallVector<int, 4> dilations;
       SmallVector<int, 4> strides;
       SmallVector<int, 4> paddingLeft;
@@ -3748,8 +3761,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       if (nDims > 2) {
         dilations.push_back(dilationDepth.getValue());
         strides.push_back(strideDepth.getValue());
-        //         paddingLeft.push_back(paddingDepthLeft.getValue());
-        //         paddingRight.push_back(paddingDepthRight.getValue());
+        paddingLeft.push_back(paddingDepthLeft.getValue());
+        paddingRight.push_back(paddingDepthRight.getValue());
       }
 
       convGenerator = rock::ConvGenerator(
@@ -3764,8 +3777,10 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           outputLayout.getValue());
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        llvm::errs() << "inputDepth (2) is " << inputDepth.getValue() << "\n";
         inDims.push_back(inputDepth);
+      }
       SmallVector<int64_t> outDims{outputHeight, outputWidth};
       if (nDims > 2)
         outDims.push_back(outputDepth);
@@ -3773,6 +3788,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       if (nDims > 2)
         filDims.push_back(filterDepth);
 
+      llvm::errs() << "two (inDims.size() is " << inDims.size() << ")\n";
       status =
           convGenerator.parseConvDims(batchSize, groupSize, inputChannel,
                                       inDims, outputChannel, outDims, filDims);

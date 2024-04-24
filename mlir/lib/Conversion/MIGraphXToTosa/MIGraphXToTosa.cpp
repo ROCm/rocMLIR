@@ -214,24 +214,52 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   SmallVector<int64_t> NCHW2NHWC{0, 2, 3, 1};
   SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
+  int dims = outputTy.getShape().size() - 2;
+  SmallVector<int64_t> toChannelLast{0};
+  SmallVector<int64_t> fromChannelLast{0, dims+1};
+  for (int i = 0;  i < dims;  i++) {
+    toChannelLast.push_back(i + 2);
+    fromChannelLast.push_back(i + 1);
+  }
+  toChannelLast.push_back(1);
+
   // insert transpose to input and filter tensors
-  input = getTransposeOp(loc, input, rewriter, NCHW2NHWC);
-  filter = getTransposeOp(loc, filter, rewriter, NCHW2NHWC);
+  input = getTransposeOp(loc, input, rewriter, toChannelLast);
+  filter = getTransposeOp(loc, filter, rewriter, fromChannelLast);
   ArrayRef<int64_t> outShape = outputTy.getShape();
 
   // original output shape was NCHW, change it into NHWC
-  SmallVector<int64_t> newShape{outShape[0], outShape[2], outShape[3],
-                                outShape[1]};
+  SmallVector<int64_t> newShape{outShape[0]};
+  for (int i = 0;  i < dims;  i++)
+    newShape.push_back(i + 2);
+  newShape.push_back(1);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
   // Construct a new Conv2DOp.
-  auto cop = rewriter.create<tosa::Conv2DOp>(
+  Operation *cop;
+  switch (dims) {
+  case 2:
+    cop = rewriter.create<tosa::Conv2DOp>(
       loc, newOutTy,
       ValueRange{input, filter,
                  getZeroTensor(
                      loc, outputTy.getElementType(),
                      filter.getType().template cast<ShapedType>().getShape()[0],
                      rewriter)});
+    break;
+  case 3:
+    cop = rewriter.create<tosa::Conv3DOp>(
+      loc, newOutTy,
+      ValueRange{input, filter,
+                 getZeroTensor(
+                     loc, outputTy.getElementType(),
+                     filter.getType().template cast<ShapedType>().getShape()[0],
+                     rewriter)});
+    break;
+  default:
+    llvm_unreachable("Only 2-D and 3-D have been implemented.");
+    break;
+  }
 
   // translate attributes
   auto padAttr = op->getAttr("padding").template cast<ArrayAttr>();
@@ -239,27 +267,26 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto dilationAttr = op->getAttr("dilation").template cast<ArrayAttr>();
   // MIGraphX padAttr is [hlow, wlow, hhigh, whigh] while TOSA padAttr
   // is [hlow, hhigh, wlow, whigh].
-  int64_t padTop = padAttr[2].template dyn_cast<IntegerAttr>().getInt();
-  int64_t padBottom = padAttr[0].template dyn_cast<IntegerAttr>().getInt();
-  int64_t padLeft = padAttr[1].template dyn_cast<IntegerAttr>().getInt();
-  int64_t padRight = padAttr[3].template dyn_cast<IntegerAttr>().getInt();
-  int64_t strideHeight =
-      strideAttr[0].template dyn_cast<IntegerAttr>().getInt();
-  int64_t strideWidth = strideAttr[1].template dyn_cast<IntegerAttr>().getInt();
-  int64_t dilationHeight =
-      dilationAttr[0].template dyn_cast<IntegerAttr>().getInt();
-  int64_t dilationWidth =
-      dilationAttr[1].template dyn_cast<IntegerAttr>().getInt();
+  SmallVector<int64_t> pads;
+  for (int i = 0;  i < dims;  i++) {
+    pads.push_back(padAttr[i].template dyn_cast<IntegerAttr>().getInt());
+    pads.push_back(padAttr[i+dims].template dyn_cast<IntegerAttr>().getInt());
+  }
+
+  SmallVector<int64_t> strides;
+  SmallVector<int64_t> dilations;
+  for (size_t i = 0;  i < strideAttr.size();  i++) {
+    strides.push_back(strideAttr[i].template dyn_cast<IntegerAttr>().getInt());
+    dilations.push_back(dilationAttr[i].template dyn_cast<IntegerAttr>().getInt());
+  }
+
   int64_t group = op.getGroup();
 
   // convolution config attributes
 
-  cop->setAttr("dilation",
-               rewriter.getDenseI64ArrayAttr({dilationHeight, dilationWidth}));
-  cop->setAttr("stride",
-               rewriter.getDenseI64ArrayAttr({strideHeight, strideWidth}));
-  cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(
-                          {padTop, padBottom, padLeft, padRight}));
+  cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
+  cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
+  cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
   cop->setAttr("group", rewriter.getI64IntegerAttr(group));
 
   // Convert optional attributes
@@ -282,7 +309,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   // transpose the output back to NCHW so that it can match following
   // operators.
-  auto top = getTransposeOp(loc, cop, rewriter, NHWC2NCHW);
+  auto top = getTransposeOp(loc, cop->getResult(0), rewriter, fromChannelLast);
   rewriter.replaceOp(op, top);
   return success();
 }
@@ -1091,11 +1118,15 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   // in a standard shape. So, applying it to a logically-shaped tensor gets
   // you the tensor in in-memory layout.
   resultType.getStridePermutation(permutation);
+  llvm::errs() << "in type is " << in.getType() << "\n";
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
     transposed = getTransposeOp(loc, in, rewriter, permutation);
   if (transposed.getType() != resultTensorType) {
+    llvm::errs() << "transposed op:  " << transposed << "\n";
     rewriter.eraseOp(transposed.getDefiningOp());
+    llvm::errs() << "transposed type is " << transposed.getType() << "\n";
+    llvm::errs() << "result type is " << resultTensorType << "\n";
     return op.emitOpError(
         "writing to tensors with long strides or broadcasts is unsupported");
   }
