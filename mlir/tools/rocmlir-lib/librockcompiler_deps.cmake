@@ -77,7 +77,6 @@ MLIRArithUtils
 MLIRAsmParser
 MLIRAsyncDialect
 MLIRAsyncToLLVM
-MLIRAsyncTransforms
 MLIRBufferizationDialect
 MLIRBufferizationTransformOps
 MLIRBufferizationTransforms
@@ -144,7 +143,6 @@ MLIRMemRefTransforms
 MLIRMemRefUtils
 MLIRMemorySlotInterfaces
 MLIRMeshDialect
-MLIRMeshTransforms
 MLIRNVGPUDialect
 MLIRNVGPUToNVVM
 MLIRNVGPUTransformOps
@@ -196,7 +194,6 @@ MLIRTensorTransforms
 MLIRTensorUtils
 MLIRTilingInterface
 MLIRTosaDialect
-MLIRTosaShardingInterfaceImpl
 MLIRTosaToArith
 MLIRTosaToLinalg
 MLIRTosaToSCF
@@ -204,7 +201,6 @@ MLIRTosaToTensor
 MLIRTosaTransforms
 MLIRTransformDebugExtension
 MLIRTransformDialect
-MLIRTransformDialectInterfaces
 MLIRTransformDialectUtils
 MLIRTransformLoopExtension
 MLIRTransformPDLExtension
@@ -217,7 +213,6 @@ MLIRValueBoundsOpInterface
 MLIRVectorDialect
 MLIRVectorInterfaces
 MLIRVectorToLLVM
-MLIRVectorToLLVMPass
 MLIRVectorToSCF
 MLIRVectorTransformOps
 MLIRVectorTransforms
@@ -236,8 +231,6 @@ MLIRGPUToMIGraphX
 MLIRMHAL
 MLIRMHALPipeline
 MLIRMHALSupport
-MLIRMHALToCPU
-MLIRMHALToGPU
 MLIRMHALTransforms
 MLIRMIGraphXDialect
 MLIRMIGraphXPipeline
