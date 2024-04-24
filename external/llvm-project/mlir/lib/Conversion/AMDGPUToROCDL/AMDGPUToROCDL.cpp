@@ -844,6 +844,7 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
     // Convert the source operand to the corresponding LLVM type
     Location loc = DppOp.getLoc();
     Value src = adaptor.getSrc();
+    Value old = adaptor.getOld();
     Type srcType = src.getType();
     auto llvmI32Type = typeConverter->convertType(rewriter.getI32Type());
     auto llvmSrcIntType = typeConverter->convertType(
@@ -851,18 +852,26 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
 
     // If the source type is less or equal to i32 or f32, use bitcast to convert
     // it to i32.
-    if (llvm::isa<FloatType>(srcType)) {
-      src = rewriter.create<LLVM::BitcastOp>(loc, llvmSrcIntType, src);
-    }
+    auto convertOperand = [&](Value operand, Type operandType) {
+      if (llvm::isa<FloatType>(operandType)) {
+        operand =
+            rewriter.create<LLVM::BitcastOp>(loc, llvmSrcIntType, operand);
+      }
 
-    if (srcType.getIntOrFloatBitWidth() < 32) {
-      auto llvmVecType = typeConverter->convertType(mlir::VectorType::get(
-          32 / srcType.getIntOrFloatBitWidth(), llvmSrcIntType));
-      Value undefVec = rewriter.create<LLVM::UndefOp>(loc, llvmVecType);
-      src = rewriter.create<LLVM::InsertElementOp>(
-          loc, undefVec, src, createI32Constant(rewriter, loc, 0));
-      src = rewriter.create<LLVM::BitcastOp>(loc, llvmI32Type, src);
-    }
+      if (operandType.getIntOrFloatBitWidth() < 32) {
+        auto llvmVecType = typeConverter->convertType(mlir::VectorType::get(
+            32 / operandType.getIntOrFloatBitWidth(), llvmSrcIntType));
+        Value undefVec = rewriter.create<LLVM::UndefOp>(loc, llvmVecType);
+        operand = rewriter.create<LLVM::InsertElementOp>(
+            loc, undefVec, operand, createI32Constant(rewriter, loc, 0));
+        operand = rewriter.create<LLVM::BitcastOp>(loc, llvmI32Type, operand);
+      }
+      return operand;
+    };
+
+    src = convertOperand(src, srcType);
+    Type oldType = old ? old.getType() : src.getType();
+    old = convertOperand(old ? old : src, oldType);
 
     // This is taken from the following file llvm/lib/Target/AMDGPU/SIDefines.h
     enum DppCtrl : unsigned {
@@ -949,8 +958,8 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
                          .getValue();
 
     // create a ROCDL_DPPMovOp instruction with the appropriate attributes
-    auto dppMovOp = rewriter.create<ROCDL::DPPMovOp>(
-        loc, llvmI32Type, src, DppCtrl, rowMask, bankMask, boundCtrl);
+    auto dppMovOp = rewriter.create<ROCDL::DPPUpdateOp>(
+        loc, llvmI32Type, old, src, DppCtrl, rowMask, bankMask, boundCtrl);
 
     Value result = dppMovOp.getRes();
     if (srcType.getIntOrFloatBitWidth() < 32) {
