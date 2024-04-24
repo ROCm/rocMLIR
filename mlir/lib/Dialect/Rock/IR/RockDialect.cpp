@@ -502,6 +502,7 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   case ConvOpType::Fwd:
     gemmGSize = sizes.g;
     gemmMSize = sizes.k;
+    // +++pf: should these accumulate sizes across all dimensions?
     gemmKSize = sizes.c * sizes.fil[0] * sizes.fil[1];
     gemmNSize = sizes.n * sizes.out[0] * sizes.out[1];
     break;

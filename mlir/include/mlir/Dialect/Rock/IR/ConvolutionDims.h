@@ -15,8 +15,6 @@
 #ifndef MLIR_DIALECT_ROCK_IR_CONVOLUTIONDIMS_H
 #define MLIR_DIALECT_ROCK_IR_CONVOLUTIONDIMS_H
 
-#include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
 #include <cstdint>
 
