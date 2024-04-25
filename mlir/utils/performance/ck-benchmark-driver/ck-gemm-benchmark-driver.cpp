@@ -1,4 +1,4 @@
-//===---------- ck-benchmark-driver.cpp - CK benchmark driver ------------===//
+//===---------- ck-gemm-benchmark-driver.cpp - CK benchmark driver -------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -273,7 +273,8 @@ void runDataType(GemmMemoryParameters params,
 }
 
 int main(int argc, char **argv) {
-  auto args = benchmark::parseCommandLine("ck-benchmark-driver", argc, argv);
+  auto args =
+      benchmark::parseCommandLine("ck-gemm-benchmark-driver", argc, argv);
   if (args.verbose) {
     std::cout << "Problem Config:\n";
     benchmark::printProblem(args);
