@@ -40,47 +40,72 @@ std::tuple<int64_t, int64_t> getSqaureLikeRectangularDims(int64_t area, int64_t 
     int64_t minWidth = std::ceil(area / maxh);
     int64_t width = std::min((int64_t)std::ceil(std::sqrt(area)), maxw);
     width = std::max(minWidth, width);
-    while(area % width == 0 && width > minWidth){
+    while(area % width != 0 && width > minWidth){
       width--; 
     }
     int64_t height = area / width;
+    height = std::min(maxh, height);
     return {width, height};
 }
 
-std::tuple<Value, Value> getGroupedMNIdx(PatternRewriter &b,
-                                         Location loc, Value bid,
-                                         int64_t groupSize, int64_t mBlocks, int64_t nBlocks){
-  int64_t mBlocksPerGroup;
-  int64_t nBlocksPerGroup;  
-  std::tie(nBlocksPerGroup, mBlocksPerGroup) = getSqaureLikeRectangularDims(groupSize, mBlocks, nBlocks);
-  Value mBlocksPerGroupVal = b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup);
-  Value nBlocksPerGroupVal = b.createOrFold<ConstantIndexOp>(loc, nBlocksPerGroup);
+// std::tuple<Value, Value> getGroupedMNIdx(PatternRewriter &b,
+//                                          Location loc, Value bid,
+//                                          int64_t groupSize, int64_t mBlocks, int64_t nBlocks){
+//   int64_t mBlocksPerGroup;
+//   int64_t nBlocksPerGroup;  
+//   std::tie(nBlocksPerGroup, mBlocksPerGroup) = getSqaureLikeRectangularDims(groupSize, mBlocks, nBlocks);
+//   Value mBlocksPerGroupVal = b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup);
+//   Value nBlocksPerGroupVal = b.createOrFold<ConstantIndexOp>(loc, nBlocksPerGroup);
 
+//   Value blocksPerGroup =
+//       b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup * nBlocksPerGroup);
+//   Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, mBlocks);
+//   Value nBlocksValue = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
+//   Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
+
+//   // Calculate current super-group dims for M
+//   int64_t groupsPerN = math_util::integer_divide_ceil(nBlocks, nBlocksPerGroup);
+//   Value groupsPerNVal = b.createOrFold<ConstantIndexOp>(loc, groupsPerN);
+//   Value groupIdxM = b.create<DivUIOp>(loc, groupId, groupsPerNVal);
+//   Value mGroupFirstIdx =  b.create<MulIOp>(loc, groupIdxM, mBlocksPerGroupVal);
+//   Value maybeLastGroupSizeM = b.create<SubIOp>(loc, mBlocksValue, mGroupFirstIdx);
+//   Value groupDimM = b.create<MinUIOp>(loc, maybeLastGroupSizeM, mBlocksPerGroupVal);
+  
+//   // Calculate current super-group dims for N
+//   Value groupIdxN = b.create<RemUIOp>(loc, groupId, groupsPerNVal);
+//   Value nGroupFirstIdx =  b.create<MulIOp>(loc, groupIdxN, nBlocksPerGroupVal);
+//   Value maybeLastGroupSizeN = b.create<SubIOp>(loc, nBlocksValue, nGroupFirstIdx);
+//   Value groupDimN = b.create<MinUIOp>(loc, maybeLastGroupSizeN, nBlocksPerGroupVal);
+
+//   // Calculate final m_block and n_block
+//   Value intraGroupBlockId = b.create<RemUIOp>(loc, bid, blocksPerGroup);
+//   Value mBlock = b.create<AddIOp>(loc, mGroupFirstIdx, b.create<DivUIOp>(loc, intraGroupBlockId, groupDimN));
+//   Value nBlock = b.create<AddIOp>(loc, nGroupFirstIdx, b.create<RemUIOp>(loc, intraGroupBlockId, groupDimN));
+//   return {mBlock, nBlock};
+// }
+
+std::tuple<Value, Value> getSlicedLayout(PatternRewriter &b,
+                                         Location loc, Value bid,
+                                         int64_t groupSize, GridLayoutInfo info){
+  int64_t bitWidthIn = info.inputType.getIntOrFloatBitWidth();
+  int64_t bitWidthOut = info.outputType.getIntOrFloatBitWidth();
+  groupSize = groupSize * (bitWidthOut / bitWidthIn);
+  int64_t mBlocksPerGroup = std::ceil(std::sqrt(groupSize)) * (bitWidthOut / bitWidthIn);
+  // std::tie(std::ignore, mBlocksPerGroup) = getSqaureLikeRectangularDims(groupSize, info.mBlocks, info.nBlocks);
+  Value mBlocksPerGroupVal = b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup);
+  Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
   Value blocksPerGroup =
-      b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup * nBlocksPerGroup);
-  Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, mBlocks);
-  Value nBlocksValue = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
+      b.createOrFold<ConstantIndexOp>(loc, mBlocksPerGroup * info.nBlocks);
   Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
 
-  // Calculate current super-group dims for M
-  int64_t groupsPerN = math_util::integer_divide_ceil(nBlocks, nBlocksPerGroup);
-  Value groupsPerNVal = b.createOrFold<ConstantIndexOp>(loc, groupsPerN);
-  Value groupIdxM = b.create<DivUIOp>(loc, groupId, groupsPerNVal);
-  Value mGroupFirstIdx =  b.create<MulIOp>(loc, groupIdxM, mBlocksPerGroupVal);
-  Value maybeLastGroupSizeM = b.create<SubIOp>(loc, mBlocksValue, mGroupFirstIdx);
-  Value groupDimM = b.create<MinUIOp>(loc, maybeLastGroupSizeM, mBlocksPerGroupVal);
-  
-  // Calculate current super-group dims for N
-  Value groupIdxN = b.create<RemUIOp>(loc, groupId, groupsPerNVal);
-  Value nGroupFirstIdx =  b.create<MulIOp>(loc, groupIdxN, nBlocksPerGroupVal);
-  Value maybeLastGroupSizeN = b.create<SubIOp>(loc, nBlocksValue, nGroupFirstIdx);
-  Value groupDimN = b.create<MinUIOp>(loc, maybeLastGroupSizeN, nBlocksPerGroupVal);
-
-  // Calculate final m_block and n_block
-  Value intraGroupBlockId = b.create<RemUIOp>(loc, bid, blocksPerGroup);
-  Value mBlock = b.create<AddIOp>(loc, mGroupFirstIdx, b.create<DivUIOp>(loc, intraGroupBlockId, groupDimN));
-  Value nBlock = b.create<AddIOp>(loc, nGroupFirstIdx, b.create<RemUIOp>(loc, intraGroupBlockId, groupDimN));
-  return {mBlock, nBlock};
+  Value firstBidM = b.create<MulIOp>(loc, groupId, mBlocksPerGroupVal);
+  Value thisMBlocksPerGroup = b.create<MinUIOp>(
+      loc, b.create<SubIOp>(loc, mBlocksValue, firstBidM), mBlocksPerGroupVal);
+  Value m_block = b.create<AddIOp>(
+      loc, firstBidM, b.create<RemUIOp>(loc, bid, thisMBlocksPerGroup));
+  Value n_block = b.create<DivUIOp>(
+      loc, b.create<RemUIOp>(loc, bid, blocksPerGroup), thisMBlocksPerGroup);
+  return {m_block, n_block};
 }
 
 
@@ -99,7 +124,7 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
       b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
   Value g_block = b.create<DivUIOp>(loc, bid, gridSize);
   bid = b.create<RemUIOp>(loc, bid, gridSize);
-  auto [m_block, n_block] = getGroupedMNIdx(b, loc, bid, info.numCU, info.mBlocks, info.nBlocks);
+  auto [m_block, n_block] = getSlicedLayout(b, loc, bid, info.numCU, info);
 //   Value firstBidM = b.create<MulIOp>(loc, groupId, mBlocksPerGroupVal);
 //   Value thisMBlocksPerGroup = b.create<MinUIOp>(
 //       loc, b.create<SubIOp>(loc, mBlocksValue, firstBidM), mBlocksPerGroupVal);
@@ -176,7 +201,7 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCMiddle(PatternRewriter &b,
   Value g_block = b.create<DivUIOp>(loc, bid, mnBlocks);
   bid = b.create<RemUIOp>(loc, bid, mnBlocks);
 
-  auto [m_block, n_block] = getGroupedMNIdx(b, loc, bid, info.numCU, info.mBlocks, info.nBlocks);
+  auto [m_block, n_block] = getSlicedLayout(b, loc, bid, info.numCU, info);
   return {g_block, m_block, n_block};
 }
 
@@ -235,7 +260,7 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCSlowest(PatternRewriter &b
   Value g_block = b.create<DivUIOp>(loc, bid, mnBlocks);
   bid = b.create<RemUIOp>(loc, bid, mnBlocks);
 
-  auto [m_block, n_block] = getGroupedMNIdx(b, loc, bid, info.numCU, info.mBlocks, info.nBlocks);
+  auto [m_block, n_block] = getSlicedLayout(b, loc, bid, info.numCU, info);
   return {g_block, m_block, n_block};
 }
 
