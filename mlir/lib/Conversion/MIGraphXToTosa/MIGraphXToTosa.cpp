@@ -215,8 +215,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   int dims = outputTy.getShape().size() - 2;
   SmallVector<int64_t> toChannelLast{0};
-  SmallVector<int64_t> fromChannelLast{0, dims+1};
-  for (int i = 0;  i < dims;  i++) {
+  SmallVector<int64_t> fromChannelLast{0, dims + 1};
+  for (int i = 0; i < dims; i++) {
     toChannelLast.push_back(i + 2);
     fromChannelLast.push_back(i + 1);
   }
@@ -229,7 +229,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   // original output shape was NCHW, change it into NHWC
   SmallVector<int64_t> newShape{outShape[0]};
-  for (int i = 0;  i < dims;  i++)
+  for (int i = 0; i < dims; i++)
     newShape.push_back(i + 2);
   newShape.push_back(1);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
@@ -239,21 +239,23 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   switch (dims) {
   case 2:
     cop = rewriter.create<tosa::Conv2DOp>(
-      loc, newOutTy,
-      ValueRange{input, filter,
-                 getZeroTensor(
-                     loc, outputTy.getElementType(),
-                     filter.getType().template cast<ShapedType>().getShape()[0],
-                     rewriter)});
+        loc, newOutTy,
+        ValueRange{
+            input, filter,
+            getZeroTensor(
+                loc, outputTy.getElementType(),
+                filter.getType().template cast<ShapedType>().getShape()[0],
+                rewriter)});
     break;
   case 3:
     cop = rewriter.create<tosa::Conv3DOp>(
-      loc, newOutTy,
-      ValueRange{input, filter,
-                 getZeroTensor(
-                     loc, outputTy.getElementType(),
-                     filter.getType().template cast<ShapedType>().getShape()[0],
-                     rewriter)});
+        loc, newOutTy,
+        ValueRange{
+            input, filter,
+            getZeroTensor(
+                loc, outputTy.getElementType(),
+                filter.getType().template cast<ShapedType>().getShape()[0],
+                rewriter)});
     break;
   default:
     llvm_unreachable("Only 2-D and 3-D have been implemented.");
@@ -267,16 +269,17 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // MIGraphX padAttr is [hlow, wlow, hhigh, whigh] while TOSA padAttr
   // is [hlow, hhigh, wlow, whigh].
   SmallVector<int64_t> pads;
-  for (int i = 0;  i < dims;  i++) {
+  for (int i = 0; i < dims; i++) {
     pads.push_back(padAttr[i].template dyn_cast<IntegerAttr>().getInt());
-    pads.push_back(padAttr[i+dims].template dyn_cast<IntegerAttr>().getInt());
+    pads.push_back(padAttr[i + dims].template dyn_cast<IntegerAttr>().getInt());
   }
 
   SmallVector<int64_t> strides;
   SmallVector<int64_t> dilations;
-  for (size_t i = 0;  i < strideAttr.size();  i++) {
+  for (size_t i = 0; i < strideAttr.size(); i++) {
     strides.push_back(strideAttr[i].template dyn_cast<IntegerAttr>().getInt());
-    dilations.push_back(dilationAttr[i].template dyn_cast<IntegerAttr>().getInt());
+    dilations.push_back(
+        dilationAttr[i].template dyn_cast<IntegerAttr>().getInt());
   }
 
   int64_t group = op.getGroup();

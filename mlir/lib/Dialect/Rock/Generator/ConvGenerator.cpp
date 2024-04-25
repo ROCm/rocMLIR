@@ -485,11 +485,10 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   auto isValid = [&argMap]() {
     // only require tensor configs
     static const std::vector<std::string> validKeys = {
-        "batchsize",   "groupsize",    "in_layout", "in_type",
-        "in_channels", "in_h",         "in_w",      "in_d",
-        "out_layout",  "out_type",     "out_channels", "out_h",
-        "out_w",       "out_d",        "fil_layout", "fil_type",
-        "fil_w",       "fil_h",        "fil_d"};
+        "batchsize",    "groupsize", "in_layout", "in_type",    "in_channels",
+        "in_h",         "in_w",      "in_d",      "out_layout", "out_type",
+        "out_channels", "out_h",     "out_w",     "out_d",      "fil_layout",
+        "fil_type",     "fil_w",     "fil_h",     "fil_d"};
     if (!std::all_of(validKeys.cbegin(), validKeys.cend(),
                      [&argMap](const std::string &key) {
                        return argMap.count(key) > 0;
@@ -700,7 +699,8 @@ LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                        config.filterDimension)) {
       return failure();
     }
-    if (!convertLayout(config.inputLayout[i], inputMap, config.inputDimension)) {
+    if (!convertLayout(config.inputLayout[i], inputMap,
+                       config.inputDimension)) {
       return failure();
     }
     if (!convertLayout(config.outputLayout[i], outputMap,
