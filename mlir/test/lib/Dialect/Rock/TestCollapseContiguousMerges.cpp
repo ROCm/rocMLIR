@@ -55,7 +55,7 @@ static LogicalResult testVectorizationInference(func::FuncOp f) {
     Value input = op->getOperand(0);
     if (!isa<ShapedType>(input.getType()))
       return op->emitOpError("Expected shaped type input");
-    Value newInput = isolateTransforms(b, input);
+    Value newInput = isolateViews(b, input);
     op->setOperand(0, newInput);
     collapseContiguousMerges(newInput);
     return WalkResult::advance();

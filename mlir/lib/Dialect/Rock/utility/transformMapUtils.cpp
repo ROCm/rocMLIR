@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/IndexedMap.h"
@@ -96,6 +97,19 @@ mlir::rock::untransform(Value transformed,
   return std::make_tuple(ret, isBig);
 }
 
+Value mlir::rock::gatherRockViews(Value transformed, SmallVectorImpl<ViewLikeOpInterface> &viewOps) {
+  Value underlying = transformed;
+  while (auto defOp = underlying.getDefiningOp<ViewLikeOpInterface>()) {
+    if (auto trOp = dyn_cast<TransformOp>(defOp))
+      underlying = trOp.getInput();
+    else if (auto scalarizeOp = dyn_cast<ScalarizeOp>(defOp))
+      underlying = scalarizeOp.getInput();
+    else
+      break;
+    viewOps.push_back(defOp);
+  }
+}
+
 Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
                             ArrayAttr transforms) {
   SmallVector<TransformMapAttr, 4> transformsVec =
@@ -109,21 +123,20 @@ Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
   return ret;
 }
 
-Value mlir::rock::isolateTransforms(OpBuilder &b, Value transformed) {
-  SmallVector<TransformOp> ops;
-  Value isolated;
-  std::tie(isolated, std::ignore) = untransform(transformed, ops);
-  bool needToClone = !llvm::all_of(ops, [](TransformOp op) -> bool {
+Value mlir::rock::isolateViews(OpBuilder &b, Value transformed) {
+  SmallVector<ViewLikeOpInterface> ops;
+  Value isolated = gatherRockViews(transformed, ops);
+  bool needToClone = !llvm::all_of(ops, [](auto op) -> bool {
     return op->hasOneUse() || op->use_empty();
   });
   if (!needToClone)
     return transformed;
-  for (TransformOp trOp : llvm::reverse(ops)) {
+  for (ViewLikeOpInterface op : llvm::reverse(ops)) {
     OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointAfterValue(trOp.getOutput());
+    b.setInsertionPointAfterValue(op->getResult(0));
     IRMapping cloneMap;
-    cloneMap.map(trOp.getInput(), isolated);
-    Operation *newOp = b.clone(*trOp, cloneMap);
+    cloneMap.map(op.getViewSource(), isolated);
+    Operation *newOp = b.clone(*op, cloneMap);
     isolated = newOp->getResult(0);
   }
   return isolated;
@@ -395,26 +408,23 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
 // In other words, every group of dimensions is treated as a single group.
 // Vector buffer behavior: this function traverses past scalarizes but ensures that
 // the vector indexing dimension isn't part of a contiguous group.
-ContiguousMergesMap findContiguousGroups(Value transformed) {
+static ContiguousMergesMap findContiguousGroups(Value transformed, ArrayRef<ViewLikeOpInterface> viewOps) {
   // Transform table. Will be overwritten after processing each transform_map
   DimToMergeMap dimToMerge;
   ContiguousMergesMap contiguousGroups;
 
   Value currentVal = transformed;
-  auto nextTransform = [&]() -> TransformOp {
-    auto maybeTrOp = currentVal.getDefiningOp<TransformOp>();
-    if (maybeTrOp)
-      return maybeTrOp;
-    auto maybeScalarizeOp = currentVal.getDefiningOp<ScalarizeOp>();
-    if (maybeScalarizeOp) {
-      // Forget the dimension of indexing within the vector.
-      dimToMerge.erase(maybeScalarizeOp.getOutput().getType().getRank() - 1);
-      currentVal = maybeScalarizeOp.getInput();
-      return currentVal.getDefiningOp<TransformOp>();
+  for (ViewLikeOpInterface viewOp : viewOps) {
+    currentVal = viewOp.getViewSource();
+    // Scalarize is an AddDim{} on the last index (the in-vector one)
+    // for the purposes of analyzing which indices can collapse when computing
+    // memory addresses.
+    if (auto scalarizeOp = dyn_cast<ScalarizeOp>(viewOp)) {
+      ShapedType scalarType = scalarizeOp.getResult().getType();
+      dimToMerge.erase(scalarType.getRank() - 1);
+      continue;
     }
-    return nullptr;
-  };
-  while (auto trOp = nextTransform()) {
+    auto trOp = cast<TransformOp>(viewOp);
     TransformMapAttr transformMap = trOp.getTransform();
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
     DimToMergeMap thisDimToMerge;
@@ -812,23 +822,33 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
   return result;
 }
 
-static FailureOr<VectorizationData>
-convertScalarVectorizationInfoToVectorInfo(const VectorizationData& input, int64_t bufferVectorSize, uint32_t inVectorDim) {
+// Check if the in-vector dimension (which is, by definiton of scalarize, the final
+// dimension) is vectorized fully by its length. If it is, return a version of
+// the data where that dimension is removed and all other dimensions have their
+// required coefficients adjusted to account for the fact that you don't need to
+// multiply in the vector index anymore. (If some needed coefficient isn't
+// evenly divisible by the vector size, something's up and we abort). Otherwise,
+// fail, causing the overall vectorization analysis to stop at the scalarize
+// operation, which'll give a max vectorization less than the size of the underlying
+// buffer.
+static std::optional<VectorizationData>
+convertScalarVectorizationDataToVectorBufferData(const VectorizationData& input, int64_t bufferVectorSize, uint32_t inVectorDim) {
   if (!input[inVectorDim]) {
     LLVM_DEBUG(llvm::dbgs() << "In-vector dimension has no vectorization data (is held constant and isn't known to have unit stride)\n");
-    return failure();
+    return std::nullopt;
   }
   VectorizationInfo inVectorInfo = *input[inVectorDim];
   if (inVectorInfo.needsCoefficient != 1) {
     LLVM_DEBUG(llvm::dbgs() << "In-vector dimension isn't using unit stride\n");
-    return failure();
+    return std::nullopt;
   }
   if (inVectorInfo.maxLength != bufferVectorSize) {
-
+    LLVM_DEBUG(llvm::dbgs() << "In-vector dimension isn't vectorizable with whole-vector reads, must stop here\n");
+    return std::nullopt;
   }
-  if ((inVectorInfo.maxLength % bufferVectorSize != 0) || (inVectorInfo.alignment % bufferVectorSize != 0)) {
-    LLVM_DEBUG(llvm::dbgs() << "In-vector dimension isn't traversed by aligned whole vectors, can't proceed\n");
-    return failure();
+  if (inVectorInfo.alignment % bufferVectorSize != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "In-vector dimension isn't aligned to vector width, can't proceed\n");
+    return std::nullopt;
   }
   VectorizationData result;
   // This drops the space for the in-vector dimension.
@@ -838,15 +858,13 @@ convertScalarVectorizationInfoToVectorInfo(const VectorizationData& input, int64
     if (!scalarInfo)
       continue;
     if (scalarInfo->needsCoefficient % bufferVectorSize != 0) {
-      LLVM_DEBUG(llvm::dbgs() << "At dimension " << i << " needed coefficient " << scalarInfo->needsCoefficient << " doesn't evenly divide vector size " << bufferVectorSize << "\n");
-      return failure();
+      LLVM_DEBUG(llvm::dbgs() << "At dimension " << i << " the needed coefficient " << scalarInfo->needsCoefficient << " isn't a multiple of the vector size " << bufferVectorSize << " so we can't proceed\n");
+      return std::nullopt;
     }
-    if (scalarInfo->alignment % bufferVectorSize != 0) {
-      LLVM_DEBUG(llvm::dbgs() << "At dimension " << i << " alignment " << scalarInfo->needsCoefficient << " doesn't evenly divide vector size " << bufferVectorSize << "\n");
-      return failure();
-    }
-
+    // Note: the alignment field will already have been divided by the vector size, so it can be preserved as is.
+    result[i] = VectorizationInfo(scalarInfo->maxLength, scalarInfo->needsCoefficient / bufferVectorSize, scalarInfo->alignment);
   }
+  return result;
 }
 
 static FailureOr<std::pair<Value, Operation *>>
@@ -917,36 +935,29 @@ VectorizationResult mlir::rock::getMaxVectorization(
   // and also used to ensure that LDS is read in wide increments where possible.)
   int64_t bufferVectorSize = 1;
   LogicalResult fusionTraversalStatus = success();
-  auto contiguousMerges = findContiguousGroups(transformed);
+  SmallVector<ViewLikeOpInterface> viewOps;
+  std::ignore = gatherRockViews(transformed, viewOps);
+  auto contiguousMerges = findContiguousGroups(transformed, viewOps);
 
   // Advance to the next operation to analyze, updating any vectorization
   // analysis state as needed. This function must update currentVal and
   // currentUser, and may update other variables. In the simplest case, this
-  // advances to the next rock.transform operation. However, it also handles:
-  // - If we recah a memref.alloc() and are following fusions, go to the
+  // advances to the next view operation (rock.transform and rock.scalarize). However, If we recah a memref.alloc() and are following fusions, go to the
   // source of post-fusion transforms (for an output fusion, the output of the
   // fusion) to traverse its transform stack (which involves) recomputing
   // contiguous merge data).
-  // - For rock.scalarize, record the buffer vector size, drop the within-vector
-  // dimension from processing, and continue
+  auto* viewIterator =viewOps.begin();
+  auto* viewsEnd = viewOps.end();
   auto advance = [&]() -> bool {
+    if (viewIterator != viewsEnd) {
+      ViewLikeOpInterface justProcessed = *viewIterator++;
+      currentUser = justProcessed.getOperation();
+      currentVal = justProcessed.getViewSource();
+      return true;
+    }
     Operation *definingOp = currentVal.getDefiningOp();
     if (!definingOp)
       return false;
-    if (auto trOp = dyn_cast<TransformOp>(definingOp)) {
-      currentVal = trOp.getInput();
-      currentUser = definingOp;
-      return true;
-    }
-    if (auto scalarizeOp = dyn_cast<ScalarizeOp>(definingOp)) {
-      ShapedType scalarView = scalarizeOp.getOutput().getType();
-      uint32_t lastDim = scalarView.getRank() - 1;
-      bufferVectorSize = scalarView.getDimSize(lastDim);
-      LLVM_DEBUG(llvm::dbgs() << "Max vectorization data before scalarize: ");
-      data.debugPrint();
-      LLVM_DEBUG(llvm::dbgs() << "Handling scalarize of length: " << bufferVectorSize << "\n");
-
-    }
     if (isa<memref::AllocOp>(definingOp)) {
       if (!traverseFusions) {
         definingOp->emitError(
@@ -967,12 +978,15 @@ VectorizationResult mlir::rock::getMaxVectorization(
                      << "[vectorization] Advancing past fusion to new value "
                      << currentVal << "with data: ";);
       data.debugPrint();
-      contiguousMerges = findContiguousGroups(currentVal);
+      viewOps.clear();
+      std::ignore = gatherRockViews(currentVal, viewOps);
+      contiguousMerges = findContiguousGroups(currentVal, viewOps);
+      viewIterator = viewOps.begin();
+      viewsEnd = viewOps.end();
       return true;
     }
     return false;
   };
-
   do {
     if (auto trOp = currentVal.getDefiningOp<TransformOp>()) {
       TransformMapAttr transformMap = trOp.getTransform();
@@ -980,6 +994,20 @@ VectorizationResult mlir::rock::getMaxVectorization(
       data.debugPrint();
       LLVM_DEBUG(llvm::dbgs() << "Processing: " << transformMap << "\n");
       data = propagateVectorizationInfo(transformMap, data, contiguousMerges);
+    }
+    else if (auto scalarizeOp = currentVal.getDefiningOp<ScalarizeOp>()) {
+      ShapedType scalarView = scalarizeOp.getOutput().getType();
+      uint32_t lastDim = scalarView.getRank() - 1;
+      bufferVectorSize = scalarView.getDimSize(lastDim);
+      LLVM_DEBUG(llvm::dbgs() << "Max vectorization data before scalarize: ");
+      data.debugPrint();
+      LLVM_DEBUG(llvm::dbgs() << "Handling scalarize of length: " << bufferVectorSize << "\n");
+      std::optional<VectorizationData> vectorBufData = convertScalarVectorizationDataToVectorBufferData(data, bufferVectorSize, lastDim);
+      if (!vectorBufData.has_value()) {
+        LLVM_DEBUG(llvm::dbgs() << "Terminating vectorization at scalarize\n");
+        break;
+      }
+      data = *vectorBufData;
     }
   } while (advance());
   LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
@@ -1015,15 +1043,19 @@ VectorizationResult mlir::rock::getMaxVectorization(
     result = math_util::gcd(maxVectorLenBits / bwidth, result);
   }
   // bufferVectorSize will become non-trivial once scalarization comes in
-  return VectorizationResult{/*max=*/result, /*bufferVectorSize=*/1,
+  return VectorizationResult{/*max=*/result, /*bufferVectorSize=*/bufferVectorSize,
                              /*fusionTraversalStatus=*/fusionTraversalStatus};
 }
 
 void mlir::rock::collapseContiguousMerges(Value transformed) {
-  ContiguousMergesMap contigousMerges = findContiguousGroups(transformed);
-  SmallVector<TransformOp> transformOps;
-  std::tie(std::ignore, std::ignore) = untransform(transformed, transformOps);
-  for (TransformOp trOp : llvm::reverse(transformOps)) {
+  SmallVector<ViewLikeOpInterface> transformOps;
+  std::ignore = gatherRockViews(transformed, transformOps);
+  ContiguousMergesMap contigousMerges = findContiguousGroups(transformed, transformOps);
+  for (ViewLikeOpInterface viewOp : llvm::reverse(transformOps)) {
+    auto trOp = dyn_cast<TransformOp>(viewOp);
+    // Skip right past scalarize and the like.
+    if (!trOp)
+      continue;
     assert((trOp->hasOneUse() || trOp->use_empty()) &&
            "Transform ops whose merges will be collapsed must be isolated to "
            "ensure other IR doesn't break");
@@ -1729,9 +1761,8 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   if (numberOfIndices == 0)
     return transformed;
 
-  SmallVector<TransformOp> opsToWiden;
-  Value ret;
-  std::tie(ret, std::ignore) = untransform(transformed, opsToWiden);
+  SmallVector<ViewLikeOpInterface> opsToWiden;
+  Value ret = gatherRockViews(transformed, opsToWiden);
 
   /// Add a transform that AddDim{}s in all the extra dimensions to make all the
   /// shapes match up.
@@ -1755,7 +1786,12 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   ret = b.create<TransformOp>(ret.getLoc(), ret, addDimAttr);
 
   // Start iterating through the old stack
-  for (TransformOp trOp : llvm::reverse(opsToWiden)) {
+  for (ViewLikeOpInterface viewOp : llvm::reverse(opsToWiden)) {
+    if (auto scalarizeOp = dyn_cast<ScalarizeOp>(viewOp)) {
+      ret = b.create<ScalarizeOp>(scalarizeOp.getLoc(), ret);
+      continue;
+    }
+    auto trOp = cast<TransformOp>(viewOp);
     TransformMapAttr trMap = trOp.getTransform();
     auto ops = llvm::to_vector(trMap.getOps());
     SmallVector<TransformAttr> newOps;

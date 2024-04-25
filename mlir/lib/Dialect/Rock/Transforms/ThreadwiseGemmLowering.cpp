@@ -359,8 +359,8 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
 
   // Almost certainly a noop, since adding extra indices creates fresh
   // IR, but we call it just in case.
-  sourceView = isolateTransforms(b, sourceView);
-  destView = isolateTransforms(b, destView);
+  sourceView = isolateViews(b, sourceView);
+  destView = isolateViews(b, destView);
 
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   Type elemType = sourceView.getType().cast<MemRefType>().getElementType();
@@ -415,7 +415,7 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     // additional uses, causing sanity-check assertions to trip in
     // collapseContiguousMerges(). To handle this case, we force a shallow
     // clone.
-    srcToDestView = isolateTransforms(b, srcToDestView);
+    srcToDestView = isolateViews(b, srcToDestView);
     VectorizationResult vecRes = getMaxVectorization(
         srcToDestView, extraIndicesSourceSize + extraIndicesDestSize);
     vecLen = vecRes.max;
@@ -488,7 +488,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   sourceView =
       cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
   sourceView = addIterationIndexIfScalar(b, loc, sourceView);
-  sourceView = isolateTransforms(b, sourceView);
+  sourceView = isolateViews(b, sourceView);
   auto sourceViewType = cast<MemRefType>(sourceView.getType());
   Value dest = adaptor.getDest();
   MemRefType dstBufferType = dest.getType().cast<MemRefType>();
@@ -675,7 +675,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   ArrayAttr extraViews = op.getExtraViews();
   destView = transform(b, destView, extraViews);
   destView = addIterationIndexIfScalar(b, loc, destView);
-  destView = isolateTransforms(b, destView);
+  destView = isolateViews(b, destView);
   auto destViewType = cast<MemRefType>(destView.getType());
   ArrayRef<int64_t> outputShape = destViewType.getShape();
   size_t extraIdxCount = op.getExtraIndices().size();

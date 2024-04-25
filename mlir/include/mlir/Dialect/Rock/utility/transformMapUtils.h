@@ -18,6 +18,7 @@ class Builder;
 class OpBuilder;
 class Value;
 class ValueRange;
+class ViewLikeOpInterface;
 
 namespace linalg {
 class GenericOp;
@@ -54,6 +55,11 @@ untransform(Value transformed, SmallVectorImpl<TransformMapAttr> &transforms);
 std::tuple<Value, bool> untransform(Value transformed,
                                     SmallVectorImpl<TransformOp> &transforms);
 
+/// Gather coordinate-remapping view operations on `transformed` into `viewOps`.
+/// This is like `untransform` but also collects `rock.scalarize` and doesn't
+/// track the 64-bit indexing requirement.
+Value gatherRockViews(Value transformed, SmallVectorImpl<ViewLikeOpInterface>& viewOps);
+
 /// Returns true if a given transform map has inputs or outputs that could
 /// overflow a signed 32-bit integer.
 bool needs64BitIndices(TransformMapAttr map);
@@ -61,13 +67,13 @@ bool needs64BitIndices(TransformMapAttr map);
 /// Apply a chain of transforms on a memref and return the final view
 Value transform(OpBuilder &b, Value toBeTransformed, ArrayAttr transforms);
 
-/// Returns a version of `transformed` where all the `rock.transform`
-/// and `rock.scalarize` operations between `transformed` and the underlying
+/// Returns a version of `transformed` where all the `rock.transform`,
+/// `rock.scalarize`, and Rock view operations between `transformed` and the underlying
 /// memory have one user, cloning those intermediate operations if needed.
 /// This ensures that optimizations can edit those transformations in place
 /// without breaking any other uses that may have been merged together.
 /// If the transforms are already isolated, this function does nothing.
-Value isolateTransforms(OpBuilder &b, Value transformed);
+Value isolateViews(OpBuilder &b, Value transformed);
 
 /// A helper to invert a chain of views
 ArrayAttr invertTransforms(OpBuilder &b, Location loc, ArrayAttr transforms);
@@ -131,7 +137,6 @@ getMaxVectorization(Value transformed, uint32_t dim,
                     Operation *operationRootForFusionTraversal = nullptr,
                     bool ignoreDataType = false);
 
-<<<<<<< HEAD
 /// Edits the transforms mapping  `transformed` to some underlying object to
 /// have contiguous merges collapsed. That is, if we begin with (x, y, z) <-
 /// Merge{A, B, C}(s) and then later either have y or z appear (with the same
@@ -142,25 +147,13 @@ getMaxVectorization(Value transformed, uint32_t dim,
 /// transform chain as input - that is, each rock.transform operation must hav
 /// exactly one user. This allows us to edit the transform attributes without
 /// fear of breaking existing IR.
-void collapseContiguousMerges(Value transformed);
-=======
-/// Returns a version of `transformed` transformed like `transformed` is but
-/// with contiguous merges collapsed. This creates new IR as needed and does not
-/// modify existing transformations in place.
-/// That is, if we begin with (x, y, z) <- Merge{A, B, C}(s)
-/// and then later either have y or z appear (with the same length) in the
-/// output or we later call (t) <- Unmerge{B, C}(y, z), we can write the Merge
-/// to (x, y, z) <- Merge{A, 1, BC}(s) in ordor to save on pointless splitting
-/// and merging. Note that the corresponding Unmerge or Embed is not updated by
-/// this function.
 /// This function will look through `rock.scalarize` and won't attach the
 /// within-vector dimension to any contiguous groups. (This property is only
 /// guaranteed if the within-vector dimension is constructed correctly:
 /// if you've scalarized vector<2xi4> and then set the trailing dimension to
 /// something other than 0 or 1, things can break - this function only guarantees
 /// that it won't introduce that issue.)
-Value collapseContiguousMerges(OpBuilder &b, Value transformed);
->>>>>>> e7c063396ea1 (Stash commit for scalarize)
+void collapseContiguousMerges(Value transformed);
 
 /// Returns true if the given `TransformMapAttr` has impacts on the validity
 /// of the underlying coordinates. If this returns true, the code generating
