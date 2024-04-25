@@ -124,15 +124,15 @@ std::optional<GemmSize> mlir::rock::calculatePadding(int64_t kPerBlock,
     mblocks, 
     nblocks 
   );
-  llvm::errs() << "mblocks=" << mblocks << "\n";
-  llvm::errs() << "nblocks=" << nblocks << "\n";
-  llvm::errs() << "mblocksPerGroup=" << mblocksPerGroup << "\n";
-  llvm::errs() << "nblocksPerGroup=" << nblocksPerGroup << "\n";
+  // llvm::errs() << "mblocks=" << mblocks << "\n";
+  // llvm::errs() << "nblocks=" << nblocks << "\n";
+  // llvm::errs() << "mblocksPerGroup=" << mblocksPerGroup << "\n";
+  // llvm::errs() << "nblocksPerGroup=" << nblocksPerGroup << "\n";
   mblocks += mblocksPerGroup - math_util::mod_1_to_n(mblocks, mblocksPerGroup);
   nblocks += nblocksPerGroup - math_util::mod_1_to_n(nblocks, nblocksPerGroup);
 
-  llvm::errs() << "mblocks=" << mblocks << "\n";
-  llvm::errs() << "nblocks=" << nblocks << "\n";
+  // llvm::errs() << "mblocks=" << mblocks << "\n";
+  // llvm::errs() << "nblocks=" << nblocks << "\n";
 
   mNew = mblocks * mPerBlock;
   nNew = nblocks * nPerBlock;

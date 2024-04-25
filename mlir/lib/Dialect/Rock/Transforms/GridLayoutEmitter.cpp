@@ -135,9 +135,9 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCMiddle(PatternRewriter &b,
 
   // Re-order workgroup-id to make chiplets slowest moving dimension
   int64_t gridSize = info.gBlocks * info.mBlocks * info.nBlocks;
-  llvm::errs() << "gridSize=" << gridSize << "\n";
-  llvm::errs() << "info.mBlocks=" << info.mBlocks << "\n";
-  llvm::errs() << "info.nBlocks=" << info.nBlocks << "\n";
+  // llvm::errs() << "gridSize=" << gridSize << "\n";
+  // llvm::errs() << "info.mBlocks=" << info.mBlocks << "\n";
+  // llvm::errs() << "info.nBlocks=" << info.nBlocks << "\n";
   if(gridSize >= info.numCU){
     Value gridSizeVal =
         b.createOrFold<ConstantIndexOp>(loc, gridSize);
@@ -189,7 +189,7 @@ GridCoordinates rock::layout::makeGroupedGridLayoutXCCMiddle(PatternRewriter &b,
   Value g_block = b.create<DivUIOp>(loc, bid, mnBlocks);
   bid = b.create<RemUIOp>(loc, bid, mnBlocks);
 
-  auto [m_block, n_block] = getGroupedMNIdx(b, loc, bid, info.numCU, info.mBlocks, info.nBlocks);
+  auto [m_block, n_block] = getGroupedMNIdx(b, loc, bid, info.numCU / numChiplets, info.mBlocks, info.nBlocks);
   return {g_block, m_block, n_block};
 }
 
