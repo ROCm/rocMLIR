@@ -4,7 +4,7 @@
 #map = affine_map<(d0) -> (d0 mod 3)>
 module {
   func.func @rock_conv_gkc012_ngc012_ngk012_0(%arg0: memref<1x1x1x3x3x3xf32>, %arg1: memref<1x1x1x8x8x8xf32>, %arg2: memref<1x1x1x6x6x6xf32>) attributes {kernel = 0 : i32} {
-    rock.conv(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {arch = "", dilations = [1 : index, 1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1", "2"], input_layout = ["ni", "gi", "ci", "0i", "1i", "2i"], numCU = 104 : i32, output_layout = ["no", "go", "ko", "0o", "1o", "2o"], padding = [0 : index, 0 : index, 0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index, 1 : index]} : memref<1x1x1x3x3x3xf32>, memref<1x1x1x8x8x8xf32>, memref<1x1x1x6x6x6xf32>
+    rock.conv(%arg0, %arg1, %arg2) features =  dot {arch = "", dilations = [1 : index, 1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1", "2"], input_layout = ["ni", "gi", "ci", "0i", "1i", "2i"], numCU = 104 : i32, output_layout = ["no", "go", "ko", "0o", "1o", "2o"], padding = [0 : index, 0 : index, 0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index, 1 : index]} : memref<1x1x1x3x3x3xf32>, memref<1x1x1x8x8x8xf32>, memref<1x1x1x6x6x6xf32>
     return
   }
   func.func @linalg_conv_3d(%arg0: memref<1x1x1x8x8x8xf32> , %arg1: memref<1x1x1x3x3x3xf32>, %arg2: memref<1x1x1x6x6x6xf32>) {
