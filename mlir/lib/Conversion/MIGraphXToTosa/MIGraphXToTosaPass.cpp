@@ -86,9 +86,6 @@ void MIGraphXToTosa::runOnOperation() {
                                     std::move(bodyPatterns))))
     return signalPassFailure();
 
-  llvm::errs() << "[1]\n";
-  func.dump();
-
   // We do this is a second stage because, while MIGraphX operations are
   // converted such that a shaped type gets translated to a tensor of the same
   // logical shape. However, the inputs to and outputs of the function will be
@@ -115,9 +112,6 @@ void MIGraphXToTosa::runOnOperation() {
   if (failed(applyPartialConversion(func, boundaryConversionTarget,
                                     std::move(boundaryPatterns))))
     return signalPassFailure();
-
-  llvm::errs() << "[2]\n";
-  func.dump();
 
   OpPassManager cleanPM("func.func");
   cleanPM.addPass(createCSEPass());
