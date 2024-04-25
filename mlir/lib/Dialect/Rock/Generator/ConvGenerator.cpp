@@ -485,18 +485,18 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   auto isValid = [&argMap]() {
     // only require tensor configs
     static std::vector<std::string> validKeys = {
-        "batchsize",    "groupsize", "in_layout", "in_type",    "in_channels",
-        "in_h",         "in_w",      "out_layout", "out_type",
-        "out_channels", "out_h",     "out_w",      "fil_layout",
-        "fil_type",     "fil_w",     "fil_h"};
+        "batchsize",   "groupsize",    "in_layout", "in_type",
+        "in_channels", "in_h",         "in_w",      "out_layout",
+        "out_type",    "out_channels", "out_h",     "out_w",
+        "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
     if (argMap["in_layout"].length() > 5) { // Ie, 3-D.
       validKeys.push_back("in_d");
       validKeys.push_back("out_d");
       validKeys.push_back("fil_d");
     }
     auto isPresent = [&argMap](const std::string &key) {
-                       return argMap.count(key) > 0;
-                     };
+      return argMap.count(key) > 0;
+    };
     if (!llvm::all_of(validKeys, isPresent)) {
       return false;
     }
