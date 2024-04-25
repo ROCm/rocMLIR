@@ -230,8 +230,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // original output shape was NCHW, change it into NHWC
   SmallVector<int64_t> newShape{outShape[0]};
   for (int i = 0; i < dims; i++)
-    newShape.push_back(i + 2);
-  newShape.push_back(1);
+    newShape.push_back(outShape[i + 2]);
+  newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
   // Construct a new Conv2DOp.
