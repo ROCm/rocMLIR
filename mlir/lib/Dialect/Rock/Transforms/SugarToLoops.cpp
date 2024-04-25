@@ -961,7 +961,7 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
 
   // Compute the last non-unit dim
   int64_t lastNonUnitDim = shape.size() - 1;
-  while (shape[lastNonUnitDim] == 1 && lastNonUnitDim >= 0)
+  while (shape[lastNonUnitDim] == 1 && lastNonUnitDim > 0)
     lastNonUnitDim--;
 
   // Get the flattened size
