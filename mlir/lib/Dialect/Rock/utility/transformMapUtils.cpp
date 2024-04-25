@@ -1755,9 +1755,170 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   return ret;
 }
 
+SmallVector<int64_t>
+findPreservedPositions(ArrayRef<StringRef> names,
+                       const SetVector<StringRef> &removeSet) {
+  SmallVector<int64_t> positions;
+  for (auto name : llvm::enumerate(names)) {
+    if (!removeSet.contains(name.value())) {
+      positions.push_back(name.index());
+    }
+  }
+  return positions;
+}
+
+SmallVector<int64_t>
+generateNewUpperBounds(rock::TransformMapAttr trMap,
+                       const SetVector<StringRef> &removeDimNamesSet) {
+  size_t counter = 0;
+  auto oldUpperBounds = trMap.getUpperBounds().asArrayRef();
+  SmallVector<int64_t> newBounds;
+  for (auto tr : trMap.getOps()) {
+    for (auto upperName : tr.getUpperNames()) {
+      if (!removeDimNamesSet.contains(upperName)) {
+        newBounds.push_back(oldUpperBounds[counter]);
+      }
+      ++counter;
+    }
+  }
+  return newBounds;
+}
+
+SmallVector<int64_t>
+generateNewLowerBounds(rock::TransformMapAttr trMap,
+                       const SetVector<StringRef> &removeDimNamesSet) {
+  size_t lowerBoundCounter = 0;
+  auto oldLowerBounds = trMap.getLowerBounds().asArrayRef();
+  SmallVector<int64_t> newBounds;
+  for (auto tr : trMap.getOps()) {
+    for (auto lowerName : tr.getLowerNames()) {
+      if (!removeDimNamesSet.contains(lowerName)) {
+        newBounds.push_back(oldLowerBounds[lowerBoundCounter]);
+      }
+      ++lowerBoundCounter;
+    }
+  }
+  return newBounds;
+}
+
+template <typename T>
+SmallVector<T> getPreserved(ArrayRef<T> vector,
+                            const SmallVector<int64_t> &preservedPositions) {
+  SmallVector<T> result;
+  for (auto index : preservedPositions) {
+    result.push_back(vector[index]);
+  }
+  return result;
+}
+
+SmallVector<uint32_t> genNewDims(uint32_t start,
+                                 const SmallVector<int64_t> &positions) {
+  SmallVector<uint32_t> newDims = {};
+  if (!positions.empty()) {
+    const uint32_t lb = start;
+    const uint32_t ub = lb + positions.size();
+    newDims = llvm::to_vector_of<uint32_t>(llvm::seq(lb, ub));
+  }
+  return newDims;
+}
+
+FailureOr<ArrayAttr>
+mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                            const SetVector<StringRef> &removeDimNamesSet) {
+  SmallVector<Attribute> results;
+
+  SetVector<StringRef> removeUpperDimSet = removeDimNamesSet;
+
+  for (auto map : transformAttrs) {
+    auto trMap = cast<rock::TransformMapAttr>(map);
+    SmallVector<TransformAttr> newOps;
+    SetVector<StringRef> removeLowerDimSet = {};
+
+    size_t processedUpperDims = 0;
+    size_t processedLowerDims = 0;
+    for (auto tr : trMap.getOps()) {
+
+      SmallVector<int64_t> upperPreservedPositions =
+          findPreservedPositions(tr.getUpperNames(), removeUpperDimSet);
+
+      const bool mustBePreserved =
+          upperPreservedPositions.size() == tr.getUpperNames().size();
+      const bool mustBeCompletelyRemoved = upperPreservedPositions.empty();
+      const bool mustBeModified = !mustBePreserved && !mustBeCompletelyRemoved;
+
+      SmallVector<int64_t> lowerPreservedPositions = {};
+      switch (tr.getType()) {
+      case TransformType::Merge: {
+        assert(!mustBeModified && "assume always one-to-many relation");
+        if (mustBePreserved) {
+          lowerPreservedPositions = llvm::to_vector_of<int64_t>(
+              llvm::seq(0L, static_cast<int64_t>(tr.getLowerDims().size())));
+        }
+        break;
+      }
+      case TransformType::PassThrough: {
+        lowerPreservedPositions = upperPreservedPositions;
+        break;
+      }
+      default:
+        return failure();
+      }
+
+      for (auto name : llvm::enumerate(tr.getLowerNames())) {
+        if (!llvm::is_contained(lowerPreservedPositions, name.index())) {
+          removeLowerDimSet.insert(name.value());
+        }
+      }
+
+      auto newUpperNames =
+          getPreserved(tr.getUpperNames(), upperPreservedPositions);
+      auto newLowerNames =
+          getPreserved(tr.getLowerNames(), lowerPreservedPositions);
+      SmallVector<uint32_t> newUpperDims =
+          genNewDims(processedUpperDims, upperPreservedPositions);
+      SmallVector<uint32_t> newLowerDims =
+          genNewDims(processedLowerDims, lowerPreservedPositions);
+
+      switch (tr.getType()) {
+      case TransformType::Merge: {
+        [[fallthrough]];
+      }
+      case TransformType::PassThrough: {
+        if (!mustBeCompletelyRemoved) {
+          auto passThrough = TransformAttr::get(
+              b.getContext(), tr.getType(), tr.getParams(), newUpperNames,
+              newUpperDims, newLowerNames, newLowerDims);
+          newOps.push_back(passThrough);
+        }
+        break;
+      }
+      default:
+        return failure();
+      }
+      // Note, we don't need to do anything in the case of
+      // `mustBeCompletelyRemoved`
+
+      processedUpperDims += upperPreservedPositions.size();
+      processedLowerDims += lowerPreservedPositions.size();
+    }
+
+    auto newUpperBounds = generateNewUpperBounds(trMap, removeUpperDimSet);
+    auto newLowerBounds = generateNewLowerBounds(trMap, removeLowerDimSet);
+
+    if (!newOps.empty()) {
+      auto newTrMap =
+          TransformMapAttr::get(newOps, newUpperBounds, newLowerBounds);
+      results.push_back(newTrMap);
+    }
+    removeUpperDimSet = removeLowerDimSet;
+  }
+
+  return b.getArrayAttr(results);
+}
+
 SetVector<StringRef>
 convertIndicesToDimNames(const ArrayAttr transformAttrs,
-                         const SetVector<int64_t> &removeeIndices) {
+                         const SetVector<int64_t> &removeIndicesSet) {
   SetVector<StringRef> dimNames = {};
   if (transformAttrs.empty()) {
     return dimNames;
@@ -1770,7 +1931,7 @@ convertIndicesToDimNames(const ArrayAttr transformAttrs,
     for (auto op : transformAttr.getOps()) {
       const auto tattr = op.cast<::rock::TransformAttr>();
       for (auto name : tattr.getUpperNames()) {
-        if (removeeIndices.contains(upperDimCounter)) {
+        if (removeIndicesSet.contains(upperDimCounter)) {
           dimNames.insert(name);
         }
         ++upperDimCounter;
@@ -1781,19 +1942,11 @@ convertIndicesToDimNames(const ArrayAttr transformAttrs,
   return dimNames;
 }
 
-ArrayAttr
+FailureOr<ArrayAttr>
 mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
-                            const SetVector<int64_t> &removeeIndices) {
+                            const SetVector<int64_t> &removeIndicesSet) {
 
-  SetVector<StringRef> removeDimNames =
-      convertIndicesToDimNames(transformAttrs, removeeIndices);
-  return removeUpperDims(b, transformAttrs, removeDimNames);
-}
-
-ArrayAttr
-mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
-                            const SetVector<StringRef> &removeeDimNames) {
-  SmallVector<Attribute> results;
-  // TODO (ravil):
-  return b.getArrayAttr(results);
+  SetVector<StringRef> removeDimNamesSet =
+      convertIndicesToDimNames(transformAttrs, removeIndicesSet);
+  return removeUpperDims(b, transformAttrs, removeDimNamesSet);
 }

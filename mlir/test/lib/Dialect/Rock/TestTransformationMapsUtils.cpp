@@ -89,7 +89,20 @@ static LogicalResult testSubDimensions(func::FuncOp f) {
       rock::untransform(builder, returnValue);
 
   auto removees = RequestProcessor::getRemovees(f);
-  rock::removeUpperDims(builder, transformAttrs, removees);
+  auto results = rock::removeUpperDims(builder, transformAttrs, removees);
+  if (failed(results)) {
+    return failure();
+  }
+
+  std::string outputString;
+  llvm::raw_string_ostream stream(outputString);
+  stream << "test " << f.getSymName() << '\n';
+  for (auto item : *results) {
+    item.print(stream);
+    stream << '\n';
+  }
+
+  llvm::outs() << stream.str();
   return success();
 }
 
