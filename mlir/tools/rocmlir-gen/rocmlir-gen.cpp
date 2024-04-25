@@ -948,7 +948,6 @@ static void correctConvParameters() {
     paddingWidthRight = in_right_pad_w + (wi_minimum - wi_specified);
 
   int di = inputDepth.getValue();
-  llvm::errs() << "di is " << di << "\n";
   int z = filterDepth.getValue();
   int in_left_pad_d = paddingDepthLeft.getValue();
   int in_right_pad_d = paddingDepthRight.getValue();
@@ -1082,7 +1081,6 @@ static void populateDefaults() {
   }
   if (isConv && outputDepth.getNumOccurrences() == 0 &&
       inputDepth.getNumOccurrences() > 0) {
-    llvm::errs() << "inputDepth (1) is " << inputDepth.getValue() << "\n";
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
@@ -3739,8 +3737,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       genParams.convConfig = std::nullopt;
       (void)createGpuAttentionKernel(module, genParams);
     } else {
-      llvm::errs() << "filterLayout is " << filterLayout << "\n";
-      int nDims = filterLayout.getValue().size() - 2; // +++pf: magic number.
+      int nDims = filterLayout.getValue().size() - 3; // +++pf: magic number.
       SmallVector<int, 4> dilations;
       SmallVector<int, 4> strides;
       SmallVector<int, 4> paddingLeft;
@@ -3777,10 +3774,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           outputLayout.getValue());
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
-      if (nDims > 2) {
-        llvm::errs() << "inputDepth (2) is " << inputDepth.getValue() << "\n";
+      if (nDims > 2)
         inDims.push_back(inputDepth);
-      }
       SmallVector<int64_t> outDims{outputHeight, outputWidth};
       if (nDims > 2)
         outDims.push_back(outputDepth);
@@ -3788,7 +3783,6 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       if (nDims > 2)
         filDims.push_back(filterDepth);
 
-      llvm::errs() << "two (inDims.size() is " << inDims.size() << ")\n";
       status =
           convGenerator.parseConvDims(batchSize, groupSize, inputChannel,
                                       inDims, outputChannel, outDims, filDims);

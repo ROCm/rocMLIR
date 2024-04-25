@@ -1118,15 +1118,11 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   // in a standard shape. So, applying it to a logically-shaped tensor gets
   // you the tensor in in-memory layout.
   resultType.getStridePermutation(permutation);
-  llvm::errs() << "in type is " << in.getType() << "\n";
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
     transposed = getTransposeOp(loc, in, rewriter, permutation);
   if (transposed.getType() != resultTensorType) {
-    llvm::errs() << "transposed op:  " << transposed << "\n";
     rewriter.eraseOp(transposed.getDefiningOp());
-    llvm::errs() << "transposed type is " << transposed.getType() << "\n";
-    llvm::errs() << "result type is " << resultTensorType << "\n";
     return op.emitOpError(
         "writing to tensors with long strides or broadcasts is unsupported");
   }
