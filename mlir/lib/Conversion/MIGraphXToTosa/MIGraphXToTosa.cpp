@@ -225,7 +225,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   // insert transpose to input and filter tensors
   input = getTransposeOp(loc, input, rewriter, toChannelLast);
-  filter = getTransposeOp(loc, filter, rewriter, fromChannelLast);
+  filter = getTransposeOp(loc, filter, rewriter, toChannelLast);
   ArrayRef<int64_t> outShape = outputTy.getShape();
 
   // original output shape was NCHW, change it into NHWC
