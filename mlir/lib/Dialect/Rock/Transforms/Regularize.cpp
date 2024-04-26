@@ -150,8 +150,8 @@ struct RegularizeGenericRewritePattern
 void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
   if (auto lgop = dyn_cast<linalg::GenericOp>(op)) {
     int64_t majorTensorSize = 0;
-    int32_t majorTensorIdx = -1;
-    int32_t inputIdx = 0;
+    size_t majorTensorIdx;
+    size_t inputIdx = 0;
     size_t argIdx = -1;
     if (lgop.getInputs().size() == 1) {
       lgop->setAttr("rock.majorTensorNumber",
@@ -167,7 +167,7 @@ void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
         auto arg = dyn_cast<BlockArgument>(inp);
         auto shape = inp.getType().cast<ShapedType>();
         int64_t argSize = shape.getNumElements();
-        if (majorTensorIdx == -1 || argSize > majorTensorSize ||
+        if (inputIdx == 0 || argSize > majorTensorSize ||
             (argSize == majorTensorSize && argIdx > arg.getArgNumber())) {
           majorTensorIdx = inputIdx;
           majorTensorSize = argSize;
