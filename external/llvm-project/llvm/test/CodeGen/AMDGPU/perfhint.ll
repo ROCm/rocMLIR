@@ -1,4 +1,4 @@
-; RUN: llc -march=amdgcn < %s | FileCheck -check-prefix=GCN %s
+; RUN: llc -mtriple=amdgcn < %s | FileCheck -check-prefix=GCN %s
 
 ; GCN-LABEL: {{^}}test_membound:
 ; GCN: MemoryBound: 1
@@ -144,7 +144,7 @@ bb:
 
 ; GCN-LABEL: {{^}}test_indirect_through_phi:
 ; GCN: MemoryBound: 0
-; GCN: WaveLimiterHint : 1
+; GCN: WaveLimiterHint : 0
 define amdgpu_kernel void @test_indirect_through_phi(ptr addrspace(1) %arg) {
 bb:
   %load = load float, ptr addrspace(1) %arg, align 8

@@ -83,27 +83,6 @@ $DEVICE_LIB_PATH=$ENV{'DEVICE_LIB_PATH'};
 $HIP_CLANG_HCC_COMPAT_MODE=$ENV{'HIP_CLANG_HCC_COMPAT_MODE'}; # HCC compatibility mode
 $HIP_COMPILE_CXX_AS_HIP=$ENV{'HIP_COMPILE_CXX_AS_HIP'} // "1";
 
-#---
-# Temporary directories
-my @tmpDirs = ();
-
-#---
-# Create a new temporary directory and return it
-sub get_temp_dir {
-    my $tmpdir = mkdtemp("/tmp/hipccXXXXXXXX");
-    push (@tmpDirs, $tmpdir);
-    return $tmpdir;
-}
-
-#---
-# Delete all created temporary directories
-sub delete_temp_dirs {
-    if (@tmpDirs) {
-        system ('rm -rf ' . join (' ', @tmpDirs));
-    }
-    return 0;
-}
-
 my $base_dir;
 BEGIN {
     $base_dir = dirname(Cwd::realpath(__FILE__) );
@@ -173,7 +152,7 @@ if ($HIP_PLATFORM eq "amd") {
         $HIPLDFLAGS .= " --ld-path=" . get_normalized_path("$HIP_CLANG_PATH/lld-link.exe");
     }
 
-    # get Clang RT Builtin path 
+    # get Clang RT Builtin path
     $HIP_CLANG_RT_LIB = `$HIPCC --print-runtime-dir`;
     chomp($HIP_CLANG_RT_LIB);
 
@@ -218,10 +197,6 @@ if ($HIP_PLATFORM eq "amd") {
     exit (-1);
 }
 
-# Add paths to common HIP includes:
-$HIPCXXFLAGS .= " -isystem " . get_normalized_path("$HIP_INCLUDE_PATH");
-$HIPCFLAGS .= " -isystem " . get_normalized_path("$HIP_INCLUDE_PATH");
-
 my $compileOnly = 0;
 my $needCXXFLAGS = 0;  # need to add CXX flags to compile step
 my $needCFLAGS = 0;    # need to add C flags to compile step
@@ -237,7 +212,7 @@ my $printLDFlags = 0;       # print HIPLDFLAGS
 my $runCmd = 1;
 my $buildDeps = 0;
 my $hsacoVersion = 0;
-my $funcSupp = 0;      # enable function support
+my $funcSupp = 1;      # enable function support
 my $rdc = 0;           # whether -fgpu-rdc is on
 
 my @options = ();
@@ -254,11 +229,12 @@ if($HIP_PLATFORM eq "nvidia"){
     if($ARGV[0] eq "--genco"){
         foreach $isaarg (@ARGV[1..$#ARGV]){
             $ISACMD .= " ";
-            # ignore --rocm-path=xxxx on nvcc nvidia platform
-            if ($isaarg !~ /--rocm-path/) {
-              $ISACMD .= $isaarg;
+            # use the headers from rocm-path or hip-path
+            if (($isaarg =~ /--rocm-path/) or ($isaarg =~ /--hip-path/)) {
+              my @header_path = split('=', $isaarg);
+              $ISACMD .= '-I' . $header_path[1] .'/include';
             } else {
-              print "Ignoring --rocm-path= on nvidia nvcc platform.\n";
+              $ISACMD .= $isaarg;
             }
         }
         if ($verbose & 0x1) {
@@ -641,7 +617,6 @@ if ($runCmd) {
     else {
          $CMD_EXIT_CODE = $? >> 8;
     }
-    $? or delete_temp_dirs ();
     exit($CMD_EXIT_CODE);
 }
 

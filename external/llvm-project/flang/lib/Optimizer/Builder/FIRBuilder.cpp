@@ -16,8 +16,11 @@
 #include "flang/Optimizer/Builder/Todo.h"
 #include "flang/Optimizer/Dialect/FIRAttr.h"
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/Support/FatalError.h"
 #include "flang/Optimizer/Support/InternalNames.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/OpenACC/OpenACC.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringExtras.h"
@@ -33,26 +36,56 @@ static llvm::cl::opt<std::size_t>
                                       "name"),
                        llvm::cl::init(32));
 
-mlir::func::FuncOp fir::FirOpBuilder::createFunction(mlir::Location loc,
-                                                     mlir::ModuleOp module,
-                                                     llvm::StringRef name,
-                                                     mlir::FunctionType ty) {
-  return fir::createFuncOp(loc, module, name, ty);
+mlir::func::FuncOp
+fir::FirOpBuilder::createFunction(mlir::Location loc, mlir::ModuleOp module,
+                                  llvm::StringRef name, mlir::FunctionType ty,
+                                  mlir::SymbolTable *symbolTable) {
+  return fir::createFuncOp(loc, module, name, ty, /*attrs*/ {}, symbolTable);
 }
 
-mlir::func::FuncOp fir::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
-                                                       llvm::StringRef name) {
+mlir::func::FuncOp
+fir::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
+                                    const mlir::SymbolTable *symbolTable,
+                                    llvm::StringRef name) {
+  if (symbolTable)
+    if (auto func = symbolTable->lookup<mlir::func::FuncOp>(name)) {
+#ifdef EXPENSIVE_CHECKS
+      assert(func == modOp.lookupSymbol<mlir::func::FuncOp>(name) &&
+             "symbolTable and module out of sync");
+#endif
+      return func;
+    }
   return modOp.lookupSymbol<mlir::func::FuncOp>(name);
 }
 
 mlir::func::FuncOp
 fir::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
+                                    const mlir::SymbolTable *symbolTable,
                                     mlir::SymbolRefAttr symbol) {
+  if (symbolTable)
+    if (auto func = symbolTable->lookup<mlir::func::FuncOp>(
+            symbol.getLeafReference())) {
+#ifdef EXPENSIVE_CHECKS
+      assert(func == modOp.lookupSymbol<mlir::func::FuncOp>(symbol) &&
+             "symbolTable and module out of sync");
+#endif
+      return func;
+    }
   return modOp.lookupSymbol<mlir::func::FuncOp>(symbol);
 }
 
-fir::GlobalOp fir::FirOpBuilder::getNamedGlobal(mlir::ModuleOp modOp,
-                                                llvm::StringRef name) {
+fir::GlobalOp
+fir::FirOpBuilder::getNamedGlobal(mlir::ModuleOp modOp,
+                                  const mlir::SymbolTable *symbolTable,
+                                  llvm::StringRef name) {
+  if (symbolTable)
+    if (auto global = symbolTable->lookup<fir::GlobalOp>(name)) {
+#ifdef EXPENSIVE_CHECKS
+      assert(global == modOp.lookupSymbol<fir::GlobalOp>(name) &&
+             "symbolTable and module out of sync");
+#endif
+      return global;
+    }
   return modOp.lookupSymbol<fir::GlobalOp>(name);
 }
 
@@ -95,7 +128,19 @@ mlir::Value fir::FirOpBuilder::createNullConstant(mlir::Location loc,
 mlir::Value fir::FirOpBuilder::createIntegerConstant(mlir::Location loc,
                                                      mlir::Type ty,
                                                      std::int64_t cst) {
+  assert((cst >= 0 || mlir::isa<mlir::IndexType>(ty) ||
+          mlir::cast<mlir::IntegerType>(ty).getWidth() <= 64) &&
+         "must use APint");
   return create<mlir::arith::ConstantOp>(loc, ty, getIntegerAttr(ty, cst));
+}
+
+mlir::Value fir::FirOpBuilder::createAllOnesInteger(mlir::Location loc,
+                                                    mlir::Type ty) {
+  if (mlir::isa<mlir::IndexType>(ty))
+    return createIntegerConstant(loc, ty, -1);
+  llvm::APInt allOnes =
+      llvm::APInt::getAllOnes(mlir::cast<mlir::IntegerType>(ty).getWidth());
+  return create<mlir::arith::ConstantOp>(loc, ty, getIntegerAttr(ty, allOnes));
 }
 
 mlir::Value
@@ -200,9 +245,34 @@ mlir::Value fir::FirOpBuilder::allocateLocal(
 
 /// Get the block for adding Allocas.
 mlir::Block *fir::FirOpBuilder::getAllocaBlock() {
-  auto iface =
+  if (auto ompOutlineableIface =
+          getRegion()
+              .getParentOfType<mlir::omp::OutlineableOpenMPOpInterface>()) {
+    return ompOutlineableIface.getAllocaBlock();
+  }
+  if (mlir::isa<mlir::omp::DeclareReductionOp>(getRegion().getParentOp()))
+    return &getRegion().front();
+  if (auto accRecipeIface =
+          getRegion().getParentOfType<mlir::acc::RecipeInterface>()) {
+    return accRecipeIface.getAllocaBlock(getRegion());
+  }
+
+  return getEntryBlock();
+}
+
+mlir::Value fir::FirOpBuilder::createTemporaryAlloc(
+    mlir::Location loc, mlir::Type type, llvm::StringRef name,
+    mlir::ValueRange lenParams, mlir::ValueRange shape,
+    llvm::ArrayRef<mlir::NamedAttribute> attrs) {
+  assert(!type.isa<fir::ReferenceType>() && "cannot be a reference");
+  // If the alloca is inside an OpenMP Op which will be outlined then pin
+  // the alloca here.
+  const bool pinned =
       getRegion().getParentOfType<mlir::omp::OutlineableOpenMPOpInterface>();
-  return iface ? iface.getAllocaBlock() : getEntryBlock();
+  mlir::Value temp =
+      create<fir::AllocaOp>(loc, type, /*unique_name=*/llvm::StringRef{}, name,
+                            pinned, lenParams, shape, attrs);
+  return temp;
 }
 
 /// Create a temporary variable on the stack. Anonymous temporaries have no
@@ -223,14 +293,9 @@ fir::FirOpBuilder::createTemporary(mlir::Location loc, mlir::Type type,
     setInsertionPointToStart(getAllocaBlock());
   }
 
-  // If the alloca is inside an OpenMP Op which will be outlined then pin the
-  // alloca here.
-  const bool pinned =
-      getRegion().getParentOfType<mlir::omp::OutlineableOpenMPOpInterface>();
-  assert(!type.isa<fir::ReferenceType>() && "cannot be a reference");
-  auto ae =
-      create<fir::AllocaOp>(loc, type, /*unique_name=*/llvm::StringRef{}, name,
-                            pinned, dynamicLength, dynamicShape, attrs);
+  mlir::Value ae =
+      createTemporaryAlloc(loc, type, name, dynamicLength, dynamicShape, attrs);
+
   if (hoistAlloc)
     restoreInsertionPoint(insPt);
   return ae;
@@ -252,31 +317,38 @@ mlir::Value fir::FirOpBuilder::createHeapTemporary(
 
 /// Create a global variable in the (read-only) data section. A global variable
 /// must have a unique name to identify and reference it.
-fir::GlobalOp fir::FirOpBuilder::createGlobal(mlir::Location loc,
-                                              mlir::Type type,
-                                              llvm::StringRef name,
-                                              mlir::StringAttr linkage,
-                                              mlir::Attribute value,
-                                              bool isConst, bool isTarget) {
+fir::GlobalOp fir::FirOpBuilder::createGlobal(
+    mlir::Location loc, mlir::Type type, llvm::StringRef name,
+    mlir::StringAttr linkage, mlir::Attribute value, bool isConst,
+    bool isTarget, fir::CUDADataAttributeAttr cudaAttr) {
+  if (auto global = getNamedGlobal(name))
+    return global;
   auto module = getModule();
   auto insertPt = saveInsertionPoint();
-  if (auto glob = module.lookupSymbol<fir::GlobalOp>(name))
-    return glob;
   setInsertionPoint(module.getBody(), module.getBody()->end());
-  auto glob =
-      create<fir::GlobalOp>(loc, name, isConst, isTarget, type, value, linkage);
+  llvm::SmallVector<mlir::NamedAttribute> attrs;
+  if (cudaAttr) {
+    auto globalOpName = mlir::OperationName(fir::GlobalOp::getOperationName(),
+                                            module.getContext());
+    attrs.push_back(mlir::NamedAttribute(
+        fir::GlobalOp::getCudaAttrAttrName(globalOpName), cudaAttr));
+  }
+  auto glob = create<fir::GlobalOp>(loc, name, isConst, isTarget, type, value,
+                                    linkage, attrs);
   restoreInsertionPoint(insertPt);
+  if (symbolTable)
+    symbolTable->insert(glob);
   return glob;
 }
 
 fir::GlobalOp fir::FirOpBuilder::createGlobal(
     mlir::Location loc, mlir::Type type, llvm::StringRef name, bool isConst,
     bool isTarget, std::function<void(FirOpBuilder &)> bodyBuilder,
-    mlir::StringAttr linkage) {
+    mlir::StringAttr linkage, fir::CUDADataAttributeAttr cudaAttr) {
+  if (auto global = getNamedGlobal(name))
+    return global;
   auto module = getModule();
   auto insertPt = saveInsertionPoint();
-  if (auto glob = module.lookupSymbol<fir::GlobalOp>(name))
-    return glob;
   setInsertionPoint(module.getBody(), module.getBody()->end());
   auto glob = create<fir::GlobalOp>(loc, name, isConst, isTarget, type,
                                     mlir::Attribute{}, linkage);
@@ -286,25 +358,14 @@ fir::GlobalOp fir::FirOpBuilder::createGlobal(
   setInsertionPointToStart(&block);
   bodyBuilder(*this);
   restoreInsertionPoint(insertPt);
+  if (symbolTable)
+    symbolTable->insert(glob);
   return glob;
 }
 
-fir::DispatchTableOp fir::FirOpBuilder::createDispatchTableOp(
-    mlir::Location loc, llvm::StringRef name, llvm::StringRef parentName) {
-  auto module = getModule();
-  auto insertPt = saveInsertionPoint();
-  if (auto dt = module.lookupSymbol<fir::DispatchTableOp>(name))
-    return dt;
-  setInsertionPoint(module.getBody(), module.getBody()->end());
-  auto dt = create<fir::DispatchTableOp>(loc, name, mlir::Type{}, parentName);
-  restoreInsertionPoint(insertPt);
-  return dt;
-}
-
-mlir::Value
-fir::FirOpBuilder::convertWithSemantics(mlir::Location loc, mlir::Type toTy,
-                                        mlir::Value val,
-                                        bool allowCharacterConversion) {
+mlir::Value fir::FirOpBuilder::convertWithSemantics(
+    mlir::Location loc, mlir::Type toTy, mlir::Value val,
+    bool allowCharacterConversion, bool allowRebox) {
   assert(toTy && "store location must be typed");
   auto fromTy = val.getType();
   if (fromTy == toTy)
@@ -362,13 +423,15 @@ fir::FirOpBuilder::convertWithSemantics(mlir::Location loc, mlir::Type toTy,
     return create<fir::EmboxProcOp>(loc, toTy, proc);
   }
 
-  if (((fir::isPolymorphicType(fromTy) &&
-        (fir::isAllocatableType(fromTy) || fir::isPointerType(fromTy)) &&
-        fir::isPolymorphicType(toTy)) ||
-       (fir::isPolymorphicType(fromTy) && toTy.isa<fir::BoxType>())) &&
-      !(fir::isUnlimitedPolymorphicType(fromTy) && fir::isAssumedType(toTy)))
-    return create<fir::ReboxOp>(loc, toTy, val, mlir::Value{},
-                                /*slice=*/mlir::Value{});
+  // Legacy: remove when removing non HLFIR lowering path.
+  if (allowRebox)
+    if (((fir::isPolymorphicType(fromTy) &&
+          (fir::isAllocatableType(fromTy) || fir::isPointerType(fromTy)) &&
+          fir::isPolymorphicType(toTy)) ||
+         (fir::isPolymorphicType(fromTy) && toTy.isa<fir::BoxType>())) &&
+        !(fir::isUnlimitedPolymorphicType(fromTy) && fir::isAssumedType(toTy)))
+      return create<fir::ReboxOp>(loc, toTy, val, mlir::Value{},
+                                  /*slice=*/mlir::Value{});
 
   return createConvert(loc, toTy, val);
 }
@@ -388,6 +451,12 @@ void fir::FirOpBuilder::createStoreWithConvert(mlir::Location loc,
   mlir::Value cast =
       createConvert(loc, fir::unwrapRefType(addr.getType()), val);
   create<fir::StoreOp>(loc, cast, addr);
+}
+
+mlir::Value fir::FirOpBuilder::loadIfRef(mlir::Location loc, mlir::Value val) {
+  if (fir::isa_ref_type(val.getType()))
+    return create<fir::LoadOp>(loc, val);
+  return val;
 }
 
 fir::StringLitOp fir::FirOpBuilder::createStringLitOp(mlir::Location loc,
@@ -959,13 +1028,13 @@ std::string fir::factory::uniqueCGIdent(llvm::StringRef prefix,
     llvm::SmallString<32> str;
     llvm::MD5::stringifyResult(result, str);
     std::string hashName = prefix.str();
-    hashName.append(".").append(str.c_str());
+    hashName.append("X").append(str.c_str());
     return fir::NameUniquer::doGenerated(hashName);
   }
   // "Short" identifiers use a reversible hex string
   std::string nm = prefix.str();
   return fir::NameUniquer::doGenerated(
-      nm.append(".").append(llvm::toHex(name)));
+      nm.append("X").append(llvm::toHex(name)));
 }
 
 mlir::Value fir::factory::locationToFilename(fir::FirOpBuilder &builder,
@@ -1263,6 +1332,15 @@ static bool recordTypeCanBeMemCopied(fir::RecordType recordType) {
   return true;
 }
 
+static bool mayHaveFinalizer(fir::RecordType recordType,
+                             fir::FirOpBuilder &builder) {
+  if (auto typeInfo = builder.getModule().lookupSymbol<fir::TypeInfoOp>(
+          recordType.getName()))
+    return !typeInfo.getNoFinal();
+  // No info, be pessimistic.
+  return true;
+}
+
 void fir::factory::genRecordAssignment(fir::FirOpBuilder &builder,
                                        mlir::Location loc,
                                        const fir::ExtendedValue &lhs,
@@ -1279,7 +1357,8 @@ void fir::factory::genRecordAssignment(fir::FirOpBuilder &builder,
                         fir::getBase(rhs).getType().isa<fir::BaseBoxType>();
   auto recTy = baseTy.dyn_cast<fir::RecordType>();
   assert(recTy && "must be a record type");
-  if (hasBoxOperands || !recordTypeCanBeMemCopied(recTy)) {
+  if ((needFinalization && mayHaveFinalizer(recTy, builder)) ||
+      hasBoxOperands || !recordTypeCanBeMemCopied(recTy)) {
     auto to = fir::getBase(builder.createBox(loc, lhs));
     auto from = fir::getBase(builder.createBox(loc, rhs));
     // The runtime entry point may modify the LHS descriptor if it is
@@ -1294,12 +1373,6 @@ void fir::factory::genRecordAssignment(fir::FirOpBuilder &builder,
     else
       fir::runtime::genAssign(builder, loc, toMutableBox, from);
     return;
-  }
-
-  // Finalize LHS on intrinsic assignment.
-  if (needFinalization) {
-    mlir::Value box = builder.createBox(loc, lhs);
-    fir::runtime::genDerivedTypeDestroy(builder, loc, box);
   }
 
   // Otherwise, the derived type has compile time constant size and for which
@@ -1504,4 +1577,22 @@ mlir::Value fir::factory::genCPtrOrCFunptrValue(fir::FirOpBuilder &builder,
   mlir::Value cPtrAddr =
       fir::factory::genCPtrOrCFunptrAddr(builder, loc, cPtr, cPtrTy);
   return builder.create<fir::LoadOp>(loc, cPtrAddr);
+}
+
+mlir::Value fir::factory::createNullBoxProc(fir::FirOpBuilder &builder,
+                                            mlir::Location loc,
+                                            mlir::Type boxType) {
+  auto boxTy{boxType.dyn_cast<fir::BoxProcType>()};
+  if (!boxTy)
+    fir::emitFatalError(loc, "Procedure pointer must be of BoxProcType");
+  auto boxEleTy{fir::unwrapRefType(boxTy.getEleTy())};
+  mlir::Value initVal{builder.create<fir::ZeroOp>(loc, boxEleTy)};
+  return builder.create<fir::EmboxProcOp>(loc, boxTy, initVal);
+}
+
+void fir::factory::setInternalLinkage(mlir::func::FuncOp func) {
+  auto internalLinkage = mlir::LLVM::linkage::Linkage::Internal;
+  auto linkage =
+      mlir::LLVM::LinkageAttr::get(func->getContext(), internalLinkage);
+  func->setAttr("llvm.linkage", linkage);
 }

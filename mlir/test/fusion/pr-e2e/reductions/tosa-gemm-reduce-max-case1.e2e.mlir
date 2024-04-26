@@ -6,7 +6,7 @@
 module {
   func.func private @dot_add__part_0(%arg0: tensor<1x128x64xf32> {func.read_access}, %arg1: tensor<1x64x256xf32> {func.read_access}) -> (tensor<1x128x1xf32> {func.write_access}) {
     %0 = "tosa.matmul"(%arg0, %arg1) : (tensor<1x128x64xf32>, tensor<1x64x256xf32>) -> tensor<1x128x256xf32>
-    %1 = "tosa.reduce_max"(%0) {axis = 2 : i64} : (tensor<1x128x256xf32>) -> tensor<1x128x1xf32>
+    %1 = "tosa.reduce_max"(%0) {axis = 2 : i32} : (tensor<1x128x256xf32>) -> tensor<1x128x1xf32>
     return %1 : tensor<1x128x1xf32>
   }
   func.func @dot_add(%arg0: tensor<1x128x64xf32>, %arg1: tensor<1x64x256xf32>) -> tensor<1x128x1xf32> {
@@ -17,7 +17,7 @@ module {
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
     func.func private @dot_add__part_0(%arg0: tensor<1x128x64xf32> {func.read_access}, %arg1: tensor<1x64x256xf32> {func.read_access}) -> (tensor<1x128x1xf32> {func.write_access}) attributes {kernel, original_func = @dot_add__part_0} {
       %0 = "tosa.matmul"(%arg0, %arg1) : (tensor<1x128x64xf32>, tensor<1x64x256xf32>) -> tensor<1x128x256xf32>
-      %1 = "tosa.reduce_max"(%0) {axis = 2 : i64} : (tensor<1x128x256xf32>) -> tensor<1x128x1xf32>
+      %1 = "tosa.reduce_max"(%0) {axis = 2 : i32} : (tensor<1x128x256xf32>) -> tensor<1x128x1xf32>
       return %1 : tensor<1x128x1xf32>
     }
   }

@@ -169,7 +169,15 @@
 
 #define BUILTIN_AMDGPU_RSQRT_F32 __builtin_amdgcn_rsqf
 #define BUILTIN_AMDGPU_RSQRT_F64 __builtin_amdgcn_rsq
-#define BUILTIN_RSQRT_F16(X) (1.0h / __builtin_sqrtf16(X))
+
+#pragma OPENCL EXTENSION cl_khr_fp16 : enable
+static inline half __ocml_priv_rsqrt_f16(half x) {
+  #pragma clang fp contract(fast)
+  return 1.0h / __builtin_sqrtf16(x);
+}
+#pragma OPENCL EXTENSION cl_khr_fp16 : disable
+
+#define BUILTIN_RSQRT_F16(X) __ocml_priv_rsqrt_f16(X)
 
 #define BUILTIN_AMDGPU_SIN_F32 __builtin_amdgcn_sinf
 
@@ -181,6 +189,8 @@
 #define BUILTIN_SQRT_F32(X) __builtin_sqrtf(X)
 #define BUILTIN_SQRT_F64(X) __builtin_sqrt(X)
 #define BUILTIN_SQRT_F16(X) __builtin_sqrtf16(X)
+
+#define BUILTIN_AMDGPU_SQRT_F32(X) __builtin_amdgcn_sqrtf(X)
 
 #define BUILTIN_TRUNC_F32 __builtin_truncf
 #define BUILTIN_TRUNC_F64 __builtin_trunc
@@ -219,17 +229,52 @@
 #define BUILTIN_FMA_F16 __builtin_fmaf16
 #define BUILTIN_FMA_2F16 __builtin_elementwise_fma
 
-#define BUILTIN_FLDEXP_F32 __builtin_amdgcn_ldexpf
-#define BUILTIN_FLDEXP_F64 __builtin_amdgcn_ldexp
-#define BUILTIN_FLDEXP_F16 __builtin_amdgcn_ldexph
+#define BUILTIN_FLDEXP_F32 __builtin_ldexpf
+#define BUILTIN_FLDEXP_F64 __builtin_ldexp
+#define BUILTIN_FLDEXP_F16 __builtin_ldexpf16
 
-#define BUILTIN_FREXP_EXP_F32 __builtin_amdgcn_frexp_expf
-#define BUILTIN_FREXP_EXP_F64 __builtin_amdgcn_frexp_exp
-#define BUILTIN_FREXP_EXP_F16 __builtin_amdgcn_frexp_exph
+#define BUILTIN_FREXP_F32 __builtin_frexpf
+#define BUILTIN_FREXP_F64 __builtin_frexp
+#define BUILTIN_FREXP_F16 __builtin_frexpf16
 
-#define BUILTIN_FREXP_MANT_F32 __builtin_amdgcn_frexp_mantf
-#define BUILTIN_FREXP_MANT_F64 __builtin_amdgcn_frexp_mant
-#define BUILTIN_FREXP_MANT_F16 __builtin_amdgcn_frexp_manth
+#define BUILTIN_FREXP_EXP_F32(X)                                               \
+    ({                                                                         \
+        int _exp;                                                              \
+        __builtin_frexp(X, &_exp);                                             \
+        _exp;                                                                  \
+    })
+
+#define BUILTIN_FREXP_EXP_F64(X)                                               \
+    ({                                                                         \
+        int _exp;                                                              \
+        __builtin_frexp(X, &_exp);                                             \
+        _exp;                                                                  \
+    })
+
+#define BUILTIN_FREXP_EXP_F16(X)                                               \
+    ({                                                                         \
+        int _exp;                                                              \
+        __builtin_frexpf16(X, &_exp);                                          \
+        _exp;                                                                  \
+    })
+
+#define BUILTIN_FREXP_MANT_F32(X)                                              \
+    ({                                                                         \
+        int _exp;                                                              \
+        __builtin_frexpf(X, &_exp);                                            \
+    })
+
+#define BUILTIN_FREXP_MANT_F64(X)                                              \
+    ({                                                                         \
+        int _exp;                                                              \
+        __builtin_frexp(X, &_exp);                                             \
+    })
+
+#define BUILTIN_FREXP_MANT_F16(X)                                              \
+    ({                                                                         \
+        int _exp;                                                              \
+        __builtin_frexpf16(X, &_exp);                                          \
+    })
 
 #define BUILTIN_CMAX_F32 __builtin_fmaxf
 #define BUILTIN_CMAX_F64 __builtin_fmax
@@ -260,7 +305,6 @@
 })
 
 #define BUILTIN_CLAMP_F32(X,L,H) __builtin_amdgcn_fmed3f(X,L,H)
-#define BUILTIN_CLAMP_F16(X,L,H) __llvm_amdgcn_fmed3_f16(X,L,H)
 
 #define ROUND_RTE 0
 #define ROUND_RTP 1

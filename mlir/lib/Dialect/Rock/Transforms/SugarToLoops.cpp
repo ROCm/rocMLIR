@@ -1203,7 +1203,7 @@ static Operation *makeAtomicFmax(PatternRewriter &b, Location loc, Value data,
   if (useBufferOps)
     return b.create<amdgpu::RawBufferAtomicFmaxOp>(
         loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
-  return b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::maxf, data, dest,
+  return b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::maximumf, data, dest,
                                        coords);
 // Disabled because we can't make this hack work in general.
 #if 0

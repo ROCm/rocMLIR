@@ -12,11 +12,16 @@
 #include "platform.h"
 #include "tests/scudo_unit_test.h"
 
+extern "C" void __hwasan_init() __attribute__((weak));
+
 #if SCUDO_LINUX
 namespace scudo {
 
 TEST(MemtagBasicDeathTest, Unsupported) {
   if (archSupportsMemoryTagging())
+    GTEST_SKIP();
+  // Skip when running with HWASan.
+  if (&__hwasan_init != 0)
     GTEST_SKIP();
 
   EXPECT_DEATH(archMemoryTagGranuleSize(), "not supported");
@@ -76,12 +81,16 @@ TEST_F(MemtagTest, ArchMemoryTagGranuleSize) {
 }
 
 TEST_F(MemtagTest, ExtractTag) {
+// The test is already skipped on anything other than 64 bit. But
+// compiling on 32 bit leads to warnings/errors, so skip compiling the test.
+#if defined(__LP64__)
   uptr Tags = 0;
   // Try all value for the top byte and check the tags values are in the
   // expected range.
   for (u64 Top = 0; Top < 0x100; ++Top)
     Tags = Tags | (1u << extractTag(Addr | (Top << 56)));
   EXPECT_EQ(0xffffull, Tags);
+#endif
 }
 
 TEST_F(MemtagDeathTest, AddFixedTag) {
@@ -116,15 +125,27 @@ TEST_F(MemtagTest, SelectRandomTag) {
     uptr Tags = 0;
     for (uptr I = 0; I < 100000; ++I)
       Tags = Tags | (1u << extractTag(selectRandomTag(Ptr, 0)));
-    EXPECT_EQ(0xfffeull, Tags);
+    // std::popcnt is C++20
+    int PopCnt = 0;
+    while (Tags) {
+      PopCnt += Tags & 1;
+      Tags >>= 1;
+    }
+    // Random tags are not always very random, and this test is not about PRNG
+    // quality.  Anything above half would be satisfactory.
+    EXPECT_GE(PopCnt, 8);
   }
 }
 
 TEST_F(MemtagTest, SelectRandomTagWithMask) {
+// The test is already skipped on anything other than 64 bit. But
+// compiling on 32 bit leads to warnings/errors, so skip compiling the test.
+#if defined(__LP64__)
   for (uptr j = 0; j < 32; ++j) {
     for (uptr i = 0; i < 1000; ++i)
       EXPECT_NE(j, extractTag(selectRandomTag(Addr, 1ull << j)));
   }
+#endif
 }
 
 TEST_F(MemtagDeathTest, SKIP_NO_DEBUG(LoadStoreTagUnaligned)) {
@@ -158,6 +179,9 @@ TEST_F(MemtagDeathTest, SKIP_NO_DEBUG(StoreTagsUnaligned)) {
 }
 
 TEST_F(MemtagTest, StoreTags) {
+// The test is already skipped on anything other than 64 bit. But
+// compiling on 32 bit leads to warnings/errors, so skip compiling the test.
+#if defined(__LP64__)
   const uptr MaxTaggedSize = 4 * archMemoryTagGranuleSize();
   for (uptr Size = 0; Size <= MaxTaggedSize; ++Size) {
     uptr NoTagBegin = Addr + archMemoryTagGranuleSize();
@@ -186,6 +210,7 @@ TEST_F(MemtagTest, StoreTags) {
     // Reset tags without using StoreTags.
     MemMap.releasePagesToOS(Addr, BufferSize);
   }
+#endif
 }
 
 } // namespace scudo

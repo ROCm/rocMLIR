@@ -44,13 +44,14 @@ int main(int argc, char *argv[]) {
   size_t SizeSource;
   amd_comgr_data_t DataSource;
   amd_comgr_data_set_t DataSetIn, DataSetPch, DataSetBc, DataSetDevLibs,
-      DataSetLinked, DataSetAsm, DataSetReloc, DataSetExec;
+      DataSetLinked, DataSetReloc, DataSetExec;
   amd_comgr_action_info_t DataAction;
   amd_comgr_status_t Status;
-  const char *CodeGenOptions[] = {"-mllvm", "-amdgpu-early-inline-all", "-mcode-object-version=4"};
+  const char *CodeGenOptions[] = {"-mcode-object-version=5", "-mllvm",
+    "-amdgpu-prelink"};
   size_t CodeGenOptionsCount =
       sizeof(CodeGenOptions) / sizeof(CodeGenOptions[0]);
-  const char *DevLibsOptions[] = {"unsafe_math", "code_object_v4"};
+  const char *DevLibsOptions[] = {"code_object_v5"};
   size_t DevLibsOptionsCount =
       sizeof(DevLibsOptions) / sizeof(DevLibsOptions[0]);
 
@@ -132,11 +133,11 @@ int main(int argc, char *argv[]) {
                                        &Count);
   checkError(Status, "amd_comgr_action_data_count");
 
-  // Our 1 source, plus 3 language libraries, plus 2 device libraries, plus 5
+  // Our 1 source, plus 3 language libraries, plus 2 device libraries, plus 4
   // features libraries.
-  if (Count != 11) {
+  if (Count != 10) {
     printf("AMD_COMGR_ACTION_ADD_DEVICE_LIBRARIES Failed: "
-           "produced %zu BC objects (expected 12)\n",
+           "produced %zu BC objects (expected 11)\n",
            Count);
     exit(1);
   }
@@ -163,29 +164,11 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  Status = amd_comgr_create_data_set(&DataSetAsm);
-  checkError(Status, "amd_comgr_create_data_set");
-
-  Status = amd_comgr_do_action(AMD_COMGR_ACTION_CODEGEN_BC_TO_ASSEMBLY,
-                               DataAction, DataSetLinked, DataSetAsm);
-  checkError(Status, "amd_comgr_do_action");
-
-  Status = amd_comgr_action_data_count(DataSetAsm, AMD_COMGR_DATA_KIND_SOURCE,
-                                       &Count);
-  checkError(Status, "amd_comgr_action_data_count");
-
-  if (Count != 1) {
-    printf("AMD_COMGR_ACTION_CODEGEN_BC_TO_ASSEMBLY Failed: "
-           "produced %zu source objects (expected 1)\n",
-           Count);
-    exit(1);
-  }
-
   Status = amd_comgr_create_data_set(&DataSetReloc);
   checkError(Status, "amd_comgr_create_data_set");
 
-  Status = amd_comgr_do_action(AMD_COMGR_ACTION_ASSEMBLE_SOURCE_TO_RELOCATABLE,
-                               DataAction, DataSetAsm, DataSetReloc);
+  Status = amd_comgr_do_action(AMD_COMGR_ACTION_CODEGEN_BC_TO_RELOCATABLE,
+                               DataAction, DataSetLinked, DataSetReloc);
   checkError(Status, "amd_comgr_do_action");
 
   Status = amd_comgr_action_data_count(DataSetReloc,
@@ -193,7 +176,7 @@ int main(int argc, char *argv[]) {
   checkError(Status, "amd_comgr_action_data_count");
 
   if (Count != 1) {
-    printf("AMD_COMGR_ACTION_ASSEMBLE_SOURCE_TO_RELOCATABLE Failed: "
+    printf("AMD_COMGR_ACTION_CODEGEN_BC_TO_RELOCATABLE Failed: "
            "produced %zu relocatable objects (expected 1)\n",
            Count);
     exit(1);
@@ -231,8 +214,6 @@ int main(int argc, char *argv[]) {
   Status = amd_comgr_destroy_data_set(DataSetDevLibs);
   checkError(Status, "amd_comgr_destroy_data_set");
   Status = amd_comgr_destroy_data_set(DataSetLinked);
-  checkError(Status, "amd_comgr_destroy_data_set");
-  Status = amd_comgr_destroy_data_set(DataSetAsm);
   checkError(Status, "amd_comgr_destroy_data_set");
   Status = amd_comgr_destroy_data_set(DataSetReloc);
   checkError(Status, "amd_comgr_destroy_data_set");

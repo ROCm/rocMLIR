@@ -7,8 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 // REQUIRES: has-unix-headers
-// UNSUPPORTED: c++03, !libcpp-has-hardened-mode && !libcpp-has-debug-mode
-// XFAIL: availability-verbose_abort-missing
+// UNSUPPORTED: c++03
+// REQUIRES: libcpp-hardening-mode={{extensive|debug}}
+// XFAIL: libcpp-hardening-mode=debug && availability-verbose_abort-missing
 
 // <list>
 

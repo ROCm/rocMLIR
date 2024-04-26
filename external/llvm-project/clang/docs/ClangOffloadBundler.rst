@@ -295,10 +295,10 @@ Compatibility Rules for Bundle Entry ID
   A code object, specified using its Bundle Entry ID, can be loaded and
   executed on a target processor, if:
 
-  * Their offload kind are the same.
-  * Their target triple are compatible.
-  * Their Target ID are compatible as defined in :ref:`compatibility-target-id`.
-  
+  * Their offload kinds are the same.
+  * Their target triples are compatible.
+  * Their Target IDs are compatible as defined in :ref:`compatibility-target-id`.
+
 .. _clang-target-id:
 
 Target ID
@@ -410,9 +410,17 @@ collection of device binaries for a specific target.
   where, Fi-Tj-DeviceBinary.X represents device binary of i-th bundled device
   binary file for target Tj.
 
-clang-offload-bundler extracts compatible device binaries for a given target
+The clang-offload-bundler extracts compatible device binaries for a given target
 from the bundled device binaries in a heterogeneous device archive and creates
 a target-specific device archive without bundling.
+
+The clang-offload-bundler determines whether a device binary is compatible
+with a target by comparing bundle IDs. Two bundle IDs are considered
+compatible if:
+
+  * Their offload kinds are the same
+  * Their target triples are the same
+  * Their Target IDs are the same
 
 Creating a Heterogeneous Device Archive
 ---------------------------------------
@@ -428,7 +436,7 @@ Creating a Heterogeneous Device Archive
       -Xopenmp-target=nvptx64-nvidia-cuda -march=sm_70 \
       -Xopenmp-target=nvptx64-nvidia-cuda -march=sm_80 \
       -c func_1.c -o func_1.o
-    
+
     clang -O2 -fopenmp -fopenmp-targets=amdgcn-amd-amdhsa,amdgcn-amd-amdhsa,
       nvptx64-nvidia-cuda, nvptx64-nvidia-cuda \
       -Xopenmp-target=amdgcn-amd-amdhsa -march=gfx906:sramecc-:xnack+ \
@@ -491,10 +499,38 @@ Additional Options while Archive Unbundling
   Check if input heterogeneous device archive follows rules for composition
   as defined in :ref:`code-object-composition` before creating device-specific
   archive(s).
-clang-offload-bundler determines whether a device binary is compatible with a
-target by comparing bundle ID's. Two bundle ID's are considered compatible if:
 
 **-debug-only=CodeObjectCompatibility**
   Verbose printing of matched/unmatched comparisons between bundle entry id of
   a device binary from HDA and bundle entry ID of a given target processor
   (see :ref:`compatibility-bundle-entry-id`).
+
+Compression and Decompression
+=============================
+
+``clang-offload-bundler`` provides features to compress and decompress the full
+bundle, leveraging inherent redundancies within the bundle entries. Use the
+`-compress` command-line option to enable this compression capability.
+
+The compressed offload bundle begins with a header followed by the compressed binary data:
+
+- **Magic Number (4 bytes)**:
+    This is a unique identifier to distinguish compressed offload bundles. The value is the string 'CCOB' (Compressed Clang Offload Bundle).
+
+- **Version Number (16-bit unsigned int)**:
+    This denotes the version of the compressed offload bundle format. The current version is `2`.
+
+- **Compression Method (16-bit unsigned int)**:
+    This field indicates the compression method used. The value corresponds to either `zlib` or `zstd`, represented as a 16-bit unsigned integer cast from the LLVM compression enumeration.
+
+- **Total File Size (32-bit unsigned int)**:
+    This is the total size (in bytes) of the file, including the header. Available in version 2 and above.
+
+- **Uncompressed Binary Size (32-bit unsigned int)**:
+    This is the size (in bytes) of the binary data before it was compressed.
+
+- **Hash (64-bit unsigned int)**:
+    This is a 64-bit truncated MD5 hash of the uncompressed binary data. It serves for verification and caching purposes.
+
+- **Compressed Data**:
+    The actual compressed binary data follows the header. Its size can be inferred from the total size of the file minus the header size.

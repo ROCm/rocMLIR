@@ -57,12 +57,8 @@ protected:
   llvm::Value *getThisValue(CodeGenFunction &CGF) {
     return CGF.CXXABIThisValue;
   }
-  Address getThisAddress(CodeGenFunction &CGF) {
-    return Address(
-        CGF.CXXABIThisValue,
-        CGF.ConvertTypeForMem(CGF.CXXABIThisDecl->getType()->getPointeeType()),
-        CGF.CXXABIThisAlignment);
-  }
+
+  Address getThisAddress(CodeGenFunction &CGF);
 
   /// Issue a diagnostic about unsupported features in the ABI.
   void ErrorUnsupportedABI(CodeGenFunction &CGF, StringRef S);
@@ -287,6 +283,7 @@ public:
 
   virtual bool shouldDynamicCastCallBeNullChecked(bool SrcIsPtr,
                                                   QualType SrcRecordTy) = 0;
+  virtual bool shouldEmitExactDynamicCast(QualType DestRecordTy) = 0;
 
   virtual llvm::Value *emitDynamicCastCall(CodeGenFunction &CGF, Address Value,
                                            QualType SrcRecordTy,
@@ -297,6 +294,15 @@ public:
   virtual llvm::Value *emitDynamicCastToVoid(CodeGenFunction &CGF,
                                              Address Value,
                                              QualType SrcRecordTy) = 0;
+
+  /// Emit a dynamic_cast from SrcRecordTy to DestRecordTy. The cast fails if
+  /// the dynamic type of Value is not exactly DestRecordTy.
+  virtual llvm::Value *emitExactDynamicCast(CodeGenFunction &CGF, Address Value,
+                                            QualType SrcRecordTy,
+                                            QualType DestTy,
+                                            QualType DestRecordTy,
+                                            llvm::BasicBlock *CastSuccess,
+                                            llvm::BasicBlock *CastFail) = 0;
 
   virtual bool EmitBadCastCall(CodeGenFunction &CGF) = 0;
 
@@ -464,12 +470,6 @@ public:
   getVTableAddressPointInStructor(CodeGenFunction &CGF, const CXXRecordDecl *RD,
                                   BaseSubobject Base,
                                   const CXXRecordDecl *NearestVBase) = 0;
-
-  /// Get the address point of the vtable for the given base subobject while
-  /// building a constexpr.
-  virtual llvm::Constant *
-  getVTableAddressPointForConstExpr(BaseSubobject Base,
-                                    const CXXRecordDecl *VTableClass) = 0;
 
   /// Get the address of the vtable for the given record decl which should be
   /// used for the vptr at the given offset in RD.
