@@ -303,18 +303,18 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     benchmark::DataType type =
         (i == bufferLengths.size() - 1 ? dataType : outDataType);
     void *hostBuffer = benchmark::allocAndFill(type, bufferLengths[i]);
-    void *gpuBuffer;
+    void *gpuBuffer = nullptr;
     HIPCHECK(hipMalloc(&gpuBuffer, bufferLengths[i]));
     hostBuffers.push_back(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
   }
 
   // 4. Actually tune
-  rock::TuningParamSet *tuningSpace =
-      rock::createTunableParamSpace(source, tuningSpaceKind);
+  std::unique_ptr<rock::TuningParamSet> tuningSpace(
+      rock::createTunableParamSpace(source, tuningSpaceKind));
   for (rock::RockTuningParamAttrInterface tuningAttr :
        tuningSpace->tuningRange) {
-    ModuleOp tuneCopy = cast<ModuleOp>(source->clone());
+    OwningOpRef<ModuleOp> tuneCopy = cast<ModuleOp>(source->clone());
     // TODO: remove this once perf_config gets parsed earlier
     SmallString<64> perfConfig;
     tuningAttr.getPerfConfigStr(perfConfig);
@@ -326,15 +326,15 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     tuneCopy->walk([&perfConfigAttr](rock::AttentionOp op) {
       op->setAttr("perf_config", perfConfigAttr);
     });
-    if (failed(applicability.run(tuneCopy))) {
+    if (failed(applicability.run(tuneCopy.get()))) {
       llvm::outs() << "N/A\n";
       continue;
     }
 
     SmallVector<uint32_t> blockSizes;
     SmallVector<uint32_t> gridSizes;
-    for (auto &fn_name : kernelFuncNames) {
-      auto tunedFunc = tuneCopy.lookupSymbol<func::FuncOp>(fn_name);
+    for (auto &fnName : kernelFuncNames) {
+      auto tunedFunc = tuneCopy->lookupSymbol<func::FuncOp>(fnName);
       if (!tunedFunc) {
         llvm::errs() << "Tuned copy somehow missing kernel function\n";
         return failure();
@@ -347,7 +347,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // We have to get these now, they disappear later. Also, if these attributes
     // aren't set the contract of the applicability pipeline changed and that's
     // a problem.
-    if (failed(compilation.run(tuneCopy))) {
+    if (failed(compilation.run(tuneCopy.get()))) {
       llvm::errs() << "Backend pipeline failed for config: " << perfConfig
                    << "\n";
       return failure();
@@ -356,7 +356,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Extract binary and benchmark
     SmallVector<std::string> hipModules;
     for (const auto &fnName : kernelFuncNames) {
-      Operation *module = tuneCopy.lookupSymbol(fnName + "_module");
+      Operation *module = tuneCopy->lookupSymbol(fnName + "_module");
       if (!isa<gpu::GPUModuleOp>(module)) {
         llvm::errs() << "could not find the GPU module\n";
       }
@@ -372,7 +372,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return failure();
     }
     llvm::outs() << timing << "\n";
-    tuneCopy->erase();
   }
   for (void *buffer : hostBuffers) {
     free(buffer);
