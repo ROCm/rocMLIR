@@ -364,8 +364,8 @@ void ErrorODRViolation::Print() {
   Printf("%s", d.Default());
   InternalScopedString g1_loc;
   InternalScopedString g2_loc;
-  PrintGlobalLocation(&g1_loc, global1);
-  PrintGlobalLocation(&g2_loc, global2);
+  PrintGlobalLocation(&g1_loc, global1, /*print_module_name=*/true);
+  PrintGlobalLocation(&g2_loc, global2, /*print_module_name=*/true);
   Printf("  [1] size=%zd '%s' %s\n", global1.size,
          MaybeDemangleGlobalName(global1.name), g1_loc.data());
   Printf("  [2] size=%zd '%s' %s\n", global2.size,
@@ -381,8 +381,8 @@ void ErrorODRViolation::Print() {
       "HINT: if you don't care about these errors you may set "
       "ASAN_OPTIONS=detect_odr_violation=0\n");
   InternalScopedString error_msg;
-  error_msg.append("%s: global '%s' at %s", scariness.GetDescription(),
-                   MaybeDemangleGlobalName(global1.name), g1_loc.data());
+  error_msg.AppendF("%s: global '%s' at %s", scariness.GetDescription(),
+                    MaybeDemangleGlobalName(global1.name), g1_loc.data());
   ReportErrorSummary(error_msg.data());
 }
 
@@ -523,15 +523,15 @@ static void PrintShadowByte(InternalScopedString *str, const char *before,
 }
 
 static void PrintLegend(InternalScopedString *str) {
-  str->append(
+  str->AppendF(
       "Shadow byte legend (one shadow byte represents %d "
       "application bytes):\n",
       (int)ASAN_SHADOW_GRANULARITY);
   PrintShadowByte(str, "  Addressable:           ", 0);
-  str->append("  Partially addressable: ");
+  str->AppendF("  Partially addressable: ");
   for (u8 i = 1; i < ASAN_SHADOW_GRANULARITY; i++)
     PrintShadowByte(str, "", i, " ");
-  str->append("\n");
+  str->AppendF("\n");
   PrintShadowByte(str, "  Heap left redzone:       ",
                   kAsanHeapLeftRedzoneMagic);
   PrintShadowByte(str, "  Freed heap region:       ", kAsanHeapFreeMagic);
@@ -565,8 +565,8 @@ static void PrintShadowBytes(InternalScopedString *str, const char *before,
                              u8 *bytes, u8 *guilty, uptr n) {
   Decorator d;
   if (before)
-    str->append("%s%p:", before,
-                (void *)ShadowToMem(reinterpret_cast<uptr>(bytes)));
+    str->AppendF("%s%p:", before,
+                 (void *)ShadowToMem(reinterpret_cast<uptr>(bytes)));
   for (uptr i = 0; i < n; i++) {
     u8 *p = bytes + i;
     const char *before =
@@ -574,7 +574,7 @@ static void PrintShadowBytes(InternalScopedString *str, const char *before,
     const char *after = p == guilty ? "]" : "";
     PrintShadowByte(str, before, *p, after);
   }
-  str->append("\n");
+  str->AppendF("\n");
 }
 
 static void PrintShadowMemoryForAddress(uptr addr) {
@@ -583,7 +583,7 @@ static void PrintShadowMemoryForAddress(uptr addr) {
   const uptr n_bytes_per_row = 16;
   uptr aligned_shadow = shadow_addr & ~(n_bytes_per_row - 1);
   InternalScopedString str;
-  str.append("Shadow bytes around the buggy address:\n");
+  str.AppendF("Shadow bytes around the buggy address:\n");
   for (int i = -5; i <= 5; i++) {
     uptr row_shadow_addr = aligned_shadow + i * n_bytes_per_row;
     // Skip rows that would be outside the shadow range. This can happen when
@@ -683,16 +683,15 @@ ErrorNonSelfAMDGPU::ErrorNonSelfAMDGPU(uptr *dev_callstack, u32 n_callstack,
 
 void ErrorNonSelfAMDGPU::PrintStack() {
   InternalScopedString source_location;
-  source_location.append("  #0 %p", callstack[0]);
+  source_location.AppendF("  #0 %p", callstack[0]);
 #if SANITIZER_AMDGPU
   if (cb_loc.fd != -1) {
-    source_location.append(" in ");
+    source_location.Append(" in ");
     __sanitizer::AMDGPUCodeObjectSymbolizer symbolizer;
     symbolizer.Init(cb_loc.fd, cb_loc.offset, cb_loc.size);
     symbolizer.SymbolizePC(callstack[0] - cb_loc.vma_adjust, source_location);
     // release all allocated comgr objects.
     symbolizer.Release();
-    CloseFile((fd_t)cb_loc.fd);
   }
 #endif
   Printf("%s", source_location.data());
@@ -700,18 +699,79 @@ void ErrorNonSelfAMDGPU::PrintStack() {
 
 void ErrorNonSelfAMDGPU::PrintThreadsAndAddresses() {
   InternalScopedString str;
-  str.append("Thread ids and accessed addresses:\n");
+  str.Append("Thread ids and accessed addresses:\n");
   for (u32 idx = 0, per_row_count = 0; idx < nactive_threads; idx++) {
     // print 8 threads per row.
     if (per_row_count == 8) {
-      str.append("\n");
+      str.Append("\n");
       per_row_count = 0;
     }
-    str.append("%02d : %p ", workitem_ids[idx], device_address[idx]);
+    str.AppendF("%02d : %p ", workitem_ids[idx], device_address[idx]);
     per_row_count++;
   }
-  str.append("\n");
+  str.Append("\n");
   Printf("%s\n", str.data());
+}
+
+static uptr ScanForMagicDown(uptr start, uptr lo, uptr magic0, uptr magic1) {
+  for (uptr p = start; p >= lo; p -= sizeof(uptr)) {
+    if (((uptr*)p)[0] == magic0 && ((uptr*)p)[1] == magic1)
+      return p;
+  }
+  return 0;
+}
+
+static uptr ScanForMagicUp(uptr start, uptr hi, uptr magic0, uptr magic1) {
+  for (uptr p = start; p < hi; p += sizeof(uptr)) {
+    if (((uptr*)p)[0] == magic0 && ((uptr*)p)[1] == magic1)
+      return p;
+  }
+  return 0;
+}
+
+void ErrorNonSelfAMDGPU::PrintMallocStack() {
+  // Facts about asan malloc on device
+  const uptr magic = 0xfedcba1ee1abcdefULL;
+  const uptr offset = 32;
+  const uptr min_chunk_size = 96;
+  const uptr min_alloc_size = 48;
+
+  Decorator d;
+  HeapAddressDescription addr_description;
+  
+  if (GetHeapAddressInformation(device_address[0], access_size,
+              &addr_description) &&
+      addr_description.chunk_access.chunk_size >= min_chunk_size) {
+    uptr lo = addr_description.chunk_access.chunk_begin;
+    uptr hi = lo + addr_description.chunk_access.chunk_size - min_alloc_size;
+    uptr start = RoundDownTo(device_address[0], sizeof(uptr));
+
+    uptr plo = ScanForMagicDown(start, lo, magic, lo);
+    if (plo) {
+      callstack[0] = ((uptr*)plo)[2];
+      Printf("%s%p is %u bytes above an address from a %sdevice malloc "
+              "(or free) call of size %u from%s\n",
+              d.Location(), device_address[0],
+              (int)(device_address[0] - (plo+offset)),
+              d.Allocation(), ((int*)plo)[7], d.Default());
+      // TODO: The code object with the malloc call may not be the same
+      // code object trying the illegal access.  A mechanism is needed
+      // to obtain the former.
+      PrintStack();
+    }
+
+    uptr phi = ScanForMagicUp(start, hi, magic, lo);
+    if (phi) {
+      callstack[0] = ((uptr*)phi)[2];
+      Printf("%s%p is %u bytes below an address from a %sdevice malloc "
+              "(or free) call of size %u from%s\n",
+              d.Location(), device_address[0],
+              (int)((phi+offset) - device_address[0]),
+
+              d.Allocation(), ((int*)phi)[7], d.Default());
+      PrintStack();
+    }
+  }
 }
 
 void ErrorNonSelfAMDGPU::Print() {
@@ -719,13 +779,17 @@ void ErrorNonSelfAMDGPU::Print() {
   Printf("%s", d.Error());
   Report("ERROR: AddressSanitizer: %s on amdgpu device %zu at pc %p\n",
          bug_descr, device_id, callstack[0]);
-  Printf("%s", d.Default());
   Printf("%s%s of size %zu in workgroup id (%zu,%zu,%zu)\n", d.Access(),
          (is_write ? "WRITE" : "READ"), access_size, wg.idx, wg.idy, wg.idz);
   Printf("%s", d.Default());
   PrintStack();
   Printf("%s", d.Location());
   PrintThreadsAndAddresses();
+  Printf("%s", d.Default());
+  if (shadow_val == kAsanHeapFreeMagic ||
+      shadow_val == kAsanHeapLeftRedzoneMagic) {
+    PrintMallocStack();
+  }
   addr_description.Print(bug_descr, true);
   Printf("%s", d.Default());
   // print shadow memory region for single address

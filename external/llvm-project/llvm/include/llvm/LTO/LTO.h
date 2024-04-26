@@ -75,6 +75,8 @@ void computeLTOCacheKey(
 
 namespace lto {
 
+StringLiteral getThinLTODefaultCPU(const Triple &TheTriple);
+
 /// Given the original \p Path to an output file, replace any path
 /// prefix matching \p OldPrefix with \p NewPrefix. Also, create the
 /// resulting directory if it does not yet exist.
@@ -196,7 +198,7 @@ private:
 /// create a ThinBackend using one of the create*ThinBackend() functions below.
 using ThinBackend = std::function<std::unique_ptr<ThinBackendProc>(
     const Config &C, ModuleSummaryIndex &CombinedIndex,
-    StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
+    DenseMap<StringRef, GVSummaryMapTy> &ModuleToDefinedGVSummaries,
     AddStreamFn AddStream, FileCache Cache)>;
 
 /// This ThinBackend runs the individual backend jobs in-process.
@@ -404,7 +406,9 @@ private:
   };
 
   // Global mapping from mangled symbol names to resolutions.
-  StringMap<GlobalResolution> GlobalResolutions;
+  // Make this an optional to guard against accessing after it has been reset
+  // (to reduce memory after we're done with it).
+  std::optional<StringMap<GlobalResolution>> GlobalResolutions;
 
   void addModuleToGlobalRes(ArrayRef<InputFile::Symbol> Syms,
                             ArrayRef<SymbolResolution> Res, unsigned Partition,

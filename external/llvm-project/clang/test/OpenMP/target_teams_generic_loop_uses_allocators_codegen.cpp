@@ -291,7 +291,7 @@ void foo() {
 // CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_BASEPTRS]], i32 0, i32 0
 // CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [1 x ptr], ptr [[DOTOFFLOAD_PTRS]], i32 0, i32 0
 // CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 0
-// CHECK-NEXT:    store i32 2, ptr [[TMP5]], align 4
+// CHECK-NEXT:    store i32 3, ptr [[TMP5]], align 4
 // CHECK-NEXT:    [[TMP6:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 1
 // CHECK-NEXT:    store i32 1, ptr [[TMP6]], align 4
 // CHECK-NEXT:    [[TMP7:%.*]] = getelementptr inbounds [[STRUCT___TGT_KERNEL_ARGUMENTS]], ptr [[KERNEL_ARGS]], i32 0, i32 2
@@ -470,13 +470,6 @@ void foo() {
 // CHECK:       omp.inner.for.end:
 // CHECK-NEXT:    br label [[OMP_LOOP_EXIT:%.*]]
 // CHECK:       omp.loop.exit:
-// CHECK-NEXT:    call void @__kmpc_for_static_fini(ptr @[[GLOB2]], i32 [[TMP3]])
-// CHECK-NEXT:    ret void
-//
-//
-// CHECK-LABEL: define {{[^@]+}}@.omp_offloading.requires_reg
-// CHECK-SAME: () #[[ATTR3:[0-9]+]] {
-// CHECK-NEXT:  entry:
-// CHECK-NEXT:    call void @__tgt_register_requires(i64 1)
+// CHECK-NEXT:    call void @__kmpc_for_static_fini(ptr @[[GLOB3]], i32 [[TMP3]])
 // CHECK-NEXT:    ret void
 //

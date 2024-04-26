@@ -205,10 +205,10 @@ bool AssemblerInvocation::createFromArgs(AssemblerInvocation &Opts,
   // Parse the arguments.
   const OptTable &OptTbl = getDriverOptTable();
 
-  const unsigned IncludedFlagsBitmask = options::CC1AsOption;
+  llvm::opt::Visibility VisibilityMask(options::CC1AsOption);
   unsigned MissingArgIndex, MissingArgCount;
   InputArgList Args = OptTbl.ParseArgs(Argv, MissingArgIndex, MissingArgCount,
-                                       IncludedFlagsBitmask);
+                                       VisibilityMask);
 
   // Check for missing argument error.
   if (MissingArgCount) {
@@ -221,7 +221,7 @@ bool AssemblerInvocation::createFromArgs(AssemblerInvocation &Opts,
   for (const Arg *A : Args.filtered(OPT_UNKNOWN)) {
     auto ArgString = A->getAsString(Args);
     std::string Nearest;
-    if (OptTbl.findNearest(ArgString, Nearest, IncludedFlagsBitmask) > 1) {
+    if (OptTbl.findNearest(ArgString, Nearest, VisibilityMask) > 1) {
       Diags.Report(diag::err_drv_unknown_argument) << ArgString;
     } else {
       Diags.Report(diag::err_drv_unknown_argument_with_suggestion)
@@ -349,6 +349,7 @@ getOutputStream(AssemblerInvocation &Opts, DiagnosticsEngine &Diags,
   return Out;
 }
 
+// clang/tools/driver/cc1as_main.cpp,  ExecuteAssemblerImpl()
 static bool executeAssemblerImpl(AssemblerInvocation &Opts,
                                  DiagnosticsEngine &Diags, raw_ostream &LogS) {
   // Get the target specific parser.
@@ -384,15 +385,14 @@ static bool executeAssemblerImpl(AssemblerInvocation &Opts,
   assert(MRI && "Unable to create target register info!");
 
   llvm::MCTargetOptions MCOptions;
+  MCOptions.X86RelaxRelocations = Opts.RelaxELFRelocations;
+  MCOptions.CompressDebugSections = Opts.CompressDebugSections;
   std::unique_ptr<MCAsmInfo> MAI(
       TheTarget->createMCAsmInfo(*MRI, Opts.Triple, MCOptions));
   assert(MAI && "Unable to create target asm info!");
 
   // Ensure MCAsmInfo initialization occurs before any use, otherwise sections
   // may be created with a combination of default and explicit settings.
-  MAI->setCompressDebugSections(Opts.CompressDebugSections);
-
-  MAI->setRelaxELFRelocations(Opts.RelaxELFRelocations);
 
   bool IsBinary = Opts.OutputType == AssemblerInvocation::FT_Obj;
   std::unique_ptr<raw_fd_ostream> FDOS = getOutputStream(Opts, Diags, IsBinary);
@@ -667,7 +667,8 @@ AMDGPUCompiler::executeInProcessDriver(ArrayRef<const char *> Args) {
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs);
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
   ProcessWarningOptions(Diags, *DiagOpts, /*ReportDiags=*/false);
-  Driver TheDriver("", "", Diags);
+
+  Driver TheDriver((Twine(env::getLLVMPath()) + "/bin/clang").str(), "", Diags);
   TheDriver.setTitle("AMDGPU Code Object Manager");
   TheDriver.setCheckInputsExist(false);
 
@@ -901,8 +902,7 @@ amd_comgr_status_t AMDGPUCompiler::processFile(const char *InputFilePath,
   }
 
   if (getLanguage() == AMD_COMGR_LANGUAGE_HIP && env::shouldSaveTemps()) {
-    std::string save_tmps = "-save-temps=" + OutputDir.str().str();
-    Argv.push_back(strdup(save_tmps.c_str()));
+    Argv.push_back("-save-temps=obj");
   }
 
   Argv.push_back(InputFilePath);
@@ -1030,11 +1030,6 @@ amd_comgr_status_t AMDGPUCompiler::addCompilationFlags() {
   HIPIncludePath = (Twine(env::getHIPPath()) + "/include").str();
   // HIP headers depend on hsa.h which is in ROCM_DIR/include.
   ROCMIncludePath = (Twine(env::getROCMPath()) + "/include").str();
-  ClangIncludePath =
-      (Twine(env::getLLVMPath()) + "/lib/clang/" + CLANG_VERSION_STRING).str();
-  ClangIncludePath2 = (Twine(env::getLLVMPath()) + "/lib/clang/" +
-                       CLANG_VERSION_STRING + "/include")
-                          .str();
 
   Args.push_back("-x");
 
@@ -1062,10 +1057,6 @@ amd_comgr_status_t AMDGPUCompiler::addCompilationFlags() {
     Args.push_back(ROCMIncludePath.c_str());
     Args.push_back("-isystem");
     Args.push_back(HIPIncludePath.c_str());
-    Args.push_back("-isystem");
-    Args.push_back(ClangIncludePath.c_str());
-    Args.push_back("-isystem");
-    Args.push_back(ClangIncludePath2.c_str());
     break;
   default:
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
@@ -1074,21 +1065,42 @@ amd_comgr_status_t AMDGPUCompiler::addCompilationFlags() {
 }
 
 amd_comgr_status_t AMDGPUCompiler::addDeviceLibraries() {
-  llvm::SmallString<128> FakeRocmDir = TmpDir;
-  path::append(FakeRocmDir, "rocm");
-  llvm::SmallString<128> DeviceLibsDir = FakeRocmDir;
-  path::append(DeviceLibsDir, "amdgcn", "bitcode");
-  if (fs::create_directory(InputDir)) {
-    return AMD_COMGR_STATUS_ERROR;
-  }
-  Args.push_back(Saver.save(Twine("--rocm-path=") + FakeRocmDir).data());
+
+  Args.push_back("-mllvm");
+  Args.push_back("-relink-builtin-bitcode-postop");
   NoGpuLib = false;
 
-  for (auto DeviceLib : getDeviceLibraries()) {
-    llvm::SmallString<128> DeviceLibPath = DeviceLibsDir;
-    path::append(DeviceLibPath, std::get<0>(DeviceLib));
-    if (auto Status = outputToFile(std::get<1>(DeviceLib), DeviceLibPath)) {
-      return Status;
+  SmallString<256> ClangBinaryPath(env::getLLVMPath());
+  sys::path::append(ClangBinaryPath, "bin", "clang");
+
+  std::string ClangResourceDir =
+    Driver::GetResourcesPath(ClangBinaryPath);
+
+  SmallString<256> DeviceLibPath(ClangResourceDir);
+  sys::path::append(DeviceLibPath, "lib");
+
+  SmallString<256> DeviceCodeDir(DeviceLibPath);
+  sys::path::append(DeviceCodeDir, "amdgcn", "bitcode");
+
+  if (llvm::sys::fs::exists(DeviceCodeDir)) {
+    Args.push_back(Saver.save(Twine("--rocm-path=") + DeviceLibPath).data());
+  }
+  else {
+    llvm::SmallString<128> FakeRocmDir = TmpDir;
+    path::append(FakeRocmDir, "rocm");
+    llvm::SmallString<128> DeviceLibsDir = FakeRocmDir;
+    path::append(DeviceLibsDir, "amdgcn", "bitcode");
+    if (fs::create_directory(InputDir)) {
+      return AMD_COMGR_STATUS_ERROR;
+    }
+    Args.push_back(Saver.save(Twine("--rocm-path=") + FakeRocmDir).data());
+
+    for (auto DeviceLib : getDeviceLibraries()) {
+      llvm::SmallString<128> DeviceLibPath = DeviceLibsDir;
+      path::append(DeviceLibPath, std::get<0>(DeviceLib));
+      if (auto Status = outputToFile(std::get<1>(DeviceLib), DeviceLibPath)) {
+        return Status;
+      }
     }
   }
 
@@ -1240,6 +1252,142 @@ amd_comgr_status_t AMDGPUCompiler::compileToFatBin() {
   return Status;
 }
 
+amd_comgr_status_t AMDGPUCompiler::unbundle() {
+  if (auto Status = createTmpDirs()) {
+    return Status;
+  }
+
+  // Collect bitcode memory buffers from bitcodes, bundles, and archives
+  for (auto *Input : InSet->DataObjects) {
+
+    std::string FileExtension;
+    amd_comgr_data_kind_t UnbundledDataKind;
+    switch(Input->DataKind) {
+    case AMD_COMGR_DATA_KIND_BC_BUNDLE:
+      FileExtension = "bc";
+      UnbundledDataKind = AMD_COMGR_DATA_KIND_BC;
+      break;
+    case AMD_COMGR_DATA_KIND_AR_BUNDLE:
+      FileExtension = "a";
+      UnbundledDataKind = AMD_COMGR_DATA_KIND_AR;
+      break;
+    case AMD_COMGR_DATA_KIND_OBJ_BUNDLE:
+      FileExtension = "o";
+      UnbundledDataKind = AMD_COMGR_DATA_KIND_EXECUTABLE;
+      break;
+    default:
+      return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+    }
+
+    // Configure Offload Bundler
+    OffloadBundlerConfig BundlerConfig;
+    BundlerConfig.AllowMissingBundles = true;
+    BundlerConfig.FilesType = FileExtension;
+    BundlerConfig.HipOpenmpCompatible = 1;
+    BundlerConfig.AllowNoHost = 1;
+
+    // Generate random name if none provided
+    if (!strcmp(Input->Name, "")) {
+      char *buf = (char *) malloc(sizeof(char) * 30);
+      sprintf(buf,"comgr-bundle-%d.%s", std::rand() % 10000,
+              FileExtension.c_str());
+      Input->Name = buf;
+    }
+
+    // Write input file system so that OffloadBundler API can process
+    // TODO: Switch write to VFS
+    std::string input_file_path = getFilePath(Input, InputDir).str().str();
+    if (auto Status = outputToFile(Input, input_file_path)) {
+      return Status;
+    }
+
+    // Bundler input name
+    BundlerConfig.InputFileNames.push_back(input_file_path);
+
+    // Generate prefix for output files
+    std::string output_prefix = std::string(Input->Name);
+    size_t index = output_prefix.find_last_of(".");
+    output_prefix = output_prefix.substr(0, index);
+
+    // Bundler target and output names
+    for (auto entry: ActionInfo->BundleEntryIDs) {
+      BundlerConfig.TargetNames.push_back(entry);
+
+      // Add an output file for each target
+      std::string output_file_name = output_prefix + '-' + entry + "." +
+        FileExtension;
+
+      // TODO: Switch this to LLVM path APIs
+      std::string output_file_path = OutputDir.str().str() + "/" +
+        output_file_name;
+      BundlerConfig.OutputFileNames.push_back(output_file_path);
+    }
+
+    OffloadBundler Bundler(BundlerConfig);
+
+    // TODO: log vectors, build clang command
+    if (env::shouldEmitVerboseLogs()) {
+      LogS << "Extracting Bundle:\n"
+        << "\t  Unbundled Files Extension: ." << FileExtension << "\n"
+        << "\t  Bundle Entry ID: " << BundlerConfig.TargetNames[0] << "\n"
+        << "\t   Input Filename: " << BundlerConfig.InputFileNames[0] << "\n"
+        << "\t  Output Filename: " << BundlerConfig.OutputFileNames[0]
+        << "\n";
+      LogS.flush();
+    }
+
+    switch(Input->DataKind) {
+    case AMD_COMGR_DATA_KIND_BC_BUNDLE: {
+      llvm::Error Err = Bundler.UnbundleFiles();
+      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                  "Unbundle Bitcodes Error: ");
+      break; }
+    case AMD_COMGR_DATA_KIND_AR_BUNDLE: {
+      llvm::Error Err = Bundler.UnbundleArchive();
+      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                  "Unbundle Archives Error: ");
+      break; }
+    case AMD_COMGR_DATA_KIND_OBJ_BUNDLE: {
+      llvm::Error Err = Bundler.UnbundleFiles();
+      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
+                                  "Unbundle Objects Error: ");
+      break; }
+    default:
+      llvm_unreachable("invalid bundle type");
+    }
+
+    // Add new bitcodes to OutSetT
+    for (auto output_file_path : BundlerConfig.OutputFileNames) {
+
+      amd_comgr_data_t ResultT;
+
+      if (auto Status = amd_comgr_create_data(UnbundledDataKind,
+                                              &ResultT))
+        return Status;
+
+      DataObject *Result = DataObject::convert(ResultT);
+      if (auto Status = inputFromFile(Result, StringRef(output_file_path)))
+        return Status;
+
+      StringRef output_file_name =
+        llvm::sys::path::filename(StringRef(output_file_path));
+      Result->setName(output_file_name);
+
+      if (auto Status = amd_comgr_data_set_add(OutSetT, ResultT)) {
+        return Status;
+      }
+
+      // Remove input and output file after reading back into Comgr data
+      if (!env::shouldEmitVerboseLogs()) {
+        sys::fs::remove(input_file_path);
+        sys::fs::remove(output_file_path);
+      }
+    }
+  }
+
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
 amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
   if (auto Status = createTmpDirs()) {
     return Status;
@@ -1262,7 +1410,6 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
       // string to assign. This string is used when the DataObject is written
       // to the file system via SAVE_TEMPS, or if the object is a bundle which
       // also needs a file system write for unpacking
-
       char *buf = (char *) malloc(sizeof(char) * 30);
       sprintf(buf,"comgr-anon-bitcode-%d.bc", std::rand() % 10000);
 
@@ -1276,15 +1423,14 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
     }
 
     if (Input->DataKind == AMD_COMGR_DATA_KIND_BC) {
-      // The data in Input outlives Mod, and the linker destructs Mod after
-      // linking it into composite (i.e. ownership is not transferred to the
-      // composite) so MemoryBuffer::getMemBuffer is sufficient.
-
       if (env::shouldEmitVerboseLogs()) {
         LogS << "\t     Linking Bitcode: " << InputDir << "/" << Input->Name
              << "\n";
       }
 
+      // The data in Input outlives Mod, and the linker destructs Mod after
+      // linking it into composite (i.e. ownership is not transferred to the
+      // composite) so MemoryBuffer::getMemBuffer is sufficient.
       auto Mod =
         getLazyIRModule(MemoryBuffer::getMemBuffer(
             StringRef(Input->Data, Input->Size), "", false),
@@ -1306,6 +1452,8 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
       }
 
       // Determine desired bundle entry ID
+      // TODO: Move away from using ActionInfo->IsaName
+      //   Use ActionInfo->BundleEntryIDs instead
       if (!ActionInfo->IsaName)
         return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
 
@@ -1315,7 +1463,7 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
         isa_name.substr(index + 3);
 
       // Write data to file system so that Offload Bundler can process, assuming
-      // we didn't already write due to save-temps above
+      // we didn't already write due to shouldSaveTemps() conditional above
       // TODO: Switch write to VFS
       if (!env::shouldSaveTemps()) {
         if (auto Status = outputToFile(Input, getFilePath(Input, InputDir))) {
@@ -1363,7 +1511,6 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
         LogS.flush();
       }
 
-
       llvm::Error Err = Bundler.UnbundleFiles();
       llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
                                   "UnbundleFiles error: ");
@@ -1403,6 +1550,8 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
       }
 
       // Determine desired bundle entry ID
+      // TODO: Move away from using ActionInfo->IsaName
+      //   Use ActionInfo->BundleEntryIDs instead
       if (!ActionInfo->IsaName)
         return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
 
@@ -1412,7 +1561,7 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
         isa_name.substr(index + 3);
 
       // Write data to file system so that Offload Bundler can process, assuming
-      // we didn't already write due to save-temps above
+      // we didn't already write due to shouldSaveTemps() conditional above
       // TODO: Switch write to VFS
       if (!env::shouldSaveTemps()) {
         if (auto Status = outputToFile(Input, getFilePath(Input, InputDir))) {
@@ -1531,8 +1680,6 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
 
       llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
                                   "Unpack Archives error: ");
-
-      Result->release();
     }
     else
       continue;
@@ -1614,6 +1761,9 @@ amd_comgr_status_t AMDGPUCompiler::assembleToRelocatable() {
   Args.push_back("-c");
   Args.push_back("-x");
   Args.push_back("assembler");
+
+  // -nogpulib option not needed for assembling to relocatable
+  NoGpuLib = false;
 
   return processFiles(AMD_COMGR_DATA_KIND_RELOCATABLE, ".o");
 }

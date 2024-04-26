@@ -11,7 +11,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/FunctionImplementation.h"
+#include "mlir/Interfaces/FunctionImplementation.h"
 #include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -60,6 +60,11 @@ CallInterfaceCallable LaunchOp::getCallableForCallee() {
 /// Set the callee for this operation.
 void LaunchOp::setCalleeFromCallable(CallInterfaceCallable callee) {
   (*this)->setAttr("callee", callee.get<SymbolRefAttr>());
+}
+
+/// Return the operands passed to the callee.
+MutableOperandRange LaunchOp::getArgOperandsMutable() {
+  return getLaunchOperandsMutable();
 }
 
 /// Return the operands passed to the callee.

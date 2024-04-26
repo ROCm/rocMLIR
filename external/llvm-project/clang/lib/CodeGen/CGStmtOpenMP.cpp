@@ -24,6 +24,7 @@
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
@@ -389,7 +390,8 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
         LValue DstLV = MakeAddrLValue(DstAddr, Ctx.getUIntPtrType());
 
         llvm::Value *SrcAddrVal = EmitScalarConversion(
-            DstAddr.getPointer(), Ctx.getPointerType(Ctx.getUIntPtrType()),
+            DstAddr.emitRawPointer(*this),
+            Ctx.getPointerType(Ctx.getUIntPtrType()),
             Ctx.getPointerType(CurField->getType()), CurCap->getLocation());
         LValue SrcLV =
             MakeNaturalAlignAddrLValue(SrcAddrVal, CurField->getType());
@@ -403,7 +405,8 @@ void CodeGenFunction::GenerateOpenMPCapturedVars(
       CapturedVars.push_back(CV);
     } else {
       assert(CurCap->capturesVariable() && "Expected capture by reference.");
-      CapturedVars.push_back(EmitLValue(*I).getAddress(*this).getPointer());
+      CapturedVars.push_back(
+          EmitLValue(*I).getAddress(*this).emitRawPointer(*this));
     }
   }
 
@@ -438,9 +441,10 @@ static Address castValueFromUintptr(CodeGenFunction &CGF, SourceLocation Loc,
     if (PTy && PTy->getAddressSpace() != Addr.getAddressSpace())
       Addr = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(Addr, Ty, PTy);
   }
-  llvm::Value *CastedPtr =
-      CGF.EmitScalarConversion(Addr.getPointer(), Ctx.getUIntPtrType(),
-                               Ctx.getPointerType(DstType), Loc);
+  llvm::Value *CastedPtr = CGF.EmitScalarConversion(
+      AddrLV.getAddress(CGF).emitRawPointer(CGF), Ctx.getUIntPtrType(),
+      Ctx.getPointerType(DstType), Loc);
+  // FIXME: should the pointee type (DstType) be passed?
   Address TmpAddr =
       CGF.MakeNaturalAlignAddrLValue(CastedPtr, DstType).getAddress(CGF);
   return TmpAddr;
@@ -564,7 +568,7 @@ static llvm::Function *emitOutlinedFunctionPrologue(
     if (CapVar && (CapVar->getTLSKind() != clang::VarDecl::TLS_None)) {
       Arg = ImplicitParamDecl::Create(Ctx, /*DC=*/nullptr, FD->getLocation(),
                                       II, ArgType,
-                                      ImplicitParamDecl::ThreadPrivateVar);
+                                      ImplicitParamKind::ThreadPrivateVar);
     } else if (DebugFunctionDecl && (CapVar || I->capturesThis())) {
       Arg = ParmVarDecl::Create(
           Ctx, DebugFunctionDecl,
@@ -573,7 +577,7 @@ static llvm::Function *emitOutlinedFunctionPrologue(
           /*TInfo=*/nullptr, SC_None, /*DefArg=*/nullptr);
     } else {
       Arg = ImplicitParamDecl::Create(Ctx, /*DC=*/nullptr, FD->getLocation(),
-                                      II, ArgType, ImplicitParamDecl::Other);
+                                      II, ArgType, ImplicitParamKind::Other);
     }
     Args.emplace_back(Arg);
     // Do not cast arguments if we emit function with non-original types.
@@ -607,11 +611,11 @@ static llvm::Function *emitOutlinedFunctionPrologue(
       if (CGM.getLangOpts().OpenMPIsTargetDevice)
         CGM.updateXteamRedVarArgPos(&Itr->second, Args.size());
       VarDecl *DTeamValsVD = ImplicitParamDecl::Create(
-          Ctx, Ctx.VoidPtrTy, ImplicitParamDecl::CapturedContext);
+          Ctx, Ctx.VoidPtrTy, ImplicitParamKind::CapturedContext);
       Args.emplace_back(DTeamValsVD);
       TargetArgs.emplace_back(DTeamValsVD);
       VarDecl *DTeamsDoneVD = ImplicitParamDecl::Create(
-          Ctx, Ctx.VoidPtrTy, ImplicitParamDecl::CapturedContext);
+          Ctx, Ctx.VoidPtrTy, ImplicitParamKind::CapturedContext);
       Args.emplace_back(DTeamsDoneVD);
       TargetArgs.emplace_back(DTeamsDoneVD);
     }
@@ -637,7 +641,7 @@ static llvm::Function *emitOutlinedFunctionPrologue(
       (CGM.getLangOpts().OpenMPIsTargetDevice && argsNeedAddrSpace &&
        (Ctx.getTargetInfo().getTriple().isAMDGCN()))
           ? CGM.getTypes().arrangeLLVMFunctionInfo(
-                Ctx.VoidTy, false, false, argCanQualTypes,
+                Ctx.VoidTy, FnInfoOpts::None, argCanQualTypes,
                 FunctionType::ExtInfo(), {}, RequiredArgs::All)
           : CGM.getTypes().arrangeBuiltinFunctionDeclaration(Ctx.VoidTy,
                                                              TargetArgs);
@@ -856,11 +860,7 @@ llvm::Function *CodeGenFunction::GenerateOpenMPCapturedStmtFunction(
           I->second.first ? I->second.first->getType() : Arg->getType(),
           AlignmentSource::Decl);
       if (LV.getType()->isAnyComplexType())
-        LV.setAddress(WrapperCGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-            LV.getAddress(WrapperCGF),
-            PI->getType()->getPointerTo(
-                LV.getAddress(WrapperCGF).getAddressSpace()),
-            PI->getType()));
+        LV.setAddress(LV.getAddress(WrapperCGF).withElementType(PI->getType()));
       CallArg = WrapperCGF.EmitLoadOfScalar(LV, S.getBeginLoc());
     } else {
       auto EI = VLASizes.find(Arg);
@@ -895,8 +895,8 @@ void CodeGenFunction::EmitOMPAggregateAssign(
   llvm::Value *NumElements = emitArrayLength(ArrayTy, ElementTy, DestAddr);
   SrcAddr = SrcAddr.withElementType(DestAddr.getElementType());
 
-  llvm::Value *SrcBegin = SrcAddr.getPointer();
-  llvm::Value *DestBegin = DestAddr.getPointer();
+  llvm::Value *SrcBegin = SrcAddr.emitRawPointer(*this);
+  llvm::Value *DestBegin = DestAddr.emitRawPointer(*this);
   // Cast from pointer to array type to pointer to single element.
   llvm::Value *DestEnd = Builder.CreateInBoundsGEP(DestAddr.getElementType(),
                                                    DestBegin, NumElements);
@@ -1200,10 +1200,10 @@ bool CodeGenFunction::EmitOMPCopyinClause(const OMPExecutableDirective &D) {
           CopyBegin = createBasicBlock("copyin.not.master");
           CopyEnd = createBasicBlock("copyin.not.master.end");
           // TODO: Avoid ptrtoint conversion.
-          auto *MasterAddrInt =
-              Builder.CreatePtrToInt(MasterAddr.getPointer(), CGM.IntPtrTy);
-          auto *PrivateAddrInt =
-              Builder.CreatePtrToInt(PrivateAddr.getPointer(), CGM.IntPtrTy);
+          auto *MasterAddrInt = Builder.CreatePtrToInt(
+              MasterAddr.emitRawPointer(*this), CGM.IntPtrTy);
+          auto *PrivateAddrInt = Builder.CreatePtrToInt(
+              PrivateAddr.emitRawPointer(*this), CGM.IntPtrTy);
           Builder.CreateCondBr(
               Builder.CreateICmpNE(MasterAddrInt, PrivateAddrInt), CopyBegin,
               CopyEnd);
@@ -1622,10 +1622,12 @@ void CodeGenFunction::EmitOMPReductionClauseFinal(
           *this, D.getBeginLoc(),
           isOpenMPWorksharingDirective(D.getDirectiveKind()));
     }
+    bool TeamsLoopCanBeParallel = false;
+    if (auto *TTLD = dyn_cast<OMPTargetTeamsGenericLoopDirective>(&D))
+      TeamsLoopCanBeParallel = TTLD->canBeParallelFor();
     bool WithNowait = D.getSingleClause<OMPNowaitClause>() ||
                       isOpenMPParallelDirective(D.getDirectiveKind()) ||
-                      CGM.TeamsLoopCanBeParallelFor(D) ||
-                      ReductionKind == OMPD_simd;
+                      TeamsLoopCanBeParallel || ReductionKind == OMPD_simd;
     bool SimpleReduction = ReductionKind == OMPD_simd;
     // Emit nowait reduction if nowait clause is present or directive is a
     // parallel directive (it always has implicit barrier).
@@ -1860,7 +1862,7 @@ Address CodeGenFunction::OMPBuilderCBHelpers::getAddrOfThreadPrivate(
 
   llvm::Type *VarTy = VDAddr.getElementType();
   llvm::Value *Data =
-      CGF.Builder.CreatePointerCast(VDAddr.getPointer(), CGM.Int8PtrTy);
+      CGF.Builder.CreatePointerCast(VDAddr.emitRawPointer(CGF), CGM.Int8PtrTy);
   llvm::ConstantInt *Size = CGM.getSize(CGM.GetTargetTypeStoreSize(VarTy));
   std::string Suffix = getNameWithSeparators({"cache", ""});
   llvm::Twine CacheName = Twine(CGM.getMangledName(VD)).concat(Suffix);
@@ -2009,6 +2011,11 @@ class OMPTransformDirectiveScopeRAII {
   OMPLoopScope *Scope = nullptr;
   CodeGenFunction::CGCapturedStmtInfo *CGSI = nullptr;
   CodeGenFunction::CGCapturedStmtRAII *CapInfoRAII = nullptr;
+
+  OMPTransformDirectiveScopeRAII(const OMPTransformDirectiveScopeRAII &) =
+      delete;
+  OMPTransformDirectiveScopeRAII &
+  operator=(const OMPTransformDirectiveScopeRAII &) = delete;
 
 public:
   OMPTransformDirectiveScopeRAII(CodeGenFunction &CGF, const Stmt *S) {
@@ -2244,7 +2251,7 @@ void CodeGenFunction::EmitOMPCanonicalLoop(const OMPCanonicalLoop *S) {
                            ->getParam(0)
                            ->getType()
                            .getNonReferenceType();
-  Address CountAddr = CreateMemTemp(LogicalTy, ".count.addr");
+  RawAddress CountAddr = CreateMemTemp(LogicalTy, ".count.addr");
   emitCapturedStmtCall(*this, DistanceClosure, {CountAddr.getPointer()});
   llvm::Value *DistVal = Builder.CreateLoad(CountAddr, ".count");
 
@@ -2260,7 +2267,7 @@ void CodeGenFunction::EmitOMPCanonicalLoop(const OMPCanonicalLoop *S) {
     LValue LCVal = EmitLValue(LoopVarRef);
     Address LoopVarAddress = LCVal.getAddress(*this);
     emitCapturedStmtCall(*this, LoopVarClosure,
-                         {LoopVarAddress.getPointer(), IndVar});
+                         {LoopVarAddress.emitRawPointer(*this), IndVar});
 
     RunCleanupsScope BodyScope(*this);
     EmitStmt(BodyStmt);
@@ -2757,9 +2764,9 @@ static void emitOMPSimdRegion(CodeGenFunction &CGF, const OMPLoopDirective &S,
   (void)CGF.EmitOMPLinearClauseInit(S);
   {
     CodeGenFunction::OMPPrivateScope LoopScope(CGF);
+    CGF.EmitOMPPrivateClause(S, LoopScope);
     CGF.EmitOMPPrivateLoopCounters(S, LoopScope);
     CGF.EmitOMPLinearClause(S, LoopScope);
-    CGF.EmitOMPPrivateClause(S, LoopScope);
     CGF.EmitOMPReductionClauseInit(S, LoopScope);
     CGOpenMPRuntime::LastprivateConditionalRAII LPCRegion(
         CGF, S, CGF.EmitLValue(S.getIterationVariable()));
@@ -3109,10 +3116,10 @@ void CodeGenFunction::EmitOMPOuterLoop(
   EmitBlock(LoopExit.getBlock());
 
   // Tell the runtime we are done.
-  auto &&CodeGen = [DynamicOrOrdered, &S](CodeGenFunction &CGF) {
+  auto &&CodeGen = [DynamicOrOrdered, &S, &LoopArgs](CodeGenFunction &CGF) {
     if (!DynamicOrOrdered)
       CGF.CGM.getOpenMPRuntime().emitForStaticFinish(CGF, S.getEndLoc(),
-                                                     S.getDirectiveKind());
+                                                     LoopArgs.DKind);
   };
   OMPCancelStack.emitExit(*this, S.getDirectiveKind(), CodeGen);
 }
@@ -3218,6 +3225,7 @@ void CodeGenFunction::EmitOMPForOuterLoop(
   OuterLoopArgs.Cond = S.getCond();
   OuterLoopArgs.NextLB = S.getNextLowerBound();
   OuterLoopArgs.NextUB = S.getNextUpperBound();
+  OuterLoopArgs.DKind = LoopArgs.DKind;
   EmitOMPOuterLoop(DynamicOrOrdered, IsMonotonic, S, LoopScope, OuterLoopArgs,
                    emitOMPLoopBodyWithStopPoint, CodeGenOrdered);
 }
@@ -3279,6 +3287,7 @@ void CodeGenFunction::EmitOMPDistributeOuterLoop(
   OuterLoopArgs.NextUB = isOpenMPLoopBoundSharingDirective(S.getDirectiveKind())
                              ? S.getCombinedNextUpperBound()
                              : S.getNextUpperBound();
+  OuterLoopArgs.DKind = OMPD_distribute;
 
   EmitOMPOuterLoop(/* DynamicOrOrdered = */ false, /* IsMonotonic = */ false, S,
                    LoopScope, OuterLoopArgs, CodeGenLoopContent,
@@ -3651,15 +3660,16 @@ bool CodeGenFunction::EmitOMPWorksharingLoop(
         // Tell the runtime we are done.
         auto &&CodeGen = [&S](CodeGenFunction &CGF) {
           CGF.CGM.getOpenMPRuntime().emitForStaticFinish(CGF, S.getEndLoc(),
-                                                         S.getDirectiveKind());
+                                                         OMPD_for);
         };
         OMPCancelStack.emitExit(*this, S.getDirectiveKind(), CodeGen);
       } else {
         // Emit the outer loop, which requests its work chunk [LB..UB] from
         // runtime and runs the inner loop to process it.
-        const OMPLoopArguments LoopArguments(
+        OMPLoopArguments LoopArguments(
             LB.getAddress(*this), UB.getAddress(*this), ST.getAddress(*this),
             IL.getAddress(*this), Chunk, EUB);
+        LoopArguments.DKind = OMPD_for;
         EmitOMPForOuterLoop(ScheduleKind, IsMonotonic, S, LoopScope, Ordered,
                             LoopArguments, CGDispatchBounds);
       }
@@ -4281,7 +4291,7 @@ void CodeGenFunction::EmitSections(const OMPExecutableDirective &S) {
     // Tell the runtime we are done.
     auto &&CodeGen = [&S](CodeGenFunction &CGF) {
       CGF.CGM.getOpenMPRuntime().emitForStaticFinish(CGF, S.getEndLoc(),
-                                                     S.getDirectiveKind());
+                                                     OMPD_sections);
     };
     CGF.OMPCancelStack.emitExit(CGF, S.getDirectiveKind(), CodeGen);
     CGF.EmitOMPReductionClauseFinal(S, /*ReductionKind=*/OMPD_parallel);
@@ -4945,10 +4955,10 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
           if (CGF.CGM.getCodeGenOpts().hasReducedDebugInfo())
             (void)DI->EmitDeclareOfAutoVariable(SharedVar, ContextValue,
                                                 CGF.Builder, false);
-          llvm::Instruction &Last = CGF.Builder.GetInsertBlock()->back();
           // Get the call dbg.declare instruction we just created and update
           // its DIExpression to add offset to base address.
-          if (auto DDI = dyn_cast<llvm::DbgVariableIntrinsic>(&Last)) {
+          auto UpdateExpr = [](llvm::LLVMContext &Ctx, auto *Declare,
+                               unsigned Offset) {
             SmallVector<uint64_t, 8> Ops;
             // Add offset to the base address if non zero.
             if (Offset) {
@@ -4956,9 +4966,21 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
               Ops.push_back(Offset);
             }
             Ops.push_back(llvm::dwarf::DW_OP_deref);
-            auto &Ctx = DDI->getContext();
-            llvm::DIExpression *DIExpr = llvm::DIExpression::get(Ctx, Ops);
-            Last.setOperand(2, llvm::MetadataAsValue::get(Ctx, DIExpr));
+            Declare->setExpression(llvm::DIExpression::get(Ctx, Ops));
+          };
+          llvm::Instruction &Last = CGF.Builder.GetInsertBlock()->back();
+          if (auto DDI = dyn_cast<llvm::DbgVariableIntrinsic>(&Last))
+            UpdateExpr(DDI->getContext(), DDI, Offset);
+          // If we're emitting using the new debug info format into a block
+          // without a terminator, the record will be "trailing".
+          assert(!Last.isTerminator() && "unexpected terminator");
+          if (auto *Marker =
+                  CGF.Builder.GetInsertBlock()->getTrailingDbgRecords()) {
+            for (llvm::DbgVariableRecord &DVR : llvm::reverse(
+                     llvm::filterDbgVars(Marker->getDbgRecordRange()))) {
+              UpdateExpr(Last.getContext(), &DVR, Offset);
+              break;
+            }
           }
         }
       }
@@ -4979,7 +5001,7 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
       ParamTypes.push_back(PrivatesPtr->getType());
       for (const Expr *E : Data.PrivateVars) {
         const auto *VD = cast<VarDecl>(cast<DeclRefExpr>(E)->getDecl());
-        Address PrivatePtr = CGF.CreateMemTemp(
+        RawAddress PrivatePtr = CGF.CreateMemTemp(
             CGF.getContext().getPointerType(E->getType()), ".priv.ptr.addr");
         PrivatePtrs.emplace_back(VD, PrivatePtr);
         CallArgs.push_back(PrivatePtr.getPointer());
@@ -4987,7 +5009,7 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
       }
       for (const Expr *E : Data.FirstprivateVars) {
         const auto *VD = cast<VarDecl>(cast<DeclRefExpr>(E)->getDecl());
-        Address PrivatePtr =
+        RawAddress PrivatePtr =
             CGF.CreateMemTemp(CGF.getContext().getPointerType(E->getType()),
                               ".firstpriv.ptr.addr");
         PrivatePtrs.emplace_back(VD, PrivatePtr);
@@ -4997,7 +5019,7 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
       }
       for (const Expr *E : Data.LastprivateVars) {
         const auto *VD = cast<VarDecl>(cast<DeclRefExpr>(E)->getDecl());
-        Address PrivatePtr =
+        RawAddress PrivatePtr =
             CGF.CreateMemTemp(CGF.getContext().getPointerType(E->getType()),
                               ".lastpriv.ptr.addr");
         PrivatePtrs.emplace_back(VD, PrivatePtr);
@@ -5010,7 +5032,7 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
           Ty = CGF.getContext().getPointerType(Ty);
         if (isAllocatableDecl(VD))
           Ty = CGF.getContext().getPointerType(Ty);
-        Address PrivatePtr = CGF.CreateMemTemp(
+        RawAddress PrivatePtr = CGF.CreateMemTemp(
             CGF.getContext().getPointerType(Ty), ".local.ptr.addr");
         auto Result = UntiedLocalVars.insert(
             std::make_pair(VD, std::make_pair(PrivatePtr, Address::invalid())));
@@ -5023,8 +5045,6 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
       }
       auto *CopyFnTy = llvm::FunctionType::get(CGF.Builder.getVoidTy(),
                                                ParamTypes, /*isVarArg=*/false);
-      CopyFn = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-          CopyFn, CopyFnTy->getPointerTo());
       CGF.CGM.getOpenMPRuntime().emitOutlinedFunctionCall(
           CGF, S.getBeginLoc(), {CopyFnTy, CopyFn}, CallArgs);
       for (const auto &Pair : LastprivateDstsOrigs) {
@@ -5045,7 +5065,7 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
         if (auto *DI = CGF.getDebugInfo())
           if (CGF.CGM.getCodeGenOpts().hasReducedDebugInfo())
             (void)DI->EmitDeclareOfAutoVariable(
-                Pair.first, Pair.second.getPointer(), CGF.Builder,
+                Pair.first, Pair.second.getBasePointer(), CGF.Builder,
                 /*UsePointerValue*/ true);
       }
       // Adjust mapping for internal locals by mapping actual memory instead of
@@ -5098,14 +5118,14 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
                                                            RedCG, Cnt);
         Address Replacement = CGF.CGM.getOpenMPRuntime().getTaskReductionItem(
             CGF, S.getBeginLoc(), ReductionsPtr, RedCG.getSharedLValue(Cnt));
-        Replacement =
-            Address(CGF.EmitScalarConversion(
-                        Replacement.getPointer(), CGF.getContext().VoidPtrTy,
-                        CGF.getContext().getPointerType(
-                            Data.ReductionCopies[Cnt]->getType()),
-                        Data.ReductionCopies[Cnt]->getExprLoc()),
-                    CGF.ConvertTypeForMem(Data.ReductionCopies[Cnt]->getType()),
-                    Replacement.getAlignment());
+        Replacement = Address(
+            CGF.EmitScalarConversion(Replacement.emitRawPointer(CGF),
+                                     CGF.getContext().VoidPtrTy,
+                                     CGF.getContext().getPointerType(
+                                         Data.ReductionCopies[Cnt]->getType()),
+                                     Data.ReductionCopies[Cnt]->getExprLoc()),
+            CGF.ConvertTypeForMem(Data.ReductionCopies[Cnt]->getType()),
+            Replacement.getAlignment());
         Replacement = RedCG.adjustPrivateAddress(CGF, Cnt, Replacement);
         Scope.addPrivate(RedCG.getBaseDecl(Cnt), Replacement);
       }
@@ -5156,7 +5176,7 @@ void CodeGenFunction::EmitOMPTaskBasedDirective(
             CGF, S.getBeginLoc(), ReductionsPtr, RedCG.getSharedLValue(Cnt));
         Replacement = Address(
             CGF.EmitScalarConversion(
-                Replacement.getPointer(), CGF.getContext().VoidPtrTy,
+                Replacement.emitRawPointer(CGF), CGF.getContext().VoidPtrTy,
                 CGF.getContext().getPointerType(InRedPrivs[Cnt]->getType()),
                 InRedPrivs[Cnt]->getExprLoc()),
             CGF.ConvertTypeForMem(InRedPrivs[Cnt]->getType()),
@@ -5186,18 +5206,18 @@ createImplicitFirstprivateForType(ASTContext &C, OMPTaskDataTy &Data,
                                   QualType Ty, CapturedDecl *CD,
                                   SourceLocation Loc) {
   auto *OrigVD = ImplicitParamDecl::Create(C, CD, Loc, /*Id=*/nullptr, Ty,
-                                           ImplicitParamDecl::Other);
+                                           ImplicitParamKind::Other);
   auto *OrigRef = DeclRefExpr::Create(
       C, NestedNameSpecifierLoc(), SourceLocation(), OrigVD,
       /*RefersToEnclosingVariableOrCapture=*/false, Loc, Ty, VK_LValue);
   auto *PrivateVD = ImplicitParamDecl::Create(C, CD, Loc, /*Id=*/nullptr, Ty,
-                                              ImplicitParamDecl::Other);
+                                              ImplicitParamKind::Other);
   auto *PrivateRef = DeclRefExpr::Create(
       C, NestedNameSpecifierLoc(), SourceLocation(), PrivateVD,
       /*RefersToEnclosingVariableOrCapture=*/false, Loc, Ty, VK_LValue);
   QualType ElemType = C.getBaseElementType(Ty);
   auto *InitVD = ImplicitParamDecl::Create(C, CD, Loc, /*Id=*/nullptr, ElemType,
-                                           ImplicitParamDecl::Other);
+                                           ImplicitParamKind::Other);
   auto *InitRef = DeclRefExpr::Create(
       C, NestedNameSpecifierLoc(), SourceLocation(), InitVD,
       /*RefersToEnclosingVariableOrCapture=*/false, Loc, ElemType, VK_LValue);
@@ -5257,7 +5277,7 @@ void CodeGenFunction::EmitOMPTargetTaskBasedDirective(
         getContext(), getContext().getTranslationUnitDecl(), /*NumParams=*/0);
     llvm::APInt ArrSize(/*numBits=*/32, InputInfo.NumberOfTargetItems);
     QualType BaseAndPointerAndMapperType = getContext().getConstantArrayType(
-        getContext().VoidPtrTy, ArrSize, nullptr, ArrayType::Normal,
+        getContext().VoidPtrTy, ArrSize, nullptr, ArraySizeModifier::Normal,
         /*IndexTypeQuals=*/0);
     BPVD = createImplicitFirstprivateForType(
         getContext(), Data, BaseAndPointerAndMapperType, CD, S.getBeginLoc());
@@ -5265,7 +5285,7 @@ void CodeGenFunction::EmitOMPTargetTaskBasedDirective(
         getContext(), Data, BaseAndPointerAndMapperType, CD, S.getBeginLoc());
     QualType SizesType = getContext().getConstantArrayType(
         getContext().getIntTypeForBitwidth(/*DestWidth=*/64, /*Signed=*/1),
-        ArrSize, nullptr, ArrayType::Normal,
+        ArrSize, nullptr, ArraySizeModifier::Normal,
         /*IndexTypeQuals=*/0);
     SVD = createImplicitFirstprivateForType(getContext(), Data, SizesType, CD,
                                             S.getBeginLoc());
@@ -5275,7 +5295,7 @@ void CodeGenFunction::EmitOMPTargetTaskBasedDirective(
     // If there is no user-defined mapper, the mapper array will be nullptr. In
     // this case, we don't need to privatize it.
     if (!isa_and_nonnull<llvm::ConstantPointerNull>(
-            InputInfo.MappersArray.getPointer())) {
+            InputInfo.MappersArray.emitRawPointer(*this))) {
       MVD = createImplicitFirstprivateForType(
           getContext(), Data, BaseAndPointerAndMapperType, CD, S.getBeginLoc());
       TargetScope.addPrivate(MVD, InputInfo.MappersArray);
@@ -5301,7 +5321,7 @@ void CodeGenFunction::EmitOMPTargetTaskBasedDirective(
       ParamTypes.push_back(PrivatesPtr->getType());
       for (const Expr *E : Data.FirstprivateVars) {
         const auto *VD = cast<VarDecl>(cast<DeclRefExpr>(E)->getDecl());
-        Address PrivatePtr =
+        RawAddress PrivatePtr =
             CGF.CreateMemTemp(CGF.getContext().getPointerType(E->getType()),
                               ".firstpriv.ptr.addr");
         PrivatePtrs.emplace_back(VD, PrivatePtr);
@@ -5310,8 +5330,6 @@ void CodeGenFunction::EmitOMPTargetTaskBasedDirective(
       }
       auto *CopyFnTy = llvm::FunctionType::get(CGF.Builder.getVoidTy(),
                                                ParamTypes, /*isVarArg=*/false);
-      CopyFn = CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-          CopyFn, CopyFnTy->getPointerTo());
       CGF.CGM.getOpenMPRuntime().emitOutlinedFunctionCall(
           CGF, S.getBeginLoc(), {CopyFnTy, CopyFn}, CallArgs);
       for (const auto &Pair : PrivatePtrs) {
@@ -5338,6 +5356,15 @@ void CodeGenFunction::EmitOMPTargetTaskBasedDirective(
 
     Action.Enter(CGF);
     OMPLexicalScope LexScope(CGF, S, OMPD_task, /*EmitPreInitStmt=*/false);
+    auto *TL = S.getSingleClause<OMPThreadLimitClause>();
+    if (CGF.CGM.getLangOpts().OpenMP >= 51 &&
+        needsTaskBasedThreadLimit(S.getDirectiveKind()) && TL) {
+      // Emit __kmpc_set_thread_limit() to set the thread_limit for the task
+      // enclosing this target region. This will indirectly set the thread_limit
+      // for every applicable construct within target region.
+      CGF.CGM.getOpenMPRuntime().emitThreadLimitClause(
+          CGF, TL->getThreadLimit(), S.getBeginLoc());
+    }
     BodyGen(CGF);
   };
   llvm::Function *OutlinedFn = CGM.getOpenMPRuntime().emitTaskOutlinedFunction(
@@ -5373,14 +5400,14 @@ void CodeGenFunction::processInReduction(const OMPExecutableDirective &S,
                                                          RedCG, Cnt);
       Address Replacement = CGF.CGM.getOpenMPRuntime().getTaskReductionItem(
           CGF, S.getBeginLoc(), ReductionsPtr, RedCG.getSharedLValue(Cnt));
-      Replacement =
-          Address(CGF.EmitScalarConversion(
-                      Replacement.getPointer(), CGF.getContext().VoidPtrTy,
-                      CGF.getContext().getPointerType(
-                          Data.ReductionCopies[Cnt]->getType()),
-                      Data.ReductionCopies[Cnt]->getExprLoc()),
-                  CGF.ConvertTypeForMem(Data.ReductionCopies[Cnt]->getType()),
-                  Replacement.getAlignment());
+      Replacement = Address(
+          CGF.EmitScalarConversion(Replacement.emitRawPointer(CGF),
+                                   CGF.getContext().VoidPtrTy,
+                                   CGF.getContext().getPointerType(
+                                       Data.ReductionCopies[Cnt]->getType()),
+                                   Data.ReductionCopies[Cnt]->getExprLoc()),
+          CGF.ConvertTypeForMem(Data.ReductionCopies[Cnt]->getType()),
+          Replacement.getAlignment());
       Replacement = RedCG.adjustPrivateAddress(CGF, Cnt, Replacement);
       Scope.addPrivate(RedCG.getBaseDecl(Cnt), Replacement);
     }
@@ -5426,7 +5453,7 @@ void CodeGenFunction::processInReduction(const OMPExecutableDirective &S,
           CGF, S.getBeginLoc(), ReductionsPtr, RedCG.getSharedLValue(Cnt));
       Replacement = Address(
           CGF.EmitScalarConversion(
-              Replacement.getPointer(), CGF.getContext().VoidPtrTy,
+              Replacement.emitRawPointer(CGF), CGF.getContext().VoidPtrTy,
               CGF.getContext().getPointerType(InRedPrivs[Cnt]->getType()),
               InRedPrivs[Cnt]->getExprLoc()),
           CGF.ConvertTypeForMem(InRedPrivs[Cnt]->getType()),
@@ -5585,7 +5612,7 @@ void CodeGenFunction::EmitOMPDepobjDirective(const OMPDepobjDirective &S) {
     Dependencies.DepExprs.append(DC->varlist_begin(), DC->varlist_end());
     Address DepAddr = CGM.getOpenMPRuntime().emitDepobjDependClause(
         *this, Dependencies, DC->getBeginLoc());
-    EmitStoreOfScalar(DepAddr.getPointer(), DOLVal);
+    EmitStoreOfScalar(DepAddr.emitRawPointer(*this), DOLVal);
     return;
   }
   if (const auto *DC = S.getSingleClause<OMPDestroyClause>()) {
@@ -5988,7 +6015,7 @@ void CodeGenFunction::EmitOMPDistributeLoop(const OMPLoopDirective &S,
             });
         EmitBlock(LoopExit.getBlock());
         // Tell the runtime we are done.
-        RT.emitForStaticFinish(*this, S.getEndLoc(), S.getDirectiveKind());
+        RT.emitForStaticFinish(*this, S.getEndLoc(), OMPD_distribute);
       } else {
         // Emit the outer loop, which requests its work chunk [LB..UB] from
         // runtime and runs the inner loop to process it.
@@ -6300,7 +6327,14 @@ static void emitOMPAtomicWriteExpr(CodeGenFunction &CGF,
 
 static bool canUseAMDGPUFastFPAtomics(CodeGenFunction &CGF, LValue X,
                                       RValue Update, BinaryOperatorKind BO,
-                                      const Expr *Hint) {
+                                      const Expr *Hint, SourceLocation Loc) {
+
+  if (!Update.isScalar())
+    return false;
+
+  if (!X.isSimple())
+    return false;
+
   ASTContext &Context = CGF.getContext();
 
   // Handle fast FP atomics for AMDGPU target (call intrinsic)
@@ -6314,17 +6348,29 @@ static bool canUseAMDGPUFastFPAtomics(CodeGenFunction &CGF, LValue X,
   //   Safe    | Safe  | Fast | Safe |
   //(no-unsafe)|       |      |      |
   //----------------------------------
-  bool userRequestsAMDGPUFastFPAtomics =
-      (Hint && Hint->getIntegerConstantExpr(Context).value() ==
-                   HintClause::OpenMPSyncHintExpr::AMD_fast_fp_atomics)
-          ? true
-          : (Hint && Hint->getIntegerConstantExpr(Context).value() ==
-                         HintClause::OpenMPSyncHintExpr::AMD_safe_fp_atomics)
-                ? false
-                : Context.getTargetInfo().allowAMDGPUUnsafeFPAtomics();
 
-  if (!Update.isScalar())
-    return false;
+  bool userRequestsAMDGPUFastFPAtomics = true;
+
+  if (CGF.CGM.getOpenMPRuntime().needsHintsForFastFPAtomics()) {
+
+    userRequestsAMDGPUFastFPAtomics =
+        Context.getTargetInfo().allowAMDGPUUnsafeFPAtomics();
+
+    if (Hint) {
+      if (Hint->getIntegerConstantExpr(Context).value() ==
+          HintClause::OpenMPSyncHintExpr::AMD_fast_fp_atomics)
+        userRequestsAMDGPUFastFPAtomics = true;
+      else if (Hint->getIntegerConstantExpr(Context).value() ==
+               HintClause::OpenMPSyncHintExpr::AMD_safe_fp_atomics)
+        userRequestsAMDGPUFastFPAtomics = false;
+    }
+  }
+
+  bool supportsFastFPAtomics =
+      Context.getTargetInfo().getTriple().isAMDGCN() &&
+      CGF.CGM.getOpenMPRuntime().supportFastFPAtomics() &&
+      CGF.CGM.getLangOpts().OpenMPIsTargetDevice &&
+      userRequestsAMDGPUFastFPAtomics;
 
   bool addOpHasAMDGPUFastVersion =
       BO == BO_Add && (Update.getScalarVal()->getType()->isDoubleTy() ||
@@ -6334,18 +6380,42 @@ static bool canUseAMDGPUFastFPAtomics(CodeGenFunction &CGF, LValue X,
       (BO == BO_LT || BO == BO_GT) &&
       Update.getScalarVal()->getType()->isDoubleTy();
 
-  return Context.getTargetInfo().getTriple().isAMDGCN() &&
-         CGF.CGM.getOpenMPRuntime().supportFastFPAtomics() &&
-         CGF.CGM.getLangOpts().OpenMPIsTargetDevice &&
-         userRequestsAMDGPUFastFPAtomics &&
-         (addOpHasAMDGPUFastVersion || minMaxOpHasAMDGPUFastVersion) &&
-         X.isSimple();
+  if (!supportsFastFPAtomics ||
+      (!addOpHasAMDGPUFastVersion && !minMaxOpHasAMDGPUFastVersion))
+    return false;
+
+  llvm::Type *UpdateType = Update.getScalarVal()->getType();
+  llvm::Type *XType = X.getAddress(CGF).getElementType();
+
+  bool isUpdateLosslesslyCastableToX =
+      UpdateType->canLosslesslyBitCastTo(XType);
+
+  if (!isUpdateLosslesslyCastableToX) {
+
+    auto getTypeNameAsString = [](llvm::Type* T) -> std::string {
+      std::string TypeNameStr;
+      llvm::raw_string_ostream OutputStream(TypeNameStr);
+      T->print(OutputStream);
+      return TypeNameStr;
+    };
+
+    unsigned DiagID = CGF.CGM.getDiags().getCustomDiagID(
+        DiagnosticsEngine::Warning,
+        "Can't emit fast FP atomic call due to type mismatch. The operation "
+        "tries to assign %0 to %1. A fallback atomic operation is "
+        "emitted which ignores the type conflict. Result may be incorrect!");
+    clang::DiagnosticBuilder DB = CGF.CGM.getDiags().Report(Loc, DiagID);
+    DB.AddString(getTypeNameAsString(UpdateType));
+    DB.AddString(getTypeNameAsString(XType));
+  }
+
+  return isUpdateLosslesslyCastableToX;
 }
 
 static std::pair<bool, RValue>
 emitOMPAtomicRMW(CodeGenFunction &CGF, LValue X, RValue Update,
                  BinaryOperatorKind BO, llvm::AtomicOrdering AO,
-                 bool IsXLHSInRHSPart, const Expr *Hint) {
+                 bool IsXLHSInRHSPart, const Expr *Hint, SourceLocation Loc) {
   ASTContext &Context = CGF.getContext();
 
   if (CGF.CGM.getOpenMPRuntime().mustEmitSafeAtomic(CGF, X, Update, BO)) {
@@ -6354,7 +6424,7 @@ emitOMPAtomicRMW(CodeGenFunction &CGF, LValue X, RValue Update,
     return std::make_pair(false, RValue::get(nullptr));
   }
 
-  bool useFPAtomics = canUseAMDGPUFastFPAtomics(CGF, X, Update, BO, Hint);
+  bool useFPAtomics = canUseAMDGPUFastFPAtomics(CGF, X, Update, BO, Hint, Loc);
   if (useFPAtomics) {
     auto Ret = CGF.CGM.getOpenMPRuntime().emitFastFPAtomicCall(
         CGF, X, Update, BO, IsXLHSInRHSPart);
@@ -6471,7 +6541,7 @@ emitOMPAtomicRMW(CodeGenFunction &CGF, LValue X, RValue Update,
                                          X.getAddress(CGF).getElementType());
   }
   llvm::Value *Res =
-      CGF.Builder.CreateAtomicRMW(RMWOp, X.getPointer(CGF), UpdateVal, AO);
+      CGF.Builder.CreateAtomicRMW(RMWOp, X.getAddress(CGF), UpdateVal, AO);
   return std::make_pair(true, RValue::get(Res));
 }
 
@@ -6485,7 +6555,7 @@ std::pair<bool, RValue> CodeGenFunction::EmitOMPAtomicSimpleUpdateExpr(
   // x--, --x -> xrval - 1;
   // x = x binop expr; -> xrval binop expr
   // x = expr Op x; - > expr binop xrval;
-  auto Res = emitOMPAtomicRMW(*this, X, E, BO, AO, IsXLHSInRHSPart, Hint);
+  auto Res = emitOMPAtomicRMW(*this, X, E, BO, AO, IsXLHSInRHSPart, Hint, Loc);
   if (!Res.first) {
     if (X.isGlobalReg()) {
       // Emit an update expression: 'xrval' binop 'expr' or 'expr' binop
@@ -6673,13 +6743,11 @@ static void emitOMPAtomicCaptureExpr(CodeGenFunction &CGF,
   }
 }
 
-static void emitOMPAtomicCompareExpr(CodeGenFunction &CGF,
-                                     llvm::AtomicOrdering AO, const Expr *X,
-                                     const Expr *V, const Expr *R,
-                                     const Expr *E, const Expr *D,
-                                     const Expr *CE, bool IsXBinopExpr,
-                                     bool IsPostfixUpdate, bool IsFailOnly,
-                                     const Expr *Hint, SourceLocation Loc) {
+static void emitOMPAtomicCompareExpr(
+    CodeGenFunction &CGF, llvm::AtomicOrdering AO, llvm::AtomicOrdering FailAO,
+    const Expr *X, const Expr *V, const Expr *R, const Expr *E, const Expr *D,
+    const Expr *CE, bool IsXBinopExpr, bool IsPostfixUpdate, bool IsFailOnly,
+    const Expr *Hint, SourceLocation Loc) {
   llvm::OpenMPIRBuilder &OMPBuilder =
       CGF.CGM.getOpenMPRuntime().getOMPBuilder();
 
@@ -6723,9 +6791,9 @@ static void emitOMPAtomicCompareExpr(CodeGenFunction &CGF,
   }
 
   // Check if fast AMDGPU FP atomics can be used for the current operation:
-  bool canUseFastAtomics =
-      canUseAMDGPUFastFPAtomics(CGF, XLVal, RValue::get(EVal),
-                                cast<BinaryOperator>(CE)->getOpcode(), Hint);
+  bool canUseFastAtomics = canUseAMDGPUFastFPAtomics(
+      CGF, XLVal, RValue::get(EVal), cast<BinaryOperator>(CE)->getOpcode(),
+      Hint, Loc);
   if (canUseFastAtomics) {
     CGF.CGM.getOpenMPRuntime().emitFastFPAtomicCall(
         CGF, XLVal, RValue::get(EVal), cast<BinaryOperator>(CE)->getOpcode(),
@@ -6745,32 +6813,40 @@ static void emitOMPAtomicCompareExpr(CodeGenFunction &CGF,
           D->getType()->hasSignedIntegerRepresentation());
 
   llvm::OpenMPIRBuilder::AtomicOpValue XOpVal{
-      XAddr.getPointer(), XAddr.getElementType(),
+      XAddr.emitRawPointer(CGF), XAddr.getElementType(),
       X->getType()->hasSignedIntegerRepresentation(),
       X->getType().isVolatileQualified()};
   llvm::OpenMPIRBuilder::AtomicOpValue VOpVal, ROpVal;
   if (V) {
     LValue LV = CGF.EmitLValue(V);
     Address Addr = LV.getAddress(CGF);
-    VOpVal = {Addr.getPointer(), Addr.getElementType(),
+    VOpVal = {Addr.emitRawPointer(CGF), Addr.getElementType(),
               V->getType()->hasSignedIntegerRepresentation(),
               V->getType().isVolatileQualified()};
   }
   if (R) {
     LValue LV = CGF.EmitLValue(R);
     Address Addr = LV.getAddress(CGF);
-    ROpVal = {Addr.getPointer(), Addr.getElementType(),
+    ROpVal = {Addr.emitRawPointer(CGF), Addr.getElementType(),
               R->getType()->hasSignedIntegerRepresentation(),
               R->getType().isVolatileQualified()};
   }
 
-  CGF.Builder.restoreIP(OMPBuilder.createAtomicCompare(
-      CGF.Builder, XOpVal, VOpVal, ROpVal, EVal, DVal, AO, Op, IsXBinopExpr,
-      IsPostfixUpdate, IsFailOnly));
+  if (FailAO == llvm::AtomicOrdering::NotAtomic) {
+    // fail clause was not mentionend on the
+    // "#pragma omp atomic compare" construct.
+    CGF.Builder.restoreIP(OMPBuilder.createAtomicCompare(
+        CGF.Builder, XOpVal, VOpVal, ROpVal, EVal, DVal, AO, Op, IsXBinopExpr,
+        IsPostfixUpdate, IsFailOnly));
+  } else
+    CGF.Builder.restoreIP(OMPBuilder.createAtomicCompare(
+        CGF.Builder, XOpVal, VOpVal, ROpVal, EVal, DVal, AO, Op, IsXBinopExpr,
+        IsPostfixUpdate, IsFailOnly, FailAO));
 }
 
 static void emitOMPAtomicExpr(CodeGenFunction &CGF, OpenMPClauseKind Kind,
-                              llvm::AtomicOrdering AO, bool IsPostfixUpdate,
+                              llvm::AtomicOrdering AO,
+                              llvm::AtomicOrdering FailAO, bool IsPostfixUpdate,
                               const Expr *X, const Expr *V, const Expr *R,
                               const Expr *E, const Expr *UE, const Expr *D,
                               const Expr *CE, bool IsXLHSInRHSPart,
@@ -6792,8 +6868,12 @@ static void emitOMPAtomicExpr(CodeGenFunction &CGF, OpenMPClauseKind Kind,
                              IsXLHSInRHSPart, Loc);
     break;
   case OMPC_compare: {
-    emitOMPAtomicCompareExpr(CGF, AO, X, V, R, E, D, CE, IsXLHSInRHSPart,
-                             IsPostfixUpdate, IsFailOnly, Hint, Loc);
+    emitOMPAtomicCompareExpr(CGF, AO, FailAO, X, V, R, E, D, CE,
+                             IsXLHSInRHSPart, IsPostfixUpdate, IsFailOnly, Hint, Loc);
+    break;
+  }
+  case OMPC_fail: {
+    //TODO
     break;
   }
   default:
@@ -6803,6 +6883,8 @@ static void emitOMPAtomicExpr(CodeGenFunction &CGF, OpenMPClauseKind Kind,
 
 void CodeGenFunction::EmitOMPAtomicDirective(const OMPAtomicDirective &S) {
   llvm::AtomicOrdering AO = llvm::AtomicOrdering::Monotonic;
+  // Fail Memory Clause Ordering.
+  llvm::AtomicOrdering FailAO = llvm::AtomicOrdering::NotAtomic;
   bool MemOrderingSpecified = false;
   if (S.getSingleClause<OMPSeqCstClause>()) {
     AO = llvm::AtomicOrdering::SequentiallyConsistent;
@@ -6826,6 +6908,9 @@ void CodeGenFunction::EmitOMPAtomicDirective(const OMPAtomicDirective &S) {
     // Find first clause (skip seq_cst|acq_rel|aqcuire|release|relaxed clause,
     // if it is first).
     OpenMPClauseKind K = C->getClauseKind();
+    // TBD
+    if (K == OMPC_weak)
+      return;
     if (K == OMPC_seq_cst || K == OMPC_acq_rel || K == OMPC_acquire ||
         K == OMPC_release || K == OMPC_relaxed || K == OMPC_hint)
       continue;
@@ -6859,12 +6944,27 @@ void CodeGenFunction::EmitOMPAtomicDirective(const OMPAtomicDirective &S) {
   if (const auto *HintClause = S.getSingleClause<OMPHintClause>())
     Hint = HintClause->getHint();
 
+  if (KindsEncountered.contains(OMPC_compare) &&
+      KindsEncountered.contains(OMPC_fail)) {
+    Kind = OMPC_compare;
+    const auto *FailClause = S.getSingleClause<OMPFailClause>();
+    if (FailClause) {
+      OpenMPClauseKind FailParameter = FailClause->getFailParameter();
+      if (FailParameter == llvm::omp::OMPC_relaxed)
+        FailAO = llvm::AtomicOrdering::Monotonic;
+      else if (FailParameter == llvm::omp::OMPC_acquire)
+        FailAO = llvm::AtomicOrdering::Acquire;
+      else if (FailParameter == llvm::omp::OMPC_seq_cst)
+        FailAO = llvm::AtomicOrdering::SequentiallyConsistent;
+    }
+  }
+
   LexicalScope Scope(*this, S.getSourceRange());
   EmitStopPoint(S.getAssociatedStmt());
-  emitOMPAtomicExpr(*this, Kind, AO, S.isPostfixUpdate(), S.getX(), S.getV(),
-                    S.getR(), S.getExpr(), S.getUpdateExpr(), S.getD(),
-                    S.getCondExpr(), S.isXLHSInRHSPart(), S.isFailOnly(),
-                    S.getBeginLoc(), Hint);
+  emitOMPAtomicExpr(*this, Kind, AO, FailAO, S.isPostfixUpdate(), S.getX(),
+                    S.getV(), S.getR(), S.getExpr(), S.getUpdateExpr(),
+                    S.getD(), S.getCondExpr(), S.isXLHSInRHSPart(),
+                    S.isFailOnly(), S.getBeginLoc(), Hint);
 }
 
 static void emitCommonOMPTargetDirective(CodeGenFunction &CGF,
@@ -7265,54 +7365,70 @@ void CodeGenFunction::EmitOMPTeamsDistributeParallelForSimdDirective(
 void CodeGenFunction::EmitOMPInteropDirective(const OMPInteropDirective &S) {
   llvm::OpenMPIRBuilder &OMPBuilder = CGM.getOpenMPRuntime().getOMPBuilder();
   llvm::Value *Device = nullptr;
+  llvm::Value *NumDependences = nullptr;
+  llvm::Value *DependenceList = nullptr;
+
   if (const auto *C = S.getSingleClause<OMPDeviceClause>())
     Device = EmitScalarExpr(C->getDevice());
 
-  llvm::Value *NumDependences = nullptr;
-  llvm::Value *DependenceAddress = nullptr;
-  if (const auto *DC = S.getSingleClause<OMPDependClause>()) {
-    OMPTaskDataTy::DependData Dependencies(DC->getDependencyKind(),
-                                           DC->getModifier());
-    Dependencies.DepExprs.append(DC->varlist_begin(), DC->varlist_end());
-    std::pair<llvm::Value *, Address> DependencePair =
-        CGM.getOpenMPRuntime().emitDependClause(*this, Dependencies,
-                                                DC->getBeginLoc());
-    NumDependences = DependencePair.first;
-    DependenceAddress = Builder.CreatePointerCast(
-        DependencePair.second.getPointer(), CGM.Int8PtrTy);
+  // Build list and emit dependences
+  OMPTaskDataTy Data;
+  buildDependences(S, Data);
+  if (!Data.Dependences.empty()) {
+    Address DependenciesArray = Address::invalid();
+    std::tie(NumDependences, DependenciesArray) =
+        CGM.getOpenMPRuntime().emitDependClause(*this, Data.Dependences,
+                                                S.getBeginLoc());
+    DependenceList = DependenciesArray.emitRawPointer(*this);
   }
+  Data.HasNowaitClause = S.hasClausesOfKind<OMPNowaitClause>();
 
-  assert(!(S.hasClausesOfKind<OMPNowaitClause>() &&
-           !(S.getSingleClause<OMPInitClause>() ||
-             S.getSingleClause<OMPDestroyClause>() ||
-             S.getSingleClause<OMPUseClause>())) &&
+  assert(!(Data.HasNowaitClause && !(S.getSingleClause<OMPInitClause>() ||
+                                     S.getSingleClause<OMPDestroyClause>() ||
+                                     S.getSingleClause<OMPUseClause>())) &&
          "OMPNowaitClause clause is used separately in OMPInteropDirective.");
 
-  if (const auto *C = S.getSingleClause<OMPInitClause>()) {
-    llvm::Value *InteropvarPtr =
-        EmitLValue(C->getInteropVar()).getPointer(*this);
-    llvm::omp::OMPInteropType InteropType = llvm::omp::OMPInteropType::Unknown;
-    if (C->getIsTarget()) {
-      InteropType = llvm::omp::OMPInteropType::Target;
-    } else {
-      assert(C->getIsTargetSync() && "Expected interop-type target/targetsync");
-      InteropType = llvm::omp::OMPInteropType::TargetSync;
+  auto ItOMPInitClause = S.getClausesOfKind<OMPInitClause>();
+  if (!ItOMPInitClause.empty()) {
+    // Look at the multiple init clauses
+    for (const OMPInitClause *C : ItOMPInitClause) {
+      llvm::Value *InteropvarPtr =
+          EmitLValue(C->getInteropVar()).getPointer(*this);
+      llvm::omp::OMPInteropType InteropType =
+          llvm::omp::OMPInteropType::Unknown;
+      if (C->getIsTarget()) {
+        InteropType = llvm::omp::OMPInteropType::Target;
+      } else {
+        assert(C->getIsTargetSync() &&
+               "Expected interop-type target/targetsync");
+        InteropType = llvm::omp::OMPInteropType::TargetSync;
+      }
+      OMPBuilder.createOMPInteropInit(Builder, InteropvarPtr, InteropType,
+                                      Device, NumDependences, DependenceList,
+                                      Data.HasNowaitClause);
     }
-    OMPBuilder.createOMPInteropInit(Builder, InteropvarPtr, InteropType, Device,
-                                    NumDependences, DependenceAddress,
-                                    S.hasClausesOfKind<OMPNowaitClause>());
-  } else if (const auto *C = S.getSingleClause<OMPDestroyClause>()) {
-    llvm::Value *InteropvarPtr =
-        EmitLValue(C->getInteropVar()).getPointer(*this);
-    OMPBuilder.createOMPInteropDestroy(Builder, InteropvarPtr, Device,
-                                       NumDependences, DependenceAddress,
-                                       S.hasClausesOfKind<OMPNowaitClause>());
-  } else if (const auto *C = S.getSingleClause<OMPUseClause>()) {
-    llvm::Value *InteropvarPtr =
-        EmitLValue(C->getInteropVar()).getPointer(*this);
-    OMPBuilder.createOMPInteropUse(Builder, InteropvarPtr, Device,
-                                   NumDependences, DependenceAddress,
-                                   S.hasClausesOfKind<OMPNowaitClause>());
+  }
+  auto ItOMPDestroyClause = S.getClausesOfKind<OMPDestroyClause>();
+  if (!ItOMPDestroyClause.empty()) {
+    // Look at the multiple destroy clauses
+    for (const OMPDestroyClause *C : ItOMPDestroyClause) {
+      llvm::Value *InteropvarPtr =
+          EmitLValue(C->getInteropVar()).getPointer(*this);
+      OMPBuilder.createOMPInteropDestroy(Builder, InteropvarPtr, Device,
+                                         NumDependences, DependenceList,
+                                         Data.HasNowaitClause);
+    }
+  }
+  auto ItOMPUseClause = S.getClausesOfKind<OMPUseClause>();
+  if (!ItOMPUseClause.empty()) {
+    // Look at the multiple use clauses
+    for (const OMPUseClause *C : ItOMPUseClause) {
+      llvm::Value *InteropvarPtr =
+          EmitLValue(C->getInteropVar()).getPointer(*this);
+      OMPBuilder.createOMPInteropUse(Builder, InteropvarPtr, Device,
+                                     NumDependences, DependenceList,
+                                     Data.HasNowaitClause);
+    }
   }
 }
 
@@ -8209,6 +8325,25 @@ void CodeGenFunction::EmitOMPTeamsGenericLoopDirective(
                                    [](CodeGenFunction &) { return nullptr; });
 }
 
+#ifndef NDEBUG
+static void emitTargetTeamsLoopCodegenStatus(CodeGenFunction &CGF,
+                                             std::string StatusMsg,
+                                             const OMPExecutableDirective &D) {
+  bool IsDevice = CGF.CGM.getLangOpts().OpenMPIsTargetDevice;
+  if (IsDevice)
+    StatusMsg += ": DEVICE";
+  else
+    StatusMsg += ": HOST";
+  SourceLocation L = D.getBeginLoc();
+  auto &SM = CGF.getContext().getSourceManager();
+  PresumedLoc PLoc = SM.getPresumedLoc(L);
+  const char *FileName = PLoc.isValid() ? PLoc.getFilename() : nullptr;
+  unsigned LineNo =
+      PLoc.isValid() ? PLoc.getLine() : SM.getExpansionLineNumber(L);
+  llvm::dbgs() << StatusMsg << ": " << FileName << ": " << LineNo << "\n";
+}
+#endif
+
 static void emitTargetTeamsGenericLoopRegionAsParallel(
     CodeGenFunction &CGF, PrePostActionTy &Action,
     const OMPTargetTeamsGenericLoopDirective &S) {
@@ -8232,9 +8367,8 @@ static void emitTargetTeamsGenericLoopRegionAsParallel(
     CGF.EmitOMPReductionClauseFinal(S, /*ReductionKind=*/OMPD_teams);
   };
   DEBUG_WITH_TYPE(TTL_CODEGEN_TYPE,
-      CGF.CGM.emitTargetTeamsLoopCodegenStatus(
-          TTL_CODEGEN_TYPE " as parallel for", S,
-          CGF.CGM.getLangOpts().OpenMPIsTargetDevice));
+                  emitTargetTeamsLoopCodegenStatus(
+                      CGF, TTL_CODEGEN_TYPE " as parallel for", S));
   emitCommonOMPTeamsDirective(CGF, S, OMPD_distribute_parallel_for,
                               CodeGenTeams);
   emitPostUpdateForReductionClause(CGF, S,
@@ -8262,9 +8396,8 @@ static void emitTargetTeamsGenericLoopRegionAsDistribute(
     CGF.EmitOMPReductionClauseFinal(S, /*ReductionKind=*/OMPD_teams);
   };
   DEBUG_WITH_TYPE(TTL_CODEGEN_TYPE,
-      CGF.CGM.emitTargetTeamsLoopCodegenStatus(
-          TTL_CODEGEN_TYPE " as distribute", S,
-          CGF.CGM.getLangOpts().OpenMPIsTargetDevice));
+                  emitTargetTeamsLoopCodegenStatus(
+                      CGF, TTL_CODEGEN_TYPE " as distribute", S));
   emitCommonOMPTeamsDirective(CGF, S, OMPD_distribute, CodeGen);
   emitPostUpdateForReductionClause(CGF, S,
                                    [](CodeGenFunction &) { return nullptr; });
@@ -8273,7 +8406,7 @@ static void emitTargetTeamsGenericLoopRegionAsDistribute(
 void CodeGenFunction::EmitOMPTargetTeamsGenericLoopDirective(
     const OMPTargetTeamsGenericLoopDirective &S) {
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
-    if (CGF.CGM.TeamsLoopCanBeParallelFor(S))
+    if (S.canBeParallelFor())
       emitTargetTeamsGenericLoopRegionAsParallel(CGF, Action, S);
     else
       emitTargetTeamsGenericLoopRegionAsDistribute(CGF, Action, S);
@@ -8286,7 +8419,7 @@ void CodeGenFunction::EmitOMPTargetTeamsGenericLoopDeviceFunction(
     const OMPTargetTeamsGenericLoopDirective &S) {
   // Emit SPMD target parallel loop region as a standalone region.
   auto &&CodeGen = [&S](CodeGenFunction &CGF, PrePostActionTy &Action) {
-    if (CGF.CGM.TeamsLoopCanBeParallelFor(S))
+    if (S.canBeParallelFor())
       emitTargetTeamsGenericLoopRegionAsParallel(CGF, Action, S);
     else
       emitTargetTeamsGenericLoopRegionAsDistribute(CGF, Action, S);
@@ -8409,7 +8542,8 @@ void CodeGenFunction::EmitSimpleOMPExecutableDirective(
       D.getDirectiveKind() == OMPD_critical ||
       D.getDirectiveKind() == OMPD_section ||
       D.getDirectiveKind() == OMPD_master ||
-      D.getDirectiveKind() == OMPD_masked) {
+      D.getDirectiveKind() == OMPD_masked ||
+      D.getDirectiveKind() == OMPD_unroll) {
     EmitStmt(D.getAssociatedStmt());
   } else {
     auto LPCRegion =

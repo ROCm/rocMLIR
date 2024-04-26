@@ -147,9 +147,20 @@ enum LocationAtom {
 };
 
 enum LlvmUserLocationAtom {
-#define HANDLE_DW_OP_LLVM_USEROP(ID, NAME) DW_OP_LLVM_##NAME = ID,
+#define HANDLE_DW_OP_LLVM_USEROP(ID, NAME) DW_OP_LLVM_USER_##NAME = ID,
 #include "llvm/BinaryFormat/Dwarf.def"
 };
+
+inline std::optional<LlvmUserLocationAtom> getUserOp(uint8_t Op) {
+  switch (Op) {
+#define HANDLE_HETEROGENEOUS_OP(NAME)                                          \
+  case DW_OP_LLVM_##NAME:                                                      \
+    return DW_OP_LLVM_USER_##NAME;
+#include "llvm/BinaryFormat/Dwarf.def"
+  default:
+    return std::nullopt;
+  }
+}
 
 enum TypeKind : uint8_t {
 #define HANDLE_DW_ATE(ID, NAME, VERSION, VENDOR) DW_ATE_##NAME = ID,
@@ -625,6 +636,15 @@ enum AcceleratorTable {
   // Daniel J. Bernstein hash.
   DW_hash_function_djb = 0u
 };
+
+// Return a suggested bucket count for the DWARF v5 Accelerator Table.
+inline uint32_t getDebugNamesBucketCount(uint32_t UniqueHashCount) {
+  if (UniqueHashCount > 1024)
+    return UniqueHashCount / 4;
+  if (UniqueHashCount > 16)
+    return UniqueHashCount / 2;
+  return std::max<uint32_t>(UniqueHashCount, 1);
+}
 
 // Constants for the GNU pubnames/pubtypes extensions supporting gdb index.
 enum GDBIndexEntryKind {

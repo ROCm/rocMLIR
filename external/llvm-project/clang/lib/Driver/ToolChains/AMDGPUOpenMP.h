@@ -16,6 +16,16 @@
 namespace clang {
 namespace driver {
 
+/// Is -Ofast used?
+bool isOFastUsed(const llvm::opt::ArgList &Args);
+
+/// Is -fopenmp-target-fast or -Ofast used
+bool isTargetFastUsed(const llvm::opt::ArgList &Args);
+
+/// Ignore possibility of environment variables if either
+/// -fopenmp-target-fast or -Ofast is used.
+bool shouldIgnoreEnvVars(const llvm::opt::ArgList &Args);
+
 namespace toolchains {
 class AMDGPUOpenMPToolChain;
 }
@@ -49,35 +59,6 @@ private:
                                     const llvm::opt::ArgList &Args,
                                     llvm::StringRef TargetID,
                                     llvm::StringRef OutputFilePrefix) const;
-
-  /// \return llvm-link output file name.
-  const char *constructLLVMLinkCommand(
-      const toolchains::AMDGPUOpenMPToolChain &AMDGPUOpenMPTC, Compilation &C,
-      const JobAction &JA, const InputInfoList &Inputs,
-      const llvm::opt::ArgList &Args, llvm::StringRef TargetID,
-      llvm::StringRef OutputFilePrefix) const;
-
-  /// \return opt output file name.
-  const char *constructOptCommand(Compilation &C, const JobAction &JA,
-                                  const InputInfoList &Inputs,
-                                  const llvm::opt::ArgList &Args,
-                                  llvm::StringRef TargetID,
-                                  llvm::StringRef OutputFilePrefix,
-                                  const char *InputFileName) const;
-
-  /// \return llc output file name.
-  const char *constructLlcCommand(Compilation &C, const JobAction &JA,
-                                  const InputInfoList &Inputs,
-                                  const llvm::opt::ArgList &Args,
-                                  llvm::StringRef TargetID,
-                                  llvm::StringRef OutputFilePrefix,
-                                  const char *InputFileName,
-                                  bool OutputIsAsm = false) const;
-
-  void constructLldCommand(Compilation &C, const JobAction &JA,
-                           const InputInfoList &Inputs, const InputInfo &Output,
-                           const llvm::opt::ArgList &Args,
-                           const char *InputFileName) const;
 };
 
 } // end namespace AMDGCN
@@ -91,10 +72,7 @@ public:
                         const ToolChain &HostTC,
                         const llvm::opt::ArgList &Args,
                         const Action::OffloadKind OK);
-  AMDGPUOpenMPToolChain(const Driver &D, const llvm::Triple &Triple,
-                        const ToolChain &HostTC, const llvm::opt::ArgList &Args,
-                        const Action::OffloadKind OK,
-                        const std::string TargetID);
+
   const llvm::Triple *getAuxTriple() const override {
     return &HostTC.getTriple();
   }
@@ -144,9 +122,6 @@ public:
   getDeviceLibs(const llvm::opt::ArgList &Args) const override;
 
   const ToolChain &HostTC;
-
-protected:
-  Tool *buildLinker() const override;
 
 private:
   const Action::OffloadKind OK;

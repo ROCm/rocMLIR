@@ -124,7 +124,7 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
     return a.workImbalance < b.workImbalance;
   });
 
-  const size_t maxVariants = std::min(static_cast<size_t>(4), factors.size());
+  const size_t maxVariants = std::min(static_cast<size_t>(6), factors.size());
   llvm::ArrayRef<LocalData> view(factors.data(), maxVariants);
   llvm::for_each(view, [&](const LocalData &item) {
     splitKValues.push_back(item.splitKValue);
@@ -445,8 +445,7 @@ void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
   // We only support GPUs with matrix accelerator extentions
 }
 
-TuningParamSet *createTunableParamSpace(ModuleOp &mod,
-                                        TuningParamSetKind kind) {
+TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
   struct TuningParamSet *newSpace;
   newSpace = new TuningParamSet();
 
@@ -846,7 +845,7 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 // operation. String format of the problem will not be required by the DB,
 // since it can store each field separately.
 // Currently serialize the problem in MIOpenDriver command friendly format
-LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out) {
+LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out) {
   {
     rock::RockGemmWrapperInterface gemmIF;
     WalkResult findPrimary =
