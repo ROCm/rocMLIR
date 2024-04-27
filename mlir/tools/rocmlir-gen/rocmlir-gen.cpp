@@ -836,20 +836,20 @@ static void correctConvParameters() {
        filterLayoutValue.substr(filterLayoutValue.size() - 2) == "ck"))
     filterLayout = "g" + filterLayoutValue;
 
-  auto addGToLayout = [&](std::string ch, std::string &layoutValue) -> std::string {
-                        std::string layout;
-                        if (layoutValue.find('g') == std::string::npos) {
-                          if (layoutValue.substr(0, 2) == "n" + ch)
-                            layout = "ng" + ch + layoutValue.substr(2);
-                          else if (layoutValue[0] == 'n' && layoutValue.back() == ch[0])
-                            layout = layoutValue.substr(0, layoutValue.size() - 1) + "g" + ch;
-                          else
-                            layout = "g" + layoutValue;
-                        }
-                        else
-                          layout = layoutValue;
-                        return layout;
-                      };
+  auto addGToLayout = [&](std::string ch,
+                          std::string &layoutValue) -> std::string {
+    std::string layout;
+    if (layoutValue.find('g') == std::string::npos) {
+      if (layoutValue.substr(0, 2) == "n" + ch)
+        layout = "ng" + ch + layoutValue.substr(2);
+      else if (layoutValue[0] == 'n' && layoutValue.back() == ch[0])
+        layout = layoutValue.substr(0, layoutValue.size() - 1) + "g" + ch;
+      else
+        layout = "g" + layoutValue;
+    } else
+      layout = layoutValue;
+    return layout;
+  };
 
   inputLayout = addGToLayout("c", inputLayout.getValue());
   outputLayout = addGToLayout("k", outputLayout.getValue());
