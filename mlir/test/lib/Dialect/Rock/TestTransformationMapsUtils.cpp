@@ -1,4 +1,4 @@
-//===- TestVectorizationInference.cpp - test max vector length code -----===//
+//===- TestTransformationMapsUtils.cpp - test removeUpperDims utility -----===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -46,24 +46,36 @@ struct TransformMapsUtilsTestPass
 
 namespace {
 struct ByIndices {
-  static SetVector<int64_t> getRemovees(func::FuncOp f) {
-    SetVector<int64_t> removeIndices;
-    auto attrArray = f->getAttr("remove_dims_by_indices");
-    for (auto &attr : attrArray.cast<ArrayAttr>()) {
-      removeIndices.insert(attr.cast<IntegerAttr>().getInt());
+  static std::vector<std::pair<StringRef, SetVector<int64_t>>>
+  getTests(func::FuncOp f) {
+    std::vector<std::pair<StringRef, SetVector<int64_t>>> tests;
+    auto attrMap = f->getAttr("remove_dims_by_indices");
+    for (auto &testAttr : attrMap.cast<DictionaryAttr>()) {
+      auto attrArray = testAttr.getValue().cast<ArrayAttr>();
+      SetVector<int64_t> removeIndices;
+      for (auto &attr : attrArray) {
+        removeIndices.insert(attr.cast<IntegerAttr>().getInt());
+      }
+      tests.push_back({testAttr.getName(), removeIndices});
     }
-    return removeIndices;
+    return tests;
   }
 };
 
 struct ByNames {
-  static SetVector<StringRef> getRemovees(func::FuncOp f) {
-    SetVector<StringRef> removeIndices;
-    auto attrArray = f->getAttr("remove_dims_by_names");
-    for (auto &attr : attrArray.cast<ArrayAttr>()) {
-      removeIndices.insert(attr.cast<StringAttr>().getValue());
+  static std::vector<std::pair<StringRef, SetVector<StringRef>>>
+  getTests(func::FuncOp f) {
+    std::vector<std::pair<StringRef, SetVector<StringRef>>> tests;
+    auto attrMap = f->getAttr("remove_dims_by_names");
+    for (auto &testAttr : attrMap.cast<DictionaryAttr>()) {
+      auto attrArray = testAttr.getValue().cast<ArrayAttr>();
+      SetVector<StringRef> removeIndices;
+      for (auto &attr : attrArray) {
+        removeIndices.insert(attr.cast<StringAttr>().getValue());
+      }
+      tests.push_back({testAttr.getName(), removeIndices});
     }
-    return removeIndices;
+    return tests;
   }
 };
 } // namespace
@@ -88,21 +100,22 @@ static LogicalResult testSubDimensions(func::FuncOp f) {
   std::tie(std::ignore, transformAttrs, std::ignore) =
       rock::untransform(builder, returnValue);
 
-  auto removees = RequestProcessor::getRemovees(f);
-  auto results = rock::removeUpperDims(builder, transformAttrs, removees);
-  if (failed(results)) {
-    return failure();
-  }
+  auto tests = RequestProcessor::getTests(f);
+  for (auto &[testName, removeDims] : tests) {
+    auto results = rock::removeUpperDims(builder, transformAttrs, removeDims);
+    if (failed(results)) {
+      return failure();
+    }
 
-  std::string outputString;
-  llvm::raw_string_ostream stream(outputString);
-  stream << "test " << f.getSymName() << '\n';
-  for (auto item : *results) {
-    item.print(stream);
-    stream << '\n';
+    std::string outputString;
+    llvm::raw_string_ostream stream(outputString);
+    stream << testName << ' ' << f.getSymName() << '\n';
+    for (auto item : *results) {
+      item.print(stream);
+      stream << '\n';
+    }
+    llvm::outs() << stream.str();
   }
-
-  llvm::outs() << stream.str();
   return success();
 }
 
