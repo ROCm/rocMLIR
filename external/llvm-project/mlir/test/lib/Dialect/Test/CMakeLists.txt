@@ -2,6 +2,8 @@ set(LLVM_OPTIONAL_SOURCES
   TestDialect.cpp
   TestPatterns.cpp
   TestTraits.cpp
+  TestFromLLVMIRTranslation.cpp
+  TestToLLVMIRTranslation.cpp
 )
 
 set(LLVM_TARGET_DEFINITIONS TestInterfaces.td)
@@ -36,6 +38,11 @@ mlir_tablegen(TestOpsDialect.cpp.inc -gen-dialect-defs -dialect=test)
 mlir_tablegen(TestPatterns.inc -gen-rewriters)
 add_public_tablegen_target(MLIRTestOpsIncGen)
 
+set(LLVM_TARGET_DEFINITIONS TestOpsSyntax.td)
+mlir_tablegen(TestOpsSyntax.h.inc -gen-op-decls)
+mlir_tablegen(TestOpsSyntax.cpp.inc -gen-op-defs)
+add_public_tablegen_target(MLIRTestOpsSyntaxIncGen)
+
 # Exclude tests from libMLIR.so
 add_mlir_library(MLIRTestDialect
   TestAttributes.cpp
@@ -44,6 +51,8 @@ add_mlir_library(MLIRTestDialect
   TestPatterns.cpp
   TestTraits.cpp
   TestTypes.cpp
+  TestOpsSyntax.cpp
+  TestDialectInterfaces.cpp
 
   EXCLUDE_FROM_LIBMLIR
 
@@ -53,6 +62,7 @@ add_mlir_library(MLIRTestDialect
   MLIRTestInterfaceIncGen
   MLIRTestTypeDefIncGen
   MLIRTestOpsIncGen
+  MLIRTestOpsSyntaxIncGen
 
   LINK_LIBS PUBLIC
   MLIRControlFlowInterfaces
@@ -62,6 +72,7 @@ add_mlir_library(MLIRTestDialect
   MLIRDialect
   MLIRDLTIDialect
   MLIRFuncDialect
+  MLIRFunctionInterfaces
   MLIRFuncTransforms
   MLIRIR
   MLIRInferIntRangeInterface
@@ -74,4 +85,39 @@ add_mlir_library(MLIRTestDialect
   MLIRTensorDialect
   MLIRTransformUtils
   MLIRTransforms
+  MLIRValueBoundsOpInterface
+)
+
+add_mlir_translation_library(MLIRTestFromLLVMIRTranslation
+  TestFromLLVMIRTranslation.cpp
+
+  EXCLUDE_FROM_LIBMLIR
+
+  LINK_COMPONENTS
+  Core
+
+  LINK_LIBS PUBLIC
+  MLIRIR
+  MLIRLLVMDialect
+  MLIRTestDialect
+  MLIRSupport
+  MLIRTargetLLVMIRImport
+  MLIRLLVMIRToLLVMTranslation
+)
+
+add_mlir_translation_library(MLIRTestToLLVMIRTranslation
+  TestToLLVMIRTranslation.cpp
+
+  EXCLUDE_FROM_LIBMLIR
+
+  LINK_COMPONENTS
+  Core
+
+  LINK_LIBS PUBLIC
+  MLIRIR
+  MLIRLLVMDialect
+  MLIRTestDialect
+  MLIRSupport
+  MLIRBuiltinToLLVMIRTranslation
+  MLIRLLVMToLLVMIRTranslation
 )

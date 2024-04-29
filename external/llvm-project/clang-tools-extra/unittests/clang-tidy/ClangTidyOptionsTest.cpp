@@ -81,7 +81,6 @@ TEST(ParseConfiguration, ValidConfiguration) {
           "HeaderFileExtensions: [\"\",\"h\",\"hh\",\"hpp\",\"hxx\"]\n"
           "ImplementationFileExtensions: [\"c\",\"cc\",\"cpp\",\"cxx\"]\n"
           "HeaderFilterRegex: \".*\"\n"
-          "AnalyzeTemporaryDtors: true\n"
           "User: some.user",
           "Options"));
   EXPECT_TRUE(!!Options);
@@ -115,7 +114,6 @@ TEST(ParseConfiguration, MergeConfigurations) {
       HeaderFileExtensions: ["h","hh"]
       ImplementationFileExtensions: ["c","cc"]
       HeaderFilterRegex: "filter1"
-      AnalyzeTemporaryDtors: true
       User: user1
       ExtraArgs: ['arg1', 'arg2']
       ExtraArgsBefore: ['arg-before1', 'arg-before2']
@@ -130,7 +128,6 @@ TEST(ParseConfiguration, MergeConfigurations) {
       HeaderFileExtensions: ["hpp","hxx"]
       ImplementationFileExtensions: ["cpp","cxx"]
       HeaderFilterRegex: "filter2"
-      AnalyzeTemporaryDtors: false
       User: user2
       ExtraArgs: ['arg3', 'arg4']
       ExtraArgsBefore: ['arg-before3', 'arg-before4']
@@ -343,9 +340,8 @@ TEST(CheckOptionsValidation, ValidIntOptions) {
   CheckOptions["test.BoolIFalseValue"] = "0";
   CheckOptions["test.BoolTrueValue"] = "true";
   CheckOptions["test.BoolFalseValue"] = "false";
-// FIXME: SWDEV-268185.
-//  CheckOptions["test.BoolTrueShort"] = "Y";
-//  CheckOptions["test.BoolFalseShort"] = "N";
+  CheckOptions["test.BoolTrueShort"] = "Y";
+  CheckOptions["test.BoolFalseShort"] = "N";
   CheckOptions["test.BoolUnparseable"] = "Nothing";
 
   ClangTidyContext Context(std::make_unique<DefaultOptionsProvider>(
@@ -367,9 +363,8 @@ TEST(CheckOptionsValidation, ValidIntOptions) {
   CHECK_VAL(TestCheck.getIntLocal<bool>("BoolIFalseValue"), false);
   CHECK_VAL(TestCheck.getIntLocal<bool>("BoolTrueValue"), true);
   CHECK_VAL(TestCheck.getIntLocal<bool>("BoolFalseValue"), false);
-// FIXME: SWDEV-268185.
-//  CHECK_VAL(TestCheck.getIntLocal<bool>("BoolTrueShort"), true);
-//  CHECK_VAL(TestCheck.getIntLocal<bool>("BoolFalseShort"), false);
+  CHECK_VAL(TestCheck.getIntLocal<bool>("BoolTrueShort"), true);
+  CHECK_VAL(TestCheck.getIntLocal<bool>("BoolFalseShort"), false);
   EXPECT_FALSE(TestCheck.getIntLocal<bool>("BoolUnparseable"));
 
   EXPECT_THAT(

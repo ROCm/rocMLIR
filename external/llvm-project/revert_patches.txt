@@ -1,19 +1,14 @@
-SROA breaks MIOpen
-Revert "[SROA] Create additional vector type candidates based on store and load slices"
-Revert "[SROA] Fix bug where CandidateTys is appended while being iterated"
+revert: breaks MIOpen composableKernel build 
+[clang][Sema] Add -Wswitch-default warning option (#73077)  
+   https://ontrack-internal.amd.com/browse/SWDEV-436625
 
-Rana: HipCatch2 and olcTest conformance fails
-Revert "[AMDGPU] __builtin_amdgcn_read_exec_* should be implemented with llvm.amdgcn.ballot"
+Revert: breaks build of hipCUB
+commit 55783bd0 [HIP] fix host min/max in header (#82956)
 
-missing executable in build:
-Revert "[RemarkUtil] Refactor llvm-remarkutil to include size-diff "
+Revert :breaks hip catch tests.
+1de7e6c8cba2 [clang] move -Wcast-function-type under -Wextra (#77178)
+999d4f840777 Split -Wcast-function-type into a separate group (#86131)   
 
-Johannes: breakage
-Revert "[OpenMP] Disable early vectorization of loads/stores in the runtime " 
-  asserts in  snap and MI-Teams
-
-Nicole and Saiyed:
-Revert " [OpenMP][DeviceRTL][AMDGPU] Support code object version 5"
-
-Revert "[Parser] Parse string literal arguments of 'avail"
-
+Revert; breaks build of rccl and blas and rocSolver
+* f4bbcac2 [Clang] Allow the value of unroll count to be zero  in `#pragma GCC unroll` and `#pragma unroll` (#88666)
+Clang] Fix a crash introduced in PR#88666 (#89567)   

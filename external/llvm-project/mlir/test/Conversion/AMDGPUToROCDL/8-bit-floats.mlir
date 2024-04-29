@@ -53,7 +53,7 @@ func.func @ext_full_vec(%v: vector<4xf8E4M3FNUZ>) -> f32 {
 // CHECK: [[CAST:%.+]] = llvm.bitcast [[PACKED]] : i32 to vector<4xi8>
 // CHECK: builtin.unrealized_conversion_cast [[CAST]] : vector<4xi8> to vector<4xf8E4M3FNUZ>
 func.func @packed_trunc(%v: f32) -> vector<4xf8E4M3FNUZ> {
-  %ret = amdgpu.packed_trunc_fp8x2 %v, undef into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
+  %ret = amdgpu.packed_trunc_2xfp8 %v, undef into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
   func.return %ret : vector<4xf8E4M3FNUZ>
 }
 
@@ -65,7 +65,7 @@ func.func @packed_trunc(%v: f32) -> vector<4xf8E4M3FNUZ> {
 // CHECK: [[CAST:%.+]] = llvm.bitcast [[PACKED]] : i32 to vector<4xi8>
 // CHECK: builtin.unrealized_conversion_cast [[CAST]] : vector<4xi8> to vector<4xf8E4M3FNUZ>
 func.func @packed_truncx2(%v: f32, %w: f32) -> vector<4xf8E4M3FNUZ> {
-  %ret = amdgpu.packed_trunc_fp8x2 %v, %w into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
+  %ret = amdgpu.packed_trunc_2xfp8 %v, %w into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
   func.return %ret : vector<4xf8E4M3FNUZ>
 }
 
@@ -78,7 +78,7 @@ func.func @packed_truncx2(%v: f32, %w: f32) -> vector<4xf8E4M3FNUZ> {
 // CHECK: [[CAST:%.+]] = llvm.bitcast [[PACKED]] : i32 to vector<4xi8>
 // CHECK: builtin.unrealized_conversion_cast [[CAST]] : vector<4xi8> to vector<4xf8E5M2FNUZ>
 func.func @packed_truncx2_into(%v: f32, %w: f32, %existing: vector<4xf8E5M2FNUZ>) -> vector<4xf8E5M2FNUZ> {
-  %ret = amdgpu.packed_trunc_fp8x2 %v, %w into %existing[word 1] : f32 to vector<4xf8E5M2FNUZ> into vector<4xf8E5M2FNUZ>
+  %ret = amdgpu.packed_trunc_2xfp8 %v, %w into %existing[word 1] : f32 to vector<4xf8E5M2FNUZ> into vector<4xf8E5M2FNUZ>
   func.return %ret : vector<4xf8E5M2FNUZ>
 }
 

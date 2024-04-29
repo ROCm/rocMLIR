@@ -71,6 +71,9 @@ struct BackendOptions : public PassPipelineOptions<BackendOptions> {
   PassOptions::Option<bool> compile{
       *this, "compile", desc("should the serailization pass be run"),
       init(true)};
+  PassOptions::Option<bool> suppressDiagnostic{
+      *this, "suppress-diagnostic",
+      desc("should we suppress diagnostic messages"), init(false)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.

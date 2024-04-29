@@ -15,9 +15,8 @@
 #define LLVM_FRONTEND_OPENMP_OMPCONSTANTS_H
 
 #include "llvm/ADT/BitmaskEnum.h"
-
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Frontend/OpenMP/OMP.h.inc"
+#include "llvm/Frontend/OpenMP/OMP.h"
 
 namespace llvm {
 namespace omp {
@@ -73,7 +72,10 @@ enum class IdentFlag {
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
 
 // Version of the kernel argument format used by the omp runtime.
-#define OMP_KERNEL_ARG_VERSION 2
+#define OMP_KERNEL_ARG_VERSION 3
+
+// Minimum version of the compiler that generates a kernel dynamic pointer.
+#define OMP_KERNEL_ARG_MIN_VERSION_WITH_DYN_PTR 3
 
 /// \note This needs to be kept in sync with kmp.h enum sched_type.
 /// Todo: Update kmp.h to include this file, and remove the enums in kmp.h
@@ -276,6 +278,54 @@ enum class RTLDependenceKindTy {
   DepInOutSet = 0x8,
   DepOmpAllMem = 0x80,
 };
+
+namespace xteam_red {
+// Upper limit on CU multiplier for computing number of teams.
+constexpr int16_t MaxCUMultiplier = 32;
+
+// Maximum number of threads allowed per CU.
+constexpr int16_t MaxThreadsPerCU = 2048;
+
+// Desired number of wavefronts per CU.
+constexpr int16_t DesiredWavesPerCU = 16;
+
+// Default block size, currently different from other kernel types.
+constexpr int16_t DefaultBlockSize = 1024;
+
+// Max block size, same as other kernel types, but maintaining it here
+// so that it is accessible for all targets.
+constexpr int16_t MaxBlockSize = 1024;
+
+// Compute CUMultiplier = (Max threads per CU) / (Block size)
+static inline uint32_t getXteamRedCUMultiplier(uint32_t BlockSize) {
+  uint32_t CUMultiplier =
+      BlockSize > 0 ? llvm::omp::xteam_red::MaxThreadsPerCU / BlockSize
+                    : llvm::omp::xteam_red::MaxCUMultiplier;
+  if (CUMultiplier > llvm::omp::xteam_red::MaxCUMultiplier)
+    CUMultiplier = llvm::omp::xteam_red::MaxCUMultiplier;
+  return CUMultiplier;
+}
+
+} // end namespace xteam_red
+
+/// A type of worksharing loop construct
+enum class WorksharingLoopType {
+  // Worksharing `for`-loop
+  ForStaticLoop,
+  // Worksharing `distrbute`-loop
+  DistributeStaticLoop,
+  // Worksharing `distrbute parallel for`-loop
+  DistributeForStaticLoop
+};
+
+static inline uint32_t getBlockSizeAsPowerOfTwo(uint32_t BlockSize) {
+  uint32_t Tmp = BlockSize;
+  do {
+    BlockSize = Tmp;
+    Tmp = BlockSize & (BlockSize - 1);
+  } while (Tmp != 0);
+  return BlockSize;
+}
 
 } // end namespace omp
 

@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "include/llvm-libc-types/test_rpc_opcodes_t.h"
 #include "src/__support/GPU/utils.h"
 #include "src/__support/RPC/rpc_client.h"
 #include "src/__support/integer_to_string.h"
@@ -17,7 +18,7 @@
 extern "C" void *malloc(uint64_t);
 extern "C" void free(void *);
 
-using namespace __llvm_libc;
+using namespace LIBC_NAMESPACE;
 
 static void test_stream() {
   static const char str[] =

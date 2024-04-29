@@ -284,7 +284,7 @@ unsigned serialization::ComputeHash(Selector Sel) {
     ++N;
   unsigned R = 5381;
   for (unsigned I = 0; I != N; ++I)
-    if (IdentifierInfo *II = Sel.getIdentifierInfoForSlot(I))
+    if (const IdentifierInfo *II = Sel.getIdentifierInfoForSlot(I))
       R = llvm::djbHash(II->getName(), R);
   return R;
 }
@@ -424,7 +424,6 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   case Decl::StaticAssert:
   case Decl::Block:
   case Decl::Captured:
-  case Decl::ClassScopeFunctionSpecialization:
   case Decl::Import:
   case Decl::OMPThreadPrivate:
   case Decl::OMPAllocate:

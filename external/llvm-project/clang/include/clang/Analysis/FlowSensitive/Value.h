@@ -34,9 +34,7 @@ class Value {
 public:
   enum class Kind {
     Integer,
-    Reference,
     Pointer,
-    Struct,
 
     // TODO: Top values should not be need to be type-specific.
     TopBool,
@@ -64,6 +62,9 @@ public:
 
   /// Assigns `Val` as the value of the synthetic property with the given
   /// `Name`.
+  ///
+  /// Properties may not be set on `RecordValue`s; use synthetic fields instead
+  /// (for details, see documentation for `RecordStorageLocation`).
   void setProperty(llvm::StringRef Name, Value &Val) {
     Properties.insert_or_assign(Name, &Val);
   }
@@ -82,8 +83,8 @@ private:
 /// transitivity. It does *not* include comparison of `Properties`.
 ///
 /// Computes equivalence for these subclasses:
-/// * ReferenceValue, PointerValue -- pointee locations are equal. Does not
-///   compute deep equality of `Value` at said location.
+/// * PointerValue -- pointee locations are equal. Does not compute deep
+///   equality of `Value` at said location.
 /// * TopBoolValue -- both are `TopBoolValue`s.
 ///
 /// Otherwise, falls back to pointer equality.
@@ -165,23 +166,6 @@ public:
   }
 };
 
-/// Models a dereferenced pointer. For example, a reference in C++ or an lvalue
-/// in C.
-class ReferenceValue final : public Value {
-public:
-  explicit ReferenceValue(StorageLocation &ReferentLoc)
-      : Value(Kind::Reference), ReferentLoc(ReferentLoc) {}
-
-  static bool classof(const Value *Val) {
-    return Val->getKind() == Kind::Reference;
-  }
-
-  StorageLocation &getReferentLoc() const { return ReferentLoc; }
-
-private:
-  StorageLocation &ReferentLoc;
-};
-
 /// Models a symbolic pointer. Specifically, any value of type `T*`.
 class PointerValue final : public Value {
 public:
@@ -196,40 +180,6 @@ public:
 
 private:
   StorageLocation &PointeeLoc;
-};
-
-/// Models a value of `struct` or `class` type, with a flat map of fields to
-/// child storage locations, containing all accessible members of base struct
-/// and class types.
-class StructValue final : public Value {
-public:
-  StructValue() : StructValue(llvm::DenseMap<const ValueDecl *, Value *>()) {}
-
-  explicit StructValue(llvm::DenseMap<const ValueDecl *, Value *> Children)
-      : Value(Kind::Struct), Children(std::move(Children)) {}
-
-  static bool classof(const Value *Val) {
-    return Val->getKind() == Kind::Struct;
-  }
-
-  /// Returns the child value that is assigned for `D` or null if the child is
-  /// not initialized.
-  Value *getChild(const ValueDecl &D) const { return Children.lookup(&D); }
-
-  /// Assigns `Val` as the child value for `D`.
-  void setChild(const ValueDecl &D, Value &Val) { Children[&D] = &Val; }
-
-  /// Clears any value assigned as the child value for `D`.
-  void clearChild(const ValueDecl &D) { Children.erase(&D); }
-
-  llvm::iterator_range<
-      llvm::DenseMap<const ValueDecl *, Value *>::const_iterator>
-  children() const {
-    return {Children.begin(), Children.end()};
-  }
-
-private:
-  llvm::DenseMap<const ValueDecl *, Value *> Children;
 };
 
 raw_ostream &operator<<(raw_ostream &OS, const Value &Val);
