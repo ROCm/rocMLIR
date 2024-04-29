@@ -21,6 +21,10 @@ prevents other LLVM tools or instances from registering a -h option in the same
 process, which is an issue because -h is a common short form for -help.
 -  Updated default code object version used when linking code object specific
 device library from v4 to v5
+-  Updated shared library name on Windows 64-bit to include Comgr major version
+(libamd\_comgr.dll -> libamd\_comgr\_X.dll, where X is the major version)
+- oclc\_daz\_opt\_on.bc and oclc\_daz\_opt\_off.bc, and the corresponding
+  variable \_\_oclc\_daz\_opt are no longer necessary.
 
 New Features
 ------------
@@ -33,6 +37,9 @@ implementation and tests.
 an std::scoped\_lock()
 - Added support for bitcode and archive unbundling during linking via the new
 llvm OffloadBundler API.
+- Added support for code object v6 and generic targets.
+- Added mechanism to bypass device library file system writes if Comgr is able
+to locate a local device library directory via the clang-resource-dir
 
 Bug Fixes
 ---------
@@ -59,7 +66,14 @@ lld::elf::link in Comgr's linkWithLLD()
 - Added -x assembler option to assembly compilation. Before, if an assembly file
 did not end with a .s file extension, it was not handled properly by the Comgr
 ASSEMBLE\_SOURCE\_TO\_RELOCATABLE action.
-
+- Switched getline() from C++ to C-style to avoid issues with stdlibc++ and
+pytorch
+- Added new -relink-builtin-bitcode-postop LLVM option to device library. This
+fixes an issue with the \*COMPILE\_SOURCE\_WITH\_DEVICE\_LIBRARIES\_TO\_BC where
+OpenCL applications that leveraged AMDGPUSimplifyLibCalls optimizations would
+need to re-link bitcodes separately to avoid errors at runtime.
+- Correctly set directory to object file path when forwarding -save-temps for
+HIP compilations with AMD\_COMGR\_SAVE\_TEMPS set
 
 New APIs
 --------
@@ -80,6 +94,11 @@ New APIs
 - amd\_comgr\_map\_elf\_virtual\_address\_to\_code\_object\_offset() (v2.7)
     - For a given executable and ELF virtual address, return a code object
     offset. This API will benifet the ROCm debugger and profilier
+- amd\_comgr\_action\_info\_set\_bundle\_entry\_ids() (v2.8)
+- amd\_comgr\_action\_info\_get\_bundle\_entry\_id_count() (v2.8)
+- amd\_comgr\_action\_info\_get\_bundle\_entry\_id() (v2.8)
+    - A user can provide a set of bundle entry IDs, which are processed when
+    calling the AMD\_COMGR\_UNBUNDLE action
 
 
 Deprecated APIs
@@ -105,6 +124,13 @@ action, and Comgr will internally unbundle and link via the OffloadBundler and l
 - (Action) AMD\_COMGR\_ACTION\_COMPILE\_SOURCE\_TO\_EXECUTABLE
   - This action allows compilation from source directly to executable, including
   linking device libraries.
+- (Action) AMD\_COMGR\_ACTION\_UNBUNDLE
+  - This accepts a set of bitcode bundles, object file bundles, and archive
+  bundles,and returns set of unbundled bitcode, object files, and archives,
+  selecting bundles based on the bundle entry IDs provided.
+- (Data Type) AMD\_COMGR\_DATA\_KIND\_OBJ\_BUNDLE
+  - This data kind represents a clang-offload-bundle of object files, and can be
+  passed when calling the AMD\_COMGR\_ACTION\_UNBUNDLE action
 
 
 Deprecated Comgr Actions and Data Types
@@ -137,8 +163,10 @@ unbundling.
 output for Comgr actions. This can help us debug issues more quickly in cases
 where reporters provide Comgr logs.
 - Fix multiple bugs with mangled names test
+- Update default arch for test binaries from gfx830 to gfx900
 - Refactor nested kernel behavior into new test, as this behavior is less common
 and shouldn't be featured in the baseline tests
+- Add metadata parsing tests for code objects with multiple AMDGPU metadata note entries.
 
 New Targets
 -----------
@@ -148,6 +176,10 @@ New Targets
  - gfx1036
  - gfx1150
  - gfx1151
+ - gfx9-generic
+ - gfx10-1-generic
+ - gfx10-3-generic
+ - gfx11-generic
 
 Removed Targets
 ---------------

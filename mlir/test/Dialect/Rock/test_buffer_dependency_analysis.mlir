@@ -24,7 +24,7 @@ func.func @gemm_test1(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
   %cst = arith.constant 0.000000e+00 : f16
   linalg.generic {indexing_maps = [#gemm_map1, #gemm_map1], iterator_types = ["parallel", "parallel"]} ins(%0 : memref<64x64xf16>) outs(%alloc_1 : memref<64x64xf16>) {
   ^bb0(%in: f16, %out: f16):
-    %2 = arith.maxf %in, %cst : f16
+    %2 = arith.maximumf %in, %cst : f16
     linalg.yield %2 : f16
   }
   %1 = rock.transform %alloc_1 by #gemm_transform_map1 : memref<64x64xf16> to memref<1x64x64xf16>
@@ -48,7 +48,7 @@ func.func @gemm_test2(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
   %cst = arith.constant 0.000000e+00 : f16
   linalg.generic {indexing_maps = [#gemm_map1], iterator_types = ["parallel", "parallel"]} outs(%0 : memref<64x64xf16>) {
   ^bb0(%out: f16):
-    %2 = arith.maxf %out, %cst : f16
+    %2 = arith.maximumf %out, %cst : f16
     linalg.yield %2 : f16
   }
   %1 = rock.transform %0 by #gemm_transform_map1 : memref<64x64xf16> to memref<1x64x64xf16>
@@ -74,7 +74,7 @@ func.func @gemm_test3(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
   %cst = arith.constant 0.000000e+00 : f16
   linalg.generic {indexing_maps = [#gemm_map1, #gemm_map1], iterator_types = ["parallel", "parallel"]} ins(%0 : memref<64x64xf16>) outs(%alloc_1 : memref<64x64xf16>) {
   ^bb0(%in: f16, %out: f16):
-    %2 = arith.maxf %in, %cst : f16
+    %2 = arith.maximumf %in, %cst : f16
     linalg.yield %2 : f16
   }
   %1 = rock.transform %alloc_1 by #gemm_transform_map1 : memref<64x64xf16> to memref<1x64x64xf16>
@@ -124,7 +124,7 @@ func.func @conv_test1(%arg0: memref<64x1x1x1xf32>, %arg1: memref<1x64x56x56xf32>
   linalg.generic {indexing_maps = [#conv_map5, #conv_map5, #conv_map5], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %6 : memref<64x56x56xf32>, memref<64x56x56xf32>) outs(%alloc_1 : memref<64x56x56xf32>) {
   ^bb0(%in: f32, %in_1: f32, %out: f32):
     %8 = arith.addf %in, %in_1 : f32
-    %9 = arith.maxf %8, %cst : f32
+    %9 = arith.maximumf %8, %cst : f32
     linalg.yield %9 : f32
   }
   %7 = rock.transform %alloc_1 by #conv_transform_map6 : memref<64x56x56xf32> to memref<1x64x56x56xf32>

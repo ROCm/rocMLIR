@@ -70,7 +70,7 @@ public:
 namespace tools {
 namespace NVPTX {
 // Run ptxas, the NVPTX assembler.
-class LLVM_LIBRARY_VISIBILITY Assembler : public Tool {
+class LLVM_LIBRARY_VISIBILITY Assembler final : public Tool {
 public:
   Assembler(const ToolChain &TC) : Tool("NVPTX::Assembler", "ptxas", TC) {}
   bool hasIntegratedCPP() const override { return false; }
@@ -91,9 +91,10 @@ public:
                     const char *LinkingOutput) const override;
 };
 // Runs nvlink, which links GPU object files ("cubin" files) into a single file.
-class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
+class LLVM_LIBRARY_VISIBILITY Linker final : public Tool {
 public:
-  Linker(const ToolChain &TC) : Tool("NVPTX::Linker", "fatbinary", TC) {}
+  Linker(const ToolChain &TC) : Tool("NVPTX::Linker", "nvlink", TC) {}
+
   bool hasIntegratedCPP() const override { return false; }
   void ConstructJob(Compilation &C, const JobAction &JA,
                     const InputInfo &Output, const InputInfoList &Inputs,
@@ -154,6 +155,12 @@ public:
   // NVPTX supports only DWARF2.
   unsigned GetDefaultDwarfVersion() const override { return 2; }
   unsigned getMaxDwarfVersion() const override { return 2; }
+
+  /// Uses nvptx-arch tool to get arch of the system GPU. Will return error
+  /// if unable to find one.
+  virtual Expected<SmallVector<std::string>>
+  getSystemGPUArchs(const llvm::opt::ArgList &Args) const override;
+
   CudaInstallationDetector CudaInstallation;
 protected:
   Tool *buildAssembler() const override; // ptxas.
@@ -201,10 +208,8 @@ public:
   computeMSVCVersion(const Driver *D,
                      const llvm::opt::ArgList &Args) const override;
 
-  Expected<SmallVector<std::string>>
-  getSystemGPUArchs(const llvm::opt::ArgList &Args) const override;
-
   const ToolChain &HostTC;
+
 protected:
   Tool *buildAssembler() const override; // ptxas
   Tool *buildLinker() const override;    // fatbinary (ok, not really a linker)

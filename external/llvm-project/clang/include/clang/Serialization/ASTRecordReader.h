@@ -24,6 +24,7 @@
 #include "llvm/ADT/APSInt.h"
 
 namespace clang {
+class OpenACCClause;
 class OMPTraitInfo;
 class OMPChildren;
 
@@ -155,8 +156,13 @@ public:
   /// Reads a TemplateArgumentLoc, advancing Idx.
   TemplateArgumentLoc readTemplateArgumentLoc();
 
+  void readTemplateArgumentListInfo(TemplateArgumentListInfo &Result);
+
   const ASTTemplateArgumentListInfo*
   readASTTemplateArgumentListInfo();
+
+  // Reads a concept reference from the given record.
+  ConceptReference *readConceptReference();
 
   /// Reads a declarator info from the given record, advancing Idx.
   TypeSourceInfo *readTypeSourceInfo();
@@ -216,6 +222,8 @@ public:
     return Reader->ReadSelector(*F, Record, Idx);
   }
 
+  TypeCoupledDeclRefInfo readTypeCoupledDeclRefInfo();
+
   /// Read a declaration name, advancing Idx.
   // DeclarationName readDeclarationName(); (inherited)
   DeclarationNameLoc readDeclarationNameLoc(DeclarationName Name);
@@ -270,6 +278,12 @@ public:
 
   /// Read an OpenMP children, advancing Idx.
   void readOMPChildren(OMPChildren *Data);
+
+  /// Read an OpenACC clause, advancing Idx.
+  OpenACCClause *readOpenACCClause();
+
+  /// Read a list of OpenACC clauses into the passed SmallVector.
+  void readOpenACCClauseList(MutableArrayRef<const OpenACCClause *> Clauses);
 
   /// Read a source location, advancing Idx.
   SourceLocation readSourceLocation(LocSeq *Seq = nullptr) {
@@ -364,10 +378,6 @@ private:
   llvm::BitstreamCursor &Cursor;
   uint64_t Offset;
 };
-
-inline void PCHValidator::Error(const char *Msg) {
-  Reader.Error(Msg);
-}
 
 } // namespace clang
 

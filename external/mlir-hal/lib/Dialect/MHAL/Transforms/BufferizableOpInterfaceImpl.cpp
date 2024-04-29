@@ -89,6 +89,9 @@ struct LaunchOpInterface
                                                     mhal::LaunchOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
+    mhal::LaunchOp launchOp = cast<mhal::LaunchOp>(op);
+    auto opOperandIdx = opOperand.getOperandNumber()
+      - launchOp.getDependencies().size();
     mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
@@ -98,56 +101,20 @@ struct LaunchOpInterface
       return true;
 
     const FuncAnalysisState &funcState = getFuncAnalysisState(state);
-    return funcState.readBbArgs.lookup(funcOp).contains(
-        opOperand.getOperandNumber());
+    return funcState.readBbArgs.lookup(funcOp).contains(opOperandIdx);
   }
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    mlir::CallOpInterface callOp(op);
-    FuncOp funcOp = getCalledFunction(callOp);
-    assert(funcOp && "expected CallOp to a FuncOp");
+    // operands are always inputs
+    return false;
 
-    if (getFuncOpAnalysisState(state, funcOp) != FuncOpAnalysisState::Analyzed)
-      // FuncOp not analyzed yet. Assume that OpOperand is written.
-      return true;
-
-    const FuncAnalysisState &funcState = getFuncAnalysisState(state);
-    return funcState.writtenBbArgs.lookup(funcOp).contains(
-        opOperand.getOperandNumber());
   }
 
-  AliasingOpResultList getAliasingOpResults(Operation *op, OpOperand &opOperand,
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
-    mlir::CallOpInterface callOp(op);
-    FuncOp funcOp = getCalledFunction(callOp);
-    assert(funcOp && "expected CallOp to a FuncOp");
-    if (getFuncOpAnalysisState(state, funcOp) !=
-        FuncOpAnalysisState::Analyzed) {
-      // FuncOp not analyzed yet. Any OpResult may be aliasing.
-      return bufferization::detail::unknownGetAliasingOpResults(opOperand);
-    }
-
-    const FuncAnalysisState &funcState = getFuncAnalysisState(state);
-    auto aliasingReturnVals =
-        funcState.aliasingReturnVals.lookup(funcOp).lookup(
-            opOperand.getOperandNumber());
-
-    // Check if the aliasing OpResult is equivalent to the OpOperand.
-    std::optional<int64_t> equivalent = {};
-    if (aliasingReturnVals.size() == 1) {
-      equivalent = getEquivalentFuncArgIdx(funcOp, funcState,
-                                           aliasingReturnVals.front());
-      assert((!equivalent.has_value() ||
-              *equivalent == opOperand.getOperandNumber()) &&
-             "inconsistent analysis state");
-    }
-    AliasingOpResultList result;
-    for (int64_t resultIdx : aliasingReturnVals)
-      result.addAlias({callOp->getOpResult(resultIdx),
-                       equivalent.has_value() ? BufferRelation::Equivalent
-                                              : BufferRelation::Unknown,
-                       /*isDefinite=*/equivalent.has_value()});
+    // results never alias with operands
+    AliasingValueList result;
     return result;
   }
 
@@ -159,41 +126,33 @@ struct LaunchOpInterface
     auto callOperands = callOp.getArgOperands();
     auto callResultTypes = callOp.getCallResultTypes();
     unsigned numOperands = callOp->getNumOperands();
-    unsigned numResults = callOp->getNumResults();
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
-    FunctionType funcType = funcOp.getFunctionType();
 
     // Result types of the bufferized CallOp.
     SmallVector<Type> resultTypes;
-    // Replacement values for the existing CallOp. These are usually the results
-    // of the bufferized CallOp, unless a tensor result folds onto an operand.
-    SmallVector<Value> replacementValues(numResults, Value());
-    // For non-tensor results: A mapping from return val indices of the old
-    // CallOp to return val indices of the bufferized CallOp.
-    SmallVector<std::optional<unsigned>> retValMapping(numResults,
-                                                       std::nullopt);
+    
     // Operands of the bufferized CallOp.
     SmallVector<Value> newOperands(numOperands, Value());
 
     // 1. Compute the result types of the new CallOp.
     unsigned funcResultIdx = 0;
-    for (const auto &it : llvm::enumerate(callOp->getResultTypes())) {
-      unsigned returnValIdx = it.index();
-      Type returnType = it.value();
-      if (!returnType.isa<TensorType>()) {
+    for (const auto &it : llvm::enumerate(callOp->getResults())) {
+      auto returnVal = it.value();
+      Type returnType = returnVal.getType();
+      if (returnType.isa<TensorType>()) {
+        assert(returnType == callResultTypes[funcResultIdx++]);
+        FailureOr<BaseMemRefType> memrefType =
+          bufferization::getBufferType(returnVal, options);
+        if (failed(memrefType))
+          return failure();
+        resultTypes.push_back(*memrefType);
+      } else {
         // Non-tensor values are returned.
-        retValMapping[returnValIdx] = resultTypes.size();
         resultTypes.push_back(returnType);
         if (returnType == callResultTypes[funcResultIdx])
           funcResultIdx++;
-        continue;
       }
-      assert(returnType == callResultTypes[funcResultIdx]);
-
-      retValMapping[returnValIdx] = resultTypes.size();
-      resultTypes.push_back(funcType.getResult(funcResultIdx));
-      funcResultIdx++;
     }
 
     // 2. Rewrite tensor operands as memrefs based on `bufferizedFuncType`.
@@ -222,23 +181,6 @@ struct LaunchOpInterface
           return failure();
         buffer = *maybeBuffer;
       }
-
-      // Caller / callee type mismatch is handled with a CastOp.
-      // auto memRefType = funcType.getInput(idx);
-      auto memRefType = funcType.getInput(funcOperandIdx);
-      // Since we don't yet have a clear layout story, to_memref may
-      // conservatively turn tensors into more dynamic memref than necessary.
-      // If the memref type of the callee fails, introduce an extra memref.cast
-      // that will either canonicalize away or fail compilation until we can do
-      // something better.
-      if (buffer.getType() != memRefType) {
-        assert(
-            memref::CastOp::areCastCompatible(buffer.getType(), memRefType) &&
-            "CallOp::bufferize: cast incompatible");
-        Value castBuffer = rewriter.create<memref::CastOp>(callOp.getLoc(),
-                                                           memRefType, buffer);
-        buffer = castBuffer;
-      }
       newOperands[idx] = buffer;
       funcOperandIdx++;
     }
@@ -247,15 +189,8 @@ struct LaunchOpInterface
     Operation *newCallOp =
         callOp.clone(rewriter, callOp.getLoc(), resultTypes, newOperands);
 
-    // Get replacement values.
-    for (unsigned i = 0; i < replacementValues.size(); ++i) {
-      if (replacementValues[i])
-        continue;
-      replacementValues[i] = newCallOp->getResult(*retValMapping[i]);
-    }
-
     // 4. Replace the old op with the new op.
-    replaceOpWithBufferizedValues(rewriter, callOp, replacementValues);
+    replaceOpWithBufferizedValues(rewriter, callOp, newCallOp->getResults());
 
     return success();
   }

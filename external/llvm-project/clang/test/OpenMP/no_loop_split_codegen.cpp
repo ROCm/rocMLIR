@@ -89,8 +89,9 @@ int main()
 }
 
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l24
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR0:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR0:[0-9]+]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[A_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -102,6 +103,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[A_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[A_ADDR]] to ptr
@@ -113,6 +115,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[A]], ptr [[A_ADDR_ASCAST]], align 8
@@ -168,8 +171,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l32
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR3:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR3:[0-9]+]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[A_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -181,6 +185,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[A_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[A_ADDR]] to ptr
@@ -192,6 +197,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[A]], ptr [[A_ADDR_ASCAST]], align 8
@@ -247,8 +253,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l40
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4:[0-9]+]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[C_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -260,6 +267,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[C_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[C_ADDR]] to ptr
@@ -271,6 +279,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[C]], ptr [[C_ADDR_ASCAST]], align 8
@@ -326,8 +335,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l47
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[C_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -339,6 +349,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[C_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[C_ADDR]] to ptr
@@ -350,6 +361,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[C]], ptr [[C_ADDR_ASCAST]], align 8
@@ -405,8 +417,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l54
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[C_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -418,6 +431,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[C_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[C_ADDR]] to ptr
@@ -429,6 +443,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[C]], ptr [[C_ADDR_ASCAST]], align 8
@@ -484,8 +499,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l61
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]], i64 noundef [[VLA3:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]]) #[[ATTR5:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]], i64 noundef [[VLA3:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[C:%.*]]) #[[ATTR5:[0-9]+]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[A_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -495,6 +511,7 @@ int main()
 // CHECK-NEXT:    [[C_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[A_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[A_ADDR]] to ptr
@@ -504,6 +521,7 @@ int main()
 // CHECK-NEXT:    [[C_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[C_ADDR]] to ptr
 // CHECK-NEXT:    [[DOTZERO_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTZERO_ADDR]] to ptr
 // CHECK-NEXT:    [[DOTTHREADID_TEMP__ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTTHREADID_TEMP_]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[A]], ptr [[A_ADDR_ASCAST]], align 8
@@ -517,19 +535,19 @@ int main()
 // CHECK-NEXT:    [[TMP3:%.*]] = load ptr, ptr [[B_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    [[TMP4:%.*]] = load i64, ptr [[VLA_ADDR4_ASCAST]], align 8
 // CHECK-NEXT:    [[TMP5:%.*]] = load ptr, ptr [[C_ADDR_ASCAST]], align 8
-// CHECK-NEXT:    [[TMP6:%.*]] = call i32 @__kmpc_target_init(ptr addrspacecast (ptr addrspace(1) @[[GLOB1:[0-9]+]] to ptr), i8 1, i1 true)
+// CHECK-NEXT:    [[TMP6:%.*]] = call i32 @__kmpc_target_init(ptr addrspacecast (ptr addrspace(1) @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l61_kernel_environment to ptr), ptr [[DYN_PTR]])
 // CHECK-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP6]], -1
 // CHECK-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 // CHECK:       user_code.entry:
 // CHECK-NEXT:    [[TMP7:%.*]] = load i32, ptr [[N_ADDR_ASCAST]], align 4
 // CHECK-NEXT:    [[N5:%.*]] = call align 8 ptr @__kmpc_alloc_shared(i64 4)
 // CHECK-NEXT:    store i32 [[TMP7]], ptr [[N5]], align 4
-// CHECK-NEXT:    [[TMP8:%.*]] = call i32 @__kmpc_global_thread_num(ptr addrspacecast (ptr addrspace(1) @[[GLOB1]] to ptr))
+// CHECK-NEXT:    [[TMP8:%.*]] = call i32 @__kmpc_global_thread_num(ptr addrspacecast (ptr addrspace(1) @[[GLOB1:[0-9]+]] to ptr))
 // CHECK-NEXT:    store i32 0, ptr [[DOTZERO_ADDR_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP8]], ptr [[DOTTHREADID_TEMP__ASCAST]], align 4
 // CHECK-NEXT:    call void @{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l61_omp_outlined(ptr [[DOTTHREADID_TEMP__ASCAST]], ptr [[DOTZERO_ADDR_ASCAST]], ptr [[N5]], i64 [[TMP0]], ptr [[TMP1]], i64 [[TMP2]], ptr [[TMP3]], i64 [[TMP4]], ptr [[TMP5]]) #[[ATTR1:[0-9]+]]
 // CHECK-NEXT:    call void @__kmpc_free_shared(ptr [[N5]], i64 4)
-// CHECK-NEXT:    call void @__kmpc_target_deinit(ptr addrspacecast (ptr addrspace(1) @[[GLOB1]] to ptr), i8 1)
+// CHECK-NEXT:    call void @__kmpc_target_deinit()
 // CHECK-NEXT:    ret void
 // CHECK:       worker.exit:
 // CHECK-NEXT:    ret void
@@ -901,7 +919,7 @@ int main()
 // CHECK:       omp.loop.exit:
 // CHECK-NEXT:    [[TMP22:%.*]] = load ptr, ptr [[DOTGLOBAL_TID__ADDR_ASCAST]], align 8
 // CHECK-NEXT:    [[TMP23:%.*]] = load i32, ptr [[TMP22]], align 4
-// CHECK-NEXT:    call void @__kmpc_distribute_static_fini(ptr addrspacecast (ptr addrspace(1) @[[GLOB2]] to ptr), i32 [[TMP23]])
+// CHECK-NEXT:    call void @__kmpc_for_static_fini(ptr addrspacecast (ptr addrspace(1) @[[GLOB3]] to ptr), i32 [[TMP23]])
 // CHECK-NEXT:    br label [[OMP_PRECOND_END]]
 // CHECK:       omp.precond.end:
 // CHECK-NEXT:    ret void
@@ -1059,7 +1077,7 @@ int main()
 // CHECK:       omp.loop.exit:
 // CHECK-NEXT:    [[TMP22:%.*]] = load ptr, ptr [[DOTGLOBAL_TID__ADDR_ASCAST]], align 8
 // CHECK-NEXT:    [[TMP23:%.*]] = load i32, ptr [[TMP22]], align 4
-// CHECK-NEXT:    call void @__kmpc_distribute_static_fini(ptr addrspacecast (ptr addrspace(1) @[[GLOB2]] to ptr), i32 [[TMP23]])
+// CHECK-NEXT:    call void @__kmpc_for_static_fini(ptr addrspacecast (ptr addrspace(1) @[[GLOB3]] to ptr), i32 [[TMP23]])
 // CHECK-NEXT:    br label [[OMP_PRECOND_END]]
 // CHECK:       omp.precond.end:
 // CHECK-NEXT:    ret void
@@ -1100,8 +1118,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l72
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR11:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR11:[0-9]+]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[A_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -1113,6 +1132,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[A_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[A_ADDR]] to ptr
@@ -1124,6 +1144,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[A]], ptr [[A_ADDR_ASCAST]], align 8
@@ -1179,8 +1200,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l77
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR12:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[A_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -1192,6 +1214,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[A_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[A_ADDR]] to ptr
@@ -1203,6 +1226,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[A]], ptr [[A_ADDR_ASCAST]], align 8
@@ -1258,8 +1282,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l84
-// CHECK-SAME: (i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[B:%.*]]) #[[ATTR4]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[A_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
@@ -1271,6 +1296,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
 // CHECK-NEXT:    [[A_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[A_ADDR]] to ptr
@@ -1282,6 +1308,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[A]], ptr [[A_ADDR_ASCAST]], align 8

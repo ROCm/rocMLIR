@@ -70,18 +70,18 @@ define <vscale x 8 x double> @complex_mul_v8f64(<vscale x 8 x double> %a, <vscal
 ; CHECK-NEXT:    mov z25.d, z24.d
 ; CHECK-NEXT:    mov z26.d, z24.d
 ; CHECK-NEXT:    mov z27.d, z24.d
+; CHECK-NEXT:    fcmla z24.d, p0/m, z7.d, z3.d, #0
 ; CHECK-NEXT:    fcmla z25.d, p0/m, z4.d, z0.d, #0
 ; CHECK-NEXT:    fcmla z26.d, p0/m, z5.d, z1.d, #0
 ; CHECK-NEXT:    fcmla z27.d, p0/m, z6.d, z2.d, #0
-; CHECK-NEXT:    fcmla z24.d, p0/m, z7.d, z3.d, #0
+; CHECK-NEXT:    fcmla z24.d, p0/m, z7.d, z3.d, #90
 ; CHECK-NEXT:    fcmla z25.d, p0/m, z4.d, z0.d, #90
 ; CHECK-NEXT:    fcmla z26.d, p0/m, z5.d, z1.d, #90
 ; CHECK-NEXT:    fcmla z27.d, p0/m, z6.d, z2.d, #90
-; CHECK-NEXT:    fcmla z24.d, p0/m, z7.d, z3.d, #90
+; CHECK-NEXT:    mov z3.d, z24.d
 ; CHECK-NEXT:    mov z0.d, z25.d
 ; CHECK-NEXT:    mov z1.d, z26.d
 ; CHECK-NEXT:    mov z2.d, z27.d
-; CHECK-NEXT:    mov z3.d, z24.d
 ; CHECK-NEXT:    ret
 entry:
   %a.deinterleaved = tail call { <vscale x 4 x double>, <vscale x 4 x double> } @llvm.experimental.vector.deinterleave2.nxv8f64(<vscale x 8 x double> %a)

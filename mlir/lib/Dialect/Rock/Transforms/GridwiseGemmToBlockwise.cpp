@@ -1086,7 +1086,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax = rewriter.create<InBoundsLoadOp>(
           loc, maxRowBufferElemType, gemm0OutBufferMax,
           gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = rewriter.create<arith::MaxFOp>(
+      Value maxRowBufferNew = rewriter.create<arith::MaximumFOp>(
           loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
       // ldGemm0OutSubMaxExp = exp(gemm0Out  -maxRowBufferNew)
@@ -1155,7 +1155,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax = rewriter.create<InBoundsLoadOp>(
           loc, maxRowBufferElemType, gemm0OutBufferMax,
           gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = rewriter.create<arith::MaxFOp>(
+      Value maxRowBufferNew = rewriter.create<arith::MaximumFOp>(
           loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);

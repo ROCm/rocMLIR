@@ -7,11 +7,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Vector/TransformOps/VectorTransformOps.h"
+
+#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Conversion/VectorToSCF/VectorToSCF.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
-#include "mlir/Dialect/Transform/IR/TransformInterfaces.h"
 #include "mlir/Dialect/Transform/IR/TransformOps.h"
+#include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
@@ -24,12 +27,46 @@ using namespace mlir::vector;
 using namespace mlir::transform;
 
 //===----------------------------------------------------------------------===//
+// Apply...ConversionPatternsOp
+//===----------------------------------------------------------------------===//
+
+void transform::ApplyVectorToLLVMConversionPatternsOp::populatePatterns(
+    TypeConverter &typeConverter, RewritePatternSet &patterns) {
+  populateVectorToLLVMConversionPatterns(
+      static_cast<LLVMTypeConverter &>(typeConverter), patterns,
+      getReassociateFpReductions(), getForce_32bitVectorIndices());
+}
+
+LogicalResult
+transform::ApplyVectorToLLVMConversionPatternsOp::verifyTypeConverter(
+    transform::TypeConverterBuilderOpInterface builder) {
+  if (builder.getTypeConverterType() != "LLVMTypeConverter")
+    return emitOpError("expected LLVMTypeConverter");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Apply...PatternsOp
 //===----------------------------------------------------------------------===//
 
 void transform::ApplyCastAwayVectorLeadingOneDimPatternsOp::populatePatterns(
     RewritePatternSet &patterns) {
   vector::populateCastAwayVectorLeadingOneDimPatterns(patterns);
+}
+
+void transform::ApplyFoldArithExtensionPatternsOp::populatePatterns(
+    RewritePatternSet &patterns) {
+  vector::populateFoldArithExtensionPatterns(patterns);
+}
+
+void transform::ApplyVectorReductionToContractPatternsOp::populatePatterns(
+    RewritePatternSet &patterns) {
+  vector::populateVectorReductionToContractPatterns(patterns);
+}
+
+void transform::ApplyLowerCreateMaskPatternsOp::populatePatterns(
+    RewritePatternSet &patterns) {
+  vector::populateVectorMaskOpLoweringPatterns(patterns);
 }
 
 void transform::ApplyRankReducingSubviewPatternsOp::populatePatterns(
@@ -120,6 +157,17 @@ void transform::ApplyLowerTransposePatternsOp::populatePatterns(
     x86vector::avx2::populateSpecializedTransposeLoweringPatterns(
         patterns, avx2LoweringOptions, /*benefit=*/10);
   }
+}
+
+void transform::ApplyLowerInterleavePatternsOp::populatePatterns(
+    RewritePatternSet &patterns) {
+  vector::populateVectorInterleaveLoweringPatterns(patterns);
+}
+
+void transform::ApplyRewriteNarrowTypePatternsOp::populatePatterns(
+    RewritePatternSet &patterns) {
+  populateVectorNarrowTypeRewritePatterns(patterns);
+  populateVectorTransposeNarrowTypeRewritePatterns(patterns);
 }
 
 void transform::ApplySplitTransferFullPartialPatternsOp::populatePatterns(

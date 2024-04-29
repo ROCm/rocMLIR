@@ -53,7 +53,8 @@ int main(int argc, char *argv[]) {
   // For this test to pass when redirecting logs to stdout,
   // we need to temporarily undo the redirect
   if (getenv("AMD_COMGR_REDIRECT_LOGS") &&
-      !strcmp("stdout", getenv("AMD_COMGR_REDIRECT_LOGS")))
+      ( !strcmp("stdout", getenv("AMD_COMGR_REDIRECT_LOGS")) ||
+        !strcmp("stderr", getenv("AMD_COMGR_REDIRECT_LOGS")) ))
       unsetenv("AMD_COMGR_REDIRECT_LOGS");
 
   amd_comgr_data_t DataCl, DataAsm, DataBc, DataReloc;
@@ -116,7 +117,7 @@ int main(int argc, char *argv[]) {
                                               AMD_COMGR_LANGUAGE_OPENCL_1_2);
   checkError(Status, "amd_comgr_action_info_set_language");
   Status = amd_comgr_action_info_set_isa_name(DataAction,
-                                              "amdgcn-amd-amdhsa--gfx803");
+                                              "amdgcn-amd-amdhsa--gfx900");
   checkError(Status, "amd_comgr_action_info_set_isa_name");
   Status = amd_comgr_action_info_set_logging(DataAction, true);
   checkError(Status, "amd_comgr_action_info_set_logging");

@@ -38,4 +38,5 @@ target_link_libraries(MLIRRockOps
   MLIRParser
   MLIRROCDLDialect
   MLIRSupport
+  MLIRLinalgTransformOps
   )

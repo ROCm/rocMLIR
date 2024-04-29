@@ -118,8 +118,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %112 = "tosa.add"(%31, %103) : (tensor<64x1x1xf32>, tensor<1x1x1xf32>) -> tensor<64x1x1xf32>
     %113 = "tosa.rsqrt"(%112) : (tensor<64x1x1xf32>) -> tensor<64x1x1xf32>
     %114 = "tosa.reshape"(%113) {new_shape = array<i64: 1, 64, 1, 1>} : (tensor<64x1x1xf32>) -> tensor<1x64x1x1xf32>
-    %115 = "tosa.mul"(%111, %114) {shift = 0 : i32} : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x112x112xf32>
-    %116 = "tosa.mul"(%115, %33) {shift = 0 : i32} : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x112x112xf32>
+    %115 = "tosa.mul"(%111, %114) {shift = 0 : i8} : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x112x112xf32>
+    %116 = "tosa.mul"(%115, %33) {shift = 0 : i8} : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x112x112xf32>
     %117 = "tosa.add"(%116, %34) : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x112x112xf32>
     %118 = "tosa.clamp"(%117) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x64x112x112xf32>) -> tensor<1x64x112x112xf32>
     %119 = "tosa.transpose"(%118, %25) : (tensor<1x64x112x112xf32>, tensor<4xi32>) -> tensor<1x112x112x64xf32>
@@ -133,8 +133,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %127 = "tosa.add"(%35, %103) : (tensor<64x1x1xf32>, tensor<1x1x1xf32>) -> tensor<64x1x1xf32>
     %128 = "tosa.rsqrt"(%127) : (tensor<64x1x1xf32>) -> tensor<64x1x1xf32>
     %129 = "tosa.reshape"(%128) {new_shape = array<i64: 1, 64, 1, 1>} : (tensor<64x1x1xf32>) -> tensor<1x64x1x1xf32>
-    %130 = "tosa.mul"(%126, %129) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-    %131 = "tosa.mul"(%130, %37) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %130 = "tosa.mul"(%126, %129) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %131 = "tosa.mul"(%130, %37) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %132 = "tosa.add"(%131, %38) : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %133 = "tosa.clamp"(%132) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
     %134 = "tosa.transpose"(%133, %25) : (tensor<1x64x56x56xf32>, tensor<4xi32>) -> tensor<1x56x56x64xf32>
@@ -145,8 +145,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %139 = "tosa.add"(%39, %103) : (tensor<64x1x1xf32>, tensor<1x1x1xf32>) -> tensor<64x1x1xf32>
     %140 = "tosa.rsqrt"(%139) : (tensor<64x1x1xf32>) -> tensor<64x1x1xf32>
     %141 = "tosa.reshape"(%140) {new_shape = array<i64: 1, 64, 1, 1>} : (tensor<64x1x1xf32>) -> tensor<1x64x1x1xf32>
-    %142 = "tosa.mul"(%138, %141) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-    %143 = "tosa.mul"(%142, %41) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %142 = "tosa.mul"(%138, %141) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %143 = "tosa.mul"(%142, %41) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %144 = "tosa.add"(%143, %42) : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %145 = "tosa.add"(%144, %121) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
     %146 = "tosa.clamp"(%145) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
@@ -158,8 +158,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %152 = "tosa.add"(%43, %103) : (tensor<64x1x1xf32>, tensor<1x1x1xf32>) -> tensor<64x1x1xf32>
     %153 = "tosa.rsqrt"(%152) : (tensor<64x1x1xf32>) -> tensor<64x1x1xf32>
     %154 = "tosa.reshape"(%153) {new_shape = array<i64: 1, 64, 1, 1>} : (tensor<64x1x1xf32>) -> tensor<1x64x1x1xf32>
-    %155 = "tosa.mul"(%151, %154) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-    %156 = "tosa.mul"(%155, %45) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %155 = "tosa.mul"(%151, %154) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %156 = "tosa.mul"(%155, %45) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %157 = "tosa.add"(%156, %46) : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %158 = "tosa.clamp"(%157) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
     %159 = "tosa.transpose"(%158, %25) : (tensor<1x64x56x56xf32>, tensor<4xi32>) -> tensor<1x56x56x64xf32>
@@ -170,8 +170,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %164 = "tosa.add"(%47, %103) : (tensor<64x1x1xf32>, tensor<1x1x1xf32>) -> tensor<64x1x1xf32>
     %165 = "tosa.rsqrt"(%164) : (tensor<64x1x1xf32>) -> tensor<64x1x1xf32>
     %166 = "tosa.reshape"(%165) {new_shape = array<i64: 1, 64, 1, 1>} : (tensor<64x1x1xf32>) -> tensor<1x64x1x1xf32>
-    %167 = "tosa.mul"(%163, %166) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-    %168 = "tosa.mul"(%167, %49) {shift = 0 : i32} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %167 = "tosa.mul"(%163, %166) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
+    %168 = "tosa.mul"(%167, %49) {shift = 0 : i8} : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %169 = "tosa.add"(%168, %50) : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %170 = "tosa.add"(%169, %146) : (tensor<1x64x56x56xf32>, tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
     %171 = "tosa.clamp"(%170) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
@@ -183,8 +183,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %177 = "tosa.add"(%51, %103) : (tensor<128x1x1xf32>, tensor<1x1x1xf32>) -> tensor<128x1x1xf32>
     %178 = "tosa.rsqrt"(%177) : (tensor<128x1x1xf32>) -> tensor<128x1x1xf32>
     %179 = "tosa.reshape"(%178) {new_shape = array<i64: 1, 128, 1, 1>} : (tensor<128x1x1xf32>) -> tensor<1x128x1x1xf32>
-    %180 = "tosa.mul"(%176, %179) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
-    %181 = "tosa.mul"(%180, %53) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %180 = "tosa.mul"(%176, %179) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %181 = "tosa.mul"(%180, %53) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %182 = "tosa.add"(%181, %54) : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %183 = "tosa.clamp"(%182) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
     %184 = "tosa.transpose"(%183, %25) : (tensor<1x128x28x28xf32>, tensor<4xi32>) -> tensor<1x28x28x128xf32>
@@ -195,8 +195,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %189 = "tosa.add"(%55, %103) : (tensor<128x1x1xf32>, tensor<1x1x1xf32>) -> tensor<128x1x1xf32>
     %190 = "tosa.rsqrt"(%189) : (tensor<128x1x1xf32>) -> tensor<128x1x1xf32>
     %191 = "tosa.reshape"(%190) {new_shape = array<i64: 1, 128, 1, 1>} : (tensor<128x1x1xf32>) -> tensor<1x128x1x1xf32>
-    %192 = "tosa.mul"(%188, %191) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
-    %193 = "tosa.mul"(%192, %57) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %192 = "tosa.mul"(%188, %191) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %193 = "tosa.mul"(%192, %57) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %194 = "tosa.add"(%193, %2) : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %195 = "tosa.transpose"(%16, %25) : (tensor<128x64x1x1xf32>, tensor<4xi32>) -> tensor<128x1x1x64xf32>
     %196 = "tosa.conv2d"(%172, %195, %27) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 2, 2>} : (tensor<1x56x56x64xf32>, tensor<128x1x1x64xf32>, tensor<128xf32>) -> tensor<1x28x28x128xf32>
@@ -205,8 +205,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %199 = "tosa.add"(%58, %103) : (tensor<128x1x1xf32>, tensor<1x1x1xf32>) -> tensor<128x1x1xf32>
     %200 = "tosa.rsqrt"(%199) : (tensor<128x1x1xf32>) -> tensor<128x1x1xf32>
     %201 = "tosa.reshape"(%200) {new_shape = array<i64: 1, 128, 1, 1>} : (tensor<128x1x1xf32>) -> tensor<1x128x1x1xf32>
-    %202 = "tosa.mul"(%198, %201) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
-    %203 = "tosa.mul"(%202, %60) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %202 = "tosa.mul"(%198, %201) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %203 = "tosa.mul"(%202, %60) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %204 = "tosa.add"(%203, %2) : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %205 = "tosa.add"(%194, %204) : (tensor<1x128x28x28xf32>, tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
     %206 = "tosa.clamp"(%205) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
@@ -218,8 +218,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %212 = "tosa.add"(%61, %103) : (tensor<128x1x1xf32>, tensor<1x1x1xf32>) -> tensor<128x1x1xf32>
     %213 = "tosa.rsqrt"(%212) : (tensor<128x1x1xf32>) -> tensor<128x1x1xf32>
     %214 = "tosa.reshape"(%213) {new_shape = array<i64: 1, 128, 1, 1>} : (tensor<128x1x1xf32>) -> tensor<1x128x1x1xf32>
-    %215 = "tosa.mul"(%211, %214) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
-    %216 = "tosa.mul"(%215, %63) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %215 = "tosa.mul"(%211, %214) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %216 = "tosa.mul"(%215, %63) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %217 = "tosa.add"(%216, %64) : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %218 = "tosa.clamp"(%217) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
     %219 = "tosa.transpose"(%218, %25) : (tensor<1x128x28x28xf32>, tensor<4xi32>) -> tensor<1x28x28x128xf32>
@@ -230,8 +230,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %224 = "tosa.add"(%65, %103) : (tensor<128x1x1xf32>, tensor<1x1x1xf32>) -> tensor<128x1x1xf32>
     %225 = "tosa.rsqrt"(%224) : (tensor<128x1x1xf32>) -> tensor<128x1x1xf32>
     %226 = "tosa.reshape"(%225) {new_shape = array<i64: 1, 128, 1, 1>} : (tensor<128x1x1xf32>) -> tensor<1x128x1x1xf32>
-    %227 = "tosa.mul"(%223, %226) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
-    %228 = "tosa.mul"(%227, %67) {shift = 0 : i32} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %227 = "tosa.mul"(%223, %226) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
+    %228 = "tosa.mul"(%227, %67) {shift = 0 : i8} : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %229 = "tosa.add"(%228, %68) : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
     %230 = "tosa.add"(%229, %206) : (tensor<1x128x28x28xf32>, tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
     %231 = "tosa.clamp"(%230) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
@@ -243,8 +243,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %237 = "tosa.add"(%69, %103) : (tensor<256x1x1xf32>, tensor<1x1x1xf32>) -> tensor<256x1x1xf32>
     %238 = "tosa.rsqrt"(%237) : (tensor<256x1x1xf32>) -> tensor<256x1x1xf32>
     %239 = "tosa.reshape"(%238) {new_shape = array<i64: 1, 256, 1, 1>} : (tensor<256x1x1xf32>) -> tensor<1x256x1x1xf32>
-    %240 = "tosa.mul"(%236, %239) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
-    %241 = "tosa.mul"(%240, %71) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %240 = "tosa.mul"(%236, %239) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %241 = "tosa.mul"(%240, %71) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %242 = "tosa.add"(%241, %72) : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %243 = "tosa.clamp"(%242) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
     %244 = "tosa.transpose"(%243, %25) : (tensor<1x256x14x14xf32>, tensor<4xi32>) -> tensor<1x14x14x256xf32>
@@ -255,8 +255,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %249 = "tosa.add"(%73, %103) : (tensor<256x1x1xf32>, tensor<1x1x1xf32>) -> tensor<256x1x1xf32>
     %250 = "tosa.rsqrt"(%249) : (tensor<256x1x1xf32>) -> tensor<256x1x1xf32>
     %251 = "tosa.reshape"(%250) {new_shape = array<i64: 1, 256, 1, 1>} : (tensor<256x1x1xf32>) -> tensor<1x256x1x1xf32>
-    %252 = "tosa.mul"(%248, %251) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
-    %253 = "tosa.mul"(%252, %75) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %252 = "tosa.mul"(%248, %251) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %253 = "tosa.mul"(%252, %75) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %254 = "tosa.add"(%253, %1) : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %255 = "tosa.transpose"(%11, %25) : (tensor<256x128x1x1xf32>, tensor<4xi32>) -> tensor<256x1x1x128xf32>
     %256 = "tosa.conv2d"(%232, %255, %28) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 2, 2>} : (tensor<1x28x28x128xf32>, tensor<256x1x1x128xf32>, tensor<256xf32>) -> tensor<1x14x14x256xf32>
@@ -265,8 +265,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %259 = "tosa.add"(%76, %103) : (tensor<256x1x1xf32>, tensor<1x1x1xf32>) -> tensor<256x1x1xf32>
     %260 = "tosa.rsqrt"(%259) : (tensor<256x1x1xf32>) -> tensor<256x1x1xf32>
     %261 = "tosa.reshape"(%260) {new_shape = array<i64: 1, 256, 1, 1>} : (tensor<256x1x1xf32>) -> tensor<1x256x1x1xf32>
-    %262 = "tosa.mul"(%258, %261) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
-    %263 = "tosa.mul"(%262, %78) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %262 = "tosa.mul"(%258, %261) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %263 = "tosa.mul"(%262, %78) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %264 = "tosa.add"(%263, %1) : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %265 = "tosa.add"(%254, %264) : (tensor<1x256x14x14xf32>, tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
     %266 = "tosa.clamp"(%265) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
@@ -278,8 +278,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %272 = "tosa.add"(%79, %103) : (tensor<256x1x1xf32>, tensor<1x1x1xf32>) -> tensor<256x1x1xf32>
     %273 = "tosa.rsqrt"(%272) : (tensor<256x1x1xf32>) -> tensor<256x1x1xf32>
     %274 = "tosa.reshape"(%273) {new_shape = array<i64: 1, 256, 1, 1>} : (tensor<256x1x1xf32>) -> tensor<1x256x1x1xf32>
-    %275 = "tosa.mul"(%271, %274) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
-    %276 = "tosa.mul"(%275, %81) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %275 = "tosa.mul"(%271, %274) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %276 = "tosa.mul"(%275, %81) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %277 = "tosa.add"(%276, %82) : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %278 = "tosa.clamp"(%277) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
     %279 = "tosa.transpose"(%278, %25) : (tensor<1x256x14x14xf32>, tensor<4xi32>) -> tensor<1x14x14x256xf32>
@@ -290,8 +290,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %284 = "tosa.add"(%83, %103) : (tensor<256x1x1xf32>, tensor<1x1x1xf32>) -> tensor<256x1x1xf32>
     %285 = "tosa.rsqrt"(%284) : (tensor<256x1x1xf32>) -> tensor<256x1x1xf32>
     %286 = "tosa.reshape"(%285) {new_shape = array<i64: 1, 256, 1, 1>} : (tensor<256x1x1xf32>) -> tensor<1x256x1x1xf32>
-    %287 = "tosa.mul"(%283, %286) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
-    %288 = "tosa.mul"(%287, %85) {shift = 0 : i32} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %287 = "tosa.mul"(%283, %286) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
+    %288 = "tosa.mul"(%287, %85) {shift = 0 : i8} : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %289 = "tosa.add"(%288, %86) : (tensor<1x256x14x14xf32>, tensor<1x256x1x1xf32>) -> tensor<1x256x14x14xf32>
     %290 = "tosa.add"(%289, %266) : (tensor<1x256x14x14xf32>, tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
     %291 = "tosa.clamp"(%290) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x256x14x14xf32>) -> tensor<1x256x14x14xf32>
@@ -303,8 +303,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %297 = "tosa.add"(%87, %103) : (tensor<512x1x1xf32>, tensor<1x1x1xf32>) -> tensor<512x1x1xf32>
     %298 = "tosa.rsqrt"(%297) : (tensor<512x1x1xf32>) -> tensor<512x1x1xf32>
     %299 = "tosa.reshape"(%298) {new_shape = array<i64: 1, 512, 1, 1>} : (tensor<512x1x1xf32>) -> tensor<1x512x1x1xf32>
-    %300 = "tosa.mul"(%296, %299) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
-    %301 = "tosa.mul"(%300, %89) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %300 = "tosa.mul"(%296, %299) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %301 = "tosa.mul"(%300, %89) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %302 = "tosa.add"(%301, %90) : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %303 = "tosa.clamp"(%302) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>
     %304 = "tosa.transpose"(%303, %25) : (tensor<1x512x7x7xf32>, tensor<4xi32>) -> tensor<1x7x7x512xf32>
@@ -315,8 +315,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %309 = "tosa.add"(%91, %103) : (tensor<512x1x1xf32>, tensor<1x1x1xf32>) -> tensor<512x1x1xf32>
     %310 = "tosa.rsqrt"(%309) : (tensor<512x1x1xf32>) -> tensor<512x1x1xf32>
     %311 = "tosa.reshape"(%310) {new_shape = array<i64: 1, 512, 1, 1>} : (tensor<512x1x1xf32>) -> tensor<1x512x1x1xf32>
-    %312 = "tosa.mul"(%308, %311) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
-    %313 = "tosa.mul"(%312, %93) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %312 = "tosa.mul"(%308, %311) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %313 = "tosa.mul"(%312, %93) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %314 = "tosa.add"(%313, %0) : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %315 = "tosa.transpose"(%6, %25) : (tensor<512x256x1x1xf32>, tensor<4xi32>) -> tensor<512x1x1x256xf32>
     %316 = "tosa.conv2d"(%292, %315, %29) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 2, 2>} : (tensor<1x14x14x256xf32>, tensor<512x1x1x256xf32>, tensor<512xf32>) -> tensor<1x7x7x512xf32>
@@ -325,8 +325,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %319 = "tosa.add"(%94, %103) : (tensor<512x1x1xf32>, tensor<1x1x1xf32>) -> tensor<512x1x1xf32>
     %320 = "tosa.rsqrt"(%319) : (tensor<512x1x1xf32>) -> tensor<512x1x1xf32>
     %321 = "tosa.reshape"(%320) {new_shape = array<i64: 1, 512, 1, 1>} : (tensor<512x1x1xf32>) -> tensor<1x512x1x1xf32>
-    %322 = "tosa.mul"(%318, %321) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
-    %323 = "tosa.mul"(%322, %96) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %322 = "tosa.mul"(%318, %321) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %323 = "tosa.mul"(%322, %96) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %324 = "tosa.add"(%323, %0) : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %325 = "tosa.add"(%314, %324) : (tensor<1x512x7x7xf32>, tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>
     %326 = "tosa.clamp"(%325) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>
@@ -338,8 +338,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %332 = "tosa.add"(%97, %103) : (tensor<512x1x1xf32>, tensor<1x1x1xf32>) -> tensor<512x1x1xf32>
     %333 = "tosa.rsqrt"(%332) : (tensor<512x1x1xf32>) -> tensor<512x1x1xf32>
     %334 = "tosa.reshape"(%333) {new_shape = array<i64: 1, 512, 1, 1>} : (tensor<512x1x1xf32>) -> tensor<1x512x1x1xf32>
-    %335 = "tosa.mul"(%331, %334) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
-    %336 = "tosa.mul"(%335, %99) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %335 = "tosa.mul"(%331, %334) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %336 = "tosa.mul"(%335, %99) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %337 = "tosa.add"(%336, %100) : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %338 = "tosa.clamp"(%337) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>
     %339 = "tosa.transpose"(%338, %25) : (tensor<1x512x7x7xf32>, tensor<4xi32>) -> tensor<1x7x7x512xf32>
@@ -350,8 +350,8 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %344 = "tosa.add"(%101, %103) : (tensor<512x1x1xf32>, tensor<1x1x1xf32>) -> tensor<512x1x1xf32>
     %345 = "tosa.rsqrt"(%344) : (tensor<512x1x1xf32>) -> tensor<512x1x1xf32>
     %346 = "tosa.reshape"(%345) {new_shape = array<i64: 1, 512, 1, 1>} : (tensor<512x1x1xf32>) -> tensor<1x512x1x1xf32>
-    %347 = "tosa.mul"(%343, %346) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
-    %348 = "tosa.mul"(%347, %104) {shift = 0 : i32} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %347 = "tosa.mul"(%343, %346) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
+    %348 = "tosa.mul"(%347, %104) {shift = 0 : i8} : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %349 = "tosa.add"(%348, %105) : (tensor<1x512x7x7xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x7x7xf32>
     %350 = "tosa.add"(%349, %326) : (tensor<1x512x7x7xf32>, tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>
     %351 = "tosa.clamp"(%350) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x512x7x7xf32>) -> tensor<1x512x7x7xf32>

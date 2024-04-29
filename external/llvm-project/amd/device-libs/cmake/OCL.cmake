@@ -28,7 +28,7 @@ endif()
 # -Wno-error=atomic-alignment was added to workaround build problems due to
 # potential mis-aligned atomic ops detected by clang
 set(CLANG_OCL_FLAGS -fcolor-diagnostics -Werror -Wno-error=atomic-alignment -x cl -Xclang
-  -cl-std=CL2.0 -target "${AMDGPU_TARGET_TRIPLE}" -fvisibility=protected -fomit-frame-pointer
+  -cl-std=CL2.0 -target "${AMDGPU_TARGET_TRIPLE}" -fvisibility=hidden -fomit-frame-pointer
   -Xclang -finclude-default-header -Xclang -fexperimental-strict-floating-point
   -Xclang -fdenormal-fp-math=dynamic
   -nogpulib -cl-no-stdinc "${CLANG_OPTIONS_APPEND}")
@@ -149,6 +149,7 @@ macro(opencl_bc_lib)
   add_custom_target("${name}" ALL
     DEPENDS "${OUTPUT_DIR}/${OUT_NAME}${FINAL_SUFFIX}"
     SOURCES ${OPENCL_BC_LIB_SOURCES})
+  add_dependencies(rocm-device-libs "${name}")
   set_target_properties(${name} PROPERTIES
     OUTPUT_NAME "${OUTPUT_DIR}/${OUT_NAME}${FINAL_SUFFIX}"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"

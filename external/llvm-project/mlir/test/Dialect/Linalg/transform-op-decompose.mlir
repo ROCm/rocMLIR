@@ -1,4 +1,4 @@
-// RUN: mlir-opt --test-transform-dialect-interpreter --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --transform-interpreter --split-input-file %s | FileCheck %s
 
 // CHECK-DAG:  #[[$MAP:.+]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 // CHECK-DAG:  #[[$MAP1:.+]] = affine_map<(d0, d1, d2) -> (d0, d1)>
@@ -208,20 +208,19 @@ func.func @softmax(%arg0: tensor<2x16x32xf32>, %dst: tensor<2x16x32xf32>) -> ten
 }
 
 // CHECK-LABEL:      func.func @softmax(
-//CHECK-SAME:           %[[ARG0:[a-zA-Z0-9_]+]]: tensor<2x16x32xf32>, %[[DST:[a-zA-Z0-9_]+]]: tensor<2x16x32xf32>) -> tensor<2x16x32xf32> {
-// CHECK-DAG:        %[[D0:.+]] = tensor.empty() : tensor<2x16x32xf32>
+// CHECK-SAME:           %[[ARG0:[a-zA-Z0-9_]+]]: tensor<2x16x32xf32>, %[[DST:[a-zA-Z0-9_]+]]: tensor<2x16x32xf32>) -> tensor<2x16x32xf32> {
 // CHECK-DAG:        %[[D1:.+]] = tensor.empty() : tensor<2x16xf32>
-// CHECK-DAG:        %[[CST:.+]] = arith.constant 0xFF800000 : f32
+// CHECK-DAG:        %[[CST:.+]] = arith.constant -3.40282347E+38 : f32
 // CHECK:        %[[D2:.+]] = linalg.fill ins(%[[CST]] : f32) outs(%[[D1]] : tensor<2x16xf32>) -> tensor<2x16xf32>
 // CHECK:        %[[D3:.+]] = linalg.generic {indexing_maps = [#[[$MAP]], #[[$MAP1]]], iterator_types = ["parallel",
 // CHECK-SAME:     "parallel", "reduction"]} ins(%[[ARG0]] : tensor<2x16x32xf32>) outs(%[[D2]] : tensor<2x16xf32>) {
 // CHECK:        ^bb0(%[[IN:.+]]: f32, %[[OUT:.+]]: f32):
-// CHECK:          %[[D8:.+]] = arith.maxf %[[IN]], %[[OUT]] : f32
+// CHECK:          %[[D8:.+]] = arith.maximumf %[[IN]], %[[OUT]] : f32
 // CHECK:          linalg.yield %[[D8]] : f32
 // CHECK:        } -> tensor<2x16xf32>
 // CHECK:        %[[D4:.+]] = linalg.generic {indexing_maps = [#[[$MAP]], #[[$MAP1]], #[[$MAP]]], iterator_types =
 // CHECK-SAME:     ["parallel", "parallel", "parallel"]} ins(%[[ARG0]], %[[D3]] : tensor<2x16x32xf32>, tensor<2x16xf32>)
-// CHECK-SAME:     outs(%[[D0]] : tensor<2x16x32xf32>) {
+// CHECK-SAME:     outs(%[[DST]] : tensor<2x16x32xf32>) {
 // CHECK:        ^bb0(%[[IN:.+]]: f32, %[[IN_1:.+]]: f32, %[[OUT:.+]]: f32):
 // CHECK:          %[[D8]] = arith.subf %[[IN]], %[[IN_1]] : f32
 // CHECK:          %[[D9:.+]] = math.exp %[[D8]] : f32
@@ -237,19 +236,20 @@ func.func @softmax(%arg0: tensor<2x16x32xf32>, %dst: tensor<2x16x32xf32>) -> ten
 // CHECK:        } -> tensor<2x16xf32>
 // CHECK:        %[[D7:.+]] = linalg.generic {indexing_maps = [#[[$MAP]], #[[$MAP1]], #[[$MAP]]], iterator_types =
 // CHECK-SAME:     ["parallel", "parallel", "parallel"]} ins(%[[D4]], %[[D6]] : tensor<2x16x32xf32>, tensor<2x16xf32>)
-// CHECK-SAME:     outs(%[[D0]] : tensor<2x16x32xf32>) {
+// CHECK-SAME:     outs(%[[DST]] : tensor<2x16x32xf32>) {
 // CHECK:        ^bb0(%[[IN:.+]]: f32, %[[IN_1:.+]]: f32, %[[OUT:.+]]: f32):
 // CHECK:          %[[D8]] = arith.divf %[[IN]], %[[IN_1]] : f32
 // CHECK:          linalg.yield %[[D8]] : f32
 // CHECK:        } -> tensor<2x16x32xf32>
 // CHECK:        return %[[D7]] : tensor<2x16x32xf32>
-// CHECK:      }
 
-transform.sequence failures(propagate) {
-^bb1(%arg1: !transform.any_op):
-  %0 = transform.structured.match interface{LinalgOp} in %arg1 : (!transform.any_op) -> !transform.any_op
-  %1 = transform.structured.decompose %0 : (!transform.any_op) -> !transform.any_op
+module attributes {transform.with_named_sequence} {
+  transform.named_sequence @__transform_main(%arg1: !transform.any_op {transform.readonly}) {
+    %0 = transform.structured.match interface{LinalgOp} in %arg1 : (!transform.any_op) -> !transform.any_op
+    %1 = transform.structured.decompose %0 : (!transform.any_op) -> !transform.any_op
 
-  %2 = transform.structured.match ops{["linalg.softmax"]} in %arg1 : (!transform.any_op) -> !transform.any_op
-  %3 = transform.structured.decompose_interface %2 : (!transform.any_op) -> !transform.any_op
+    %2 = transform.structured.match ops{["linalg.softmax"]} in %arg1 : (!transform.any_op) -> !transform.any_op
+    %3 = transform.structured.decompose_interface %2 : (!transform.any_op) -> !transform.any_op
+    transform.yield
+  }
 }

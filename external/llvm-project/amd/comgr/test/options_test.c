@@ -226,7 +226,7 @@ void testFlatSplitting() {
                                               AMD_COMGR_LANGUAGE_OPENCL_1_2);
   checkError(Status, "amd_comgr_action_info_set_language");
   Status = amd_comgr_action_info_set_isa_name(DataAction,
-                                              "amdgcn-amd-amdhsa--gfx803");
+                                              "amdgcn-amd-amdhsa--gfx900");
   checkError(Status, "amd_comgr_action_info_set_isa_name");
 
   // Confirm we get space-delimited for non-device-libs actions
@@ -263,8 +263,7 @@ void testFlatSplitting() {
   Status = amd_comgr_create_data_set(&DataSetBc);
   checkError(Status, "amd_comgr_create_data_set");
 
-  Status = amd_comgr_action_info_set_options(DataAction,
-                                             "-mllvm -amdgpu-early-inline-all");
+  Status = amd_comgr_action_info_set_options(DataAction, "-mllvm --color");
   checkError(Status, "amd_comgr_action_info_set_options");
 
   Status = amd_comgr_do_action(AMD_COMGR_ACTION_COMPILE_SOURCE_TO_BC,

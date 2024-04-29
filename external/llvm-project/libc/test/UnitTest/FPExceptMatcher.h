@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIBC_UTILS_UNITTEST_FPEXCEPTMATCHER_H
-#define LLVM_LIBC_UTILS_UNITTEST_FPEXCEPTMATCHER_H
+#ifndef LLVM_LIBC_TEST_UNITTEST_FPEXCEPTMATCHER_H
+#define LLVM_LIBC_TEST_UNITTEST_FPEXCEPTMATCHER_H
 
 #ifndef LIBC_COPT_TEST_USE_FUCHSIA
 
 #include "test/UnitTest/Test.h"
 
-namespace __llvm_libc {
+namespace LIBC_NAMESPACE {
 namespace testing {
 
 // TODO: Make the matcher match specific exceptions instead of just identifying
@@ -50,15 +50,15 @@ public:
 };
 
 } // namespace testing
-} // namespace __llvm_libc
+} // namespace LIBC_NAMESPACE
 
 #define ASSERT_RAISES_FP_EXCEPT(func)                                          \
   ASSERT_THAT(                                                                 \
       true,                                                                    \
-      __llvm_libc::testing::FPExceptMatcher(                                   \
-          __llvm_libc::testing::FPExceptMatcher::getFunctionCaller(func)))
+      LIBC_NAMESPACE::testing::FPExceptMatcher(                                \
+          LIBC_NAMESPACE::testing::FPExceptMatcher::getFunctionCaller(func)))
 #else
 #define ASSERT_RAISES_FP_EXCEPT(func) ASSERT_DEATH(func, WITH_SIGNAL(SIGFPE))
 #endif // LIBC_COPT_TEST_USE_FUCHSIA
 
-#endif // LLVM_LIBC_UTILS_UNITTEST_FPEXCEPTMATCHER_H
+#endif // LLVM_LIBC_TEST_UNITTEST_FPEXCEPTMATCHER_H
