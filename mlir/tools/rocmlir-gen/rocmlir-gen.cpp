@@ -66,6 +66,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <tuple>
+#include <unordered_map>
 
 using namespace mlir;
 
@@ -1378,29 +1379,11 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
                                              ArrayRef<float> pattern,
                                              Type elemType, Value toFill) {
   // TODO(kdrewnia) Refactor this to create the constant vector up front
-  // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
-  // it here
-  Type i16 = b.getIntegerType(16);
-  Value constantsVec;
-  if (elemType == b.getBF16Type()) {
-    uint16_t init = 0;
-    constantsVec = b.create<arith::ConstantOp>(
-        loc,
-        SplatElementsAttr::get(VectorType::get(pattern.size(), i16), init));
-  } else {
-    constantsVec = rock::createZeroConstantOp(
-        b, loc, VectorType::get(pattern.size(), elemType));
-  }
+  Value constantsVec = rock::createZeroConstantOp(
+      b, loc, VectorType::get(pattern.size(), elemType));
   for (auto v : llvm::enumerate(pattern)) {
     Value vOp;
-    if (elemType == b.getBF16Type()) {
-      llvm::APFloat fl(v.value());
-      bool losesInfo = false;
-      fl.convert(llvm::APFloat::BFloat(), llvm::APFloat::rmNearestTiesToEven,
-                 &losesInfo);
-      llvm::APInt val = fl.bitcastToAPInt();
-      vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
-    } else if (elemType.isIntOrIndex()) {
+    if (elemType.isIntOrIndex()) {
       vOp = rock::createConstantIntOp(b, loc, elemType, elemType,
                                       static_cast<int64_t>(v.value()));
     } else {
@@ -1429,15 +1412,13 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
 
   affine::buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
-      [rowMajorMap, &constantsVec, toFillFlat,
-       elemType](OpBuilder &b, Location loc, ValueRange ivs) {
+      [rowMajorMap, &constantsVec, toFillFlat](OpBuilder &b, Location loc,
+                                               ValueRange ivs) {
         auto selectorOp =
             b.create<affine::AffineApplyOp>(loc, rowMajorMap, ivs);
         Value toStore = b.create<vector::ExtractElementOp>(
                              loc, constantsVec, selectorOp->getResult(0))
                             .getResult();
-        if (elemType == b.getBF16Type())
-          toStore = b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
         b.create<memref::StoreOp>(loc, toStore, toFillFlat, ivs);
       });
   return success();

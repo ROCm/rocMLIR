@@ -43,8 +43,7 @@
 // BINARY:Kernel pipeline:
 // BINARY-NEXT:builtin.module(strip-debuginfo,
 // BINARY-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx90a},
-// BINARY-NEXT:arith-emulate-unsupported-floats{source-types=bf16,
-// BINARY-NEXT:f8E4M3FNUZ,
+// BINARY-NEXT:arith-emulate-unsupported-floats{source-types=f8E4M3FNUZ,
 // BINARY-NEXT:f8E5M2FNUZ,
 // BINARY-NEXT:f8E4M3FN,
 // BINARY-NEXT:f8E5M2 target-type=f32},
@@ -64,8 +63,7 @@
 // BINARY_MI300:Kernel pipeline:
 // BINARY_MI300-NEXT:builtin.module(strip-debuginfo,
 // BINARY_MI300-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx940},
-// BINARY_MI300-NEXT:arith-emulate-unsupported-floats{source-types=bf16,
-// BINARY_MI300-NEXT:f8E4M3FNUZ,
+// BINARY_MI300-NEXT:arith-emulate-unsupported-floats{source-types=f8E4M3FNUZ,
 // BINARY_MI300-NEXT:f8E5M2FNUZ,
 // BINARY_MI300-NEXT:f8E4M3FN,
 // BINARY_MI300-NEXT:f8E5M2 target-type=f32},
