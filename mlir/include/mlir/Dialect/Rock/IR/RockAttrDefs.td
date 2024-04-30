@@ -428,7 +428,7 @@ def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
 
 // It is a temporary attribute
 // TODO[split-K]: remove after integrating split-K into MIGraphX
-def Rock_EnableSpliKForTuning : Rock_Attr<"EnableSpliKForTuning"> {
-  let mnemonic = "enable_splik_for_tuning";
+def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
+  let mnemonic = "enable_splitk_for_tuning";
 }
 #endif

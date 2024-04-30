@@ -65,6 +65,12 @@ if (ROCK_E2E_TEST_ENABLED)
     Resnet101Config
     )
    endif()
+   if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part6")
+    list(APPEND CONFIGS
+    gemm_with_atomic_add
+    gemm_split_k
+    )
+   endif()
 endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})
