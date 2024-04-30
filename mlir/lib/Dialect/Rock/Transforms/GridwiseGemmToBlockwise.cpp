@@ -1952,10 +1952,6 @@ struct GridwiseAttentionAccelRewritePattern
             loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      // The grid coordinates for gemm0 is almost simliar
-      // to gemm1 except the n_block should be read iteratively
-      // from gemm0's N axis. Hence, the replacement is done as
-      // follows:
       layout::GridCoordinates gridCoordsGemm0 =
           layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks);
       affine::AffineForOp kLoopOp =
@@ -2371,7 +2367,7 @@ struct GridwiseAttentionAccelRewritePattern
               loc, attentionOutAccBufferOutTypedFlatType,
               attentionOutAccBufferOutTyped, reassociation);
     }
-    // This map with create upper view [gblock, nblock, flatiter] -> [gblock,
+    // This map will create an upper view [gblock, nblock, flatiter] -> [gblock,
     // miter, nblock, iter]
     TransformMapAttr flatToMiterMap =
         getFlatToMiterMap(rewriter, gemm0G, gemm1MBlocks, gemm1NBlocks,
