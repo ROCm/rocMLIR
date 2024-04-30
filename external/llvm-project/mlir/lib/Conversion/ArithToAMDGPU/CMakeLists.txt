@@ -14,6 +14,7 @@ add_mlir_conversion_library(MLIRArithToAMDGPU
   MLIRAMDGPUDialect
   MLIRAMDGPUUtils
   MLIRArithDialect
+  MLIRArithUtils
   MLIRVectorDialect
   MLIRPass
   MLIRTransforms

@@ -164,6 +164,8 @@ dispatchCompilerAction(amd_comgr_action_kind_t ActionKind,
     return Compiler.preprocessToSource();
   case AMD_COMGR_ACTION_COMPILE_SOURCE_TO_BC:
     return Compiler.compileToBitcode();
+  case AMD_COMGR_ACTION_UNBUNDLE:
+    return Compiler.unbundle();
   case AMD_COMGR_ACTION_LINK_BC_TO_BC:
     return Compiler.linkBitcodeToBitcode();
   case AMD_COMGR_ACTION_CODEGEN_BC_TO_RELOCATABLE:
@@ -246,6 +248,8 @@ StringRef getActionKindName(amd_comgr_action_kind_t ActionKind) {
     return "AMD_COMGR_ACTION_COMPILE_SOURCE_WITH_DEVICE_LIBS_TO_BC";
   case AMD_COMGR_ACTION_COMPILE_SOURCE_TO_EXECUTABLE:
     return "AMD_COMGR_ACTION_COMPILE_SOURCE_TO_EXECUTABLE";
+  case AMD_COMGR_ACTION_UNBUNDLE:
+    return "AMD_COMGR_ACTION_UNBUNDLE";
   }
 
   llvm_unreachable("invalid action");
@@ -526,6 +530,19 @@ ArrayRef<std::string> DataAction::getOptions(bool IsDeviceLibs) {
   }
 
   return ListOptions;
+}
+
+amd_comgr_status_t DataAction::setBundleEntryIDs(
+  ArrayRef<const char *> EntryIDs) {
+  BundleEntryIDs.clear();
+  for (auto &ID: EntryIDs) {
+    BundleEntryIDs.push_back(ID);
+  }
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
+ArrayRef<std::string> DataAction::getBundleEntryIDs() {
+  return BundleEntryIDs;
 }
 
 amd_comgr_metadata_kind_t DataMeta::getMetadataKind() {
@@ -1194,6 +1211,67 @@ amd_comgr_status_t AMD_COMGR_API
 
 amd_comgr_status_t AMD_COMGR_API
     // NOLINTNEXTLINE(readability-identifier-naming)
+    amd_comgr_action_info_get_bundle_entry_id_count
+    //
+    (amd_comgr_action_info_t ActionInfo, size_t *Count) {
+      DataAction *ActionP = DataAction::convert(ActionInfo);
+
+  if (!ActionP) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  *Count = ActionP->getBundleEntryIDs().size();
+
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
+amd_comgr_status_t AMD_COMGR_API
+    // NOLINTNEXTLINE(readability-identifier-naming)
+    amd_comgr_action_info_get_bundle_entry_id
+    //
+    (amd_comgr_action_info_t ActionInfo, size_t Index, size_t *Size,
+     char *BundleEntryID) {
+  DataAction *ActionP = DataAction::convert(ActionInfo);
+
+  if (!ActionP || !Size) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  ArrayRef<std::string> ActionBundleEntryIDs = ActionP->getBundleEntryIDs();
+
+  if (Index >= ActionBundleEntryIDs.size()) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  // First return the size of the BundleEntryID
+  if (BundleEntryID == NULL)
+    *Size = ActionBundleEntryIDs[Index].size() + 1;
+
+  // Now that the calling API has had a chance to allocate memory, copy the
+  // bundle entry ID at Index to BundleEntryID
+  else
+    memcpy(BundleEntryID, ActionBundleEntryIDs[Index].c_str(),
+           *Size);
+
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
+amd_comgr_status_t AMD_COMGR_API
+    // NOLINTNEXTLINE(readability-identifier-naming)
+    amd_comgr_action_info_set_bundle_entry_ids
+    //
+    (amd_comgr_action_info_t ActionInfo, const char *EntryIDs[], size_t Count) {
+  DataAction *ActionP = DataAction::convert(ActionInfo);
+
+  if (!ActionP || (!EntryIDs && Count)) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  return ActionP->setBundleEntryIDs(ArrayRef<const char *>(EntryIDs, Count));
+}
+
+amd_comgr_status_t AMD_COMGR_API
+    // NOLINTNEXTLINE(readability-identifier-naming)
     amd_comgr_action_info_set_working_directory_path
     //
     (amd_comgr_action_info_t ActionInfo, const char *Path) {
@@ -1357,6 +1435,7 @@ amd_comgr_status_t AMD_COMGR_API
       break;
     case AMD_COMGR_ACTION_SOURCE_TO_PREPROCESSOR:
     case AMD_COMGR_ACTION_COMPILE_SOURCE_TO_BC:
+    case AMD_COMGR_ACTION_UNBUNDLE:
     case AMD_COMGR_ACTION_LINK_BC_TO_BC:
     case AMD_COMGR_ACTION_CODEGEN_BC_TO_RELOCATABLE:
     case AMD_COMGR_ACTION_CODEGEN_BC_TO_ASSEMBLY:
@@ -2273,10 +2352,10 @@ amd_comgr_map_elf_virtual_address_to_code_object_offset(amd_comgr_data_t Data,
       ELFHeader.e_ident[llvm::ELF::EI_OSABI] != llvm::ELF::ELFOSABI_AMDGPU_HSA)
     return AMD_COMGR_STATUS_ERROR;
 
-  if (ELFHeader.e_ident[llvm::ELF::EI_ABIVERSION] !=
-      llvm::ELF::ELFABIVERSION_AMDGPU_HSA_V4 &&
-      ELFHeader.e_ident[llvm::ELF::EI_ABIVERSION] !=
-      llvm::ELF::ELFABIVERSION_AMDGPU_HSA_V5)
+  unsigned EIdent = ELFHeader.e_ident[llvm::ELF::EI_ABIVERSION];
+  if (EIdent != llvm::ELF::ELFABIVERSION_AMDGPU_HSA_V4 &&
+      EIdent != llvm::ELF::ELFABIVERSION_AMDGPU_HSA_V5 &&
+      EIdent != llvm::ELF::ELFABIVERSION_AMDGPU_HSA_V6)
     return AMD_COMGR_STATUS_ERROR;
 
   if (ELFHeader.e_type != llvm::ELF::ET_DYN ||

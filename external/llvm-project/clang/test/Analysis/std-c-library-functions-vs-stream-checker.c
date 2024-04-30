@@ -1,6 +1,7 @@
 // Check the case when only the StreamChecker is enabled.
 // RUN: %clang_analyze_cc1 %s \
 // RUN:   -analyzer-checker=core,alpha.unix.Stream \
+// RUN:   -analyzer-config alpha.unix.Stream:Pedantic=true \
 // RUN:   -analyzer-checker=debug.ExprInspection \
 // RUN:   -analyzer-config eagerly-assume=false \
 // RUN:   -triple x86_64-unknown-linux \
@@ -8,8 +9,8 @@
 
 // Check the case when only the StdLibraryFunctionsChecker is enabled.
 // RUN: %clang_analyze_cc1 %s \
-// RUN:   -analyzer-checker=alpha.unix.StdCLibraryFunctions \
-// RUN:   -analyzer-config alpha.unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
+// RUN:   -analyzer-checker=unix.StdCLibraryFunctions \
+// RUN:   -analyzer-config unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
 // RUN:   -analyzer-checker=debug.ExprInspection \
 // RUN:   -analyzer-config eagerly-assume=false \
 // RUN:   -triple x86_64-unknown-linux \
@@ -19,8 +20,9 @@
 // StdLibraryFunctionsChecker are enabled.
 // RUN: %clang_analyze_cc1 %s \
 // RUN:   -analyzer-checker=core,alpha.unix.Stream \
-// RUN:   -analyzer-checker=alpha.unix.StdCLibraryFunctions \
-// RUN:   -analyzer-config alpha.unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
+// RUN:   -analyzer-config alpha.unix.Stream:Pedantic=true \
+// RUN:   -analyzer-checker=unix.StdCLibraryFunctions \
+// RUN:   -analyzer-config unix.StdCLibraryFunctions:DisplayLoadedSummaries=true \
 // RUN:   -analyzer-checker=debug.ExprInspection \
 // RUN:   -analyzer-config eagerly-assume=false \
 // RUN:   -triple x86_64-unknown-linux \

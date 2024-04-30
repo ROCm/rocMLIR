@@ -32,10 +32,11 @@ foreach (tgt ${BOLT_TARGETS_TO_BUILD})
 endforeach()
 
 set(BOLT_ENABLE_RUNTIME_default OFF)
-if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64"
+if ((CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64"
+    OR CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     AND (CMAKE_SYSTEM_NAME STREQUAL "Linux"
       OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    AND "X86" IN_LIST BOLT_TARGETS_TO_BUILD)
+    AND (NOT CMAKE_CROSSCOMPILING))
   set(BOLT_ENABLE_RUNTIME_default ON)
 endif()
 option(BOLT_ENABLE_RUNTIME "Enable BOLT runtime" ${BOLT_ENABLE_RUNTIME_default})
@@ -44,9 +45,9 @@ if (BOLT_ENABLE_RUNTIME)
   execute_process(COMMAND ls /proc/self/map_files
     RESULT_VARIABLE LS OUTPUT_QUIET ERROR_QUIET)
   if (LS)
-    set(BOLT_ENABLE_RUNTIME OFF)
     message(WARNING
-      "BOLT runtime is disabled as /proc/self/map_files is unreadable.")
+      "BOLT runtime may not be able to read /proc/self/map_files. Please use
+      `--instrumentation-binpath <path-to-instrumented-binary>` option.")
   endif()
 endif()
 

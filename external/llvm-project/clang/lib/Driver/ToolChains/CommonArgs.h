@@ -9,6 +9,7 @@
 #ifndef LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_COMMONARGS_H
 #define LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_COMMONARGS_H
 
+#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/InputInfo.h"
 #include "clang/Driver/Multilib.h"
@@ -43,18 +44,24 @@ bool addSanitizerRuntimes(const ToolChain &TC, const llvm::opt::ArgList &Args,
                           llvm::opt::ArgStringList &CmdArgs);
 
 void linkSanitizerRuntimeDeps(const ToolChain &TC,
+                              const llvm::opt::ArgList &Args,
                               llvm::opt::ArgStringList &CmdArgs);
 
 bool addXRayRuntime(const ToolChain &TC, const llvm::opt::ArgList &Args,
                     llvm::opt::ArgStringList &CmdArgs);
 
-void linkXRayRuntimeDeps(const ToolChain &TC,
+void linkXRayRuntimeDeps(const ToolChain &TC, const llvm::opt::ArgList &Args,
                          llvm::opt::ArgStringList &CmdArgs);
 
 void AddRunTimeLibs(const ToolChain &TC, const Driver &D,
                     llvm::opt::ArgStringList &CmdArgs,
                     const llvm::opt::ArgList &Args);
 
+void AddStaticDeviceLibsLinking(
+    Compilation &C, const Tool &T, const JobAction &JA,
+    const InputInfoList &Inputs, const llvm::opt::ArgList &DriverArgs,
+    llvm::opt::ArgStringList &CmdArgs, StringRef Arch, StringRef TargetID,
+    bool isBitCodeSDL, bool postClangLink, bool unpackage);
 void AddStaticDeviceLibsLinking(Compilation &C, const Tool &T,
                                 const JobAction &JA,
                                 const InputInfoList &Inputs,
@@ -72,21 +79,7 @@ void AddStaticDeviceLibs(Compilation *C, const Tool *T, const JobAction *JA,
                          const llvm::opt::ArgList &DriverArgs,
                          llvm::opt::ArgStringList &CmdArgs, StringRef Arch,
                          StringRef TargetID, bool isBitCodeSDL,
-                         bool postClangLink);
-
-bool SDLSearch(const Driver &D, const llvm::opt::ArgList &DriverArgs,
-               llvm::opt::ArgStringList &CmdArgs,
-               SmallVector<std::string, 8> LibraryPaths, std::string Lib,
-               StringRef Arch, StringRef TargetID, bool isBitCodeSDL,
-               bool postClangLink);
-
-bool GetSDLFromOffloadArchive(Compilation &C, const Driver &D, const Tool &T,
-                              const JobAction &JA, const InputInfoList &Inputs,
-                              const llvm::opt::ArgList &DriverArgs,
-                              llvm::opt::ArgStringList &CC1Args,
-                              SmallVector<std::string, 8> LibraryPaths,
-                              StringRef Lib, StringRef Arch, StringRef TargetID,
-                              bool isBitCodeSDL, bool postClangLink);
+                         bool postClangLink, bool unpackage = false);
 
 const char *SplitDebugName(const JobAction &JA, const llvm::opt::ArgList &Args,
                            const InputInfo &Input, const InputInfo &Output);
@@ -137,13 +130,13 @@ void addOpenMPRuntimeLibraryPath(const ToolChain &TC,
                                  const llvm::opt::ArgList &Args,
                                  llvm::opt::ArgStringList &CmdArgs);
 /// Returns true, if an OpenMP runtime has been added.
-bool addOpenMPRuntime(llvm::opt::ArgStringList &CmdArgs, const ToolChain &TC,
-                      const llvm::opt::ArgList &Args,
+bool addOpenMPRuntime(const Compilation &C, llvm::opt::ArgStringList &CmdArgs,
+                      const ToolChain &TC, const llvm::opt::ArgList &Args,
                       bool ForceStaticHostRuntime = false,
                       bool IsOffloadingHost = false, bool GompNeedsRT = false);
 
 /// Adds Fortran runtime libraries to \p CmdArgs.
-void addFortranRuntimeLibs(const ToolChain &TC,
+void addFortranRuntimeLibs(const ToolChain &TC, const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs);
 
 /// Adds the path for the Fortran runtime libraries to \p CmdArgs.
@@ -151,10 +144,12 @@ void addFortranRuntimeLibraryPath(const ToolChain &TC,
                                   const llvm::opt::ArgList &Args,
                                   llvm::opt::ArgStringList &CmdArgs);
 
-void addHIPRuntimeLibArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
+void addHIPRuntimeLibArgs(const ToolChain &TC, Compilation &C,
+                          const llvm::opt::ArgList &Args,
                           llvm::opt::ArgStringList &CmdArgs);
 
-const char *getAsNeededOption(const ToolChain &TC, bool as_needed);
+void addAsNeededOption(const ToolChain &TC, const llvm::opt::ArgList &Args,
+                       llvm::opt::ArgStringList &CmdArgs, bool as_needed);
 
 llvm::opt::Arg *getLastCSProfileGenerateArg(const llvm::opt::ArgList &Args);
 llvm::opt::Arg *getLastProfileUseArg(const llvm::opt::ArgList &Args);
@@ -168,6 +163,9 @@ llvm::StringRef getLTOParallelism(const llvm::opt::ArgList &Args,
 bool areOptimizationsEnabled(const llvm::opt::ArgList &Args);
 
 bool isUseSeparateSections(const llvm::Triple &Triple);
+// Parse -mtls-dialect=. Return true if the target supports both general-dynamic
+// and TLSDESC, and TLSDESC is requested.
+bool isTLSDESCEnabled(const ToolChain &TC, const llvm::opt::ArgList &Args);
 
 /// \p EnvVar is split by system delimiter for environment variables.
 /// If \p ArgName is "-I", "-L", or an empty string, each entry from \p EnvVar
@@ -240,10 +238,21 @@ void addMachineOutlinerArgs(const Driver &D, const llvm::opt::ArgList &Args,
 
 void addOpenMPDeviceRTL(const Driver &D, const llvm::opt::ArgList &DriverArgs,
                         llvm::opt::ArgStringList &CC1Args,
-                        StringRef BitcodeSuffix, const llvm::Triple &Triple);
+                        StringRef BitcodeSuffix, const llvm::Triple &Triple,
+                        const ToolChain &HostTC);
+
+void addOutlineAtomicsArgs(const Driver &D, const ToolChain &TC,
+                           const llvm::opt::ArgList &Args,
+                           llvm::opt::ArgStringList &CmdArgs,
+                           const llvm::Triple &Triple);
+void addOffloadCompressArgs(const llvm::opt::ArgList &TCArgs,
+                            llvm::opt::ArgStringList &CmdArgs);
 
 } // end namespace tools
 } // end namespace driver
 } // end namespace clang
+
+clang::CodeGenOptions::FramePointerKind
+getFramePointerKind(const llvm::opt::ArgList &Args, const llvm::Triple &Triple);
 
 #endif // LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_COMMONARGS_H

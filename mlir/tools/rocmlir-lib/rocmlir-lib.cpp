@@ -30,7 +30,7 @@ namespace {
 struct MiirHandle_s {
   MiirHandle_s() {
     DialectRegistry &registry = getRegistry();
-    llvm::ThreadPool &pool = getThreadPool();
+    llvm::StdThreadPool &pool = getThreadPool();
     context = new MLIRContext(registry, MLIRContext::Threading::DISABLED);
     context->setThreadPool(pool);
     // Turn off all diagnotic printing on op and stacktrace
@@ -85,8 +85,8 @@ private:
 
   // While we have multiple contexts, we'll only have one thread pool among
   // them.
-  llvm::ThreadPool &getThreadPool() {
-    static llvm::ThreadPool pool;
+  llvm::StdThreadPool &getThreadPool() {
+    static llvm::StdThreadPool pool;
     return pool;
   }
 };

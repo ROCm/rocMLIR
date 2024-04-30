@@ -17,7 +17,6 @@
 #include "bolt/Core/Linker.h"
 #include "bolt/Rewrite/MetadataManager.h"
 #include "bolt/Utils/NameResolver.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/MC/StringTableBuilder.h"
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
@@ -47,11 +46,14 @@ public:
   // construction. Constructors can’t return errors, so clients must test \p Err
   // after the object is constructed. Use `create` method instead.
   RewriteInstance(llvm::object::ELFObjectFileBase *File, const int Argc,
-                  const char *const *Argv, StringRef ToolPath, Error &Err);
+                  const char *const *Argv, StringRef ToolPath,
+                  raw_ostream &Stdout, raw_ostream &Stderr, Error &Err);
 
   static Expected<std::unique_ptr<RewriteInstance>>
   create(llvm::object::ELFObjectFileBase *File, const int Argc,
-         const char *const *Argv, StringRef ToolPath);
+         const char *const *Argv, StringRef ToolPath,
+         raw_ostream &Stdout = llvm::outs(),
+         raw_ostream &Stderr = llvm::errs());
   ~RewriteInstance();
 
   /// Assign profile from \p Filename to this instance.
@@ -94,6 +96,15 @@ private:
   /// Populate array of binary functions and other objects of interest
   /// from meta data in the file.
   void discoverFileObjects();
+
+  /// Check whether we should use DT_FINI or DT_FINI_ARRAY for instrumentation.
+  /// DT_FINI is preferred; DT_FINI_ARRAY is only used when no DT_FINI entry was
+  /// found.
+  Error discoverRtFiniAddress();
+
+  /// If DT_FINI_ARRAY is used for instrumentation, update the relocation of its
+  /// first entry to point to the instrumentation library's fini address.
+  void updateRtFiniReloc();
 
   /// Create and initialize metadata rewriters for this instance.
   void initializeMetadataManager();
@@ -174,6 +185,9 @@ private:
   /// Process metadata in special sections after CFG is built for functions.
   void processMetadataPostCFG();
 
+  /// Make changes to metadata before the binary is emitted.
+  void finalizeMetadataPreEmit();
+
   /// Update debug and other auxiliary information in the file.
   void updateMetadata();
 
@@ -190,7 +204,7 @@ private:
   void mapAllocatableSections(BOLTLinker::SectionMapper MapSection);
 
   /// Update output object's values based on the final \p Layout.
-  void updateOutputValues(const MCAsmLayout &Layout);
+  void updateOutputValues(const BOLTLinker &Linker);
 
   /// Rewrite back all functions (hopefully optimized) that fit in the original
   /// memory footprint for that function. If the function is now larger and does
@@ -251,6 +265,11 @@ private:
   /// associated address.
   void createPLTBinaryFunction(uint64_t TargetAddress, uint64_t EntryAddress,
                                uint64_t EntrySize);
+
+  /// Disassemble PLT instruction.
+  void disassemblePLTInstruction(const BinarySection &Section,
+                                 uint64_t InstrOffset, MCInst &Instruction,
+                                 uint64_t &InstrSize);
 
   /// Disassemble aarch64-specific .plt \p Section auxiliary function
   void disassemblePLTSectionAArch64(BinarySection &Section);
@@ -349,13 +368,6 @@ private:
   /// rewritten binary.
   void patchBuildID();
 
-  /// Return file offset corresponding to a given virtual address.
-  uint64_t getFileOffsetFor(uint64_t Address) {
-    assert(Address >= NewTextSegmentAddress &&
-           "address in not in the new text segment");
-    return Address - NewTextSegmentAddress + NewTextSegmentOffset;
-  }
-
   /// Return file offset corresponding to a virtual \p Address.
   /// Return 0 if the address has no mapping in the file, including being
   /// part of .bss section.
@@ -379,9 +391,6 @@ public:
   /// Return true if the section holds debug information.
   static bool isDebugSection(StringRef SectionName);
 
-  /// Return true if the section holds linux kernel symbol information.
-  static bool isKSymtabSection(StringRef SectionName);
-
   /// Adds Debug section to overwrite.
   static void addToDebugSectionsToOverwrite(const char *Section) {
     DebugSectionsToOverwrite.emplace_back(Section);
@@ -390,12 +399,6 @@ public:
 private:
   /// Manage a pipeline of metadata handlers.
   class MetadataManager MetadataManager;
-
-  /// Get the contents of the LSDA section for this binary.
-  ArrayRef<uint8_t> getLSDAData();
-
-  /// Get the mapped address of the LSDA section for this binary.
-  uint64_t getLSDAAddress();
 
   static const char TimerGroupName[];
 
@@ -421,6 +424,7 @@ private:
 
   /// Common section names.
   static StringRef getEHFrameSectionName() { return ".eh_frame"; }
+  static StringRef getRelaDynSectionName() { return ".rela.dyn"; }
 
   /// An instance of the input binary we are processing, externally owned.
   llvm::object::ELFObjectFileBase *InputFile;
@@ -509,11 +513,11 @@ private:
   };
 
   /// AArch64 PLT sections.
-  const PLTSectionInfo AArch64_PLTSections[3] = {
-      {".plt"}, {".iplt"}, {nullptr}};
+  const PLTSectionInfo AArch64_PLTSections[4] = {
+      {".plt"}, {".plt.got"}, {".iplt"}, {nullptr}};
 
   /// RISCV PLT sections.
-  const PLTSectionInfo RISCV_PLTSections[3] = {{".plt"}, {nullptr}};
+  const PLTSectionInfo RISCV_PLTSections[2] = {{".plt"}, {nullptr}};
 
   /// Return PLT information for a section with \p SectionName or nullptr
   /// if the section is not PLT.
@@ -540,7 +544,6 @@ private:
   }
 
   /// Exception handling and stack unwinding information in this binary.
-  ErrorOr<BinarySection &> LSDASection{std::errc::bad_address};
   ErrorOr<BinarySection &> EHFrameSection{std::errc::bad_address};
 
   /// .note.gnu.build-id section.
@@ -584,7 +587,8 @@ private:
 MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
                                    const MCInstrAnalysis *Analysis,
                                    const MCInstrInfo *Info,
-                                   const MCRegisterInfo *RegInfo);
+                                   const MCRegisterInfo *RegInfo,
+                                   const MCSubtargetInfo *STI);
 
 } // namespace bolt
 } // namespace llvm

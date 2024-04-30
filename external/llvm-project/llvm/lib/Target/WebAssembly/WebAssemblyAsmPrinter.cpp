@@ -18,16 +18,16 @@
 #include "MCTargetDesc/WebAssemblyTargetStreamer.h"
 #include "TargetInfo/WebAssemblyTargetInfo.h"
 #include "Utils/WebAssemblyTypeUtilities.h"
-#include "Utils/WebAssemblyUtilities.h"
 #include "WebAssembly.h"
 #include "WebAssemblyMCInstLower.h"
 #include "WebAssemblyMachineFunctionInfo.h"
 #include "WebAssemblyRegisterInfo.h"
 #include "WebAssemblyRuntimeLibcallSignatures.h"
 #include "WebAssemblyTargetMachine.h"
+#include "WebAssemblyUtilities.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/BinaryFormat/Wasm.h"
 #include "llvm/CodeGen/Analysis.h"
@@ -76,7 +76,7 @@ std::string WebAssemblyAsmPrinter::regToString(const MachineOperand &MO) {
          "Unlowered physical register encountered during assembly printing");
   assert(!MFI->isVRegStackified(RegNo));
   unsigned WAReg = MFI->getWAReg(RegNo);
-  assert(WAReg != WebAssemblyFunctionInfo::UnusedReg);
+  assert(WAReg != WebAssembly::UnusedReg);
   return '$' + utostr(WAReg);
 }
 
@@ -104,7 +104,7 @@ WebAssemblyTargetStreamer *WebAssemblyAsmPrinter::getTargetStreamer() {
 static bool isEmscriptenInvokeName(StringRef Name) {
   if (Name.front() == '"' && Name.back() == '"')
     Name = Name.substr(1, Name.size() - 2);
-  return Name.startswith("__invoke_");
+  return Name.starts_with("__invoke_");
 }
 
 // Returns a character that represents the given wasm value type in invoke
@@ -125,8 +125,9 @@ static char getInvokeSig(wasm::ValType VT) {
     return 'F';
   case wasm::ValType::EXTERNREF:
     return 'X';
+  default:
+    llvm_unreachable("Unhandled wasm::ValType enum");
   }
-  llvm_unreachable("Unhandled wasm::ValType enum");
 }
 
 // Given the wasm signature, generate the invoke name in the format JS glue code
@@ -235,7 +236,7 @@ MCSymbol *WebAssemblyAsmPrinter::getOrCreateWasmSymbol(StringRef Name) {
     return WasmSym;
   }
 
-  if (Name.startswith("GCC_except_table")) {
+  if (Name.starts_with("GCC_except_table")) {
     WasmSym->setType(wasm::WASM_SYMBOL_TYPE_DATA);
     return WasmSym;
   }
@@ -263,12 +264,12 @@ MCSymbol *WebAssemblyAsmPrinter::getOrCreateWasmSymbol(StringRef Name) {
     Params.push_back(AddrType);
   } else { // Function symbols
     WasmSym->setType(wasm::WASM_SYMBOL_TYPE_FUNCTION);
-    getLibcallSignature(Subtarget, Name, Returns, Params);
+    WebAssembly::getLibcallSignature(Subtarget, Name, Returns, Params);
   }
-  auto Signature = std::make_unique<wasm::WasmSignature>(std::move(Returns),
-                                                         std::move(Params));
-  WasmSym->setSignature(Signature.get());
-  addSignature(std::move(Signature));
+  auto Signature = OutContext.createWasmSignature();
+  Signature->Returns = std::move(Returns);
+  Signature->Params = std::move(Params);
+  WasmSym->setSignature(Signature);
 
   return WasmSym;
 }
@@ -303,8 +304,8 @@ void WebAssemblyAsmPrinter::emitDecls(const Module &M) {
   // only find symbols that have been used. Unused symbols from globals will
   // not be found here.
   MachineModuleInfoWasm &MMIW = MMI->getObjFileInfo<MachineModuleInfoWasm>();
-  for (const auto &Name : MMIW.MachineSymbolsUsed) {
-    auto *WasmSym = cast<MCSymbolWasm>(getOrCreateWasmSymbol(Name.getKey()));
+  for (StringRef Name : MMIW.MachineSymbolsUsed) {
+    auto *WasmSym = cast<MCSymbolWasm>(getOrCreateWasmSymbol(Name));
     if (WasmSym->isFunction()) {
       // TODO(wvo): is there any case where this overlaps with the call to
       // emitFunctionType in the loop below?
@@ -337,11 +338,11 @@ void WebAssemblyAsmPrinter::emitDecls(const Module &M) {
     // and thus also contain a signature, but we need to get the signature
     // anyway here in case it is an invoke that has not yet been created. We
     // will discard it later if it turns out not to be necessary.
-    auto Signature = signatureFromMVTs(Results, Params);
+    auto Signature = signatureFromMVTs(OutContext, Results, Params);
     bool InvokeDetected = false;
     auto *Sym = getMCSymbolForFunction(
         &F, WebAssembly::WasmEnableEmEH || WebAssembly::WasmEnableEmSjLj,
-        Signature.get(), InvokeDetected);
+        Signature, InvokeDetected);
 
     // Multiple functions can be mapped to the same invoke symbol. For
     // example, two IR functions '__invoke_void_i8*' and '__invoke_void_i32'
@@ -352,11 +353,7 @@ void WebAssemblyAsmPrinter::emitDecls(const Module &M) {
 
     Sym->setType(wasm::WASM_SYMBOL_TYPE_FUNCTION);
     if (!Sym->getSignature()) {
-      Sym->setSignature(Signature.get());
-      addSignature(std::move(Signature));
-    } else {
-      // This symbol has already been created and had a signature. Discard it.
-      Signature.reset();
+      Sym->setSignature(Signature);
     }
 
     getTargetStreamer()->emitFunctionType(Sym);
@@ -364,7 +361,7 @@ void WebAssemblyAsmPrinter::emitDecls(const Module &M) {
     if (F.hasFnAttribute("wasm-import-module")) {
       StringRef Name =
           F.getFnAttribute("wasm-import-module").getValueAsString();
-      Sym->setImportModule(storeName(Name));
+      Sym->setImportModule(OutContext.allocateString(Name));
       getTargetStreamer()->emitImportModule(Sym, Name);
     }
     if (F.hasFnAttribute("wasm-import-name")) {
@@ -374,14 +371,14 @@ void WebAssemblyAsmPrinter::emitDecls(const Module &M) {
           InvokeDetected
               ? Sym->getName()
               : F.getFnAttribute("wasm-import-name").getValueAsString();
-      Sym->setImportName(storeName(Name));
+      Sym->setImportName(OutContext.allocateString(Name));
       getTargetStreamer()->emitImportName(Sym, Name);
     }
 
     if (F.hasFnAttribute("wasm-export-name")) {
       auto *Sym = cast<MCSymbolWasm>(getSymbol(&F));
       StringRef Name = F.getFnAttribute("wasm-export-name").getValueAsString();
-      Sym->setExportName(storeName(Name));
+      Sym->setExportName(OutContext.allocateString(Name));
       getTargetStreamer()->emitExportName(Sym, Name);
     }
   }
@@ -565,7 +562,7 @@ void WebAssemblyAsmPrinter::EmitFunctionAttributes(Module &M) {
     return;
 
   // Group all the custom attributes by name.
-  StringMap<SmallVector<MCSymbol *, 4>> CustomSections;
+  MapVector<StringRef, SmallVector<MCSymbol *, 4>> CustomSections;
   const ConstantArray *CA = cast<ConstantArray>(V->getOperand(0));
   for (Value *Op : CA->operands()) {
     auto *CS = cast<ConstantStruct>(Op);
@@ -580,15 +577,14 @@ void WebAssemblyAsmPrinter::EmitFunctionAttributes(Module &M) {
     auto *GV = cast<GlobalVariable>(CS->getOperand(1)->stripPointerCasts());
     StringRef AnnotationString;
     getConstantStringInfo(GV, AnnotationString);
-    std::string Name = "annotate." + AnnotationString.str();
     auto *Sym = cast<MCSymbolWasm>(getSymbol(F));
-    CustomSections[Name].push_back(Sym);
+    CustomSections[AnnotationString].push_back(Sym);
   }
 
   // Emit a custom section for each unique attribute.
   for (const auto &[Name, Symbols] : CustomSections) {
     MCSectionWasm *CustomSection = OutContext.getWasmSection(
-        ".custom_section.llvm.func_attr." + Name, SectionKind::getMetadata());
+        ".custom_section.llvm.func_attr.annotate." + Name, SectionKind::getMetadata());
     OutStreamer->pushSection();
     OutStreamer->switchSection(CustomSection);
 
@@ -618,10 +614,9 @@ void WebAssemblyAsmPrinter::emitFunctionBodyStart() {
   SmallVector<MVT, 4> ParamVTs;
   computeSignatureVTs(F.getFunctionType(), &F, F, TM, ParamVTs, ResultVTs);
 
-  auto Signature = signatureFromMVTs(ResultVTs, ParamVTs);
+  auto Signature = signatureFromMVTs(OutContext, ResultVTs, ParamVTs);
   auto *WasmSym = cast<MCSymbolWasm>(CurrentFnSym);
-  WasmSym->setSignature(Signature.get());
-  addSignature(std::move(Signature));
+  WasmSym->setSignature(Signature);
   WasmSym->setType(wasm::WASM_SYMBOL_TYPE_FUNCTION);
 
   getTargetStreamer()->emitFunctionType(WasmSym);

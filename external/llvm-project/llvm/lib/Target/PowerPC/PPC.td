@@ -318,6 +318,26 @@ def FeaturePrivileged :
   SubtargetFeature<"privileged", "HasPrivileged", "true",
                    "Add privileged instructions">;
 
+// Specifies that local-exec TLS accesses in any function with this target
+// attribute should use the optimized TOC-free sequence (where the offset is an
+// immediate off of R13 for which the linker might add fix-up code if the
+// immediate is too large).
+// Clearly, this isn't really a feature of the subtarget, but is used as a
+// convenient way to affect code generation for individual functions.
+def FeatureAIXLocalExecTLS :
+  SubtargetFeature<"aix-small-local-exec-tls", "HasAIXSmallLocalExecTLS", "true",
+                   "Produce a TOC-free local-exec TLS sequence for this function "
+                   "for 64-bit AIX">;
+
+// Specifies that local-dynamic TLS accesses in any function with this target
+// attribute should use the optimized sequence (where the offset is an immediate
+// off the module-handle for which the linker might add fix-up code for if the
+// immediate is too large).
+def FeatureAIXLocalDynamicTLS :
+  SubtargetFeature<"aix-small-local-dynamic-tls", "HasAIXSmallLocalDynamicTLS",
+                   "true", "Produce a faster local-dynamic TLS sequence for this "
+                   "function for 64-bit AIX">;
+
 def FeaturePredictableSelectIsExpensive :
   SubtargetFeature<"predictable-select-expensive",
                    "PredictableSelectIsExpensive",

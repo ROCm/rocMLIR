@@ -35,6 +35,18 @@ func.func @rocdl.barrier() {
   llvm.return
 }
 
+func.func @rocdl.sched_barrier() {
+  // CHECK: rocdl.sched.barrier
+  rocdl.sched.barrier 0
+  llvm.return
+}
+
+func.func @rocdl.setprio() {
+  // CHECK: rocdl.s.setprio
+  rocdl.s.setprio 0
+  llvm.return
+}
+
 func.func @rocdl.xdlops(%arg0 : f32, %arg1 : f32,
                    %arg2 : vector<32xf32>, %arg3 : i32,
                    %arg4 : vector<16xf32>, %arg5 : vector<4xf32>,
@@ -259,27 +271,6 @@ llvm.func @rocdl.raw.ptr.buffer.i32(%rsrc : !llvm.ptr<8>,
   llvm.return
 }
 
-llvm.func @rocdl_8bit_floats(%source: i32, %stoch: i32) -> i32 {
-// CHECK-LABEL: @rocdl_8bit_floats
-// CHECK: rocdl.cvt.f32.bf8
-// CHECK: rocdl.cvt.f32.fp8
-// CHECK: rocdl.cvt.pk.bf8.f32
-// CHECK: rocdl.cvt.pk.fp8.f32
-// CHECK: rocdl.cvt.sr.bf8.f32
-// CHECK: rocdl.cvt.sr.fp8.f32
-  %c0 = llvm.mlir.constant(0 : i32) : i32
-  %c2 = llvm.mlir.constant(2 : i32) : i32
-  %c3 = llvm.mlir.constant(3 : i32) : i32
-  %false = llvm.mlir.constant(false) : i1
-  %v1 = rocdl.cvt.f32.bf8 %source[%c0] : f32
-  %v2 = rocdl.cvt.f32.fp8 %source[%c0] : f32
-  %source2 = rocdl.cvt.pk.bf8.f32 %v1, %v2 -> %source[%false] : i32
-  %source3 = rocdl.cvt.pk.fp8.f32 %v1, %v2 -> %source2[%false] : i32
-  %source4 = rocdl.cvt.sr.bf8.f32 %v1, %stoch -> %source3[%c2] : i32
-  %source5 = rocdl.cvt.sr.fp8.f32 %v2, %stoch -> %source4[%c3] : i32
-  llvm.return %source5 : i32
-}
-
 // -----
 
 // Tests for deprecated buffer ops.
@@ -351,10 +342,31 @@ llvm.func @rocdl.raw.buffer.i32(%rsrc : vector<4xi32>,
   llvm.return
 }
 
-llvm.func @rocdl.waitcnt(%arg0 : i32) {
+llvm.func @rocdl_8bit_floats(%source: i32, %stoch: i32) -> i32 {
+// CHECK-LABEL: @rocdl_8bit_floats
+// CHECK: rocdl.cvt.f32.bf8
+// CHECK: rocdl.cvt.f32.fp8
+// CHECK: rocdl.cvt.pk.bf8.f32
+// CHECK: rocdl.cvt.pk.fp8.f32
+// CHECK: rocdl.cvt.sr.bf8.f32
+// CHECK: rocdl.cvt.sr.fp8.f32
+  %c0 = llvm.mlir.constant(0 : i32) : i32
+  %c2 = llvm.mlir.constant(2 : i32) : i32
+  %c3 = llvm.mlir.constant(3 : i32) : i32
+  %false = llvm.mlir.constant(false) : i1
+  %v1 = rocdl.cvt.f32.bf8 %source[%c0] : f32
+  %v2 = rocdl.cvt.f32.fp8 %source[%c0] : f32
+  %source2 = rocdl.cvt.pk.bf8.f32 %v1, %v2 -> %source[%false] : i32
+  %source3 = rocdl.cvt.pk.fp8.f32 %v1, %v2 -> %source2[%false] : i32
+  %source4 = rocdl.cvt.sr.bf8.f32 %v1, %stoch -> %source3[%c2] : i32
+  %source5 = rocdl.cvt.sr.fp8.f32 %v2, %stoch -> %source4[%c3] : i32
+  llvm.return %source5 : i32
+}
+
+llvm.func @rocdl.waitcnt() {
   // CHECK-LABEL: rocdl.waitcnt
-  // CHECK: rocdl.waitcnt
-  rocdl.waitcnt %arg0
+  // CHECK: rocdl.waitcnt 0
+  rocdl.waitcnt 0
   llvm.return
 }
 
@@ -368,3 +380,12 @@ llvm.func @rocdl.s.barrier() {
 
 // expected-error@below {{attribute attached to unexpected op}}
 func.func private @expected_llvm_func() attributes { rocdl.kernel }
+
+// -----
+
+// Just check these don't emit errors.
+gpu.module @module_1 [#rocdl.target<O = 1, chip = "gfx900", abi = "500", link = ["my_device_lib.bc"], flags = {fast, daz, unsafe_math}>] {
+}
+
+gpu.module @module_2 [#rocdl.target<chip = "gfx900">, #rocdl.target<chip = "gfx90a">] {
+}
