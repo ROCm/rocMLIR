@@ -143,6 +143,7 @@ MLIRMemRefTransforms
 MLIRMemRefUtils
 MLIRMemorySlotInterfaces
 MLIRMeshDialect
+MLIRMeshTransforms
 MLIRNVGPUDialect
 MLIRNVGPUToNVVM
 MLIRNVGPUTransformOps
@@ -194,6 +195,7 @@ MLIRTensorTransforms
 MLIRTensorUtils
 MLIRTilingInterface
 MLIRTosaDialect
+MLIRTosaShardingInterfaceImpl
 MLIRTosaToArith
 MLIRTosaToLinalg
 MLIRTosaToSCF
@@ -201,6 +203,7 @@ MLIRTosaToTensor
 MLIRTosaTransforms
 MLIRTransformDebugExtension
 MLIRTransformDialect
+MLIRTransformDialectInterfaces
 MLIRTransformDialectUtils
 MLIRTransformLoopExtension
 MLIRTransformPDLExtension

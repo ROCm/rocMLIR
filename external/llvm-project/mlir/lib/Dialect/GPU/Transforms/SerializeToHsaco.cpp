@@ -347,6 +347,10 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
     // referenced by the module or a previous library since there will be no
     // other source of references to those symbols in this compilation and since
     // we don't want to bloat the resulting code object.
+
+    // Override the libModules datalayout with the compiler's
+    // data layout should there be a discrepency.
+    libModule->setDataLayout(ret->getDataLayout());
     bool err = linker.linkInModule(
         std::move(libModule), llvm::Linker::Flags::LinkOnlyNeeded,
         [](llvm::Module &m, const StringSet<> &gvs) {
