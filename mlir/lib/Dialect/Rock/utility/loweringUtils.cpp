@@ -713,6 +713,14 @@ AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
   return affineMap;
 }
 
+ReassociationIndices
+mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
+  ReassociationIndices reassociation;
+  for (int i = 0, e = srcTp.getRank(); i < e; i++)
+    reassociation.push_back(i);
+  return reassociation;
+}
+
 SmallVector<mhal::PrefillAttr>
 mlir::rock::getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func) {
   SmallVector<mhal::PrefillAttr> storedAttrs;
