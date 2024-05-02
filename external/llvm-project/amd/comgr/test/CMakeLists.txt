@@ -2,13 +2,15 @@ set(TEST_INPUT_BINARIES)
 set(TEST_INPUT_BITCODES)
 set(TEST_INPUT_BUNDLES)
 set(TEST_INPUT_ARCHIVES)
+set(TEST_INPUT_LINKED_OBJS)
+
 # Create target ${name} which depends on a clang command to compile ${input} to
 # ${output}, with any additional arguments from ${ARGN}, and add it to the
 # TEST_INPUT_BINARIES target list.
 macro(add_test_input_binary name input output)
   add_custom_command(
     OUTPUT "${output}"
-    COMMAND "$<TARGET_FILE:clang>" --target=amdgcn-amd-amdhsa -mcpu=gfx803 -nogpulib
+    COMMAND "$<TARGET_FILE:clang>" --target=amdgcn-amd-amdhsa -mcpu=gfx900 -nogpulib
     ${ARGN} "${CMAKE_CURRENT_SOURCE_DIR}/${input}" -o "${output}"
     VERBATIM
     DEPENDS clang lld "${input}")
@@ -42,7 +44,7 @@ macro(add_test_input_bitcode name input output)
   add_custom_command(
     OUTPUT "${output}"
     COMMAND "$<TARGET_FILE:clang>" -c -emit-llvm -target amdgcn-amd-amdhsa
-    -mcpu=gfx900
+    -mcpu=gfx900 -nogpulib
     ${ARGN} "${CMAKE_CURRENT_SOURCE_DIR}/${input}"
     -o "${output}"
     VERBATIM
@@ -56,11 +58,28 @@ endmacro()
 # Creates target ${name} which depends on a clang command to compile ${input} to
 # ${output}, with any additional arguments from ${ARGN}, and add it to the
 # TEST_INPUT_BUNDLES target list.
-macro(add_test_input_bundle name input output)
+macro(add_test_input_bitcode_bundle name input output)
   add_custom_command(
     OUTPUT "${output}"
     COMMAND "$<TARGET_FILE:clang>" -c --offload-arch=gfx900 -emit-llvm -fgpu-rdc
     --gpu-bundle-output ${ARGN} "${CMAKE_CURRENT_SOURCE_DIR}/${input}"
+    -o "${output}"
+    VERBATIM
+    DEPENDS clang lld "${input}")
+  add_custom_target("${name}"
+    DEPENDS "${output}"
+    SOURCES "${input}")
+  list(APPEND TEST_INPUT_BUNDLES "${name}")
+endmacro()
+
+# Creates target ${name} which depends on a clang command to compile ${input} to
+# ${output}, with any additional arguments from ${ARGN}, and add it to the
+# TEST_INPUT_BUNDLES target list.
+macro(add_test_input_object_file_bundle name input output)
+  add_custom_command(
+    OUTPUT "${output}"
+    COMMAND "$<TARGET_FILE:clang>" -c --offload-arch=gfx900 --gpu-bundle-output
+    --offload-device-only ${ARGN} "${CMAKE_CURRENT_SOURCE_DIR}/${input}"
     -o "${output}"
     VERBATIM
     DEPENDS clang lld "${input}")
@@ -86,6 +105,23 @@ macro(add_test_archive name target input output)
   list(APPEND TEST_INPUT_ARCHIVES "${name}")
 endmacro()
 
+# Creates target ${name} which depends on 2 clang commands to compile
+# ${input0} and ${input1} and then links them to create ${output}
+#  with any additional arguments from ${ARGN}, and add it to the
+# TEST_INPUT_LINKED_OBJS target list.
+macro(add_test_input_linked name input0 input1 output)
+  add_custom_command(
+    OUTPUT "${output}"
+    COMMAND "$<TARGET_FILE:lld>" -flavor gnu ${ARGN} "${input0}"
+    "${input1}" -o "${output}"
+    VERBATIM
+    DEPENDS lld "${input0}" "${input1}")
+  add_custom_target("${name}"
+    DEPENDS "${output}"
+    SOURCES "${input0}" "${input1}")
+  list(APPEND TEST_INPUT_LINKED_OBJS "${name}")
+endmacro()
+
 add_test_input_binary(reloc1 source/reloc1.cl source/reloc1.o -c -mcode-object-version=4)
 add_test_input_binary(reloc2 source/reloc2.cl source/reloc2.o -c -mcode-object-version=4)
 add_test_input_binary(reloc-asm source/reloc-asm.s source/reloc-asm.o -c -mcode-object-version=4)
@@ -93,6 +129,16 @@ add_test_input_binary(shared source/shared.cl source/shared.so -mcode-object-ver
 add_test_input_binary(shared-debug source/shared.cl source/shared-debug.so -g -mcode-object-version=4)
 add_test_input_bitcode(source1 source/source1.cl source/source1.bc)
 
+add_test_input_binary(linking-kernel0 source/linking/kernel0.cl source/linking/kernel0.o -c -mcode-object-version=4)
+add_test_input_binary(linking-kernel1 source/linking/kernel1.cl source/linking/kernel1.o -c -mcode-object-version=4)
+add_test_input_binary(linking-empty   source/linking/empty.cl   source/linking/empty.o   -c -mcode-object-version=4)
+
+add_test_input_linked(multiple-note-records source/linking/kernel0.o source/linking/kernel1.o source/multiple-note-records.out -w)
+add_test_input_linked(multiple-note-records-one-kernel source/linking/kernel0.o source/linking/empty.o source/multiple-note-records-one-kernel.out -w)
+
+configure_file("source/linking/kernel0.cl" "source/linking/kernel0.cl" COPYONLY)
+configure_file("source/linking/kernel1.cl" "source/linking/kernel1.cl" COPYONLY)
+configure_file("source/linking/empty.cl" "source/linking/empty.cl" COPYONLY)
 configure_file("source/source1.cl" "source/source1.cl" COPYONLY)
 configure_file("source/source2.cl" "source/source2.cl" COPYONLY)
 configure_file("source/nested-kernel1.cl" "source/nested-kernel1.cl" COPYONLY)
@@ -104,7 +150,7 @@ configure_file("source/include-nested.h" "source/include-nested.h" COPYONLY)
 configure_file("source/source1.s" "source/source1.s" COPYONLY)
 configure_file("source/source1.hip" "source/source1.hip" COPYONLY)
 configure_file("source/source2.hip" "source/source2.hip" COPYONLY)
-configure_file("source/name-expression.hip" "source/name_expression.hip" COPYONLY)
+configure_file("source/name-expression.hip" "source/name-expression.hip" COPYONLY)
 configure_file("source/rocm56slice.b" "source/rocm56slice.b" COPYONLY)
 configure_file("source/rocm57slice.b" "source/rocm57slice.b" COPYONLY)
 
@@ -156,7 +202,7 @@ endif()
     amd_comgr)
   add_dependencies("${name}"
     ${TEST_INPUT_BINARIES};${TEST_INPUT_BITCODES};${TEST_INPUT_BUNDLES};
-    ${TEST_INPUT_ARCHIVES})
+    ${TEST_INPUT_ARCHIVES};${TEST_INPUT_LINKED_OBJS})
   add_test(NAME ${test_name}
     COMMAND "${name}")
   add_dependencies(check-comgr ${name})
@@ -178,6 +224,7 @@ add_comgr_test(disasm_options_test c)
 add_comgr_test(metadata_tp_test c)
 add_comgr_test(metadata_yaml_test c)
 add_comgr_test(metadata_msgpack_test c)
+add_comgr_test(metadata_multiple_msgpacks_test c)
 add_comgr_test(metadata_merge_test c)
 add_comgr_test(symbols_test c)
 add_comgr_test(symbols_iterate_test c)
@@ -206,10 +253,10 @@ add_comgr_test(compile_source_to_executable c)
 
 # Test : Compile HIP tests only if HIP-Clang is installed.
 if (DEFINED HIP_COMPILER AND "${HIP_COMPILER}" STREQUAL "clang")
-  add_test_input_bundle(cube source/cube.hip source/cube.bc)
-  add_test_input_bundle(square source/square.hip source/square.bc)
-  add_test_input_bundle(double source/double.hip source/double.bc)
+  add_test_input_bitcode_bundle(square source/square.hip source/square.bc)
+  add_test_input_object_file_bundle(double source/double.hip source/double.o)
 
+  add_test_input_bitcode_bundle(cube source/cube.hip source/cube.bc)
   add_test_archive(cube_archive cube source/cube.bc source/cube.a)
 
   add_comgr_test(compile_hip_test c)

@@ -390,6 +390,45 @@ __amd_copyBufferAligned(
 }
 
 __attribute__((always_inline)) void
+__amd_copyBufferExt(
+    __global uchar* srcI,
+    __global uchar* dstI,
+    ulong srcOrigin,
+    ulong dstOrigin,
+    ulong size,
+    uint remainder,
+    uint aligned_size,
+    ulong end_ptr,
+    uint next_chunk) {
+  ulong id = get_global_id(0);
+  ulong id_remainder = id;
+
+  __global uchar* src = srcI + srcOrigin;
+  __global uchar* dst = dstI + dstOrigin;
+
+  if (aligned_size == sizeof(ulong2)) {
+    __global ulong2* srcD = (__global ulong2*)(src);
+    __global ulong2* dstD = (__global ulong2*)(dst);
+    while ((ulong)(&dstD[id]) < end_ptr) {
+      dstD[id] = srcD[id];
+      id += next_chunk;
+    }
+  } else {
+    __global uint* srcD = (__global uint*)(src);
+    __global uint* dstD = (__global uint*)(dst);
+    while ((ulong)(&dstD[id]) < end_ptr) {
+      dstD[id] = srcD[id];
+      id += next_chunk;
+    }
+  }
+  if ((remainder != 0) && (id_remainder == 0)) {
+    for (ulong i = size - remainder; i < size; ++i) {
+      dst[i] = src[i];
+    }
+  }
+}
+
+__attribute__((always_inline)) void
 __amd_fillBuffer(
     __global uchar* bufUChar,
     __global uint* bufUInt,
@@ -469,6 +508,68 @@ __amd_fillBufferAligned(
             element[i] = pattern[i];
         }
     }
+}
+
+__attribute__((always_inline)) void
+    __amd_fillBufferAlignedExt(
+    __global uchar* bufUChar,
+    __global ushort* bufUShort,
+    __global uint* bufUInt,
+    __global ulong* bufULong,
+    __global ulong2* bufULong2,
+    __constant uchar* pattern,
+    uint pattern_size,
+    ulong offset,
+    ulong end_ptr,
+    uint next_chunk)
+{
+  int id = get_global_id(0);
+  long cur_id = offset + id * pattern_size;
+  if (bufULong2) {
+    __global ulong2* element = &bufULong2[cur_id];
+    __constant ulong2* pt = (__constant ulong2*)pattern;
+    while ((ulong)element < end_ptr) {
+      for (uint i = 0; i < pattern_size; ++i) {
+        element[i] = pt[i];
+      }
+      element += next_chunk;
+    }
+  } else if (bufULong) {
+    __global ulong* element = &bufULong[cur_id];
+    __constant ulong* pt = (__constant ulong*)pattern;
+    while ((ulong)element < end_ptr) {
+      for (uint i = 0; i < pattern_size; ++i) {
+        element[i] = pt[i];
+      }
+      element += next_chunk;
+    }
+  } else if (bufUInt) {
+    __global uint* element = &bufUInt[cur_id];
+    __constant uint* pt = (__constant uint*)pattern;
+    while ((ulong)element < end_ptr) {
+      for (uint i = 0; i < pattern_size; ++i) {
+        element[i] = pt[i];
+      }
+      element += next_chunk;
+    }
+  } else if (bufUShort) {
+    __global ushort* element = &bufUShort[cur_id];
+    __constant ushort* pt = (__constant ushort*)pattern;
+    while ((ulong)element < end_ptr) {
+      for (uint i = 0; i < pattern_size; ++i) {
+        element[i] = pt[i];
+      }
+      element += next_chunk;
+    }
+  } else {
+    __global uchar* element = &bufUChar[cur_id];
+    while ((ulong)element < end_ptr) {
+      for (uint i = 0; i < pattern_size; ++i) {
+        element[i] = pattern[i];
+      }
+      element += next_chunk;
+    }
+  }
 }
 
 __attribute__((always_inline)) void

@@ -655,8 +655,7 @@ GVNSink::analyzeInstructionForSinking(LockstepReverseIterator &LRI,
       return std::nullopt;
     VNums[N]++;
   }
-  unsigned VNumToSink =
-      std::max_element(VNums.begin(), VNums.end(), llvm::less_second())->first;
+  unsigned VNumToSink = llvm::max_element(VNums, llvm::less_second())->first;
 
   if (VNums[VNumToSink] == 1)
     // Can't sink anything!
@@ -850,8 +849,9 @@ void GVNSink::sinkLastInstruction(ArrayRef<BasicBlock *> Blocks,
     // Create a new PHI in the successor block and populate it.
     auto *Op = I0->getOperand(O);
     assert(!Op->getType()->isTokenTy() && "Can't PHI tokens!");
-    auto *PN = PHINode::Create(Op->getType(), Insts.size(),
-                               Op->getName() + ".sink", &BBEnd->front());
+    auto *PN =
+        PHINode::Create(Op->getType(), Insts.size(), Op->getName() + ".sink");
+    PN->insertBefore(BBEnd->begin());
     for (auto *I : Insts)
       PN->addIncoming(I->getOperand(O), I->getParent());
     NewOperands.push_back(PN);

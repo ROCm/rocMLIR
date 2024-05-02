@@ -114,8 +114,10 @@ static int64_t getAlign(Type type) {
 }
 
 void RockPrepareLLVMPass::runOnOperation() {
+  MLIRContext &ctx = getContext();
   LLVM::LLVMFuncOp func = getOperation();
-  if (!func->hasAttr(ROCDL::ROCDLDialect::getKernelFuncAttrName()))
+  auto *dialect = ctx.getLoadedDialect<ROCDL::ROCDLDialect>();
+  if (!dialect->getKernelAttrHelper().isAttrPresent(func))
     return;
 
   // We're willing to assert that our GEPs are in bounds, unless we're dealing
@@ -209,7 +211,7 @@ void RockPrepareLLVMPass::runOnOperation() {
       return;
     unsigned argNo = funcArg.getArgNumber();
     if (auto load = dyn_cast<LLVM::LoadOp>(aliasOp))
-      load.setInvariantLoad(isReadonly[argNo]);
+      load.setInvariant(isReadonly[argNo]);
     aliasIface.setAliasScopes(aliasScopes[argNo]);
     aliasIface.setNoAliasScopes(noaliasScopes[argNo]);
   });

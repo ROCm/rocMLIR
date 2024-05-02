@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
@@ -430,6 +431,12 @@ static llvm::cl::opt<bool>
                           llvm::cl::value_desc("To populate default values"),
                           llvm::cl::init(false));
 
+static llvm::cl::opt<bool> emitSplitKSelectionLikelihood(
+    "emit-split-k-selection-likelihood",
+    llvm::cl::desc(
+        "Print SplitK selection likelihood for the specified kernel"),
+    llvm::cl::init(false));
+
 static llvm::cl::opt<rock::TuningParamSetKind> emitTuningSpace(
     "emit-tuning-space",
     llvm::cl::desc("Print a tuning space for the specified kernel"),
@@ -664,7 +671,7 @@ static llvm::cl::opt<int>
 // Verification function options
 static llvm::cl::opt<float>
     RMSThreshold("RMS_threshold", llvm::cl::desc("Threshold for RMS metric"),
-                 llvm::cl::value_desc("error"), llvm::cl::init(0.00003f));
+                 llvm::cl::value_desc("error"));
 
 static llvm::cl::opt<float>
     absDiffThreshold("absDiff_threshold",
@@ -2885,8 +2892,14 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   func::FuncOp verifyFuncDecl;
 
   if (testElemType.isa<FloatType>()) {
-    auto thr_RMS = getF32Val(RMSThreshold.getValue());
-    auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
+    constexpr float defaultRMSThreshold(0.00003f);
+    constexpr float defaultRMSThresholdFP16(0.001f);
+    float RMSThresholdValue =
+        testElemType.isF16() ? defaultRMSThresholdFP16 : defaultRMSThreshold;
+    if (RMSThreshold)
+      RMSThresholdValue = RMSThreshold.getValue();
+    Value thr_RMS = getF32Val(RMSThresholdValue);
+    Value thr_absDiff = getF32Val(absDiffThreshold.getValue());
     Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
     if (testElemType.isF16())
       thr_relDiff = getF32Val(100.0f);
@@ -3375,8 +3388,9 @@ static LogicalResult populateHostHarnessLogic(
   return success();
 }
 
-static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
-                             MLIRContext *context) {
+static OwningOpRef<ModuleOp> readTestFile(std::string inputFilenameStr,
+                                          bool &hasUserKernel,
+                                          MLIRContext *context) {
   std::string errorMessage;
 
   // Set up the input file.
@@ -3389,13 +3403,11 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
   // Parse the input file.
   llvm::SourceMgr sourceMgr;
   sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
-  OwningOpRef<ModuleOp> moduleRef =
-      parseSourceFile<ModuleOp>(sourceMgr, context);
-  if (!moduleRef) {
+  OwningOpRef<ModuleOp> module = parseSourceFile<ModuleOp>(sourceMgr, context);
+  if (!module) {
     llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
     exit(1);
   }
-  ModuleOp module = moduleRef.release();
 
   if (!perfConfig.empty()) {
     WalkResult findGemmOp =
@@ -3410,7 +3422,7 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
     }
   }
 
-  module.walk([&](func::FuncOp func) -> WalkResult {
+  module->walk([&](func::FuncOp func) -> WalkResult {
     if (func->hasAttr("kernel")) {
       hasUserKernel = true;
     }
@@ -3420,8 +3432,8 @@ static ModuleOp readTestFile(std::string inputFilenameStr, bool &hasUserKernel,
   return module;
 }
 
-static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
-                               ModuleOp module) {
+static void generateKernel(MLIRContext *context, GenParams &genParams,
+                           ModuleOp module) {
   OpBuilder builder(context);
   static rock::ConvGenerator convGenerator;
 
@@ -3621,11 +3633,9 @@ static ModuleOp generateKernel(MLIRContext *context, GenParams &genParams,
       convGenerator.setKernelName(kernelBaseName);
     }
   }
-
-  return module;
 }
 
-static ModuleOp populateCloneHarnessLogic(ModuleOp &module) {
+static void populateCloneHarnessLogic(ModuleOp module) {
   if (arch.getValue().empty()) {
     llvm::errs() << "--arch is not set\n";
     exit(1);
@@ -3669,7 +3679,6 @@ static ModuleOp populateCloneHarnessLogic(ModuleOp &module) {
   cloneFuncOp->setAttr("original_func", SymbolRefAttr::get(originalFunc));
   xmoduleOp.push_back(cloneFuncOp);
   module.push_back(xmoduleOp);
-  return module;
 }
 
 int main(int argc, char **argv) {
@@ -3699,7 +3708,7 @@ int main(int argc, char **argv) {
 
   bool hasUserKernel = !testFuncName.empty();
 
-  ModuleOp module;
+  OwningOpRef<ModuleOp> module;
   GenParams genParams;
 
   if (!inputFilename.empty()) {
@@ -3710,32 +3719,56 @@ int main(int argc, char **argv) {
           << "Clone validation is not compatible with kernel generation.\n";
       exit(1);
     }
-    OpBuilder builder(&context);
-    module = ModuleOp::create(builder.getUnknownLoc());
+    module = ModuleOp::create(UnknownLoc::get(&context));
   }
 
   if (genCloneHarness.getValue()) {
-    module = populateCloneHarnessLogic(module);
+    populateCloneHarnessLogic(*module);
   } else if (!hasUserKernel) {
-    module = generateKernel(&context, genParams, module);
+    generateKernel(&context, genParams, *module);
+  }
+
+  if (emitSplitKSelectionLikelihood) {
+    module->walk([](rock::RockGemmWrapperInterface gemmOp) {
+      const int32_t numCU = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
+      const rock::GemmSize gemmSize = gemmOp.getGemmSize();
+      const auto likelihood = rock::isSplitKFaster(
+          gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);
+      switch (likelihood) {
+      case RocmlirSplitKSelectionLikelihood::always: {
+        llvm::outs() << "always\n";
+        break;
+      }
+      case RocmlirSplitKSelectionLikelihood::maybe: {
+        llvm::outs() << "maybe\n";
+        break;
+      }
+      case RocmlirSplitKSelectionLikelihood::never: {
+        llvm::outs() << "never\n";
+        break;
+      }
+      }
+    });
+    return 0;
   }
 
   if (emitTuningSpace.getNumOccurrences() > 0) {
-    auto tunableParams = rock::createTunableParamSpace(module, emitTuningSpace);
+    std::unique_ptr<rock::TuningParamSet> tunableParams(
+        rock::createTunableParamSpace(*module, emitTuningSpace));
     SmallString<64> perfConfig;
     for (auto param : tunableParams->tuningRange) {
       param.getPerfConfigStr(perfConfig);
       llvm::outs() << perfConfig << "\n";
       perfConfig.clear();
     }
-    delete tunableParams;
     return 0;
   }
 
   if (emitTuningKey) {
     SmallString<2048> tuningKey;
-    if (failed(rock::getTuningProblemStr(module, tuningKey))) {
-      llvm::errs() << "Failed to get tuning key for module: " << module << "\n";
+    if (failed(rock::getTuningProblemStr(*module, tuningKey))) {
+      llvm::errs() << "Failed to get tuning key for module: " << *module
+                   << "\n";
       return EXIT_FAILURE;
     }
     llvm::outs() << tuningKey << "\n";
@@ -3750,7 +3783,7 @@ int main(int argc, char **argv) {
     // call from main().  Start with all nodes, then erase the ones that
     // have edges to them.  Use SetVector because we want to preserve the
     // order to match an older implementation.
-    CallGraph cg(module);
+    CallGraph cg(*module);
     SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
     for (auto &node : roots) {
       for (auto &edge : *node)
@@ -3768,14 +3801,14 @@ int main(int argc, char **argv) {
           dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
       rootIFs.emplace_back(func);
     }
-    module.walk([&](func::FuncOp func) -> WalkResult {
+    module->walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         kernels.emplace_back(func);
       }
       return WalkResult::advance();
     });
   } else if (!genCloneHarness.getValue()) {
-    auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
+    auto func = module->lookupSymbol<func::FuncOp>(testFuncName);
     assert(func && "does -fut point to the wrong function?");
     kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
@@ -3783,7 +3816,8 @@ int main(int argc, char **argv) {
 
   // populate host logic.
   if (genHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, kernels, rootIFs, genParams))) {
+    if (failed(
+            populateHostHarnessLogic(*module, kernels, rootIFs, genParams))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
@@ -3792,13 +3826,13 @@ int main(int argc, char **argv) {
   // Running the bufferization pipeline when rocmlir-gen is actually
   // generating a kernel.
   if (applyBufferizationPipeline.getValue() && !hasUserKernel) {
-    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+    PassManager pm(module.get()->getName(), PassManager::Nesting::Implicit);
 
     rock::BufferizeOptions bufferizeOptions;
     bufferizeOptions.disableRock = true;
     rock::buildBufferizePipeline(pm, bufferizeOptions);
 
-    if (failed(pm.run(module))) {
+    if (failed(pm.run(*module))) {
       llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
       exit(1);
     }
@@ -3812,7 +3846,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  module.print(output->os());
+  module->print(output->os());
   output->keep();
   return 0;
 }

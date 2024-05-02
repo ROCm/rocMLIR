@@ -32,12 +32,18 @@
 
 using namespace llvm;
 
-static cl::opt<bool>
-    DisableUnclusterHighRP("amdgpu-disable-unclustred-high-rp-reschedule",
-                           cl::Hidden,
-                           cl::desc("Disable unclustred high register pressure "
-                                    "reduction scheduling stage."),
-                           cl::init(false));
+static cl::opt<bool> DisableUnclusterHighRP(
+    "amdgpu-disable-unclustered-high-rp-reschedule", cl::Hidden,
+    cl::desc("Disable unclustered high register pressure "
+             "reduction scheduling stage."),
+    cl::init(false));
+
+static cl::opt<bool> DisableClusteredLowOccupancy(
+    "amdgpu-disable-clustered-low-occupancy-reschedule", cl::Hidden,
+    cl::desc("Disable clustered low occupancy "
+             "rescheduling for ILP scheduling stage."),
+    cl::init(false));
+
 static cl::opt<unsigned> ScheduleMetricBias(
     "amdgpu-schedule-metric-bias", cl::Hidden,
     cl::desc(
@@ -707,7 +713,8 @@ bool UnclusteredHighRPStage::initGCNSchedStage() {
     return false;
 
   SavedMutations.swap(DAG.Mutations);
-  DAG.addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/false));
+  DAG.addMutation(
+      createIGroupLPDAGMutation(AMDGPU::SchedulingPhase::PreRAReentry));
 
   InitialOccupancy = DAG.MinOccupancy;
   // Aggressivly try to reduce register pressure in the unclustered high RP
@@ -727,6 +734,9 @@ bool UnclusteredHighRPStage::initGCNSchedStage() {
 }
 
 bool ClusteredLowOccStage::initGCNSchedStage() {
+  if (DisableClusteredLowOccupancy)
+    return false;
+
   if (!GCNSchedStage::initGCNSchedStage())
     return false;
 
@@ -790,7 +800,6 @@ void UnclusteredHighRPStage::finalizeGCNSchedStage() {
   }
 
   GCNSchedStage::finalizeGCNSchedStage();
-
 }
 
 bool GCNSchedStage::initGCNRegion() {
@@ -804,7 +813,7 @@ bool GCNSchedStage::initGCNRegion() {
   // Skip empty scheduling regions (0 or 1 schedulable instructions).
   if (DAG.begin() == DAG.end() || DAG.begin() == std::prev(DAG.end()))
     return false;
-  
+
   LLVM_DEBUG(dbgs() << "********** MI Scheduling **********\n");
   LLVM_DEBUG(dbgs() << MF.getName() << ":" << printMBBReference(*CurrentMBB)
                     << " " << CurrentMBB->getName()
@@ -812,6 +821,7 @@ bool GCNSchedStage::initGCNRegion() {
              if (DAG.RegionEnd != CurrentMBB->end()) dbgs() << *DAG.RegionEnd;
              else dbgs() << "End";
              dbgs() << " RegionInstrs: " << NumRegionInstrs << '\n');
+
   // Save original instruction order before scheduling for possible revert.
   Unsched.clear();
   Unsched.reserve(DAG.NumRegionInstrs);
@@ -827,7 +837,9 @@ bool GCNSchedStage::initGCNRegion() {
     for (auto &I : DAG)
       Unsched.push_back(&I);
   }
+
   PressureBefore = DAG.Pressure[RegionIdx];
+
   LLVM_DEBUG(
       dbgs() << "Pressure before scheduling:\nRegion live-ins:"
              << print(DAG.LiveIns[RegionIdx], DAG.MRI)
@@ -842,8 +854,13 @@ bool GCNSchedStage::initGCNRegion() {
       StageID != GCNSchedStageID::UnclusteredHighRPReschedule) {
     SavedMutations.clear();
     SavedMutations.swap(DAG.Mutations);
-    DAG.addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/false));
+    bool IsInitialStage = StageID == GCNSchedStageID::OccInitialSchedule ||
+                          StageID == GCNSchedStageID::ILPInitialSchedule;
+    DAG.addMutation(createIGroupLPDAGMutation(
+        IsInitialStage ? AMDGPU::SchedulingPhase::Initial
+                       : AMDGPU::SchedulingPhase::PreRAReentry));
   }
+
   return true;
 }
 
@@ -920,7 +937,7 @@ void GCNSchedStage::checkScheduling() {
     DAG.RegionsWithMinOcc[RegionIdx] =
         PressureAfter.getOccupancy(ST) == DAG.MinOccupancy;
 
-    // Early out if we have achieve the occupancy target.
+    // Early out if we have achieved the occupancy target.
     LLVM_DEBUG(dbgs() << "Pressure in desired limits, done.\n");
     return;
   }
@@ -956,11 +973,17 @@ void GCNSchedStage::checkScheduling() {
     LLVM_DEBUG(dbgs() << "Occupancy lowered for the function to "
                       << DAG.MinOccupancy << ".\n");
   }
-
+  // The maximum number of arch VGPR on non-unified register file, or the
+  // maximum VGPR + AGPR in the unified register file case.
   unsigned MaxVGPRs = ST.getMaxNumVGPRs(MF);
+  // The maximum number of arch VGPR for both unified and non-unified register
+  // file.
+  unsigned MaxArchVGPRs = std::min(MaxVGPRs, ST.getAddressableNumArchVGPRs());
   unsigned MaxSGPRs = ST.getMaxNumSGPRs(MF);
-  if (PressureAfter.getVGPRNum(false) > MaxVGPRs ||
-      PressureAfter.getAGPRNum() > MaxVGPRs ||
+
+  if (PressureAfter.getVGPRNum(ST.hasGFX90AInsts()) > MaxVGPRs ||
+      PressureAfter.getVGPRNum(false) > MaxArchVGPRs ||
+      PressureAfter.getAGPRNum() > MaxArchVGPRs ||
       PressureAfter.getSGPRNum() > MaxSGPRs) {
     DAG.RescheduleRegions[RegionIdx] = true;
     DAG.RegionsWithHighRP[RegionIdx] = true;
@@ -1113,7 +1136,7 @@ bool OccInitialScheduleStage::shouldRevertScheduling(unsigned WavesAfter) {
 }
 
 bool UnclusteredHighRPStage::shouldRevertScheduling(unsigned WavesAfter) {
-  // If RP is not reduced in the unclustred reschedule stage, revert to the
+  // If RP is not reduced in the unclustered reschedule stage, revert to the
   // old schedule.
   if ((WavesAfter <= PressureBefore.getOccupancy(ST) &&
        mayCauseSpilling(WavesAfter)) ||
@@ -1181,9 +1204,8 @@ bool ILPInitialScheduleStage::shouldRevertScheduling(unsigned WavesAfter) {
 }
 
 bool GCNSchedStage::mayCauseSpilling(unsigned WavesAfter) {
-  if (WavesAfter <= MFI.getMinWavesPerEU() &&
-      !PressureAfter.less(ST, PressureBefore) &&
-      isRegionWithExcessRP()) {
+  if (WavesAfter <= MFI.getMinWavesPerEU() && isRegionWithExcessRP() &&
+      !PressureAfter.less(MF, PressureBefore)) {
     LLVM_DEBUG(dbgs() << "New pressure will result in more spilling.\n");
     return true;
   }
@@ -1555,7 +1577,7 @@ void GCNPostScheduleDAGMILive::schedule() {
   if (HasIGLPInstrs) {
     SavedMutations.clear();
     SavedMutations.swap(Mutations);
-    addMutation(createIGroupLPDAGMutation(/*IsPostRA=*/true));
+    addMutation(createIGroupLPDAGMutation(AMDGPU::SchedulingPhase::PostRA));
   }
 
   ScheduleDAGMI::schedule();

@@ -81,7 +81,7 @@ LogicalResult EmulateFloatPattern::match(Operation *op) const {
 void EmulateFloatPattern::rewrite(Operation *op, ArrayRef<Value> operands,
                                   ConversionPatternRewriter &rewriter) const {
   Location loc = op->getLoc();
-  TypeConverter *converter = getTypeConverter();
+  const TypeConverter *converter = getTypeConverter();
   SmallVector<Type> resultTypes;
   if (failed(converter->convertTypes(op->getResultTypes(), resultTypes))) {
     // Note to anyone looking for this error message: this is a "can't happen".
@@ -107,7 +107,7 @@ void mlir::arith::populateEmulateUnsupportedFloatsConversions(
                            targetType](Type type) -> std::optional<Type> {
     if (llvm::is_contained(sourceTypes, type))
       return targetType;
-    if (auto shaped = type.dyn_cast<ShapedType>())
+    if (auto shaped = dyn_cast<ShapedType>(type))
       if (llvm::is_contained(sourceTypes, shaped.getElementType()))
         return shaped.clone(targetType);
     // All other types legal

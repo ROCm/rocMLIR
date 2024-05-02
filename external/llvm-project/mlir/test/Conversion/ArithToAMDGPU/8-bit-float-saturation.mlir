@@ -4,7 +4,6 @@
 
 // CHECK-LABEL: func.func @scalar_trunc
 // CHECK-SAME: ([[V:%.+]]: f16)
-// CHECK-DAG: [[C0:%.+]] = arith.constant 0 : index
 // CHECK-DAG: [[CMin:%.+]] = arith.constant -5.734400e+04 : f16
 // CHECK-DAG: [[CMax:%.+]] = arith.constant 5.734400e+04 : f16
 // CHECK-DAG: [[CInf:%.+]] = arith.constant 0x7C00 : f16
@@ -14,12 +13,12 @@
 // CHECK: [[ISNAN:%.+]] = arith.cmpf uno, [[V]], [[V]]
 // CHECK: [[ISNONFINITE_1:%.+]] = arith.ori [[ISINF]], [[ISNEGINF]]
 // CHECK: [[ISNONFINITE:%.+]] = arith.ori [[ISNONFINITE_1]], [[ISNAN]]
-// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maxf [[V]], [[CMin]]
-// CHECK: [[CLAMPED:%.+]] = arith.minf [[CLAMPEDBELOW]], [[CMax]]
+// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maximumf [[V]], [[CMin]]
+// CHECK: [[CLAMPED:%.+]] = arith.minimumf [[CLAMPEDBELOW]], [[CMax]]
 // CHECK: [[SATURATED:%.+]] = arith.select [[ISNONFINITE]], [[V]], [[CLAMPED]]
 // CHECK: [[FLOAT:%.+]] = arith.extf [[SATURATED]] : f16 to f32
-// CHECK: [[TRUNCV:%.+]] = amdgpu.packed_trunc_fp8x2 [[FLOAT]], undef into undef[word 0] : f32 to vector<4xf8E5M2FNUZ>
-// CHECK: [[W:%.+]] = vector.extractelement [[TRUNCV]]{{\[}}[[C0]] : index] : vector<4xf8E5M2FNUZ>
+// CHECK: [[TRUNCV:%.+]] = amdgpu.packed_trunc_2xfp8 [[FLOAT]], undef into undef[word 0] : f32 to vector<4xf8E5M2FNUZ>
+// CHECK: [[W:%.+]] = vector.extract [[TRUNCV]][0] : f8E5M2FNUZ from vector<4xf8E5M2FNUZ>
 // CHECK: return [[W]] : f8E5M2FNUZ
 func.func @scalar_trunc(%v: f16) -> f8E5M2FNUZ {
   %w = arith.truncf %v : f16 to f8E5M2FNUZ
@@ -32,8 +31,6 @@ func.func @scalar_trunc(%v: f16) -> f8E5M2FNUZ {
 
 // CHECK-LABEL: func.func @vector_trunc
 // CHECK-SAME: ([[V:%.+]]: vector<2xf32>) -> vector<2xf8E4M3FNUZ> {
-// CHECK-DAG: [[C0:%.+]] = arith.constant 0 : index
-// CHECK-DAG: [[C1:%.+]] = arith.constant 1 : index
 // CHECK-DAG: [[CMin:%.+]] = arith.constant dense<-2.400000e+02> : vector<2xf32>
 // CHECK-DAG: [[CMax:%.+]] = arith.constant dense<2.400000e+02> : vector<2xf32>
 // CHECK-DAG: [[CInf:%.+]] = arith.constant dense<0x7F800000> : vector<2xf32>
@@ -43,12 +40,12 @@ func.func @scalar_trunc(%v: f16) -> f8E5M2FNUZ {
 // CHECK: [[ISNAN:%.+]] = arith.cmpf uno, [[V]], [[V]]
 // CHECK: [[ISNONFINITE_1:%.+]] = arith.ori [[ISINF]], [[ISNEGINF]]
 // CHECK: [[ISNONFINITE:%.+]] = arith.ori [[ISNONFINITE_1]], [[ISNAN]]
-// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maxf [[V]], [[CMin]]
-// CHECK: [[CLAMPED:%.+]] = arith.minf [[CLAMPEDBELOW]], [[CMax]]
+// CHECK: [[CLAMPEDBELOW:%.+]] = arith.maximumf [[V]], [[CMin]]
+// CHECK: [[CLAMPED:%.+]] = arith.minimumf [[CLAMPEDBELOW]], [[CMax]]
 // CHECK: [[SATURATED:%.+]] = arith.select [[ISNONFINITE]], [[V]], [[CLAMPED]]
-// CHECK: [[F0:%.+]] = vector.extractelement [[SATURATED]]{{\[}}[[C0]] : index]
-// CHECK: [[F1:%.+]] = vector.extractelement [[SATURATED]]{{\[}}[[C1]] : index]
-// CHECK: [[W0:%.+]] = amdgpu.packed_trunc_fp8x2 [[F0]], [[F1]] into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
+// CHECK: [[F0:%.+]] = vector.extract [[SATURATED]][0]
+// CHECK: [[F1:%.+]] = vector.extract [[SATURATED]][1]
+// CHECK: [[W0:%.+]] = amdgpu.packed_trunc_2xfp8 [[F0]], [[F1]] into undef[word 0] : f32 to vector<4xf8E4M3FNUZ>
 // CHECK: [[W:%.+]] = vector.extract_strided_slice [[W0]] {offsets = [0], sizes = [2], strides = [1]} : vector<4xf8E4M3FNUZ> to vector<2xf8E4M3FNUZ>
 // CHECK: return [[W]] : vector<2xf8E4M3FNUZ>
 func.func @vector_trunc_short(%v: vector<2xf32>) -> vector<2xf8E4M3FNUZ> {

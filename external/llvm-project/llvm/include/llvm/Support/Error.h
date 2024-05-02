@@ -127,7 +127,7 @@ private:
 ///
 ///   auto E = foo(<...>); // <- foo returns failure with MyErrorInfo.
 ///   auto NewE =
-///     handleErrors(E,
+///     handleErrors(std::move(E),
 ///       [](const MyErrorInfo &M) {
 ///         // Deal with the error.
 ///       },
@@ -138,9 +138,15 @@ private:
 ///         }
 ///         // Couldn't handle this error instance. Pass it up the stack.
 ///         return Error(std::move(M));
-///       );
-///   // Note - we must check or return NewE in case any of the handlers
-///   // returned a new error.
+///     });
+///   // Note - The error passed to handleErrors will be marked as checked. If
+///   // there is no matched handler, a new error with the same payload is
+///   // created and returned.
+///   // The handlers take the error checked by handleErrors as an argument,
+///   // which can be used to retrieve more information. If a new error is
+///   // created by a handler, it will be passed back to the caller of
+///   // handleErrors and needs to be checked or return up to the stack.
+///   // Otherwise, the passed-in error is considered consumed.
 ///   @endcode
 ///
 /// The handleAllErrors function is identical to handleErrors, except
@@ -1173,6 +1179,20 @@ Error errorCodeToError(std::error_code EC);
 /// This method requires that Err be Error() or an ECError, otherwise it
 /// will trigger a call to abort().
 std::error_code errorToErrorCode(Error Err);
+
+/// Helper to get errno as an std::error_code.
+///
+/// errno should always be represented using the generic category as that's what
+/// both libc++ and libstdc++ do. On POSIX systems you can also represent them
+/// using the system category, however this makes them compare differently for
+/// values outside of those used by `std::errc` if one is generic and the other
+/// is system.
+///
+/// See the libc++ and libstdc++ implementations of `default_error_condition` on
+/// the system category for more details on what the difference is.
+inline std::error_code errnoAsErrorCode() {
+  return std::error_code(errno, std::generic_category());
+}
 
 /// Convert an ErrorOr<T> to an Expected<T>.
 template <typename T> Expected<T> errorOrToExpected(ErrorOr<T> &&EO) {

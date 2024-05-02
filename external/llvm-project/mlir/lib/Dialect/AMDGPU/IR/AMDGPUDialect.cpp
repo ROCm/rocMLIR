@@ -47,7 +47,7 @@ void AMDGPUDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // 8-bit float ops
 //===----------------------------------------------------------------------===//
-LogicalResult PackedTruncFp8x2Op::verify() {
+LogicalResult PackedTrunc2xFp8Op::verify() {
   if (getExisting() && getExisting().getType() != getResult().getType())
     return emitOpError("existing values must have same type as result");
   return success();
@@ -228,8 +228,8 @@ LogicalResult WMMAOp::verify() {
   Type sourceAType = getSourceA().getType();
   Type destType = getDestC().getType();
 
-  VectorType sourceVectorAType = sourceAType.dyn_cast<VectorType>();
-  VectorType destVectorType = destType.dyn_cast<VectorType>();
+  VectorType sourceVectorAType = dyn_cast<VectorType>(sourceAType);
+  VectorType destVectorType = dyn_cast<VectorType>(destType);
 
   Type sourceAElemType = sourceVectorAType.getElementType();
   Type destElemType = destVectorType.getElementType();
@@ -324,6 +324,68 @@ LogicalResult MFMAOp::verify() {
     return emitOpError(
         "negation flags only available for double-precision operations");
 
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// DPPOp
+//===----------------------------------------------------------------------===//
+LogicalResult DPPOp::verify() {
+  Type srcType = getSrc().getType();
+  if (srcType.getIntOrFloatBitWidth() > 32) {
+    return emitOpError("integer and floating point types larger than 32 bits "
+                       "are not supported");
+  }
+
+  DPPPerm kind = getKind();
+  Attribute permArgument = getPermArgument().value_or(Attribute{});
+
+  switch (kind) {
+
+  case DPPPerm::quad_perm: {
+    auto quadPermAttr = permArgument.dyn_cast_or_null<ArrayAttr>();
+    if (!quadPermAttr || quadPermAttr.size() != 4) {
+      return emitOpError("quad_perm attribute must have exactly 4 elements");
+    }
+    for (auto elem : quadPermAttr.getAsRange<IntegerAttr>()) {
+      uint32_t num = elem.getInt();
+      if (num < 0 || num > 3) {
+        return emitOpError(
+            "Each element of quad_perm must be in the range [0, 3]");
+      }
+    }
+  } break;
+
+  case DPPPerm::row_shl:
+  case DPPPerm::row_shr:
+  case DPPPerm::row_ror: {
+    if (!permArgument) {
+      return emitOpError("Attribute '" + Twine(stringifyDPPPerm(kind)) +
+                         "' value not specified");
+    }
+    if (auto intAttr = permArgument.dyn_cast<IntegerAttr>()) {
+      uint32_t attrValue = intAttr.getInt();
+      if (attrValue < 1 || attrValue > 15) {
+        return emitOpError("Attribute value must be between 1 and 15");
+      }
+    }
+  } break;
+
+  case DPPPerm::wave_shl:
+  case DPPPerm::wave_shr:
+  case DPPPerm::wave_rol:
+  case DPPPerm::wave_ror:
+  case DPPPerm::row_mirror:
+  case DPPPerm::row_half_mirror:
+  case DPPPerm::row_bcast_15:
+  case DPPPerm::row_bcast_31: {
+    if (permArgument && !permArgument.isa<UnitAttr>()) {
+      return emitOpError("Expected unit attribute for permArgument, but found "
+                         "non-trivial argument");
+    }
+    break;
+  }
+  }
   return success();
 }
 

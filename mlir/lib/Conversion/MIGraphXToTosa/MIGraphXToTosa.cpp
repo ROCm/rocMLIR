@@ -163,8 +163,9 @@ LogicalResult TrivialConverter<MIGraphXOp, TosaOp>::matchAndRewrite(
   SmallVector<Type, 1> types;
   if (failed(getTypeConverter()->convertTypes(op->getResultTypes(), types)))
     return failure();
+  SmallVector<NamedAttribute> filteredAttrs = llvm::to_vector(op->getDiscardableAttrDictionary());
   rewriter.replaceOpWithNewOp<TosaOp>(op, types, adaptor.getOperands(),
-                                      op->getDiscardableAttrs());
+                                      filteredAttrs);
   return success();
 }
 
@@ -637,7 +638,7 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
   if (axes.size() != 1) {
     return op.emitError("We only support single axes reductions!");
   }
-  IntegerAttr axis = axes[0].cast<IntegerAttr>();
+  IntegerAttr axis = rewriter.getI32IntegerAttr(axes[0].cast<IntegerAttr>().getInt());
   auto input = cast<TypedValue<RankedTensorType>>(adaptor.getInput());
   Type elementType = input.getType().getElementType();
 
@@ -856,9 +857,12 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxF.convertFromAPInt(maxI, /*IsSigned=*/true,
                             APFloat::rmNearestTiesToEven);
     }
+    
+    FloatAttr minFatt = rewriter.getFloatAttr(rewriter.getF32Type(), minF);
+    FloatAttr maxFatt = rewriter.getFloatAttr(rewriter.getF32Type(), maxF);
     result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
                                              minI.getSExtValue(),
-                                             maxI.getSExtValue(), minF, maxF);
+                                             maxI.getSExtValue(), minFatt, maxFatt);
     result = createCastOp(rewriter, loc, outputType, result);
   }
   rewriter.replaceOp(op, result);
@@ -892,7 +896,7 @@ SoftmaxConverter::matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
                                   ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   Value input = adaptor.getInput();
-  IntegerAttr axisAttr = op.getAxisAttr();
+  IntegerAttr axisAttr = rewriter.getI32IntegerAttr(op.getAxisAttr().getInt());
   ShapedType inputType = input.getType().cast<ShapedType>();
   Type elementType = inputType.getElementType();
 

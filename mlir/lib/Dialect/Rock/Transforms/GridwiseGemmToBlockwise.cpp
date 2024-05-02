@@ -1101,7 +1101,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax = rewriter.create<InBoundsLoadOp>(
           loc, maxRowBufferElemType, gemm0OutBufferMax,
           gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = rewriter.create<arith::MaxFOp>(
+      Value maxRowBufferNew = rewriter.create<arith::MaximumFOp>(
           loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
       // ldGemm0OutSubMaxExp = exp(gemm0Out  -maxRowBufferNew)
@@ -1170,7 +1170,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax = rewriter.create<InBoundsLoadOp>(
           loc, maxRowBufferElemType, gemm0OutBufferMax,
           gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = rewriter.create<arith::MaxFOp>(
+      Value maxRowBufferNew = rewriter.create<arith::MaximumFOp>(
           loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           rewriter.create<arith::SubFOp>(loc, ldMaxRowBuffer, maxRowBufferNew);
@@ -1454,8 +1454,7 @@ struct GridwiseAttentionAccelRewritePattern
                                         layout::GridCoordinates gridCoords,
                                         Value srcGemm0OutBuffer,
                                         Value destGemm0OutBuffer,
-                                        RegsAsMatrixSubTiles gemm0OutViews,
-                                        bool convertToF16) const {
+                                        RegsAsMatrixSubTiles gemm0OutViews) const {
     LogicalResult res = success();
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
@@ -1465,16 +1464,25 @@ struct GridwiseAttentionAccelRewritePattern
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
       MemRefType srcBufType = srcGemm0OutBuffer.getType().cast<MemRefType>();
       SmallVector<Value> inputTileBuffers;
-      if (convertToF16) {
-        auto srcBufTypeF16 =
-            MemRefType::get(srcBufType.getShape(), rewriter.getF16Type(),
+      Type laGemmSrcType = genOp.getInputs()[0].getType().cast<ShapedType>().getElementType();
+      Type actualGemmSrcType = srcGemm0OutBuffer.getType().cast<ShapedType>().getElementType();
+      Type laGemmDestType = genOp.getOutputs()[0].getType().cast<ShapedType>().getElementType();
+      Type actualGemmDstType = destGemm0OutBuffer.getType().cast<ShapedType>().getElementType();
+      auto dstBufTypeLaType =
+            MemRefType::get(srcBufType.getShape(), laGemmDestType,
                             AffineMap{}, privateMemoryAddressSpace);
-        auto srcGemm0OutBufferF16 =
-            rewriter.create<rock::GpuAllocOp>(loc, srcBufTypeF16);
+      auto dstGemm0OutBufferLaTyped =
+            rewriter.create<rock::GpuAllocOp>(loc, dstBufTypeLaType);
+      if (actualGemmSrcType != laGemmSrcType) {
+        auto srcBufLaType =
+            MemRefType::get(srcBufType.getShape(), laGemmSrcType,
+                            AffineMap{}, privateMemoryAddressSpace);
+        auto srcGemm0OutBufferLaTyped =
+            rewriter.create<rock::GpuAllocOp>(loc, srcBufLaType);
         createTypeConversionStore(rewriter, loc, srcGemm0OutBuffer,
-                                  srcGemm0OutBufferF16);
-        inputTileBuffers.push_back(srcGemm0OutBufferF16);
-        srcBufType = srcBufTypeF16;
+                                  srcGemm0OutBufferLaTyped);
+        inputTileBuffers.push_back(srcGemm0OutBufferLaTyped);
+        srcBufType = srcBufLaType;
       } else {
         inputTileBuffers.push_back(srcGemm0OutBuffer);
       }
@@ -1545,14 +1553,9 @@ struct GridwiseAttentionAccelRewritePattern
                                            utils::IteratorType::parallel));
       newLinalgOp.setIteratorTypesAttr(rewriter.getArrayAttr(iteratorTypes));
 
-      if (convertToF16) {
-        auto dstBufTypeF16 =
-            MemRefType::get(srcBufType.getShape(), rewriter.getF16Type(),
-                            AffineMap{}, privateMemoryAddressSpace);
-        auto dstGemm0OutBufferF16 =
-            rewriter.create<rock::GpuAllocOp>(loc, dstBufTypeF16);
-        newLinalgOp.getOutputsMutable().assign(dstGemm0OutBufferF16);
-        createTypeConversionStore(rewriter, loc, dstGemm0OutBufferF16,
+      if (actualGemmDstType != laGemmDestType) {
+        newLinalgOp.getOutputsMutable().assign(dstGemm0OutBufferLaTyped);
+        createTypeConversionStore(rewriter, loc, dstGemm0OutBufferLaTyped,
                                   destGemm0OutBuffer);
       }
     });
@@ -1977,10 +1980,6 @@ struct GridwiseAttentionAccelRewritePattern
             loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      // The grid coordinates for gemm0 is almost simliar
-      // to gemm1 except the n_block should be read iteratively
-      // from gemm0's N axis. Hence, the replacement is done as
-      // follows:
       layout::GridCoordinates gridCoordsGemm0 =
           layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks);
       affine::AffineForOp kLoopOp =
@@ -2105,11 +2104,9 @@ struct GridwiseAttentionAccelRewritePattern
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
-      bool doConvertToF16 = elemTypeV == rewriter.getF16Type() &&
-                            gemmOutElemType == rewriter.getF32Type();
       FailureOr<Value> maybeSoftmaxInBuffer = postProcessFirstGemm(
           rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, softmaxInBuffer,
-          gemm0OutSubTileViewsTrUnPadded, doConvertToF16);
+          gemm0OutSubTileViewsTrUnPadded);
       if (failed(maybeSoftmaxInBuffer)) {
         return op.emitError("post processing first gemm failed.\n");
       }
@@ -2386,9 +2383,9 @@ struct GridwiseAttentionAccelRewritePattern
     attentionOutAccBufferOutTyped = gemm1OutBuffer;
 #endif
     MemRefType attentionOutAccBufferOutType =
-        attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
+    attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
     int64_t numElementsAttnOut = attentionOutAccBufferOutType.getNumElements();
-    // This map with create upper view [gblock, nblock, flatiter] -> [gblock,
+    // This map will create an upper view [gblock, nblock, flatiter] -> [gblock,
     // miter, nblock, iter]
     TransformMapAttr flatToMiterMap =
         getFlatToMiterMap(rewriter, gemm0G, gemm1MBlocks, gemm1NBlocks,

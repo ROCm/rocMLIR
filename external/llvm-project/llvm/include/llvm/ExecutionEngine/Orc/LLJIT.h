@@ -254,7 +254,7 @@ protected:
 
   DataLayout DL;
   Triple TT;
-  std::unique_ptr<ThreadPool> CompileThreads;
+  std::unique_ptr<DefaultThreadPool> CompileThreads;
 
   std::unique_ptr<ObjectLayer> ObjLinkingLayer;
   std::unique_ptr<ObjectTransformLayer> ObjTransformLayer;
@@ -307,9 +307,11 @@ public:
           JITTargetMachineBuilder JTMB)>;
 
   using ProcessSymbolsJITDylibSetupFunction =
-      std::function<Error(JITDylib &JD)>;
+      unique_function<Expected<JITDylibSP>(LLJIT &J)>;
 
   using PlatformSetupFunction = unique_function<Expected<JITDylibSP>(LLJIT &J)>;
+
+  using NotifyCreatedFunction = std::function<Error(LLJIT &)>;
 
   std::unique_ptr<ExecutorProcessControl> EPC;
   std::unique_ptr<ExecutionSession> ES;
@@ -319,9 +321,10 @@ public:
   ProcessSymbolsJITDylibSetupFunction SetupProcessSymbolsJITDylib;
   ObjectLinkingLayerCreator CreateObjectLinkingLayer;
   CompileFunctionCreator CreateCompileFunction;
+  unique_function<Error(LLJIT &)> PrePlatformSetup;
   PlatformSetupFunction SetUpPlatform;
+  NotifyCreatedFunction NotifyCreated;
   unsigned NumCompileThreads = 0;
-  bool EnableDebuggerSupport = false;
 
   /// Called prior to JIT class construcion to fix up defaults.
   Error prepareForConstruction();
@@ -418,6 +421,19 @@ public:
     return impl();
   }
 
+  /// Set a setup function to be run just before the PlatformSetupFunction is
+  /// run.
+  ///
+  /// This can be used to customize the LLJIT instance before the platform is
+  /// set up. E.g. By installing a debugger support plugin before the platform
+  /// is set up (when the ORC runtime is loaded) we enable debugging of the
+  /// runtime itself.
+  SetterImpl &
+  setPrePlatformSetup(unique_function<Error(LLJIT &)> PrePlatformSetup) {
+    impl().PrePlatformSetup = std::move(PrePlatformSetup);
+    return impl();
+  }
+
   /// Set up an PlatformSetupFunction.
   ///
   /// If this method is not called then setUpGenericLLVMIRPlatform
@@ -425,6 +441,16 @@ public:
   SetterImpl &
   setPlatformSetUp(LLJITBuilderState::PlatformSetupFunction SetUpPlatform) {
     impl().SetUpPlatform = std::move(SetUpPlatform);
+    return impl();
+  }
+
+  /// Set up a callback after successful construction of the JIT.
+  ///
+  /// This is useful to attach generators to JITDylibs or inject initial symbol
+  /// definitions.
+  SetterImpl &
+  setNotifyCreatedCallback(LLJITBuilderState::NotifyCreatedFunction Callback) {
+    impl().NotifyCreated = std::move(Callback);
     return impl();
   }
 
@@ -438,12 +464,6 @@ public:
   /// a zero argument.
   SetterImpl &setNumCompileThreads(unsigned NumCompileThreads) {
     impl().NumCompileThreads = NumCompileThreads;
-    return impl();
-  }
-
-  /// Enable / disable debugger support (off by default).
-  SetterImpl &setEnableDebuggerSupport(bool EnableDebuggerSupport) {
-    impl().EnableDebuggerSupport = EnableDebuggerSupport;
     return impl();
   }
 
@@ -467,6 +487,11 @@ public:
     std::unique_ptr<JITType> J(new JITType(impl(), Err));
     if (Err)
       return std::move(Err);
+
+    if (impl().NotifyCreated)
+      if (Error Err = impl().NotifyCreated(*J))
+        return std::move(Err);
+
     return std::move(J);
   }
 
@@ -576,6 +601,19 @@ Expected<JITDylibSP> setUpGenericLLVMIRPlatform(LLJIT &J);
 /// platforms, that we have no explicit support yet and that don't work well
 /// with the generic IR platform.
 Expected<JITDylibSP> setUpInactivePlatform(LLJIT &J);
+
+/// A Platform-support class that implements initialize / deinitialize by
+/// forwarding to ORC runtime dlopen / dlclose operations.
+class ORCPlatformSupport : public LLJIT::PlatformSupport {
+public:
+  ORCPlatformSupport(orc::LLJIT &J) : J(J) {}
+  Error initialize(orc::JITDylib &JD) override;
+  Error deinitialize(orc::JITDylib &JD) override;
+
+private:
+  orc::LLJIT &J;
+  DenseMap<orc::JITDylib *, orc::ExecutorAddr> DSOHandles;
+};
 
 } // End namespace orc
 } // End namespace llvm

@@ -154,7 +154,10 @@ public:
   void emitGNUAttribute(unsigned Tag, unsigned Value) override;
 
   StringRef getMnemonic(MCInst &MI) override {
-    return InstPrinter->getMnemonic(&MI).first;
+    auto [Ptr, Bits] = InstPrinter->getMnemonic(&MI);
+    assert((Bits != 0 || Ptr == nullptr) &&
+           "Invalid char pointer for instruction with no mnemonic");
+    return Ptr;
   }
 
   void emitLabel(MCSymbol *Symbol, SMLoc Loc = SMLoc()) override;
@@ -190,7 +193,7 @@ public:
   void emitXCOFFLocalCommonSymbol(MCSymbol *LabelSym, uint64_t Size,
                                   MCSymbol *CsectSym, Align Alignment) override;
   void emitXCOFFSymbolLinkageWithVisibility(MCSymbol *Symbol,
-                                            MCSymbolAttr Linakge,
+                                            MCSymbolAttr Linkage,
                                             MCSymbolAttr Visibility) override;
   void emitXCOFFRenameDirective(const MCSymbol *Name,
                                 StringRef Rename) override;
@@ -267,7 +270,7 @@ public:
                          SMLoc Loc) override;
 
   void emitFileDirective(StringRef Filename) override;
-  void emitFileDirective(StringRef Filename, StringRef CompilerVerion,
+  void emitFileDirective(StringRef Filename, StringRef CompilerVersion,
                          StringRef TimeStamp, StringRef Description) override;
   Expected<unsigned> tryEmitDwarfFileDirective(
       unsigned FileNo, StringRef Directory, StringRef Filename,
@@ -353,6 +356,15 @@ public:
   void emitCFIWindowSave(SMLoc Loc) override;
   void emitCFINegateRAState(SMLoc Loc) override;
   void emitCFIReturnColumn(int64_t Register) override;
+  void emitCFILLVMRegisterPair(int64_t Register, int64_t R1, int64_t R1Size,
+                               int64_t R2, int64_t R2Size, SMLoc Loc) override;
+  void emitCFILLVMVectorRegisters(
+      int64_t Register,
+      std::vector<MCCFIInstruction::VectorRegisterWithLane> VRs,
+      SMLoc Loc) override;
+  void emitCFILLVMVectorOffset(int64_t Register, int64_t RegisterSize,
+                               int64_t MaskRegister, int64_t MaskRegisterSize,
+                               int64_t Offset, SMLoc Loc) override;
 
   void emitWinCFIStartProc(const MCSymbol *Symbol, SMLoc Loc) override;
   void emitWinCFIEndProc(SMLoc Loc) override;
@@ -467,12 +479,12 @@ void MCAsmStreamer::addExplicitComment(const Twine &T) {
   StringRef c = T.getSingleStringRef();
   if (c.equals(StringRef(MAI->getSeparatorString())))
     return;
-  if (c.startswith(StringRef("//"))) {
+  if (c.starts_with(StringRef("//"))) {
     ExplicitCommentToEmit.append("\t");
     ExplicitCommentToEmit.append(MAI->getCommentString());
     // drop //
     ExplicitCommentToEmit.append(c.slice(2, c.size()).str());
-  } else if (c.startswith(StringRef("/*"))) {
+  } else if (c.starts_with(StringRef("/*"))) {
     size_t p = 2, len = c.size() - 2;
     // emit each line in comment as separate newline.
     do {
@@ -485,7 +497,7 @@ void MCAsmStreamer::addExplicitComment(const Twine &T) {
         ExplicitCommentToEmit.append("\n");
       p = newp + 1;
     } while (p < len);
-  } else if (c.startswith(StringRef(MAI->getCommentString()))) {
+  } else if (c.starts_with(StringRef(MAI->getCommentString()))) {
     ExplicitCommentToEmit.append("\t");
     ExplicitCommentToEmit.append(c.str());
   } else if (c.front() == '#') {
@@ -629,18 +641,11 @@ void MCAsmStreamer::emitVersionMin(MCVersionMinType Type, unsigned Major,
 
 static const char *getPlatformName(MachO::PlatformType Type) {
   switch (Type) {
-  case MachO::PLATFORM_UNKNOWN: /* silence warning*/
-    break;
-  case MachO::PLATFORM_MACOS:            return "macos";
-  case MachO::PLATFORM_IOS:              return "ios";
-  case MachO::PLATFORM_TVOS:             return "tvos";
-  case MachO::PLATFORM_WATCHOS:          return "watchos";
-  case MachO::PLATFORM_BRIDGEOS:         return "bridgeos";
-  case MachO::PLATFORM_MACCATALYST:      return "macCatalyst";
-  case MachO::PLATFORM_IOSSIMULATOR:     return "iossimulator";
-  case MachO::PLATFORM_TVOSSIMULATOR:    return "tvossimulator";
-  case MachO::PLATFORM_WATCHOSSIMULATOR: return "watchossimulator";
-  case MachO::PLATFORM_DRIVERKIT:        return "driverkit";
+#define PLATFORM(platform, id, name, build_name, target, tapi_target,          \
+                 marketing)                                                    \
+  case MachO::PLATFORM_##platform:                                             \
+    return #build_name;
+#include "llvm/BinaryFormat/MachO.def"
   }
   llvm_unreachable("Invalid Mach-O platform type");
 }
@@ -1588,23 +1593,28 @@ void MCAsmStreamer::emitFileDirective(StringRef Filename) {
 }
 
 void MCAsmStreamer::emitFileDirective(StringRef Filename,
-                                      StringRef CompilerVerion,
+                                      StringRef CompilerVersion,
                                       StringRef TimeStamp,
                                       StringRef Description) {
   assert(MAI->hasFourStringsDotFile());
   OS << "\t.file\t";
   PrintQuotedString(Filename, OS);
-  OS << ",";
-  if (!CompilerVerion.empty()) {
-    PrintQuotedString(CompilerVerion, OS);
-  }
-  if (!TimeStamp.empty()) {
+  bool useTimeStamp = !TimeStamp.empty();
+  bool useCompilerVersion = !CompilerVersion.empty();
+  bool useDescription = !Description.empty();
+  if (useTimeStamp || useCompilerVersion || useDescription) {
     OS << ",";
-    PrintQuotedString(TimeStamp, OS);
-  }
-  if (!Description.empty()) {
-    OS << ",";
-    PrintQuotedString(Description, OS);
+    if (useTimeStamp)
+      PrintQuotedString(TimeStamp, OS);
+    if (useCompilerVersion || useDescription) {
+      OS << ",";
+      if (useCompilerVersion)
+        PrintQuotedString(CompilerVersion, OS);
+      if (useDescription) {
+        OS << ",";
+        PrintQuotedString(Description, OS);
+      }
+    }
   }
   EmitEOL();
 }
@@ -2108,6 +2118,49 @@ void MCAsmStreamer::emitCFIRegister(int64_t Register1, int64_t Register2,
   EmitEOL();
 }
 
+void MCAsmStreamer::emitCFILLVMRegisterPair(int64_t Register, int64_t R1,
+                                            int64_t R1Size, int64_t R2,
+                                            int64_t R2Size, SMLoc Loc) {
+  MCStreamer::emitCFILLVMRegisterPair(Register, R1, R1Size, R2, R2Size, Loc);
+
+  OS << "\t.cfi_llvm_register_pair ";
+  EmitRegisterName(Register);
+  OS << ", ";
+  EmitRegisterName(R1);
+  OS << ", " << R1Size << ", ";
+  EmitRegisterName(R2);
+  OS << ", " << R2Size;
+  EmitEOL();
+}
+
+void MCAsmStreamer::emitCFILLVMVectorRegisters(
+    int64_t Register, std::vector<MCCFIInstruction::VectorRegisterWithLane> VRs,
+    SMLoc Loc) {
+  MCStreamer::emitCFILLVMVectorRegisters(Register, VRs, Loc);
+
+  OS << "\t.cfi_llvm_vector_registers ";
+  EmitRegisterName(Register);
+  for (auto [Reg, Lane, Size] : VRs)
+    OS << ", " << Reg << ", " << Lane << ", " << Size;
+  EmitEOL();
+}
+
+void MCAsmStreamer::emitCFILLVMVectorOffset(int64_t Register,
+                                            int64_t RegisterSize,
+                                            int64_t MaskRegister,
+                                            int64_t MaskRegisterSize,
+                                            int64_t Offset, SMLoc Loc) {
+  MCStreamer::emitCFILLVMVectorOffset(Register, RegisterSize, MaskRegister,
+                                      MaskRegisterSize, Offset, Loc);
+
+  OS << "\t.cfi_llvm_vector_offset ";
+  EmitRegisterName(Register);
+  OS << ", " << RegisterSize << ", ";
+  EmitRegisterName(MaskRegister);
+  OS << ", " << MaskRegisterSize << ", " << Offset;
+  EmitEOL();
+}
+
 void MCAsmStreamer::emitCFIWindowSave(SMLoc Loc) {
   MCStreamer::emitCFIWindowSave(Loc);
   OS << "\t.cfi_window_save";
@@ -2383,6 +2436,11 @@ void MCAsmStreamer::emitInstruction(const MCInst &Inst,
   assert(getCurrentSectionOnly() &&
          "Cannot emit contents before setting section!");
 
+  if (!MAI->usesDwarfFileAndLocDirectives())
+    // Now that a machine instruction has been assembled into this section, make
+    // a line entry for any .loc directive that has been seen.
+    MCDwarfLineEntry::make(this, getCurrentSectionOnly());
+
   // Show the encoding in a comment if we have a code emitter.
   AddEncodingComment(Inst, STI);
 
@@ -2469,8 +2527,7 @@ void MCAsmStreamer::emitAddrsigSym(const MCSymbol *Sym) {
 /// the specified string in the output .s file.  This capability is
 /// indicated by the hasRawTextSupport() predicate.
 void MCAsmStreamer::emitRawTextImpl(StringRef String) {
-  if (!String.empty() && String.back() == '\n')
-    String = String.substr(0, String.size()-1);
+  String.consume_back("\n");
   OS << String;
   EmitEOL();
 }

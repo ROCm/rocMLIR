@@ -57,7 +57,7 @@ class MLIRPaths:
     libmlir_c_runner_utils_path : str
     rocmlir_tuning_driver_path : str
     rocblas_benchmark_driver_path : Optional[str] = None
-    ck_benchmark_driver_path : Optional[str] = None
+    ck_gemm_benchmark_driver_path : Optional[str] = None
 
 @dataclass
 class Paths:
@@ -107,7 +107,7 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
         mlir_bin_dir_path = (Path(mlir_build_dir_path) / 'bin').resolve()
         mlir_bin_dir = str(mlir_bin_dir_path)
         rocblas_benchmark_driver_location = mlir_bin_dir_path / 'rocblas-benchmark-driver'
-        ck_benchmark_driver_location = mlir_bin_dir_path / 'ck-benchmark-driver'
+        ck_gemm_benchmark_driver_location = mlir_bin_dir_path / 'ck-gemm-benchmark-driver'
         llvm_bin_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
@@ -122,8 +122,8 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
             rocmlir_tuning_driver_path = mlir_bin_dir + '/rocmlir-tuning-driver',
             rocblas_benchmark_driver_path = str(rocblas_benchmark_driver_location) \
               if rocblas_benchmark_driver_location.exists() else None,
-            ck_benchmark_driver_path = str(ck_benchmark_driver_location) \
-              if ck_benchmark_driver_location.exists() else None)
+            ck_gemm_benchmark_driver_path = str(ck_gemm_benchmark_driver_location) \
+              if ck_gemm_benchmark_driver_location.exists() else None)
 
     return Paths(config_file_path, mlir_paths)
 
@@ -906,8 +906,8 @@ class CKGemmConfig(GemmConfiguration):
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
         config = cls.fromCommandLine(commandLine, arch, numCU)
-        if not paths.mlir_paths.ck_benchmark_driver_path:
-            raise ValueError("ck-benchmark-driver not built")
+        if not paths.mlir_paths.ck_gemm_benchmark_driver_path:
+            raise ValueError("ck-gemm-benchmark-driver not built")
         benchmarkArgs = config.generateMlirDriverCommandLine("")
 
         print(f"Running CK benchmark {config!r}")
@@ -915,7 +915,7 @@ class CKGemmConfig(GemmConfiguration):
         if arch=="gfx1030" and config.g > 1:
             return config.tableEntry(float('NaN'))
 
-        profilerCommand = [paths.mlir_paths.ck_benchmark_driver_path] + \
+        profilerCommand = [paths.mlir_paths.ck_gemm_benchmark_driver_path] + \
             benchmarkArgs.split()
         p = subprocess.Popen(profilerCommand, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -1342,7 +1342,7 @@ def foundExternalTool(paths: Paths, opType: Operation, gemmLibrary : Optional[GE
     if opType == Operation.GEMM:
         if not paths.mlir_paths:
             return False
-        if gemmLibrary == GEMMLibrary.CK and not paths.mlir_paths.ck_benchmark_driver_path:
+        if gemmLibrary == GEMMLibrary.CK and not paths.mlir_paths.ck_gemm_benchmark_driver_path:
             return False
         if gemmLibrary == GEMMLibrary.ROCBLAS and not paths.mlir_paths.rocblas_benchmark_driver_path:
             return False

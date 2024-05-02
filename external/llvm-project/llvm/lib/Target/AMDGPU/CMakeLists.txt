@@ -17,11 +17,11 @@ tablegen(LLVM AMDGPUGenSubtargetInfo.inc -gen-subtarget)
 
 set(LLVM_TARGET_DEFINITIONS AMDGPUGISel.td)
 tablegen(LLVM AMDGPUGenGlobalISel.inc -gen-global-isel)
-tablegen(LLVM AMDGPUGenPreLegalizeGICombiner.inc -gen-global-isel-combiner-matchtable
+tablegen(LLVM AMDGPUGenPreLegalizeGICombiner.inc -gen-global-isel-combiner
               -combiners="AMDGPUPreLegalizerCombiner")
-tablegen(LLVM AMDGPUGenPostLegalizeGICombiner.inc -gen-global-isel-combiner-matchtable
+tablegen(LLVM AMDGPUGenPostLegalizeGICombiner.inc -gen-global-isel-combiner
               -combiners="AMDGPUPostLegalizerCombiner")
-tablegen(LLVM AMDGPUGenRegBankGICombiner.inc -gen-global-isel-combiner-matchtable
+tablegen(LLVM AMDGPUGenRegBankGICombiner.inc -gen-global-isel-combiner
               -combiners="AMDGPURegBankCombiner")
 
 set(LLVM_TARGET_DEFINITIONS R600.td)
@@ -55,6 +55,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPUCtorDtorLowering.cpp
   AMDGPUExportClustering.cpp
   AMDGPUFrameLowering.cpp
+  AMDGPUGlobalISelDivergenceLowering.cpp
   AMDGPUGlobalISelUtils.cpp
   AMDGPUHSAMetadataStreamer.cpp
   AMDGPUInsertDelayAlu.cpp
@@ -66,7 +67,9 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPULateCodeGenPrepare.cpp
   AMDGPULegalizerInfo.cpp
   AMDGPULibCalls.cpp
+  AMDGPUImageIntrinsicOptimizer.cpp
   AMDGPULibFunc.cpp
+  AMDGPULowerBufferFatPointers.cpp
   AMDGPULowerKernelArguments.cpp
   AMDGPULowerKernelAttributes.cpp
   AMDGPULowerKernelCalls.cpp
@@ -77,6 +80,8 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPUMacroFusion.cpp
   AMDGPUMCInstLower.cpp
   AMDGPUIGroupLP.cpp
+  AMDGPUInsertSingleUseVDST.cpp
+  AMDGPUMarkLastScratchLoad.cpp
   AMDGPUMIRFormatter.cpp
   AMDGPUOpenCLEnqueuedBlockLowering.cpp
   AMDGPUPerfHintAnalysis.cpp
@@ -102,7 +107,6 @@ add_llvm_target(AMDGPUCodeGen
   R600MachineCFGStructurizer.cpp
   GCNCreateVOPD.cpp
   GCNDPPCombine.cpp
-  AMDGPUResourceUsageAnalysis.cpp
   GCNHazardRecognizer.cpp
   GCNILPSched.cpp
   GCNIterativeScheduler.cpp
@@ -164,9 +168,7 @@ add_llvm_target(AMDGPUCodeGen
   SIProgramInfo.cpp
   SIRegisterInfo.cpp
   SIShrinkInstructions.cpp
-  SISimplifyPredicatedCopies.cpp
   SIWholeQuadMode.cpp
-  GCNPreRAOptimizations.cpp
 
   LINK_COMPONENTS
   AMDGPUDesc

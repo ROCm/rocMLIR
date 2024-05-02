@@ -16,6 +16,7 @@
 #include "flang/Evaluate/intrinsics.h"
 #include "flang/Evaluate/target.h"
 #include "flang/Parser/message.h"
+#include "flang/Semantics/module-dependences.h"
 #include <iosfwd>
 #include <set>
 #include <string>
@@ -93,6 +94,7 @@ public:
   }
   const std::string &moduleDirectory() const { return moduleDirectory_; }
   const std::string &moduleFileSuffix() const { return moduleFileSuffix_; }
+  bool underscoring() const { return underscoring_; }
   bool warningsAreErrors() const { return warningsAreErrors_; }
   bool debugModuleWriter() const { return debugModuleWriter_; }
   const evaluate::IntrinsicProcTable &intrinsics() const { return intrinsics_; }
@@ -107,6 +109,7 @@ public:
   parser::Messages &messages() { return messages_; }
   evaluate::FoldingContext &foldingContext() { return foldingContext_; }
   parser::AllCookedSources &allCookedSources() { return allCookedSources_; }
+  ModuleDependences &moduleDependences() { return moduleDependences_; }
 
   SemanticsContext &set_location(
       const std::optional<parser::CharBlock> &location) {
@@ -130,6 +133,10 @@ public:
     moduleFileSuffix_ = x;
     return *this;
   }
+  SemanticsContext &set_underscoring(bool x) {
+    underscoring_ = x;
+    return *this;
+  }
   SemanticsContext &set_warnOnNonstandardUsage(bool x) {
     warnOnNonstandardUsage_ = x;
     return *this;
@@ -141,14 +148,6 @@ public:
 
   SemanticsContext &set_debugModuleWriter(bool x) {
     debugModuleWriter_ = x;
-    return *this;
-  }
-
-  bool anyDefinedIntrinsicOperator() const {
-    return anyDefinedIntrinsicOperator_;
-  }
-  SemanticsContext &set_anyDefinedIntrinsicOperator(bool yes = true) {
-    anyDefinedIntrinsicOperator_ = yes;
     return *this;
   }
 
@@ -185,6 +184,7 @@ public:
 
   const Scope &FindScope(parser::CharBlock) const;
   Scope &FindScope(parser::CharBlock);
+  void UpdateScopeIndex(Scope &, parser::CharBlock);
 
   bool IsInModuleFile(parser::CharBlock) const;
 
@@ -250,6 +250,13 @@ public:
   CommonBlockList GetCommonBlocks() const;
 
 private:
+  struct ScopeIndexComparator {
+    bool operator()(parser::CharBlock, parser::CharBlock) const;
+  };
+  using ScopeIndex =
+      std::multimap<parser::CharBlock, Scope &, ScopeIndexComparator>;
+  ScopeIndex::iterator SearchScopeIndex(parser::CharBlock);
+
   void CheckIndexVarRedefine(
       const parser::CharBlock &, const Symbol &, parser::MessageFixedText &&);
   void CheckError(const Symbol &);
@@ -262,6 +269,7 @@ private:
   std::vector<std::string> intrinsicModuleDirectories_;
   std::string moduleDirectory_{"."s};
   std::string moduleFileSuffix_{".mod"};
+  bool underscoring_{true};
   bool warnOnNonstandardUsage_{false};
   bool warningsAreErrors_{false};
   bool debugModuleWriter_{false};
@@ -269,6 +277,7 @@ private:
   evaluate::TargetCharacteristics targetCharacteristics_;
   Scope globalScope_;
   Scope &intrinsicModulesScope_;
+  ScopeIndex scopeIndex_;
   parser::Messages messages_;
   evaluate::FoldingContext foldingContext_;
   ConstructStack constructStack_;
@@ -286,7 +295,7 @@ private:
   const Scope *ppcBuiltinsScope_{nullptr}; // module __ppc_intrinsics
   std::list<parser::Program> modFileParseTrees_;
   std::unique_ptr<CommonBlockMap> commonBlockMap_;
-  bool anyDefinedIntrinsicOperator_{false};
+  ModuleDependences moduleDependences_;
 };
 
 class Semantics {

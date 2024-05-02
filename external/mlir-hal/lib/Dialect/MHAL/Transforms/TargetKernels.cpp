@@ -86,18 +86,26 @@ struct MHALTargetKernelsPass
         // add the KERNELModuleOp into the symbol table.
         SymbolTable symbolTable(mod);
         symbolTable.insert(kernelMod);
-      }
-      SymbolTable symbolTable(kernelMod);
 
-      for (auto func : kernelFuncs) {
-        // clone the func
-        auto kernelFunc = func.clone();
-        kernelFunc->setAttr("original_func", SymbolRefAttr::get(func));
+	SymbolTable kernelModSymbolTable(kernelMod);
 
-        // add the KERNELModuleOp into the symbol table.
-        symbolTable.insert(kernelFunc);
+	for (auto func : kernelFuncs) {
+	  // clone the func
+	  auto kernelFunc = func.clone();
+	  kernelFunc->setAttr("original_func", SymbolRefAttr::get(func));
 
-        // TODO: also find all calls and import callee
+	  // add the KERNELModuleOp into the symbol table.
+	  kernelModSymbolTable.insert(kernelFunc);
+
+	  // TODO: also find all calls and import callee
+	}
+      } else {
+	// check for funcs
+	SymbolTable symbolTable(kernelMod);
+        for (auto func : kernelFuncs) {
+          assert(symbolTable.lookup(func.getName()) &&
+                 "Func not found in target arch module");
+        }
       }
     }
 

@@ -22,11 +22,10 @@ namespace scudo {
 
 static void NORETURN dieOnError(zx_status_t Status, const char *FnName,
                                 uptr Size) {
-  char Error[128];
-  formatString(Error, sizeof(Error),
-               "SCUDO ERROR: %s failed with size %zuKB (%s)", FnName,
+  ScopedString Error;
+  Error.append("SCUDO ERROR: %s failed with size %zuKB (%s)", FnName,
                Size >> 10, _zx_status_get_string(Status));
-  outputRaw(Error);
+  outputRaw(Error.data());
   die();
 }
 
@@ -41,7 +40,7 @@ static void setVmoName(zx_handle_t Vmo, const char *Name) {
 static uptr getRootVmarBase() {
   static atomic_uptr CachedResult = {0};
 
-  uptr Result = atomic_load_relaxed(&CachedResult);
+  uptr Result = atomic_load(&CachedResult, memory_order_acquire);
   if (UNLIKELY(!Result)) {
     zx_info_vmar_t VmarInfo;
     zx_status_t Status =
@@ -50,7 +49,7 @@ static uptr getRootVmarBase() {
     CHECK_EQ(Status, ZX_OK);
     CHECK_NE(VmarInfo.base, 0);
 
-    atomic_store_relaxed(&CachedResult, VmarInfo.base);
+    atomic_store(&CachedResult, VmarInfo.base, memory_order_release);
     Result = VmarInfo.base;
   }
 
@@ -61,7 +60,7 @@ static uptr getRootVmarBase() {
 static zx_handle_t getPlaceholderVmo() {
   static atomic_u32 StoredVmo = {ZX_HANDLE_INVALID};
 
-  zx_handle_t Vmo = atomic_load_relaxed(&StoredVmo);
+  zx_handle_t Vmo = atomic_load(&StoredVmo, memory_order_acquire);
   if (UNLIKELY(Vmo == ZX_HANDLE_INVALID)) {
     // Create a zero-sized placeholder VMO.
     zx_status_t Status = _zx_vmo_create(0, 0, &Vmo);
@@ -72,9 +71,9 @@ static zx_handle_t getPlaceholderVmo() {
 
     // Atomically store its handle. If some other thread wins the race, use its
     // handle and discard ours.
-    zx_handle_t OldValue =
-        atomic_compare_exchange(&StoredVmo, ZX_HANDLE_INVALID, Vmo);
-    if (OldValue != ZX_HANDLE_INVALID) {
+    zx_handle_t OldValue = atomic_compare_exchange_strong(
+        &StoredVmo, ZX_HANDLE_INVALID, Vmo, memory_order_acq_rel);
+    if (UNLIKELY(OldValue != ZX_HANDLE_INVALID)) {
       Status = _zx_handle_close(Vmo);
       CHECK_EQ(Status, ZX_OK);
 

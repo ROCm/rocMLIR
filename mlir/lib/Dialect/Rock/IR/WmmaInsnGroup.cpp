@@ -54,6 +54,11 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   int64_t outLen = 8;
   int64_t outStride = 2;
 
+  if (mPerWave % inputLen != 0)
+    return failure();
+  if (nPerWave % inputLen != 0)
+    return failure();
+
   int64_t mRepeats = mPerWave / inputLen;
   int64_t nRepeats = nPerWave / inputLen;
 

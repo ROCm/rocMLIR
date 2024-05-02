@@ -71,7 +71,10 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
-  tosa::addTosaToLinalgPasses(pm);
+  TosaToLinalgOptions tosaToLinalgOptions;
+  TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
+  tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions,
+                              tosaToLinalgNamedOptions);
 
   // for tosa control flow
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
@@ -106,8 +109,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm3.addPass(createLinalgFoldUnitExtentDimsPass());
 
   bufferization::OneShotBufferizationOptions bufOpts;
-  bufOpts.allowReturnAllocs = true;
-  bufOpts.createDeallocs = noRock;
+  bufOpts.allowReturnAllocsFromLoops = true;
   bufOpts.bufferizeFunctionBoundaries = true;
   bufOpts.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
@@ -202,7 +204,6 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   arithOptions.allowPackedF16Rtz = true;
   arithOptions.saturateFP8Truncf = true;
   gpuPm.addPass(createArithToAMDGPUConversionPass(arithOptions));
-  gpuPm.addPass(createArithToAMDGPUConversionPass());
   if (!archInfo.hasFp8ConversionInstrs)
     gpuPm.addPass(createEmulateFp8ExtTruncPass());
   gpuPm.addPass(memref::createExpandStridedMetadataPass());
@@ -211,7 +212,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(createLowerAffinePass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true));
+      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP));
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
   // -canonicalize -cse so that we don't have to crawl through memref
@@ -221,7 +222,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile) {
     gpuPm.addPass(createGpuSerializeToHsacoPass(
-        options.triple, options.chip, options.features, options.optLevel));
+        options.triple, options.chip, options.features, options.optLevel,
+        options.suppressDiagnostic));
     gpuPm.addPass(createRockCheckResidencyPass());
   }
   // Quick hack around the facct that our host code runner pipeline can't

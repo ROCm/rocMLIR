@@ -93,7 +93,7 @@ void RockVectorizeFusionsPass::runOnOperation() {
     LLVM_DEBUG(llvm::dbgs() << "Try to vectorize: " << loop << "\n");
     const int64_t ub = loop.getConstantUpperBound();
     const int64_t lb = loop.getConstantLowerBound();
-    const int64_t step = loop.getStep();
+    const int64_t step = loop.getStep().getSExtValue();
     if (step > 1)
       return WalkResult::advance();
     const int64_t loopTripCount = (ub - lb);
@@ -120,14 +120,14 @@ void RockVectorizeFusionsPass::runOnOperation() {
 
   op.walk([&](affine::AffineForOp loop) {
     // Make sure the transfer reads are in bounds
-    for (auto trReadOp : loop.getLoopBody().getOps<vector::TransferReadOp>()) {
+    for (auto trReadOp : loop.getRegion().getOps<vector::TransferReadOp>()) {
       VectorType readType = trReadOp.getVector().getType();
       SmallVector<bool> inBounds(readType.getRank(), true);
       trReadOp.setInBoundsAttr(b.getBoolArrayAttr(inBounds));
     }
 
     // Make sure the transfer writes are in bounds
-    for (auto trWrtOp : loop.getLoopBody().getOps<vector::TransferWriteOp>()) {
+    for (auto trWrtOp : loop.getRegion().getOps<vector::TransferWriteOp>()) {
       VectorType writeType = trWrtOp.getVector().getType();
       SmallVector<bool> inBounds(writeType.getRank(), true);
       trWrtOp.setInBoundsAttr(b.getBoolArrayAttr(inBounds));

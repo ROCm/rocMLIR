@@ -43,6 +43,7 @@ static bool hasLlvmAoccOption(const ArgList &Args) {
   Flags.insert(std::make_pair("-mark-rv-outline", true));
   Flags.insert(std::make_pair("-rv-outline", true));
   Flags.insert(std::make_pair("-rv-depth", true));
+  Flags.insert(std::make_pair("-rv-max-reg-size", true));
   Flags.insert(std::make_pair("-enable-branch-combine", true));
   Flags.insert(std::make_pair("-simplifycfg-no-storesink", true));
   Flags.insert(std::make_pair("-inline-aggressive", true));
@@ -277,6 +278,11 @@ static bool checkForPropOpts(const ToolChain &TC, const Driver &D,
       }
         ClosedToolChainNeeded = true;
       } else if ((MArch == "znver2") || (MArch == "znver3")) {
+        // -rv-max-reg-size=256 around 5% gain on nab
+      if (!checkOnly) {
+        CmdArgs.push_back("-mllvm");
+        CmdArgs.push_back("-rv-max-reg-size=256");
+      }
         ClosedToolChainNeeded = true;
       }
     }

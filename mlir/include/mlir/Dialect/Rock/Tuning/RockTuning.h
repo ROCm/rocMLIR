@@ -13,6 +13,7 @@
 #ifndef MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
 #define MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
 
+#include "mlir-c/Dialect/RockEnums.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -47,7 +48,7 @@ struct TuningParamSet {
   KernelType primaryOpType;
 };
 
-TuningParamSet *createTunableParamSpace(ModuleOp &mod, TuningParamSetKind kind);
+TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind);
 // Get a parameters from the set of tunable parameters.
 bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
                     ParamEntry *paramEntry);
@@ -65,7 +66,7 @@ struct TuningTable {
 
 TuningTable *tuningTableCreate();
 size_t getTuningHash(ModuleOp &mod);
-LogicalResult getTuningProblemStr(ModuleOp &mod, SmallVectorImpl<char> &out);
+LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out);
 bool tuningTableUpdate(TuningTable *perfTable, StringRef problem,
                        StringRef perfConfig, float time);
 LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
@@ -73,6 +74,11 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
                                      SmallVectorImpl<char> &out);
 
+bool isSplitKRequested(ModuleOp mod, StringRef perfConfig);
+
+RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
+                                                int64_t nDim, int64_t kDim,
+                                                int64_t numCUs);
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H

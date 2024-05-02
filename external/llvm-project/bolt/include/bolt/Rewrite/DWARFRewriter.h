@@ -11,6 +11,7 @@
 
 #include "bolt/Core/DIEBuilder.h"
 #include "bolt/Core/DebugData.h"
+#include "bolt/Core/DebugNames.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/DIE.h"
 #include "llvm/DWP/DWP.h"
@@ -21,9 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <set>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace llvm {
@@ -96,7 +95,7 @@ private:
   std::unordered_map<uint64_t, uint64_t> DwoRangesBase;
 
   std::unordered_map<DWARFUnit *, uint64_t> LineTablePatchMap;
-  std::unordered_map<DWARFUnit *, uint64_t> TypeUnitRelocMap;
+  std::unordered_map<const DWARFUnit *, uint64_t> TypeUnitRelocMap;
 
   /// Entries for GDB Index Types CU List
   using GDBIndexTUEntryType = std::vector<GDBIndexTUEntry>;
@@ -125,7 +124,7 @@ private:
   ///    attribute.
   void updateDWARFObjectAddressRanges(
       DWARFUnit &Unit, DIEBuilder &DIEBldr, DIE &Die,
-      uint64_t DebugRangesOffset, uint64_t LowPCToUse,
+      uint64_t DebugRangesOffset,
       std::optional<uint64_t> RangesBase = std::nullopt);
 
   std::unique_ptr<DebugBufferVector>
@@ -140,8 +139,10 @@ private:
                             const std::list<DWARFUnit *> &CUs);
 
   /// Finalize debug sections in the main binary.
-  void finalizeDebugSections(DIEBuilder &DIEBlder, DIEStreamer &Streamer,
-                             raw_svector_ostream &ObjOS, CUOffsetMap &CUMap);
+  void finalizeDebugSections(DIEBuilder &DIEBlder,
+                             DWARF5AcceleratorTable &DebugNamesTable,
+                             DIEStreamer &Streamer, raw_svector_ostream &ObjOS,
+                             CUOffsetMap &CUMap);
 
   /// Patches the binary for DWARF address ranges (e.g. in functions and lexical
   /// blocks) to be updated.
@@ -173,7 +174,7 @@ private:
   void convertToRangesPatchDebugInfo(
       DWARFUnit &Unit, DIEBuilder &DIEBldr, DIE &Die,
       uint64_t RangesSectionOffset, DIEValue &LowPCAttrInfo,
-      DIEValue &HighPCAttrInfo, uint64_t LowPCToUse,
+      DIEValue &HighPCAttrInfo,
       std::optional<uint64_t> RangesBase = std::nullopt);
 
   /// Adds a \p Str to .debug_str section.
