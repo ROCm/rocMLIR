@@ -108,7 +108,7 @@ protected:
     return DIDerivedType::getDistinct(
         Context, dwarf::DW_TAG_pointer_type, "", nullptr, 0, nullptr,
         getBasicType("basictype"), 1, 2, 0, std::nullopt,
-        dwarf::DW_MSPACE_LLVM_none, DINode::FlagZero);
+        dwarf::DW_MSPACE_LLVM_none, {}, DINode::FlagZero);
   }
   Constant *getConstant() {
     return ConstantInt::get(Type::getInt32Ty(Context), Counter++);
@@ -464,7 +464,7 @@ TEST_F(MDNodeTest, PrintTree) {
     auto *StructTy = cast<DICompositeType>(getCompositeType());
     DIType *PointerTy = DIDerivedType::getDistinct(
         Context, dwarf::DW_TAG_pointer_type, "", nullptr, 0, nullptr, StructTy,
-        1, 2, 0, std::nullopt, dwarf::DW_MSPACE_LLVM_none, DINode::FlagZero);
+        1, 2, 0, std::nullopt, dwarf::DW_MSPACE_LLVM_none, {}, DINode::FlagZero);
     StructTy->replaceElements(MDTuple::get(Context, PointerTy));
 
     auto *Var = DILocalVariable::get(Context, Scope, "foo", File,
@@ -555,7 +555,7 @@ TEST_F(MDNodeTest, UniquedOnDeletedOperand) {
 
 TEST_F(MDNodeTest, DistinctOnDeletedValueOperand) {
   // i1* @GV
-  Type *Ty = Type::getInt1PtrTy(Context);
+  Type *Ty = PointerType::getUnqual(Context);
   std::unique_ptr<GlobalVariable> GV(
       new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
   ConstantAsMetadata *Op = ConstantAsMetadata::get(GV.get());
@@ -794,7 +794,7 @@ TEST_F(MDNodeTest, replaceWithUniquedResolvingOperand) {
 
 TEST_F(MDNodeTest, replaceWithUniquedDeletedOperand) {
   // i1* @GV
-  Type *Ty = Type::getInt1PtrTy(Context);
+  Type *Ty = PointerType::getUnqual(Context);
   std::unique_ptr<GlobalVariable> GV(
       new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
   ConstantAsMetadata *Op = ConstantAsMetadata::get(GV.get());
@@ -817,7 +817,7 @@ TEST_F(MDNodeTest, replaceWithUniquedDeletedOperand) {
 
 TEST_F(MDNodeTest, replaceWithUniquedChangedOperand) {
   // i1* @GV
-  Type *Ty = Type::getInt1PtrTy(Context);
+  Type *Ty = PointerType::getUnqual(Context);
   std::unique_ptr<GlobalVariable> GV(
       new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
   ConstantAsMetadata *Op = ConstantAsMetadata::get(GV.get());
@@ -1870,13 +1870,19 @@ TEST_F(DIDerivedTypeTest, get) {
   MDTuple *ExtraData = getTuple();
   unsigned DWARFAddressSpace = 8;
   auto DWARFMemorySpace = dwarf::DW_MSPACE_LLVM_private;
+  DIDerivedType::PtrAuthData PtrAuthData(1, false, 1234, true, true);
+  DIDerivedType::PtrAuthData PtrAuthData2(1, false, 1234, true, false);
   DINode::DIFlags Flags5 = static_cast<DINode::DIFlags>(5);
   DINode::DIFlags Flags4 = static_cast<DINode::DIFlags>(4);
 
   auto *N =
       DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type, "something", File,
                          1, Scope, BaseType, 2, 3, 4, DWARFAddressSpace,
-                         DWARFMemorySpace, Flags5, ExtraData);
+                         DWARFMemorySpace, std::nullopt, Flags5, ExtraData);
+  auto *N1 = DIDerivedType::get(Context, dwarf::DW_TAG_LLVM_ptrauth_type, "",
+                                File, 1, Scope, N, 2, 3, 4, DWARFAddressSpace,
+                                DWARFMemorySpace, PtrAuthData, Flags5, ExtraData);
+
   EXPECT_EQ(dwarf::DW_TAG_pointer_type, N->getTag());
   EXPECT_EQ("something", N->getName());
   EXPECT_EQ(File, N->getFile());
@@ -1888,68 +1894,73 @@ TEST_F(DIDerivedTypeTest, get) {
   EXPECT_EQ(4u, N->getOffsetInBits());
   EXPECT_EQ(DWARFAddressSpace, *N->getDWARFAddressSpace());
   EXPECT_EQ(dwarf::DW_MSPACE_LLVM_private, N->getDWARFMemorySpace());
+  EXPECT_EQ(std::nullopt, N->getPtrAuthData());
+  EXPECT_EQ(PtrAuthData, N1->getPtrAuthData());
+  EXPECT_NE(PtrAuthData2, N1->getPtrAuthData());
   EXPECT_EQ(5u, N->getFlags());
   EXPECT_EQ(ExtraData, N->getExtraData());
   EXPECT_EQ(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
                                   4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
 
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_reference_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
                                   4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type, "else",
                                   File, 1, Scope, BaseType, 2, 3, 4,
-                                  DWARFAddressSpace, DWARFMemorySpace, Flags5,
+                                  DWARFAddressSpace, DWARFMemorySpace, std::nullopt, Flags5,
                                   ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", getFile(), 1, Scope, BaseType, 2,
                                   3, 4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 2, Scope, BaseType, 2, 3,
                                   4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, getSubprogram(),
                                   BaseType, 2, 3, 4, DWARFAddressSpace,
-                                  DWARFMemorySpace, Flags5, ExtraData));
+                                  DWARFMemorySpace, std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(
                    Context, dwarf::DW_TAG_pointer_type, "something", File, 1,
                    Scope, getBasicType("basic2"), 2, 3, 4, DWARFAddressSpace,
-                   DWARFMemorySpace, Flags5, ExtraData));
+                   DWARFMemorySpace, std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 3, 3,
                                   4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 2,
                                   4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
                                   5, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
                                   4, DWARFAddressSpace + 1, DWARFMemorySpace,
-                                  Flags5, ExtraData));
+                                  std::nullopt, Flags5, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
                                   4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags4, ExtraData));
+                                  std::nullopt, Flags4, ExtraData));
   EXPECT_NE(N, DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type,
                                   "something", File, 1, Scope, BaseType, 2, 3,
                                   4, DWARFAddressSpace, DWARFMemorySpace,
-                                  Flags5, getTuple()));
+                                  std::nullopt, Flags5, getTuple()));
   EXPECT_NE(N, DIDerivedType::get(
                    Context, dwarf::DW_TAG_pointer_type, "something", File, 1,
                    Scope, BaseType, 2, 3, 4, DWARFAddressSpace,
-                   dwarf::DW_MSPACE_LLVM_global, Flags5, ExtraData));
+                   dwarf::DW_MSPACE_LLVM_global, std::nullopt, Flags5, ExtraData));
 
   TempDIDerivedType Temp = N->clone();
   EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
+  TempDIDerivedType Temp1 = N1->clone();
+  EXPECT_EQ(N1, MDNode::replaceWithUniqued(std::move(Temp1)));
 }
 
 TEST_F(DIDerivedTypeTest, getWithLargeValues) {
@@ -1962,11 +1973,20 @@ TEST_F(DIDerivedTypeTest, getWithLargeValues) {
   auto *N = DIDerivedType::get(Context, dwarf::DW_TAG_pointer_type, "something",
                                File, 1, Scope, BaseType, UINT64_MAX,
                                UINT32_MAX - 1, UINT64_MAX - 2, UINT32_MAX - 3,
-                               dwarf::DW_MSPACE_LLVM_none, Flags, ExtraData);
+                               dwarf::DW_MSPACE_LLVM_none, std::nullopt, Flags, ExtraData);
   EXPECT_EQ(UINT64_MAX, N->getSizeInBits());
   EXPECT_EQ(UINT32_MAX - 1, N->getAlignInBits());
   EXPECT_EQ(UINT64_MAX - 2, N->getOffsetInBits());
   EXPECT_EQ(UINT32_MAX - 3, *N->getDWARFAddressSpace());
+
+  auto *N1 = DIDerivedType::get(
+      Context, dwarf::DW_TAG_LLVM_ptrauth_type, "", File, 1, Scope, N,
+      UINT64_MAX, UINT32_MAX - 1, UINT64_MAX - 2, UINT32_MAX - 3,
+      dwarf::DW_MSPACE_LLVM_none, DIDerivedType::PtrAuthData(7, true, 0xffff, true, false),
+      Flags, ExtraData);
+  EXPECT_EQ(7U, N1->getPtrAuthData()->key());
+  EXPECT_EQ(true, N1->getPtrAuthData()->isAddressDiscriminated());
+  EXPECT_EQ(0xffffU, N1->getPtrAuthData()->extraDiscriminator());
 }
 
 typedef MetadataTest DICompositeTypeTest;
@@ -3606,6 +3626,27 @@ TEST_F(DIExpressionTest, foldConstant) {
 #undef EXPECT_FOLD_CONST
 }
 
+TEST_F(DIExpressionTest, appendToStackAssert) {
+  DIExpression *Expr = DIExpression::get(Context, {});
+
+  // Verify that the DW_OP_LLVM_convert operands, which have the same values as
+  // DW_OP_stack_value and DW_OP_LLVM_fragment, do not get interpreted as such
+  // operations. This previously triggered an assert.
+  uint64_t FromSize = dwarf::DW_OP_stack_value;
+  uint64_t ToSize = dwarf::DW_OP_LLVM_fragment;
+  uint64_t Ops[] = {
+      dwarf::DW_OP_LLVM_convert, FromSize, dwarf::DW_ATE_signed,
+      dwarf::DW_OP_LLVM_convert, ToSize,   dwarf::DW_ATE_signed,
+  };
+  Expr = DIExpression::appendToStack(Expr, Ops);
+
+  uint64_t Expected[] = {
+      dwarf::DW_OP_LLVM_convert, FromSize, dwarf::DW_ATE_signed,
+      dwarf::DW_OP_LLVM_convert, ToSize,   dwarf::DW_ATE_signed,
+      dwarf::DW_OP_stack_value};
+  EXPECT_EQ(Expr->getElements(), ArrayRef<uint64_t>(Expected));
+}
+
 typedef MetadataTest DIObjCPropertyTest;
 
 TEST_F(DIObjCPropertyTest, get) {
@@ -3757,7 +3798,7 @@ TEST_F(MetadataAsValueTest, MDNodeConstant) {
 typedef MetadataTest ValueAsMetadataTest;
 
 TEST_F(ValueAsMetadataTest, UpdatesOnRAUW) {
-  Type *Ty = Type::getInt1PtrTy(Context);
+  Type *Ty = PointerType::getUnqual(Context);
   std::unique_ptr<GlobalVariable> GV0(
       new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
   auto *MD = ValueAsMetadata::get(GV0.get());
@@ -3768,6 +3809,25 @@ TEST_F(ValueAsMetadataTest, UpdatesOnRAUW) {
       new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
   GV0->replaceAllUsesWith(GV1.get());
   EXPECT_TRUE(MD->getValue() == GV1.get());
+}
+
+TEST_F(ValueAsMetadataTest, handleRAUWWithTypeChange) {
+  // Test that handleRAUW supports type changes.
+  // This is helpful in cases where poison values are used to encode
+  // types in metadata, e.g. in type annotations.
+  // Changing the type stored in metadata requires to change the type of
+  // the stored poison value.
+  auto *I32Poison = PoisonValue::get(Type::getInt32Ty(Context));
+  auto *I64Poison = PoisonValue::get(Type::getInt64Ty(Context));
+  auto *MD = ConstantAsMetadata::get(I32Poison);
+
+  EXPECT_EQ(MD->getValue(), I32Poison);
+  EXPECT_NE(MD->getValue(), I64Poison);
+
+  ValueAsMetadata::handleRAUW(I32Poison, I64Poison);
+
+  EXPECT_NE(MD->getValue(), I32Poison);
+  EXPECT_EQ(MD->getValue(), I64Poison);
 }
 
 TEST_F(ValueAsMetadataTest, TempTempReplacement) {
@@ -3829,7 +3889,7 @@ TEST_F(DIArgListTest, get) {
 }
 
 TEST_F(DIArgListTest, UpdatesOnRAUW) {
-  Type *Ty = Type::getInt1PtrTy(Context);
+  Type *Ty = PointerType::getUnqual(Context);
   ConstantAsMetadata *CI =
       ConstantAsMetadata::get(ConstantInt::get(Context, APInt(8, 0)));
   std::unique_ptr<GlobalVariable> GV0(
@@ -3854,7 +3914,7 @@ TEST_F(DIArgListTest, UpdatesOnRAUW) {
 typedef MetadataTest TrackingMDRefTest;
 
 TEST_F(TrackingMDRefTest, UpdatesOnRAUW) {
-  Type *Ty = Type::getInt1PtrTy(Context);
+  Type *Ty = PointerType::getUnqual(Context);
   std::unique_ptr<GlobalVariable> GV0(
       new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
   TypedTrackingMDRef<ValueAsMetadata> MD(ValueAsMetadata::get(GV0.get()));
@@ -3871,7 +3931,7 @@ TEST_F(TrackingMDRefTest, UpdatesOnRAUW) {
 }
 
 TEST_F(TrackingMDRefTest, UpdatesOnDeletion) {
-  Type *Ty = Type::getInt1PtrTy(Context);
+  Type *Ty = PointerType::getUnqual(Context);
   std::unique_ptr<GlobalVariable> GV(
       new GlobalVariable(Ty, false, GlobalValue::ExternalLinkage));
   TypedTrackingMDRef<ValueAsMetadata> MD(ValueAsMetadata::get(GV.get()));
@@ -4297,7 +4357,7 @@ TEST_F(MDTupleAllocationTest, Tracking2) {
 #if defined(GTEST_HAS_DEATH_TEST) && !defined(NDEBUG) && !defined(GTEST_HAS_SEH)
 typedef MetadataTest MDTupleAllocationDeathTest;
 TEST_F(MDTupleAllocationDeathTest, ResizeRejected) {
-  MDTuple *A = MDTuple::get(Context, None);
+  MDTuple *A = MDTuple::get(Context, std::nullopt);
   auto *Value1 = getConstantAsMetadata();
   EXPECT_DEATH(A->push_back(Value1),
                "Resizing is not supported for uniqued nodes");

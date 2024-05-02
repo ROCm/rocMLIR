@@ -19,10 +19,9 @@ define dso_local void @TestFPExtF16_F128() nounwind strictfp {
 ; X64-SSE-LABEL: TestFPExtF16_F128:
 ; X64-SSE:       # %bb.0: # %entry
 ; X64-SSE-NEXT:    pushq %rax
-; X64-SSE-NEXT:    movzwl vf16(%rip), %edi
-; X64-SSE-NEXT:    callq __gnu_h2f_ieee@PLT
-; X64-SSE-NEXT:    callq __extendsftf2@PLT
-; X64-SSE-NEXT:    movaps %xmm0, vf128(%rip)
+; X64-SSE-NEXT:    pinsrw $0, vf16(%rip), %xmm0
+; X64-SSE-NEXT:    callq __extendhftf2@PLT
+; X64-SSE-NEXT:    movdqa %xmm0, vf128(%rip)
 ; X64-SSE-NEXT:    popq %rax
 ; X64-SSE-NEXT:    retq
 ;
@@ -38,7 +37,7 @@ define dso_local void @TestFPExtF16_F128() nounwind strictfp {
 ; X86-LABEL: TestFPExtF16_F128:
 ; X86:       # %bb.0: # %entry
 ; X86-NEXT:    pushl %esi
-; X86-NEXT:    subl $24, %esp
+; X86-NEXT:    subl $40, %esp
 ; X86-NEXT:    movzwl vf16, %eax
 ; X86-NEXT:    movl %eax, (%esp)
 ; X86-NEXT:    calll __gnu_h2f_ieee
@@ -56,7 +55,7 @@ define dso_local void @TestFPExtF16_F128() nounwind strictfp {
 ; X86-NEXT:    movl %edx, vf128+8
 ; X86-NEXT:    movl %ecx, vf128+4
 ; X86-NEXT:    movl %eax, vf128
-; X86-NEXT:    addl $24, %esp
+; X86-NEXT:    addl $40, %esp
 ; X86-NEXT:    popl %esi
 ; X86-NEXT:    retl
 entry:
@@ -88,7 +87,7 @@ define dso_local void @TestFPExtF32_F128() nounwind strictfp {
 ; X86-LABEL: TestFPExtF32_F128:
 ; X86:       # %bb.0: # %entry
 ; X86-NEXT:    pushl %esi
-; X86-NEXT:    subl $24, %esp
+; X86-NEXT:    subl $40, %esp
 ; X86-NEXT:    flds vf32
 ; X86-NEXT:    fstps {{[0-9]+}}(%esp)
 ; X86-NEXT:    wait
@@ -104,7 +103,7 @@ define dso_local void @TestFPExtF32_F128() nounwind strictfp {
 ; X86-NEXT:    movl %edx, vf128+8
 ; X86-NEXT:    movl %ecx, vf128+4
 ; X86-NEXT:    movl %eax, vf128
-; X86-NEXT:    addl $24, %esp
+; X86-NEXT:    addl $40, %esp
 ; X86-NEXT:    popl %esi
 ; X86-NEXT:    retl
 entry:
@@ -218,8 +217,9 @@ define dso_local void @TestFPTruncF128_F16() nounwind strictfp {
 ; X64-SSE-LABEL: TestFPTruncF128_F16:
 ; X64-SSE:       # %bb.0: # %entry
 ; X64-SSE-NEXT:    pushq %rax
-; X64-SSE-NEXT:    movaps vf128(%rip), %xmm0
+; X64-SSE-NEXT:    movdqa vf128(%rip), %xmm0
 ; X64-SSE-NEXT:    callq __trunctfhf2@PLT
+; X64-SSE-NEXT:    pextrw $0, %xmm0, %eax
 ; X64-SSE-NEXT:    movw %ax, vf16(%rip)
 ; X64-SSE-NEXT:    popq %rax
 ; X64-SSE-NEXT:    retq

@@ -24,7 +24,6 @@
 #include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/AsmParser/SlotMapping.h"
-#include "llvm/CodeGen/LowLevelType.h"
 #include "llvm/CodeGen/MIRFormatter.h"
 #include "llvm/CodeGen/MIRPrinter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -35,11 +34,13 @@
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/PseudoSourceValueManager.h"
 #include "llvm/CodeGen/RegisterBank.h"
 #include "llvm/CodeGen/RegisterBankInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/CodeGenTypes/LowLevelType.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -500,7 +501,8 @@ public:
   bool parseAlignment(uint64_t &Alignment);
   bool parseAddrspace(unsigned &Addrspace);
   bool parseSectionID(std::optional<MBBSectionID> &SID);
-  bool parseBBID(std::optional<unsigned> &BBID);
+  bool parseBBID(std::optional<UniqueBBID> &BBID);
+  bool parseCallFrameSize(unsigned &CallFrameSize);
   bool parseOperandsOffset(MachineOperand &Op);
   bool parseIRValue(const Value *&V);
   bool parseMemoryOperandFlag(MachineMemOperand::Flags &Flags);
@@ -665,13 +667,31 @@ bool MIParser::parseSectionID(std::optional<MBBSectionID> &SID) {
 }
 
 // Parse Machine Basic Block ID.
-bool MIParser::parseBBID(std::optional<unsigned> &BBID) {
+bool MIParser::parseBBID(std::optional<UniqueBBID> &BBID) {
   assert(Token.is(MIToken::kw_bb_id));
+  lex();
+  unsigned BaseID = 0;
+  unsigned CloneID = 0;
+  if (getUnsigned(BaseID))
+    return error("Unknown BB ID");
+  lex();
+  if (Token.is(MIToken::IntegerLiteral)) {
+    if (getUnsigned(CloneID))
+      return error("Unknown Clone ID");
+    lex();
+  }
+  BBID = {BaseID, CloneID};
+  return false;
+}
+
+// Parse basic block call frame size.
+bool MIParser::parseCallFrameSize(unsigned &CallFrameSize) {
+  assert(Token.is(MIToken::kw_call_frame_size));
   lex();
   unsigned Value = 0;
   if (getUnsigned(Value))
-    return error("Unknown BB ID");
-  BBID = Value;
+    return error("Unknown call frame size");
+  CallFrameSize = Value;
   lex();
   return false;
 }
@@ -692,7 +712,8 @@ bool MIParser::parseBasicBlockDefinition(
   bool IsEHFuncletEntry = false;
   std::optional<MBBSectionID> SectionID;
   uint64_t Alignment = 0;
-  std::optional<unsigned> BBID;
+  std::optional<UniqueBBID> BBID;
+  unsigned CallFrameSize = 0;
   BasicBlock *BB = nullptr;
   if (consumeIfPresent(MIToken::lparen)) {
     do {
@@ -735,6 +756,10 @@ bool MIParser::parseBasicBlockDefinition(
         break;
       case MIToken::kw_bb_id:
         if (parseBBID(BBID))
+          return true;
+        break;
+      case MIToken::kw_call_frame_size:
+        if (parseCallFrameSize(CallFrameSize))
           return true;
         break;
       default:
@@ -781,6 +806,7 @@ bool MIParser::parseBasicBlockDefinition(
       MF.setBBSectionsType(BasicBlockSection::Labels);
     MBB->setBBID(BBID.value());
   }
+  MBB->setCallFrameSize(CallFrameSize);
   return false;
 }
 
@@ -1150,19 +1176,10 @@ bool MIParser::parse(MachineInstr *&MI) {
   MI = MF.CreateMachineInstr(MCID, DebugLocation, /*NoImplicit=*/true);
   MI->setFlags(Flags);
 
-  unsigned NumExplicitOps = 0;
-  for (const auto &Operand : Operands) {
-    bool IsImplicitOp = Operand.Operand.isReg() && Operand.Operand.isImplicit();
-    if (!IsImplicitOp) {
-      if (!MCID.isVariadic() && NumExplicitOps >= MCID.getNumOperands() &&
-          !Operand.Operand.isValidExcessOperand())
-        return error(Operand.Begin, "too many operands for instruction");
-
-      ++NumExplicitOps;
-    }
-
+  // Don't check the operands make sense, let the verifier catch any
+  // improprieties.
+  for (const auto &Operand : Operands)
     MI->addOperand(MF, Operand.Operand);
-  }
 
   if (assignRegisterTies(*MI, Operands))
     return true;
@@ -1440,6 +1457,7 @@ bool MIParser::verifyImplicitOperands(ArrayRef<ParsedMachineOperand> Operands,
 
 bool MIParser::parseInstruction(unsigned &OpCode, unsigned &Flags) {
   // Allow frame and fast math flags for OPCODE
+  // clang-format off
   while (Token.is(MIToken::kw_frame_setup) ||
          Token.is(MIToken::kw_frame_destroy) ||
          Token.is(MIToken::kw_nnan) ||
@@ -1453,7 +1471,11 @@ bool MIParser::parseInstruction(unsigned &OpCode, unsigned &Flags) {
          Token.is(MIToken::kw_nsw) ||
          Token.is(MIToken::kw_exact) ||
          Token.is(MIToken::kw_nofpexcept) ||
-         Token.is(MIToken::kw_unpredictable)) {
+         Token.is(MIToken::kw_noconvergent) ||
+         Token.is(MIToken::kw_unpredictable) ||
+         Token.is(MIToken::kw_nneg) ||
+         Token.is(MIToken::kw_disjoint)) {
+    // clang-format on
     // Mine frame and fast math flags
     if (Token.is(MIToken::kw_frame_setup))
       Flags |= MachineInstr::FrameSetup;
@@ -1483,6 +1505,12 @@ bool MIParser::parseInstruction(unsigned &OpCode, unsigned &Flags) {
       Flags |= MachineInstr::NoFPExcept;
     if (Token.is(MIToken::kw_unpredictable))
       Flags |= MachineInstr::Unpredictable;
+    if (Token.is(MIToken::kw_noconvergent))
+      Flags |= MachineInstr::NoConvergent;
+    if (Token.is(MIToken::kw_nneg))
+      Flags |= MachineInstr::NonNeg;
+    if (Token.is(MIToken::kw_disjoint))
+      Flags |= MachineInstr::Disjoint;
 
     lex();
   }
@@ -1898,10 +1926,13 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
 
   if (Token.range().front() == 's') {
     auto ScalarSize = APSInt(Token.range().drop_front()).getZExtValue();
-    if (!verifyScalarSize(ScalarSize))
-      return error("invalid size for scalar type");
-
-    Ty = LLT::scalar(ScalarSize);
+    if (ScalarSize) {
+      if (!verifyScalarSize(ScalarSize))
+        return error("invalid size for scalar type");
+      Ty = LLT::scalar(ScalarSize);
+    } else {
+      Ty = LLT::token();
+    }
     lex();
     return false;
   } else if (Token.range().front() == 'p') {
@@ -1917,12 +1948,28 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
 
   // Now we're looking for a vector.
   if (Token.isNot(MIToken::less))
-    return error(Loc,
-                 "expected sN, pA, <M x sN>, or <M x pA> for GlobalISel type");
+    return error(Loc, "expected sN, pA, <M x sN>, <M x pA>, <vscale x M x sN>, "
+                      "or <vscale x M x pA> for GlobalISel type");
   lex();
 
-  if (Token.isNot(MIToken::IntegerLiteral))
+  bool HasVScale =
+      Token.is(MIToken::Identifier) && Token.stringValue() == "vscale";
+  if (HasVScale) {
+    lex();
+    if (Token.isNot(MIToken::Identifier) || Token.stringValue() != "x")
+      return error("expected <vscale x M x sN> or <vscale x M x pA>");
+    lex();
+  }
+
+  auto GetError = [this, &HasVScale, Loc]() {
+    if (HasVScale)
+      return error(
+          Loc, "expected <vscale x M x sN> or <vscale M x pA> for vector type");
     return error(Loc, "expected <M x sN> or <M x pA> for vector type");
+  };
+
+  if (Token.isNot(MIToken::IntegerLiteral))
+    return GetError();
   uint64_t NumElements = Token.integerValue().getZExtValue();
   if (!verifyVectorElementCount(NumElements))
     return error("invalid number of vector elements");
@@ -1930,11 +1977,12 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
   lex();
 
   if (Token.isNot(MIToken::Identifier) || Token.stringValue() != "x")
-    return error(Loc, "expected <M x sN> or <M x pA> for vector type");
+    return GetError();
   lex();
 
   if (Token.range().front() != 's' && Token.range().front() != 'p')
-    return error(Loc, "expected <M x sN> or <M x pA> for vector type");
+    return GetError();
+
   StringRef SizeStr = Token.range().drop_front();
   if (SizeStr.size() == 0 || !llvm::all_of(SizeStr, isdigit))
     return error("expected integers after 's'/'p' type character");
@@ -1942,7 +1990,7 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
   if (Token.range().front() == 's') {
     auto ScalarSize = APSInt(Token.range().drop_front()).getZExtValue();
     if (!verifyScalarSize(ScalarSize))
-      return error("invalid size for scalar type");
+      return error("invalid size for scalar element in vector");
     Ty = LLT::scalar(ScalarSize);
   } else if (Token.range().front() == 'p') {
     const DataLayout &DL = MF.getDataLayout();
@@ -1952,14 +2000,15 @@ bool MIParser::parseLowLevelType(StringRef::iterator Loc, LLT &Ty) {
 
     Ty = LLT::pointer(AS, DL.getPointerSizeInBits(AS));
   } else
-    return error(Loc, "expected <M x sN> or <M x pA> for vector type");
+    return GetError();
   lex();
 
   if (Token.isNot(MIToken::greater))
-    return error(Loc, "expected <M x sN> or <M x pA> for vector type");
+    return GetError();
+
   lex();
 
-  Ty = LLT::fixed_vector(NumElements, Ty);
+  Ty = LLT::vector(ElementCount::get(NumElements, HasVScale), Ty);
   return false;
 }
 
@@ -2142,10 +2191,10 @@ static bool parseGlobalValue(const MIToken &Token,
     unsigned GVIdx;
     if (getUnsigned(Token, GVIdx, ErrCB))
       return true;
-    if (GVIdx >= PFS.IRSlots.GlobalValues.size())
+    GV = PFS.IRSlots.GlobalValues.get(GVIdx);
+    if (!GV)
       return ErrCB(Token.location(), Twine("use of undefined global value '@") +
                                          Twine(GVIdx) + "'");
-    GV = PFS.IRSlots.GlobalValues[GVIdx];
     break;
   }
   default:
@@ -2559,6 +2608,54 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
   case MIToken::kw_cfi_aarch64_negate_ra_sign_state:
     CFIIndex = MF.addFrameInst(MCCFIInstruction::createNegateRAState(nullptr));
     break;
+  case MIToken::kw_cfi_llvm_register_pair: {
+    Register Reg, R1, R2;
+    unsigned R1Size, R2Size;
+    if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
+        parseCFIRegister(R1) || expectAndConsume(MIToken::comma) ||
+        getUnsigned(R1Size) || expectAndConsume(MIToken::comma) ||
+        parseCFIRegister(R2) || expectAndConsume(MIToken::comma) ||
+        getUnsigned(R2Size))
+      return true;
+
+    CFIIndex = MF.addFrameInst(MCCFIInstruction::createLLVMRegisterPair(
+        nullptr, Reg, R1, R1Size, R2, R2Size));
+    break;
+  }
+  case MIToken::kw_cfi_llvm_vector_registers: {
+    std::vector<MCCFIInstruction::VectorRegisterWithLane> VectorRegisters;
+    if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma))
+      return true;
+    do {
+      Register VR;
+      unsigned Lane, Size;
+      if (parseCFIRegister(VR) || expectAndConsume(MIToken::comma) ||
+          getUnsigned(Lane) || expectAndConsume(MIToken::comma) ||
+          getUnsigned(Size))
+        return true;
+      VectorRegisters.push_back({VR, Lane, Size});
+    } while (expectAndConsume(MIToken::comma));
+
+    CFIIndex = MF.addFrameInst(MCCFIInstruction::createLLVMVectorRegisters(
+        nullptr, Reg, std::move(VectorRegisters)));
+    break;
+  }
+  case MIToken::kw_cfi_llvm_vector_offset: {
+    Register Reg, MaskReg;
+    unsigned RegSize, MaskRegSize;
+    int Offset = 0;
+
+    if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
+        getUnsigned(RegSize) || expectAndConsume(MIToken::comma) ||
+        parseCFIRegister(MaskReg) || expectAndConsume(MIToken::comma) ||
+        getUnsigned(MaskRegSize) || expectAndConsume(MIToken::comma) ||
+        parseCFIOffset(Offset))
+      return true;
+
+    CFIIndex = MF.addFrameInst(MCCFIInstruction::createLLVMVectorOffset(
+        nullptr, Reg, RegSize, MaskReg, MaskRegSize, Offset));
+    break;
+  }
   case MIToken::kw_cfi_escape: {
     std::string Values;
     if (parseCFIEscapeValues(Values))
@@ -2913,6 +3010,9 @@ bool MIParser::parseMachineOperand(const unsigned OpCode, const unsigned OpIdx,
   case MIToken::kw_cfi_undefined:
   case MIToken::kw_cfi_window_save:
   case MIToken::kw_cfi_aarch64_negate_ra_sign_state:
+  case MIToken::kw_cfi_llvm_register_pair:
+  case MIToken::kw_cfi_llvm_vector_registers:
+  case MIToken::kw_cfi_llvm_vector_offset:
     return parseCFIOperand(Dest);
   case MIToken::kw_blockaddress:
     return parseBlockAddressOperand(Dest);

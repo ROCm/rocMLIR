@@ -85,3 +85,12 @@ GridCoordinates rock::layout::makeGxMxNGridLayout(PatternRewriter &b,
 
   return {gBlockIdx, mBlockIdx, nBlockIdx};
 }
+
+GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
+                                                Location loc, Value bid,
+                                                Value mIter, int64_t nBlocks) {
+  Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
+  Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1NBlockCountVal);
+  Value nBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1NBlockCountVal);
+  return {gBlockIdx, mIter, nBlockIdx};
+}

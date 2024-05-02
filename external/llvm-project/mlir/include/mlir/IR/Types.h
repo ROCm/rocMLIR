@@ -133,7 +133,8 @@ public:
   bool isF80() const;
   bool isF128() const;
 
-  /// Return true if this is an integer type with the specified width.
+  /// Return true if this is an integer type (with the specified width).
+  bool isInteger() const;
   bool isInteger(unsigned width) const;
   /// Return true if this is a signless integer type (with the specified width).
   bool isSignlessInteger() const;
@@ -178,6 +179,15 @@ public:
   }
   static Type getFromOpaquePointer(const void *pointer) {
     return Type(reinterpret_cast<ImplType *>(const_cast<void *>(pointer)));
+  }
+
+  /// Returns true if `InterfaceT` has been promised by the dialect or
+  /// implemented.
+  template <typename InterfaceT>
+  bool hasPromiseOrImplementsInterface() {
+    return dialect_extension_detail::hasPromisedInterface(
+               getDialect(), getTypeID(), InterfaceT::getInterfaceID()) ||
+           mlir::isa<InterfaceT>(*this);
   }
 
   /// Returns true if the type was registered with a particular trait.
@@ -267,14 +277,14 @@ public:
       detail::Interface<ConcreteType, Type, Traits, Type, TypeTrait::TraitBase>;
   using InterfaceBase::InterfaceBase;
 
-private:
+protected:
   /// Returns the impl interface instance for the given type.
   static typename InterfaceBase::Concept *getInterfaceFor(Type type) {
 #ifndef NDEBUG
     // Check that the current interface isn't an unresolved promise for the
     // given type.
     dialect_extension_detail::handleUseOfUndefinedPromisedInterface(
-        type.getDialect(), ConcreteType::getInterfaceID(),
+        type.getDialect(), type.getTypeID(), ConcreteType::getInterfaceID(),
         llvm::getTypeName<ConcreteType>());
 #endif
 
@@ -397,7 +407,6 @@ struct CastInfo<
     /// Return a constant true instead of a dynamic true when casting to self or
     /// up the hierarchy.
     if constexpr (std::is_base_of_v<To, From>) {
-      (void)ty;
       return true;
     } else {
       return To::classof(ty);

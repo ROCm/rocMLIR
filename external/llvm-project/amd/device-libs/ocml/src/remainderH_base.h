@@ -5,20 +5,20 @@
  * License. See LICENSE.TXT for details.
  *===------------------------------------------------------------------------*/
 
-CONSTATTR INLINEATTR static bool
+CONSTATTR static bool
 samesign(half x, half y)
 {
     return (AS_USHORT(x) & (ushort)SIGNBIT_HP16) == (AS_USHORT(y) & (ushort)SIGNBIT_HP16);
 }
 
 #if defined(COMPILING_FMOD)
-REQUIRES_16BIT_INSTS CONSTATTR half
+CONSTATTR half
 MATH_MANGLE(fmod)(half x, half y)
 #elif defined(COMPILING_REMQUO)
-REQUIRES_16BIT_INSTS __ocml_remquo_f16_result
+__ocml_remquo_f16_result
 MATH_MANGLE(remquo2)(half x, half y)
 #else
-REQUIRES_16BIT_INSTS CONSTATTR half
+CONSTATTR half
 MATH_MANGLE(remainder)(half x, half y)
 #endif
 {

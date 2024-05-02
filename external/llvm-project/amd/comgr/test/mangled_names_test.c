@@ -48,9 +48,6 @@ int main(int argc, char *argv[]) {
   amd_comgr_action_info_t DataAction;
   amd_comgr_status_t Status;
   size_t Count;
-  const char *CodeGenOptions[] = {"-mllvm", "-amdgpu-early-inline-all"};
-  size_t CodeGenOptionsCount =
-      sizeof(CodeGenOptions) / sizeof(CodeGenOptions[0]);
 
   SizeSource1 = setBuf(TEST_OBJ_DIR "/source1.cl", &BufSource1);
   SizeSource2 = setBuf(TEST_OBJ_DIR "/source2.cl", &BufSource2);
@@ -92,11 +89,8 @@ int main(int argc, char *argv[]) {
                                               AMD_COMGR_LANGUAGE_OPENCL_1_2);
   checkError(Status, "amd_comgr_action_info_set_language");
   Status = amd_comgr_action_info_set_isa_name(DataAction,
-                                              "amdgcn-amd-amdhsa--gfx803");
+                                              "amdgcn-amd-amdhsa--gfx900");
   checkError(Status, "amd_comgr_action_info_set_isa_name");
-  Status = amd_comgr_action_info_set_option_list(DataAction, CodeGenOptions,
-                                                 CodeGenOptionsCount);
-  checkError(Status, "amd_comgr_action_info_set_option_list");
 
   Status = amd_comgr_create_data_set(&DataSetBc);
   checkError(Status, "amd_comgr_create_data_set");
@@ -173,14 +167,14 @@ int main(int argc, char *argv[]) {
   Status = amd_comgr_populate_mangled_names(DataBc, &numNames);
   checkError(Status, "amd_comgr_populate_mangled_names");
 
-  if (numNames != 2) {
+  if (numNames != 3) {
     printf("amd_populate_mangled_names Failed: "
            "produced %zu bitcode names (expected 2)\n",
            numNames);
     exit(1);
   }
 
-  const char *bcNames[] = {"source1", "source2"};
+  const char *bcNames[] = {"__oclc_ABI_version", "source1", "source2"};
 
   for (size_t I = 0; I < numNames; ++I) {
     size_t Size;

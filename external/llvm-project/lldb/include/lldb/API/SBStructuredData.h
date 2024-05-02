@@ -11,6 +11,7 @@
 
 #include "lldb/API/SBDefines.h"
 #include "lldb/API/SBModule.h"
+#include "lldb/API/SBScriptObject.h"
 
 namespace lldb_private {
 namespace python {
@@ -28,6 +29,9 @@ public:
   SBStructuredData();
 
   SBStructuredData(const lldb::SBStructuredData &rhs);
+
+  SBStructuredData(const lldb::SBScriptObject obj,
+                   const lldb::SBDebugger &debugger);
 
   ~SBStructuredData();
 
@@ -101,6 +105,9 @@ public:
   ///     \a dst in all cases.
   size_t GetStringValue(char *dst, size_t dst_len) const;
 
+  /// Return the generic pointer if this data structure is a generic type.
+  lldb::SBScriptObject GetGenericValue() const;
+
 protected:
   friend class SBAttachInfo;
   friend class SBLaunchInfo;
@@ -115,6 +122,7 @@ protected:
   friend class SBTrace;
   friend class lldb_private::python::SWIGBridge;
   friend class lldb_private::lua::SWIGBridge;
+  friend class SBCommandInterpreter;
 
   SBStructuredData(const lldb_private::StructuredDataImpl &impl);
 

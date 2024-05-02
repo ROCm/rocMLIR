@@ -96,8 +96,9 @@ int main()
 
 }
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l33
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0:[0-9]+]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM1_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -110,6 +111,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM1_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM1_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -122,6 +124,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM1]], ptr [[SUM1_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -148,8 +151,9 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP9]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP12:%.*]] = add i32 [[TMP11]], [[TMP10]]
 // CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[TMP12]], 1
 // CHECK-NEXT:    [[TMP14:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -177,7 +181,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP24]], ptr addrspace(5) [[TMP5]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 1024, [[TMP16]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS4:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 [[NVPTX_NUM_THREADS4]], [[TMP16]]
 // CHECK-NEXT:    [[TMP26:%.*]] = mul i32 [[TMP25]], 1
 // CHECK-NEXT:    [[TMP27:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP28:%.*]] = add i32 [[TMP26]], [[TMP27]]
@@ -192,8 +197,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l37
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM2:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM2:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM2_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -206,6 +212,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM2_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM2_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -218,6 +225,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM2]], ptr [[SUM2_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -244,8 +252,9 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP9]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP12:%.*]] = add i32 [[TMP11]], [[TMP10]]
 // CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[TMP12]], 1
 // CHECK-NEXT:    [[TMP14:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -274,7 +283,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP24]], ptr addrspace(5) [[TMP5]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 1024, [[TMP16]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS5:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 [[NVPTX_NUM_THREADS5]], [[TMP16]]
 // CHECK-NEXT:    [[TMP26:%.*]] = mul i32 [[TMP25]], 1
 // CHECK-NEXT:    [[TMP27:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP28:%.*]] = add i32 [[TMP26]], [[TMP27]]
@@ -289,8 +299,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l41
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM1_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -304,6 +315,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[I:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM1_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM1_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -317,6 +329,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
 // CHECK-NEXT:    [[I_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[I]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM1]], ptr [[SUM1_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -343,8 +356,9 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP9]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP12:%.*]] = add i32 [[TMP11]], [[TMP10]]
 // CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[TMP12]], 1
 // CHECK-NEXT:    [[TMP14:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -357,7 +371,7 @@ int main()
 // CHECK-NEXT:    [[TMP18:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP19:%.*]] = load i32, ptr [[DOTOMP_UB_ASCAST]], align 4
 // CHECK-NEXT:    [[CMP:%.*]] = icmp sle i32 [[TMP18]], [[TMP19]]
-// CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END8:%.*]]
+// CHECK-NEXT:    br i1 [[CMP]], label [[FOR_BODY:%.*]], label [[FOR_END9:%.*]]
 // CHECK:       for.body:
 // CHECK-NEXT:    [[TMP20:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[MUL:%.*]] = mul nsw i32 [[TMP20]], 1
@@ -387,13 +401,14 @@ int main()
 // CHECK:       for.end:
 // CHECK-NEXT:    br label [[FOR_INC7:%.*]]
 // CHECK:       for.inc7:
-// CHECK-NEXT:    [[TMP28:%.*]] = mul i32 1024, [[TMP16]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS8:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP28:%.*]] = mul i32 [[NVPTX_NUM_THREADS8]], [[TMP16]]
 // CHECK-NEXT:    [[TMP29:%.*]] = mul i32 [[TMP28]], 1
 // CHECK-NEXT:    [[TMP30:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP31:%.*]] = add i32 [[TMP29]], [[TMP30]]
 // CHECK-NEXT:    store i32 [[TMP31]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    br label [[FOR_COND]], !llvm.loop [[LOOP37:![0-9]+]]
-// CHECK:       for.end8:
+// CHECK:       for.end9:
 // CHECK-NEXT:    [[TMP32:%.*]] = load ptr, ptr [[DOTADDR_ASCAST]], align 8
 // CHECK-NEXT:    [[TMP33:%.*]] = load ptr, ptr [[DOTADDR1_ASCAST]], align 8
 // CHECK-NEXT:    [[TMP34:%.*]] = load double, ptr addrspace(5) [[TMP5]], align 8
@@ -402,8 +417,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l46
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[B:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[B:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM1_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -418,6 +434,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM1_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM1_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -432,6 +449,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM1]], ptr [[SUM1_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -462,8 +480,9 @@ int main()
 // CHECK-NEXT:    [[TMP11:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP11]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP14:%.*]] = add i32 [[TMP13]], [[TMP12]]
 // CHECK-NEXT:    [[TMP15:%.*]] = mul i32 [[TMP14]], 1
 // CHECK-NEXT:    [[TMP16:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -499,7 +518,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP28]], ptr [[ARRAYIDX9]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP30:%.*]] = mul i32 1024, [[TMP18]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS10:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP30:%.*]] = mul i32 [[NVPTX_NUM_THREADS10]], [[TMP18]]
 // CHECK-NEXT:    [[TMP31:%.*]] = mul i32 [[TMP30]], 1
 // CHECK-NEXT:    [[TMP32:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP33:%.*]] = add i32 [[TMP31]], [[TMP32]]
@@ -514,8 +534,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l52
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM1_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -534,6 +555,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i64, align 8, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM1_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM1_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -552,6 +574,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM1]], ptr [[SUM1_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -622,8 +645,9 @@ int main()
 // CHECK-NEXT:    [[TMP22:%.*]] = load i64, ptr [[DOTOMP_LB_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[TMP22]], ptr [[DOTOMP_IV_ASCAST]], align 8
 // CHECK-NEXT:    [[TMP23:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP24:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP24:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP25:%.*]] = add i32 [[TMP24]], [[TMP23]]
 // CHECK-NEXT:    [[TMP26:%.*]] = zext i32 [[TMP25]] to i64
 // CHECK-NEXT:    [[TMP27:%.*]] = mul i64 [[TMP26]], 1
@@ -688,7 +712,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP46]], ptr addrspace(5) [[TMP5]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP47:%.*]] = mul i32 1024, [[TMP30]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS42:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP47:%.*]] = mul i32 [[NVPTX_NUM_THREADS42]], [[TMP30]]
 // CHECK-NEXT:    [[TMP48:%.*]] = zext i32 [[TMP47]] to i64
 // CHECK-NEXT:    [[TMP49:%.*]] = mul i64 [[TMP48]], 1
 // CHECK-NEXT:    [[TMP50:%.*]] = load i64, ptr [[DOTOMP_IV_ASCAST]], align 8
@@ -704,8 +729,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l57
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM1_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -718,6 +744,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM1_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM1_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -730,6 +757,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM1]], ptr [[SUM1_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -756,8 +784,9 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP9]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP12:%.*]] = add i32 [[TMP11]], [[TMP10]]
 // CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[TMP12]], 1
 // CHECK-NEXT:    [[TMP14:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -785,7 +814,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP24]], ptr addrspace(5) [[TMP5]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 1024, [[TMP16]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS4:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 [[NVPTX_NUM_THREADS4]], [[TMP16]]
 // CHECK-NEXT:    [[TMP26:%.*]] = mul i32 [[TMP25]], 1
 // CHECK-NEXT:    [[TMP27:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP28:%.*]] = add i32 [[TMP26]], [[TMP27]]
@@ -800,8 +830,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l61
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM1_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -814,6 +845,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM1_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM1_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -826,6 +858,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM1]], ptr [[SUM1_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -852,8 +885,9 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP9]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP12:%.*]] = add i32 [[TMP11]], [[TMP10]]
 // CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[TMP12]], 1
 // CHECK-NEXT:    [[TMP14:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -881,7 +915,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP24]], ptr addrspace(5) [[TMP5]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 1024, [[TMP16]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS4:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 [[NVPTX_NUM_THREADS4]], [[TMP16]]
 // CHECK-NEXT:    [[TMP26:%.*]] = mul i32 [[TMP25]], 1
 // CHECK-NEXT:    [[TMP27:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP28:%.*]] = add i32 [[TMP26]], [[TMP27]]
@@ -896,8 +931,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l65
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM3:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR3:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM3:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM3_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -910,6 +946,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM3_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM3_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -922,6 +959,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM3]], ptr [[SUM3_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -948,8 +986,9 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP9]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP12:%.*]] = add i32 [[TMP11]], [[TMP10]]
 // CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[TMP12]], 1
 // CHECK-NEXT:    [[TMP14:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -977,7 +1016,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP24]], ptr addrspace(5) [[TMP5]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 1024, [[TMP16]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS4:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 [[NVPTX_NUM_THREADS4]], [[TMP16]]
 // CHECK-NEXT:    [[TMP26:%.*]] = mul i32 [[TMP25]], 1
 // CHECK-NEXT:    [[TMP27:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP28:%.*]] = add i32 [[TMP26]], [[TMP27]]
@@ -992,8 +1032,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l69
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM2:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR4:[0-9]+]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM2:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR3:[0-9]+]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM2_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -1006,6 +1047,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM2_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM2_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -1018,6 +1060,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM2]], ptr [[SUM2_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -1044,8 +1087,9 @@ int main()
 // CHECK-NEXT:    [[TMP9:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP9]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP10:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], 512
+// CHECK-NEXT:    [[TMP11:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP12:%.*]] = add i32 [[TMP11]], [[TMP10]]
 // CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[TMP12]], 1
 // CHECK-NEXT:    [[TMP14:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -1073,7 +1117,8 @@ int main()
 // CHECK-NEXT:    store double [[TMP24]], ptr addrspace(5) [[TMP5]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 512, [[TMP16]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS4:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP25:%.*]] = mul i32 [[NVPTX_NUM_THREADS4]], [[TMP16]]
 // CHECK-NEXT:    [[TMP26:%.*]] = mul i32 [[TMP25]], 1
 // CHECK-NEXT:    [[TMP27:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP28:%.*]] = add i32 [[TMP26]], [[TMP27]]
@@ -1088,8 +1133,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l73
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[INT32_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[INT32_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[INT32_SUM_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -1104,6 +1150,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[INT32_SUM_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[INT32_SUM_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -1118,6 +1165,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[INT32_SUM]], ptr [[INT32_SUM_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -1148,8 +1196,9 @@ int main()
 // CHECK-NEXT:    [[TMP11:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP11]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP14:%.*]] = add i32 [[TMP13]], [[TMP12]]
 // CHECK-NEXT:    [[TMP15:%.*]] = mul i32 [[TMP14]], 1
 // CHECK-NEXT:    [[TMP16:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -1182,7 +1231,8 @@ int main()
 // CHECK-NEXT:    store i32 [[TMP28]], ptr addrspace(5) [[TMP7]], align 4
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP29:%.*]] = mul i32 1024, [[TMP18]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS9:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP29:%.*]] = mul i32 [[NVPTX_NUM_THREADS9]], [[TMP18]]
 // CHECK-NEXT:    [[TMP30:%.*]] = mul i32 [[TMP29]], 1
 // CHECK-NEXT:    [[TMP31:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP32:%.*]] = add i32 [[TMP30]], [[TMP31]]
@@ -1197,8 +1247,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l77
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[UINT32_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[UINT32_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[UINT32_SUM_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -1213,6 +1264,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[UINT32_SUM_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[UINT32_SUM_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -1227,6 +1279,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[UINT32_SUM]], ptr [[UINT32_SUM_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -1257,8 +1310,9 @@ int main()
 // CHECK-NEXT:    [[TMP11:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP11]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP14:%.*]] = add i32 [[TMP13]], [[TMP12]]
 // CHECK-NEXT:    [[TMP15:%.*]] = mul i32 [[TMP14]], 1
 // CHECK-NEXT:    [[TMP16:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -1291,7 +1345,8 @@ int main()
 // CHECK-NEXT:    store i32 [[TMP28]], ptr addrspace(5) [[TMP7]], align 4
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP29:%.*]] = mul i32 1024, [[TMP18]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS9:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP29:%.*]] = mul i32 [[NVPTX_NUM_THREADS9]], [[TMP18]]
 // CHECK-NEXT:    [[TMP30:%.*]] = mul i32 [[TMP29]], 1
 // CHECK-NEXT:    [[TMP31:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP32:%.*]] = add i32 [[TMP30]], [[TMP31]]
@@ -1306,8 +1361,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l81
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[INT64_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[INT64_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[INT64_SUM_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -1322,6 +1378,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[INT64_SUM_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[INT64_SUM_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -1336,6 +1393,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[INT64_SUM]], ptr [[INT64_SUM_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -1366,8 +1424,9 @@ int main()
 // CHECK-NEXT:    [[TMP11:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP11]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP14:%.*]] = add i32 [[TMP13]], [[TMP12]]
 // CHECK-NEXT:    [[TMP15:%.*]] = mul i32 [[TMP14]], 1
 // CHECK-NEXT:    [[TMP16:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -1401,7 +1460,8 @@ int main()
 // CHECK-NEXT:    store i64 [[TMP29]], ptr addrspace(5) [[TMP7]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP30:%.*]] = mul i32 1024, [[TMP18]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS9:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP30:%.*]] = mul i32 [[NVPTX_NUM_THREADS9]], [[TMP18]]
 // CHECK-NEXT:    [[TMP31:%.*]] = mul i32 [[TMP30]], 1
 // CHECK-NEXT:    [[TMP32:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP33:%.*]] = add i32 [[TMP31]], [[TMP32]]
@@ -1416,8 +1476,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l85
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[UINT64_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[UINT64_SUM:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[BINT:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 4 dereferenceable(4) [[CINT:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[UINT64_SUM_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -1432,6 +1493,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_UB:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[UINT64_SUM_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[UINT64_SUM_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -1446,6 +1508,7 @@ int main()
 // CHECK-NEXT:    [[DOTOMP_LB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_LB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_UB_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_UB]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[UINT64_SUM]], ptr [[UINT64_SUM_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -1476,8 +1539,9 @@ int main()
 // CHECK-NEXT:    [[TMP11:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP11]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP14:%.*]] = add i32 [[TMP13]], [[TMP12]]
 // CHECK-NEXT:    [[TMP15:%.*]] = mul i32 [[TMP14]], 1
 // CHECK-NEXT:    [[TMP16:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -1511,7 +1575,8 @@ int main()
 // CHECK-NEXT:    store i64 [[TMP29]], ptr addrspace(5) [[TMP7]], align 8
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP30:%.*]] = mul i32 1024, [[TMP18]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS9:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP30:%.*]] = mul i32 [[NVPTX_NUM_THREADS9]], [[TMP18]]
 // CHECK-NEXT:    [[TMP31:%.*]] = mul i32 [[TMP30]], 1
 // CHECK-NEXT:    [[TMP32:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP33:%.*]] = add i32 [[TMP31]], [[TMP32]]
@@ -1526,8 +1591,9 @@ int main()
 //
 //
 // CHECK-LABEL: define {{[^@]+}}@{{__omp_offloading_[0-9a-z]+_[0-9a-z]+}}_main_l89
-// CHECK-SAME: (i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[B:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
+// CHECK-SAME: (ptr noalias noundef [[DYN_PTR:%.*]], i64 noundef [[N:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[SUM1:%.*]], i64 noundef [[VLA:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[A:%.*]], i64 noundef [[VLA1:%.*]], ptr noundef nonnull align 8 dereferenceable(8) [[B:%.*]], ptr noundef [[TMP0:%.*]], ptr noundef [[TMP1:%.*]]) #[[ATTR0]] {
 // CHECK-NEXT:  entry:
+// CHECK-NEXT:    [[DYN_PTR_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[N_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
 // CHECK-NEXT:    [[SUM1_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[VLA_ADDR:%.*]] = alloca i64, align 8, addrspace(5)
@@ -1548,6 +1614,7 @@ int main()
 // CHECK-NEXT:    [[P:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[DOTOMP_IV12:%.*]] = alloca i32, align 4, addrspace(5)
 // CHECK-NEXT:    [[P13:%.*]] = alloca i32, align 4, addrspace(5)
+// CHECK-NEXT:    [[DYN_PTR_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DYN_PTR_ADDR]] to ptr
 // CHECK-NEXT:    [[N_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[N_ADDR]] to ptr
 // CHECK-NEXT:    [[SUM1_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[SUM1_ADDR]] to ptr
 // CHECK-NEXT:    [[VLA_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[VLA_ADDR]] to ptr
@@ -1568,6 +1635,7 @@ int main()
 // CHECK-NEXT:    [[P_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[P]] to ptr
 // CHECK-NEXT:    [[DOTOMP_IV12_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTOMP_IV12]] to ptr
 // CHECK-NEXT:    [[P13_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[P13]] to ptr
+// CHECK-NEXT:    store ptr [[DYN_PTR]], ptr [[DYN_PTR_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[N]], ptr [[N_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store ptr [[SUM1]], ptr [[SUM1_ADDR_ASCAST]], align 8
 // CHECK-NEXT:    store i64 [[VLA]], ptr [[VLA_ADDR_ASCAST]], align 8
@@ -1598,8 +1666,9 @@ int main()
 // CHECK-NEXT:    [[TMP11:%.*]] = load i32, ptr [[DOTOMP_LB_ASCAST]], align 4
 // CHECK-NEXT:    store i32 [[TMP11]], ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP12:%.*]] = call i32 @__kmpc_get_hardware_thread_id_in_block()
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
 // CHECK-NEXT:    [[GPU_BLOCK_ID:%.*]] = call i32 @llvm.amdgcn.workgroup.id.x()
-// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], 1024
+// CHECK-NEXT:    [[TMP13:%.*]] = mul i32 [[GPU_BLOCK_ID]], [[NVPTX_NUM_THREADS]]
 // CHECK-NEXT:    [[TMP14:%.*]] = add i32 [[TMP13]], [[TMP12]]
 // CHECK-NEXT:    [[TMP15:%.*]] = mul i32 [[TMP14]], 1
 // CHECK-NEXT:    [[TMP16:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
@@ -1677,7 +1746,8 @@ int main()
 // CHECK:       simd.if.end:
 // CHECK-NEXT:    br label [[FOR_INC:%.*]]
 // CHECK:       for.inc:
-// CHECK-NEXT:    [[TMP38:%.*]] = mul i32 1024, [[TMP18]]
+// CHECK-NEXT:    [[NVPTX_NUM_THREADS27:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+// CHECK-NEXT:    [[TMP38:%.*]] = mul i32 [[NVPTX_NUM_THREADS27]], [[TMP18]]
 // CHECK-NEXT:    [[TMP39:%.*]] = mul i32 [[TMP38]], 1
 // CHECK-NEXT:    [[TMP40:%.*]] = load i32, ptr [[DOTOMP_IV_ASCAST]], align 4
 // CHECK-NEXT:    [[TMP41:%.*]] = add i32 [[TMP39]], [[TMP40]]
