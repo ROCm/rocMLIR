@@ -30,7 +30,7 @@ import git
 
 def get_diff(base_commit) -> Tuple[bool, str]:
   diff_run = subprocess.run(
-    f'/opt/rocm/llvm/bin/git-clang-format --binary /opt/rocm/llvm/bin/clang-format --diff {base_commit}',
+    f'git-clang-format --diff {base_commit}',
     shell=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
