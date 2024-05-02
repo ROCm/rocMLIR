@@ -1449,12 +1449,10 @@ struct GridwiseAttentionAccelRewritePattern
         });
   }
 
-  FailureOr<Value> postProcessFirstGemm(PatternRewriter &rewriter, Location loc,
-                                        GridwiseAttentionAccelOp op,
-                                        layout::GridCoordinates gridCoords,
-                                        Value srcGemm0OutBuffer,
-                                        Value destGemm0OutBuffer,
-                                        RegsAsMatrixSubTiles gemm0OutViews) const {
+  FailureOr<Value> postProcessFirstGemm(
+      PatternRewriter &rewriter, Location loc, GridwiseAttentionAccelOp op,
+      layout::GridCoordinates gridCoords, Value srcGemm0OutBuffer,
+      Value destGemm0OutBuffer, RegsAsMatrixSubTiles gemm0OutViews) const {
     LogicalResult res = success();
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
@@ -1464,19 +1462,23 @@ struct GridwiseAttentionAccelRewritePattern
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
       MemRefType srcBufType = srcGemm0OutBuffer.getType().cast<MemRefType>();
       SmallVector<Value> inputTileBuffers;
-      Type laGemmSrcType = genOp.getInputs()[0].getType().cast<ShapedType>().getElementType();
-      Type actualGemmSrcType = srcGemm0OutBuffer.getType().cast<ShapedType>().getElementType();
-      Type laGemmDestType = genOp.getOutputs()[0].getType().cast<ShapedType>().getElementType();
-      Type actualGemmDstType = destGemm0OutBuffer.getType().cast<ShapedType>().getElementType();
+      Type laGemmSrcType =
+          genOp.getInputs()[0].getType().cast<ShapedType>().getElementType();
+      Type actualGemmSrcType =
+          srcGemm0OutBuffer.getType().cast<ShapedType>().getElementType();
+      Type laGemmDestType =
+          genOp.getOutputs()[0].getType().cast<ShapedType>().getElementType();
+      Type actualGemmDstType =
+          destGemm0OutBuffer.getType().cast<ShapedType>().getElementType();
       auto dstBufTypeLaType =
-            MemRefType::get(srcBufType.getShape(), laGemmDestType,
-                            AffineMap{}, privateMemoryAddressSpace);
+          MemRefType::get(srcBufType.getShape(), laGemmDestType, AffineMap{},
+                          privateMemoryAddressSpace);
       auto dstGemm0OutBufferLaTyped =
-            rewriter.create<rock::GpuAllocOp>(loc, dstBufTypeLaType);
+          rewriter.create<rock::GpuAllocOp>(loc, dstBufTypeLaType);
       if (actualGemmSrcType != laGemmSrcType) {
         auto srcBufLaType =
-            MemRefType::get(srcBufType.getShape(), laGemmSrcType,
-                            AffineMap{}, privateMemoryAddressSpace);
+            MemRefType::get(srcBufType.getShape(), laGemmSrcType, AffineMap{},
+                            privateMemoryAddressSpace);
         auto srcGemm0OutBufferLaTyped =
             rewriter.create<rock::GpuAllocOp>(loc, srcBufLaType);
         createTypeConversionStore(rewriter, loc, srcGemm0OutBuffer,
@@ -2379,7 +2381,7 @@ struct GridwiseAttentionAccelRewritePattern
     attentionOutAccBufferOutTyped = gemm1OutBuffer;
 #endif
     MemRefType attentionOutAccBufferOutType =
-    attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
+        attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
     int64_t numElementsAttnOut = attentionOutAccBufferOutType.getNumElements();
     // This map will create an upper view [gblock, nblock, flatiter] -> [gblock,
     // miter, nblock, iter]
@@ -2392,7 +2394,8 @@ struct GridwiseAttentionAccelRewritePattern
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto gridCoordsGemm1 =
         layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks);
-    Value attentionOutAccBufferOutTypedFlat = getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
+    Value attentionOutAccBufferOutTypedFlat =
+        getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, attentionOutAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
