@@ -158,12 +158,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
       MemRefType newBType = MemRefType::get(bShape, elemTypeA);
       memref::AllocOp newB = rw.create<memref::AllocOp>(loc, newBType);
-      createTypeConversionStore(rw, loc, b, newB);
+      createTypeConversionLaGeneric(rw, loc, b, newB);
       b = newB;
     } else {
       MemRefType newAType = MemRefType::get(aShape, elemTypeB);
       memref::AllocOp newA = rw.create<memref::AllocOp>(loc, newAType);
-      createTypeConversionStore(rw, loc, a, newA);
+      createTypeConversionLaGeneric(rw, loc, a, newA);
       a = newA;
     }
   }

@@ -24,8 +24,16 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
 Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                              Type destType);
 
+// Utility function to perform cast
+// and copy to another memref using a Linalg Generic.
+void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
+                                   Value src, Value dst);
+
+// Utility function to perform cast
+// and copy to another memref using a vector store.
 void createTypeConversionStore(PatternRewriter &rewriter, Location loc,
                                Value src, Value dst);
+
 /// Utility function to collapse an multi-dimensional memref to 1D.
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
 

@@ -128,10 +128,22 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   return result;
 }
 
-//===----------------------------------------------------------------------===//
-// Utility function to perform cast
-// and copy to another memref.
-//===----------------------------------------------------------------------===//
+void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
+                                   Value src, Value dst) {
+  MemRefType dstType = dst.getType().cast<MemRefType>();
+  SmallVector<AffineMap, 2> indexingMaps{
+      2, rewriter.getMultiDimIdentityMap(dstType.getRank())};
+  SmallVector<utils::IteratorType> iteratorTypes(dstType.getRank(),
+                                                 utils::IteratorType::parallel);
+  rewriter.create<linalg::GenericOp>(
+      loc, ValueRange(src), ValueRange(dst), indexingMaps, iteratorTypes,
+      [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
+        Value cast = createTypeConversionOp(rewriter, loc, args[0],
+                                            dstType.getElementType());
+        nestedBuilder.create<linalg::YieldOp>(nestedLoc, cast);
+      });
+}
+
 void createTypeConversionStore(PatternRewriter &rewriter, Location loc,
                                Value src, Value dst) {
   src = getFlattenedMemref(rewriter, src);
