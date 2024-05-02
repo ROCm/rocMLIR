@@ -68,7 +68,7 @@ while (<$trace>) {
                 $arch = $1;
             }
             open($segment, ">:encoding(UTF-8)", "${prefix}_${count}.mlir") or die $!;
-            print $segment "// RUN: rocmlir-driver -kernel-pipeline migraphx,highlevel %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -arch $arch -c\n";
+            print $segment "// RUN: rocmlir-driver -kernel-pipeline migraphx,highlevel %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -kernel-pipeline full  -arch $arch --verify-passes | rocmlir-opt\n";
             print $segment "module {\n";
             $count++;
             $toPrint = 1;
