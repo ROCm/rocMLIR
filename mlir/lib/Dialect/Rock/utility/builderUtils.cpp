@@ -7,6 +7,7 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -133,6 +134,8 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
 //===----------------------------------------------------------------------===//
 void createTypeConversionStore(PatternRewriter &rewriter, Location loc,
                                Value src, Value dst) {
+  src = getFlattenedMemref(rewriter, src);
+  dst = getFlattenedMemref(rewriter, dst);
   auto zeroConstantOp = rewriter.create<arith::ConstantIndexOp>(loc, 0);
   MemRefType srcMemRefType = src.getType().cast<MemRefType>();
   MemRefType dstMemRefType = dst.getType().cast<MemRefType>();

@@ -2371,13 +2371,9 @@ struct GridwiseAttentionAccelRewritePattern
     }
     // We flatten output buffer in case gemm1MBlocks > 1
     // where those are iterated.
-    Value attentionOutAccBufferFlat =
-        getFlattenedMemref(rewriter, attentionOutAccBuffer);
-    Value attentionOutAccBufferOutTypedFlat =
-        getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
     if (elemTypeQxK != elemTypeOut) {
-      createTypeConversionStore(rewriter, loc, attentionOutAccBufferFlat,
-                                attentionOutAccBufferOutTypedFlat);
+      createTypeConversionStore(rewriter, loc, attentionOutAccBuffer,
+                                attentionOutAccBufferOutTyped);
     }
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
     attentionOutAccBufferOutTyped = gemm1OutBuffer;
@@ -2396,6 +2392,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto gridCoordsGemm1 =
         layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks);
+    Value attentionOutAccBufferOutTypedFlat = getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, attentionOutAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
