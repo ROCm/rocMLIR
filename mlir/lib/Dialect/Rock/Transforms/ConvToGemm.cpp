@@ -15,7 +15,7 @@
 // limitations under the License.
 // ============================================================
 //
-// This pass converts rock.conv2d into rock.transform and
+// This pass converts rock.conv into rock.transform and
 // rock.gemm.
 //
 //===-----------------------------------------------------===//
