@@ -105,11 +105,13 @@ bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyDPerThread,
   // here.
   VectorizationResult kVectorRes = getMaxVectorization(
       matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
-      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock));
+      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock),
+      matrix.getDefiningOp());
   int64_t kVectorLen = kVectorRes.max;
   VectorizationResult dVectorRes = getMaxVectorization(
       matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
-      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock));
+      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock),
+      matrix.getDefiningOp());
   int64_t dVectorLen = dVectorRes.max;
 
   if (kVectorLen > dVectorLen) {

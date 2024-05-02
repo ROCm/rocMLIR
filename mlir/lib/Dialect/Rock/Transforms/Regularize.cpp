@@ -121,7 +121,6 @@ static bool isRegularGeneric(linalg::GenericOp lgop) {
     if (idxMap != outIdxMap)
       return false; //"Must be same index maps"
   }
-
   return true;
 }
 
@@ -147,6 +146,42 @@ struct RegularizeGenericRewritePattern
     return lres;
   }
 };
+
+void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
+  if (auto lgop = dyn_cast<linalg::GenericOp>(op)) {
+    int64_t majorTensorSize = 0;
+    size_t majorTensorIdx;
+    size_t inputIdx = 0;
+    size_t argIdx = -1;
+    if (lgop.getInputs().size() == 1) {
+      lgop->setAttr("rock.majorTensorNumber",
+                    IntegerAttr::get(IndexType::get(ctx), 1));
+      return;
+    }
+    for (auto inp : lgop.getInputs()) {
+      while (auto viewOp =
+                 dyn_cast_or_null<ViewLikeOpInterface>(inp.getDefiningOp()))
+        inp = viewOp.getViewSource();
+
+      if (inp.isa<BlockArgument>()) {
+        auto arg = dyn_cast<BlockArgument>(inp);
+        auto shape = inp.getType().cast<ShapedType>();
+        int64_t argSize = shape.getNumElements();
+        if (inputIdx == 0 || argSize > majorTensorSize ||
+            (argSize == majorTensorSize && argIdx > arg.getArgNumber())) {
+          majorTensorIdx = inputIdx;
+          majorTensorSize = argSize;
+          argIdx = arg.getArgNumber();
+        }
+      }
+      inputIdx++;
+    }
+    if (majorTensorIdx >= 0)
+      lgop->setAttr("rock.majorTensorNumber",
+                    IntegerAttr::get(IndexType::get(ctx), majorTensorIdx));
+  }
+  return;
+}
 
 ////////////////////////////////////////////////////////////////////////
 ////  Push Transforms Over alloc to writer
@@ -328,4 +363,6 @@ void RockRegularizePass::runOnOperation() {
     if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
       signalPassFailure();
   }
+
+  func->walk([&ctx](Operation *op) { AnnotateGenericOp(op, ctx); });
 }
