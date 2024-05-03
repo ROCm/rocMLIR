@@ -44,7 +44,7 @@ static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
   Value wgsPerChipletVal = b.createOrFold<ConstantIndexOp>(loc, wgsPerChiplet);
   Value logicalChipletId = b.create<RemUIOp>(loc, bid, numChipletsVal);
   Value wgIdPerLogicalChiplet = b.create<DivUIOp>(loc, bid, numChipletsVal);
-  Value bid_new = b.create<AddIOp>(
+  Value rearrangedBid = b.create<AddIOp>(
       loc, wgIdPerLogicalChiplet,
       b.create<MulIOp>(loc, logicalChipletId, wgsPerChipletVal));
   int64_t lastNumChipletMultiple =
@@ -54,7 +54,7 @@ static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
   Value isBidLargerThanlastNumChipletMultiple = b.create<arith::CmpIOp>(
       loc, arith::CmpIPredicate::ugt, bid, lastNumChipletMultipleVal);
   bid = b.create<arith::SelectOp>(loc, isBidLargerThanlastNumChipletMultiple,
-                                  bid, bid_new);
+                                  bid, rearrangedBid);
   return bid;
 }
 
