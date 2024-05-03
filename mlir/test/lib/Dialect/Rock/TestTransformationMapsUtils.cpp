@@ -15,8 +15,10 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Rewrite/PatternApplicator.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Casting.h"
 #include <tuple>
 
@@ -46,91 +48,149 @@ struct TransformMapsUtilsTestPass
 
 namespace {
 struct ByIndices {
-  static std::vector<std::pair<StringRef, SetVector<int64_t>>>
-  getTests(func::FuncOp f) {
-    std::vector<std::pair<StringRef, SetVector<int64_t>>> tests;
-    auto attrMap = f->getAttr("remove_dims_by_indices");
-    for (auto &testAttr : attrMap.cast<DictionaryAttr>()) {
-      auto attrArray = testAttr.getValue().cast<ArrayAttr>();
-      SetVector<int64_t> removeIndices;
-      for (auto &attr : attrArray) {
-        removeIndices.insert(attr.cast<IntegerAttr>().getInt());
-      }
-      tests.push_back({testAttr.getName(), removeIndices});
+  static SetVector<int64_t> getTests(Operation *testHandleOp) {
+    SetVector<int64_t> removeIndices;
+    auto arrayAttr = testHandleOp->getAttr("indices_to_drop").cast<ArrayAttr>();
+    for (auto &attr : arrayAttr) {
+      removeIndices.insert(attr.cast<IntegerAttr>().getInt());
     }
-    return tests;
+    return removeIndices;
   }
 };
 
 struct ByNames {
-  static std::vector<std::pair<StringRef, SetVector<StringRef>>>
-  getTests(func::FuncOp f) {
-    std::vector<std::pair<StringRef, SetVector<StringRef>>> tests;
-    auto attrMap = f->getAttr("remove_dims_by_names");
-    for (auto &testAttr : attrMap.cast<DictionaryAttr>()) {
-      auto attrArray = testAttr.getValue().cast<ArrayAttr>();
-      SetVector<StringRef> removeIndices;
-      for (auto &attr : attrArray) {
-        removeIndices.insert(attr.cast<StringAttr>().getValue());
-      }
-      tests.push_back({testAttr.getName(), removeIndices});
+  static SetVector<StringRef> getTests(Operation *testHandleOp) {
+    SetVector<StringRef> removeIndices;
+    auto arrayAttr = testHandleOp->getAttr("names_to_drop").cast<ArrayAttr>();
+    for (auto &attr : arrayAttr) {
+      removeIndices.insert(attr.cast<StringAttr>().getValue());
     }
-    return tests;
+    return removeIndices;
   }
 };
 } // namespace
 
-template <typename RequestProcessor>
-static LogicalResult testSubDimensions(func::FuncOp f) {
-  Value returnValue;
-  WalkResult walkResult = f.walk([&](func::ReturnOp op) -> WalkResult {
-    if (op.getNumOperands() == 1) {
-      returnValue = op->getOperand(0);
+struct RemoveDimTestPattern : public OpRewritePattern<func::FuncOp> {
+  using OpRewritePattern<func::FuncOp>::OpRewritePattern;
+
+  FailureOr<Operation *> getTestHandleOp(func::FuncOp func) const {
+    Operation *testHandleOp = nullptr;
+    WalkResult walkResult = func->walk([&](Operation *op) {
+      if (op->getName().getStringRef() == "remove_dims") {
+        testHandleOp = op;
+        return WalkResult::interrupt();
+      }
       return WalkResult::advance();
-    }
-    return WalkResult::interrupt();
-  });
-  if (walkResult.wasInterrupted()) {
-    return failure();
-  }
+    });
 
-  OpBuilder builder(f.getContext());
-
-  ArrayAttr transformAttrs;
-  std::tie(std::ignore, transformAttrs, std::ignore) =
-      rock::untransform(builder, returnValue);
-
-  auto tests = RequestProcessor::getTests(f);
-  for (auto &[testName, removeDims] : tests) {
-    auto results = rock::removeUpperDims(builder, transformAttrs, removeDims);
-    if (failed(results)) {
+    if (!walkResult.wasInterrupted()) {
+      emitError(UnknownLoc::get(func.getContext()),
+                "no `remove_dims` op found");
       return failure();
     }
 
-    std::string outputString;
-    llvm::raw_string_ostream stream(outputString);
-    stream << testName << ' ' << f.getSymName() << '\n';
-    for (auto item : *results) {
-      item.print(stream);
-      stream << '\n';
+    if (testHandleOp->getNumOperands() != 1) {
+      emitError(UnknownLoc::get(func.getContext()),
+                "`remove_dims` op must have a single operand");
+      return failure();
     }
-    llvm::outs() << stream.str();
+    return testHandleOp;
   }
-  return success();
-}
+
+  template <typename RequestProcessor>
+  FailureOr<ArrayAttr> removeUpperDims(PatternRewriter &builder,
+                                       Operation *testHandleOp) const {
+    Value testValue = testHandleOp->getOperand(0);
+
+    ArrayAttr transformAttrs;
+    std::tie(std::ignore, transformAttrs, std::ignore) =
+        rock::untransform(builder, testValue);
+
+    auto removeDims = RequestProcessor::getTests(testHandleOp);
+    FailureOr<ArrayAttr> maybeNewArrayAttr =
+        rock::removeUpperDims(builder, transformAttrs, removeDims);
+
+    return maybeNewArrayAttr;
+  }
+
+  LogicalResult matchAndRewrite(func::FuncOp func,
+                                PatternRewriter &b) const final {
+
+    FailureOr<Operation *> maybeTestHandleOp = getTestHandleOp(func);
+    if (failed(maybeTestHandleOp)) {
+      return failure();
+    }
+    Operation *testHandleOp = maybeTestHandleOp.value();
+
+    // remove indices
+    FailureOr<ArrayAttr> maybeNewTrMapAttrs;
+    if (testHandleOp->getAttr("names_to_drop")) {
+      maybeNewTrMapAttrs = removeUpperDims<ByNames>(b, testHandleOp);
+    } else if (testHandleOp->getAttr("indices_to_drop")) {
+      maybeNewTrMapAttrs = removeUpperDims<ByIndices>(b, testHandleOp);
+    } else {
+      emitError(UnknownLoc::get(func.getContext()),
+                "`remove_dims` op does not have `drop` attr");
+      return failure();
+    }
+
+    if (failed(maybeNewTrMapAttrs)) {
+      return failure();
+    }
+    ArrayAttr newTrMapAttrs = maybeNewTrMapAttrs.value();
+
+    // construct a new function signature and remove the old function body
+    Attribute attr = *(std::prev(newTrMapAttrs.end()));
+    auto firstTrMap = attr.cast<rock::TransformMapAttr>();
+    DenseI64ArrayAttr firstLowerBounds = firstTrMap.getLowerBounds();
+
+    Type inputType = func.getArgument(0).getType();
+    Type inputElementType = inputType.cast<MemRefType>().getElementType();
+
+    auto newInputType =
+        MemRefType::get(firstLowerBounds.asArrayRef(), inputElementType);
+    auto newFuncType =
+        FunctionType::get(func->getContext(), {newInputType}, {});
+
+    func.eraseBody();
+    func.setFunctionType(newFuncType);
+
+    Block *newEntryBlock = func.addEntryBlock();
+    b.setInsertionPointToStart(newEntryBlock);
+
+    // insert new transform ops
+    Location loc = b.getUnknownLoc();
+    Value input = newEntryBlock->getArgument(0);
+    for (auto trMapAttr : llvm::reverse(newTrMapAttrs)) {
+      auto trOp = b.create<rock::TransformOp>(
+          loc, input, trMapAttr.cast<TransformMapAttr>());
+      input = trOp.getOutput();
+    }
+    b.create<func::ReturnOp>(loc);
+
+    return success();
+  }
+};
+
+class TransformMapRewriter : public PatternRewriter {
+public:
+  TransformMapRewriter(MLIRContext *ctx) : PatternRewriter(ctx) {}
+};
 
 void TransformMapsUtilsTestPass::runOnOperation() {
-  func::FuncOp f = getOperation();
-  if (f->getAttr("remove_dims_by_indices")) {
-    if (failed(testSubDimensions<ByIndices>(f))) {
-      emitError(UnknownLoc::get(f.getContext()), "Pass failure");
-      signalPassFailure();
-    }
-  } else if (f->getAttr("remove_dims_by_names")) {
-    if (failed(testSubDimensions<ByNames>(f))) {
-      emitError(UnknownLoc::get(f.getContext()), "Pass failure");
-      signalPassFailure();
-    }
+  MLIRContext *ctx = getOperation()->getContext();
+
+  RewritePatternSet patterns(ctx);
+  patterns.add<RemoveDimTestPattern>(ctx);
+  FrozenRewritePatternSet frozenPatternSet(std::move(patterns));
+
+  PatternApplicator applicator(frozenPatternSet);
+  applicator.applyDefaultCostModel();
+
+  TransformMapRewriter rewriter(ctx);
+  LogicalResult result = applicator.matchAndRewrite(getOperation(), rewriter);
+  if (failed(result)) {
+    signalPassFailure();
   }
 }
 

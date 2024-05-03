@@ -1779,7 +1779,7 @@ getPreservedIndices(rock::TransformAttr tr,
 }
 
 template <DimType Type>
-void propagatePreservedNames(rock::TransformAttr tr, TransformAttrArgs &args) {
+void populatePreservedNames(rock::TransformAttr tr, TransformAttrArgs &args) {
   const auto &preservedDims = std::get<Type>(args.preservedDims);
   auto names = Type == DimType::Upper ? tr.getUpperNames() : tr.getLowerNames();
   auto dims = Type == DimType::Upper ? tr.getUpperDims() : tr.getLowerDims();
@@ -1863,7 +1863,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
     case TransformType::ConstDim:
     case TransformType::Broadcast:
     case TransformType::Merge: {
-      assert(!mustBeModified && "assume always one-to-many relation");
+      assert(!mustBeModified && "must be preserved or removed completely");
       [[fallthrough]];
     }
     case TransformType::Unmerge: {
@@ -1889,8 +1889,8 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
       return failure();
     }
 
-    propagatePreservedNames<DimType::Upper>(tr, args);
-    propagatePreservedNames<DimType::Lower>(tr, args);
+    populatePreservedNames<DimType::Upper>(tr, args);
+    populatePreservedNames<DimType::Lower>(tr, args);
 
     // re-compute transformation parameters
     if (mustBePreserved || mustBeModified) {
@@ -2004,13 +2004,14 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
     assert(upperBounds.size() ==
            static_cast<size_t>(trMap.getUpperBounds().size()));
     llvm::SmallVector<int64_t> lowerBounds = {};
-    auto newTrMap = removeUpperDimsFromMap(b, trMap, removeIndicesSet,
-                                           upperBounds, lowerBounds);
+    FailureOr<rock::TransformMapAttr> newTrMap = removeUpperDimsFromMap(
+        b, trMap, removeIndicesSet, upperBounds, lowerBounds);
     upperBounds = lowerBounds;
     if (failed(newTrMap)) {
       return failure();
     }
-    results.push_back(*newTrMap);
+    if (*newTrMap)
+      results.push_back(*newTrMap);
   }
 
   return b.getArrayAttr(results);
