@@ -1488,12 +1488,12 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
             newLoadOp =
                 opBuilder.create<arith::TruncIOp>(loc, dstElemType, loadOp);
         } else {
-          assert(dstElemType.isa<FloatType>());
+          assert(isa<FloatType>(dstElemType));
           newLoadOp =
               opBuilder.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
         }
       } else {
-        assert(srcElemType.isa<FloatType>());
+        assert(isa<FloatType>(srcElemType));
         if (dstElemType.isIntOrIndex()) {
           newLoadOp =
               opBuilder.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
@@ -1555,7 +1555,7 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
 Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref, Type floatType) {
   auto refType = ref.getType().template dyn_cast<MemRefType>();
   Type refElemType = refType.getElementType();
-  if (!refElemType.isa<FloatType>() || refElemType.isF32())
+  if (!isa<FloatType>(refElemType) || refElemType.isF32())
     return ref;
   Value refFlat = makeNDMemRef(b, ref, 1);
   auto f32NewType = MemRefType::get(refType.getShape(), floatType);
@@ -1871,11 +1871,11 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   affine::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
                               createConv2dLoopNest);
 
-  if (!opd1.isa<BlockArgument>())
+  if (!isa<BlockArgument>(opd1))
     b.create<memref::DeallocOp>(loc, opd1);
-  if (!opd2.isa<BlockArgument>())
+  if (!isa<BlockArgument>(opd2))
     b.create<memref::DeallocOp>(loc, opd2);
-  if (!result.isa<BlockArgument>()) {
+  if (!isa<BlockArgument>(result)) {
     BlockArgument resultBlockArg;
     switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
@@ -2096,11 +2096,11 @@ static void createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
                  paddingWidthRightConstantOp, dilationHeightConstantOp,
                  dilationWidthConstantOp, accelConstantOp});
 
-  if (!filter.isa<BlockArgument>())
+  if (!isa<BlockArgument>(filter))
     b.create<memref::DeallocOp>(loc, filter);
-  if (!input.isa<BlockArgument>())
+  if (!isa<BlockArgument>(input))
     b.create<memref::DeallocOp>(loc, input);
-  if (!output.isa<BlockArgument>()) {
+  if (!isa<BlockArgument>(output)) {
     BlockArgument resultBlockArg = block->getArgument(2);
     Value resultFlat = makeNDMemRef(b, output, 1);
     emitMemcpy(b, resultFlat, resultBlockArg);
@@ -2514,7 +2514,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
       [](OpBuilder &builder, Location loc, ValueRange elems) {
         Value a = elems[0], b = elems[1], c = elems[2];
         Type cType = c.getType();
-        if (cType.isa<IntegerType>()) {
+        if (isa<IntegerType>(cType)) {
           Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
           Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
           Value mul = builder.create<arith::MulIOp>(loc, aExt, bExt);
@@ -2527,11 +2527,11 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
         }
       });
 
-  if (!aVal.isa<BlockArgument>())
+  if (!isa<BlockArgument>(aVal))
     b.create<memref::DeallocOp>(loc, aVal);
-  if (!bVal.isa<BlockArgument>())
+  if (!isa<BlockArgument>(bVal))
     b.create<memref::DeallocOp>(loc, bVal);
-  if (!cVal.isa<BlockArgument>()) {
+  if (!isa<BlockArgument>(cVal)) {
     BlockArgument resultBlockArg = block->getArgument(2);
     Value resultFlat = makeNDMemRef(b, cVal, 1);
     emitMemcpy(b, resultFlat, resultBlockArg);
@@ -2800,7 +2800,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
-  if (valElemType.isa<FloatType>()) {
+  if (isa<FloatType>(valElemType)) {
     // f16, bf16, fp8, bf8 will be converted to f32 by wrapper.
     verifyFuncName += "Float";
   } else if (valElemType.isInteger(8) || valElemType.isInteger(32) ||
@@ -2891,7 +2891,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   // Declare and call the wrapper verify function
   func::FuncOp verifyFuncDecl;
 
-  if (testElemType.isa<FloatType>()) {
+  if (isa<FloatType>(testElemType)) {
     constexpr float defaultRMSThreshold(0.00003f);
     constexpr float defaultRMSThresholdFP16(0.001f);
     float RMSThresholdValue =
@@ -3235,16 +3235,16 @@ static LogicalResult populateHostHarnessLogic(
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
   for (auto [idx, paramType] : llvm::enumerate(root0.params)) {
-    auto paramMRType = paramType.dyn_cast<MemRefType>();
+    auto paramMRType = dyn_cast<MemRefType>(paramType);
     assert(paramMRType && "currently only supports memref types");
     Type elemType = paramMRType.getElementType();
     bool isSmallFloat =
-        elemType.isa<FloatType>() && elemType.getIntOrFloatBitWidth() < 32;
+        isa<FloatType>(elemType) && elemType.getIntOrFloatBitWidth() < 32;
     if (isCPUKernel) { // -prc
       if (genParams.operation.has_value()) {
         if (idx < genParams.types.size())
           elemType = genParams.types[idx];
-        if (elemType.isa<IntegerType>() && llvm::is_contained(outIndices, idx))
+        if (isa<IntegerType>(elemType) && llvm::is_contained(outIndices, idx))
           elemType = b.getIntegerType(64);
         paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
       }
@@ -3264,7 +3264,7 @@ static LogicalResult populateHostHarnessLogic(
     if (hasValidation || (isCPUKernel && isSmallFloat)) {
       // Emit validation var
       Type valElemType = floatType;
-      if (genParams.operation.has_value() && elemType.isa<IntegerType>()) {
+      if (genParams.operation.has_value() && isa<IntegerType>(elemType)) {
         valElemType = elemType;
         if (!gpuValidation && idx == 2)
           //-pv_with_mlir, -pv_with_cpp, or -pv_with_gpu && non-accel

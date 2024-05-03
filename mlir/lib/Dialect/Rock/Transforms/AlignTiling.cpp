@@ -457,7 +457,7 @@ static LogicalResult checkUniqueReader(Operation *op, Operation *reader,
   for (Value result : op->getResults()) {
     // if its block arg, it can have uses beyond the unit of compilation
     // in scope here.
-    if (result.isa<BlockArgument>()) {
+    if (isa<BlockArgument>(result)) {
       isUnique = false;
     }
     for (auto &use : result.getUses()) {
@@ -541,7 +541,7 @@ traceToWriter(Value startVal,
 
 static Value makeRegs(LinalgAlignRewriter &b, MemRefType::Builder &mrb,
                       Location loc, Type srcType) {
-  auto srcMemType = srcType.cast<MemRefType>();
+  auto srcMemType = cast<MemRefType>(srcType);
   // 1. create a second allocation of the same type to hold loaded elements
   return b.create<GpuAllocOp>(loc, static_cast<MemRefType>(mrb.setElementType(
                                        srcMemType.getElementType())));
