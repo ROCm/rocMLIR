@@ -151,14 +151,15 @@ protected:
 // Registration
 //===----------------------------------------------------------------------===//
 
+// Remove deprecation warnings because we're going to Get Around To This
 /// Register pass to serialize GPU kernel functions to a HSAco binary
 /// annotation.
-LLVM_DEPRECATED("use Target attributes instead", "")
+// LLVM_DEPRECATED("use Target attributes instead", "")
 void registerGpuSerializeToHsacoPass();
 
 /// Create an instance of the GPU kernel function to HSAco binary serialization
 /// pass.
-LLVM_DEPRECATED("use Target attributes instead", "")
+// LLVM_DEPRECATED("use Target attributes instead", "")
 std::unique_ptr<Pass> createGpuSerializeToHsacoPass(StringRef triple,
                                                     StringRef arch,
                                                     StringRef features,
