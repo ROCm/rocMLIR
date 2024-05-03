@@ -163,7 +163,7 @@ void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
                  dyn_cast_or_null<ViewLikeOpInterface>(inp.getDefiningOp()))
         inp = viewOp.getViewSource();
 
-      if (inp.isa<BlockArgument>()) {
+      if (isa<BlockArgument>(inp)) {
         auto arg = dyn_cast<BlockArgument>(inp);
         auto shape = inp.getType().cast<ShapedType>();
         int64_t argSize = shape.getNumElements();

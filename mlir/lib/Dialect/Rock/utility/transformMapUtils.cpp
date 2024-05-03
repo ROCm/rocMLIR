@@ -1144,7 +1144,7 @@ static void createPermutationForMinorIdentityWithBroadcast(
   for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
     auto idx = idxAndValue.index();
     AffineExpr resultExpr = idxAndValue.value();
-    if (resultExpr.isa<AffineDimExpr>()) {
+    if (isa<AffineDimExpr>(resultExpr)) {
       foundInputDims.insert(originalMap.getDimPosition(idx));
     }
   }
@@ -1152,7 +1152,7 @@ static void createPermutationForMinorIdentityWithBroadcast(
   for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
     auto idx = idxAndValue.index();
     AffineExpr resultExpr = idxAndValue.value();
-    if (resultExpr.isa<AffineDimExpr>()) {
+    if (isa<AffineDimExpr>(resultExpr)) {
       auto swap1 = originalMap.getDimPosition(idx);
       auto swap2 =
           originalMap.getNumInputs() - originalMap.getNumResults() + idx;
@@ -1201,7 +1201,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
         newInpDimSize *= inpShape[idx];
         AffineExpr resultExpr = idxAndValue.value();
         mergeDims.push_back(idx);
-        if (diff != 0 && resultExpr.isa<AffineConstantExpr>() &&
+        if (diff != 0 && isa<AffineConstantExpr>(resultExpr) &&
             inpShape[idx] == 1) {
           diff++;
         } else {
@@ -1639,7 +1639,7 @@ ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
                                        ArrayAttr transforms) {
   SmallVector<Attribute, 4> invertedTrs;
   for (Attribute tr : llvm::reverse(transforms)) {
-    TransformMapAttr trMap = tr.cast<TransformMapAttr>();
+    auto trMap = cast<TransformMapAttr>(tr);
     TransformMapAttr invertedTrMap = invertTransformMap(b, trMap, loc);
     if (!invertedTrMap)
       return {};
