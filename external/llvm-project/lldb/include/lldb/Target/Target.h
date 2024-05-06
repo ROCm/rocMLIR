@@ -167,6 +167,8 @@ public:
 
   bool GetEnableSyntheticValue() const;
 
+  bool ShowHexVariableValuesWithLeadingZeroes() const;
+
   uint32_t GetMaxZeroPaddingInFloatFormat() const;
 
   uint32_t GetMaximumNumberOfChildrenToDisplay() const;
@@ -242,8 +244,6 @@ public:
 
   bool GetInjectLocalVariables(ExecutionContext *exe_ctx) const;
 
-  void SetInjectLocalVariables(ExecutionContext *exe_ctx, bool b);
-
   void SetRequireHardwareBreakpoints(bool b);
 
   bool GetRequireHardwareBreakpoints() const;
@@ -257,6 +257,10 @@ public:
   bool GetDebugUtilityExpression() const;
 
 private:
+  std::optional<bool>
+  GetExperimentalPropertyValue(size_t prop_idx,
+                               ExecutionContext *exe_ctx = nullptr) const;
+
   // Callbacks for m_launch_info.
   void Arg0ValueChangedCallback();
   void RunArgsValueChangedCallback();
@@ -652,6 +656,8 @@ public:
 
   lldb::BreakpointSP GetBreakpointByID(lldb::break_id_t break_id);
 
+  lldb::BreakpointSP CreateBreakpointAtUserEntry(Status &error);
+
   // Use this to create a file and line breakpoint to a given module or all
   // module it is nullptr
   lldb::BreakpointSP CreateBreakpoint(const FileSpecList *containingModules,
@@ -679,7 +685,7 @@ public:
   // Use this to create a breakpoint from a load address and a module file spec
   lldb::BreakpointSP CreateAddressInModuleBreakpoint(lldb::addr_t file_addr,
                                                      bool internal,
-                                                     const FileSpec *file_spec,
+                                                     const FileSpec &file_spec,
                                                      bool request_hardware);
 
   // Use this to create Address breakpoints:
@@ -759,9 +765,10 @@ public:
   WatchpointList &GetWatchpointList() { return m_watchpoint_list; }
 
   // Manages breakpoint names:
-  void AddNameToBreakpoint(BreakpointID &id, const char *name, Status &error);
+  void AddNameToBreakpoint(BreakpointID &id, llvm::StringRef name,
+                           Status &error);
 
-  void AddNameToBreakpoint(lldb::BreakpointSP &bp_sp, const char *name,
+  void AddNameToBreakpoint(lldb::BreakpointSP &bp_sp, llvm::StringRef name,
                            Status &error);
 
   void RemoveNameFromBreakpoint(lldb::BreakpointSP &bp_sp, ConstString name);
@@ -1594,7 +1601,8 @@ public:
   ///
   /// \return
   ///     Returns a JSON value that contains all target metrics.
-  llvm::json::Value ReportStatistics();
+  llvm::json::Value
+  ReportStatistics(const lldb_private::StatisticsOptions &options);
 
   TargetStats &GetStatistics() { return m_stats; }
 
@@ -1625,12 +1633,6 @@ private:
 
   Target(const Target &) = delete;
   const Target &operator=(const Target &) = delete;
-
-private:
-  void CallLocateModuleCallbackIfSet(const ModuleSpec &module_spec,
-                                     lldb::ModuleSP &module_sp,
-                                     FileSpec &symbol_file_spec,
-                                     bool &did_create_module);
 };
 
 } // namespace lldb_private

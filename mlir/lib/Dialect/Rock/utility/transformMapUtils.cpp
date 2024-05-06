@@ -360,8 +360,11 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
       uint32_t fastestDim = groupCandidate.back();
       size_t fastestDimPosInMerge = dimPosition.back();
       size_t slowestDimPosInMerge = dimPosition.front();
-      for (auto d : groupCandidate)
+      for (auto d : groupCandidate) {
+        // Make sure that the dimension cannot be reused
+        dimToMerge.erase(d);
         contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
+      }
 
       // We also want to add the singleton dimensions of the merge the
       // groupCandidate belongs to. In this way we cover for situations like
@@ -379,8 +382,11 @@ void findCountiguousGroupsUnmerge(const ArrayRef<uint32_t> upperDims,
                thisMergeParams.slice(slowestDimPosInMerge,
                                      fastestDimPosInMerge -
                                          slowestDimPosInMerge))) {
-        if (p == 1)
+        if (p == 1 && dimToMerge.contains(d)) {
+          // Make sure that the dimension cannot be reused
+          dimToMerge.erase(d);
           contiguousGroups[keyI.transformPair()].unionSets(fastestDim, d);
+        }
       }
     }
   }
@@ -819,11 +825,16 @@ findPostFusionTransforms(Value buffer, Operation *currentUser) {
       }
       Value genericOut = genericOp.getOutputs().front();
       if (genericOut == buffer) {
-        LLVM_DEBUG(llvm::dbgs() << "[vectorization] Currently can't analyze "
-                                   "through input fusions\n");
-        return failure();
-      }
-      candidate = genericOut;
+        if (auto index = genericOp->getAttrOfType<IntegerAttr>(
+                "rock.majorTensorNumber")) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "[vectorization] can't analyze linalg.generic "
+                        "without rock.majorTensorNumber\n");
+          return failure();
+        } else
+          candidate = genericOp.getInputs()[index.getInt()];
+      } else
+        candidate = genericOut;
     } else {
       LLVM_DEBUG(llvm::dbgs()
                  << "[vectorization] Unexpected user of temporary buffer: "
@@ -1326,6 +1337,7 @@ mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
   for (auto pair : llvm::zip(inps, idxMaps)) {
     if (auto inp = std::get<0>(pair)) {
       auto imap = std::get<1>(pair);
+
       if (imap != outIdxMap) {
         // inject a broadcast
         auto invertOutIdxMap = inversePermutation(outIdxMap);
@@ -1338,7 +1350,7 @@ mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
   }
 
   // reset idxmaps
-  b.updateRootInPlace(laOp, [&]() {
+  b.modifyOpInPlace(laOp, [&]() {
     SmallVector<AffineMap, 5> newIdxMaps(idxMaps.size(), outIdxMap);
     laOp.setIndexingMapsAttr(b.getAffineMapArrayAttr(newIdxMaps));
   });

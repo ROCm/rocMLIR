@@ -417,7 +417,7 @@ func.func @rock_attention_default(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
 // CHECK-LABEL: func.func @rock_attention_large
 // CHECK-SAME: block_size = 256
 // GRID-LABEL: func.func @rock_attention_large
-// GRID-SAME: grid_size = 512
+// GRID-SAME: grid_size = 128
 func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x512x16384xf32>, %arg2: memref<1x16384x512xf32>, %arg3: memref<1x16384x512xf32>) {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x16384x512xf32>
   // CHECK: rock.attention

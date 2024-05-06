@@ -11,7 +11,7 @@
 // RUN: mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
 // RUN: FileCheck %s --check-prefixes=CHECK,F8E5M2FNUZ
 
-func.func private @printCString(!llvm.ptr) -> ()
+
 func.func private @printI64(i64) -> ()
 func.func private @printF32(f32) -> ()
 func.func private @printNewline() -> ()
@@ -27,10 +27,8 @@ func.func @testTruncExt(%id : i64, %input: f32) {
   return
 }
 
-llvm.mlir.global internal constant @strFail("FAIL: ")
 func.func @printFail(%wanted : i8, %got : i8, %intermediate : f32) {
-  %strFail = llvm.mlir.addressof @strFail : !llvm.ptr
-  call @printCString(%strFail) : (!llvm.ptr) -> ()
+  vector.print str "FAIL: \n"
   %wantedExt = arith.extui %wanted : i8 to i64
   %gotExt = arith.extui %got : i8 to i64
   call @printI64(%wantedExt) : (i64) -> ()

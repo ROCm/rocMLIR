@@ -84,7 +84,7 @@ bool overrideBuffer(Operation *op, Value buffer) {
   }
   if (!dest)
     return false;
-  auto maybeAllocOp = findAlloc(dest);
+  auto maybeAllocOp = findGpuAlloc(dest);
   if (failed(maybeAllocOp))
     return false;
   return (*maybeAllocOp).getResult() == buffer;

@@ -1,7 +1,7 @@
 #
 #  make_generated_offload_arch_h.py - Create the fle generated_offload_arch.h
 #
-# Copyright (c) 2021 ADVANCED MICRO DEVICES, INC.
+# Copyright (c) 2024 ADVANCED MICRO DEVICES, INC.
 #
 # AMD is granting you permission to use this software and documentation (if any) (collectively, the
 # Materials) pursuant to the terms and conditions of the Software License Agreement included with the
@@ -47,6 +47,7 @@ from typing import Dict, List, Set, Tuple
 # These are the input files
 AOT_PCIID2CODENAME = ["amdgpu/pciid2codename.txt", "nvidia/pciid2codename.txt"]
 AOT_CODENAME2OFFLIADARCH = ["amdgpu/codename2offloadarch.txt", "nvidia/codename2offloadarch.txt"]
+AOT_CODENAME2OFFLIADARCH_AMD = ["amdgpu/codename2offloadarch.txt"]
 
 # This is the output file which is always written to current dir
 AOT_DOTH_FILE = Path.cwd() / "generated_offload_arch.h"
@@ -84,6 +85,11 @@ def write_aot_structs(file) -> None:
           '  const char* offloadarch;\n'
           '};\n'
           '\n'
+          'struct AOT_OFFLOADARCH_TO_CODENAME_ENTRY{\n'
+          '  const char* offloadarch;\n'
+          '  const char* codename;\n'
+          '};\n'
+          '\n'
           'struct AOT_TABLE_ENTRY{\n'
           '  uint16_t vendorid;\n'
           '  uint16_t devid;\n'
@@ -106,6 +112,13 @@ def write_aot_offloadarch_to_string(file, offload_archs: Set[str]) -> None:
     print('};\n', file=file, flush=True)
 
 
+def write_amd_offloadarch_to_codename_table(file, code_names: Dict[str, List[str]]) -> None:
+    print('extern const AOT_OFFLOADARCH_TO_CODENAME_ENTRY AOT_AMD_OFFLOADARCH_TO_CODENAME_TABLE[] = {', file=file)
+    for code_name, offload_arch in code_names.items():
+        print('    {'f'"{offload_arch[0]}", "{code_name}"''},', file=file, flush=True)
+    print('};\n', file=file, flush=True)
+
+
 def write_aot_table(file, offload_archs: Dict[str, List[str]], pci_ids: Dict[str, Tuple[str, str]]) -> None:
     print('extern const AOT_TABLE_ENTRY AOT_TABLE[] = {', file=file)
     for key, pci_id in pci_ids.items():
@@ -118,9 +131,9 @@ def write_aot_table(file, offload_archs: Dict[str, List[str]], pci_ids: Dict[str
     print('};\n', file=file, flush=True)
 
 
-def read_codename2offloadarch(input_dir: Path) -> Dict[str, List[str]]:
+def read_codename2offloadarch(input_dir: Path, files: List[str]) -> Dict[str, List[str]]:
     result = dict()
-    for file in AOT_CODENAME2OFFLIADARCH:
+    for file in files:
         with (input_dir / file).open() as f:
             for line in f.readlines():
                 (codename, offload_arch) = line.strip().split(sep=' ', maxsplit=1)
@@ -150,7 +163,7 @@ def main(input_dir: Path):
     # we don't want to append to existing file
     AOT_DOTH_FILE.unlink(missing_ok=True)
 
-    codename2offload_arch = read_codename2offloadarch(input_dir)
+    codename2offload_arch = read_codename2offloadarch(input_dir, AOT_CODENAME2OFFLIADARCH)
 
     codenames, offload_archs = set(), set()
     for [key, offload_arch] in codename2offload_arch.items():
@@ -159,6 +172,8 @@ def main(input_dir: Path):
 
     pciid2codename = read_pciid2codename(input_dir, codenames)
 
+    codename2offload_arch_amd = read_codename2offloadarch(input_dir, AOT_CODENAME2OFFLIADARCH_AMD)
+
     with AOT_DOTH_FILE.open(mode="w") as f:
         write_aot_prolog(f)
         write_aot_offloadarch(f, offload_archs)
@@ -166,6 +181,7 @@ def main(input_dir: Path):
         write_aot_structs(f)
         write_aot_codename_to_string(f, codenames)
         write_aot_offloadarch_to_string(f, offload_archs)
+        write_amd_offloadarch_to_codename_table(f, codename2offload_arch_amd)
         write_aot_table(f, codename2offload_arch, pciid2codename)
 
 

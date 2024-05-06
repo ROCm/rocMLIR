@@ -13,8 +13,10 @@ MATH_MANGLE(rsqrt)(float x)
     if (DAZ_OPT()) {
         return BUILTIN_AMDGPU_RSQRT_F32(x);
     } else {
-        bool s = x < 0x1.0p-100f;
-        return BUILTIN_AMDGPU_RSQRT_F32(x * (s ? 0x1.0p+100f : 1.0f)) * (s ? 0x1.0p+50f : 1.0f);
+        bool need_scale = x < 0x1p-126f;
+        float scaled_input = need_scale ? 0x1.0p+24f * x : x;
+        float result = BUILTIN_AMDGPU_RSQRT_F32(scaled_input);
+        return need_scale ? result * 0x1.0p+12f : result;
     }
 }
 

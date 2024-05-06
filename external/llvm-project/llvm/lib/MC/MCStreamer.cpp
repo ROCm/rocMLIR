@@ -137,11 +137,11 @@ void MCStreamer::emitIntValue(uint64_t Value, unsigned Size) {
          "Invalid size");
   const bool IsLittleEndian = Context.getAsmInfo()->isLittleEndian();
   uint64_t Swapped = support::endian::byte_swap(
-      Value, IsLittleEndian ? support::little : support::big);
+      Value, IsLittleEndian ? llvm::endianness::little : llvm::endianness::big);
   unsigned Index = IsLittleEndian ? 0 : 8 - Size;
   emitBytes(StringRef(reinterpret_cast<char *>(&Swapped) + Index, Size));
 }
-void MCStreamer::emitIntValue(APInt Value) {
+void MCStreamer::emitIntValue(const APInt &Value) {
   if (Value.getNumWords() == 1) {
     emitIntValue(Value.getLimitedValue(), Value.getBitWidth() / 8);
     return;
@@ -643,6 +643,45 @@ void MCStreamer::emitCFIGnuArgsSize(int64_t Size, SMLoc Loc) {
   if (!CurFrame)
     return;
   CurFrame->Instructions.push_back(Instruction);
+}
+
+void MCStreamer::emitCFILLVMRegisterPair(int64_t Register, int64_t R1,
+                                         int64_t R1Size, int64_t R2,
+                                         int64_t R2Size, SMLoc Loc) {
+  MCSymbol *Label = emitCFILabel();
+  MCCFIInstruction Instruction = MCCFIInstruction::createLLVMRegisterPair(
+      Label, Register, R1, R1Size, R2, R2Size, Loc);
+  MCDwarfFrameInfo *CurFrame = getCurrentDwarfFrameInfo();
+  if (!CurFrame)
+    return;
+  CurFrame->Instructions.push_back(std::move(Instruction));
+}
+
+void MCStreamer::emitCFILLVMVectorRegisters(
+    int64_t Register, std::vector<MCCFIInstruction::VectorRegisterWithLane> VRs,
+    SMLoc Loc) {
+  MCSymbol *Label = emitCFILabel();
+  MCCFIInstruction Instruction = MCCFIInstruction::createLLVMVectorRegisters(
+      Label, Register, std::move(VRs), Loc);
+  MCDwarfFrameInfo *CurFrame = getCurrentDwarfFrameInfo();
+  if (!CurFrame)
+    return;
+  CurFrame->Instructions.push_back(std::move(Instruction));
+}
+
+void MCStreamer::emitCFILLVMVectorOffset(int64_t Register,
+                                         int64_t RegisterSizeInBits,
+                                         int64_t MaskRegister,
+                                         int64_t MaskRegisterSizeInBits,
+                                         int64_t Offset, SMLoc Loc) {
+  MCSymbol *Label = emitCFILabel();
+  MCCFIInstruction Instruction = MCCFIInstruction::createLLVMVectorOffset(
+      Label, Register, RegisterSizeInBits, MaskRegister, MaskRegisterSizeInBits,
+      Offset, Loc);
+  MCDwarfFrameInfo *CurFrame = getCurrentDwarfFrameInfo();
+  if (!CurFrame)
+    return;
+  CurFrame->Instructions.push_back(std::move(Instruction));
 }
 
 void MCStreamer::emitCFISignalFrame() {
@@ -1167,7 +1206,8 @@ void MCStreamer::endCOFFSymbolDef() {
   llvm_unreachable("this directive only supported on COFF targets");
 }
 void MCStreamer::emitFileDirective(StringRef Filename) {}
-void MCStreamer::emitFileDirective(StringRef Filename, StringRef CompilerVerion,
+void MCStreamer::emitFileDirective(StringRef Filename,
+                                   StringRef CompilerVersion,
                                    StringRef TimeStamp, StringRef Description) {
 }
 void MCStreamer::emitCOFFSymbolStorageClass(int StorageClass) {
@@ -1190,10 +1230,7 @@ void MCStreamer::emitXCOFFSymbolLinkageWithVisibility(MCSymbol *Symbol,
 }
 
 void MCStreamer::emitXCOFFRenameDirective(const MCSymbol *Name,
-                                          StringRef Rename) {
-  llvm_unreachable("emitXCOFFRenameDirective is only supported on "
-                   "XCOFF targets");
-}
+                                          StringRef Rename) {}
 
 void MCStreamer::emitXCOFFRefDirective(const MCSymbol *Symbol) {
   llvm_unreachable("emitXCOFFRefDirective is only supported on XCOFF targets");
@@ -1316,6 +1353,9 @@ static VersionTuple getMachoBuildVersionSupportedOS(const Triple &Target) {
   case Triple::DriverKit:
     // DriverKit always uses the build version load command.
     return VersionTuple();
+  case Triple::XROS:
+    // XROS always uses the build version load command.
+    return VersionTuple();
   default:
     break;
   }
@@ -1342,6 +1382,9 @@ getMachoBuildVersionPlatformType(const Triple &Target) {
                                            : MachO::PLATFORM_WATCHOS;
   case Triple::DriverKit:
     return MachO::PLATFORM_DRIVERKIT;
+  case Triple::XROS:
+    return Target.isSimulatorEnvironment() ? MachO::PLATFORM_XROS_SIMULATOR
+                                           : MachO::PLATFORM_XROS;
   default:
     break;
   }
@@ -1373,6 +1416,9 @@ void MCStreamer::emitVersionForTarget(
     break;
   case Triple::DriverKit:
     Version = Target.getDriverKitVersion();
+    break;
+  case Triple::XROS:
+    Version = Target.getOSVersion();
     break;
   default:
     llvm_unreachable("unexpected OS type");

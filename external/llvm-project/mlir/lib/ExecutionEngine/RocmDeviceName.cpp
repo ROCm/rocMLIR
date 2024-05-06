@@ -66,7 +66,7 @@ LogicalResult RocmDeviceName::parse(StringRef devName) {
   if (!tokens.empty()) {
     chip = tokens.front();
     tokens.erase(tokens.begin());
-    if (chip.startswith("gfx")) {
+    if (chip.starts_with("gfx")) {
       // get features
       return parseTargetFeatures(tokens, features);
     }
