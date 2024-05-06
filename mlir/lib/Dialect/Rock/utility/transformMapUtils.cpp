@@ -1756,12 +1756,32 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
 
 enum DimType { Upper = 0, Lower = 1 };
 
+/// This is an auxiliary data structure required for `removeUpperDimsFromMap`
+/// function implementation (see below). The struct holds the type of a
+/// `TransformAttr` as well as modified parameters, upper/lower names and
+/// dimension indices.
 struct TransformAttrArgs {
   rock::TransformType type;
   std::pair<SmallVector<StringRef>, SmallVector<StringRef>> preservedNames;
   std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> preservedDims;
   SmallVector<int64_t> params;
 };
+
+llvm::raw_ostream &operator<<(llvm::raw_ostream &stream,
+                              const TransformAttrArgs &args) {
+  auto print = [&stream](StringRef name, auto &container) {
+    stream << name << " = [";
+    llvm::interleaveComma(container, stream);
+    stream << "]\n";
+  };
+  stream << args.type << "\n";
+  print("upper preserved dims", std::get<DimType::Upper>(args.preservedDims));
+  print("upper preserved names", std::get<DimType::Upper>(args.preservedNames));
+  print("lower preserved dims", std::get<DimType::Lower>(args.preservedDims));
+  print("lower preserved names", std::get<DimType::Lower>(args.preservedNames));
+  print("params", args.params);
+  return stream;
+}
 
 template <DimType Type>
 SmallVector<uint32_t>
@@ -1827,6 +1847,23 @@ void remapDims(
   }
 }
 
+/// Given a single `TransformMapAttr`s and a set of indices, the function
+/// re-builds a map by removing dimensions specified by indices. The function
+/// operates on the user provided upper dimensions bounds. This allows
+/// to take into account changes in upper `TransformMapAttr`s. The function
+/// modifies the user provided lower bounds to reflect the changes caused by
+/// the re-building process.
+/// For each `TransformAttr` in a given `TransformMapAttr`, the function
+/// computes which upper dimensions need to be preserved as a set
+/// difference between the upper dimension and `remove` indices. Then, the
+/// function computes which lower dimensions of each `TransformAttr` need
+/// to preserved based on several invariants and assumptions.
+/// Afterwards, the functions updates the user provided `removeIndicesSet`
+/// with a set difference between the original and preserved lower
+/// dimension indices. Then, the function remaps dimension indices to eliminate
+/// possible holes in index numbering - e.g., 0, 3, 4 -> 0, 1, 2. After that,
+/// the function builds new `TransformAttr` and, at the end, constructs a new
+/// `TransformMapAttr`
 FailureOr<rock::TransformMapAttr>
 removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
                        SetVector<int64_t> &removeIndicesSet,
@@ -1985,6 +2022,15 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
   return newTrMap;
 }
 
+/// Given a stack of `TransformMapAttr`s and a set of indices, the function
+/// re-builds the maps by removing dimensions specified by indices. The function
+/// operates from top to down. The user provided indices are considered to be
+/// the upper dimensions of the top most `TransformMapAttr`. The function
+/// propagates the remove indices set from top to bottom, gradually adding or
+/// removing affected dimensions during the re-building process. The function
+/// expect an input stack of `TransformMapAttr`s to be coherent - i.e.,
+/// the lower dimensions for map (i) are the same as the upper dimensions of
+/// map (i - 1)
 FailureOr<ArrayAttr>
 mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
                             SetVector<int64_t> removeIndicesSet) {
@@ -2004,14 +2050,15 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
     assert(upperBounds.size() ==
            static_cast<size_t>(trMap.getUpperBounds().size()));
     llvm::SmallVector<int64_t> lowerBounds = {};
-    FailureOr<rock::TransformMapAttr> newTrMap = removeUpperDimsFromMap(
-        b, trMap, removeIndicesSet, upperBounds, lowerBounds);
+    FailureOr<rock::TransformMapAttr> maybeNewTrMapAttr =
+        removeUpperDimsFromMap(b, trMap, removeIndicesSet, upperBounds,
+                               lowerBounds);
     upperBounds = lowerBounds;
-    if (failed(newTrMap)) {
+    if (failed(maybeNewTrMapAttr)) {
       return failure();
     }
-    if (*newTrMap)
-      results.push_back(*newTrMap);
+    if (*maybeNewTrMapAttr)
+      results.push_back(*maybeNewTrMapAttr);
   }
 
   return b.getArrayAttr(results);
@@ -2037,6 +2084,9 @@ convertDimNamesToIndices(const ArrayAttr trAttrs,
   return indices;
 }
 
+/// This function is an overload of the function above. The function converts
+/// the user provided dim. names to indices and calls the implementation
+/// of `removeUpperDims` from above.
 FailureOr<ArrayAttr>
 mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
                             const SetVector<StringRef> &removeDimNamesSet) {
