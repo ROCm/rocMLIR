@@ -2,6 +2,9 @@
 
 import sys
 
+print(f"   ----> config.features (in Unit site) = \"{getattr(config, 'features', '<None>')}\" <----")
+print(f"   ----> vars(config) (in Unit site) = \"{vars(config)}\" <----")
+
 config.llvm_src_root = "@LLVM_SOURCE_DIR@"
 config.llvm_obj_root = "@LLVM_BINARY_DIR@"
 config.llvm_tools_dir = "@LLVM_TOOLS_DIR@"

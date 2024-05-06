@@ -15,6 +15,8 @@ from lit.llvm.subst import FindTool
 
 # Configuration file for the 'lit' test runner.
 
+print(f"----> config.features = \"{getattr(config, 'features', '<None>')}\" <----")
+
 # name: The name of this test suite.
 config.name = 'RocMLIR'
 

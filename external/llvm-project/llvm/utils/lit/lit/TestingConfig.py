@@ -122,6 +122,8 @@ class TestingConfig(object):
         object.
         """
 
+        print(f"----> load_from_path(\"{path}\") <----")
+
         # Load the config script data.
         data = None
         f = open(path)

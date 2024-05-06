@@ -258,6 +258,8 @@ def find_tests_for_inputs(lit_config, inputs):
     tests to execute.
     """
 
+    print(f"----> ENTER find_tests_for_inputs <----")
+
     # Load the tests from the inputs.
     tests = []
     test_suite_cache = {}
@@ -285,5 +287,7 @@ def find_tests_for_inputs(lit_config, inputs):
     if lit_config.numErrors:
         sys.stderr.write("%d errors, exiting.\n" % lit_config.numErrors)
         sys.exit(2)
+
+    print(f"----> LEAVE find_tests_for_inputs <----")
 
     return tests

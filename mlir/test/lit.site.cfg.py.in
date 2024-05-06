@@ -3,6 +3,8 @@
 import sys
 import subprocess
 
+print(f"   ----> vars(config) (in test) = \"{vars(config)}\" <----")
+
 config.host_triple = "@LLVM_HOST_TRIPLE@"
 config.target_triple = "@TARGET_TRIPLE@"
 config.llvm_src_root = "@LLVM_SOURCE_DIR@"
@@ -55,6 +57,13 @@ config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"
 
+# Copied from e2e/lit.site.cfg.py.in.
+config.allow_e2e_tests = @ROCK_E2E_TEST_ENABLED@ or @ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED@
+
+
+print("----> lit.site.cfg.py <----")
+print("----> lit.site.cfg.py <----", file=sys.stderr)
+
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
 try:
@@ -68,6 +77,9 @@ except KeyError:
 # Helper function to decode arch to its features
 # Keep this in sync with mlir/lib/Dialect/Rock/Generator/AmdArchDb.cpp:mlir::rock::lookupArchInfo
 def set_arch_features(arch: str):
+    print(f"----> set_arch_features({arch}) <----")
+    print(f"----> set_arch_features({arch}) <----", file=sys.stderr)
+
     chip_name = arch.split(':')[0]
     if(len(chip_name) < 5):
         return
@@ -93,7 +105,7 @@ def set_arch_features(arch: str):
         arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
     if arch_features and 'mfma' in arch_features:
         config.arch_support_mfma = True
-    elif arch_features and 'wmma' in arch_features:
+    elif arch_features and 'wmma' in arch_features and not '-mfma=off' in config.rocmlir_gen_flags:
         config.arch_support_wmma = True
     config.features = arch_features
     config.substitutions.append(('%features', config.features))
@@ -116,6 +128,7 @@ if config.rocm_path:
             q = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
                                 check=True, stdout=subprocess.PIPE)
             agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+        assert agents, "couldn't enumerate agents"
         config.arch = ','.join(agents)
         for x in agents:
             if not config.features:

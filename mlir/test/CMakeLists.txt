@@ -140,12 +140,12 @@ add_lit_testsuites(ROCMLIR ${CMAKE_CURRENT_SOURCE_DIR}
 
 # Update the configs for E2E tests
 # This needs to be done regardless of the value of ROCK_E2E_TEST_ENABLED
-configure_lit_site_cfg(
-  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.site.cfg.py.in
-  ${CMAKE_CURRENT_BINARY_DIR}/e2e/lit.site.cfg.py
-  MAIN_CONFIG
-  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.cfg.py
-)
+#configure_lit_site_cfg(
+#  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.site.cfg.py.in
+#  ${CMAKE_CURRENT_BINARY_DIR}/e2e/lit.site.cfg.py
+#  MAIN_CONFIG
+#  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.cfg.py
+#)
 
 # Update the configs for fusion E2E tests
 configure_lit_site_cfg(
