@@ -40,6 +40,7 @@ config.no_AMD_GPU = False
 config.arch = ""
 config.arch_support_mfma = False
 config.arch_support_wmma = False
+config.features = ""
 if config.rocm_path:
     try:
         p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
@@ -54,8 +55,10 @@ if config.rocm_path:
         config.arch = ','.join(agents)
         for x in agents:
             if any([arch in x for arch in ["gfx908", "gfx90a", "gfx940", "gfx941", "gfx942"]]):
+                config.features = 'mfma|dot|atomic_add'
                 config.arch_support_mfma = not '-mfma=off' in config.rocmlir_gen_flags
             elif "gfx11" in x:
+                config.features = 'dot|atomic_add|atomic_fmax_f32|wmma'
                 config.arch_support_wmma = True
             # Check other features here
         if not config.arch:
