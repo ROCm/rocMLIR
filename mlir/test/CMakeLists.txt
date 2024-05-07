@@ -1,5 +1,6 @@
 add_subdirectory(CAPI)
 add_subdirectory(lib)
+add_subdirectory(common_utils)
 
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
@@ -78,6 +79,7 @@ set(ROCMLIR_TEST_DEPENDS
   rocmlir-driver
   rocmlir-gen
   rocmlir-lib-test
+  rocmlir-common-python-test-utils
 
   opt
   llc
@@ -88,7 +90,10 @@ set(ROCMLIR_TEST_DEPENDS
   mlir-tosa-miir-test
 )
 
-list(APPEND ROCMLIR_TEST_DEPENDS RocMLIRUnitTests)
+list(APPEND ROCMLIR_TEST_DEPENDS
+  RocMLIRUnitTests
+  rocmlir-common-python-test-utils
+)
 
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS

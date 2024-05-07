@@ -54,6 +54,11 @@ config.random_data = "@MLIR_RANDOM_DATA@"
 config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"
+config.rocmlir_common_python_tests_utils = "@ROCMLIR_COMMON_PYTHON_TESTS_UTILS@"
+
+# Add common python test utils
+sys.path.append(config.rocmlir_common_python_tests_utils)
+from common import get_agents, get_arch_features
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
@@ -65,39 +70,6 @@ except KeyError:
     key, = e.args
     lit_config.fatal("unable to find %r parameter, use '--param=%s=VALUE'" % (key,key))
 
-# Helper function to decode arch to its features
-# Keep this in sync with mlir/lib/Dialect/Rock/Generator/AmdArchDb.cpp:mlir::rock::lookupArchInfo
-def set_arch_features(arch: str):
-    chip_name = arch.split(':')[0]
-    if(len(chip_name) < 5):
-        return
-
-    arch_features = None
-    major = chip_name[:-2]
-    minor = chip_name[-2:]
-    if major == 'gfx9':
-        if minor in ['08', '0a', '40', '41', '42']:
-            arch_features = 'mfma|dot|atomic_add'
-        elif minor == '06':
-            arch_features = 'dot'
-        else:
-            arch_features = 'none'
-    elif major == 'gfx10':
-        if minor in ['11', '13']:
-            arch_features = 'atomic_fmax_f32'
-        elif minor in ['10', '12'] or minor[0] == '3':
-            arch_features = 'dot|atomic_fmax_f32'
-        else:
-            arch_features = 'atomic_fmax_f32'
-    elif major == 'gfx11':
-        arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
-    if arch_features and 'mfma' in arch_features:
-        config.arch_support_mfma = True
-    elif arch_features and 'wmma' in arch_features:
-        config.arch_support_wmma = True
-    config.features = arch_features
-    config.substitutions.append(('%features', config.features))
-
 # If rocm_agent_enumerator shows no viable GPUs, skip tests that need one,
 # because the default target will lead to compilation failures.
 config.no_AMD_GPU = False
@@ -107,19 +79,12 @@ config.arch_support_wmma = False
 config.features = None
 if config.rocm_path:
     try:
-        p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
-                           check=True, stdout=subprocess.PIPE)
-        agents = set(x.decode("utf-8") for x in p.stdout.split())
-        if not agents:
-            # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
-            # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-            q = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
-                                check=True, stdout=subprocess.PIPE)
-            agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+        agents = get_agents(config.rocm_path)
         config.arch = ','.join(agents)
         for x in agents:
             if not config.features:
-                set_arch_features(x)
+                config.features, config.arch_support_mfma, config.arch_support_wmma = get_arch_features(x)
+                config.substitutions.append(('%features', config.features))
         if not config.arch:
             config.no_AMD_GPU = True
     except subprocess.CalledProcessError:
