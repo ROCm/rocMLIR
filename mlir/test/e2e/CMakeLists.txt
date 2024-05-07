@@ -8,6 +8,7 @@ set(ROCK_E2E_DEPENDS
   mlir_rocm_runtime
   conv-validation-wrappers
   e2e_tests
+  rocmlir-common-python-test-utils
 )
 
 set(E2E_DIR ${CMAKE_CURRENT_BINARY_DIR})
@@ -76,6 +77,9 @@ endif()
 set(CONFIG_DUMMY_FILES ${CONFIGS})
 list(TRANSFORM CONFIG_DUMMY_FILES PREPEND ${E2E_DIR}/)
 list(TRANSFORM CONFIG_DUMMY_FILES APPEND .copy)
+
+# Add common tests utils
+get_filename_component(PARENT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR} DIRECTORY)
 
 # Add a command to copy lit.local.cfg
 add_custom_command(OUTPUT ${LOCAL_CONFIG_FILE_BIN}

@@ -799,7 +799,9 @@ LogicalResult GemmOp::verify() {
   }
 
   if (getStoreMethod() != StoreMethod::Set && !isXdlops && !isWmma) {
-    return emitOpError("general kernels don't support non-set store methods");
+    const bool isSupportedOutputType = outElems.isF32() || outElems.isF16();
+    if (!isSupportedOutputType)
+      return emitOpError("general kernels don't support non-set store methods");
   }
 
   if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
