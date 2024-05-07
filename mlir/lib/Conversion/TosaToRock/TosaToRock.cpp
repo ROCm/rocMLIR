@@ -445,6 +445,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                              Value tOutput,
                                              ArrayRef<int32_t> dims,
                                              Value tInput) const {
+    SmallVector<Operation> toBeErased;
     for (auto &use : tOutput.getUses()) {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
@@ -469,7 +470,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
             newReassocIdx.push_back(dims[indices[i]]);
           }
           if (numNonUnitDimsMerged > 1) {
-            // Per MIGraphX bug #2692, this transpsoe/collaspe swap logic
+            // Per MIGraphX bug #2692, this transpose/collapse swap logic
             // will be incorrect in cases like the following
             //   %0 = expand_shape [[0], [1, 2], [3]] %arg0 : tensor<7x6x5xT> to
             //   tensor<7x3x2x5xT> %1 = transpose %0, [0, 2, 1, 3] :
@@ -570,7 +571,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           return failure();
         }
         if (op->use_empty())
-          rewriter.eraseOp(op);
+          toBeErased.push_back(op);
       } else if (auto op = dyn_cast<tensor::ExpandShapeOp>(use.getOwner())) {
         return rewriter.notifyMatchFailure(
             op, "We dont support expand shapes yet.");
@@ -604,6 +605,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         return failure();
       }
     }
+    for (auto &op : toBeErased)
+      rewriter.eraseOp(op);
     return success();
   }
 
