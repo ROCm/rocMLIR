@@ -3,7 +3,7 @@
 // Note: the 64-bit index support is tested in large_tensor_detection
 
 // CHECK-LABEL: @base_case
-// CHECK-SAME: (%{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
+// CHECK-SAME: (%{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
 func.func @base_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {kernel} {
   %c0 = arith.constant 0 : index
   %true = arith.constant true
@@ -28,7 +28,7 @@ func.func @atomic_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: inde
 }
 
 // CHECK-LABEL: @collapse_case
-// CHECK-SAME: (%{{.*}}: memref<4x4xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
+// CHECK-SAME: (%{{.*}}: memref<4x4xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
 func.func @collapse_case(%arg0: memref<4x4xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {kernel} {
   %c0 = arith.constant 0 : index
   %true = arith.constant true

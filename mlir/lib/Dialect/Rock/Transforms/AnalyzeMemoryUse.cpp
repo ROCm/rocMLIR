@@ -115,7 +115,7 @@ void RockAnalyzeMemoryUsePass::runOnOperation() {
     func.setArgAttr(idx, LLVM::LLVMDialect::getNoUndefAttrName(), unit);
 
     // `inreg` enables SGPR preloading in new calling conventions.
-    func.setArgAttr(idx, LLVM::LLVMDialect::getInRegAttrName(), unit);
+    //func.setArgAttr(idx, LLVM::LLVMDialect::getInRegAttrName(), unit);
     // As near as we can tell, there's no universe in which global pointers
     // aren't aligned to 16 bytes.
     func.setArgAttr(idx, LLVM::LLVMDialect::getAlignAttrName(),
