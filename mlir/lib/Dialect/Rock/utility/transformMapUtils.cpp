@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/IndexedMap.h"
@@ -1751,4 +1752,345 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
     ret = b.create<TransformOp>(trOp.getLoc(), ret, newMap);
   }
   return ret;
+}
+
+enum DimType { Upper = 0, Lower = 1 };
+
+/// This is an auxiliary data structure required for `removeUpperDimsFromMap`
+/// function implementation (see below). The struct holds the type of a
+/// `TransformAttr` as well as modified parameters, upper/lower names and
+/// dimension indices.
+struct TransformAttrArgs {
+  rock::TransformType type;
+  std::pair<SmallVector<StringRef>, SmallVector<StringRef>> preservedNames;
+  std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> preservedDims;
+  SmallVector<int64_t> params;
+};
+
+llvm::raw_ostream &operator<<(llvm::raw_ostream &stream,
+                              const TransformAttrArgs &args) {
+  auto print = [&stream](StringRef name, auto &container) {
+    stream << name << " = [";
+    llvm::interleaveComma(container, stream);
+    stream << "]\n";
+  };
+  stream << args.type << "\n";
+  print("upper preserved dims", std::get<DimType::Upper>(args.preservedDims));
+  print("upper preserved names", std::get<DimType::Upper>(args.preservedNames));
+  print("lower preserved dims", std::get<DimType::Lower>(args.preservedDims));
+  print("lower preserved names", std::get<DimType::Lower>(args.preservedNames));
+  print("params", args.params);
+  return stream;
+}
+
+template <DimType Type>
+SmallVector<uint32_t>
+getPreservedIndices(rock::TransformAttr tr,
+                    const SetVector<int64_t> &globalRemoveIndicesSet) {
+  SmallVector<uint32_t> preservedIndices;
+  auto upperDims =
+      Type == DimType::Upper ? tr.getUpperDims() : tr.getLowerDims();
+  for (auto dim : upperDims) {
+    if (!globalRemoveIndicesSet.contains(dim)) {
+      preservedIndices.push_back(dim);
+    }
+  }
+  return preservedIndices;
+}
+
+template <DimType Type>
+void populatePreservedNames(rock::TransformAttr tr, TransformAttrArgs &args) {
+  const auto &preservedDims = std::get<Type>(args.preservedDims);
+  auto names = Type == DimType::Upper ? tr.getUpperNames() : tr.getLowerNames();
+  auto dims = Type == DimType::Upper ? tr.getUpperDims() : tr.getLowerDims();
+  assert(names.size() == dims.size());
+
+  SmallVector<StringRef> preservedNames = {};
+  for (auto [idx, dim] : llvm::enumerate(dims)) {
+    if (llvm::is_contained(preservedDims, dim)) {
+      preservedNames.push_back(names[idx]);
+    }
+  }
+  std::get<Type>(args.preservedNames) = std::move(preservedNames);
+}
+
+template <DimType Type>
+SmallVector<uint32_t> getDifference(rock::TransformAttr tr,
+                                    TransformAttrArgs &args) {
+  SmallVector<uint32_t> difference;
+  auto dims = Type == DimType::Upper ? tr.getUpperDims() : tr.getLowerDims();
+  const auto &preserved = std::get<Type>(args.preservedDims);
+  for (auto dim : dims) {
+    if (!llvm::is_contained(preserved, dim)) {
+      difference.push_back(dim);
+    }
+  }
+  return difference;
+}
+
+template <DimType Type>
+void remapDims(
+    std::vector<TransformAttrArgs> &argsVector,
+    std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> &removedDims) {
+  auto &sortedDeletedDims = std::get<Type>(removedDims);
+  llvm::sort(sortedDeletedDims);
+  for (auto &args : argsVector) {
+    auto &preserved = std::get<Type>(args.preservedDims);
+    for (auto [idx, dim] : llvm::enumerate(preserved)) {
+      size_t leastUpperBoundIdx = 0;
+      while ((leastUpperBoundIdx < sortedDeletedDims.size()) &&
+             (dim > sortedDeletedDims[leastUpperBoundIdx])) {
+        ++leastUpperBoundIdx;
+      }
+      preserved[idx] -= leastUpperBoundIdx;
+    }
+  }
+}
+
+/// Given a single `TransformMapAttr`s and a set of indices, the function
+/// re-builds a map by removing dimensions specified by indices. The function
+/// operates on the user provided upper dimensions bounds. This allows
+/// to take into account changes in upper `TransformMapAttr`s. The function
+/// modifies the user provided lower bounds to reflect the changes caused by
+/// the re-building process.
+/// For each `TransformAttr` in a given `TransformMapAttr`, the function
+/// computes which upper dimensions need to be preserved as a set
+/// difference between the upper dimension and `remove` indices. Then, the
+/// function computes which lower dimensions of each `TransformAttr` need
+/// to preserved based on several invariants and assumptions.
+/// Afterwards, the functions updates the user provided `removeIndicesSet`
+/// with a set difference between the original and preserved lower
+/// dimension indices. Then, the function remaps dimension indices to eliminate
+/// possible holes in index numbering - e.g., 0, 3, 4 -> 0, 1, 2. After that,
+/// the function builds new `TransformAttr` and, at the end, constructs a new
+/// `TransformMapAttr`
+FailureOr<rock::TransformMapAttr>
+removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
+                       SetVector<int64_t> &removeIndicesSet,
+                       llvm::SmallVector<int64_t> &origUpperBounds,
+                       llvm::SmallVector<int64_t> &origLowerBounds) {
+
+  origLowerBounds =
+      llvm::SmallVector<int64_t>(trMap.getLowerBounds().asArrayRef());
+
+  SetVector<int64_t> newRemoveIndicesSet;
+  SmallVector<TransformAttr> newOps;
+  std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> removedDims = {};
+
+  std::vector<TransformAttrArgs> argsVector;
+  for (auto tr : trMap.getOps()) {
+    TransformAttrArgs args;
+    args.type = tr.getType();
+    SmallVector<uint32_t> &preservedUpperDims =
+        std::get<DimType::Upper>(args.preservedDims);
+    SmallVector<uint32_t> &preservedLowerDims =
+        std::get<DimType::Lower>(args.preservedDims);
+
+    preservedUpperDims =
+        getPreservedIndices<DimType::Upper>(tr, removeIndicesSet);
+
+    const bool mustBePreserved =
+        preservedUpperDims.size() == tr.getUpperDims().size();
+    const bool mustBeCompletelyRemoved = preservedUpperDims.empty();
+    const bool mustBeModified = !mustBePreserved && !mustBeCompletelyRemoved;
+
+    // compute which lower dimensions must be preserved
+    switch (args.type) {
+    case TransformType::AddDim:
+    case TransformType::ConstDim:
+    case TransformType::Broadcast:
+    case TransformType::Merge: {
+      assert(!mustBeModified && "must be preserved or removed completely");
+      [[fallthrough]];
+    }
+    case TransformType::Unmerge: {
+      if (mustBePreserved || mustBeModified) {
+        // preserve all original lower dims
+        llvm::copy(tr.getLowerDims(), std::back_inserter(preservedLowerDims));
+      }
+      break;
+    }
+    case TransformType::PassThrough: {
+      assert(tr.getUpperDims().size() == tr.getLowerDims().size());
+      auto localLowerDims = tr.getLowerDims();
+
+      // propagate all preserved upper dims to lower dims
+      for (auto [idx, dim] : llvm::enumerate(tr.getUpperDims())) {
+        if (llvm::is_contained(preservedUpperDims, dim)) {
+          preservedLowerDims.push_back(localLowerDims[idx]);
+        }
+      }
+      break;
+    }
+    default:
+      return failure();
+    }
+
+    populatePreservedNames<DimType::Upper>(tr, args);
+    populatePreservedNames<DimType::Lower>(tr, args);
+
+    // re-compute transformation parameters
+    if (mustBePreserved || mustBeModified) {
+      switch (args.type) {
+      case TransformType::Unmerge: {
+        uint32_t total = 1;
+        for (auto globalDimIdx : preservedUpperDims) {
+          auto dimSize = origUpperBounds[globalDimIdx];
+          total *= dimSize;
+          args.params.push_back(dimSize);
+        }
+        assert(preservedLowerDims.size() == 1);
+        origLowerBounds[preservedLowerDims[0]] = total;
+        break;
+      }
+      case TransformType::PassThrough: {
+        // propagate possibly modified dimensions
+        for (auto [idx, upperDim] : llvm::enumerate(tr.getUpperDims())) {
+          const auto lowerDim = tr.getLowerDims()[idx];
+          origLowerBounds[lowerDim] = origUpperBounds[upperDim];
+        }
+        [[fallthrough]];
+      }
+      default: {
+        llvm::copy(tr.getParams(), std::back_inserter(args.params));
+        break;
+      }
+      }
+      argsVector.push_back(args);
+    }
+
+    std::get<DimType::Upper>(removedDims)
+        .append(getDifference<DimType::Upper>(tr, args));
+    std::get<DimType::Lower>(removedDims)
+        .append(getDifference<DimType::Lower>(tr, args));
+  }
+
+  // todo: use vector instead of set
+  // update remove indices set
+  for (auto dim : std::get<DimType::Lower>(removedDims)) {
+    newRemoveIndicesSet.insert(dim);
+  }
+
+  remapDims<DimType::Upper>(argsVector, removedDims);
+  remapDims<DimType::Lower>(argsVector, removedDims);
+
+  // build new transformations based on the computer preserved data
+  for (auto &args : argsVector) {
+    auto newTr =
+        TransformAttr::get(b.getContext(), args.type, args.params,
+                           std::get<DimType::Upper>(args.preservedNames),
+                           std::get<DimType::Upper>(args.preservedDims),
+                           std::get<DimType::Lower>(args.preservedNames),
+                           std::get<DimType::Lower>(args.preservedDims));
+    newOps.push_back(newTr);
+  }
+
+  // compute new loop bounds
+  std::pair<SmallVector<int64_t>, SmallVector<int64_t>> newBounds;
+  std::pair<SmallVector<int64_t> &, SmallVector<int64_t> &> oldBounds = {
+      origUpperBounds, origLowerBounds};
+
+  auto genNewBounds = [&](DimType type) {
+    auto &newBound = type == DimType::Upper
+                         ? std::get<DimType::Upper>(newBounds)
+                         : std::get<DimType::Lower>(newBounds);
+    auto oldBound = type == DimType::Upper
+                        ? std::get<DimType::Upper>(oldBounds)
+                        : std::get<DimType::Lower>(oldBounds);
+    const auto &deletedDims = type == DimType::Upper
+                                  ? std::get<DimType::Upper>(removedDims)
+                                  : std::get<DimType::Lower>(removedDims);
+    for (auto [dim, bound] : llvm::enumerate(oldBound)) {
+      if (!llvm::is_contained(deletedDims, dim)) {
+        newBound.push_back(bound);
+      }
+    }
+  };
+  genNewBounds(DimType::Upper);
+  genNewBounds(DimType::Lower);
+
+  // update the info for the next function invocation
+  removeIndicesSet = newRemoveIndicesSet;
+
+  // build a new transformation map
+  rock::TransformMapAttr newTrMap;
+  if (!newOps.empty()) {
+    newTrMap =
+        TransformMapAttr::get(newOps, std::get<DimType::Upper>(newBounds),
+                              std::get<DimType::Lower>(newBounds));
+  }
+  return newTrMap;
+}
+
+/// Given a stack of `TransformMapAttr`s and a set of indices, the function
+/// re-builds the maps by removing dimensions specified by indices. The function
+/// operates from top to down. The user provided indices are considered to be
+/// the upper dimensions of the top most `TransformMapAttr`. The function
+/// propagates the remove indices set from top to bottom, gradually adding or
+/// removing affected dimensions during the re-building process. The function
+/// expect an input stack of `TransformMapAttr`s to be coherent - i.e.,
+/// the lower dimensions for map (i) are the same as the upper dimensions of
+/// map (i - 1)
+FailureOr<ArrayAttr>
+mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                            SetVector<int64_t> removeIndicesSet) {
+  SmallVector<Attribute> results;
+
+  llvm::SmallVector<int64_t> upperBounds = {};
+  if (!transformAttrs.empty()) {
+    auto first = *(transformAttrs.begin());
+    auto trMap = cast<rock::TransformMapAttr>(first);
+    upperBounds =
+        llvm::SmallVector<int64_t>(trMap.getUpperBounds().asArrayRef());
+  }
+
+  for (auto map : transformAttrs) {
+    auto trMap = cast<rock::TransformMapAttr>(map);
+
+    assert(upperBounds.size() ==
+           static_cast<size_t>(trMap.getUpperBounds().size()));
+    llvm::SmallVector<int64_t> lowerBounds = {};
+    FailureOr<rock::TransformMapAttr> maybeNewTrMapAttr =
+        removeUpperDimsFromMap(b, trMap, removeIndicesSet, upperBounds,
+                               lowerBounds);
+    upperBounds = lowerBounds;
+    if (failed(maybeNewTrMapAttr)) {
+      return failure();
+    }
+    if (*maybeNewTrMapAttr)
+      results.push_back(*maybeNewTrMapAttr);
+  }
+
+  return b.getArrayAttr(results);
+}
+
+SetVector<int64_t>
+convertDimNamesToIndices(const ArrayAttr trAttrs,
+                         const SetVector<StringRef> &removeDimNamesSet) {
+  SetVector<int64_t> indices = {};
+  if (trAttrs.empty())
+    return indices;
+
+  const auto trMap = cast<TransformMapAttr>(trAttrs[0]);
+  for (auto tr : trMap.getOps()) {
+    ArrayRef<::llvm::StringRef> names = tr.getUpperNames();
+    ArrayRef<uint32_t> dims = tr.getUpperDims();
+    for (auto [name, dim] : llvm::zip_equal(names, dims)) {
+      if (removeDimNamesSet.contains(name)) {
+        indices.insert(dim);
+      }
+    }
+  }
+  return indices;
+}
+
+/// This function is an overload of the function above. The function converts
+/// the user provided dim. names to indices and calls the implementation
+/// of `removeUpperDims` from above.
+FailureOr<ArrayAttr>
+mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                            const SetVector<StringRef> &removeDimNamesSet) {
+  SetVector<int64_t> removeIndicesSet =
+      convertDimNamesToIndices(transformAttrs, removeDimNamesSet);
+  return removeUpperDims(b, transformAttrs, removeIndicesSet);
 }
