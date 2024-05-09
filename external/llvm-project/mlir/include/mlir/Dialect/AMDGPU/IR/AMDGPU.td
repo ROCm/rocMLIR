@@ -434,9 +434,9 @@ def AMDGPU_DPPPerm : I32EnumAttr<"DPPPerm",
 def AMDGPU_DPPPermAttr : EnumAttr<AMDGPU_Dialect, AMDGPU_DPPPerm,
   "dpp_perm">;
 
-def AMDGPU_DPPOp : AMDGPU_Op<"dpp", [SameTypeOperands, AllTypesMatch<["result", "src"]>]>,
+def AMDGPU_DPPOp : AMDGPU_Op<"dpp", [SameTypeOperands, AllTypesMatch<["result", "src", "old"]>]>,
   Arguments<(ins AnyType:$src,
-                  Optional<AnyType>:$old,
+                  AnyType:$old,
                   AMDGPU_DPPPermAttr:$kind,
                   OptionalAttr<AnyAttrOf<[I32Attr, ArrayAttr, UnitAttr]>>:$permArgument,
                   DefaultValuedAttr<I32Attr, "0xf">:$row_mask,
@@ -461,7 +461,7 @@ def AMDGPU_DPPOp : AMDGPU_Op<"dpp", [SameTypeOperands, AllTypesMatch<["result", 
   }];
   let results = (outs AnyType:$result);
   let assemblyFormat = [{
-    $src (`(` $old^ `:` type($old) `)`)? $kind (`(` $permArgument^ `)`)? attr-dict `:` type($result) 
+    $src $old $kind (`(` $permArgument^ `)`)? attr-dict `:` type($result)
   }];
   let hasVerifier = 1;
 }

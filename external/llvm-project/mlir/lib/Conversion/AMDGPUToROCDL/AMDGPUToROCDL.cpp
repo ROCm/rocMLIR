@@ -846,6 +846,7 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
     Value src = adaptor.getSrc();
     Value old = adaptor.getOld();
     Type srcType = src.getType();
+    Type oldType = old.getType();
     auto llvmI32Type = typeConverter->convertType(rewriter.getI32Type());
     auto llvmSrcIntType = typeConverter->convertType(
         rewriter.getIntegerType(srcType.getIntOrFloatBitWidth()));
@@ -870,8 +871,7 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
     };
 
     src = convertOperand(src, srcType);
-    Type oldType = old ? old.getType() : src.getType();
-    old = convertOperand(old ? old : src, oldType);
+    old = convertOperand(old, oldType);
 
     // This is taken from the following file llvm/lib/Target/AMDGPU/SIDefines.h
     enum DppCtrl : unsigned {
