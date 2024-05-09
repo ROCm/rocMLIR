@@ -798,12 +798,6 @@ LogicalResult GemmOp::verify() {
     }
   }
 
-  if (getStoreMethod() != StoreMethod::Set && !isXdlops && !isWmma) {
-    const bool isSupportedOutputType = outElems.isF32() || outElems.isF16();
-    if (!isSupportedOutputType)
-      return emitOpError("general kernels don't support non-set store methods");
-  }
-
   if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
