@@ -947,15 +947,9 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
 
     // Check for row_mask, bank_mask, bound_ctrl if they exist and create
     // constants
-    auto rowMask = DppOp->getAttrOfType<IntegerAttr>("row_mask")
-                       .dyn_cast<IntegerAttr>()
-                       .getInt();
-    auto bankMask = DppOp->getAttrOfType<IntegerAttr>("bank_mask")
-                        .dyn_cast<IntegerAttr>()
-                        .getInt();
-    bool boundCtrl = DppOp->getAttrOfType<IntegerAttr>("bound_ctrl")
-                         .dyn_cast<BoolAttr>()
-                         .getValue();
+    auto rowMask = DppOp->getAttrOfType<IntegerAttr>("row_mask").getInt();
+    auto bankMask = DppOp->getAttrOfType<IntegerAttr>("bank_mask").getInt();
+    bool boundCtrl = DppOp->getAttrOfType<BoolAttr>("bound_ctrl").getValue();
 
     // create a ROCDL_DPPMovOp instruction with the appropriate attributes
     auto dppMovOp = rewriter.create<ROCDL::DPPUpdateOp>(

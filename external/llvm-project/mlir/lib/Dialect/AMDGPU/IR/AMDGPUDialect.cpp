@@ -343,7 +343,7 @@ LogicalResult DPPOp::verify() {
   switch (kind) {
 
   case DPPPerm::quad_perm: {
-    auto quadPermAttr = permArgument.dyn_cast_or_null<ArrayAttr>();
+    auto quadPermAttr = dyn_cast_or_null<ArrayAttr>(permArgument);
     if (!quadPermAttr || quadPermAttr.size() != 4) {
       return emitOpError("quad_perm attribute must have exactly 4 elements");
     }
@@ -363,7 +363,7 @@ LogicalResult DPPOp::verify() {
       return emitOpError("Attribute '" + Twine(stringifyDPPPerm(kind)) +
                          "' value not specified");
     }
-    if (auto intAttr = permArgument.dyn_cast<IntegerAttr>()) {
+    if (auto intAttr = dyn_cast<IntegerAttr>(permArgument)) {
       uint32_t attrValue = intAttr.getInt();
       if (attrValue < 1 || attrValue > 15) {
         return emitOpError("Attribute value must be between 1 and 15");
@@ -379,7 +379,7 @@ LogicalResult DPPOp::verify() {
   case DPPPerm::row_half_mirror:
   case DPPPerm::row_bcast_15:
   case DPPPerm::row_bcast_31: {
-    if (permArgument && !permArgument.isa<UnitAttr>()) {
+    if (permArgument && !isa<UnitAttr>(permArgument)) {
       return emitOpError("Expected unit attribute for permArgument, but found "
                          "non-trivial argument");
     }
