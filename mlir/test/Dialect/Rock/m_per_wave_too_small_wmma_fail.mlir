@@ -11,7 +11,7 @@ module {
     %0 = rock.transform %arg0 by #transform_map : memref<2x960x128x128xf16> to memref<2x1x960x128x128xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<320x960x1x1xf16> to memref<1x320x960x1x1xf16>
     %2 = rock.transform %alloc by #transform_map2 : memref<2x320x128x128xf16> to memref<2x1x320x128x128xf16>
-    rock.conv2d(%1, %0, %2) features =  dot|atomic_add|atomic_fmax_f32|wmma {arch = "gfx1100", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 48 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : index, 0 : index, 0 : index, 0 : index], perf_config = "v2:256,128,4,4,128,16,1,1,1", strides = [1 : index, 1 : index]} : memref<1x320x960x1x1xf16>, memref<2x1x960x128x128xf16>, memref<2x1x320x128x128xf16>
+    rock.conv(%1, %0, %2) features =  dot|atomic_add|atomic_fmax_f32|wmma {arch = "gfx1100", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 48 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : index, 0 : index, 0 : index, 0 : index], perf_config = "v2:256,128,4,4,128,16,1,1,1", strides = [1 : index, 1 : index]} : memref<1x320x960x1x1xf16>, memref<2x1x960x128x128xf16>, memref<2x1x320x128x128xf16>
     memref.copy %alloc, %arg2 : memref<2x320x128x128xf16> to memref<2x320x128x128xf16>
     return
   }

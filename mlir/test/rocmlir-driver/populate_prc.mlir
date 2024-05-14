@@ -7,7 +7,7 @@
 // RUN: rocmlir-gen --arch %arch -p -prc -t f16 | FileCheck %s --check-prefixes=F16,CHECK
 // RUN: rocmlir-gen --arch %arch -p -prc -t bf16 | FileCheck %s --check-prefix=BF16
 
-// F16:    func.func @conv2d_cpu(%{{.*}}: memref<1x128x8x3x3x[[type:f16]]>, %{{.*}}: memref<{{.*}}xf16>, %{{.*}}: memref<{{.*}}xf16>)
+// F16:    func.func @conv_cpu(%{{.*}}: memref<1x128x8x3x3x[[type:f16]]>, %{{.*}}: memref<{{.*}}xf16>, %{{.*}}: memref<{{.*}}xf16>)
 // F16:    %{{.*}} = memref.alloc() : memref<1x128x8x3x3xf32>
 // BF16:   %{{.*}}= memref.alloc() : memref<1x128x8x3x3x[[type:bf16]]>
 // CHECK:  call @_memcpy_[[type]]_f32_9216(%{{.*}}, %{{.*}}) : (memref<9216x[[type]]>, memref<9216xf32>) -> ()
@@ -15,7 +15,7 @@
 // CHECK:  call @_memcpy_[[type]]_f32_1048576(%{{.*}}, %{{.*}}) : (memref<1048576x[[type]]>, memref<1048576xf32>) -> ()
 // CHECK:  %{{.*}} = memref.alloc() : memref<{{.*}}>
 // CHECK:  call @_memcpy_[[type]]_f32_{{[0-9]+}}(%{{.*}}, %{{.*}}) : (memref<{{.*}}x[[type]]>, memref<{{.*}}xf32>) -> ()
-// CHECK: call @conv2d_cpu(%{{.*}}, %{{.*}}, %{{.*}}) : (memref<1x128x8x3x3x[[type]]>, memref<{{.*}}>, memref<{{.*}}>) -> ()
+// CHECK: call @conv_cpu(%{{.*}}, %{{.*}}, %{{.*}}) : (memref<1x128x8x3x3x[[type]]>, memref<{{.*}}>, memref<{{.*}}>) -> ()
 // CHECK:  %[[RES1:.*]] = memref.alloc() : memref<{{.*}}xf32>
 // CHECK:  call @_memcpy_[[type]]_f32_{{[0-9]+}}(%{{.*}}, %{{.*}}) : (memref<{{.*}}x[[type]]>, memref<{{.*}}xf32>) -> ()
 // CHECK:  %[[RES2:.*]] = memref.cast %[[RES1]] : memref<{{.*}}> to memref<*xf32>

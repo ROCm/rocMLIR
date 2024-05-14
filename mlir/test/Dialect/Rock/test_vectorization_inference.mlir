@@ -41,7 +41,7 @@ func.func @test_tr_wrong_dim(%buf: memref<8x4xf32>) {
 }
 
 #transform_map1 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 8, d0 mod 8)>
-  by [<Merge{4, 8} ["x"] at [0] -> ["a", "b"] at [0, 1]>]
+  by [<Merge{4, 8} ["1"] at [0] -> ["a", "b"] at [0, 1]>]
   bounds = [32] -> [4, 8]>
 
 // CHECK-LABEL: @test_merge_dim_len
@@ -90,7 +90,7 @@ func.func @test_merge_partially_aligned(%buf: memref<4x8xf32>) {
 }
 
 #transform_map2 = #rock.transform_map<affine_map<(d0, d1) -> (d1 + d0 * 8)>
-  by [<Embed{8,1} ["a", "b"] at [0, 1] -> ["x"] at [0]>]
+  by [<Embed{8,1} ["a", "b"] at [0, 1] -> ["1"] at [0]>]
   bounds = [4,8] -> [32]>
 
 // CHECK-LABEL: @test_embed
@@ -228,8 +228,8 @@ func.func @test_left_right_pad(%buf: memref<4xf32>) {
 }
 
 #transform_map7 = #rock.transform_map<affine_map<(d0, d1) -> (d0 floordiv 8, d1, d0 mod 8)>
-  by [<Merge{4, 8} ["x"] at [0] -> ["a", "b"] at [0, 2]>,
-  <PassThrough ["y"] at [1] -> ["y"] at [1]>]
+  by [<Merge{4, 8} ["1"] at [0] -> ["a", "b"] at [0, 2]>,
+  <PassThrough ["0"] at [1] -> ["0"] at [1]>]
   bounds = [32, 5] -> [4, 5, 8]>
 
 // Intervening dimensions prevent merge
@@ -243,7 +243,7 @@ func.func @test_partial_merge(%buf: memref<4x5x8xf32>) {
 }
 
 #transform_map8 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d2)>
-  by [<AddDim{5} ["y"] at [1] -> [] at []>,
+  by [<AddDim{5} ["0"] at [1] -> [] at []>,
   <PassThrough ["a", "b"] at [0, 2] -> ["a", "b"] at [0, 1]>]
   bounds = [4, 5, 8] -> [4, 8]>
 
@@ -259,7 +259,7 @@ func.func @test_partial_merge_adddim(%buf: memref<4x8xf32>) {
 }
 
 #transform_map9 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, 0, d2)>
-  by [<Broadcast{1} ["y"] at [1] -> ["y"] at [1]>,
+  by [<Broadcast{1} ["0"] at [1] -> ["0"] at [1]>,
   <PassThrough ["a", "b"] at [0, 2] -> ["a", "b"] at [0, 2]>]
   bounds = [4, 5, 8] -> [4, 1, 8]>
 
@@ -275,19 +275,19 @@ func.func @test_partial_merge_broadcast(%buf: memref<4x1x8xf32>) {
 }
 
 #transform_map_align_e11 = #rock.transform_map<affine_map<(d0, d1) -> (d0 + d1)>
-  by [<Embed{1, 1} ["a", "b"] at [0, 1] -> ["xpad"] at [0]>]
+  by [<Embed{1, 1} ["a", "b"] at [0, 1] -> ["1pad"] at [0]>]
   bounds = [4, 4] -> [16]>
 
 #transform_map_align_e41 = #rock.transform_map<affine_map<(d0, d1) -> (d0 * 2 + d1)>
-  by [<Embed{4, 1} ["a", "b"] at [0, 1] -> ["xpad"] at [0]>]
+  by [<Embed{4, 1} ["a", "b"] at [0, 1] -> ["1pad"] at [0]>]
   bounds = [4, 4] -> [16]>
 
 #transform_map_align_pad = #rock.transform_map<affine_map<(d0) -> (d0)>
-  by [<Pad{0, 2} ["xpad"] at [0] -> ["x"] at [0]>]
+  by [<Pad{0, 2} ["1pad"] at [0] -> ["1"] at [0]>]
   bounds = [16] -> [14]>
 
 #transform_map_align_nopad = #rock.transform_map<affine_map<(d0) -> (d0)>
-  by [<Pad{0, 0} ["xpad"] at [0] -> ["x"] at [0]>]
+  by [<Pad{0, 0} ["1pad"] at [0] -> ["1"] at [0]>]
   bounds = [16] -> [16]>
 
 // Regression tests for padding and alignment - namely, you can't vectorize
@@ -334,7 +334,7 @@ func.func @test_embed_4_1_trivial_pad(%buf: memref<16xf32>) {
 
 // Unfold detection transforms
 #transform_merge = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, d0 mod 3)>
-  by [<Merge{8, 3} ["x"] at [0] -> ["a", "b"] at [0, 1]>]
+  by [<Merge{8, 3} ["1"] at [0] -> ["a", "b"] at [0, 1]>]
   bounds = [24] -> [8, 3]>
 
 #transform_merge_2 = #rock.transform_map<affine_map<(d0, d1) -> (d1 floordiv 4, d0, (d1 mod 4) floordiv 2, d1 mod 2)>
@@ -343,7 +343,7 @@ func.func @test_embed_4_1_trivial_pad(%buf: memref<16xf32>) {
   bounds = [32, 512] -> [128, 32, 2, 2]>
 
 #transform_merge_4 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 9, (d0 mod 3) floordiv 3, d0 mod 3)>
-  by [<Merge{8, 3, 3} ["x"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
+  by [<Merge{8, 3, 3} ["1"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
   bounds = [72] -> [8, 3, 3]>
 
 #transform_transpose = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)>
@@ -359,11 +359,11 @@ func.func @test_embed_4_1_trivial_pad(%buf: memref<16xf32>) {
   bounds = [8, 3, 3] -> [8, 3, 3]>
 
 #transform_unmerge = #rock.transform_map<affine_map<(d0, d1) -> (3*d1 + d0)>
-  by [<Unmerge{8, 3} ["a", "b"] at [1, 0] -> ["x"] at [0]>]
+  by [<Unmerge{8, 3} ["a", "b"] at [1, 0] -> ["1"] at [0]>]
   bounds = [3, 8] -> [24]>
 
 #transform_unmerge_2 = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (d0 + 2*d1 + 4*d2 + 128*d3)>
-  by [<Unmerge{128, 32, 2, 2} ["Wo", "Ho", "K", "N"] at [3, 2, 1, 0] -> ["x"] at [0]>]
+  by [<Unmerge{128, 32, 2, 2} ["Wo", "Ho", "K", "N"] at [3, 2, 1, 0] -> ["1"] at [0]>]
   bounds = [2, 2, 32, 128] -> [16384]>
 
 // Tests for unfold detection
@@ -411,8 +411,8 @@ func.func @test_twisted_dimensions_dont_collapse(%buf: memref<8x3x3xf32>) {
 }
 
 #transform_merge_3 = #rock.transform_map<affine_map<(d0, d1) -> (d0 floordiv 3, d1, d0 mod 3)>
-  by [<Merge{8, 3} ["x"] at [0] -> ["a", "b"] at [0, 2]>,
-  <PassThrough ["y"] at [1] -> ["y"] at [1]>]
+  by [<Merge{8, 3} ["1"] at [0] -> ["a", "b"] at [0, 2]>,
+  <PassThrough ["0"] at [1] -> ["0"] at [1]>]
   bounds = [24, 5] -> [8, 5, 3]>
 
 // Intervening dimensions still prevent merge
@@ -426,12 +426,12 @@ func.func @test_no_contiguous_intervening_dim(%buf: memref<8x5x3xf32>) {
 }
 
 #transform_shuffle_2 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d2)>
-  by [<AddDim{5} ["y"] at [1] -> [] at []>,
+  by [<AddDim{5} ["0"] at [1] -> [] at []>,
   <PassThrough ["a", "b"] at [0, 2] -> ["a", "b"] at [0, 1]>]
   bounds = [8, 5, 3] -> [8, 3]>
 
 #transform_shuffle_3 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, 0, d2)>
-  by [<Broadcast{1} ["y"] at [1] -> ["y"] at [1]>,
+  by [<Broadcast{1} ["0"] at [1] -> ["0"] at [1]>,
   <PassThrough ["a", "b"] at [0, 2] -> ["a", "b"] at [0, 2]>]
   bounds = [8, 5, 3] -> [8, 1, 3]>
 
@@ -458,7 +458,7 @@ func.func @test_intervening_broadcast_allows_contiguous(%buf: memref<8x1x3xf32>)
 }
 
 #transform_unmerge_3 = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (128*d3 + 4*d2+ 2*d1+ d0)>
-  by [<Embed{128, 4, 2, 1} ["Wo", "Ho", "K", "N"] at [3, 2, 1, 0] -> ["x"] at [0]>]
+  by [<Embed{128, 4, 2, 1} ["Wo", "Ho", "K", "N"] at [3, 2, 1, 0] -> ["1"] at [0]>]
   bounds = [2, 2, 32, 128] -> [16384]>
 
 // Unfold detection with embed
@@ -474,11 +474,11 @@ func.func @test_merge_shuffle_embed(%buf: memref<16384xf32>) {
 }
 
 #transform_merge_5 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, d0 mod 3)>
-  by [<Merge{4, 3} ["x"] at [0] -> ["a", "b"] at [0, 1]>]
+  by [<Merge{4, 3} ["1"] at [0] -> ["a", "b"] at [0, 1]>]
   bounds = [12] -> [4, 3]>
 
 #transform_unmerge_5 = #rock.transform_map<affine_map<(d0,d1) -> (d0*3+d1)>
-  by [<Embed{3, 1} ["a", "b"] at [0,1] -> ["x"] at [0]>]
+  by [<Embed{3, 1} ["a", "b"] at [0,1] -> ["1"] at [0]>]
   bounds = [4,3] -> [12]>
 
 // CHECK-LABEL: @test_merge_embed_full_continuity
@@ -492,7 +492,7 @@ func.func @test_merge_embed_full_continuity(%buf: memref<12xf32>) {
 }
 
 #transform_unmerge_9 = #rock.transform_map<affine_map<(d0, d1) -> (d0 + d1*3)>
-  by [<Embed{1, 3} ["a", "c"] at [0, 1] -> ["x"] at [0]>]
+  by [<Embed{1, 3} ["a", "c"] at [0, 1] -> ["1"] at [0]>]
   bounds = [3, 8] -> [24]>
 
 // CHECK-LABEL: @test_merge_transpose_transposing_embed
@@ -507,11 +507,11 @@ func.func @test_merge_transpose_transposing_embed(%buf: memref<12xf32>) {
 }
 
 #transform_merge_6 = #rock.transform_map<affine_map<(d0, d1) -> (d0 floordiv 3, d0 mod 3, d1 floordiv 7, d1 mod 7)>
-  by [<Merge{4, 3} ["x"] at [0] -> ["a", "b"] at [0, 1]>, <Merge{8,7} ["y"] at [1] -> ["c", "d"] at [2, 3]>]
+  by [<Merge{4, 3} ["1"] at [0] -> ["a", "b"] at [0, 1]>, <Merge{8,7} ["0"] at [1] -> ["c", "d"] at [2, 3]>]
   bounds = [12, 56] -> [4, 3, 8, 7]>
 
 #transform_unmerge_6 = #rock.transform_map<affine_map<(d0,d1,d2,d3) -> (d0*3+d1,d2*7+d3)>
-  by [<Embed{3, 1} ["a", "b"] at [0,1] -> ["x"] at [0]>, <Embed{7,1} ["b","c"] at [2,3] -> ["y"] at [1]>]
+  by [<Embed{3, 1} ["a", "b"] at [0,1] -> ["1"] at [0]>, <Embed{7,1} ["b","c"] at [2,3] -> ["0"] at [1]>]
   bounds = [4,3,8,7] -> [12,56]>
 
 // Partial unfold detection with embed
@@ -526,11 +526,11 @@ func.func @test_merge_embed_collapse(%buf: memref<12x56xf32>) {
 }
 
 #transform_unmerge_7 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0*3 + d1 + d0)>
-  by [<Unmerge{8, 1, 3} ["a", "b", "c"] at [0, 1, 2] -> ["x"] at [0]>]
+  by [<Unmerge{8, 1, 3} ["a", "b", "c"] at [0, 1, 2] -> ["1"] at [0]>]
   bounds = [8,1,3] -> [24]>
 
 #transform_merge_7 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, 0, d0 mod 3)>
-  by [<Merge{8, 1, 3} ["x"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
+  by [<Merge{8, 1, 3} ["1"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
   bounds = [24] -> [8, 1, 3]>
 
 // More broadcast examples
@@ -545,7 +545,7 @@ func.func @test_unmerge_merge_extra_1(%buf: memref<24xf32>) {
 }
 
 #transform_unmerge_8 = #rock.transform_map<affine_map<(d0, d1) -> (d0*3 + d1)>
-  by [<Unmerge{8, 3} ["a", "c"] at [0, 1] -> ["x"] at [0]>]
+  by [<Unmerge{8, 3} ["a", "c"] at [0, 1] -> ["1"] at [0]>]
   bounds = [8,3] -> [24]>
 
 #transform_shuffle_5 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d2)>
@@ -564,7 +564,7 @@ func.func @test_merge_adddim_unmerge(%buf: memref<24xf32>) {
 }
 
 #transform_merge_9 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 3, 0, d0 mod 3)>
-  by [<Merge{8, 2, 3} ["x"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
+  by [<Merge{8, 2, 3} ["1"] at [0] -> ["a", "b", "c"] at [0, 1, 2]>]
   bounds = [48] -> [8, 2, 3]>
 
 #transform_shuffle_6 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, 0, d2)>
@@ -597,7 +597,7 @@ func.func @test_merge_broadcast_middle_unmerge(%buf: memref<24xf32>) {
   bounds = [8, 3] -> [8, 2, 3]>
 
 #transform_unmerge_injected_non_unit = #rock.transform_map<affine_map<(d0, d1, d2) -> (d2 + 3 * (d1 + d0 * 2))>
-  by [<Unmerge{8, 2, 3} ["a", "b", "c"] at [0, 1, 2] -> ["x"] at [0]>]
+  by [<Unmerge{8, 2, 3} ["a", "b", "c"] at [0, 1, 2] -> ["1"] at [0]>]
   bounds = [8, 2, 3] -> [48]>
 
 
@@ -625,12 +625,12 @@ func.func @test_inject_non_unit_const(%buf: memref<48xf32>) {
 }
 
 #transform_map_embed_tiebreak1 = #rock.transform_map<affine_map<(d0, d1) -> (d0, 0, d1)>
-  by [<PassThrough ["x"] at [0] -> ["x"] at [0]>,
-    <Merge{2, 8} ["y"] at [1] -> ["a", "b"] at [1, 2]>]
+  by [<PassThrough ["1"] at [0] -> ["1"] at [0]>,
+    <Merge{2, 8} ["0"] at [1] -> ["a", "b"] at [1, 2]>]
   bounds = [4, 16] -> [4, 2, 8]>
 
 #transform_map_embed_tiebreak2 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0 + d1 + d2)>
-  by [<Embed{1, 1, 1} ["x", "a", "b"] at [0, 1, 2] -> ["d"] at [0]>]
+  by [<Embed{1, 1, 1} ["1", "a", "b"] at [0, 1, 2] -> ["d"] at [0]>]
   bounds = [4, 2, 8] -> [13]>
 
 // CHECK-LABEL: @test_embed_tiebreak_1
@@ -646,19 +646,19 @@ func.func @test_embed_tiebreak_1(%buf: memref<13xf32>) {
 // iso-coefficient embed alignment checks
 #transform_map_over_vec_bottom1 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d2 floordiv 45, d0, d1 floordiv 4, (d1 mod 4) floordiv 2, (d2 mod 45) floordiv 5, d1 mod 2, d2 mod 5)>
   by [<PassThrough ["gemmG"] at [0] -> ["gi"] at [1]>,
-    <Merge{64, 2, 2} ["gemmK"] at [1] -> ["ci", "y", "x"] at [2, 3, 5]>,
-    <Merge{64, 9, 5} ["gemmN"] at [2] -> ["ni", "ho", "wo"] at [0, 4, 6]>]
+    <Merge{64, 2, 2} ["gemmK"] at [1] -> ["ci", "0", "1"] at [2, 3, 5]>,
+    <Merge{64, 9, 5} ["gemmN"] at [2] -> ["ni", "0o", "1o"] at [0, 4, 6]>]
   bounds = [1, 256, 2880] -> [64, 1, 64, 2, 9, 2, 5]>
 #transform_map_over_vec_bottom2 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d1, d2, d3 + d4, d5 + d6)>
   by [<PassThrough ["ni", "gi", "ci"] at [0, 1, 2] -> ["ni", "gi", "ci"] at [0, 1, 2]>,
-    <Embed{1, 1} ["y", "ho"] at [3, 4] -> ["hipad"] at [3]>,
-    <Embed{1, 1} ["x", "wo"] at [5, 6] -> ["wipad"] at [4]>]
+    <Embed{1, 1} ["0", "0o"] at [3, 4] -> ["0ipad"] at [3]>,
+    <Embed{1, 1} ["1", "1o"] at [5, 6] -> ["1ipad"] at [4]>]
   bounds = [64, 1, 64, 2, 9, 2, 5] -> [64, 1, 64, 10, 6]>
 #transform_map_over_vec_bottom3 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 3, d4)>
   by [<PassThrough ["ni"] at [0] -> ["ni"] at [0]>,
     <PassThrough ["gi"] at [1] -> ["gi"] at [1]>,
     <PassThrough ["ci"] at [2] -> ["ci"] at [2]>,
-    <Pad{3, 3, 0, 2} ["hipad", "wipad"] at [3, 4] -> ["hi", "wi"] at [3, 4]>]
+    <Pad{3, 3, 0, 2} ["0ipad", "1ipad"] at [3, 4] -> ["0i", "1i"] at [3, 4]>]
   bounds = [64, 1, 64, 10, 6] -> [64, 1, 64, 4, 4]>
 
 // CHECK-LABEL: @test_padded_conv2gemm_input

@@ -23,17 +23,40 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
   size_t dimValSize = layoutAttr.size();
   for (size_t i = 0; i < dimValSize; ++i) {
     auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+
+    // +++pf: update old keys.
+    if (key == "y")
+      key = "0";
+    if (key == "x")
+      key = "1";
+    if (key[0] == 'h')
+      key = StringAttr::get(layoutAttr.getContext(),
+                            std::string("0") + key.drop_front());
+    if (key[0] == 'w')
+      key = StringAttr::get(layoutAttr.getContext(),
+                            std::string("1") + key.drop_front());
+
     auto value = dim[i];
     dimIndexAndSize[key] = {i, value};
   }
 }
 
 ConvolutionDims ConvolutionContext::getConvDims() {
-  return ConvolutionDims(dimIndexAndSize["y"].size, dimIndexAndSize["x"].size,
-                         dimIndexAndSize["ho"].size, dimIndexAndSize["wo"].size,
-                         dimIndexAndSize["hi"].size, dimIndexAndSize["wi"].size,
-                         dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
-                         dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
+  llvm::SmallVector<int64_t, 4> fil;
+  llvm::SmallVector<int64_t, 4> out;
+  llvm::SmallVector<int64_t, 4> in;
+  for (int i = 0;; i++) {
+    std::string key = std::to_string(i);
+    if (!dimIndexAndSize.contains(key))
+      break;
+    fil.push_back(dimIndexAndSize[key].size);
+    out.push_back(dimIndexAndSize[key + "o"].size);
+    in.push_back(dimIndexAndSize[key + "i"].size);
+  }
+
+  return ConvolutionDims(fil, out, in, dimIndexAndSize["k"].size,
+                         dimIndexAndSize["c"].size, dimIndexAndSize["ni"].size,
+                         dimIndexAndSize["g"].size);
 }
 
 ConvolutionContext mlir::rock::populateConvContext(Operation *op) {

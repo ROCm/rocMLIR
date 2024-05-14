@@ -17,7 +17,7 @@ func.func @mlir_reshape_transpose_reshape_convolution(%arg0: tensor<1x116x28x28x
   // CHECK: [[GC_TR:%.+]] = tosa.transpose [[EXPANDED]], %{{.*}} : (tensor<1x2x58x28x28xf32>, tensor<5xi64>) -> tensor<1x58x2x28x28xf32>
   // CHECK: [[COLLAPSED:%.+]] = tensor.collapse_shape [[GC_TR]] {{\[}}[0], [1, 2], [3], [4]]
   // CHECK: [[GROUP_SPLIT:%.+]] = rock.transform [[COLLAPSED]] {{.*}} : tensor<1x116x28x28xf32> to tensor<1x116x1x28x28xf32>
-  // CHECK: rock.conv2d(%{{.*}}, [[GROUP_SPLIT]], %{{.*}})
+  // CHECK: rock.conv(%{{.*}}, [[GROUP_SPLIT]], %{{.*}})
   // CHECK-SAME: input_layout = ["ni", "gi", "ci", "hi", "wi"]
   %expanded = tensor.expand_shape %arg0 [[0], [1, 2], [3], [4]] : tensor<1x116x28x28xf32> into tensor<1x2x58x28x28xf32>
   %0 = "tosa.const"() <{value = dense<[0, 2, 1, 3, 4]> : tensor<5xi64>}> : () -> tensor<5xi64>

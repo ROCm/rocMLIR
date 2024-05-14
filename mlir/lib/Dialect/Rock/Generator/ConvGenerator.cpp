@@ -40,11 +40,11 @@ ConvGenerator::ConvGenerator(
     std::optional<int> num_cu, bool reverseGrid, GemmFeatures features,
     const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
-    const std::string &outputDataTypeStr, int dilationHeight, int dilationWidth,
-    int strideHeight, int strideWidth, int paddingHeightLeft,
-    int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
-    const std::string &filterLayout, const std::string &inputLayout,
-    const std::string &outputLayout, const std::string &kernelBaseName)
+    const std::string &outputDataTypeStr, ArrayRef<int> dilations,
+    ArrayRef<int> strides, ArrayRef<int> paddingLeft,
+    ArrayRef<int> paddingRight, const std::string &filterLayout,
+    const std::string &inputLayout, const std::string &outputLayout,
+    const std::string &kernelBaseName)
     : config{arch,
              chip,
              triple,
@@ -57,10 +57,10 @@ ConvGenerator::ConvGenerator(
              filterDataTypeStr,
              inputDataTypeStr,
              outputDataTypeStr,
-             {dilationHeight, dilationWidth},
-             {strideHeight, strideWidth},
-             {paddingHeightLeft, paddingWidthLeft},
-             {paddingHeightRight, paddingWidthRight},
+             {dilations.begin(), dilations.end()},
+             {strides.begin(), strides.end()},
+             {paddingLeft.begin(), paddingLeft.end()},
+             {paddingRight.begin(), paddingRight.end()},
              filterLayout,
              inputLayout,
              outputLayout,
@@ -69,7 +69,7 @@ ConvGenerator::ConvGenerator(
              {},
              {},
              {},
-             {-1, -1}} {}
+             {}} {}
 
 ConvGenerator::ConvGenerator(const ConvGenerator::Config &_config)
     : config(_config) {}
@@ -95,9 +95,9 @@ static void strToTokens(const std::string &arguments,
 static llvm::StringMap<int64_t> canonicalizeDims(const ArrayRef<int64_t> dims,
                                                  const StringRef layout) {
   llvm::StringMap<int64_t> ret;
-  for (const auto &tuple : llvm::zip(layout, dims)) {
-    StringRef key(&std::get<0>(tuple), 1);
-    ret.insert_or_assign(key, std::get<1>(tuple));
+  for (const auto &[keych, dim] : llvm::zip(layout, dims)) {
+    StringRef key(&keych, 1);
+    ret.insert_or_assign(key, dim);
   }
   return ret;
 }
@@ -129,21 +129,17 @@ LogicalResult ConvGenerator::isApplicable(bool checkChip) const {
 }
 
 LogicalResult ConvGenerator::hasValidDimension() const {
-  static const SmallVector<int64_t, 4> strictlyPositiveParams{
-      config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
-      config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH]};
-  if (std::any_of(strictlyPositiveParams.begin(), strictlyPositiveParams.end(),
-                  [](const int64_t &a) { return a <= 0; })) {
+  if (any_of(
+          llvm::concat<const int64_t>(config.dilationDims, config.strideDims),
+          [](const int64_t &a) { return a <= 0; })) {
     LLVM_DEBUG(llvm::dbgs()
                << "Dilation and stride must be a positive integer\n");
     return failure();
   }
 
-  static const SmallVector<int64_t, 4> nonNegativeParams{
-      config.paddingLeftDims[DIM::HEIGHT], config.paddingRightDims[DIM::HEIGHT],
-      config.paddingLeftDims[DIM::WIDTH], config.paddingRightDims[DIM::WIDTH]};
-  if (std::any_of(nonNegativeParams.begin(), nonNegativeParams.end(),
-                  [](const int64_t &a) { return a < 0; })) {
+  if (any_of(llvm::concat<const int64_t>(config.paddingLeftDims,
+                                         config.paddingRightDims),
+             [](const int64_t &a) { return a < 0; })) {
     LLVM_DEBUG(llvm::dbgs() << "Padding values cannot be negative\n");
     return failure();
   }
@@ -154,11 +150,6 @@ LogicalResult ConvGenerator::hasValidDimension() const {
       {"bf16", sizeof(uint16_t)}, {"i8", sizeof(int8_t)},
       {"fp8", sizeof(uint8_t)},   {"bf8", sizeof(int8_t)}};
 
-  auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
-    return std::all_of(dims.begin(), dims.end(),
-                       [](const int64_t &a) { return a > 0; });
-  };
-
   for (const std::string &type :
        {config.filterDataTypeStr, config.inputDataTypeStr,
         config.outputDataTypeStr}) {
@@ -167,6 +158,10 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     }
   }
 
+  auto checkDimSizes = [](const ArrayRef<int64_t> dims) -> bool {
+    return all_of(dims, [](const int64_t &a) { return a > 0; });
+  };
+
   if (!checkDimSizes(config.inputDimension)) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input tensor dimensions must be strictly positive\n");
@@ -174,7 +169,7 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   }
   if (!checkDimSizes(config.filterDimension)) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Filter tensoor dimensions must be strictly positive\n");
+               << "Filter tensor dimensions must be strictly positive\n");
   }
   if (!checkDimSizes(config.outputDimension)) {
     LLVM_DEBUG(llvm::dbgs()
@@ -187,9 +182,9 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
   // Note: hasDimensions() prints error messages
-  if (failed(hasDimensions(inDim, "ngchw", "input")) ||
-      failed(hasDimensions(filDim, "gkcyx", "filter")) ||
-      failed(hasDimensions(outDim, "ngkhw", "output"))) {
+  if (failed(hasDimensions(inDim, "ngc01", "input")) ||
+      failed(hasDimensions(filDim, "gkc01", "filter")) ||
+      failed(hasDimensions(outDim, "ngk01", "output"))) {
     return failure();
   }
 
@@ -215,41 +210,33 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     return failure();
   }
 
-  int64_t expectedOutHeight = outputDim(
-      inDim["h"], filDim["y"], config.paddingLeftDims[DIM::HEIGHT],
-      config.paddingRightDims[DIM::HEIGHT], config.strideDims[DIM::HEIGHT],
-      config.dilationDims[DIM::HEIGHT]);
-  int64_t expectedOutWidth =
-      outputDim(inDim["w"], filDim["x"], config.paddingLeftDims[DIM::WIDTH],
-                config.paddingRightDims[DIM::WIDTH],
-                config.strideDims[DIM::WIDTH], config.dilationDims[DIM::WIDTH]);
-  if (outDim["h"] != expectedOutHeight) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Output height " << outDim["h"] << " doesn't match height "
-               << expectedOutHeight << " computed from other parameters\n");
-    return failure();
-  }
-  if (outDim["w"] != expectedOutWidth) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Output width " << outDim["w"] << " doesn't match width "
-               << expectedOutWidth << " computed from other parameters\n");
-    return failure();
+  assert(config.strideDims.size() == config.dilationDims.size() &&
+         config.strideDims.size() == config.paddingLeftDims.size() &&
+         config.strideDims.size() == config.paddingRightDims.size());
+
+  for (size_t i = 0; i < config.strideDims.size(); i++) {
+    auto ii = std::to_string(i);
+    int64_t expected =
+        outputDim(inDim[ii], filDim[ii], config.paddingLeftDims[i],
+                  config.paddingRightDims[i], config.strideDims[i],
+                  config.dilationDims[i]);
+    if (outDim[ii] != expected) {
+      LLVM_DEBUG(llvm::dbgs() << "Output dimension " << i << " " << outDim[ii]
+                              << " doesn't match " << expected
+                              << " computed from other parameters\n");
+      return failure();
+    }
   }
 
-  if (inDim["h"] + config.paddingLeftDims[DIM::HEIGHT] +
-          config.paddingRightDims[DIM::HEIGHT] <
-      filDim["y"]) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Input, including padding, is shorter than the filter\n");
-    return failure();
-  }
-
-  if (inDim["w"] + config.paddingLeftDims[DIM::WIDTH] +
-          config.paddingRightDims[DIM::WIDTH] <
-      filDim["x"]) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Input, including padding, is narrower than the filter\n");
-    return failure();
+  for (size_t i = 0; i < config.paddingLeftDims.size(); i++) {
+    auto ii = std::to_string(i);
+    if (inDim[ii] + config.paddingLeftDims[i] + config.paddingRightDims[i] <
+        filDim[ii]) {
+      LLVM_DEBUG(llvm::dbgs() << "Input, including padding, is smaller than "
+                                 "the filter in dimension "
+                              << i << "\n");
+      return failure();
+    }
   }
 
   return success();
@@ -347,9 +334,7 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
 
 int ConvGenerator::getBwdDataKernelCount() const {
   llvm::SmallVector<int64_t> gemmIds = backwardDataKernelIds(
-      config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
-      config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
-      config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
+      config.strideDims, config.dilationDims, config.filterDims);
   return static_cast<int>(gemmIds.size());
 }
 
@@ -410,7 +395,7 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*gemmFeatures=*/config.features,
                           /*gemmAType=*/dataType,
                           /*gemmBType=*/dataType,
-                          /*kernelType=*/KernelType::Conv2DBwdWeight,
+                          /*kernelType=*/KernelType::ConvBwdWeight,
                           /*batchSize=*/convDims.n,
                           /*numCU=*/getNumCU()};
 
@@ -499,36 +484,35 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   auto isValid = [&argMap]() {
     // only require tensor configs
-    static const std::vector<std::string> validKeys = {
+    static std::vector<std::string> validKeys = {
         "batchsize",   "groupsize",    "in_layout", "in_type",
         "in_channels", "in_h",         "in_w",      "out_layout",
         "out_type",    "out_channels", "out_h",     "out_w",
         "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
-    if (!std::all_of(validKeys.cbegin(), validKeys.cend(),
-                     [&argMap](const std::string &key) {
-                       return argMap.count(key) > 0;
-                     })) {
+    if (argMap["in_layout"].length() > 5) { // Ie, 3-D.
+      validKeys.push_back("in_d");
+      validKeys.push_back("out_d");
+      validKeys.push_back("fil_d");
+    }
+    auto isPresent = [&argMap](const std::string &key) {
+      return argMap.count(key) > 0;
+    };
+    if (!llvm::all_of(validKeys, isPresent)) {
       return false;
     }
-    static const std::vector<std::string> layoutArgs = {
-        "fil_layout", "in_layout", "out_layout"};
+    return (argMap["fil_layout"].length() == argMap["in_layout"].length()) &&
+           (argMap["in_layout"].length() == argMap["out_layout"].length());
 
-    if (!std::all_of(layoutArgs.cbegin(), layoutArgs.cend(),
-                     [&argMap](const std::string &key) {
-                       return argMap[key].length() == 5;
-                     })) {
-      return false;
-    }
-    return true;
   };
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
   // empty
-  if (!isValid())
+  if (!isValid()) {
     return failure();
+  }
 
   auto strToLong = [&argMap](const std::string &argKey) {
-    return std::stoul(argMap[argKey]);
+    return std::stol(argMap[argKey]);
   };
 
   auto strToInt = [&argMap](const std::string &key, auto &setting) {
@@ -587,12 +571,20 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   config.outputDataTypeStr = canonicalizeDataType(argMap["out_type"]);
   strToInt("dilation_h", config.dilationDims[DIM::HEIGHT]);
   strToInt("dilation_w", config.dilationDims[DIM::WIDTH]);
+  if (config.dilationDims.size() > DIM::DEPTH)
+    strToInt("dilation_d", config.dilationDims[DIM::DEPTH]);
   strToInt("conv_stride_h", config.strideDims[DIM::HEIGHT]);
   strToInt("conv_stride_w", config.strideDims[DIM::WIDTH]);
+  if (config.strideDims.size() > DIM::DEPTH)
+    strToInt("conv_stride_d", config.strideDims[DIM::DEPTH]);
   strToInt("padding_h", config.paddingLeftDims[DIM::HEIGHT]);
   strToInt("padding_h", config.paddingRightDims[DIM::HEIGHT]);
   strToInt("padding_w", config.paddingLeftDims[DIM::WIDTH]);
   strToInt("padding_w", config.paddingRightDims[DIM::WIDTH]);
+  if (config.paddingLeftDims.size() > DIM::DEPTH)
+    strToInt("padding_d", config.paddingLeftDims[DIM::DEPTH]);
+  if (config.paddingRightDims.size() > DIM::DEPTH)
+    strToInt("padding_d", config.paddingRightDims[DIM::DEPTH]);
 
   strToStr("kernel_name", config.kernelBaseName);
 
@@ -627,18 +619,25 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   // Rock has NCHW as layout string for all three tensors
   config.inputLayout = translateLayout(
-      argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
+      argMap["in_layout"], std::string("NGCHWD012"), std::string("ngchwd012"));
   config.filterLayout = translateLayout(
-      argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
+      argMap["fil_layout"], std::string("GNCHWD012"), std::string("gkcyxz012"));
   config.outputLayout = translateLayout(
-      argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
+      argMap["out_layout"], std::string("NGCHWD012"), std::string("ngkhwd012"));
 
   // Determine tensor dimensions.
+  SmallVector<int64_t> inDims{strToLong("in_h"), strToLong("in_w")};
+  if (argMap.count("in_d") > 0)
+    inDims.push_back(strToLong("in_d"));
+  SmallVector<int64_t> outDims{strToLong("out_h"), strToLong("out_w")};
+  if (argMap.count("out_d") > 0)
+    outDims.push_back(strToLong("out_d"));
+  SmallVector<int64_t> filDims{strToLong("fil_h"), strToLong("fil_w")};
+  if (argMap.count("fil_d") > 0)
+    filDims.push_back(strToLong("fil_d"));
   auto status = parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
-                              strToLong("in_channels"), strToLong("in_h"),
-                              strToLong("in_w"), strToLong("out_channels"),
-                              strToLong("out_h"), strToLong("out_w"),
-                              strToLong("fil_w"), strToLong("fil_h"));
+                              strToLong("in_channels"), inDims,
+                              strToLong("out_channels"), outDims, filDims);
 
   if (status.failed()) {
     return failure();
@@ -647,38 +646,50 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   return success();
 }
 
-LogicalResult
-ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
-                             int64_t inputChannel, int64_t inputHeight,
-                             int64_t inputWidth, int64_t outputChannel,
-                             int64_t outputHeight, int64_t outputWidth,
-                             int64_t filterHeight, int64_t filterWidth) {
-  config.filterDims[DIM::HEIGHT] = filterHeight;
-  config.filterDims[DIM::WIDTH] = filterWidth;
-  static const std::string filterKeys = "kgcyx";
-  int64_t filterVals[] = {outputChannel / groupSize, groupSize,
-                          inputChannel / groupSize, filterHeight, filterWidth};
+LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
+                                           int64_t inputChannel,
+                                           ArrayRef<int64_t> inputDims,
+                                           int64_t outputChannel,
+                                           ArrayRef<int64_t> outputDims,
+                                           ArrayRef<int64_t> filterDims) {
+  config.filterDims.clear();
+  for (auto dim : filterDims)
+    config.filterDims.push_back(dim);
 
-  static const std::string inputKeys = "ngchw";
-  int64_t inputVals[] = {batchSize, groupSize, inputChannel / groupSize,
-                         inputHeight, inputWidth};
+  llvm::StringMap<int64_t> filterMap = {{"k", outputChannel / groupSize},
+                                        {"g", groupSize},
+                                        {"c", inputChannel / groupSize},
+                                        {"y", filterDims[0]},
+                                        {"x", filterDims[1]}};
+  for (size_t i = 0; i < filterDims.size(); i++)
+    filterMap[std::to_string(i)] = filterDims[i];
 
-  static const std::string outputKeys = "ngkhw";
-  int64_t outputVals[] = {batchSize, groupSize, outputChannel / groupSize,
-                          outputHeight, outputWidth};
+  llvm::StringMap<int64_t> inputMap = {{"n", batchSize},
+                                       {"g", groupSize},
+                                       {"c", inputChannel / groupSize},
+                                       {"h", inputDims[0]},
+                                       {"w", inputDims[1]}};
+  for (size_t i = 0; i < inputDims.size(); i++)
+    inputMap[std::to_string(i)] = inputDims[i];
 
-  auto convertLayout = [](char &key, const std::string &kmap, int64_t vals[],
+  llvm::StringMap<int64_t> outputMap = {{"n", batchSize},
+                                        {"g", groupSize},
+                                        {"k", outputChannel / groupSize},
+                                        {"h", outputDims[0]},
+                                        {"w", outputDims[1]}};
+  for (size_t i = 0; i < outputDims.size(); i++)
+    outputMap[std::to_string(i)] = outputDims[i];
+
+  auto convertLayout = [](char &key, llvm::StringMap<int64_t> &kmap,
                           auto &dims) {
-    auto keyl = std::tolower(key);
-    auto ii = kmap.find(keyl);
-    if (ii == std::string::npos) {
-      static std::string nchw = "ngchw";
-      ii = nchw.find(keyl);
-      if (ii == std::string::npos)
+    auto keyl = std::string{static_cast<char>(std::tolower(key))};
+    if (!kmap.contains(keyl) && !isdigit(key)) {
+      keyl = "k";
+      if (!kmap.contains(keyl))
         return false;
     }
-    dims.push_back(vals[ii]);
-    key = kmap[ii];
+    dims.push_back(kmap[keyl]);
+    key = keyl[0];
     return true;
   };
 
@@ -689,11 +700,15 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   }
   // Determine dimensions.
   for (size_t i = 0; i < layoutLen; ++i) {
-    if (!convertLayout(config.filterLayout[i], filterKeys, filterVals,
-                       config.filterDimension) ||
-        !convertLayout(config.inputLayout[i], inputKeys, inputVals,
-                       config.inputDimension) ||
-        !convertLayout(config.outputLayout[i], outputKeys, outputVals,
+    if (!convertLayout(config.filterLayout[i], filterMap,
+                       config.filterDimension)) {
+      return failure();
+    }
+    if (!convertLayout(config.inputLayout[i], inputMap,
+                       config.inputDimension)) {
+      return failure();
+    }
+    if (!convertLayout(config.outputLayout[i], outputMap,
                        config.outputDimension)) {
       return failure();
     }
@@ -734,8 +749,18 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
   auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
-  return ConvolutionDims(filDim["y"], filDim["x"], outDim["h"], outDim["w"],
-                         inDim["h"], inDim["w"], filDim["k"], filDim["c"],
+
+  SmallVector<int64_t> inDims;
+  for (size_t i = 0; i < config.inputLayout.size() - 3; i++)
+    inDims.push_back(inDim[std::to_string(i)]);
+  SmallVector<int64_t> filDims;
+  for (size_t i = 0; i < config.filterLayout.size() - 3; i++)
+    filDims.push_back(filDim[std::to_string(i)]);
+  SmallVector<int64_t> outDims;
+  for (size_t i = 0; i < config.outputLayout.size() - 3; i++)
+    outDims.push_back(outDim[std::to_string(i)]);
+
+  return ConvolutionDims(filDims, outDims, inDims, filDim["k"], filDim["c"],
                          inDim["n"], inDim["g"]);
 }
 
@@ -827,18 +852,16 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct a new Block.
   Block *block = func.addEntryBlock();
 
-  // Construct a new Conv2DOp.
+  // Construct a new ConvOp.
   SmallVector<StringAttr, 5> filterLayoutSpec;
   SmallVector<StringAttr, 5> inputLayoutSpec;
   SmallVector<StringAttr, 5> outputLayoutSpec;
-  for (size_t i = 0; i < 5; ++i) {
-    filterLayoutSpec.push_back(
-        builder.getStringAttr(StringRef(&config.filterLayout[i], 1)));
-    inputLayoutSpec.push_back(builder.getStringAttr(
-        (StringRef(&config.inputLayout[i], 1) + "i").str()));
-    outputLayoutSpec.push_back(builder.getStringAttr(
-        (StringRef(&config.outputLayout[i], 1) + "o").str()));
-  }
+  for (auto &key : config.filterLayout)
+    filterLayoutSpec.push_back(builder.getStringAttr(StringRef(&key, 1)));
+  for (auto &key : config.inputLayout)
+    inputLayoutSpec.push_back(builder.getStringAttr(StringRef(&key, 1) + "i"));
+  for (auto &key : config.outputLayout)
+    outputLayoutSpec.push_back(builder.getStringAttr(StringRef(&key, 1) + "o"));
 
   // Set kernel ID to  be the same as the raw kernel ID.
   // For backward data convolution, additional processing is needed below.
@@ -848,9 +871,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // kernel ID.
   if (config.operation.value() == ConvOpType::BwdData) {
     llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
-        config.strideDims[DIM::HEIGHT], config.strideDims[DIM::WIDTH],
-        config.dilationDims[DIM::HEIGHT], config.dilationDims[DIM::WIDTH],
-        config.filterDims[DIM::HEIGHT], config.filterDims[DIM::WIDTH]);
+        config.strideDims, config.dilationDims, config.filterDims);
     assert(kernelIds.size() > static_cast<size_t>(rawKernelId));
     kernelId = kernelIds[rawKernelId];
   }
@@ -884,22 +905,21 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       builder.getAttr<GemmFeaturesAttr>(config.features);
   attributes.push_back(builder.getNamedAttr("features", features));
 
-  SmallVector<int64_t, 4> paddingArray{
-      config.paddingLeftDims[DIM::HEIGHT], config.paddingRightDims[DIM::HEIGHT],
-      config.paddingLeftDims[DIM::WIDTH], config.paddingRightDims[DIM::WIDTH]};
-  SmallVector<int64_t, 2> strideArray{config.strideDims[DIM::HEIGHT],
-                                      config.strideDims[DIM::WIDTH]};
-  SmallVector<int64_t, 2> dilationArray{config.dilationDims[DIM::HEIGHT],
-                                        config.dilationDims[DIM::WIDTH]};
+  SmallVector<int64_t, 8> paddingArray;
+  for (const auto &[left, right] :
+       zip(config.paddingLeftDims, config.paddingRightDims)) {
+    paddingArray.push_back(left);
+    paddingArray.push_back(right);
+  }
 
   attributes.push_back(
       builder.getNamedAttr("padding", builder.getIndexArrayAttr(paddingArray)));
 
-  attributes.push_back(
-      builder.getNamedAttr("strides", builder.getIndexArrayAttr(strideArray)));
+  attributes.push_back(builder.getNamedAttr(
+      "strides", builder.getIndexArrayAttr(config.strideDims)));
 
   attributes.push_back(builder.getNamedAttr(
-      "dilations", builder.getIndexArrayAttr(dilationArray)));
+      "dilations", builder.getIndexArrayAttr(config.dilationDims)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {
@@ -916,8 +936,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
 
   switch (config.operation.value()) {
   case ConvOpType::Fwd: {
-    auto convOp = builder.create<Conv2DOp>(builder.getUnknownLoc(),
-                                           ArrayRef<Type>{}, args, attributes);
+    auto convOp = builder.create<ConvOp>(builder.getUnknownLoc(),
+                                         ArrayRef<Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
   case ConvOpType::BwdData: {
@@ -930,7 +950,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           /*elemsPerThread=*/nullptr);
       block->push_front(zeroInit);
     } else {
-      auto convOp = builder.create<Conv2DBwdDataOp>(
+      auto convOp = builder.create<ConvBwdDataOp>(
           builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
       block->push_front(convOp);
     }
@@ -957,7 +977,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           /*elemsPerThread=*/nullptr);
       block->push_front(conversionOp);
     } else {
-      auto convOp = builder.create<Conv2DBwdWeightOp>(
+      auto convOp = builder.create<ConvBwdWeightOp>(
           builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
       block->push_back(convOp);
     }

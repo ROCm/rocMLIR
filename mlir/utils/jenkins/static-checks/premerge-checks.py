@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ A script to perform static tests for the mlir project.
 
-This script runs clang-format and clang-tidy on the changes before a user 
+This script runs clang-format and clang-tidy on the changes before a user
 merges them to the master branch.
 
 The code was extracted from https://github.com/google/llvm-premerge-checks.
