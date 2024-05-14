@@ -437,6 +437,11 @@ static llvm::cl::opt<bool> emitSplitKSelectionLikelihood(
         "Print SplitK selection likelihood for the specified kernel"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<std::string> emitModuleFusabilityForPerfConfig(
+    "emit-module-fusibility-for",
+    llvm::cl::desc("Print whether module is fusible given a perf config"),
+    llvm::cl::init(""));
+
 static llvm::cl::opt<rock::TuningParamSetKind> emitTuningSpace(
     "emit-tuning-space",
     llvm::cl::desc("Print a tuning space for the specified kernel"),
@@ -3774,6 +3779,14 @@ int main(int argc, char **argv) {
       }
       }
     });
+    return 0;
+  }
+
+  if (!emitModuleFusabilityForPerfConfig.empty()) {
+    llvm::outs() << "fusible:"
+                 << rock::isModuleFusible(module.get(),
+                                          emitModuleFusabilityForPerfConfig)
+                 << "\n";
     return 0;
   }
 
