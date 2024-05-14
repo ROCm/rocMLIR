@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -327,6 +328,14 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     tuneCopy->walk([&perfConfigAttr](rock::AttentionOp op) {
       op->setAttr("perf_config", perfConfigAttr);
     });
+
+    if (rock::isSplitKRequested(tuneCopy.get(), perfConfig)) {
+      if (failed(rock::testFusionLegality(tuneCopy.get()))) {
+        llvm::outs() << "N/A\n";
+        continue;
+      }
+    }
+
     if (failed(applicability.run(tuneCopy.get()))) {
       llvm::outs() << "N/A\n";
       continue;
