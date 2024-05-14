@@ -774,7 +774,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val.getDefiningOp<TosaOp>();
   }
 
-  FailureOr<Value> maybeSoftmaxNumerator(Value val) const {
+  FailureOr<std::pair<Value, bool>> maybeSoftmaxNumerator(Value val) const {
     tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
     if (!exp) {
       return failure();
@@ -783,25 +783,47 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (!sub) {
       return failure();
     }
+    bool hasTosaRedeuce = false;
+    Value result;
     auto rmax = getDefiningNonReshapeOp<tosa::ReduceMaxOp>(sub.getInput2());
-    if (!rmax) {
-      return failure();
+    if (rmax) {
+      if (rmax.getInput() != sub.getInput1()) {
+        return failure();
+      }
+      hasTosaRedeuce = true;
+      result = rmax.getInput();
+    } else {
+      if (sub.getInput1() != sub.getInput2()) {
+        return failure();
+      }
+      hasTosaRedeuce = false;
+      result = sub.getInput1();
     }
-    if (rmax.getInput() != sub.getInput1()) {
-      return failure();
-    }
-    return rmax.getInput();
+    return std::make_pair(result, hasTosaRedeuce);
   }
 
-  FailureOr<Value> maybeSoftmaxDenominator(Value val) const {
+  FailureOr<std::pair<Value, bool>> maybeSoftmaxDenominator(Value val) const {
+    FailureOr<std::pair<Value, bool>> result;
     auto rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
-    if (!rsum) {
+    if (rsum) {
+      result = maybeSoftmaxNumerator(rsum.getInput());
+      if (succeeded(result) && !(result->second)) {
+        // if we see tosa::Reduce Op in the denominator then we expect to see
+        // tosa::Reduce Op in the numerator as well
+        return failure();
+      }
+      return result;
+    }
+    result = maybeSoftmaxNumerator(val);
+    if (succeeded(result) && result->second) {
+      // if we don't see tosa::Reduce Op in the denominator then we expect to
+      // not see any tosa::Reduce Op in the numerator as well
       return failure();
     }
-    return maybeSoftmaxNumerator(rsum.getInput());
+    return result;
   }
 
-  FailureOr<Value> maybeSoftmax(Value val) const {
+  FailureOr<std::pair<Value, bool>> maybeSoftmax(Value val) const {
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
       return failure();
@@ -930,21 +952,40 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   LogicalResult match(tosa::MatMulOp op) const override {
-    FailureOr<Value> softmaxInput = maybeSoftmax(op.getA());
-    if (failed(softmaxInput)) {
+    FailureOr<std::pair<Value, bool>> softmaxInputResult =
+        maybeSoftmax(op.getA());
+    if (failed(softmaxInputResult)) {
       return failure();
     }
+
+    Value softmaxInput;
+    bool hasReduceOp;
+    std::tie(softmaxInput, hasReduceOp) = softmaxInputResult.value();
     OpBuilder b{op};
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
     std::tie(std::ignore, maybeFirstMatMul) =
-        getPreSoftmaxElemwiseRegion(softmaxInput.value(), b, nullptr, vec);
+        getPreSoftmaxElemwiseRegion(softmaxInput, b, nullptr, vec);
+
+    if (succeeded(maybeFirstMatMul)) {
+      TypedValue<TensorType> matC = maybeFirstMatMul.value().getC();
+      ArrayRef<int64_t> shapeC = matC.getType().getShape();
+      bool isDotProduct = *(std::prev(shapeC.end(), 1)) == 1;
+      isDotProduct &= *(std::prev(shapeC.end(), 2)) == 1;
+
+      if (isDotProduct && hasReduceOp)
+        return failure();
+      if (!isDotProduct && !hasReduceOp)
+        return failure();
+    }
+
     return maybeFirstMatMul;
   }
 
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value softmaxInput = maybeSoftmax(op.getA()).value();
+    Value softmaxInput;
+    std::tie(softmaxInput, std::ignore) = maybeSoftmax(op.getA()).value();
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
