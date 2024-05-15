@@ -173,11 +173,11 @@ def parse_sizes(kernel: str) -> List[List[int]]:
     return ret
 
 def get_op(kernel: str) -> str:
-    if "rock.conv2d_bwd_data" in kernel:
+    if "rock.conv_bwd_data" in kernel:
         return "bwd"
-    if "rock.conv2d_bwd_weight" in kernel:
+    if "rock.conv_bwd_weight" in kernel:
         return "wrw"
-    if "rock.conv2d" in kernel:
+    if "rock.conv" in kernel:
         return "fwd"
     raise ValueError("Kernel is not a convolution")
 

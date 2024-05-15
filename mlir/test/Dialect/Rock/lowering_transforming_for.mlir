@@ -1,11 +1,11 @@
 // RUN: rocmlir-opt --rock-sugar-to-loops %s | FileCheck %s
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (d1 + 4 * d0)>
-    by [<Unmerge{16, 4} ["x", "y"] at [0, 1] -> ["r"] at [0]>]
+    by [<Unmerge{16, 4} ["1", "0"] at [0, 1] -> ["r"] at [0]>]
     bounds = [16, 4] -> [64]>
 
 #transform_map1 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)>
-    by [<PassThrough ["x", "y"] at [1, 0] -> ["x", "y"] at [0, 1]>]
+    by [<PassThrough ["1", "0"] at [1, 0] -> ["1", "0"] at [0, 1]>]
     bounds = [4, 16] -> [16, 4]>
 
 

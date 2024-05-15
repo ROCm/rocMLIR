@@ -10,7 +10,7 @@ The configuration files are in TOML format.  Below is an example:
 
     [[axis]]
     name = "operation"
-    values = ["conv2d", "conv2d_bwd_weight", "conv2d_bwd_data"]
+    values = ["conv", "conv_bwd_weight", "conv_bwd_data"]
     # Note the space, unlike with other prefixes, it is required here to also hande
     # the opt=value case
     prefix = "--operation "
@@ -26,7 +26,7 @@ The configuration files are in TOML format.  Below is an example:
     config = "--more-options"
     [[suite.test.exclude]]
     name = "operation"
-    values = ["conv2d_bwd_data"]
+    values = ["conv_bwd_data"]
 
 """
 import tomli
@@ -135,7 +135,7 @@ if __name__ == '__main__':
                 exclusions = generate_option_list(axis_prefixes, test, "exclude", "values")
             for opt in combinations:
                 # Only generate i8 data type for fwd convolutions
-                if len(opt) >= 3 and "i8" in opt[2] and ("conv2d_bwd_data" in opt[0] or "conv2d_bwd_weight" in opt[0]):
+                if len(opt) >= 3 and "i8" in opt[2] and ("conv_bwd_data" in opt[0] or "conv_bwd_weight" in opt[0]):
                     continue
                 if len(opt) >= 3 and "bf16" in opt[2] and "gfx11" in arch:
                     continue

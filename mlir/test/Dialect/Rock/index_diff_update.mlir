@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -rock-sugar-to-loops %s | FileCheck %s
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)>
-    by [#rock.transform<PassThrough ["x", "y"] at [0, 1] -> ["x", "y"] at [1, 0]>]
+    by [#rock.transform<PassThrough ["1", "0"] at [0, 1] -> ["1", "0"] at [1, 0]>]
     bounds = [64, 128] -> [128, 64]>
 
 #transform_map1 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1 - 1, d2 + 32)>
@@ -11,25 +11,25 @@
     bounds = [64, 66, 32] -> [64, 64, 64]>
 
 #transform_map2 = #rock.transform_map<affine_map<(d0, d1) -> (d0 + d1)>
-    by [#rock.transform<Embed{1, 1} ["x", "y"] at [0, 1] -> ["r"] at [0]>]
+    by [#rock.transform<Embed{1, 1} ["1", "0"] at [0, 1] -> ["r"] at [0]>]
     bounds = [64, 3] -> [65]>
 
 #transform_map3 = #rock.transform_map<affine_map<(d0, d1) -> (d1 + 4 * d0)>
-    by [#rock.transform<Unmerge{16, 4} ["x", "y"] at [0, 1] -> ["r"] at [0]>]
+    by [#rock.transform<Unmerge{16, 4} ["1", "0"] at [0, 1] -> ["r"] at [0]>]
     bounds = [16, 4] -> [64]>
 
 #transform_map4 = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 4, d0 mod 4)>
-    by [#rock.transform<Merge{16, 4} ["r"] at [0] -> ["x", "y"] at [0, 1]>]
+    by [#rock.transform<Merge{16, 4} ["r"] at [0] -> ["1", "0"] at [0, 1]>]
     bounds = [64] -> [16, 4]>
 
 #transform_map5 = #rock.transform_map<affine_map<(d0, d1) -> (d1)>
-    by [#rock.transform<AddDim{16} ["x"] at [0] -> [] at []>,
-        #rock.transform<PassThrough ["y"] at [1] -> ["y"] at [0]>]
+    by [#rock.transform<AddDim{16} ["1"] at [0] -> [] at []>,
+        #rock.transform<PassThrough ["0"] at [1] -> ["0"] at [0]>]
     bounds = [16, 4] -> [4]>
 
 #transform_map6 = #rock.transform_map<affine_map<(d0) -> (d0, 1)>
-    by [<PassThrough ["x"] at [0] -> ["x"] at [0]>,
-        <ConstDim{1, 8} [] at [] -> ["y"] at [1]>]
+    by [<PassThrough ["1"] at [0] -> ["1"] at [0]>,
+        <ConstDim{1, 8} [] at [] -> ["0"] at [1]>]
     bounds = [64] -> [64, 8]>
 
 module {

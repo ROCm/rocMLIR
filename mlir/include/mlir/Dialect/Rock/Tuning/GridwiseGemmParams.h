@@ -211,10 +211,7 @@ private:
       if (this->padding_amount < rhs.padding_amount) {
         return true;
       } else if (this->padding_amount == rhs.padding_amount) {
-        if (this->original_pos < rhs.original_pos) {
-          return true;
-        }
-        return false;
+        return (this->original_pos < rhs.original_pos);
       }
       return false;
     }

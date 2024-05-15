@@ -111,7 +111,7 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
 static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op, Type inputType) {
   auto func = op->getParentOfType<func::FuncOp>();
-  auto mod = func->getParentOfType<ModuleOp>();
+  // auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
@@ -139,10 +139,8 @@ getArchAttributes(Operation *op, Type inputType) {
   return {arch, num_cu, features};
 }
 
-static FailureOr<rock::Conv2DOp>
+static FailureOr<rock::ConvOp>
 makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
-               // StringRef inputLayout, Value filter, StringRef filterLayout,
-               // Value output, StringRef outputLayout,
                Value filter, Value output, const DenseI64ArrayAttr &pad,
                const DenseI64ArrayAttr &stride,
                const DenseI64ArrayAttr &dilation, int64_t group) {
@@ -169,27 +167,13 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   rock::GemmFeatures features;
   std::tie(arch, num_cu, features) = getArchAttributes(op, input.getType());
 
-  ArrayRef<int64_t> pad64 = pad;
-  ArrayRef<int64_t> stride64 = stride;
-  ArrayRef<int64_t> dilation64 = dilation;
-  SmallVector<int64_t, 4> paddingArray;
-  SmallVector<int64_t, 2> strideArray;
-  SmallVector<int64_t, 2> dilationArray;
-  for (auto i : pad64)
-    paddingArray.push_back(i);
-  for (auto i : stride64)
-    strideArray.push_back(i);
-  for (auto i : dilation64)
-    dilationArray.push_back(i);
-
   IntegerAttr numCUAttr =
       num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr;
-  auto cop = rw.create<rock::Conv2DOp>(
+  auto cop = rw.create<rock::ConvOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-      rw.getIndexArrayAttr(paddingArray), rw.getIndexArrayAttr(strideArray),
-      rw.getIndexArrayAttr(dilationArray),
+      /*blockSize=*/nullptr, /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
+      rw.getIndexArrayAttr(stride), rw.getIndexArrayAttr(dilation),
       /*params=*/nullptr, numCUAttr);
 
   // specify layout attributes
@@ -242,7 +226,7 @@ public:
     int64_t group = 1;
     if (op.getGroup().has_value())
       group = *op.getGroup();
-    FailureOr<rock::Conv2DOp> rockConv =
+    FailureOr<rock::ConvOp> rockConv =
         makeRockConv2D(rw, op, input, filter, output, op.getPadAttr(),
                        op.getStrideAttr(), op.getDilationAttr(), group);
     if (failed(rockConv))
@@ -774,7 +758,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val.getDefiningOp<TosaOp>();
   }
 
-  FailureOr<Value> maybeSoftmaxNumerator(Value val) const {
+  FailureOr<std::pair<Value, bool>> maybeSoftmaxNumerator(Value val) const {
     tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
     if (!exp) {
       return failure();
@@ -783,25 +767,47 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (!sub) {
       return failure();
     }
+    bool hasTosaRedeuce = false;
+    Value result;
     auto rmax = getDefiningNonReshapeOp<tosa::ReduceMaxOp>(sub.getInput2());
-    if (!rmax) {
-      return failure();
+    if (rmax) {
+      if (rmax.getInput() != sub.getInput1()) {
+        return failure();
+      }
+      hasTosaRedeuce = true;
+      result = rmax.getInput();
+    } else {
+      if (sub.getInput1() != sub.getInput2()) {
+        return failure();
+      }
+      hasTosaRedeuce = false;
+      result = sub.getInput1();
     }
-    if (rmax.getInput() != sub.getInput1()) {
-      return failure();
-    }
-    return rmax.getInput();
+    return std::make_pair(result, hasTosaRedeuce);
   }
 
-  FailureOr<Value> maybeSoftmaxDenominator(Value val) const {
+  FailureOr<std::pair<Value, bool>> maybeSoftmaxDenominator(Value val) const {
+    FailureOr<std::pair<Value, bool>> result;
     auto rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
-    if (!rsum) {
+    if (rsum) {
+      result = maybeSoftmaxNumerator(rsum.getInput());
+      if (succeeded(result) && !(result->second)) {
+        // if we see tosa::Reduce Op in the denominator then we expect to see
+        // tosa::Reduce Op in the numerator as well
+        return failure();
+      }
+      return result;
+    }
+    result = maybeSoftmaxNumerator(val);
+    if (succeeded(result) && result->second) {
+      // if we don't see tosa::Reduce Op in the denominator then we expect to
+      // not see any tosa::Reduce Op in the numerator as well
       return failure();
     }
-    return maybeSoftmaxNumerator(rsum.getInput());
+    return result;
   }
 
-  FailureOr<Value> maybeSoftmax(Value val) const {
+  FailureOr<std::pair<Value, bool>> maybeSoftmax(Value val) const {
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
       return failure();
@@ -930,21 +936,40 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   LogicalResult match(tosa::MatMulOp op) const override {
-    FailureOr<Value> softmaxInput = maybeSoftmax(op.getA());
-    if (failed(softmaxInput)) {
+    FailureOr<std::pair<Value, bool>> softmaxInputResult =
+        maybeSoftmax(op.getA());
+    if (failed(softmaxInputResult)) {
       return failure();
     }
+
+    Value softmaxInput;
+    bool hasReduceOp;
+    std::tie(softmaxInput, hasReduceOp) = softmaxInputResult.value();
     OpBuilder b{op};
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
     std::tie(std::ignore, maybeFirstMatMul) =
-        getPreSoftmaxElemwiseRegion(softmaxInput.value(), b, nullptr, vec);
+        getPreSoftmaxElemwiseRegion(softmaxInput, b, nullptr, vec);
+
+    if (succeeded(maybeFirstMatMul)) {
+      TypedValue<TensorType> matC = maybeFirstMatMul.value().getC();
+      ArrayRef<int64_t> shapeC = matC.getType().getShape();
+      bool isDotProduct = *(std::prev(shapeC.end(), 1)) == 1;
+      isDotProduct &= *(std::prev(shapeC.end(), 2)) == 1;
+
+      if (isDotProduct && hasReduceOp)
+        return failure();
+      if (!isDotProduct && !hasReduceOp)
+        return failure();
+    }
+
     return maybeFirstMatMul;
   }
 
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value softmaxInput = maybeSoftmax(op.getA()).value();
+    Value softmaxInput;
+    std::tie(softmaxInput, std::ignore) = maybeSoftmax(op.getA()).value();
     auto outputType = op.getType().template cast<RankedTensorType>();
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});

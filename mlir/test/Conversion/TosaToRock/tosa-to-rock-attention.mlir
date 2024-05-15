@@ -122,3 +122,18 @@ func.func @self_attention_with_4d_scale(%arg0: tensor<1x12x256x256xf32> , %arg1:
   %expanded_3 = tensor.expand_shape %9 [[0, 1], [2], [3]] : tensor<12x256x256xf32> into tensor<1x12x256x256xf32>
   return %expanded_3 : tensor<1x12x256x256xf32>
 }
+
+// CHECK: rock.attention
+func.func @self_attention_with_dot_product(%arg0: tensor<1x1x64xf32>, %arg1: tensor<1x1x64xf32>, %arg2: tensor<1x1x64xf32>, %arg3: tensor<1x1x1xf32>, %arg4: tensor<1x1x1xf32>) -> tensor<1x1x64xf32> attributes {kernel, arch = ""} {
+  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi64>
+  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x1x64xf32>, tensor<3xi64>) -> tensor<1x64x1xf32>
+  %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x1x64xf32>, tensor<1x64x1xf32>) -> tensor<1x1x1xf32>
+  %2 = "tosa.mul"(%1, %arg3) {shift = 0 : i8} : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
+  %3 = "tosa.add"(%2, %arg4) : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
+  %4 = "tosa.sub"(%3, %3) : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
+  %5 = "tosa.exp"(%4) : (tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
+  %6 = "tosa.reciprocal"(%5) : (tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
+  %7 = "tosa.mul"(%5, %6) {shift = 0 : i8} : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
+  %8 = "tosa.matmul"(%7, %arg2) : (tensor<1x1x1xf32>, tensor<1x1x64xf32>) -> tensor<1x1x64xf32>
+  return %8 : tensor<1x1x64xf32>
+}

@@ -422,7 +422,11 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
 
     if (filterAttr.getValue() == "y") {
       y = filterShape[i];
+    } else if (filterAttr.getValue() == "0") {
+      y = filterShape[i];
     } else if (filterAttr.getValue() == "x") {
+      x = filterShape[i];
+    } else if (filterAttr.getValue() == "1") {
       x = filterShape[i];
     } else if (filterAttr.getValue() == "k") {
       k = filterShape[i];
@@ -436,6 +440,10 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       hi = inputShape[i];
     } else if (inputAttr.getValue() == "wi") {
       wi = inputShape[i];
+    } else if (inputAttr.getValue() == "0i") {
+      hi = inputShape[i];
+    } else if (inputAttr.getValue() == "1i") {
+      wi = inputShape[i];
     } else if (inputAttr.getValue() == "ni") {
       n = inputShape[i];
     }
@@ -444,19 +452,23 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       ho = outputShape[i];
     } else if (outputAttr.getValue() == "wo") {
       wo = outputShape[i];
+    } else if (outputAttr.getValue() == "0o") {
+      ho = outputShape[i];
+    } else if (outputAttr.getValue() == "1o") {
+      wo = outputShape[i];
     }
   }
 
-  return ConvolutionDims(y, x, ho, wo, hi, wi, k, c, n, g);
+  return ConvolutionDims({y, x}, {ho, wo}, {hi, wi}, k, c, n, g);
 }
 
 ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   switch (kernelType) {
-  case KernelType::Conv2D:
+  case KernelType::Conv:
     return ConvOpType::Fwd;
-  case KernelType::Conv2DBwdData:
+  case KernelType::ConvBwdData:
     return ConvOpType::BwdData;
-  case KernelType::Conv2DBwdWeight:
+  case KernelType::ConvBwdWeight:
     return ConvOpType::BwdWeight;
   case KernelType::Gemm:
     llvm_unreachable(
@@ -471,11 +483,11 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
 KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
   switch (convOpType) {
   case ConvOpType::Fwd:
-    return KernelType::Conv2D;
+    return KernelType::Conv;
   case ConvOpType::BwdData:
-    return KernelType::Conv2DBwdData;
+    return KernelType::ConvBwdData;
   case ConvOpType::BwdWeight:
-    return KernelType::Conv2DBwdWeight;
+    return KernelType::ConvBwdWeight;
   }
   llvm_unreachable("Unsupported ConvOpType");
 }
@@ -490,14 +502,15 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   case ConvOpType::Fwd:
     gemmGSize = sizes.g;
     gemmMSize = sizes.k;
-    gemmKSize = sizes.c * sizes.y * sizes.x;
-    gemmNSize = sizes.n * sizes.ho * sizes.wo;
+    // +++pf: should these accumulate sizes across all dimensions?
+    gemmKSize = sizes.c * sizes.fil[0] * sizes.fil[1];
+    gemmNSize = sizes.n * sizes.out[0] * sizes.out[1];
     break;
   case ConvOpType::BwdWeight:
     gemmGSize = sizes.g;
     gemmMSize = sizes.k;
-    gemmKSize = sizes.n * sizes.ho * sizes.wo;
-    gemmNSize = sizes.c * sizes.y * sizes.x;
+    gemmKSize = sizes.n * sizes.out[0] * sizes.out[1];
+    gemmNSize = sizes.c * sizes.fil[0] * sizes.fil[1];
     break;
   case ConvOpType::BwdData:
     llvm_unreachable("Should've been caught be an assert");
@@ -556,8 +569,11 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
     return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
   };
 
-  if (isDisjointed("filter_layout", "y", "x") ||
-      isDisjointed("input_layout", "hi", "wi"))
+  if ((isDisjointed("filter_layout", "y", "x") &&
+       isDisjointed("filter_layout", "0", "1")) ||
+      (isDisjointed("input_layout", "hi", "wi") &&
+       isDisjointed("input_layout", "0i", "1i") &&
+       isDisjointed("input_layout", "0", "1")))
     return op->emitError("Disjointed yx or hw!");
 
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
@@ -575,126 +591,147 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   return success();
 }
 
-LogicalResult Conv2DOp::verify() { return verifyConvOp(*this); }
+LogicalResult ConvOp::verify() { return verifyConvOp(*this); }
 
-LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
+LogicalResult ConvBwdDataOp::verify() { return verifyConvOp(*this); }
 
-LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
+LogicalResult ConvBwdWeightOp::verify() { return verifyConvOp(*this); }
 
-KernelType Conv2DOp::getKernelType() { return KernelType::Conv2D; }
+KernelType ConvOp::getKernelType() { return KernelType::Conv; }
 
-KernelType Conv2DBwdDataOp::getKernelType() {
-  return KernelType::Conv2DBwdData;
+KernelType ConvBwdDataOp::getKernelType() { return KernelType::ConvBwdData; }
+
+KernelType ConvBwdWeightOp::getKernelType() {
+  return KernelType::ConvBwdWeight;
 }
 
-KernelType Conv2DBwdWeightOp::getKernelType() {
-  return KernelType::Conv2DBwdWeight;
-}
+Type ConvOp::getAType() { return getFilter().getType().getElementType(); }
 
-Type Conv2DOp::getAType() { return getFilter().getType().getElementType(); }
-
-Type Conv2DBwdDataOp::getAType() {
+Type ConvBwdDataOp::getAType() {
   return getFilter().getType().getElementType();
 }
 
-Type Conv2DBwdWeightOp::getAType() {
+Type ConvBwdWeightOp::getAType() {
   return getOutput().getType().getElementType();
 }
 
-Type Conv2DOp::getBType() { return getInput().getType().getElementType(); }
+Type ConvOp::getBType() { return getInput().getType().getElementType(); }
 
-Type Conv2DBwdDataOp::getBType() {
+Type ConvBwdDataOp::getBType() {
   return getOutput().getType().getElementType();
 }
 
-Type Conv2DBwdWeightOp::getBType() {
+Type ConvBwdWeightOp::getBType() {
   return getInput().getType().getElementType();
 }
 
-Type Conv2DOp::getCType() { return getOutput().getType().getElementType(); }
+Type ConvOp::getCType() { return getOutput().getType().getElementType(); }
 
-Type Conv2DBwdDataOp::getCType() {
-  return getInput().getType().getElementType();
-}
+Type ConvBwdDataOp::getCType() { return getInput().getType().getElementType(); }
 
-Type Conv2DBwdWeightOp::getCType() {
+Type ConvBwdWeightOp::getCType() {
   return getFilter().getType().getElementType();
 }
 
-OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
+OpOperand *ConvOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
-OpOperand *Conv2DBwdDataOp::getOutArgument() {
-  return &(*this)->getOpOperand(1);
-}
+OpOperand *ConvBwdDataOp::getOutArgument() { return &(*this)->getOpOperand(1); }
 
-OpOperand *Conv2DBwdWeightOp::getOutArgument() {
+OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
 }
 
-GemmSize Conv2DOp::getGemmSize() {
+GemmSize ConvOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::Fwd, sizes);
 }
 
-GemmSize Conv2DBwdDataOp::getGemmSize() {
+GemmSize ConvBwdDataOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   auto padding = extractFromIntegerArrayAttr<int64_t>(this->getPadding());
   auto strides = extractFromIntegerArrayAttr<int64_t>(this->getStrides());
   auto dilations = extractFromIntegerArrayAttr<int64_t>(this->getDilations());
   int64_t kernelId = getKernelId().getSExtValue();
 
-  int64_t strideH = strides[0];
-  int64_t strideW = strides[1];
-  int64_t dilationH = dilations[0];
-  int64_t dilationW = dilations[1];
-  int64_t leftPadH = padding[0];
-  int64_t leftPadW = padding[2];
+  SmallVector<int64_t, 5> gcdStrideDilations;
+  assert(strides.size() == dilations.size());
+  for (const auto &[stride, dilation] : zip(strides, dilations)) {
+    gcdStrideDilations.push_back(math_util::gcd(stride, dilation));
+  }
 
-  int64_t gcdStrideDilationH = math_util::gcd(strideH, dilationH);
-  int64_t gcdStrideDilationW = math_util::gcd(strideW, dilationW);
+  SmallVector<int64_t, 5> filTilda;
+  for (const auto &[stride, gcdSD] : zip(strides, gcdStrideDilations)) {
+    filTilda.push_back(stride / gcdSD);
+  }
 
-  int64_t yTilda = strideH / gcdStrideDilationH;
-  int64_t xTilda = strideW / gcdStrideDilationW;
+  SmallVector<int64_t, 5> outTilda;
+  for (const auto &[out, dilation, fil, stride] :
+       zip(sizes.out, dilations, sizes.fil, strides)) {
+    outTilda.push_back(
+        out + math_util::integer_divide_ceil(dilation * (fil - 1), stride));
+  }
 
-  int64_t hTilda = sizes.ho + math_util::integer_divide_ceil(
-                                  dilationH * (sizes.y - 1), strideH);
-  int64_t wTilda = sizes.wo + math_util::integer_divide_ceil(
-                                  dilationW * (sizes.x - 1), strideW);
+  SmallVector<int64_t, 5> iTildaLeft;
+  SmallVector<int64_t, 5> iTildaRight;
+  for (const auto &[padindex, dilation, tilda, stride] :
+       enumerate(dilations, filTilda, strides)) {
+    iTildaLeft.push_back(math_util::integer_divide_floor(
+        std::max((int64_t)0, padding[2 * padindex] - dilation * (tilda - 1)),
+        stride));
+  }
+  for (const auto &[padindex, out, in, stride] :
+       enumerate(outTilda, sizes.in, strides)) {
+    iTildaRight.push_back(std::min(
+        out,
+        math_util::integer_divide_ceil(padding[2 * padindex] + in - 1, stride) +
+            1));
+  }
 
-  int64_t iHTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadH - dilationH * (yTilda - 1)), strideH);
-  int64_t iWTildaLeft = math_util::integer_divide_floor(
-      std::max((int64_t)0, leftPadW - dilationW * (xTilda - 1)), strideW);
+  SmallVector<int64_t, 5> tildaSlice;
+  for (const auto &[right, left] : zip(iTildaRight, iTildaLeft))
+    tildaSlice.push_back(right - left);
 
-  int64_t iHTildaRight = std::min(
-      hTilda,
-      math_util::integer_divide_ceil(leftPadH + sizes.hi - 1, strideH) + 1);
-  int64_t iWTildaRight = std::min(
-      wTilda,
-      math_util::integer_divide_ceil(leftPadW + sizes.wi - 1, strideW) + 1);
-
-  int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
-  int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
-
-  int64_t iYTilda = kernelId / xTilda;
-  int64_t iXTilda = kernelId % xTilda;
-  int64_t yDotSlice = math_util::integer_divide_ceil(sizes.y - iYTilda, yTilda);
-  int64_t xDotSlice = math_util::integer_divide_ceil(sizes.x - iXTilda, xTilda);
+  SmallVector<int64_t, 3> iTilda;
+  SmallVector<int64_t, 3> iDotSlice;
+  int64_t product = 1;
+  for (size_t i = 1; i < sizes.fil.size(); i++)
+    product *= filTilda[i];
+  int64_t divisor = 1;
+  iTilda.resize(sizes.fil.size());
+  switch (sizes.fil.size()) {
+  default:
+    llvm_unreachable("Only 2-D and 3-D have been implemented.");
+    break;
+  case 3:
+    divisor = filTilda[2];
+    iTilda[2] = kernelId % divisor;
+    [[fallthrough]];
+  case 2:
+    iTilda[1] = (kernelId % product) / divisor;
+    iTilda[0] = kernelId / product;
+  }
+  for (size_t i = 0; i < sizes.fil.size(); i++)
+    iDotSlice.push_back(
+        math_util::integer_divide_ceil(sizes.fil[i] - iTilda[i], filTilda[i]));
 
   int64_t g = sizes.g;
   int64_t m = sizes.c;
-  int64_t k = sizes.k * yDotSlice * xDotSlice;
-  int64_t n = sizes.n * hTildaSlice * wTildaSlice;
+  int64_t k = sizes.k;
+  for (auto ds : iDotSlice)
+    k *= ds;
+  int64_t n = sizes.n;
+  for (auto ts : tildaSlice)
+    n *= ts;
 
   return GemmSize(g, m, k, n);
 }
 
-GemmSize Conv2DBwdWeightOp::getGemmSize() {
+GemmSize ConvBwdWeightOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::BwdWeight, sizes);
 }
 
-void Conv2DOp::getEffects(
+void ConvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
                        transform::TransformMappingResource::get());
@@ -707,7 +744,7 @@ void Conv2DOp::getEffects(
                        transform::TransformMappingResource::get());
 }
 
-void Conv2DBwdDataOp::getEffects(
+void ConvBwdDataOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), getInput(),
                        transform::TransformMappingResource::get());
@@ -720,7 +757,7 @@ void Conv2DBwdDataOp::getEffects(
                        transform::TransformMappingResource::get());
 }
 
-void Conv2DBwdWeightOp::getEffects(
+void ConvBwdWeightOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   const bool hasWorkspace = getWorkspace() != nullptr;
   if (hasWorkspace) {
