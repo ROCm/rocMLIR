@@ -34,6 +34,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -3887,6 +3888,7 @@ int main(int argc, char **argv) {
   registerRocMLIRDialects(registry);
   // Parse pass names in main to ensure static initialization completed.
   mlir::registerMLIRContextCLOptions();
+  mlir::registerAsmPrinterCLOptions();
   mlir::registerPassManagerCLOptions();
   MLIRContext context(registry, MLIRContext::Threading::DISABLED);
   // LLVM dialect is temporary for the freeze trick.
