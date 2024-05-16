@@ -1043,7 +1043,7 @@ static void perHardwareOp(Type realType,
   int64_t numElems = 1;
   if (auto vecTy = dyn_cast<VectorType>(realType))
     numElems = vecTy.getNumElements();
-  int64_t maxElemsPerOp = (4 * elemType.getIntOrFloatBitWidth()) / 32;
+  int64_t maxElemsPerOp = 128 / elemType.getIntOrFloatBitWidth();
   int64_t offset = 0;
   while (offset < numElems) {
     int64_t thisOpNumElems = std::min(numElems - offset, maxElemsPerOp);
