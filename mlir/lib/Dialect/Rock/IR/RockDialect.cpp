@@ -37,6 +37,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
+#include "mlir/Parser/Parser.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -2012,6 +2013,73 @@ LogicalResult AttentionOp::verify() {
     return emitError("reduction dimensions of second gemm do not match");
   }
   return success();
+}
+
+//===-----------------------------------------------------===//
+// AttentionPerfConfig Attr
+//===-----------------------------------------------------===//
+
+AttnPerfConfigAttr get(StringAttr perfConfigStr) {
+  return *mlir::parseSourceString<AttnPerfConfigAttr*>(perfConfigStr.str(), perfConfigStr.getContext()).get();
+}
+
+mlir::Attribute AttnPerfConfigAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
+  llvm::SMLoc startLoc = parser.getCurrentLocation();
+  if(parser.parseKeyword("attn") || parser.parseColon() || parser.parseKeyword("v")){
+    return {};
+  }
+  int64_t version;
+  if(parser.parseInteger(version) || parser.parseColon()){
+    return {};
+  }
+  int64_t kpackPerBlock;
+  int64_t mPerBlockG0;
+  int64_t mPerBlockG1;
+  int64_t nPerBlockG0;
+  int64_t kpack;
+  int64_t mPerWave;
+  int64_t mnPerXdl;
+  int64_t forceUnroll;
+  if(parser.parseInteger(kpackPerBlock) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(mPerBlockG0) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(mPerBlockG1) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(nPerBlockG0) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(kpack) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(mPerWave) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(mnPerXdl) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(forceUnroll)){
+    return {};
+  }
+  return parser.getChecked<AttnPerfConfigAttr>(
+      startLoc, parser.getContext(), version, kpackPerBlock, mPerBlockG0, mPerBlockG1,
+      nPerBlockG0, kpack, mPerWave, mnPerXdl, forceUnroll);
+}
+
+void AttnPerfConfigAttr::print(mlir::AsmPrinter &printer) const {
+  printer << "attn:";
+  printer << "v" << getVersion() << ":";
+  printer << getKpackPerBlock() << ",";
+  printer << getMPerBlockG0() << ",";
+  printer << getMPerBlockG1() << ",";
+  printer << getNPerBlockG0() << ",";
+  printer << getKpack() << ",";
+  printer << getMPerWave() << ",";
+  printer << getMnPerXdl() << ",";
+  printer << getForceUnroll();
 }
 
 //===-----------------------------------------------------===//

@@ -256,6 +256,30 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
+def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig"> {
+  let mnemonic = "attn_perf_config";
+  let description = [{
+    The perf configs for rock.attention operator.
+  }];
+  let parameters = (ins
+    "int64_t":$version,
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerBlockG0,
+    "int64_t":$mPerBlockG1,
+    "int64_t":$nPerBlockG0,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$mnPerXdl,
+    "bool":$forceUnroll
+  );
+
+  let builders = [
+      AttrBuilderWithInferredContext<(ins  "StringAttr":$perfConfigStr)>
+  ];
+
+  let hasCustomAssemblyFormat = 1;
+}
+
 def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
