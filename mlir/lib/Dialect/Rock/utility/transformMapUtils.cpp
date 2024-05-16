@@ -1612,6 +1612,26 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
   }
 }
 
+void mlir::rock::expandFlatFunctionArguments(
+    OpBuilder &b, func::FuncOp func, ArrayRef<SmallVector<StringRef>> names,
+    TypeRange logicalTypes, SmallVectorImpl<Value> &expanded) {
+  expanded.resize_for_overwrite(names.size());
+  for (auto [arg, nameList, logicalType, logicalVal] :
+       llvm::zip(func.getArguments(), names, logicalTypes, expanded)) {
+    Location loc = arg.getLoc();
+    auto logicalShapedTy = dyn_cast<ShapedType>(logicalType);
+    // Pass scalars through unaltered
+    if (!logicalShapedTy) {
+      logicalVal = arg;
+      continue;
+    }
+    TopDownTMBuilder flattener(b, nameList, logicalShapedTy.getShape(), loc);
+    flattener.unmerge("raw", 0, nameList, logicalShapedTy.getShape());
+    TransformMapAttr expandMap = flattener.get();
+    logicalVal = b.create<rock::TransformOp>(loc, arg, expandMap);
+  }
+}
+
 void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
                                           int64_t numElements,
                                           SmallVectorImpl<int64_t> &dimSizes) {

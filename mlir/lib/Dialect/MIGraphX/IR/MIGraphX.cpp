@@ -249,6 +249,11 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
   return RankedTensorType::get(orderedShape, getElementType());
 }
 
+RankedTensorType MIXRShapedType::asFlatMemoryTensor() const {
+  RankedTensorType memoryTensorType = asMemoryLayoutTensor();
+  return memoryTensorType.clone(memoryTensorType.getNumElements());
+}
+
 void MIXRShapedType::getStridePermutation(SmallVectorImpl<int64_t> &ret) const {
   ArrayRef<int64_t> shape = getShape();
   ArrayRef<int64_t> strides = getStrides();
