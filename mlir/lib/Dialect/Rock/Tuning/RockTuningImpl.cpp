@@ -29,28 +29,48 @@ namespace rock {
 // The full space is a brute-force search for attention kernels
 void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
                              TuningParamSetKind kind) {
-  static const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      {32, 64, 128, 256}, {32, 64, 128, 256}, {8, 16, 32, 64},
-      {32, 64, 128, 256}, {4, 16, 32},        {4, 8, 16}};
-  constexpr uint64_t splitKFactor = 1;
-  constexpr uint32_t forceUnroll = 1;
+  static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
+      /*gemm0MPerBlock=*/{32, 64, 128, 256},
+      /*gemm1MPerBlock=*/{32, 64, 128, 256},
+      /*gemm0NPerBlock=*/{32, 64, 128, 256}, 
+      /*kPackPerBlock=*/{8, 16, 32, 64},
+      /*mPerWave=*/{32, 64, 128, 256}, 
+      /*mnPerXdl=*/{4, 16, 32},
+      /*kPack=*/{4, 8, 16}};
+  static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
+      /*gemm0MPerBlock=*/{32, 64, 128, 256},
+      /*gemm1MPerBlock=*/{32, 64, 128, 256},
+      /*gemm0NPerBlock=*/{32, 64, 128, 256}, 
+      /*kPackPerBlock=*/{8, 16, 32, 64},
+      /*mPerWave=*/{32, 64, 128, 256}, 
+      /*nPerWave=*/{32, 64, 128, 256},
+      /*kPack=*/{4, 8, 16}};
+  GemmFeatures features = attnOp.getFeatures();
+  std::vector<std::vector<uint32_t>> validRangeAttnParams;
+  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
+    validRangeAttnParams = validRangeAttnParamsMFMA;
+  }
+  else if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
+    validRangeAttnParams = validRangeAttnParamsWMMA;
+  }
   OpBuilder b(attnOp.getContext());
-  for (uint32_t gemmMPerBlock : validRangeAccelGemmParams[0]) {
-    for (uint32_t gemmNPerBlock : validRangeAccelGemmParams[1]) {
-      for (uint32_t gemmKPerBlock : validRangeAccelGemmParams[2]) {
-        for (uint32_t gemmMPerWave : validRangeAccelGemmParams[3]) {
-          for (uint32_t gemmMnPerXdl : validRangeAccelGemmParams[4]) {
-            for (uint32_t gemmKPack : validRangeAccelGemmParams[5]) {
-              if (gemmMPerBlock >= gemmMPerWave &&
-                  gemmNPerBlock >= gemmMnPerXdl) {
-                InitParamsAccel gemmParams(
-                    gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmMPerWave,
-                    gemmMnPerXdl, gemmKPack, splitKFactor, forceUnroll, true);
-                GemmFeatures features = attnOp.getFeatures();
-                auto populateParamsAccelPtr =
-                    PopulateParamsAccel::select(features);
-                Attribute params =
-                    populateParamsAccelPtr->getGemmParamsAttr(b, gemmParams);
+  for (uint32_t gemm0MPerBlock : validRangeAttnParams[0]) {
+  for (uint32_t gemm1MPerBlock : validRangeAttnParams[1]) {
+    for (uint32_t gemm0NPerBlock : validRangeAttnParams[2]) {
+      for (uint32_t gemmKPerBlock : validRangeAttnParams[3]) {
+        for (uint32_t gemmMPerWave : validRangeAttnParams[4]) {
+          for (uint32_t gemmMnPerXdlOrNPerWave : validRangeAttnParams[5]) {
+            for (uint32_t gemmKPack : validRangeAttnParams[6]) {
+              if (gemm0MPerBlock >= gemmMPerWave && gemm1MPerBlock >= gemmMPerWave && gemm1MPerBlock >= gemm0MPerBlock &&
+                  gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
+                auto params = AttnPerfConfigAttr::get(attnOp.getContext(), 1,
+                                                      gemm0MPerBlock,
+                                                      gemm1MPerBlock,
+                                                      gemm0NPerBlock,
+                                                      gemmKPerBlock,
+                                                      gemmMPerWave,
+                                                      gemmMnPerXdlOrNPerWave,
+                                                      gemmKPack, true);
                 newSpace->tuningRange.push_back(
                     cast<RockTuningParamAttrInterface>(params));
               }
@@ -59,6 +79,7 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
         }
       }
     }
+  }
   }
 }
 

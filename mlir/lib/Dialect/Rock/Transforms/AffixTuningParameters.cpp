@@ -207,8 +207,6 @@ static RockAccelTuningParamAttrInterface deriveGemm1TuningParams(OpBuilder &buil
                                                                  AttentionOp op, AttnPerfConfigAttr attnPerfConfig) {
   auto gemm0TuningParams =
       op.getParams0().value().cast<RockAccelTuningParamAttrInterface>();
-  auto oShape = op.getOut().getType().cast<ShapedType>().getShape();
-  int64_t gemm1MPerBlock = gemm0TuningParams.getMPerBlock();
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
   int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
   if (auto gemm0XdlDerivedParams =
@@ -291,6 +289,11 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
                                            );
   }
   op.setParams0Attr(accelParams0);
+  if(attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()){
+    op.emitError("The MPerBlockG1 should be larger or equal to getMPerBlockG1.");
+    signalPassFailure();
+    return;
+  }
   RockAccelTuningParamAttrInterface accelParams1 = deriveGemm1TuningParams(builder, op, attnPerfConfig);
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
@@ -298,6 +301,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+  LLVM_DEBUG(llvm::dbgs() << "accelParams0=" << accelParams0 << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams0, elemTypeQ, elemTypeK, op.getArch(),

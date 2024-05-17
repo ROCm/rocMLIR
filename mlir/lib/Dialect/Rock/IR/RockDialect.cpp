@@ -2024,26 +2024,22 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   // done because MLIR lacks parseSourceString() method
   // to parse Attributes and its only there for Ops.
   std::string perfConfigStr = perfConfigStrAttr.str();
-  std::unique_ptr<char> perfConfigCStr (new char[perfConfigStr.length()+1]);
-  std::strcpy(perfConfigCStr.get(), perfConfigStr.c_str());
-  char* token;
-  const char* delimiters = ":,";
-  char* saveptr;
-  token = strtok_r(perfConfigCStr.get(), delimiters, &saveptr);
-  if(token == NULL || strcmp(token, "attn") != 0){
+  std::istringstream ss(perfConfigStr);
+  std::string token;
+  std::getline(ss, token, ':');
+  if(token != "attn"){
+     return {};
+  }
+  std::getline(ss, token, ':');
+  if(token.substr(0,1) != "v"){
     return {};
   }
-  token = strtok_r(NULL, delimiters, &saveptr);
-  if(token == NULL || strncmp(token, "v", 1) != 0){
+  int version = std::stoi(token.substr(1, std::string::npos));
+  if(version != 1){
     return {};
   }
-  int64_t version = std::atoi(token + 1);
-  token = strtok_r(NULL, delimiters, &saveptr);
   SmallVector<int64_t, 8> params;
-  while(token != NULL){
-    params.push_back(std::atoi(token));
-    token = strtok_r(NULL, delimiters, &saveptr);
-  }
+  for (std::string paramStr; std::getline(ss, paramStr, ','); params.push_back(std::stoi(paramStr)));
   if(params.size() != 8){
     return {};
   }
@@ -2056,65 +2052,6 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
                                  /*mnPerXdl*/params[5],
                                  /*kpack=*/params[6], 
                                  /*forceUnroll=*/params[7] == 1);
-}
-
-mlir::Attribute AttnPerfConfigAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
-  llvm::SMLoc startLoc = parser.getCurrentLocation();
-  if(parser.parseKeyword("attn") || parser.parseColon() || parser.parseKeyword("v")){
-    return {};
-  }
-  int64_t version;
-  if(parser.parseInteger(version) || parser.parseColon()){
-    return {};
-  }
-  int64_t kpackPerBlock;
-  int64_t mPerBlockG0;
-  int64_t mPerBlockG1;
-  int64_t nPerBlockG0;
-  int64_t kpack;
-  int64_t mPerWave;
-  int64_t mnPerXdl;
-  int64_t forceUnroll;
-  if(parser.parseInteger(mPerBlockG0) || parser.parseComma()){
-    return {};
-  }
-  if(parser.parseInteger(mPerBlockG1) || parser.parseComma()){
-    return {};
-  }
-  if(parser.parseInteger(nPerBlockG0) || parser.parseComma()){
-    return {};
-  }
-  if(parser.parseInteger(kpackPerBlock) || parser.parseComma()){
-    return {};
-  }
-  if(parser.parseInteger(mPerWave) || parser.parseComma()){
-    return {};
-  }
-  if(parser.parseInteger(mnPerXdl) || parser.parseComma()){
-    return {};
-  }
-  if(parser.parseInteger(kpack) || parser.parseComma()){
-    return {};
-  }
-  if(parser.parseInteger(forceUnroll)){
-    return {};
-  }
-  return parser.getChecked<AttnPerfConfigAttr>(
-      startLoc, parser.getContext(), version, kpackPerBlock, mPerBlockG0, mPerBlockG1,
-      nPerBlockG0, kpack, mPerWave, mnPerXdl, forceUnroll);
-}
-
-void AttnPerfConfigAttr::print(mlir::AsmPrinter &printer) const {
-  printer << "attn:";
-  printer << "v" << getVersion() << ":";
-  printer << getMPerBlockG0() << ",";
-  printer << getMPerBlockG1() << ",";
-  printer << getNPerBlockG0() << ",";
-  printer << getKpackPerBlock() << ",";
-  printer << getMPerWave() << ",";
-  printer << getMnPerXdl() << ",";
-  printer << getKpack() << ",";
-  printer << getForceUnroll();
 }
 
 //===-----------------------------------------------------===//
