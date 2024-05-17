@@ -451,19 +451,20 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
   newSpace = new TuningParamSet();
 
   // create range and heuristic
-  WalkResult findPrimary = mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-    switch (kind) {
-    case TuningParamSetKind::Full:
-    case TuningParamSetKind::Exhaustive:
-      createGemmTuningRangeBF(newSpace, op, kind);
-      break;
-    case TuningParamSetKind::Quick:
-      createQuickTuningRange(newSpace, op);
-      break;
-    }
-    newSpace->primaryOpType = op.getKernelType();
-    return WalkResult::interrupt();
-  });
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createGemmTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Quick:
+          createQuickTuningRange(newSpace, op);
+          break;
+        }
+        newSpace->primaryOpType = op.getKernelType();
+        return WalkResult::interrupt();
+      });
   WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
     // createTuningRange(newSpace, op);
     switch (kind) {
@@ -673,7 +674,7 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     SmallString<5> oLayout("#####");
 
     if (size > 5) {
-      for (int i = 0; i < size - 5; i++) {
+      for (unsigned i = 0; i < size - 5; i++) {
         fLayout.push_back('#');
         iLayout.push_back('#');
         oLayout.push_back('#');
