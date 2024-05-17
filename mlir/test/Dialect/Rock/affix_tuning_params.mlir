@@ -3,8 +3,8 @@
 // If versions of these tests appear in lowering_top_level, then changes to the tuning
 // parameters made here should be reflected in that file
 
-// RUN: rocmlir-driver -use-local-scope -rock-affix-params -verify-passes %s | FileCheck %s --check-prefix=CHECK
-// RUN: rocmlir-driver -use-local-scope -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise %s | FileCheck %s --check-prefix=GRID
+// RUN: rocmlir-driver -mlir-print-local-scope -rock-affix-params -verify-passes %s | FileCheck %s --check-prefix=CHECK
+// RUN: rocmlir-driver -mlir-print-local-scope -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise %s | FileCheck %s --check-prefix=GRID
 
 // CHECK-LABEL: @rock_conv
 // GRID-LABEL: rock_conv
