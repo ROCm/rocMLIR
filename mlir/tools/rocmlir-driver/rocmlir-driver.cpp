@@ -77,6 +77,10 @@ static cl::opt<bool> dumpPipelines(
     "dump-pipelines", cl::init(false),
     cl::desc("Print out a textual form of the requested pipelines"));
 
+static cl::opt<bool> useLocalScope(
+    "use-local-scope", cl::init(false),
+    cl::desc("Print out IR using local scope"));
+
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec
 static cl::opt<bool> cpuOnly("cpu-only", cl::Hidden, cl::init(false),
@@ -475,8 +479,12 @@ int main(int argc, char **argv) {
     llvm::errs() << errorMessage << "\n";
     exit(1);
   }
-
-  module.print(output->os());
+  if(useLocalScope){
+    module.print(output->os(), OpPrintingFlags().useLocalScope());
+  }
+  else{
+    module.print(output->os());
+  }
   output->keep();
   return 0;
 }

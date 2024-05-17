@@ -2019,8 +2019,43 @@ LogicalResult AttentionOp::verify() {
 // AttentionPerfConfig Attr
 //===-----------------------------------------------------===//
 
-AttnPerfConfigAttr get(StringAttr perfConfigStr) {
-  return *mlir::parseSourceString<AttnPerfConfigAttr*>(perfConfigStr.str(), perfConfigStr.getContext()).get();
+AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
+  // Here a conventional c++ string split is being
+  // done because MLIR lacks parseSourceString() method
+  // to parse Attributes and its only there for Ops.
+  std::string perfConfigStr = perfConfigStrAttr.str();
+  std::unique_ptr<char> perfConfigCStr (new char[perfConfigStr.length()+1]);
+  std::strcpy(perfConfigCStr.get(), perfConfigStr.c_str());
+  char* token;
+  const char* delimiters = ":,";
+  char* saveptr;
+  token = strtok_r(perfConfigCStr.get(), delimiters, &saveptr);
+  if(token == NULL || strcmp(token, "attn") != 0){
+    return {};
+  }
+  token = strtok_r(NULL, delimiters, &saveptr);
+  if(token == NULL || strncmp(token, "v", 1) != 0){
+    return {};
+  }
+  int64_t version = std::atoi(token + 1);
+  token = strtok_r(NULL, delimiters, &saveptr);
+  SmallVector<int64_t, 8> params;
+  while(token != NULL){
+    params.push_back(std::atoi(token));
+    token = strtok_r(NULL, delimiters, &saveptr);
+  }
+  if(params.size() != 8){
+    return {};
+  }
+  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), version, 
+                                 /*mPerBlockG0=*/params[0], 
+                                 /*mPerBlockG1=*/params[1], 
+                                 /*nPerBlockG0=*/params[2], 
+                                 /*kpackPerBlock=*/params[3], 
+                                 /*mPerWave=*/params[4], 
+                                 /*mnPerXdl*/params[5],
+                                 /*kpack=*/params[6], 
+                                 /*forceUnroll=*/params[7] == 1);
 }
 
 mlir::Attribute AttnPerfConfigAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
@@ -2040,9 +2075,6 @@ mlir::Attribute AttnPerfConfigAttr::parse(mlir::AsmParser &parser, mlir::Type ty
   int64_t mPerWave;
   int64_t mnPerXdl;
   int64_t forceUnroll;
-  if(parser.parseInteger(kpackPerBlock) || parser.parseComma()){
-    return {};
-  }
   if(parser.parseInteger(mPerBlockG0) || parser.parseComma()){
     return {};
   }
@@ -2052,13 +2084,16 @@ mlir::Attribute AttnPerfConfigAttr::parse(mlir::AsmParser &parser, mlir::Type ty
   if(parser.parseInteger(nPerBlockG0) || parser.parseComma()){
     return {};
   }
-  if(parser.parseInteger(kpack) || parser.parseComma()){
+  if(parser.parseInteger(kpackPerBlock) || parser.parseComma()){
     return {};
   }
   if(parser.parseInteger(mPerWave) || parser.parseComma()){
     return {};
   }
   if(parser.parseInteger(mnPerXdl) || parser.parseComma()){
+    return {};
+  }
+  if(parser.parseInteger(kpack) || parser.parseComma()){
     return {};
   }
   if(parser.parseInteger(forceUnroll)){
@@ -2072,13 +2107,13 @@ mlir::Attribute AttnPerfConfigAttr::parse(mlir::AsmParser &parser, mlir::Type ty
 void AttnPerfConfigAttr::print(mlir::AsmPrinter &printer) const {
   printer << "attn:";
   printer << "v" << getVersion() << ":";
-  printer << getKpackPerBlock() << ",";
   printer << getMPerBlockG0() << ",";
   printer << getMPerBlockG1() << ",";
   printer << getNPerBlockG0() << ",";
-  printer << getKpack() << ",";
+  printer << getKpackPerBlock() << ",";
   printer << getMPerWave() << ",";
   printer << getMnPerXdl() << ",";
+  printer << getKpack() << ",";
   printer << getForceUnroll();
 }
 

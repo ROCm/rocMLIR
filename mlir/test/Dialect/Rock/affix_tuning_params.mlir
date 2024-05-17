@@ -3,18 +3,14 @@
 // If versions of these tests appear in lowering_top_level, then changes to the tuning
 // parameters made here should be reflected in that file
 
-// RUN: rocmlir-driver -rock-affix-params -verify-passes %s | FileCheck %s --check-prefix=CHECK
-// RUN: rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise %s | FileCheck %s --check-prefix=GRID
+// RUN: rocmlir-driver -use-local-scope -rock-affix-params -verify-passes %s | FileCheck %s --check-prefix=CHECK
+// RUN: rocmlir-driver -use-local-scope -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise %s | FileCheck %s --check-prefix=GRID
 
-// CHECK-DAG: #[[$GENERAL_PARAMS_0:.*]] = #rock.general_gemm_params<blockSize = 256, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
-// CHECK-DAG: #[[$GENERAL_PARAMS_1:.*]] = #rock.general_gemm_params<blockSize = 128, kPerBlock = 16, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
-// CHECK-DAG: #[[$GENERAL_PARAMS_2:.*]] = #rock.general_gemm_params<blockSize = 64, kPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kPerThread = 1, mPerThread = 2, nPerThread = 4, kpack = 1, splitKFactor = 1>
-// CHECK-DAG: #[[$GENERAL_PARAMS_3:.*]] = #rock.general_gemm_params<blockSize = 64, kPerBlock = 4, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
 // CHECK-LABEL: @rock_conv
 // GRID-LABEL: rock_conv
 func.func @rock_conv(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   // CHECK: rock.conv
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 256, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 900
   rock.conv(%filter, %input, %output) features = none {
@@ -33,7 +29,7 @@ func.func @rock_conv(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x
 // GRID-LABEL: func.func @rock_conv_f16
 func.func @rock_conv_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   // CHECK: rock.conv
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 256, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 900
   rock.conv(%filter, %input, %output) features = none {
@@ -114,7 +110,7 @@ func.func @rock_conv_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: 
 // GRID-LABEL: func.func @rock_conv_bwd_data_padMN
 func.func @rock_conv_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input : memref<11x1x3x15x15xf32>, %output : memref<11x1x64x15x15xf32>) {
   // CHECK: rock.conv_bwd_data
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_1]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 128, kPerBlock = 16, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 78
   rock.conv_bwd_data(%filter, %input, %output) features = none {
@@ -134,7 +130,7 @@ func.func @rock_conv_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input : m
 // GRID-LABEL: @rock_conv_bwd_data_padMK
 func.func @rock_conv_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input : memref<128x1x3x15x15xf32>, %output : memref<128x1x11x15x15xf32>) {
   // CHECK: rock.conv_bwd_data
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_2]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 64, kPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kPerThread = 1, mPerThread = 2, nPerThread = 4, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 450
   rock.conv_bwd_data(%filter, %input, %output) features = none {
@@ -154,7 +150,7 @@ func.func @rock_conv_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input : m
 // GRID-LABEL: @rock_conv_bwd_weight
 func.func @rock_conv_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   // CHECK: rock.conv_bwd_weight
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_1]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 128, kPerBlock = 16, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 12
   rock.conv_bwd_weight(%filter, %input, %output) features = none {
@@ -174,7 +170,7 @@ func.func @rock_conv_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memr
 // GRID-LABEL: @rock_conv_bwd_weight_f16
 func.func @rock_conv_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   // CHECK: rock.conv_bwd_weight
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_1]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 128, kPerBlock = 16, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 12
   rock.conv_bwd_weight(%filter, %input, %output) features = none {
@@ -194,7 +190,7 @@ func.func @rock_conv_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : 
 // GRID-LABEL: func.func @rock_conv_bwd_weight_padALL
 func.func @rock_conv_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %input : memref<7x1x8x32x32xf32>, %output : memref<7x1x20x30x30xf32>) {
   // CHECK: rock.conv_bwd_weight
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 64, kPerBlock = 4, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 3
   rock.conv_bwd_weight(%filter, %input, %output) features = none {
@@ -214,7 +210,7 @@ func.func @rock_conv_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %input 
 // GRID-LABEL: @rock_conv_bwd_weight_padALL_f16
 func.func @rock_conv_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %input : memref<7x1x8x32x32xf16>, %output : memref<7x1x20x30x30xf16>) {
   // CHECK: rock.conv_bwd_weight
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 64, kPerBlock = 4, mPerBlock = 32, nPerBlock = 32, kPerThread = 1, mPerThread = 2, nPerThread = 2, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 3
   rock.conv_bwd_weight(%filter, %input, %output) features = none {
@@ -341,7 +337,7 @@ func.func @rock_conv_bwd_data_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
 // GRID-LABEL: @rock_gemm_from_conv
 func.func @rock_gemm_from_conv(%a : memref<1x72x128xf32>, %b : memref<1x72x115200xf32>, %c : memref<1x128x115200xf32>) {
   // CHECK: rock.gemm
-  // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 256, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 900
   rock.gemm %c = tr %a * %b features = none storeMethod = set {
@@ -426,7 +422,37 @@ func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   rock.attention{
     qk = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
     %arg3 = softmax(qk) * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "v2:128,128,2,64,64,8,1,1,1"}
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "attn:v1:128,128,128,2,64,64,8,1"}
+  return
+}
+
+// CHECK-LABEL: func.func @rock_attention_mperblockg1
+// CHECK-SAME: block_size = 128
+// GRID-LABEL: func.func @rock_attention_mperblockg1
+// GRID-SAME: grid_size = 3
+func.func @rock_attention_mperblockg1_wmma(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // CHECK: rock.attention
+  // CHECK: #rock.wmma_gemm_params<kpackPerBlock = 2, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, splitKFactor = 1, forceUnroll = true>
+  // CHECK: #rock.wmma_gemm_params<kpackPerBlock = 16, mPerBlock = 256, nPerBlock = 128, kpack = 8, mPerWave = 128, nPerWave = 64, splitKFactor = 1, forceUnroll = true>
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {arch = "amdgcn-amd-amdhsa:gfx1100", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v1:128,256,128,2,64,64,8,1"}
+  return
+}
+
+// CHECK-LABEL: func.func @rock_attention_mperblockg1
+// CHECK-SAME: block_size = 256
+// GRID-LABEL: func.func @rock_attention_mperblockg1
+// GRID-SAME: grid_size = 3
+func.func @rock_attention_mperblockg1_mfma(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // CHECK: rock.attention
+  // CHECK: #rock.xdlops_gemm_derived_params<kpackPerBlock = 2, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, mnPerXdl = 64, splitKFactor = 1, forceUnroll = true>
+  // CHECK: #rock.xdlops_gemm_derived_params<kpackPerBlock = 16, mPerBlock = 256, nPerBlock = 128, kpack = 8, mPerWave = 128, nPerWave = 64, mnPerXdl = 64, splitKFactor = 1, forceUnroll = true>
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "attn:v1:128,256,128,2,64,64,8,1"}
   return
 }
 

@@ -263,13 +263,13 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig"> {
   }];
   let parameters = (ins
     "int64_t":$version,
-    "int64_t":$kpackPerBlock,
     "int64_t":$mPerBlockG0,
     "int64_t":$mPerBlockG1,
     "int64_t":$nPerBlockG0,
-    "int64_t":$kpack,
+    "int64_t":$kpackPerBlock,
     "int64_t":$mPerWave,
     "int64_t":$mnPerXdl,
+    "int64_t":$kpack,
     "bool":$forceUnroll
   );
 
