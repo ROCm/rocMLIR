@@ -34,10 +34,10 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
-#include "mlir/Parser/Parser.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -2027,30 +2027,32 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   std::istringstream ss(perfConfigStr);
   std::string token;
   std::getline(ss, token, ':');
-  if(token != "attn"){
-     return {};
+  if (token != "attn") {
+    return {};
   }
   std::getline(ss, token, ':');
-  if(token.substr(0,1) != "v"){
+  if (token.substr(0, 1) != "v") {
     return {};
   }
   int version = std::stoi(token.substr(1, std::string::npos));
-  if(version != 1){
+  if (version != 1) {
     return {};
   }
   SmallVector<int64_t, 8> params;
-  for (std::string paramStr; std::getline(ss, paramStr, ','); params.push_back(std::stoi(paramStr)));
-  if(params.size() != 8){
+  for (std::string paramStr; std::getline(ss, paramStr, ',');
+       params.push_back(std::stoi(paramStr)))
+    ;
+  if (params.size() != 8) {
     return {};
   }
-  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), version, 
-                                 /*mPerBlockG0=*/params[0], 
-                                 /*mPerBlockG1=*/params[1], 
-                                 /*nPerBlockG0=*/params[2], 
-                                 /*kpackPerBlock=*/params[3], 
-                                 /*mPerWave=*/params[4], 
-                                 /*mnPerXdl*/params[5],
-                                 /*kpack=*/params[6], 
+  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), version,
+                                 /*mPerBlockG0=*/params[0],
+                                 /*mPerBlockG1=*/params[1],
+                                 /*nPerBlockG0=*/params[2],
+                                 /*kpackPerBlock=*/params[3],
+                                 /*mPerWave=*/params[4],
+                                 /*mnPerXdl*/ params[5],
+                                 /*kpack=*/params[6],
                                  /*forceUnroll=*/params[7] == 1);
 }
 

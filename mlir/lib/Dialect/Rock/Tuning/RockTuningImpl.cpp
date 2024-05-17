@@ -33,54 +33,51 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
       /*gemm0MPerBlock=*/{32, 64, 128, 256},
       /*gemm1MPerBlock=*/{32, 64, 128, 256},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256}, 
+      /*gemm0NPerBlock=*/{32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64, 128, 256}, 
+      /*mPerWave=*/{32, 64, 128, 256},
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16}};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
       /*gemm0MPerBlock=*/{32, 64, 128, 256},
       /*gemm1MPerBlock=*/{32, 64, 128, 256},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256}, 
+      /*gemm0NPerBlock=*/{32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64, 128, 256}, 
+      /*mPerWave=*/{32, 64, 128, 256},
       /*nPerWave=*/{32, 64, 128, 256},
       /*kPack=*/{4, 8, 16}};
   GemmFeatures features = attnOp.getFeatures();
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
     validRangeAttnParams = validRangeAttnParamsMFMA;
-  }
-  else if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
+  } else if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
     validRangeAttnParams = validRangeAttnParamsWMMA;
   }
   OpBuilder b(attnOp.getContext());
   for (uint32_t gemm0MPerBlock : validRangeAttnParams[0]) {
-  for (uint32_t gemm1MPerBlock : validRangeAttnParams[1]) {
-    for (uint32_t gemm0NPerBlock : validRangeAttnParams[2]) {
-      for (uint32_t gemmKPerBlock : validRangeAttnParams[3]) {
-        for (uint32_t gemmMPerWave : validRangeAttnParams[4]) {
-          for (uint32_t gemmMnPerXdlOrNPerWave : validRangeAttnParams[5]) {
-            for (uint32_t gemmKPack : validRangeAttnParams[6]) {
-              if (gemm0MPerBlock >= gemmMPerWave && gemm1MPerBlock >= gemmMPerWave && gemm1MPerBlock >= gemm0MPerBlock &&
-                  gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
-                auto params = AttnPerfConfigAttr::get(attnOp.getContext(), 1,
-                                                      gemm0MPerBlock,
-                                                      gemm1MPerBlock,
-                                                      gemm0NPerBlock,
-                                                      gemmKPerBlock,
-                                                      gemmMPerWave,
-                                                      gemmMnPerXdlOrNPerWave,
-                                                      gemmKPack, true);
-                newSpace->tuningRange.push_back(
-                    cast<RockTuningParamAttrInterface>(params));
+    for (uint32_t gemm1MPerBlock : validRangeAttnParams[1]) {
+      for (uint32_t gemm0NPerBlock : validRangeAttnParams[2]) {
+        for (uint32_t gemmKPerBlock : validRangeAttnParams[3]) {
+          for (uint32_t gemmMPerWave : validRangeAttnParams[4]) {
+            for (uint32_t gemmMnPerXdlOrNPerWave : validRangeAttnParams[5]) {
+              for (uint32_t gemmKPack : validRangeAttnParams[6]) {
+                if (gemm0MPerBlock >= gemmMPerWave &&
+                    gemm1MPerBlock >= gemmMPerWave &&
+                    gemm1MPerBlock >= gemm0MPerBlock &&
+                    gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
+                  auto params = AttnPerfConfigAttr::get(
+                      attnOp.getContext(), 1, gemm0MPerBlock, gemm1MPerBlock,
+                      gemm0NPerBlock, gemmKPerBlock, gemmMPerWave,
+                      gemmMnPerXdlOrNPerWave, gemmKPack, true);
+                  newSpace->tuningRange.push_back(
+                      cast<RockTuningParamAttrInterface>(params));
+                }
               }
             }
           }
         }
       }
     }
-  }
   }
 }
 
@@ -388,49 +385,41 @@ void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
   Type elemType = attnOp.getQueries().getType().getElementType();
   StringRef arch = attnOp.getArch();
   GemmFeatures currentFeatures = attnOp.getFeatures();
-  //g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
-  typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t> PerfConfigVals;
+  // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
+  typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                     int64_t>
+      PerfConfigVals;
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
-    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA {
-      PerfConfigVals{32,128,128,32,32,32,4},
-      PerfConfigVals{64,64,32,16,32,16,4},
-      PerfConfigVals{32,64,64,16,32,16,4},
-      PerfConfigVals{32,64,128,16,32,16,4},
-      PerfConfigVals{64,64,64,16,32,16,4},
-      PerfConfigVals{64,64,64,16,32,32,4}
-    };
-    for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave, mnPerXdl, kPack] : attnQuickTuningListMFMA){
-      auto params = AttnPerfConfigAttr::get(attnOp.getContext(), 1,
-                                            mPerBlockG0,
-                                            mPerBlockG1,
-                                            nPerBlockG0,
-                                            kPackBerBlock,
-                                            mPerWave,
-                                            mnPerXdl,
-                                            kPack, true);
+    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA{
+        PerfConfigVals{32, 128, 128, 32, 32, 32, 4},
+        PerfConfigVals{64, 64, 32, 16, 32, 16, 4},
+        PerfConfigVals{32, 64, 64, 16, 32, 16, 4},
+        PerfConfigVals{32, 64, 128, 16, 32, 16, 4},
+        PerfConfigVals{64, 64, 64, 16, 32, 16, 4},
+        PerfConfigVals{64, 64, 64, 16, 32, 32, 4}};
+    for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
+               mnPerXdl, kPack] : attnQuickTuningListMFMA) {
+      auto params = AttnPerfConfigAttr::get(
+          attnOp.getContext(), 1, mPerBlockG0, mPerBlockG1, nPerBlockG0,
+          kPackBerBlock, mPerWave, mnPerXdl, kPack, true);
       newSpace->tuningRange.push_back(
-                    cast<RockTuningParamAttrInterface>(params));
+          cast<RockTuningParamAttrInterface>(params));
     }
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
-    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA {
-      PerfConfigVals{32,128,128,32,32,32,4},
-      PerfConfigVals{64,64,32,16,32,16,4},
-      PerfConfigVals{32,64,64,16,32,16,4},
-      PerfConfigVals{32,64,128,16,32,16,4},
-      PerfConfigVals{64,64,64,16,32,16,4},
-      PerfConfigVals{64,64,64,16,32,32,4}
-    };
-    for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave, mnPerXdl, kPack] : attnQuickTuningListMFMA){
-      auto params = AttnPerfConfigAttr::get(attnOp.getContext(), 1,
-                                            mPerBlockG0,
-                                            mPerBlockG1,
-                                            nPerBlockG0,
-                                            kPackBerBlock,
-                                            mPerWave,
-                                            mnPerXdl,
-                                            kPack, true);
+    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA{
+        PerfConfigVals{32, 128, 128, 32, 32, 32, 4},
+        PerfConfigVals{64, 64, 32, 16, 32, 16, 4},
+        PerfConfigVals{32, 64, 64, 16, 32, 16, 4},
+        PerfConfigVals{32, 64, 128, 16, 32, 16, 4},
+        PerfConfigVals{64, 64, 64, 16, 32, 16, 4},
+        PerfConfigVals{64, 64, 64, 16, 32, 32, 4}};
+    for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
+               mnPerXdl, kPack] : attnQuickTuningListMFMA) {
+      auto params = AttnPerfConfigAttr::get(
+          attnOp.getContext(), 1, mPerBlockG0, mPerBlockG1, nPerBlockG0,
+          kPackBerBlock, mPerWave, mnPerXdl, kPack, true);
       newSpace->tuningRange.push_back(
-                    cast<RockTuningParamAttrInterface>(params));
+          cast<RockTuningParamAttrInterface>(params));
     }
   }
   // We only support GPUs with matrix accelerator extentions

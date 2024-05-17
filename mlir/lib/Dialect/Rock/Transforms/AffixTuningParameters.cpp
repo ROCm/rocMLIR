@@ -203,8 +203,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
                             b.getI32IntegerAttr(validParams.blockSize));
   }
 }
-static RockAccelTuningParamAttrInterface deriveGemm1TuningParams(OpBuilder &builder,
-                                                                 AttentionOp op, AttnPerfConfigAttr attnPerfConfig) {
+static RockAccelTuningParamAttrInterface
+deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
+                        AttnPerfConfigAttr attnPerfConfig) {
   auto gemm0TuningParams =
       op.getParams0().value().cast<RockAccelTuningParamAttrInterface>();
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
@@ -212,28 +213,23 @@ static RockAccelTuningParamAttrInterface deriveGemm1TuningParams(OpBuilder &buil
   if (auto gemm0XdlDerivedParams =
           op.getParams0().value().dyn_cast<XdlopsGemmDerivedParamsAttr>()) {
     gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
-    return XdlopsGemmDerivedParamsAttr::get(builder.getContext(),
-                                            gemm0TuningParams.getMPerBlock() / gemm1KPack,
-                                            attnPerfConfig.getMPerBlockG1(),
-                                            gemm0XdlDerivedParams.getNPerBlock(),
-                                            gemm0TuningParams.getKpack(),
-                                            gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-                                            gemm0XdlDerivedParams.getNPerWave(),
-                                            gemm0XdlDerivedParams.getMnPerXdl(),
-                                            1,
-                                            gemm0XdlDerivedParams.getForceUnroll());
-
+    return XdlopsGemmDerivedParamsAttr::get(
+        builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+        attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
+        gemm0TuningParams.getKpack(),
+        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
+                                           gemm0TuningParams.getMPerBlock()),
+        gemm0XdlDerivedParams.getNPerWave(),
+        gemm0XdlDerivedParams.getMnPerXdl(), 1,
+        gemm0XdlDerivedParams.getForceUnroll());
   }
   return WmmaGemmParamsAttr::get(
-      builder.getContext(),
-      gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      attnPerfConfig.getMPerBlockG1(),
-      attnPerfConfig.getNPerBlockG0(),
+      builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
       gemm0TuningParams.getKpack(),
-      gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemmNPerWaveOrMnPerXdl,
-      1,
-      gemm0TuningParams.getForceUnroll());
+      gemm0TuningParams.getMPerWave() *
+          (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
+      gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getForceUnroll());
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
@@ -251,7 +247,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   Attribute params0 = op.getParams0().value_or(nullptr);
   // set a default one if params is not provided
-  StringAttr perfConfigStrAttr = builder.getStringAttr("attn:v1:32,32,32,32,32,32,1,1");
+  StringAttr perfConfigStrAttr =
+      builder.getStringAttr("attn:v1:32,32,32,32,32,32,1,1");
   if (!params0) {
     if (StringAttr mayBePerfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
@@ -259,42 +256,34 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     }
   }
   auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr);
-  if(!attnPerfConfig){
+  if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
   }
   GemmFeatures features = op.getFeatures();
   RockAccelTuningParamAttrInterface accelParams0;
-  if(bitEnumContainsAny(features, GemmFeatures::mfma)){
-    auto xdlopsParams0 = XdlopsGemmParamsAttr::get(builder.getContext(), 
-                                             attnPerfConfig.getKpackPerBlock(), 
-                                             attnPerfConfig.getMPerBlockG0(),
-                                             attnPerfConfig.getNPerBlockG0(),
-                                             attnPerfConfig.getKpack(),
-                                             attnPerfConfig.getMPerWave(),
-                                             attnPerfConfig.getMnPerXdl(),
-                                             1,
-                                             attnPerfConfig.getForceUnroll());
+  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
+    auto xdlopsParams0 = XdlopsGemmParamsAttr::get(
+        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll());
     accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
-  }
-  else{
-    accelParams0 = WmmaGemmParamsAttr::get(builder.getContext(),
-                                           attnPerfConfig.getKpackPerBlock(),
-                                           attnPerfConfig.getMPerBlockG0(),
-                                           attnPerfConfig.getNPerBlockG0(),
-                                           attnPerfConfig.getKpack(),
-                                           attnPerfConfig.getMPerWave(),
-                                           attnPerfConfig.getMnPerXdl(),
-                                           1,
-                                           attnPerfConfig.getForceUnroll()
-                                           );
+  } else {
+    accelParams0 = WmmaGemmParamsAttr::get(
+        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll());
   }
   op.setParams0Attr(accelParams0);
-  if(attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()){
-    op.emitError("The MPerBlockG1 should be larger or equal to getMPerBlockG1.");
+  if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
+    op.emitError(
+        "The MPerBlockG1 should be larger or equal to getMPerBlockG1.");
     signalPassFailure();
     return;
   }
-  RockAccelTuningParamAttrInterface accelParams1 = deriveGemm1TuningParams(builder, op, attnPerfConfig);
+  RockAccelTuningParamAttrInterface accelParams1 =
+      deriveGemm1TuningParams(builder, op, attnPerfConfig);
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
