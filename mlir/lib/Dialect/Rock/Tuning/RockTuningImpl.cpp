@@ -382,86 +382,55 @@ void createQuickTuningRange(TuningParamSet *newSpace,
 
 // This is temporary workaround to make MIGraphX integration
 // work until the tuning is setup for attention ops properly.
-void createTuningRange(TuningParamSet *newSpace, AttentionOp attnOp) {
+void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
   OpBuilder b(attnOp.getContext());
   Type elemType = attnOp.getQueries().getType().getElementType();
   StringRef arch = attnOp.getArch();
   GemmFeatures currentFeatures = attnOp.getFeatures();
+  //g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
+  typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t> PerfConfigVals;
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
-    PopulateParamsXDL tuningInfo;
-    // This is hack to obtain the same quick tuning list as if it were a gemm
-    // kernel. This should ideally be implemented as an interface fucntion of
-    // a rock tunable op to retrieve this range.
-    for (InitParamsAccel param : tuningInfo.getTuningParameters(
-             rock::KernelType::Gemm, elemType, elemType, arch)) {
-      newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
-          tuningInfo.getGemmParamsAttr(b, param)));
+    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA {
+      PerfConfigVals{32,128,128,32,32,32,4},
+      PerfConfigVals{64,64,32,16,32,16,4},
+      PerfConfigVals{32,64,64,16,32,16,4},
+      PerfConfigVals{32,64,128,16,32,16,4},
+      PerfConfigVals{64,64,64,16,32,16,4},
+      PerfConfigVals{64,64,64,16,32,32,4}
+    };
+    for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave, mnPerXdl, kPack] : attnQuickTuningListMFMA){
+      auto params = AttnPerfConfigAttr::get(attnOp.getContext(), 1,
+                                            mPerBlockG0,
+                                            mPerBlockG1,
+                                            nPerBlockG0,
+                                            kPackBerBlock,
+                                            mPerWave,
+                                            mnPerXdl,
+                                            kPack, true);
+      newSpace->tuningRange.push_back(
+                    cast<RockTuningParamAttrInterface>(params));
     }
-    // backup universal config that is known to fit in LDS
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/32, /*mPerBlock=*/32,
-            /*nPerBlock=*/32, /*kpack=*/1,
-            /*mPerWave=*/32, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
-
-    // add performant configs for tier1
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/8, /*mPerBlock=*/64,
-            /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/32, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/8, /*mPerBlock=*/64,
-            /*nPerBlock=*/64, /*kpack=*/8,
-            /*mPerWave=*/64, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
-
-    // add performant config for triton configs
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/16, /*mPerBlock=*/128,
-            /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/64, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/16, /*mPerBlock=*/128,
-            /*nPerBlock=*/128, /*kpack=*/8,
-            /*mPerWave=*/64, /*MnPerXdl=*/64, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/32, /*mPerBlock=*/128,
-            /*nPerBlock=*/256, /*kpack=*/4,
-            /*mPerWave=*/128, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<XdlopsGemmParamsAttr>(
-            /*kpackPerBlock=*/32, /*mPerBlock=*/64,
-            /*nPerBlock=*/128, /*kpack=*/4,
-            /*mPerWave=*/64, /*MnPerXdl=*/32, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
-    // Wmma
-    PopulateParamsWmma tuningInfo;
-    // This is hack to obtain the same quick tuning list as if it were a gemm
-    // kernel. This should ideally be implemented as an interface fucntion of
-    // a rock tunable op to retrieve this range.
-    for (InitParamsAccel param : tuningInfo.getTuningParameters(
-             rock::KernelType::Gemm, elemType, elemType, arch)) {
-      newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
-          tuningInfo.getGemmParamsAttr(b, param)));
+    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA {
+      PerfConfigVals{32,128,128,32,32,32,4},
+      PerfConfigVals{64,64,32,16,32,16,4},
+      PerfConfigVals{32,64,64,16,32,16,4},
+      PerfConfigVals{32,64,128,16,32,16,4},
+      PerfConfigVals{64,64,64,16,32,16,4},
+      PerfConfigVals{64,64,64,16,32,32,4}
+    };
+    for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave, mnPerXdl, kPack] : attnQuickTuningListMFMA){
+      auto params = AttnPerfConfigAttr::get(attnOp.getContext(), 1,
+                                            mPerBlockG0,
+                                            mPerBlockG1,
+                                            nPerBlockG0,
+                                            kPackBerBlock,
+                                            mPerWave,
+                                            mnPerXdl,
+                                            kPack, true);
+      newSpace->tuningRange.push_back(
+                    cast<RockTuningParamAttrInterface>(params));
     }
-    // backup universal config that is known to fit in LDS
-    newSpace->tuningRange.push_back(
-        cast<RockTuningParamAttrInterface>(b.getAttr<WmmaGemmParamsAttr>(
-            /*kpackPerBlock=*/32, /*mPerBlock=*/32,
-            /*nPerBlock=*/32, /*kpack=*/1,
-            /*mPerWave=*/32, /*nPerWave=*/32, /*splitKFactor*/ 1,
-            /*forceUnroll=*/true)));
   }
   // We only support GPUs with matrix accelerator extentions
 }
@@ -485,14 +454,13 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
         return WalkResult::interrupt();
       });
   WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    // createTuningRange(newSpace, op);
     switch (kind) {
     case TuningParamSetKind::Full:
     case TuningParamSetKind::Exhaustive:
       createAttnTuningRangeBF(newSpace, op, kind);
       break;
     case TuningParamSetKind::Quick:
-      createTuningRange(newSpace, op);
+      createAttnTuningRangeQuick(newSpace, op);
     }
     return WalkResult::interrupt();
   });
