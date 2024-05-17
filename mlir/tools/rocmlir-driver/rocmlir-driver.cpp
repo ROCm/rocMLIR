@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
 #include "mlir/Parser/Parser.h"
@@ -440,6 +441,7 @@ int main(int argc, char **argv) {
   // Register any pass manager command line options.
   mlir::registerPassManagerCLOptions();
   mlir::registerMLIRContextCLOptions();
+  mlir::registerAsmPrinterCLOptions();
   mlir::PassPipelineCLParser passPipeline("", "compiler passes to run");
 
   // Parse pass names in main to ensure static initialization completed.

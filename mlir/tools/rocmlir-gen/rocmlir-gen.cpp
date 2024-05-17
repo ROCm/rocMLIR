@@ -34,6 +34,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -480,6 +481,11 @@ static llvm::cl::opt<bool> emitSplitKSelectionLikelihood(
     llvm::cl::desc(
         "Print SplitK selection likelihood for the specified kernel"),
     llvm::cl::init(false));
+
+static llvm::cl::opt<std::string> emitModuleFusabilityForPerfConfig(
+    "emit-module-fusibility-for",
+    llvm::cl::desc("Print whether module is fusible given a perf config"),
+    llvm::cl::init(""));
 
 static llvm::cl::opt<rock::TuningParamSetKind> emitTuningSpace(
     "emit-tuning-space",
@@ -3882,6 +3888,7 @@ int main(int argc, char **argv) {
   registerRocMLIRDialects(registry);
   // Parse pass names in main to ensure static initialization completed.
   mlir::registerMLIRContextCLOptions();
+  mlir::registerAsmPrinterCLOptions();
   mlir::registerPassManagerCLOptions();
   MLIRContext context(registry, MLIRContext::Threading::DISABLED);
   // LLVM dialect is temporary for the freeze trick.
@@ -3945,6 +3952,14 @@ int main(int argc, char **argv) {
       }
       }
     });
+    return 0;
+  }
+
+  if (!emitModuleFusabilityForPerfConfig.empty()) {
+    llvm::outs() << "fusible:"
+                 << rock::isModuleFusible(module.get(),
+                                          emitModuleFusabilityForPerfConfig)
+                 << "\n";
     return 0;
   }
 

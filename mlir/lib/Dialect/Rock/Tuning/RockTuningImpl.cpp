@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -965,5 +966,13 @@ RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
   }
   return RocmlirSplitKSelectionLikelihood::maybe;
 }
+
+bool isModuleFusible(ModuleOp module, StringRef perfConfig) {
+  if (!rock::isSplitKRequested(module, perfConfig)) {
+    return true;
+  }
+  return succeeded(rock::testFusionLegality(module));
+}
+
 } // namespace rock
 } // namespace mlir

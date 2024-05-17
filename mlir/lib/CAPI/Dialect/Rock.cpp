@@ -160,11 +160,7 @@ MLIR_CAPI_EXPORTED
 bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr) {
   auto mod = unwrap(module);
   StringRef perfConfig = unwrap(perfStr);
-
-  if (!rock::isSplitKRequested(mod, perfConfig)) {
-    return true;
-  }
-  return succeeded(rock::testFusionLegality(mod));
+  return rock::isModuleFusible(mod, perfConfig);
 }
 
 MLIR_CAPI_EXPORTED
