@@ -2,12 +2,12 @@
 // RUN: rocmlir-gen --arch %arch -p -fil_layout=gyxkc -in_layout=hwngc -out_layout=hwngk %s | rocmlir-driver -c | FileCheck %s --check-prefix=LOWERING
 // RUN: rocmlir-gen --arch %arch -p -fil_layout=gyxkc -in_layout=hwngc -out_layout=hwngk %s | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
-func.func private @rock_conv2d_gyxkc_hwngc_hwngk_0(%filter : memref<1x3x3x128x8xf32>, %input : memref<32x32x128x1x8xf32>, %output : memref<30x30x128x1x128xf32>) -> ()
+func.func private @rock_conv_g01kc_01ngc_01ngk_0(%filter : memref<1x3x3x128x8xf32>, %input : memref<32x32x128x1x8xf32>, %output : memref<30x30x128x1x128xf32>) -> ()
 
 // HARNESS: module
-// HARNESS: func.func @rock_conv2d_gyxkc_hwngc_hwngk_0([[FILTER_MEMREF:%.*]]: memref<1x3x3x128x8xf32>, [[INPUT_MEMREF:%.*]]: memref<32x32x128x1x8xf32>, [[OUTPUT_MEMREF:%.*]]: memref<30x30x128x1x128xf32>)
+// HARNESS: func.func @rock_conv_g01kc_01ngc_01ngk_0([[FILTER_MEMREF:%.*]]: memref<1x3x3x128x8xf32>, [[INPUT_MEMREF:%.*]]: memref<32x32x128x1x8xf32>, [[OUTPUT_MEMREF:%.*]]: memref<30x30x128x1x128xf32>)
 // LOWERING: module
-// LOWERING: llvm.mlir.global internal constant @rock_conv2d_gyxkc_hwngc_hwngk_0_module_gpubin_cst
+// LOWERING: llvm.mlir.global internal constant @rock_conv_g01kc_01ngc_01ngk_0_module_gpubin_cst
 
 func.func @main() {
   // memref.allocate CPU memory.
@@ -32,7 +32,7 @@ func.func @main() {
   gpu.memcpy  %output, %2 : memref<30x30x128x1x128xf32>, memref<30x30x128x1x128xf32>
 
   // launch kernel.
-  call @rock_conv2d_gyxkc_hwngc_hwngk_0(%filter, %input, %output) : (memref<1x3x3x128x8xf32>, memref<32x32x128x1x8xf32>, memref<30x30x128x1x128xf32>) -> ()
+  call @rock_conv_g01kc_01ngc_01ngk_0(%filter, %input, %output) : (memref<1x3x3x128x8xf32>, memref<32x32x128x1x8xf32>, memref<30x30x128x1x128xf32>) -> ()
 
   // transfer data GPU -> CPU.
   gpu.memcpy  %2, %output : memref<30x30x128x1x128xf32>,memref<30x30x128x1x128xf32>

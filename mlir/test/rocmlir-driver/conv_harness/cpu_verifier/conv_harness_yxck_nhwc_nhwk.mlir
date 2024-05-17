@@ -4,7 +4,7 @@
 // input : NHWGC
 // output: NHWGK
 module {
-  func.func private @rock_conv2d_gyxck_nhwgc_nhwgk_0(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>)
+  func.func private @rock_conv_g01ck_n01gc_n01gk_0(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>)
   func.func @main() {
     // allocate CPU memory for gpu_conv
     %0 = memref.alloc() : memref<1x3x3x8x128xf32>
@@ -30,7 +30,7 @@ module {
     linalg.fill ins(%cst : f32) outs(%12 : memref<128x30x30x1x128xf32>)
 
     // launch cpu convolution
-    call @conv2d_host(%6, %9, %12) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
+    call @conv_host(%6, %9, %12) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
 
     // verity results
     call @verify_results(%12, %2) : (memref<128x30x30x1x128xf32>, memref<128x30x30x1x128xf32>) -> ()
@@ -57,7 +57,7 @@ module {
     gpu.memcpy  %2, %arg2 : memref<128x30x30x1x128xf32>, memref<128x30x30x1x128xf32>
 
     // launch kernel.
-    call @rock_conv2d_gyxck_nhwgc_nhwgk_0(%0, %1, %2) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
+    call @rock_conv_g01ck_n01gc_n01gk_0(%0, %1, %2) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
     gpu.memcpy  %arg2, %2 : memref<128x30x30x1x128xf32>, memref<128x30x30x1x128xf32>
 
     // deallocate GPU memory.
@@ -67,7 +67,7 @@ module {
     return
   }
 
-  func.func @conv2d_host(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
+  func.func @conv_host(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
     %0 = memref.cast %arg0 : memref<1x3x3x8x128xf32> to memref<?x?x?x?x?xf32>
     %1 = memref.cast %arg1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
     %2 = memref.cast %arg2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>

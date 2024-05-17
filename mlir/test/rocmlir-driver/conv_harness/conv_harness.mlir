@@ -2,12 +2,12 @@
 // RUN: rocmlir-gen --arch %arch -p %s | rocmlir-driver -c | FileCheck %s --check-prefix=LOWERING
 // RUN: rocmlir-gen --arch %arch -p %s | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
-func.func private @rock_conv2d_gkcyx_ngchw_ngkhw_0(%arg0: memref<1x128x8x3x3xf32>, %arg1: memref<128x1x8x32x32xf32>, %arg2: memref<128x1x128x30x30xf32>) -> ()
+func.func private @rock_conv_gkc01_ngc01_ngk01_0(%arg0: memref<1x128x8x3x3xf32>, %arg1: memref<128x1x8x32x32xf32>, %arg2: memref<128x1x128x30x30xf32>) -> ()
 
 // HARNESS: module
-// HARNESS: func @rock_conv2d_gkcyx_ngchw_ngkhw_0([[FILTER_MEMREF:%.*]]: memref<1x128x8x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<128x1x8x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x1x128x30x30xf32>)
+// HARNESS: func @rock_conv_gkc01_ngc01_ngk01_0([[FILTER_MEMREF:%.*]]: memref<1x128x8x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<128x1x8x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x1x128x30x30xf32>)
 // LOWERING: module
-// LOWERING: llvm.mlir.global internal constant @rock_conv2d_gkcyx_ngchw_ngkhw_0_module_gpubin_cst
+// LOWERING: llvm.mlir.global internal constant @rock_conv_gkc01_ngc01_ngk01_0_module_gpubin_cst
 
 func.func @main() {
   // memref.allocate CPU memory.
@@ -32,7 +32,7 @@ func.func @main() {
   gpu.memcpy  %output, %2 : memref<128x1x128x30x30xf32>, memref<128x1x128x30x30xf32>
 
   // launch kernel.
-  call @rock_conv2d_gkcyx_ngchw_ngkhw_0(%filter, %input, %output) : (memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>) -> ()
+  call @rock_conv_gkc01_ngc01_ngk01_0(%filter, %input, %output) : (memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>) -> ()
 
   // transfer data GPU -> CPU.
   gpu.memcpy  %2, %output : memref<128x1x128x30x30xf32>, memref<128x1x128x30x30xf32>
