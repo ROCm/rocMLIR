@@ -278,7 +278,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   op.setParams0Attr(accelParams0);
   if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
     op.emitError(
-        "The MPerBlockG1 should be larger or equal to getMPerBlockG1.");
+        "The MPerBlockG0 should be larger or equal to getMPerBlockG1.");
     signalPassFailure();
     return;
   }
