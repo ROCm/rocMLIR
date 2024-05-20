@@ -2824,31 +2824,6 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
             Value valOrig = b.create<affine::AffineLoadOp>(loc, valFlat, ivs);
             Value valTruncated =
                 b.create<arith::TruncFOp>(loc, testElemType, valOrig);
-            // Block the optimization on bfloats where
-            // extf (truncf x : T to bfoloat) : bfloat to T==> x
-            // that is implemented in X86's SelectionDAG (and maybe other places
-            // in the future), since, unlike in most instances of that sort of
-            // precision-removing cast, we actually want to blank off the low
-            // bits of the float mantissa.
-            // TODO: Replace with an arithmetic fence once they're implemnted
-            // for bfloat - that is after LLVM PR #90836 lands and is
-            // upstream-merged.
-            if (testElemType.isBF16()) {
-              // This is the most nominal non-noop I can think of as a hack.
-              // Yes, this means that bfloat tests will compare wrong for -inf
-              // for a few days/weeks, but we don't have any tests like that so.
-              Value minFiniteBf16 = b.create<arith::ConstantFloatOp>(
-                  loc,
-                  APFloat::getLargest(APFloat::BFloat(), /*Negative=*/true),
-                  b.getBF16Type());
-              Value isNegInf = b.create<arith::CmpFOp>(
-                  loc, b.getI1Type(), arith::CmpFPredicate::OLT, valTruncated,
-                  minFiniteBf16);
-              Value notNegInf =
-                  b.create<arith::MaximumFOp>(loc, valTruncated, minFiniteBf16);
-              valTruncated = b.create<arith::SelectOp>(loc, isNegInf,
-                                                       valTruncated, notNegInf);
-            }
             Value valExt =
                 b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
             b.create<affine::AffineStoreOp>(loc, valExt, valFlat, ivs);
