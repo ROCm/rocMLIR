@@ -659,56 +659,58 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto fs = filterAttr.getValue();
-      if (fs == "y") fs = "0";
-      if (fs == "x") fs = "1";
+      if (fs == "y")
+        fs = "0";
+      if (fs == "x")
+        fs = "1";
       fLayoutMap[fs] = i;
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto is = inputAttr.getValue();
-      if (is == "hi") is = "0i";
-      if (is == "wi") is = "1i";
+      if (is == "hi")
+        is = "0i";
+      if (is == "wi")
+        is = "1i";
       iLayoutMap[is] = i;
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto os = outputAttr.getValue();
-      if (os == "ho") os = "0o";
-      if (os == "wo") os = "1o";
+      if (os == "ho")
+        os = "0o";
+      if (os == "wo")
+        os = "1o";
       oLayoutMap[os] = i;
     }
 
-    SmallString<5> fLayout("#####");
-    SmallString<5> iLayout("#####");
-    SmallString<5> oLayout("#####");
+    SmallString<6> fLayout;
+    SmallString<6> iLayout;
+    SmallString<6> oLayout;
+    fLayout.assign(size, '#');
+    iLayout.assign(size, '#');
+    oLayout.assign(size, '#');
 
     // dimensions need to be mapped 1 to 1.
     fLayout[fLayoutMap["k"]] = 'N';
     fLayout[fLayoutMap["c"]] = 'C';
-    fLayout[fLayoutMap["0"]] = '0';
-    fLayout[fLayoutMap["1"]] = '1';
     fLayout[fLayoutMap["g"]] = 'G';
     iLayout[iLayoutMap["ni"]] = 'N';
     iLayout[iLayoutMap["ci"]] = 'C';
-    iLayout[iLayoutMap["0i"]] = '0';
-    iLayout[iLayoutMap["1i"]] = '1';
     iLayout[iLayoutMap["gi"]] = 'G';
     oLayout[oLayoutMap["no"]] = 'N';
     oLayout[oLayoutMap["ko"]] = 'C';
-    oLayout[oLayoutMap["0o"]] = '0';
-    oLayout[oLayoutMap["1o"]] = '1';
     oLayout[oLayoutMap["go"]] = 'G';
 
-    if (size > 5) {
-      for (unsigned i = 0; i < size - 5; i++) {
-        std::string key = std::to_string(i + 2);
-        fLayout[fLayoutMap[key]] = '0' + i + 2;
-        iLayout[iLayoutMap[key + "i"]] = '0' + i + 2;
-        oLayout[oLayoutMap[key + "o"]] = '0' + i + 2;
-      }
+    for (unsigned i = 0; i < size - 3; i++) {
+      std::string key = std::to_string(i);
+      char val = '0' + i;
+      fLayout[fLayoutMap[key]] = val;
+      iLayout[iLayoutMap[key + "i"]] = val;
+      oLayout[oLayoutMap[key + "o"]] = val;
     }
 
     if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout, oLayout),
                      [](const char c) { return c == '#'; })) {
-      llvm::report_fatal_error("Tuning problem string not properly filled.");
+      return failure();
     }
 
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
