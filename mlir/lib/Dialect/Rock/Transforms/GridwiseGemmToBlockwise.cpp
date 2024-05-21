@@ -291,7 +291,8 @@ static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
   std::tie(vectorDim, vectorLen) =
       bestGlobalVectorization(rewriter, matrix, copyDPerThread, copyKPerThread,
                               vectorTiebreaker, kPerBlock, dPerBlock);
-  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread, vectorTiebreaker};
+  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread,
+                       vectorTiebreaker};
 }
 
 static LDSLayoutConfigDim
@@ -495,7 +496,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
                << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n"
                << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
-               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker << "\n");
+               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker
+               << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
@@ -2542,7 +2544,8 @@ struct GridwiseGemmAccelRewritePattern
                << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
                << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n"
                << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
-               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker << "\n"
+               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker
+               << "\n"
                << "kPerBlock: " << kPerBlock << "\n"
                << "mPerBlock: " << mPerBlock << "\n"
                << "nPerBlock: " << nPerBlock << "\n"
@@ -2555,7 +2558,8 @@ struct GridwiseGemmAccelRewritePattern
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-        maybeVecDimInfoA->inDPerThread, maybeVecDimInfoA->vectorDim == GemmDimension::K);
+        maybeVecDimInfoA->inDPerThread,
+        maybeVecDimInfoA->vectorDim == GemmDimension::K);
     if (failed(maybeABufferViews)) {
       return failure();
     }
@@ -2563,7 +2567,8 @@ struct GridwiseGemmAccelRewritePattern
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-        maybeVecDimInfoB->inDPerThread, maybeVecDimInfoB->vectorDim == GemmDimension::K);
+        maybeVecDimInfoB->inDPerThread,
+        maybeVecDimInfoB->vectorDim == GemmDimension::K);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -2656,22 +2661,23 @@ struct GridwiseGemmAccelRewritePattern
     int64_t numOutputVectorElements = params.numOutputVectorElements();
     bool useIndexDiffs = true;
 
-    LLVM_DEBUG(llvm::dbgs() << "M: " << M << "\n"
-                            << "N: " << N << "\n"
-                            << "K: " << K << "\n"
-                            << "G: " << G << "\n"
-                            << "mPerBlock: " << mPerBlock << "\n"
-                            << "nPerBlock: " << nPerBlock << "\n"
-                            << "kPerBlock: " << kPerBlock << "\n"
-                            << "kpack: " << kpack << "\n"
-                            << "mBlocks = M / mPerBlock: " << mBlocks << "\n"
-                            << "nBlocks = N / nPerBlock: " << nBlocks << "\n"
-                            << "mPerWave: " << mPerWave << "\n"
-                            << "nPerWave: " << nPerWave << "\n"
-                            << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
-                            << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
-                            << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
-                            << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "M: " << M << "\n"
+               << "N: " << N << "\n"
+               << "K: " << K << "\n"
+               << "G: " << G << "\n"
+               << "mPerBlock: " << mPerBlock << "\n"
+               << "nPerBlock: " << nPerBlock << "\n"
+               << "kPerBlock: " << kPerBlock << "\n"
+               << "kpack: " << kpack << "\n"
+               << "mBlocks = M / mPerBlock: " << mBlocks << "\n"
+               << "nBlocks = N / nPerBlock: " << nBlocks << "\n"
+               << "mPerWave: " << mPerWave << "\n"
+               << "nPerWave: " << nPerWave << "\n"
+               << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
+               << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
+               << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
+               << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n");
 
     // Alocate LDS and create subviews.
 
