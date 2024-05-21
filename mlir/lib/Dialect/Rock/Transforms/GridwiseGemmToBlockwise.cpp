@@ -267,6 +267,7 @@ struct VectorDimInfo {
   int64_t vectorLen;
   int64_t inKPerThread;
   int64_t inDPerThread;
+  GemmDimension vectorTiebreaker;
 };
 
 static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
@@ -290,7 +291,7 @@ static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
   std::tie(vectorDim, vectorLen) =
       bestGlobalVectorization(rewriter, matrix, copyDPerThread, copyKPerThread,
                               vectorTiebreaker, kPerBlock, dPerBlock);
-  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread};
+  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread, vectorTiebreaker};
 }
 
 static LDSLayoutConfigDim
@@ -487,41 +488,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
-    // auto maybeCopyAPerThread = computeCopyPerThread(
-    //     elementTypeA, aCopyPerThread, kPerBlock, mPerBlock, kpack, loc);
-    // if (failed(maybeCopyAPerThread))
-    //   return maybeCopyAPerThread;
-    // int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
-    // int64_t copyMPerThread = (*maybeCopyAPerThread).second;
-
-    // auto maybeCopyBPerThread = computeCopyPerThread(
-    //     elementTypeB, bCopyPerThread, kPerBlock, nPerBlock, kpack, loc);
-    // if (failed(maybeCopyBPerThread))
-    //   return maybeCopyBPerThread;
-    // int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
-    // int64_t copyNPerThread = (*maybeCopyBPerThread).second;
-
-    // GemmDimension vectorTiebreaker =
-    //     (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    // int64_t aVectorLen, bVectorLen;
-    // GemmDimension aVectorDim, bVectorDim;
-    // std::tie(aVectorDim, aVectorLen) =
-    //     bestGlobalVectorization(b, op.getA(), copyMPerThread,
-    //     aCopyKPerThread,
-    //                             vectorTiebreaker, kPerBlock, mPerBlock);
-    // std::tie(bVectorDim, bVectorLen) =
-    //     bestGlobalVectorization(b, op.getB(), copyNPerThread,
-    //     bCopyKPerThread,
-    //                             vectorTiebreaker, kPerBlock, nPerBlock);
-
-    // LLVM_DEBUG(llvm::dbgs()
-    //            << "aCopyPerThread: " << aCopyPerThread << "\n"
-    //            << "bCopyPerThread: " << bCopyPerThread << "\n"
-    //            << "aVectorDim: " << aVectorDim << "\n"
-    //            << "aVectorLen: " << aVectorLen << "\n"
-    //            << "bVectorDim: " << bVectorDim << "\n"
-    //            << "bVectorLen: " << bVectorLen << "\n"
-    //            << "vectorTiebreaker: " << vectorTiebreaker << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "aCopyPerThread: " << aCopyPerThread << "\n"
+               << "bCopyPerThread: " << bCopyPerThread << "\n"
+               << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
+               << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
+               << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n"
+               << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
+               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
@@ -2530,13 +2504,7 @@ struct GridwiseGemmAccelRewritePattern
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
     bool forceUnroll = tuningParams.getForceUnroll();
-
     int64_t kPerBlock = kpacksPerBlock * kpack;
-
-    int64_t aVectorLen = 0;
-    int64_t bVectorLen = 0;
-    GemmDimension aVectorDim;
-    GemmDimension bVectorDim;
 
     if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
@@ -2563,55 +2531,31 @@ struct GridwiseGemmAccelRewritePattern
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
-    // auto maybeCopyAPerThread = computeCopyPerThread(
-    //     elementTypeA, aCopyPerThread, kPerBlock, mPerBlock, kpack, loc);
-    // if (failed(maybeCopyAPerThread))
-    //   return maybeCopyAPerThread;
-    // int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
-    // int64_t copyMPerThread = (*maybeCopyAPerThread).second;
-
-    // auto maybeCopyBPerThread = computeCopyPerThread(
-    //     elementTypeB, bCopyPerThread, kPerBlock, nPerBlock, kpack, loc);
-    // if (failed(maybeCopyBPerThread))
-    //   return maybeCopyBPerThread;
-    // int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
-    // int64_t copyNPerThread = (*maybeCopyBPerThread).second;
-
-    // // Find the best way of vectorizing the layout
-    // GemmDimension vectorTiebreaker =
-    //     (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    // std::tie(aVectorDim, aVectorLen) =
-    //     bestGlobalVectorization(b, matA, copyMPerThread, aCopyKPerThread,
-    //                             vectorTiebreaker, kPerBlock, mPerBlock);
-    // std::tie(bVectorDim, bVectorLen) =
-    //     bestGlobalVectorization(b, matB, copyNPerThread, bCopyKPerThread,
-    //                             vectorTiebreaker, kPerBlock, nPerBlock);
-
-    // LLVM_DEBUG(llvm::dbgs()
-    //            << "gridSize: " << gridSize << "\n"
-    //            << "blockSize: " << blockSize << "\n"
-    //            << "aCopyPerThread: " << aCopyPerThread << "\n"
-    //            << "bCopyPerThread: " << bCopyPerThread << "\n"
-    //            << "aCopyKpacksPerThread: " << aCopyKpacksPerThread << "\n"
-    //            << "bCopyKpacksPerThread: " << bCopyKpacksPerThread << "\n"
-    //            << "aVectorDim: " << aVectorDim << "\n"
-    //            << "aVectorLen: " << aVectorLen << "\n"
-    //            << "bVectorDim: " << bVectorDim << "\n"
-    //            << "bVectorLen: " << bVectorLen << "\n"
-    //            << "vectorTiebreaker: " << vectorTiebreaker << "\n"
-    //            << "kPerBlock: " << kPerBlock << "\n"
-    //            << "mPerBlock: " << mPerBlock << "\n"
-    //            << "nPerBlock: " << nPerBlock << "\n"
-    //            << "aCopyKPerThread: " << aCopyKPerThread << "\n"
-    //            << "bCopyKPerThread: " << bCopyKPerThread << "\n"
-    //            << "copyMPerThread: " << copyMPerThread << "\n"
-    //            << "copyNPerThread: " << copyNPerThread << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "gridSize: " << gridSize << "\n"
+               << "blockSize: " << blockSize << "\n"
+               << "aCopyPerThread: " << aCopyPerThread << "\n"
+               << "bCopyPerThread: " << bCopyPerThread << "\n"
+               << "aCopyKpacksPerThread: " << aCopyKpacksPerThread << "\n"
+               << "bCopyKpacksPerThread: " << bCopyKpacksPerThread << "\n"
+               << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
+               << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
+               << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n"
+               << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
+               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker << "\n"
+               << "kPerBlock: " << kPerBlock << "\n"
+               << "mPerBlock: " << mPerBlock << "\n"
+               << "nPerBlock: " << nPerBlock << "\n"
+               << "aCopyKPerThread: " << maybeVecDimInfoA->inKPerThread << "\n"
+               << "bCopyKPerThread: " << maybeVecDimInfoB->inKPerThread << "\n"
+               << "copyMPerThread: " << maybeVecDimInfoA->inDPerThread << "\n"
+               << "copyNPerThread: " << maybeVecDimInfoB->inDPerThread << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-        maybeVecDimInfoA->inDPerThread, aVectorDim == GemmDimension::K);
+        maybeVecDimInfoA->inDPerThread, maybeVecDimInfoA->vectorDim == GemmDimension::K);
     if (failed(maybeABufferViews)) {
       return failure();
     }
@@ -2619,7 +2563,7 @@ struct GridwiseGemmAccelRewritePattern
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-        maybeVecDimInfoB->inDPerThread, bVectorDim == GemmDimension::K);
+        maybeVecDimInfoB->inDPerThread, maybeVecDimInfoB->vectorDim == GemmDimension::K);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -2645,8 +2589,8 @@ struct GridwiseGemmAccelRewritePattern
     Value storeBufferB =
         gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
 
-    bool isKContiguousDimA = aVectorDim == GemmDimension::K;
-    bool isKContiguousDimB = bVectorDim == GemmDimension::K;
+    bool isKContiguousDimA = maybeVecDimInfoA->vectorDim == GemmDimension::K;
+    bool isKContiguousDimB = maybeVecDimInfoB->vectorDim == GemmDimension::K;
     LDSLayoutConfigDim ldsLayoutConfigA =
         getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value());
     LDSLayoutConfigDim ldsLayoutConfigB =
@@ -2724,10 +2668,10 @@ struct GridwiseGemmAccelRewritePattern
                             << "nBlocks = N / nPerBlock: " << nBlocks << "\n"
                             << "mPerWave: " << mPerWave << "\n"
                             << "nPerWave: " << nPerWave << "\n"
-                            << "aVectorLen: " << aVectorLen << "\n"
-                            << "bVectorLen: " << bVectorLen << "\n"
-                            << "aVectorDim: " << aVectorDim << "\n"
-                            << "bVectorDim: " << bVectorDim << "\n");
+                            << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
+                            << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
+                            << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
+                            << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n");
 
     // Alocate LDS and create subviews.
 
