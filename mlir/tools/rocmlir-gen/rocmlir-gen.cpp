@@ -1808,7 +1808,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
   switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
     upperBounds.append(genConfig.outputDimension);
-    upperBounds.push_back(filterInfo.nonImg1Len); // output channels 'k'
+    upperBounds.push_back(filterInfo.nonImg2Len); // input channels 'c'
     upperBounds.append(filterInfo.imageLens);
     break;
   case rock::ConvOpType::BwdData:
