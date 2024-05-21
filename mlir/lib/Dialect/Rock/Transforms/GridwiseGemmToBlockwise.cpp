@@ -1719,6 +1719,7 @@ struct GridwiseAttentionAccelRewritePattern
     if (!accelEmitterPtrGemm0)
       return op.emitOpError("Unable to emit accelerator code.");
     bool doBypassLDSSecondGemm = canBypassLDSForSecondGemm(op);
+    bool doBypassLDSForQ = canBypassLDSForQ(op);
     rock::accel::AccelEmitterParams accelParamsGemm0 =
         accelEmitterPtrGemm0->getParams();
     auto accelEmitterPtrGemm1 = accel::AccelEmitter::select(
@@ -1746,8 +1747,6 @@ struct GridwiseAttentionAccelRewritePattern
     assert(gemm0NPerBlock % gemm0kpack == 0 &&
            "nPerBlock should be divisible by kpack");
     int64_t gemm1KpacksPerBlock = gemm1KPerBlock / gemm1kpack;
-    int64_t gemm0InMPerThread = gemm0MPerBlock / blockSize;
-    int64_t gemm0InNPerThread = gemm0NPerBlock / blockSize;
     SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks,
                                                    gemm0NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoQ = getVectorDim(rewriter, loc, inQ, elemTypeQ, blockSize, gemm0KPerBlock, gemm0NPerBlock, gemm0kpack);                                                   
@@ -1755,15 +1754,17 @@ struct GridwiseAttentionAccelRewritePattern
         return failure();
     }
     LDSLayoutConfigDim ldsLayoutCfgNG0 = getLDSLayoutConfigDim(elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value());
-    ldsLayoutCfgNG0.doRotateWithK = false;
-    ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
     FailureOr<VectorDimInfo> maybeVectorDimInfoK = getVectorDim(rewriter, loc, inK, elemTypeK, blockSize, gemm0KPerBlock, gemm0MPerBlock, gemm0kpack);                                                   
     if(failed(maybeVectorDimInfoK)){
         return failure();
     }
     LDSLayoutConfigDim ldsLayoutCfgMG0 = getLDSLayoutConfigDim(elemTypeK, gemm0kpack, maybeVectorDimInfoK.value());
     ldsLayoutCfgMG0.doRotateWithK = false;
-    ldsLayoutCfgMG0.doSwapThreadIterSubDims = false;
+    if(doBypassLDSSecondGemm){
+        ldsLayoutCfgMG0.doSwapThreadIterSubDims = false;
+    }
+    int64_t gemm0InMPerThread = maybeVectorDimInfoK->inDPerThread;
+    int64_t gemm0InNPerThread = maybeVectorDimInfoQ->inDPerThread;
     RegsAsMatrixSubTiles gemm0OutSubTileViews =
         accelEmitterPtrGemm0->computeOutputTransforms(
             rewriter, loc, gemm0M, gemm0N, blockSize, gemm0BidGridLengths,
@@ -1774,12 +1775,10 @@ struct GridwiseAttentionAccelRewritePattern
         getLowerShape(gemm0OutSubTileViews.threadSubTile)[0];
     int64_t gemm0NPerThread =
         getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
-    int64_t gemm1InMPerThread = gemm0MPerThread;
     int64_t gemm1InNPerThread = gemm0NPerThread;
 
     // Create shared buffers accross gemms and reductions
     int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
-    bool doBypassLDSForQ = canBypassLDSForQ(op);
     if (doBypassLDSForQ) {
       ldsByteBufferQSize = 0;
     }
@@ -1891,8 +1890,7 @@ struct GridwiseAttentionAccelRewritePattern
         return failure();
     }
     LDSLayoutConfigDim ldsLayoutCfgMG1 = getLDSLayoutConfigDim(elemTypeV, gemm1kpack, maybeVectorDimInfoV.value());
-    ldsLayoutCfgMG1.doRotateWithK = false;
-    ldsLayoutCfgMG1.doSwapThreadIterSubDims = false;
+    int64_t gemm1InMPerThread = maybeVectorDimInfoV->inDPerThread;
     RegsAsMatrixSubTiles gemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
             rewriter, loc, gemm1M, gemm1N, blockSize, gemm1BidGridLengths,
