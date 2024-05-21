@@ -1169,10 +1169,12 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
       maybeGemmExtraPad = GemmSize{-1, -1, -1, -1};
     }
 
-    if (ConvOpType::BwdWeight == convOpType &&
-        isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
-      return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
-    }
+    // TODO (ravil): remove
+    // if (ConvOpType::BwdWeight == convOpType &&
+    //    isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value()))
+    //    {
+    //   return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
+    //}
 
     // Transform filter tensor.
 
@@ -1364,12 +1366,49 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
 
     // Emit rock.gemm op.
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
+    Attribute params = tuningParams;
+
+    if (ConvOpType::BwdWeight == convOpType &&
+        isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
+
+      auto convBwdWeightOp = cast<ConvBwdWeightOp>(op);
+      if (!convBwdWeightOp.getKBlocks().has_value())
+        return op.emitOpError("must have kBlocks set at lowering");
+
+      const int64_t gemmKBlocks = convBwdWeightOp.getKBlocks()->getZExtValue();
+      const int64_t splitKFactor = op.getParams()->getSplitKFactor();
+
+      // Set the num. k-blocks by re-building the tuning config if the split-k
+      // factor is not set by the tuning config and the derived
+      // num. k blocks is not equal to 1
+      if ((splitKFactor == 1) && (gemmKBlocks > 1)) {
+        storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
+
+        if (auto attr = dyn_cast<XdlopsGemmParamsAttr>(tuningParams)) {
+          params = b.getAttr<XdlopsGemmParamsAttr>(
+              attr.getKpackPerBlock(), attr.getMPerBlock(), attr.getNPerBlock(),
+              attr.getKpack(), attr.getMPerWave(), attr.getMnPerXdl(),
+              gemmKBlocks, attr.getForceUnroll());
+        } else if (auto attr = dyn_cast<WmmaGemmParamsAttr>(tuningParams)) {
+          params = b.getAttr<WmmaGemmParamsAttr>(
+              attr.getKpackPerBlock(), attr.getMPerBlock(), attr.getNPerBlock(),
+              attr.getKpack(), attr.getMPerWave(), attr.getNPerWave(),
+              gemmKBlocks, attr.getForceUnroll());
+        } else if (auto attr = dyn_cast<GeneralGemmParamsAttr>(tuningParams)) {
+          params = b.getAttr<GeneralGemmParamsAttr>(
+              attr.getBlockSize(), attr.getKPerBlock(), attr.getMPerBlock(),
+              attr.getNPerBlock(), attr.getKPerThread(), attr.getMPerThread(),
+              attr.getNPerThread(), attr.getKpack(), gemmKBlocks);
+        }
+      }
+    }
+
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                      /*cTransposed=*/nullptr, op.getArchAttr(),
                      op.getNumCUAttr(), op.getFeaturesAttr(), storeMethod,
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
-                     tuningParams);
+                     cast<RockTuningParamAttrInterface>(params));
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);
