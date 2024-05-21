@@ -2023,29 +2023,36 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   // Here a conventional c++ string split is being
   // done because MLIR lacks parseSourceString() method
   // to parse Attributes and its only there for Ops.
-  std::string perfConfigStr = perfConfigStrAttr.str();
-  std::istringstream ss(perfConfigStr);
-  std::string token;
-  std::getline(ss, token, ':');
+  StringRef perfConfigStrRef = perfConfigStrAttr.strref();
+  StringRef token;
+  StringRef rest;
+  std::tie(token, rest) = perfConfigStrRef.split(':');
   if (token != "attn") {
     return {};
   }
-  std::getline(ss, token, ':');
+  std::tie(token, rest) = rest.split(':');
   if (token.substr(0, 1) != "v") {
     return {};
   }
-  int version = std::stoi(token.substr(1, std::string::npos));
+  int version;
+  if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
+    return {};
+  }
   if (version != 1) {
     return {};
   }
-  SmallVector<int64_t, 8> params;
-  for (std::string paramStr; std::getline(ss, paramStr, ',');
-       params.push_back(std::stoi(paramStr)))
-    ;
-  if (params.size() != 8) {
+  SmallVector<StringRef, 8> tokens;
+  rest.split(tokens, ',');
+  if (tokens.size() != 8) {
     return {};
   }
-  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), version,
+  SmallVector<int64_t, 8> params;
+  llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
+    int param;
+    llvm::to_integer(s, param);
+    return param;
+  });
+  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(),
                                  /*mPerBlockG0=*/params[0],
                                  /*mPerBlockG1=*/params[1],
                                  /*nPerBlockG0=*/params[2],

@@ -262,7 +262,6 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
     The perf configs for rock.attention operator.
   }];
   let parameters = (ins
-    "int64_t":$version,
     "int64_t":$mPerBlockG0,
     "int64_t":$mPerBlockG1,
     "int64_t":$nPerBlockG0,
@@ -275,7 +274,7 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("attn:v" + Twine(getVersion()) + ":"
+      ("attn:v1:"
       + Twine(getMPerBlockG0()) + ","
       + Twine(getMPerBlockG1()) + ","
       + Twine(getNPerBlockG0()) + ","

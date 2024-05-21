@@ -66,7 +66,7 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
                     gemm1MPerBlock >= gemm0MPerBlock &&
                     gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
                   auto params = AttnPerfConfigAttr::get(
-                      attnOp.getContext(), 1, gemm0MPerBlock, gemm1MPerBlock,
+                      attnOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
                       gemm0NPerBlock, gemmKPerBlock, gemmMPerWave,
                       gemmMnPerXdlOrNPerWave, gemmKPack, true);
                   newSpace->tuningRange.push_back(
@@ -382,8 +382,6 @@ void createQuickTuningRange(TuningParamSet *newSpace,
 // work until the tuning is setup for attention ops properly.
 void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
   OpBuilder b(attnOp.getContext());
-  Type elemType = attnOp.getQueries().getType().getElementType();
-  StringRef arch = attnOp.getArch();
   GemmFeatures currentFeatures = attnOp.getFeatures();
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
@@ -400,7 +398,7 @@ void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                mnPerXdl, kPack] : attnQuickTuningListMFMA) {
       auto params = AttnPerfConfigAttr::get(
-          attnOp.getContext(), 1, mPerBlockG0, mPerBlockG1, nPerBlockG0,
+          attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, mnPerXdl, kPack, true);
       newSpace->tuningRange.push_back(
           cast<RockTuningParamAttrInterface>(params));
@@ -418,7 +416,7 @@ void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                mnPerXdl, kPack] : attnQuickTuningListMFMA) {
       auto params = AttnPerfConfigAttr::get(
-          attnOp.getContext(), 1, mPerBlockG0, mPerBlockG1, nPerBlockG0,
+          attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, mnPerXdl, kPack, true);
       newSpace->tuningRange.push_back(
           cast<RockTuningParamAttrInterface>(params));
