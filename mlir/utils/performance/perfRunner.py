@@ -13,6 +13,7 @@ from pathlib import Path
 import glob
 import argparse
 import re
+import tempfile
 
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple
@@ -20,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 import reportUtils
-from perfCommonUtils import Operation, GEMMLibrary
+from perfCommonUtils import Operation, GEMMLibrary, CORRECT_RESULT_RE
 
 # global variables.
 ROCPROF = '/opt/rocm/bin/rocprof'
@@ -967,8 +968,74 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
         p3.kill()
         _, errs = p3.communicate()
 
+def verifyModeFlags(verifyMode: str) -> str:
+    if verifyMode == "none":
+        return ""
+    if verifyMode == "cpu":
+        return " -pv"
+    if verifyMode == "gpu":
+        return " -pv_with_gpu --verifier-keep-perf-config=false"
+    raise ValueError("Unknown verification mode", verifyMode)
+
+def verifyKernelWithPerfConfig(config, paths: Paths, verifyMode, rocmlir_gen_flags, debug=True) -> float:
+    print(f"Verifying {repr(config)}", file=sys.stderr)
+    if isinstance(config, AttentionConfiguration):
+        # to make verification faster, we override batch_size to be 1
+        config.g = 1
+        extra_rocmlir_gen_flags = dict()
+        if(config.seq_len_q >= 8192):
+            print("Current verification execution will be too slow. hence skipping this config")
+            return np.nan
+        abs_thr = config.seq_len_q * 0.00003 + 0.1
+        rms_thr = config.seq_len_q * 0.00002 + 0.017
+        extra_rocmlir_gen_flags["f16"] = f"-relDiff_threshold 0.02 -absDiff_threshold {abs_thr} -RMS_threshold {rms_thr}"
+        extra_rocmlir_gen_flags["f32"] = "-relDiff_threshold 0.000005"
+        rocmlir_gen_flags += extra_rocmlir_gen_flags[config.dataType]
+
+    rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + \
+        verifyModeFlags(verifyMode) + \
+        ' -print-verify-results=summary ' + \
+        config.generateMlirDriverCommandLine(rocmlir_gen_flags)
+    rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
+    mlirCpuRunnerArgs = ['-O2', f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlirCpuRunnerArgs
+
+    if debug:
+        print(rocmlirGenCommand, file=sys.stderr)
+
+    prevdir = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            os.chdir(tmpdir)
+            # invoke rocmlir-gen.
+            p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            # pipe to rocmlir-driver
+            p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
+            # pipe to rocprof + mlir-cpu-runner.
+            p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p2.stdout.close() # Allow p2 to receive a SIGPIPE if p3 exits.
+            # get output.
+            try:
+                outs, errs = p3.communicate(timeout=600)
+                outs = outs.decode('utf-8')
+                if len(errs) > 0 or not CORRECT_RESULT_RE.search(outs):
+                    print(f"""Verification failed:
+Output = {outs}
+Errors = {errs.decode('utf-8')}""", file=sys.stderr)
+                    return np.nan
+            except subprocess.TimeoutExpired:
+                print("Verification timed out", file=sys.stderr)
+                p3.kill()
+                outs, errs = p3.communicate()
+                return np.nan
+            nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        finally:
+            os.chdir(prevdir)
+    return nanoSeconds
+
 # Benchmarking function.
-def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
+def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags, verify_mode="none"):
     config = confClass.fromCommandLine(commandLine, arch, numCU)
     configStr = config.toCommandLine()
     if tuningDb:
@@ -976,8 +1043,10 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
             config.setPerfConfig(tuningDb[arch, configStr])
         else: # Tuning DB present but doesn't contain config, return N/A
             return config.tableEntry(np.nan)
-
-    runConfigWithMLIR(config, paths, arch, rocmlir_gen_flags)
+    if verify_mode == "none":
+        runConfigWithMLIR(config, paths, arch, rocmlir_gen_flags)
+    else:
+        verifyKernelWithPerfConfig(config, paths, verify_mode, rocmlir_gen_flags)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
@@ -1481,6 +1550,14 @@ def main(args=None):
          help='Force a set of datatypes'
     )
 
+    parser.add_argument(
+        "--verify-mode",
+        type=str,
+        default="none",
+        choices=["none", "cpu", "gpu"],
+        help="How to verify the kernel"
+    )
+
     parsed_args = parser.parse_args(args)
 
     rocmlir_gen_flags = ''
@@ -1547,7 +1624,7 @@ def main(args=None):
             benchmarkFusionKernels(parsed_args.test_dir, paths, arch, numCU, tuningDb)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags, parsed_args.verify_mode) for testVector in configs)
         elif parsed_args.batch_external:
             df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU) for testVector in configs)
         elif parsed_args.external:
