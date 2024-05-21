@@ -146,7 +146,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
                                                   validParams.gemmKPack);
     const bool requiredPadding = !(paddedGemmSize == origGemmSize);
 
-    int64_t gemmKBlocks = 1;
     PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
     auto maybeWrwOp = (info.kernelType == KernelType::ConvBwdWeight);
     if (maybeWrwOp &&
@@ -154,7 +153,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       auto res = calculateKBlockNum(
           info.batchSize, paddedGemmSize, validParams.gemmMPerBlock,
           validParams.gemmNPerBlock, validParams.gemmKPerBlock,
-          validParams.gemmKPack, info.numCu, gemmKBlocks);
+          validParams.gemmKPack, info.numCu, validParams.splitKFactor);
 
       if (failed(res)) {
         LLVM_DEBUG(llvm::dbgs()
@@ -163,10 +162,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
         return;
       }
     }
-
-    // Set kblocks attribute only for backward weight convolutions.
-    if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
-      bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
     RockAccelTuningParamAttrInterface gemmParams;
