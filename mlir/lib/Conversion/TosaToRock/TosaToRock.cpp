@@ -211,12 +211,12 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   return cop;
 }
 
-class ConvConverter final : public OpConversionPattern<tosa::Conv2DOp> {
+template <typename OpT>
+class ConvConverter final : public OpConversionPattern<OpT> {
 public:
-  using OpConversionPattern<tosa::Conv2DOp>::OpConversionPattern;
+  using OpConversionPattern<OpT>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(tosa::Conv2DOp op,
-                                tosa::Conv2DOp::Adaptor adaptor,
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
@@ -224,7 +224,7 @@ public:
     auto input = operands[0];
     auto filter = operands[1];
     auto bias = operands[2];
-    auto outputType = op.getType().cast<RankedTensorType>();
+    auto outputType = op.getType().template cast<RankedTensorType>();
 
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
@@ -247,79 +247,21 @@ public:
       if (!biasType.hasStaticShape())
         return failure();
 
-      SmallVector<int64_t, 4> biasShape{1, 1, 1};
+      int64_t nDims = input.getType().template cast<ShapedType>().getRank();
+      assert(nDims == 4);
+      SmallVector<int64_t> biasShape;
+      for (int i = 0; i < nDims - 1; i++)
+        biasShape.push_back(1);
       biasShape.push_back(biasType.getShape()[0]);
       auto newType =
           RankedTensorType::get(biasShape, biasType.getElementType());
-
-      SmallVector<ReassociationExprs, 1> reassociations;
 
       // [[0, 1, 2, 3]]
-      reassociations.push_back(
-          {getAffineDimExpr(0, context), getAffineDimExpr(1, context),
-           getAffineDimExpr(2, context), getAffineDimExpr(3, context)});
-
-      auto biasExpand =
-          rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
-
-      result = rw.create<tosa::AddOp>(loc, op.getType(),
-                                      ValueRange{result, biasExpand});
-    }
-
-    rw.replaceOp(op, result);
-
-    return success();
-  }
-};
-
-class Conv3DConverter final : public OpConversionPattern<tosa::Conv3DOp> {
-public:
-  using OpConversionPattern<tosa::Conv3DOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(tosa::Conv3DOp op,
-                                tosa::Conv3DOp::Adaptor adaptor,
-                                ConversionPatternRewriter &rw) const final {
-    auto operands = adaptor.getOperands();
-    auto loc = op->getLoc();
-    auto *context = op->getContext();
-    auto input = operands[0];
-    auto filter = operands[1];
-    auto bias = operands[2];
-    auto outputType = op.getType().cast<RankedTensorType>();
-
-    Value output =
-        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
-
-    int64_t group = 1;
-    if (op.getGroup().has_value())
-      group = *op.getGroup();
-    FailureOr<rock::ConvOp> rockConv =
-        makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
-                     op.getStrideAttr(), op.getDilationAttr(), group);
-    if (failed(rockConv))
-      return failure();
-
-    Value result = rw.create<rock::TensorUntransformCastOp>(
-        loc, outputType, rockConv->getResult(), rockConv->getOutput());
-    // test for zero bias, and ignore
-    if (!isConstantZero(op.getOperand(2))) {
-      // non-zero bias, replace with tosa.add w/ broadcast
-      auto biasType = bias.getType().template cast<ShapedType>();
-      if (!biasType.hasStaticShape())
-        return failure();
-
-      SmallVector<int64_t, 5> biasShape{1, 1, 1, 1};
-      biasShape.push_back(biasType.getShape()[0]);
-      auto newType =
-          RankedTensorType::get(biasShape, biasType.getElementType());
-
+      ReassociationExprs exprs;
+      for (int i = 0; i < nDims; i++)
+        exprs.push_back(getAffineDimExpr(i, context));
       SmallVector<ReassociationExprs, 1> reassociations;
-
-      // [[0, 1, 2, 3, 4]]
-      reassociations.push_back(
-          {getAffineDimExpr(0, context), getAffineDimExpr(1, context),
-           getAffineDimExpr(2, context), getAffineDimExpr(3, context),
-           getAffineDimExpr(4, context)});
+      reassociations.push_back(exprs);
 
       auto biasExpand =
           rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
@@ -1220,8 +1162,9 @@ public:
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverter, Conv3DConverter, MatMulConverter,
-               ReduceSumConverter, ReduceMaxConverter>(context);
+  patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
+      context);
 }
 
 void tosa::populateTosaToRockTensorConversionPatterns(

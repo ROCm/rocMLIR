@@ -478,7 +478,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
     return WalkResult::interrupt();
   });
   if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {
-    llvm_unreachable(
+    llvm::report_fatal_error(
         "Expected to find GEMM, convolution, or attention op, and didn't.");
   }
   return newSpace;

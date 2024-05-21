@@ -235,7 +235,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
-  auto expandTo2D = [&rewriter, &loc](mlir::Value value) {
+  auto expandTo2D = [&rewriter, loc](mlir::Value value) {
     auto origShape = value.getType().cast<ShapedType>().getShape();
     std::vector<int64_t> expShape(origShape);
     expShape.insert(std::prev(expShape.end()), 1);
@@ -263,6 +263,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                 loc, outputTy.getElementType(),
                 filter.getType().template cast<ShapedType>().getShape()[0],
                 rewriter)});
+    cop->setAttr("rock.expanded_from_1d", rewriter.getBoolAttr(true));
     break;
 
   case 2:
