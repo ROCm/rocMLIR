@@ -636,39 +636,60 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     for (unsigned i = 0; i < size; ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      fLayoutMap[filterAttr.getValue()] = i;
-    }
-    for (unsigned i = 0; i < size; ++i) {
+      auto fs = filterAttr.getValue();
+      if (fs == "y")
+        fs = "0";
+      if (fs == "x")
+        fs = "1";
+      fLayoutMap[fs] = i;
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      iLayoutMap[inputAttr.getValue()] = i;
-    }
-    for (unsigned i = 0; i < size; ++i) {
+      auto is = inputAttr.getValue();
+      if (is == "hi")
+        is = "0i";
+      if (is == "wi")
+        is = "1i";
+      iLayoutMap[is] = i;
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      oLayoutMap[outputAttr.getValue()] = i;
+      auto os = outputAttr.getValue();
+      if (os == "ho")
+        os = "0o";
+      if (os == "wo")
+        os = "1o";
+      oLayoutMap[os] = i;
     }
 
-    SmallString<5> fLayout("#####");
-    SmallString<5> iLayout("#####");
-    SmallString<5> oLayout("#####");
+    SmallString<6> fLayout;
+    SmallString<6> iLayout;
+    SmallString<6> oLayout;
+    fLayout.assign(size, '#');
+    iLayout.assign(size, '#');
+    oLayout.assign(size, '#');
 
     // dimensions need to be mapped 1 to 1.
     fLayout[fLayoutMap["k"]] = 'N';
     fLayout[fLayoutMap["c"]] = 'C';
-    fLayout[fLayoutMap["0"]] = '0';
-    fLayout[fLayoutMap["1"]] = '1';
     fLayout[fLayoutMap["g"]] = 'G';
     iLayout[iLayoutMap["ni"]] = 'N';
     iLayout[iLayoutMap["ci"]] = 'C';
-    iLayout[iLayoutMap["0i"]] = '0';
-    iLayout[iLayoutMap["1i"]] = '1';
     iLayout[iLayoutMap["gi"]] = 'G';
     oLayout[oLayoutMap["no"]] = 'N';
     oLayout[oLayoutMap["ko"]] = 'C';
-    oLayout[oLayoutMap["0o"]] = '0';
-    oLayout[oLayoutMap["1o"]] = '1';
     oLayout[oLayoutMap["go"]] = 'G';
+
+    for (unsigned i = 0; i < size - 3; i++) {
+      std::string key = std::to_string(i);
+      char val = '0' + i;
+      fLayout[fLayoutMap[key]] = val;
+      iLayout[iLayoutMap[key + "i"]] = val;
+      oLayout[oLayoutMap[key + "o"]] = val;
+    }
+
+    if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout, oLayout),
+                     [](const char c) { return c == '#'; })) {
+      return failure();
+    }
 
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
 
