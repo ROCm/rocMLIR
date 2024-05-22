@@ -237,8 +237,9 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   auto expandTo2D = [&rewriter, loc](mlir::Value value) {
     ArrayRef<int64_t> origShape = value.getType().cast<ShapedType>().getShape();
-    SmallVector<int64_t> expShape(origShape);
-    expShape.insert(std::prev(expShape.end()), 1);
+    SmallVector<int64_t> expShape(origShape.drop_back());
+    expShape.push_back(1);
+    expShape.push_back(origShape.back());
     Value reshaped = rewriter.create<tosa::ReshapeOp>(
         loc, value, rewriter.getDenseI64ArrayAttr(expShape));
     return reshaped;
