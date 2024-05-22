@@ -537,7 +537,7 @@ TuningTable *tuningTableCreate() {
 LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
                                   SmallVectorImpl<char> &out) {
   int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
-  if (attnOp.getNumCU().has_value()){
+  if (attnOp.getNumCU().has_value()) {
     numCU = attnOp.getNumCU().value();
   }
   constexpr char sep = ' ';
