@@ -236,8 +236,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
   auto expandTo2D = [&rewriter, loc](mlir::Value value) {
-    auto origShape = value.getType().cast<ShapedType>().getShape();
-    std::vector<int64_t> expShape(origShape);
+    ArrayRef<int64_t> origShape = value.getType().cast<ShapedType>().getShape();
+    SmallVector<int64_t> expShape(origShape);
     expShape.insert(std::prev(expShape.end()), 1);
     Value reshaped = rewriter.create<tosa::ReshapeOp>(
         loc, value, rewriter.getDenseI64ArrayAttr(expShape));
@@ -287,7 +287,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                 rewriter)});
     break;
   default:
-    llvm_unreachable("Only 1-D, 2-D, and 3-D have been implemented.");
+    return op->emitError("Only 1-D, 2-D, and 3-D have been implemented.");
     break;
   }
 
@@ -316,9 +316,11 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // convolution config attributes
 
   if (dims == 1) {
-    assert(dilations.size() == 1);
-    assert(strides.size() == 1);
-    assert(pads.size() == 2);
+    if ((dilations.size() != 1) || (strides.size() != 1) ||
+        (pads.size() != 2)) {
+      return op->emitError(
+          "1-D convolution has improper dilation, stride, or pad.");
+    }
     dilations.push_back(0);
     strides.push_back(1);
     pads.push_back(0);

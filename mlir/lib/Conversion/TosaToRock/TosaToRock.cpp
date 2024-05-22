@@ -60,8 +60,11 @@ static bool isConstantZero(Value v) {
   return false;
 }
 
+// Note:  we want something a bit more general than SmallString<8> for
+// the layout string, but it has to allow for inserting a character into
+// the string for the caller to see.
 static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, SmallString<7> &layout,
+                          Value operand, SmallString<8> &layout,
                           StringRef lowerName, int64_t g, uint32_t idx = 4) {
   auto loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
@@ -141,22 +144,22 @@ getArchAttributes(Operation *op, Type inputType) {
 
 static FailureOr<rock::ConvOp>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
-             Value filter, Value output, const DenseI64ArrayAttr &pad,
-             const DenseI64ArrayAttr &stride, const DenseI64ArrayAttr &dilation,
+             Value filter, Value output, DenseI64ArrayAttr pad,
+             DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
              int64_t group) {
   Location loc = op->getLoc();
 
-  SmallString<7> filterLayout("kyxc");
+  SmallString<8> filterLayout("kyxc");
   if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
     filterLayout = attr.getValue();
   else if (filter.getType().template cast<ShapedType>().getRank() > 4)
     filterLayout = "k012c";
-  SmallString<7> inputLayout("nhwc");
+  SmallString<8> inputLayout("nhwc");
   if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
     inputLayout = attr.getValue();
   else if (input.getType().template cast<ShapedType>().getRank() > 4)
     inputLayout = "n012c";
-  SmallString<7> outputLayout("nhwk");
+  SmallString<8> outputLayout("nhwk");
   if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
     outputLayout = attr.getValue();
   else if (output.getType().template cast<ShapedType>().getRank() > 4)
@@ -455,7 +458,6 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                              Value tOutput,
                                              ArrayRef<int32_t> dims,
                                              Value tInput) const {
-    SmallVector<Operation *> toBeErased;
     for (auto &use : tOutput.getUses()) {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
@@ -480,7 +482,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
             newReassocIdx.push_back(dims[indices[i]]);
           }
           if (numNonUnitDimsMerged > 1) {
-            // Per MIGraphX bug #2692, this transpose/collapse swap logic
+            // Per MIGraphX bug #2692, this transpsoe/collaspe swap logic
             // will be incorrect in cases like the following
             //   %0 = expand_shape [[0], [1, 2], [3]] %arg0 : tensor<7x6x5xT> to
             //   tensor<7x3x2x5xT> %1 = transpose %0, [0, 2, 1, 3] :
@@ -581,7 +583,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           return failure();
         }
         if (op->use_empty())
-          toBeErased.push_back(op);
+          rewriter.eraseOp(op);
       } else if (auto op = dyn_cast<tensor::ExpandShapeOp>(use.getOwner())) {
         return rewriter.notifyMatchFailure(
             op, "We dont support expand shapes yet.");
@@ -615,8 +617,6 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         return failure();
       }
     }
-    for (auto *op : toBeErased)
-      rewriter.eraseOp(op);
     return success();
   }
 

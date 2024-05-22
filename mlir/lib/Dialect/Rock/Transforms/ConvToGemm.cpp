@@ -440,9 +440,9 @@ LogicalResult makeToLayoutLikeFromLayoutAlong(
   size_t prevIndex = 0;
   for (StringAttr expected : expectedOrder) {
     auto foundp = toLayoutIdxs.find(expected);
-    assert(foundp != toLayoutIdxs.end());
+    if (foundp == toLayoutIdxs.end())
+      return failure();
     size_t thisIndex = foundp->getSecond();
-    //    size_t thisIndex = toLayoutIdxs.find(expected)->getSecond();
     if (thisIndex <
         prevIndex) { // the values are not in the relative expected order
       inOrder = false;
