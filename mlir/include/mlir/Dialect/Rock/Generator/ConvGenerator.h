@@ -130,13 +130,23 @@ public:
     std::transform(permutation.begin(), permutation.end(),
                    std::back_inserter(targetLayout),
                    [&targetSpec](int64_t p) { return targetSpec[p]; });
+#else
+    std::string targetLayout;
+    for (auto ch : src) {
+      auto pos = srcSpec.find(ch);
+      if (pos != std::string::npos) {
+        targetLayout.push_back(targetSpec[pos]);
+      } else {
+        targetLayout.push_back(std::tolower(ch));
+      }
+    }
+#endif /* 1 */
 
     // +++pf:  update old key names.
     std::replace(targetLayout.begin(), targetLayout.end(), 'y', '0');
     std::replace(targetLayout.begin(), targetLayout.end(), 'x', '1');
     std::replace(targetLayout.begin(), targetLayout.end(), 'h', '0');
     std::replace(targetLayout.begin(), targetLayout.end(), 'w', '1');
-
     return targetLayout;
   }
   LogicalResult isApplicable(bool checkChip = true) const;

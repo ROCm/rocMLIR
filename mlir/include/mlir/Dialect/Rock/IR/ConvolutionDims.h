@@ -17,7 +17,6 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
-#include <cstdint>
 
 namespace mlir {
 class Operation;
@@ -33,8 +32,8 @@ struct ConvolutionDims {
   int64_t n;
   int64_t g;
 
-  ConvolutionDims(ArrayRef<int64_t> fil, ArrayRef<int64_t> out,
-                  ArrayRef<int64_t> in, int64_t k, int64_t c, int64_t n,
+  ConvolutionDims(llvm::ArrayRef<int64_t> fil, llvm::ArrayRef<int64_t> out,
+                  llvm::ArrayRef<int64_t> in, int64_t k, int64_t c, int64_t n,
                   int64_t g)
       : fil(fil), out(out), in(in), k(k), c(c), n(n), g(g) {}
 

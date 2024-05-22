@@ -451,19 +451,19 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
   newSpace = new TuningParamSet();
 
   // create range and heuristic
-  WalkResult findPrimary =
-      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        switch (kind) {
-        case TuningParamSetKind::Full:
-        case TuningParamSetKind::Exhaustive:
-          createGemmTuningRangeBF(newSpace, op, kind);
-          break;
-        case TuningParamSetKind::Quick:
-          createQuickTuningRange(newSpace, op);
-        }
-        newSpace->primaryOpType = op.getKernelType();
-        return WalkResult::interrupt();
-      });
+  WalkResult findPrimary = mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+    switch (kind) {
+    case TuningParamSetKind::Full:
+    case TuningParamSetKind::Exhaustive:
+      createGemmTuningRangeBF(newSpace, op, kind);
+      break;
+    case TuningParamSetKind::Quick:
+      createQuickTuningRange(newSpace, op);
+      break;
+    }
+    newSpace->primaryOpType = op.getKernelType();
+    return WalkResult::interrupt();
+  });
   WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
     // createTuningRange(newSpace, op);
     switch (kind) {
@@ -477,7 +477,8 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
     return WalkResult::interrupt();
   });
   if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {
-    delete newSpace;
+    llvm_unreachable(
+        "Expected to find GEMM, convolution, or attention op, and didn't.");
   }
   return newSpace;
 }
@@ -659,13 +660,9 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
       fLayoutMap[filterAttr.getValue()] = i;
-    }
-    for (unsigned i = 0; i < size; ++i) {
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
       iLayoutMap[inputAttr.getValue()] = i;
-    }
-    for (unsigned i = 0; i < size; ++i) {
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
       oLayoutMap[outputAttr.getValue()] = i;
@@ -674,6 +671,14 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     SmallString<5> fLayout("#####");
     SmallString<5> iLayout("#####");
     SmallString<5> oLayout("#####");
+
+    if (size > 5) {
+      for (int i = 0; i < size - 5; i++) {
+        fLayout.push_back('#');
+        iLayout.push_back('#');
+        oLayout.push_back('#');
+      }
+    }
 
     // dimensions need to be mapped 1 to 1.
     fLayout[fLayoutMap["k"]] = 'N';
@@ -691,6 +696,15 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     oLayout[oLayoutMap["0o"]] = '0';
     oLayout[oLayoutMap["1o"]] = '1';
     oLayout[oLayoutMap["go"]] = 'G';
+
+    if (size > 5) {
+      for (int i = 0; i < size - 5; i++) {
+        std::string key = std::to_string(i + 2);
+        fLayout[fLayoutMap[key]] = '0' + i + 2;
+        iLayout[iLayoutMap[key + "i"]] = '0' + i + 2;
+        oLayout[oLayoutMap[key + "o"]] = '0' + i + 2;
+      }
+    }
 
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
 

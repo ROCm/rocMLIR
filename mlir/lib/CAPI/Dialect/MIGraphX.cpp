@@ -137,6 +137,10 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
   mlir::rock::buildBufferizePipeline(*passMan);
+  if (std::getenv("MIGRAPHX_MLIR_IR_PRINT")) {
+    passMan->getContext()->disableMultithreading();
+    passMan->enableIRPrinting();
+  }
 }
 
 MLIR_CAPI_EXPORTED void
@@ -169,6 +173,11 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   opts.features = devName.getFeaturesForBackend();
   opts.optLevel = 3;
   mlir::rock::buildBackendPipeline(*passMan, opts);
+
+  if (std::getenv("MIGRAPHX_MLIR_IR_PRINT")) {
+    passMan->getContext()->disableMultithreading();
+    passMan->enableIRPrinting();
+  }
 
   return true;
 }

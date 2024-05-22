@@ -210,41 +210,33 @@ LogicalResult ConvGenerator::hasValidDimension() const {
     return failure();
   }
 
-  int64_t expectedOutHeight = outputDim(
-      inDim["0"], filDim["0"], config.paddingLeftDims[DIM::HEIGHT],
-      config.paddingRightDims[DIM::HEIGHT], config.strideDims[DIM::HEIGHT],
-      config.dilationDims[DIM::HEIGHT]);
-  int64_t expectedOutWidth =
-      outputDim(inDim["1"], filDim["1"], config.paddingLeftDims[DIM::WIDTH],
-                config.paddingRightDims[DIM::WIDTH],
-                config.strideDims[DIM::WIDTH], config.dilationDims[DIM::WIDTH]);
-  if (outDim["0"] != expectedOutHeight) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Output height " << outDim["0"] << " doesn't match height "
-               << expectedOutHeight << " computed from other parameters\n");
-    return failure();
-  }
-  if (outDim["1"] != expectedOutWidth) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Output width " << outDim["1"] << " doesn't match width "
-               << expectedOutWidth << " computed from other parameters\n");
-    return failure();
+  assert(config.strideDims.size() == config.dilationDims.size() &&
+         config.strideDims.size() == config.paddingLeftDims.size() &&
+         config.strideDims.size() == config.paddingRightDims.size());
+
+  for (size_t i = 0; i < config.strideDims.size(); i++) {
+    auto ii = std::to_string(i);
+    int64_t expected =
+        outputDim(inDim[ii], filDim[ii], config.paddingLeftDims[i],
+                  config.paddingRightDims[i], config.strideDims[i],
+                  config.dilationDims[i]);
+    if (outDim[ii] != expected) {
+      LLVM_DEBUG(llvm::dbgs() << "Output dimension " << i << " " << outDim[ii]
+                              << " doesn't match " << expected
+                              << " computed from other parameters\n");
+      return failure();
+    }
   }
 
-  if (inDim["0"] + config.paddingLeftDims[DIM::HEIGHT] +
-          config.paddingRightDims[DIM::HEIGHT] <
-      filDim["0"]) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Input, including padding, is shorter than the filter\n");
-    return failure();
-  }
-
-  if (inDim["1"] + config.paddingLeftDims[DIM::WIDTH] +
-          config.paddingRightDims[DIM::WIDTH] <
-      filDim["1"]) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Input, including padding, is narrower than the filter\n");
-    return failure();
+  for (size_t i = 0; i < config.paddingLeftDims.size(); i++) {
+    auto ii = std::to_string(i);
+    if (inDim[ii] + config.paddingLeftDims[i] + config.paddingRightDims[i] <
+        filDim[ii]) {
+      LLVM_DEBUG(llvm::dbgs() << "Input, including padding, is smaller than "
+                                 "the filter in dimension "
+                              << i << "\n");
+      return failure();
+    }
   }
 
   return success();
@@ -654,35 +646,44 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   return success();
 }
 
-LogicalResult
-ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
-                             int64_t inputChannel, int64_t inputHeight,
-                             int64_t inputWidth, int64_t outputChannel,
-                             int64_t outputHeight, int64_t outputWidth,
-                             int64_t filterHeight, int64_t filterWidth) {
-  config.filterDims[DIM::HEIGHT] = filterHeight;
-  config.filterDims[DIM::WIDTH] = filterWidth;
+LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
+                                           int64_t inputChannel,
+                                           ArrayRef<int64_t> inputDims,
+                                           int64_t outputChannel,
+                                           ArrayRef<int64_t> outputDims,
+                                           ArrayRef<int64_t> filterDims) {
+  config.filterDims.clear();
+  for (auto dim : filterDims)
+    config.filterDims.push_back(dim);
 
   llvm::StringMap<int64_t> filterMap = {{"k", outputChannel / groupSize},
                                         {"g", groupSize},
                                         {"c", inputChannel / groupSize},
-                                        {"y", filterHeight},
-                                        {"x", filterWidth},
-                                        {"0", filterHeight},
-                                        {"1", filterWidth}};
-  llvm::StringMap<int64_t> inputMap = {
-      {"n", batchSize},   {"g", groupSize},  {"c", inputChannel / groupSize},
-      {"h", inputHeight}, {"w", inputWidth}, {"0", inputHeight},
-      {"1", inputWidth}};
-  llvm::StringMap<int64_t> outputMap = {
-      {"n", batchSize},    {"g", groupSize},   {"k", outputChannel / groupSize},
-      {"h", outputHeight}, {"w", outputWidth}, {"0", outputHeight},
-      {"1", outputWidth}};
+                                        {"y", filterDims[0]},
+                                        {"x", filterDims[1]}};
+  for (size_t i = 0; i < filterDims.size(); i++)
+    filterMap[std::to_string(i)] = filterDims[i];
+
+  llvm::StringMap<int64_t> inputMap = {{"n", batchSize},
+                                       {"g", groupSize},
+                                       {"c", inputChannel / groupSize},
+                                       {"h", inputDims[0]},
+                                       {"w", inputDims[1]}};
+  for (size_t i = 0; i < inputDims.size(); i++)
+    inputMap[std::to_string(i)] = inputDims[i];
+
+  llvm::StringMap<int64_t> outputMap = {{"n", batchSize},
+                                        {"g", groupSize},
+                                        {"k", outputChannel / groupSize},
+                                        {"h", outputDims[0]},
+                                        {"w", outputDims[1]}};
+  for (size_t i = 0; i < outputDims.size(); i++)
+    outputMap[std::to_string(i)] = outputDims[i];
 
   auto convertLayout = [](char &key, llvm::StringMap<int64_t> &kmap,
                           auto &dims) {
     auto keyl = std::string{static_cast<char>(std::tolower(key))};
-    if (!kmap.contains(keyl)) {
+    if (!kmap.contains(keyl) && !isdigit(key)) {
       keyl = "k";
       if (!kmap.contains(keyl))
         return false;
@@ -700,10 +701,14 @@ ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   // Determine dimensions.
   for (size_t i = 0; i < layoutLen; ++i) {
     if (!convertLayout(config.filterLayout[i], filterMap,
-                       config.filterDimension) ||
-        !convertLayout(config.inputLayout[i], inputMap,
-                       config.inputDimension) ||
-        !convertLayout(config.outputLayout[i], outputMap,
+                       config.filterDimension)) {
+      return failure();
+    }
+    if (!convertLayout(config.inputLayout[i], inputMap,
+                       config.inputDimension)) {
+      return failure();
+    }
+    if (!convertLayout(config.outputLayout[i], outputMap,
                        config.outputDimension)) {
       return failure();
     }
@@ -744,8 +749,18 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
   auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
-  return ConvolutionDims({filDim["0"], filDim["1"]}, {outDim["0"], outDim["1"]},
-                         {inDim["0"], inDim["1"]}, filDim["k"], filDim["c"],
+
+  SmallVector<int64_t> inDims;
+  for (size_t i = 0; i < config.inputLayout.size() - 3; i++)
+    inDims.push_back(inDim[std::to_string(i)]);
+  SmallVector<int64_t> filDims;
+  for (size_t i = 0; i < config.filterLayout.size() - 3; i++)
+    filDims.push_back(filDim[std::to_string(i)]);
+  SmallVector<int64_t> outDims;
+  for (size_t i = 0; i < config.outputLayout.size() - 3; i++)
+    outDims.push_back(outDim[std::to_string(i)]);
+
+  return ConvolutionDims(filDims, outDims, inDims, filDim["k"], filDim["c"],
                          inDim["n"], inDim["g"]);
 }
 

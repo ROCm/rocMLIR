@@ -136,8 +136,8 @@ func.func @rock_transform_1_to_1(%memref: memref<1x2x3x4x5xf32, 3>) {
       <PassThrough ["g"] at [0] -> ["g"] at [1]>,
       <PassThrough ["n"] at [1] -> ["n"] at [0]>,
       <PassThrough ["c"] at [2] -> ["c"] at [2]>,
-      <Pad{1, 1} ["0ipad"] at [3] -> ["hi"] at [3]>,
-      <Pad{2, 2} ["1ipad"] at [4] -> ["wi"] at [4]>
+      <Pad{1, 1} ["0ipad"] at [3] -> ["0i"] at [3]>,
+      <Pad{2, 2} ["1ipad"] at [4] -> ["1i"] at [4]>
     ] bounds = [2, 1, 3, 6, 9] -> [1, 2, 3, 4, 5]>
   : memref<1x2x3x4x5xf32, 3> to memref<2x1x3x6x9xf32, #map0, 3>
   return
@@ -165,8 +165,8 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
     <#map2 by [
       #rock.transform<PassThrough ["n", "g", "c"] at [0, 1, 2] ->
         ["n", "g", "c"] at [1, 0, 2]>,
-      #rock.transform<Embed{1, 1} ["y", "ho"] at [3, 4] -> ["0ipad"] at [3]>,
-      #rock.transform<Embed{1, 1} ["x", "wo"] at [5, 6] -> ["1ipad"] at [4]>
+      #rock.transform<Embed{1, 1} ["0", "0o"] at [3, 4] -> ["0ipad"] at [3]>,
+      #rock.transform<Embed{1, 1} ["1", "1o"] at [5, 6] -> ["1ipad"] at [4]>
       // Note: fake data should work fine for now
      ] bounds = [0, 0, 0, 0, 0, 0, 0] -> [0, 0, 0, 0, 0]>
   : memref<?x?x?x?x?xf32> to memref<?x?x?x?x?x?x?xf32, #map2>

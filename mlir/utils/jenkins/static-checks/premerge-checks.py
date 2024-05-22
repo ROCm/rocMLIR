@@ -30,7 +30,7 @@ import git
 
 def get_diff(base_commit) -> Tuple[bool, str]:
   diff_run = subprocess.run(
-    f'/opt/rocm/llvm/bin/git-clang-format --binary /opt/rocm/llvm/bin/clang-format --diff {base_commit}',
+    f'git-clang-format --diff {base_commit}',
     shell=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
@@ -114,7 +114,7 @@ def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = Fal
   else:
     ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, [])
   cpu_count = multiprocessing.cpu_count()
-  p = subprocess.Popen(['./external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet', '-j', str(cpu_count), '-extra-arg=-std=c++17', '-extra-arg=-I/usr/home/pf/rocMLIR/mlir/include', '-extra-arg=-I/usr/home/pf/rocMLIR/external/llvm-project/mlir/include', '-extra-arg=-I/usr/home/pf/rocMLIR/external/llvm-project/llvm/include', '-extra-arg=-I/usr/home/pf/rocMLIR/external/llvm-project/utils/bazel/llvm-project-overlay/llvm/include'],
+  p = subprocess.Popen(['./external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0', '-quiet', '-j', str(cpu_count), '-extra-arg=-std=c++17'],
                        stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
   a = ''.join(diff)
   out = p.communicate(input=a.encode())[0].decode()

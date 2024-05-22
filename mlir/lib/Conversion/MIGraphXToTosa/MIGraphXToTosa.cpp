@@ -235,9 +235,36 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
+  auto expandTo2D = [&rewriter, &loc](mlir::Value value) {
+    auto origShape = value.getType().cast<ShapedType>().getShape();
+    std::vector<int64_t> expShape(origShape);
+    expShape.insert(std::prev(expShape.end()), 1);
+    Value reshaped = rewriter.create<tosa::ReshapeOp>(
+        loc, value, rewriter.getDenseI64ArrayAttr(expShape));
+    return reshaped;
+  };
+
   // Construct a new Conv2DOp.
   Operation *cop;
+  Type new1DOutTy;
   switch (dims) {
+  case 1:
+    // Expand to do a conv2d, because there's no conv1d op.
+    newShape.insert(std::prev(newShape.end()), 1);
+    new1DOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
+    input = expandTo2D(input);
+    filter = expandTo2D(filter);
+
+    cop = rewriter.create<tosa::Conv2DOp>(
+        loc, new1DOutTy,
+        ValueRange{
+            input, filter,
+            getZeroTensor(
+                loc, outputTy.getElementType(),
+                filter.getType().template cast<ShapedType>().getShape()[0],
+                rewriter)});
+    break;
+
   case 2:
     cop = rewriter.create<tosa::Conv2DOp>(
         loc, newOutTy,
@@ -259,7 +286,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                 rewriter)});
     break;
   default:
-    llvm_unreachable("Only 2-D and 3-D have been implemented.");
+    llvm_unreachable("Only 1-D, 2-D, and 3-D have been implemented.");
     break;
   }
 
@@ -287,6 +314,16 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   // convolution config attributes
 
+  if (dims == 1) {
+    assert(dilations.size() == 1);
+    assert(strides.size() == 1);
+    assert(pads.size() == 2);
+    dilations.push_back(0);
+    strides.push_back(1);
+    pads.push_back(0);
+    pads.push_back(0);
+  }
+
   cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
   cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
   cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
@@ -308,6 +345,12 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     auto quantAttr = rewriter.getAttr<tosa::ConvOpQuantizationAttr>(
         /*inputZp =*/0, /*weightZp =*/0);
     cop->setAttr("quantization_info", quantAttr);
+  }
+
+  if (dims == 1) {
+    cop = rewriter.create<tosa::ReshapeOp>(
+        loc, cop->getResult(0),
+        rewriter.getDenseI64ArrayAttr(newOutTy.cast<ShapedType>().getShape()));
   }
 
   // transpose the output back to NCHW so that it can match following
@@ -887,7 +930,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxF.convertFromAPInt(maxI, /*IsSigned=*/true,
                             APFloat::rmNearestTiesToEven);
     }
-    
+
     FloatAttr minFatt = rewriter.getFloatAttr(rewriter.getF32Type(), minF);
     FloatAttr maxFatt = rewriter.getFloatAttr(rewriter.getF32Type(), maxF);
     result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,

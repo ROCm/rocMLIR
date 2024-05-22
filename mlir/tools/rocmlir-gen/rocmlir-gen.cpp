@@ -873,20 +873,6 @@ static void correctConvParameters() {
   std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(),
                'w', '1');
 
-  // +++pf:  update old key names.
-  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
-               'y', '0');
-  std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
-               'x', '1');
-  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(),
-               'h', '0');
-  std::replace(inputLayout.getValue().begin(), inputLayout.getValue().end(),
-               'w', '1');
-  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(),
-               'h', '0');
-  std::replace(outputLayout.getValue().begin(), outputLayout.getValue().end(),
-               'w', '1');
-
   auto validatePadding = [](llvm::cl::opt<int> &combined,
                             llvm::cl::opt<int> &left, llvm::cl::opt<int> &right,
                             StringRef name) {
