@@ -383,18 +383,33 @@ void createQuickTuningRange(TuningParamSet *newSpace,
 void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
   OpBuilder b(attnOp.getContext());
   GemmFeatures currentFeatures = attnOp.getFeatures();
+  Type elemType =
+      attnOp.getQueries().getType().cast<ShapedType>().getElementType();
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
                      int64_t>
       PerfConfigVals;
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
-    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA{
+    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMAF16{
         PerfConfigVals{32, 128, 128, 32, 32, 32, 4},
         PerfConfigVals{64, 64, 32, 16, 32, 16, 4},
         PerfConfigVals{32, 64, 64, 16, 32, 16, 4},
         PerfConfigVals{32, 64, 128, 16, 32, 16, 4},
         PerfConfigVals{64, 64, 64, 16, 32, 16, 4},
         PerfConfigVals{64, 64, 64, 16, 32, 32, 4}};
+    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMAF32{
+        PerfConfigVals{32, 128, 64, 32, 32, 16, 4},
+        PerfConfigVals{32, 64, 64, 32, 32, 16, 4},
+        PerfConfigVals{32, 128, 128, 32, 32, 32, 4},
+        PerfConfigVals{64, 64, 32, 16, 32, 16, 4},
+        PerfConfigVals{32, 64, 64, 16, 32, 16, 4},
+        PerfConfigVals{32, 64, 128, 16, 32, 32, 4},
+        PerfConfigVals{64, 64, 64, 16, 32, 32, 4}};
+    ArrayRef<PerfConfigVals> attnQuickTuningListMFMA =
+        attnQuickTuningListMFMAF32;
+    if (elemType.isF16()) {
+      attnQuickTuningListMFMA = attnQuickTuningListMFMAF16;
+    }
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                mnPerXdl, kPack] : attnQuickTuningListMFMA) {
       auto params = AttnPerfConfigAttr::get(
