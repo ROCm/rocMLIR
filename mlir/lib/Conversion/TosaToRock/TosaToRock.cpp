@@ -233,8 +233,8 @@ public:
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
     int64_t group = 1;
-    if (op.getGroup().has_value())
-      group = *op.getGroup();
+    if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
+      group = attr.getInt(); // Use op.getGroup() when all OpT have it.
     FailureOr<rock::ConvOp> rockConv =
         makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
                      op.getStrideAttr(), op.getDilationAttr(), group);
@@ -251,7 +251,6 @@ public:
         return failure();
 
       int64_t nDims = input.getType().template cast<ShapedType>().getRank();
-      assert(nDims == 4);
       SmallVector<int64_t> biasShape;
       for (int i = 0; i < nDims - 1; i++)
         biasShape.push_back(1);

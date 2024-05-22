@@ -18,6 +18,8 @@
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -235,6 +237,9 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
+  // There is no tosa.conv1d, so instead we'll add a dummy x1 dimension
+  // to the input tensors, and make a tosa.conv2d.  We'll also add the
+  // ExpandedFrom1D attribute so we can undo it in tosa-to-rock.
   auto expandTo2D = [&rewriter, loc](mlir::Value value) {
     ArrayRef<int64_t> origShape = value.getType().cast<ShapedType>().getShape();
     SmallVector<int64_t> expShape(origShape.drop_back());
@@ -264,7 +269,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                 loc, outputTy.getElementType(),
                 filter.getType().template cast<ShapedType>().getShape()[0],
                 rewriter)});
-    cop->setAttr("rock.expanded_from_1d", rewriter.getBoolAttr(true));
+    cop->setAttr(rock::ExpandedFrom1DAttr::getMnemonic(),
+                 rewriter.getUnitAttr());
     break;
 
   case 2:

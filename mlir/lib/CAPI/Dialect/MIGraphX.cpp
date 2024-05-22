@@ -20,7 +20,6 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Process.h"
 #include "llvm/Support/TargetSelect.h"
 #include <mutex>
 #include <vector>
@@ -138,10 +137,6 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
   mlir::rock::buildBufferizePipeline(*passMan);
-  if (llvm::sys::Process::GetEnv("MIGRAPHX_MLIR_IR_PRINT")) {
-    passMan->getContext()->disableMultithreading();
-    passMan->enableIRPrinting();
-  }
 }
 
 MLIR_CAPI_EXPORTED void
@@ -174,11 +169,6 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   opts.features = devName.getFeaturesForBackend();
   opts.optLevel = 3;
   mlir::rock::buildBackendPipeline(*passMan, opts);
-
-  if (llvm::sys::Process::GetEnv("MIGRAPHX_MLIR_IR_PRINT")) {
-    passMan->getContext()->disableMultithreading();
-    passMan->enableIRPrinting();
-  }
 
   return true;
 }
