@@ -419,7 +419,7 @@ void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
           cast<RockTuningParamAttrInterface>(params));
     }
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
-    const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMA{
+    const SmallVector<PerfConfigVals, 7> attnQuickTuningListWMMA{
         PerfConfigVals{64, 128, 128, 8, 32, 32, 4},
         PerfConfigVals{64, 64, 256, 8, 64, 32, 8},
         PerfConfigVals{64, 64, 256, 16, 32, 32, 8},
@@ -429,7 +429,7 @@ void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
         PerfConfigVals{32, 32, 128, 8, 32, 32, 8},
         PerfConfigVals{128, 128, 128, 8, 32, 32, 8}};
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
-               mnPerXdl, kPack] : attnQuickTuningListMFMA) {
+               mnPerXdl, kPack] : attnQuickTuningListWMMA) {
       auto params = AttnPerfConfigAttr::get(
           attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, mnPerXdl, kPack, true);
