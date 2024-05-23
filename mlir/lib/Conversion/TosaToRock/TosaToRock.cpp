@@ -984,6 +984,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         softmaxInput, rewriter, nullptr, elemwiseOtherArgs);
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
+    IntegerAttr numCUAttr =
+        numCu.has_value() ? rewriter.getI32IntegerAttr(numCu.value()) : nullptr;
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
         elemwiseOtherArgs, output,
@@ -992,7 +994,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, arch,
-        rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+        rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
         /*params0=*/nullptr, /*params1=*/nullptr);
 
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();

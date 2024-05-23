@@ -2505,9 +2505,13 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   }
   output = block->getArgument(optionalArgsCounter);
 
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
       transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
+      numCUAttr,
       /*params0=*/nullptr, /*params1=*/nullptr);
   {
     Block *preSoftmaxElemwiseBlock =
