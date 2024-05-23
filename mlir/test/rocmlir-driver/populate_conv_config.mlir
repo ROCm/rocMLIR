@@ -22,15 +22,13 @@
 //PV-NEXT:                  affine.for [[ARG10:%.*]] = 0 to 8 {
 //PV:                         [[INH:%.*]] = affine.apply #map2([[ARG9]], [[ARG6]])
 //PV:                         [[INW:%.*]] = affine.apply #map2([[ARG10]], [[ARG7]])
-//PV:                         [[C14:%.*]] = arith.constant 14 : index
-//PV:                         [[C14_0:%.*]] = arith.constant 14 : index
-//PV:                        affine.if #set([[INH]], [[INW]])[[[C14]], [[C14_0]]] {
-//PV-NEXT:                      [[OUT:%.*]] = memref.load %arg2[[[ARG8]], [[ARG3]], [[ARG4]], [[ARG9]], [[ARG10]]] : memref<256x1x2048x8x8xf32>
-//PV-NEXT:                      [[IN:%.*]] = memref.load %arg1[[[ARG8]], [[ARG3]], [[ARG5]], [[INH]], [[INW]]] : memref<256x1x1024x14x14xf32>
-//PV-NEXT:                      [[FIL:%.*]] = memref.load %arg0[[[ARG3]], [[ARG4]], [[ARG5]], [[ARG6]], [[ARG7]]] : memref<1x2048x1024x1x1xf32>
+//PV:                        affine.if #set([[INH]], [[INW]]) {
+//PV-NEXT:                      [[OUT:%.*]] = affine.load %arg2[[[ARG8]], [[ARG3]], [[ARG4]], [[ARG9]], [[ARG10]]] : memref<256x1x2048x8x8xf32>
+//PV-NEXT:                      [[IN:%.*]] = affine.load %arg1[[[ARG8]], [[ARG3]], [[ARG5]], [[INH]], [[INW]]] : memref<256x1x1024x14x14xf32>
+//PV-NEXT:                      [[FIL:%.*]] = affine.load %arg0[[[ARG3]], [[ARG4]], [[ARG5]], [[ARG6]], [[ARG7]]] : memref<1x2048x1024x1x1xf32>
 //PV-NEXT:                      [[PRD:%.*]] = arith.mulf [[OUT]], [[IN]] : f32
 //PV-NEXT:                      [[ACC:%.*]] = arith.addf [[FIL]], [[PRD]] : f32
-//PV-NEXT:                      memref.store [[ACC]], %arg0[[[ARG3]], [[ARG4]], [[ARG5]], [[ARG6]], [[ARG7]]] : memref<1x2048x1024x1x1xf32>
+//PV-NEXT:                      affine.store [[ACC]], %arg0[[[ARG3]], [[ARG4]], [[ARG5]], [[ARG6]], [[ARG7]]] : memref<1x2048x1024x1x1xf32>
 
 // RUN: rocmlir-gen --conv-config "--x2 1 --operation conv_bwd_weight  --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv_v4r4_wrw_xdlops" -pv_with_cpp --apply-bufferization-pipeline=false | FileCheck %s --check-prefix=PVCPP
 

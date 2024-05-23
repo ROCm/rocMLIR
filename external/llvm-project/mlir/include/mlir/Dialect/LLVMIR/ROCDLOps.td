@@ -428,26 +428,27 @@ def ROCDL_RawPtrBufferAtomicUminOp : ROCDL_RawPtrBufferAtomicNoRet<"umin">;
 def ROCDL_RawPtrBufferAtomicFaddOp : ROCDL_RawPtrBufferAtomicNoRet<"fadd">;
 
 //===---------------------------------------------------------------------===//
-// DPP Move intrinsic
-def ROCDL_DPPMovOp : ROCDL_IntrOp<"mov.dpp", [], [0],
-    [AllTypesMatch<["res", "src"]>], 1>,
-  Arguments<(ins LLVM_Type:$src, I32Attr:$dppCtrl, I32Attr:$rowMask,
+// DPP Update intrinsic
+def ROCDL_DPPUpdateOp : ROCDL_IntrOp<"update.dpp", [], [0],
+    [AllTypesMatch<["res", "src", "old"]>], 1>,
+  Arguments<(ins LLVM_Type:$old, LLVM_Type:$src, I32Attr:$dppCtrl, I32Attr:$rowMask,
       I32Attr:$bankMask, I1Attr:$boundCtrl)> {
   let results = (outs LLVM_Type:$res);
   let assemblyFormat = [{
-    attr-dict $src `with` $dppCtrl `,` $rowMask `,` $bankMask `,` $boundCtrl `:` type($src)
+    attr-dict $old `,` $src `with` $dppCtrl `,` $rowMask `,` $bankMask `,` $boundCtrl `:` type($src)
   }];
   string llvmBuilder = [{
       auto vdataType = moduleTranslation.convertType(op.getSrc().getType());
       llvm::Value *args[] = {
+        moduleTranslation.lookupValue(op.getOld()),
         moduleTranslation.lookupValue(op.getSrc()),
-          builder.getInt32(op.getDppCtrl()),  
-          builder.getInt32(op.getRowMask()),  
-          builder.getInt32(op.getBankMask()),  
+          builder.getInt32(op.getDppCtrl()),
+          builder.getInt32(op.getRowMask()),
+          builder.getInt32(op.getBankMask()),
           builder.getInt1(op.getBoundCtrl())
-      }; 
+      };
       $res = createIntrinsicCall(builder,
-        llvm::Intrinsic::amdgcn_mov_dpp, args, {vdataType});
+        llvm::Intrinsic::amdgcn_update_dpp, args, {vdataType});
   }];
 }
 

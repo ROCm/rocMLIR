@@ -34,6 +34,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -1490,40 +1491,73 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
   return success();
 }
 
-static std::tuple<int64_t, int64_t, int64_t>
-getConvBounds(rock::ConvOpType dir,
-              const rock::ConvGenerator::Config &genConfig) {
-  int64_t dim, dimH, dimW;
-  char channel;
-  StringRef layout;
-  ArrayRef<int64_t> dimension;
-  switch (dir) {
-  case rock::ConvOpType::Fwd:
-    channel = 'c';
-    dimension = genConfig.inputDimension;
-    layout = genConfig.inputLayout;
-    break;
-  case rock::ConvOpType::BwdData:
-    channel = 'k';
-    dimension = genConfig.outputDimension;
-    layout = genConfig.outputLayout;
-    break;
-  case rock::ConvOpType::BwdWeight:
-    channel = 'n';
-    dimension = genConfig.inputDimension;
-    layout = genConfig.inputLayout;
-    break;
+struct ConvTensorDimInfo {
+  unsigned nonImg1Dim;
+  int64_t nonImg1Len;
+  unsigned nonImg2Dim;
+  int64_t nonImg2Len;
+  unsigned gDim;
+  int64_t gLen;
+  SmallVector<unsigned, 4> imageDims;
+  SmallVector<int64_t, 4> imageLens;
+};
+
+/// Given the layout string for some tensor (ex ngc01 or gk012c), the tensor
+/// shape of the value whose layout has that form, and the identifiers ('n',
+/// 'c', or 'k') for the two non-image dimensions expected in the layout, return
+/// the positions and lengths of those two non-image dimensions and the image
+/// dimensions (in order).
+static ConvTensorDimInfo parseConvTensorLayout(StringRef layout,
+                                               ArrayRef<int64_t> shape,
+                                               char nonImg1Sym,
+                                               char nonImg2Sym) {
+  // The two non-image dimensions and the group.
+  unsigned nImageDims = shape.size() - 3;
+  // Neither value is particularly special, excetpt that I used -2 because -1 is
+  // the dynamic dimension indicator and we might need that later.
+  SmallVector<unsigned, 4> imageDims(nImageDims, 0xdeadbeef);
+  SmallVector<int64_t, 4> imageLens(nImageDims, -2);
+  unsigned nonImg1Dim, nonImg2Dim, gDim = 0xdeadbeef;
+  int64_t nonImg1Len, nonImg2Len, gLen = -2;
+
+  for (auto [pos, dim, len] : llvm::enumerate(layout, shape)) {
+    if (dim == nonImg1Sym) {
+      nonImg1Dim = pos;
+      nonImg1Len = len;
+    } else if (dim == nonImg2Sym) {
+      nonImg2Dim = pos;
+      nonImg2Len = len;
+    } else if (dim >= '0' && dim <= '9') {
+      size_t dimIdx = dim - '0';
+      if (dimIdx >= nImageDims) {
+        llvm::errs() << "Dimension value '" << dimIdx << "' too large\n";
+        exit(1);
+      }
+      imageDims[dimIdx] = pos;
+      imageLens[dimIdx] = len;
+    } else if (dim == 'g') {
+      gDim = pos;
+      gLen = len;
+    } else {
+      llvm::errs() << "Unknown layout key '" << dim << "'\n";
+      exit(1);
+    }
   }
-  for (const auto &t : llvm::zip(layout, dimension)) {
-    char c(std::get<0>(t));
-    if (c == channel)
-      dim = std::get<1>(t);
-    if (c == '0')
-      dimH = std::get<1>(t);
-    if (c == '1')
-      dimW = std::get<1>(t);
-  }
-  return std::make_tuple(dim, dimH, dimW);
+  return ConvTensorDimInfo{nonImg1Dim, nonImg1Len, nonImg2Dim, nonImg2Len,
+                           gDim,       gLen,       imageDims,  imageLens};
+}
+
+static SmallVector<Value> arrangeByConvLayout(const ConvTensorDimInfo &layout,
+                                              Value nonImg1, Value nonImg2,
+                                              Value g, ValueRange image) {
+  SmallVector<Value> result;
+  result.resize_for_overwrite(image.size() + 3);
+  result[layout.nonImg1Dim] = nonImg1;
+  result[layout.nonImg2Dim] = nonImg2;
+  result[layout.gDim] = g;
+  for (auto [idx, value] : llvm::zip(layout.imageDims, image))
+    result[idx] = value;
+  return result;
 }
 
 static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
@@ -1661,7 +1695,8 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
 
 // If the ref is float and not F32, make an F32 buffer and copy into it.
 // Used when a CPU kernel will have parameters that it can't handle natively.
-Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref, Type floatType) {
+static Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref,
+                              Type floatType) {
   auto refType = ref.getType().template dyn_cast<MemRefType>();
   Type refElemType = refType.getElementType();
   if (!isa<FloatType>(refElemType) || refElemType.isF32())
@@ -1675,7 +1710,7 @@ Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref, Type floatType) {
 }
 
 static void
-createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
+createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
                       const rock::ConvGenerator::Config &genConfig) {
   OpBuilder b(module.getContext());
 
@@ -1705,131 +1740,129 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     llvm_unreachable("Tensor fill logic population shouldn't fail");
 
   // Create affine maps
-  AffineExpr heightExpr, widthExpr;
-  AffineMap heightMap, widthMap;
-  AffineExpr outputHeightExpr, outputWidthExpr;
-  AffineMap outputHeightMap, outputWidthMap;
-
-  auto HEIGHT = mlir::rock::ConvGenerator::DIM::HEIGHT;
-  auto WIDTH = mlir::rock::ConvGenerator::DIM::WIDTH;
-
-  switch (genConfig.operation.value()) {
-  case rock::ConvOpType::Fwd:
-  case rock::ConvOpType::BwdWeight:
-    // d0 * stride + d1 * dilation - padding
-    heightExpr = b.getAffineDimExpr(0) * genConfig.strideDims[HEIGHT] +
-                 b.getAffineDimExpr(1) * genConfig.dilationDims[HEIGHT] -
-                 genConfig.paddingLeftDims[HEIGHT];
-    widthExpr = b.getAffineDimExpr(0) * genConfig.strideDims[WIDTH] +
-                b.getAffineDimExpr(1) * genConfig.dilationDims[WIDTH] -
-                genConfig.paddingLeftDims[WIDTH];
-    break;
-  case rock::ConvOpType::BwdData:
-    // d0 + padding - d1 * dilation
-    heightExpr = b.getAffineDimExpr(0) + genConfig.paddingLeftDims[HEIGHT] -
-                 b.getAffineDimExpr(1) * genConfig.dilationDims[HEIGHT];
-    widthExpr = b.getAffineDimExpr(0) + genConfig.paddingLeftDims[WIDTH] -
-                b.getAffineDimExpr(1) * genConfig.dilationDims[WIDTH];
-    break;
+  size_t nImageDims = genConfig.strideDims.size();
+  SmallVector<AffineMap, 3> inputImageDimMaps;
+  // Extra maps used for backward data.
+  SmallVector<AffineMap> imageDimMaps2(nImageDims, AffineMap{});
+  inputImageDimMaps.resize_for_overwrite(nImageDims);
+  for (auto [stride, dilation, paddingLeft, map, map2] :
+       llvm::zip(genConfig.strideDims, genConfig.dilationDims,
+                 genConfig.paddingLeftDims, inputImageDimMaps, imageDimMaps2)) {
+    switch (genConfig.operation.value()) {
+    case rock::ConvOpType::Fwd:
+    case rock::ConvOpType::BwdWeight:
+      // d0 * stride + d1 * dilation - padding
+      map = AffineMap::get(2, 0,
+                           b.getAffineDimExpr(0) * stride +
+                               b.getAffineDimExpr(1) * dilation - paddingLeft);
+      break;
+    case rock::ConvOpType::BwdData:
+      // d0 + padding - d1 * dilation
+      map = AffineMap::get(2, 0,
+                           b.getAffineDimExpr(0) + paddingLeft -
+                               b.getAffineDimExpr(1) * dilation);
+      // d0 / stride
+      map2 = AffineMap::get(1, 0, b.getAffineDimExpr(0).floorDiv(stride));
+      break;
+    }
   }
-  heightMap = AffineMap::get(2, 0, {heightExpr}, b.getContext());
-  widthMap = AffineMap::get(2, 0, {widthExpr}, b.getContext());
 
-  // Create extra maps for backward data
-  if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
-    // d0 / stride
-    outputHeightExpr =
-        b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[HEIGHT]);
-    outputWidthExpr =
-        b.getAffineDimExpr(0).floorDiv(genConfig.strideDims[WIDTH]);
-    outputHeightMap = AffineMap::get(1, 0, {outputHeightExpr}, b.getContext());
-    outputWidthMap = AffineMap::get(1, 0, {outputWidthExpr}, b.getContext());
-  }
+  ConvTensorDimInfo filterInfo = parseConvTensorLayout(
+                        genConfig.filterLayout, genConfig.filterDimension, 'k',
+                        'c'),
+                    inputInfo = parseConvTensorLayout(genConfig.inputLayout,
+                                                      genConfig.inputDimension,
+                                                      'n', 'c'),
+                    outputInfo = parseConvTensorLayout(
+                        genConfig.outputLayout, genConfig.outputDimension, 'n',
+                        'k');
 
   // Create constraints for boundary checks
   SmallVector<AffineExpr, 6> exprs;
   SmallVector<bool, 6> eqFlags;
-  IntegerSet condition;
-  if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
-    // out_h_tmp % stride_h == 0, out_w_tmp % stride_w == 0
-    exprs.push_back(b.getAffineDimExpr(2) % genConfig.strideDims[HEIGHT]);
-    eqFlags.push_back(true);
-    exprs.push_back(b.getAffineDimExpr(3) % genConfig.strideDims[WIDTH]);
-    eqFlags.push_back(true);
+  bool isBwdData = genConfig.operation.value() == rock::ConvOpType::BwdData;
+  for (size_t i = 0; i < nImageDims; ++i) {
+    size_t inputDIdx = i;
+    if (isBwdData) {
+      // out_D_tmp % stride_D == 0 for all D
+      exprs.push_back(b.getAffineDimExpr(2 * i) % genConfig.strideDims[i]);
+      eqFlags.push_back(true);
+      inputDIdx = 2 * i + 1;
+    }
+    // input_D_idx >= 0, input_D_idx < input_D for all D
+    exprs.push_back(b.getAffineDimExpr(inputDIdx));
+    eqFlags.push_back(false);
+    int64_t upperBound =
+        isBwdData ? outputInfo.imageLens[i] : inputInfo.imageLens[i];
+    exprs.push_back(upperBound - b.getAffineDimExpr(inputDIdx) - 1);
+    eqFlags.push_back(false);
   }
-  // out_h_idx >= 0, out_h_idx < out_height, out_w_idx >= 0, out_w_idx <
-  // out_width
-  exprs.push_back(b.getAffineDimExpr(0));
-  eqFlags.push_back(false);
-  exprs.push_back(b.getAffineSymbolExpr(0) - b.getAffineDimExpr(0) - 1);
-  eqFlags.push_back(false);
-  exprs.push_back(b.getAffineDimExpr(1));
-  eqFlags.push_back(false);
-  exprs.push_back(b.getAffineSymbolExpr(1) - b.getAffineDimExpr(1) - 1);
-  eqFlags.push_back(false);
-  if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
-    condition = IntegerSet::get(4, 2, exprs, eqFlags);
-  } else {
-    condition = IntegerSet::get(2, 2, exprs, eqFlags);
-  }
+  IntegerSet condition =
+      IntegerSet::get(nImageDims * (isBwdData ? 2 : 1), 0, exprs, eqFlags);
 
-  SmallVector<int64_t, 8> lowerBounds(8, 0);
+  SmallVector<int64_t, 8> lowerBounds(2 * nImageDims + 4, 0);
   SmallVector<int64_t, 8> upperBounds;
-  SmallVector<int64_t, 8> steps(8, 1);
-  std::string loopIVs;
-
-  int64_t dimX, dimH, dimW;
-  int64_t out_h, out_w;
-  std::tie(dimX, dimH, dimW) =
-      getConvBounds(genConfig.operation.value(), genConfig);
+  SmallVector<int64_t, 8> steps(2 * nImageDims + 4, 1);
 
   // Create the upper bounds
   switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
-    llvm::copy(genConfig.outputDimension, std::back_inserter(upperBounds));
-    upperBounds.push_back(dimX);
-    upperBounds.push_back(genConfig.filterDims[HEIGHT]);
-    upperBounds.push_back(genConfig.filterDims[WIDTH]);
-    loopIVs.append(genConfig.outputLayout);
-    loopIVs.append("cyx");
+    upperBounds.append(genConfig.outputDimension);
+    upperBounds.push_back(filterInfo.nonImg2Len); // input channels 'c'
+    upperBounds.append(filterInfo.imageLens);
     break;
   case rock::ConvOpType::BwdData:
-    llvm::copy(genConfig.inputDimension, std::back_inserter(upperBounds));
-    upperBounds.push_back(dimX);
-    upperBounds.push_back(genConfig.filterDims[HEIGHT]);
-    upperBounds.push_back(genConfig.filterDims[WIDTH]);
-    loopIVs.append(genConfig.inputLayout);
-    loopIVs.append("kyx");
+    upperBounds.append(genConfig.inputDimension);
+    upperBounds.push_back(filterInfo.nonImg1Len); // output channels 'k'
+    upperBounds.append(filterInfo.imageLens);
     break;
   case rock::ConvOpType::BwdWeight:
-    std::tie(std::ignore, out_h, out_w) =
-        getConvBounds(rock::ConvOpType::BwdData, genConfig);
-    llvm::copy(genConfig.filterDimension, std::back_inserter(upperBounds));
-    upperBounds.push_back(dimX);
-    upperBounds.push_back(out_h);
-    upperBounds.push_back(out_w);
-    loopIVs.append(genConfig.filterLayout);
-    loopIVs.append("nhw");
+    upperBounds.append(genConfig.filterDimension);
+    upperBounds.push_back(outputInfo.nonImg1Len); // batch size 'n'
+    upperBounds.append(outputInfo.imageLens);
     break;
   }
 
   Value opd1, opd2, result;
+  AffineMap opd1Map, opd2Map, resultStoreMap;
+  ConvTensorDimInfo resultInfo;
 
   switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
     opd1 = block->getArgument(0);
     opd2 = block->getArgument(1);
     result = block->getArgument(2);
+    opd1Map = AffineMap::getMultiDimIdentityMap(
+        genConfig.filterDimension.size(), b.getContext());
+    opd2Map = AffineMap::getMultiDimIdentityMap(genConfig.inputDimension.size(),
+                                                b.getContext());
+    resultStoreMap = AffineMap::getMultiDimIdentityMap(
+        genConfig.outputDimension.size(), b.getContext());
+    resultInfo = outputInfo;
     break;
   case rock::ConvOpType::BwdWeight:
     opd1 = block->getArgument(2);
     opd2 = block->getArgument(1);
     result = block->getArgument(0);
+    opd1Map = AffineMap::getMultiDimIdentityMap(
+        genConfig.outputDimension.size(), b.getContext());
+    opd2Map = AffineMap::getMultiDimIdentityMap(genConfig.inputDimension.size(),
+                                                b.getContext());
+    resultStoreMap = AffineMap::getMultiDimIdentityMap(
+        genConfig.filterDimension.size(), b.getContext());
+    resultInfo = filterInfo;
     break;
   case rock::ConvOpType::BwdData:
     opd1 = block->getArgument(0);
     opd2 = block->getArgument(2);
     result = block->getArgument(1);
+    opd1Map = AffineMap::getMultiDimIdentityMap(
+        genConfig.filterDimension.size(), b.getContext());
+    opd2Map = AffineMap::getMultiDimIdentityMap(
+        genConfig.outputDimension.size(), b.getContext());
+    resultStoreMap = AffineMap::getMultiDimIdentityMap(
+        genConfig.inputDimension.size(), b.getContext());
+    resultInfo = inputInfo;
     break;
   }
 
@@ -1840,169 +1873,101 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   result = ensureFloatIsF32(b, loc, result, floatType);
 
   auto createConvLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
-    Value heightIdx, widthIdx;
-    Value heightTempIdx, widthTempIdx;
+    Value resultNonImg1 = ivs[resultInfo.nonImg1Dim];
+    Value resultNonImg2 = ivs[resultInfo.nonImg2Dim];
+    Value g = ivs[resultInfo.gDim];
+    Value reductionNonImg = ivs[nImageDims + 3];
+    // Drop result coordinates and the reduction channels.
+    ValueRange reductionImage = ivs.drop_front(nImageDims + 3 + 1);
+    SmallVector<Value> resultImage = llvm::map_to_vector(
+        resultInfo.imageDims, [&](unsigned i) { return ivs[i]; });
 
-    switch (genConfig.operation.value()) {
-    case rock::ConvOpType::Fwd:
-      // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
-      // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
-      heightIdx = b.create<affine::AffineApplyOp>(
-          loc, heightMap,
-          ValueRange{ivs[genConfig.outputLayout.find('0')], ivs[6]});
-      widthIdx = b.create<affine::AffineApplyOp>(
-          loc, widthMap,
-          ValueRange{ivs[genConfig.outputLayout.find('1')], ivs[7]});
-      break;
-    case rock::ConvOpType::BwdData:
-      // out_h_tmp = in_h_idx + padding_h_l - fil_h_idx * dilation_h;
-      // out_w_tmp = in_w_idx + padding_w_l - fil_w_idx * dilation_w;
-      heightTempIdx = b.create<affine::AffineApplyOp>(
-          loc, heightMap,
-          ValueRange{ivs[genConfig.inputLayout.find('0')], ivs[6]});
-      widthTempIdx = b.create<affine::AffineApplyOp>(
-          loc, widthMap,
-          ValueRange{ivs[genConfig.inputLayout.find('1')], ivs[7]});
-      // out_h_idx = out_h_tmp / stride_h;
-      // out_w_idx = out_w_tmp / stride_w;
-      heightIdx = b.create<affine::AffineApplyOp>(loc, outputHeightMap,
-                                                  ValueRange{heightTempIdx});
-      widthIdx = b.create<affine::AffineApplyOp>(loc, outputWidthMap,
-                                                 ValueRange{widthTempIdx});
-      break;
-    case rock::ConvOpType::BwdWeight:
-      // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
-      // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
-      heightIdx = b.create<affine::AffineApplyOp>(
-          loc, heightMap,
-          ValueRange{ivs[6], ivs[genConfig.filterLayout.find('0')]});
-      widthIdx = b.create<affine::AffineApplyOp>(
-          loc, widthMap,
-          ValueRange{ivs[7], ivs[genConfig.filterLayout.find('1')]});
-      break;
-    }
+    // Note: for backward data, this is the 'output' tensor
+    SmallVector<Value> inputImageComputed;
+    inputImageComputed.resize_for_overwrite(nImageDims);
+    SmallVector<Value> conditionArgs;
+    conditionArgs.reserve(isBwdData ? 2 * nImageDims : nImageDims);
 
-    enum TENSOR { FILTER = 0, INPUT = 1, OUTPUT = 2 };
-    auto getIndices = [&](TENSOR tensor, SmallVectorImpl<Value> &result) {
-      std::string layout;
-      if (tensor == FILTER)
-        layout = genConfig.filterLayout;
-      else if (tensor == INPUT)
-        layout = genConfig.inputLayout;
-      else
-        layout = genConfig.outputLayout;
-      auto direction = genConfig.operation.value();
-      for (auto c : layout) {
-        if ((direction == rock::ConvOpType::Fwd ||
-             direction == rock::ConvOpType::BwdWeight) &&
-            tensor == INPUT) {
-          if (c == '0') { // +++pf: may need adjustment to h/w.
-            result.push_back(heightIdx);
-            continue;
-          } else if (c == '1') {
-            result.push_back(widthIdx);
-            continue;
-          }
-        } else if (direction == rock::ConvOpType::Fwd && tensor == FILTER) {
-          if (c == '0') {
-            result.push_back(ivs[loopIVs.find('y')]);
-            continue;
-          } else if (c == '1') {
-            result.push_back(ivs[loopIVs.find('x')]);
-            continue;
-          }
-        } else if (direction == rock::ConvOpType::BwdData) {
-          if (tensor == OUTPUT) {
-            if (c == '0') {
-              result.push_back(heightIdx);
-              continue;
-            } else if (c == '1') {
-              result.push_back(widthIdx);
-              continue;
-            }
-          } else if (tensor == FILTER) {
-            if (c == '0') {
-              result.push_back(ivs[loopIVs.find('y')]);
-              continue;
-            } else if (c == '1') {
-              result.push_back(ivs[loopIVs.find('x')]);
-              continue;
-            }
-          }
-        } else if (direction == rock::ConvOpType::BwdWeight &&
-                   tensor == OUTPUT) {
-          // Weird situation, because we need to distinguish filter from
-          // input/output while both are present in the IVs, so we have 'hw'
-          // in the loopIVs string as well as the layout's '01'.
-          if (c == '0') {
-            result.push_back(ivs[loopIVs.find('h')]);
-            continue;
-          } else if (c == '1') {
-            result.push_back(ivs[loopIVs.find('w')]);
-            continue;
-          }
-        }
-        result.push_back(ivs[loopIVs.find(c)]);
+    for (auto [resultD, reduceD, dMap, dMap2, applied] :
+         llvm::zip(resultImage, reductionImage, inputImageDimMaps,
+                   imageDimMaps2, inputImageComputed)) {
+      switch (genConfig.operation.value()) {
+      case rock::ConvOpType::Fwd:
+        // in_D_idx = out_D_idx * stride_D + fil_D_idx * dilation_D -
+        // padding_D_l;
+        applied = b.create<affine::AffineApplyOp>(loc, dMap,
+                                                  ValueRange{resultD, reduceD});
+        break;
+      case rock::ConvOpType::BwdData: {
+        // out_D_tmp = in_D_idx + padding_D_l - fil_D_idx * dilation_D;
+        Value tmpIdx = b.create<affine::AffineApplyOp>(
+            loc, dMap, ValueRange{resultD, reduceD});
+        conditionArgs.push_back(tmpIdx);
+        // out_D_idx = out_D_tmp / stride_D;
+        applied =
+            b.create<affine::AffineApplyOp>(loc, dMap2, ValueRange{tmpIdx});
+        break;
       }
-      return;
-    };
-
-    // Generate boundary testing
-    auto dimHeight = b.create<arith::ConstantIndexOp>(loc, dimH);
-    auto dimWidth = b.create<arith::ConstantIndexOp>(loc, dimW);
-
-    affine::AffineIfOp ifOp;
-    if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
-      ifOp = b.create<affine::AffineIfOp>(
-          loc, condition,
-          ValueRange{heightIdx, widthIdx, heightTempIdx, widthTempIdx,
-                     dimHeight, dimWidth},
-          false);
-    } else {
-      ifOp = b.create<affine::AffineIfOp>(
-          loc, condition, ValueRange{heightIdx, widthIdx, dimHeight, dimWidth},
-          false);
+      case rock::ConvOpType::BwdWeight:
+        // in_D_idx = out_D_idx * stride_h + fil_D_idx * dilation_h -
+        // padding_D_l;
+        applied = b.create<affine::AffineApplyOp>(loc, dMap,
+                                                  ValueRange{reduceD, resultD});
+        break;
+      }
+      conditionArgs.push_back(applied);
     }
+
+    affine::AffineIfOp ifOp =
+        b.create<affine::AffineIfOp>(loc, condition, conditionArgs, false);
     auto thenBody = ifOp.getThenBodyBuilder();
 
     // Perform MAC operation
-    SmallVector<Value, 5> idx1, idx2;
+    SmallVector<Value> idx1, idx2;
     switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
-      getIndices(FILTER, idx1);
-      getIndices(INPUT, idx2);
-      break;
-    case rock::ConvOpType::BwdData:
-      getIndices(FILTER, idx1);
-      getIndices(OUTPUT, idx2);
+      // K, C, G, fil_h, fil_w, ...
+      idx1 = arrangeByConvLayout(filterInfo, resultNonImg2, reductionNonImg, g,
+                                 reductionImage);
+      // N, C, G, in_h, in_w, ...
+      idx2 = arrangeByConvLayout(inputInfo, resultNonImg1, reductionNonImg, g,
+                                 inputImageComputed);
       break;
     case rock::ConvOpType::BwdWeight:
-      getIndices(OUTPUT, idx1);
-      getIndices(INPUT, idx2);
+      // N, K, G, out_h, out_w, ...
+      idx1 = arrangeByConvLayout(outputInfo, reductionNonImg, resultNonImg1, g,
+                                 reductionImage);
+      // N, C, G, in_h, in_w, ...
+      idx2 = arrangeByConvLayout(inputInfo, reductionNonImg, resultNonImg2, g,
+                                 inputImageComputed);
+      break;
+    case rock::ConvOpType::BwdData:
+      // K, C, G, fil_h, fil_w, ...
+      idx1 = arrangeByConvLayout(filterInfo, reductionNonImg, resultNonImg2, g,
+                                 reductionImage);
+      // N, K, G, out_h (stored as in_h), out_w (stored as in_w), ...
+      idx2 = arrangeByConvLayout(outputInfo, resultNonImg1, reductionNonImg, g,
+                                 inputImageComputed);
       break;
     }
 
-    llvm::ArrayRef<Value> idxRef1(idx1.data(), idx1.size());
     auto loadOp1 =
-        thenBody.create<memref::LoadOp>(loc, opd1, ValueRange{idxRef1});
-    llvm::ArrayRef<Value> idxRef2(idx2.data(), idx2.size());
+        thenBody.create<affine::AffineLoadOp>(loc, opd1, opd1Map, idx1);
     auto loadOp2 =
-        thenBody.create<memref::LoadOp>(loc, opd2, ValueRange{idxRef2});
-    auto loadOutput = thenBody.create<memref::LoadOp>(
-        loc, result, ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
+        thenBody.create<affine::AffineLoadOp>(loc, opd2, opd2Map, idx2);
+    auto loadOutput = thenBody.create<affine::AffineLoadOp>(
+        loc, result, resultStoreMap, ivs.take_front(5));
     if (elemType.isIntOrIndex()) {
       auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
       auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
       auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      thenBody.create<memref::StoreOp>(
-          loc, addiOp, result,
-          ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
+      thenBody.create<affine::AffineStoreOp>(loc, addiOp, result,
+                                             resultStoreMap, ivs.take_front(5));
     } else {
       auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
       auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      thenBody.create<memref::StoreOp>(
-          loc, addfOp, result,
-          ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
+      thenBody.create<affine::AffineStoreOp>(loc, addfOp, result,
+                                             resultStoreMap, ivs.take_front(5));
     }
   };
 
@@ -2540,9 +2505,13 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   }
   output = block->getArgument(optionalArgsCounter);
 
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
       transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
+      numCUAttr,
       /*params0=*/nullptr, /*params1=*/nullptr);
   {
     Block *preSoftmaxElemwiseBlock =
@@ -3887,6 +3856,7 @@ int main(int argc, char **argv) {
   registerRocMLIRDialects(registry);
   // Parse pass names in main to ensure static initialization completed.
   mlir::registerMLIRContextCLOptions();
+  mlir::registerAsmPrinterCLOptions();
   mlir::registerPassManagerCLOptions();
   MLIRContext context(registry, MLIRContext::Threading::DISABLED);
   // LLVM dialect is temporary for the freeze trick.
