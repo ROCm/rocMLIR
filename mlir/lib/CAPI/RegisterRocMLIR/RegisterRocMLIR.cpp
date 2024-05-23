@@ -10,10 +10,20 @@
 #include "mlir-c/RegisterRocMLIR.h"
 
 #include "mlir/CAPI/IR.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
+#include "llvm/Support/CommandLine.h"
 
 void mlirRegisterRocMLIRDialects(MlirDialectRegistry registry) {
+  const char *fakeArgv[] = {"rocMLIR-invoked-as-library",
+                            "--mlir-print-local-scope"};
+  mlir::registerAsmPrinterCLOptions();
+  mlir::registerMLIRContextCLOptions();
+  mlir::registerPassManagerCLOptions();
+  llvm::cl::ParseCommandLineOptions(sizeof(fakeArgv) / sizeof(const char*),
+    fakeArgv, "Fake 'command line' for MIGraphX library debugging",
+    nullptr, "ROCMLIR_DEBUG_FLAGS");
   mlir::registerRocMLIRDialects(*unwrap(registry));
 }
 
