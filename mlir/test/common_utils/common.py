@@ -2,7 +2,7 @@ import subprocess
 
 # Helper function to decode arch to its features
 # Keep this in sync with mlir/lib/Dialect/Rock/Generator/AmdArchDb.cpp:mlir::rock::lookupArchInfo
-def get_arch_features(arch: str):
+def get_arch_features(arch: str, flags=""):
     chip_name = arch.split(':')[0]
     if(len(chip_name) < 5):
         return
@@ -29,7 +29,7 @@ def get_arch_features(arch: str):
     elif major == 'gfx11':
         arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
     if arch_features and 'mfma' in arch_features:
-        support_mfma = True
+        support_mfma = not '-mfma=off' in flags
         pass
     elif arch_features and 'wmma' in arch_features:
         support_wmma = True
