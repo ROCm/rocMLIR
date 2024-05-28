@@ -6,8 +6,10 @@
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -801,13 +803,15 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                         builder.getF32Type());
   }
 
-  SmallVector<Type, 3> funcArgTypes = {filterArgType, inputArgType,
-                                       outputArgType};
+  SmallVector<Type, 3> logicalFuncArgTypes = {filterArgType, inputArgType,
+                                              outputArgType};
   if (hasWorkspace) {
-    funcArgTypes = {filterArgType, inputArgType, outputArgType,
-                    workspaceArgType};
+    logicalFuncArgTypes = {filterArgType, inputArgType, outputArgType,
+                           workspaceArgType};
   }
-  auto funcType = builder.getFunctionType(funcArgTypes, {});
+  SmallVector<Type, 3> physicalFuncArgTypes =
+      llvm::map_to_vector(logicalFuncArgTypes, getFlattenedType);
+  auto funcType = builder.getFunctionType(physicalFuncArgTypes, {});
 
   std::string kernelName = config.kernelBaseName;
   if (is_verifier) {
@@ -851,6 +855,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
 
   // Construct a new Block.
   Block *block = func.addEntryBlock();
+  builder.setInsertionPointToStart(block);
 
   // Construct a new ConvOp.
   SmallVector<StringAttr, 5> filterLayoutSpec;
@@ -927,32 +932,37 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
         "perf_config", builder.getStringAttr(config.perfConfig)));
   }
 
-  SmallVector<Value, 3> args = {func.getArgument(0), func.getArgument(1),
-                                func.getArgument(2)};
-  if (hasWorkspace) {
-    args = {func.getArgument(0), func.getArgument(1), func.getArgument(2),
-            func.getArgument(3)};
-  }
+  SmallVector<SmallVector<StringRef>, 4> argDimNameRefs;
+  argDimNameRefs.reserve(logicalFuncArgTypes.size());
+  auto referenceNames = [&](ArrayRef<StringAttr> layout) {
+    argDimNameRefs.push_back(llvm::map_to_vector(
+        layout, [](StringAttr sa) { return sa.getValue(); }));
+  };
+  referenceNames(filterLayoutSpec);
+  referenceNames(inputLayoutSpec);
+  referenceNames(outputLayoutSpec);
+  if (hasWorkspace)
+    referenceNames(filterLayoutSpec);
 
+  SmallVector<Value, 4> args;
+  expandFlatFunctionArguments(builder, func, argDimNameRefs,
+                              logicalFuncArgTypes, args);
   switch (config.operation.value()) {
   case ConvOpType::Fwd: {
-    auto convOp = builder.create<ConvOp>(builder.getUnknownLoc(),
-                                         ArrayRef<Type>{}, args, attributes);
-    block->push_front(convOp);
+    builder.create<ConvOp>(builder.getUnknownLoc(), ArrayRef<Type>{}, args,
+                           attributes);
   } break;
   case ConvOpType::BwdData: {
     if (kernelId < 0) {
       // zero init input tensor
-      auto zeroInit = builder.create<InitKernelOp>(
-          builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[1],
-          features, /*initValueAttr=*/nullptr,
+      builder.create<InitKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
+          func.getArgument(1), features, /*initValueAttr=*/nullptr,
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
-      block->push_front(zeroInit);
     } else {
-      auto convOp = builder.create<ConvBwdDataOp>(
-          builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
-      block->push_front(convOp);
+      builder.create<ConvBwdDataOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
+                                    args, attributes);
     }
   } break;
   case ConvOpType::BwdWeight: {
@@ -963,31 +973,27 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     bool hasUtilities = (kernelCount > 1);
     if (hasUtilities && kernelId == 0) {
       // If there is a workspace, zero-init it, otherwise fill the filter tensor
-      auto zeroInitOp = builder.create<InitKernelOp>(
-          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          args[hasWorkspace ? 3 : 0], features, /*initValueAttr=*/nullptr,
-          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-          /*elemsPerThread=*/nullptr);
-      block->push_front(zeroInitOp);
+      builder.create<InitKernelOp>(builder.getUnknownLoc(),
+                                   /*resultType=*/TypeRange{},
+                                   func.getArgument(hasWorkspace ? 3 : 0),
+                                   features, /*initValueAttr=*/nullptr,
+                                   /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+                                   /*elemsPerThread=*/nullptr);
     } else if (hasUtilities && kernelId == 2) {
       // Workspace -> filter tensor
-      auto conversionOp = builder.create<ConvertingCopyKernelOp>(
-          builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[3], args[0],
-          features, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+      builder.create<ConvertingCopyKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
+          func.getArgument(3), func.getArgument(0), features,
+          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
-      block->push_front(conversionOp);
     } else {
-      auto convOp = builder.create<ConvBwdWeightOp>(
-          builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
-      block->push_back(convOp);
+      builder.create<ConvBwdWeightOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
+                                      args, attributes);
     }
   } break;
   }
 
-  auto returnOp =
-      builder.create<func::ReturnOp>(builder.getUnknownLoc(), ValueRange{});
-  block->push_back(returnOp);
-
+  builder.create<func::ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   return success();
 }
 

@@ -64,7 +64,7 @@ migraphx::MIXRShapedToMemoryLayoutConverter::
     MIXRShapedToMemoryLayoutConverter() {
   addConversion([](Type type) { return type; });
   addConversion(
-      [](MIXRShapedType shaped) { return shaped.asMemoryLayoutTensor(); });
+      [](MIXRShapedType shaped) { return shaped.asFlatMemoryTensor(); });
 }
 
 //===----------------------------------------------------------------------===//
@@ -887,7 +887,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxF.convertFromAPInt(maxI, /*IsSigned=*/true,
                             APFloat::rmNearestTiesToEven);
     }
-    
+
     FloatAttr minFatt = rewriter.getFloatAttr(rewriter.getF32Type(), minF);
     FloatAttr maxFatt = rewriter.getFloatAttr(rewriter.getF32Type(), maxF);
     result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
@@ -1058,6 +1058,14 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   RankedTensorType resultType = op.getOut().getType();
   Value in = adaptor.getIn();
 
+  // First, expand ourselves back out to the N-D type that we're logically
+  // working with in memory.
+  RankedTensorType memoryLayoutType = inType.asMemoryLayoutTensor();
+  Value expanded = in;
+  if (in.getType() != memoryLayoutType)
+    expanded =
+        rewriter.create<tosa::ReshapeOp>(loc, in, memoryLayoutType.getShape());
+
   // This is the permutation that reorders the strides into standard shape.
   // Equivalently, it is the permutation that, when applied to a standard
   // shape, produces its in-memory layout. So, to get back to standard/logical
@@ -1071,9 +1079,9 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
     permutation[from] = to;
     hasTranspose |= (from != static_cast<int64_t>(to));
   }
-  Value transposed = in;
+  Value transposed = expanded;
   if (hasTranspose)
-    transposed = getTransposeOp(loc, in, rewriter, permutation);
+    transposed = getTransposeOp(loc, expanded, rewriter, permutation);
   auto transposedType = cast<RankedTensorType>(transposed.getType());
   if (transposedType == resultType) {
     rewriter.replaceOp(op, transposed);
@@ -1111,6 +1119,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   MIXRShapedType resultType = op.getOut().getType();
+  RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
   auto resultTensorType =
       cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
   if (!resultTensorType)
@@ -1124,12 +1133,17 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
     transposed = getTransposeOp(loc, in, rewriter, permutation);
-  if (transposed.getType() != resultTensorType) {
+  if (transposed.getType() != memoryLayoutType) {
     rewriter.eraseOp(transposed.getDefiningOp());
     return op.emitOpError(
         "writing to tensors with long strides or broadcasts is unsupported");
   }
-  rewriter.replaceOp(op, transposed);
+
+  Value collapsed = transposed;
+  if (transposed.getType() != resultTensorType)
+    collapsed = rewriter.create<tosa::ReshapeOp>(loc, transposed,
+                                                 resultTensorType.getShape());
+  rewriter.replaceOp(op, collapsed);
   return success();
 }
 

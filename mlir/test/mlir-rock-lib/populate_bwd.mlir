@@ -10,7 +10,8 @@
 // KERNELCOUNT1: Kernel count=1
 // BIN1: ELF
 // TUNING1: globalSize{{.*}}localSize{{.*}}
-// DRIVER1: rock.conv_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
+// DRIVER1-COUNT-3: rock.transform %{{.+}} by
+// DRIVER1: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 ////////////////////////////////////////////
 // Test case which depends on 4 GPU kernels.
@@ -33,10 +34,14 @@
 // TUNING4_1: globalSize{{.*}}localSize{{.*}}
 // TUNING4_2: globalSize{{.*}}localSize{{.*}}
 // TUNING4_3: globalSize{{.*}}localSize{{.*}}
-// DRIVER4: rock.conv_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
-// DRIVER4: rock.conv_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 1 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
-// DRIVER4: rock.conv_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 2 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
-// DRIVER4: rock.conv_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 3 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-COUNT-3: rock.transform %{{.+}} by
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-COUNT-3: rock.transform %{{.+}} by
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 1 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-COUNT-3: rock.transform %{{.+}} by
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 2 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-COUNT-3: rock.transform %{{.+}} by
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 3 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
 
 ////////////////////////////////////////////
 // Test case which depends on 2 GPU kernels,
@@ -53,5 +58,6 @@
 // BIN2: ELF
 // TUNING2_0: globalSize=100352, localSize=64
 // TUNING2_1: globalSize{{.*}}localSize{{.*}}
-// DRIVER2: rock.init_kernel %arg1 features =  dot : memref<256x1x1024x14x14xf32>
-// DRIVER2: rock.conv_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x2048x1024x1x1xf32>, memref<256x1x1024x14x14xf32>, memref<256x1x2048x7x7xf32>
+// DRIVER2: rock.init_kernel %arg1 features =  dot : memref<51380224xf32>
+// DRIVER2-COUNT-3: rock.transform %{{.+}} by
+// DRIVER2-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, numCU = 64 : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]} : memref<1x2048x1024x1x1xf32>, memref<256x1x1024x14x14xf32>, memref<256x1x2048x7x7xf32>
