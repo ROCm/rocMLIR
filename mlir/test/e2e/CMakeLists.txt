@@ -31,6 +31,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrAttentionF32
     PrAttentionF16
     PrAttentionI8
+    PrGemmSplitK
   )
   set(GEN_MODE "")
 endif()
@@ -69,7 +70,8 @@ if (ROCK_E2E_TEST_ENABLED)
    if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part6")
     list(APPEND CONFIGS
     gemm_with_atomic_add
-    gemm_split_k
+    gemm_split_k_f16
+    gemm_split_k_f32
     )
    endif()
 endif()
