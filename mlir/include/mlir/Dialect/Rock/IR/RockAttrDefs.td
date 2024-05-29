@@ -256,6 +256,47 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
+def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterface]> {
+  let mnemonic = "attn_perf_config";
+  let description = [{
+    The perf configs for rock.attention operator.
+  }];
+  let parameters = (ins
+    "int64_t":$mPerBlockG0,
+    "int64_t":$mPerBlockG1,
+    "int64_t":$nPerBlockG0,
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerWave,
+    "int64_t":$mnPerXdl,
+    "int64_t":$kpack,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+      ("attn:v1:"
+      + Twine(getMPerBlockG0()) + ","
+      + Twine(getMPerBlockG1()) + ","
+      + Twine(getNPerBlockG0()) + ","
+      + Twine(getKpackPerBlock()) + ","
+      + Twine(getMPerWave()) + ","
+      + Twine(getMnPerXdl()) + ","
+      + Twine(getKpack()) + ","
+      + Twine(getForceUnroll())).toVector(perfStr);
+    }
+
+    int64_t getSplitKFactor() { return 1; }
+  }];
+
+  let builders = [
+      AttrBuilderWithInferredContext<(ins  "StringAttr":$perfConfigStr)>
+  ];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
 def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
