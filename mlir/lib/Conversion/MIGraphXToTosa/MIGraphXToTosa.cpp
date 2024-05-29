@@ -18,6 +18,8 @@
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -235,9 +237,42 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
+  // There is no tosa.conv1d, so instead we'll add a dummy x1 dimension
+  // to the input tensors, and make a tosa.conv2d.  We'll also add the
+  // ExpandedFrom1D attribute so we can undo it in tosa-to-rock.
+  auto expandTo2D = [&rewriter, loc](mlir::Value value) {
+    ArrayRef<int64_t> origShape = value.getType().cast<ShapedType>().getShape();
+    SmallVector<int64_t> expShape(origShape.drop_back());
+    expShape.push_back(1);
+    expShape.push_back(origShape.back());
+    Value reshaped = rewriter.create<tosa::ReshapeOp>(
+        loc, value, rewriter.getDenseI64ArrayAttr(expShape));
+    return reshaped;
+  };
+
   // Construct a new Conv2DOp.
   Operation *cop;
+  Type new1DOutTy;
   switch (dims) {
+  case 1:
+    // Expand to do a conv2d, because there's no conv1d op.
+    newShape.insert(std::prev(newShape.end()), 1);
+    new1DOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
+    input = expandTo2D(input);
+    filter = expandTo2D(filter);
+
+    cop = rewriter.create<tosa::Conv2DOp>(
+        loc, new1DOutTy,
+        ValueRange{
+            input, filter,
+            getZeroTensor(
+                loc, outputTy.getElementType(),
+                filter.getType().template cast<ShapedType>().getShape()[0],
+                rewriter)});
+    cop->setAttr(rock::ExpandedFrom1DAttr::getMnemonic(),
+                 rewriter.getUnitAttr());
+    break;
+
   case 2:
     cop = rewriter.create<tosa::Conv2DOp>(
         loc, newOutTy,
@@ -259,7 +294,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                 rewriter)});
     break;
   default:
-    llvm_unreachable("Only 2-D and 3-D have been implemented.");
+    return op->emitError("Only 1-D, 2-D, and 3-D have been implemented.");
     break;
   }
 
@@ -287,6 +322,18 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   // convolution config attributes
 
+  if (dims == 1) {
+    if ((dilations.size() != 1) || (strides.size() != 1) ||
+        (pads.size() != 2)) {
+      return op->emitError(
+          "1-D convolution has improper dilation, stride, or pad.");
+    }
+    dilations.push_back(0);
+    strides.push_back(1);
+    pads.push_back(0);
+    pads.push_back(0);
+  }
+
   cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
   cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
   cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
@@ -308,6 +355,12 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     auto quantAttr = rewriter.getAttr<tosa::ConvOpQuantizationAttr>(
         /*inputZp =*/0, /*weightZp =*/0);
     cop->setAttr("quantization_info", quantAttr);
+  }
+
+  if (dims == 1) {
+    cop = rewriter.create<tosa::ReshapeOp>(
+        loc, cop->getResult(0),
+        rewriter.getDenseI64ArrayAttr(newOutTy.cast<ShapedType>().getShape()));
   }
 
   // transpose the output back to NCHW so that it can match following
