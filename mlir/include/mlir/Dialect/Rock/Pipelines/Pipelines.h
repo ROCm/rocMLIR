@@ -74,6 +74,9 @@ struct BackendOptions : public PassPipelineOptions<BackendOptions> {
   PassOptions::Option<bool> suppressDiagnostic{
       *this, "suppress-diagnostic",
       desc("should we suppress diagnostic messages"), init(false)};
+    PassOptions::Option<bool> dumpAsm{
+        *this, "dump-asm",
+        desc("should we dump assembly to err"), init(false)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.

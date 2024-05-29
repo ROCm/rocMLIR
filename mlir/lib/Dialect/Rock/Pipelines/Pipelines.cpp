@@ -223,7 +223,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   if (options.compile) {
     gpuPm.addPass(createGpuSerializeToHsacoPass(
         options.triple, options.chip, options.features, options.optLevel,
-        options.suppressDiagnostic));
+        options.suppressDiagnostic, options.dumpAsm));
     gpuPm.addPass(createRockCheckResidencyPass());
   }
   // Quick hack around the facct that our host code runner pipeline can't

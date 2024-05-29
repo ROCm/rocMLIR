@@ -105,6 +105,11 @@ static cl::opt<std::string> arch("arch", cl::desc("target architecture"),
                                  cl::value_desc("Target GPU architecture"),
                                  cl::init(""));
 
+static cl::opt<bool> dumpAsm(
+    "dump-asm",
+    cl::desc("a flag to control dumping of assmebly before serialization to err"),
+    cl::init(false));
+
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
@@ -189,6 +194,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     opts.features = devName.getFeaturesForBackend();
     opts.optLevel = optLevel;
     opts.compile = !isRocdlOnly;
+    opts.dumpAsm = dumpAsm.getValue();
     rock::buildBackendPipeline(pm, opts);
   }
 
