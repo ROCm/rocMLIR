@@ -77,7 +77,7 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SerializeToHsacoPass)
 
   SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
-                       int optLevel, bool suppressDiagnostic = false);
+                       int optLevel, bool suppressDiagnostic = false, bool dumpAsm = false);
   SerializeToHsacoPass(const SerializeToHsacoPass &other);
   StringRef getArgument() const override { return "gpu-to-hsaco"; }
   StringRef getDescription() const override {
@@ -88,6 +88,8 @@ protected:
   void getDependentDialects(DialectRegistry &registry) const override;
   Option<std::string> rocmPath{*this, "rocm-path",
                                llvm::cl::desc("Path to ROCm install")};
+  Option<bool> dumpAsm{*this, "dump-asm",
+                             ::llvm::cl::desc("A flag to dump assembly to errs"), llvm::cl::init(false)};
 
   // Overload to allow linking in device libs
   std::unique_ptr<llvm::Module>
@@ -138,7 +140,7 @@ llvm::once_flag SerializeToHsacoPass::initializeBackendOnce;
 
 SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
                                            StringRef features, int optLevel,
-                                           bool suppressDiagnostic) {
+                                           bool suppressDiagnostic, bool dumpAsm) {
   // No matter how this pass is constructed, ensure that the AMDGPU backend
   // is initialized exactly once.
   llvm::call_once(initializeBackendOnce, []() {
@@ -155,6 +157,8 @@ SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
                               [&features] { return features.str(); });
   maybeSetOption<bool>(this->suppressDiagnostic,
                        [&] { return suppressDiagnostic; });
+  maybeSetOption<bool>(this->dumpAsm,
+                       [&] { return dumpAsm; });
   // maybeSetOption(this->suppressDiagnostic [&suppressDiagnostic] { return
   // suppressDiagnostic;});
   if (this->optLevel.getNumOccurrences() == 0)
@@ -419,6 +423,8 @@ LogicalResult SerializeToHsacoPass::assembleIsa(const std::string &isa,
   // Collect kernel metadata
   applyMetadata(getOperation(), isa);
 
+  if(dumpAsm) llvm::errs() << isa << "\n";
+
   llvm::raw_svector_ostream os(result);
 
   llvm::Triple triple(llvm::Triple::normalize(this->triple));
@@ -547,9 +553,9 @@ void mlir::registerGpuSerializeToHsacoPass() {
 std::unique_ptr<Pass>
 mlir::createGpuSerializeToHsacoPass(StringRef triple, StringRef arch,
                                     StringRef features, int optLevel,
-                                    bool suppressDiagnostic) {
+                                    bool suppressDiagnostic, bool dumpAsm) {
   return std::make_unique<SerializeToHsacoPass>(triple, arch, features,
-                                                optLevel, suppressDiagnostic);
+                                                optLevel, suppressDiagnostic, dumpAsm);
 }
 
 void SerializeToHsacoPass::getDependentDialects(

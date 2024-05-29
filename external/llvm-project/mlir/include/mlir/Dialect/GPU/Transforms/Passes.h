@@ -164,7 +164,8 @@ std::unique_ptr<Pass> createGpuSerializeToHsacoPass(StringRef triple,
                                                     StringRef arch,
                                                     StringRef features,
                                                     int optLevel,
-                                                    bool suppressDiagnostic);
+                                                    bool suppressDiagnostic,
+                                                    bool dumpAsm);
 
 /// Collect a set of patterns to decompose memrefs ops.
 void populateGpuDecomposeMemrefsPatterns(RewritePatternSet &patterns);
