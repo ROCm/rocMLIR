@@ -102,7 +102,7 @@ double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
   return (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
 }
 
-SmallVector<int64_t>
+static SmallVector<int64_t>
 computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
                             int32_t gemmNPerBlock, int32_t gemmKPerBlock,
                             int32_t kPack, uint32_t numCUs) {
@@ -156,12 +156,18 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
   return splitKValues;
 }
 
-SmallVector<int64_t>
+static SmallVector<int64_t>
 computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             int32_t gemmMPerBlock, int32_t gemmNPerBlock,
                             int32_t gemmKPerBlock, int32_t kPack) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
+  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  // We dont enable split-k on Navi yet because they dont
+  // still have atomic_add with packed_f16.
+  if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+    return splitKValues;
+  }
   const bool isAllowedTypeC =
       gemmOp.getCType().isF32() || gemmOp.getCType().isF16();
   if (!isAllowedTypeC) {
@@ -458,6 +464,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
           break;
         case TuningParamSetKind::Quick:
           createQuickTuningRange(newSpace, op);
+          break;
         }
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
@@ -474,7 +481,8 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
     return WalkResult::interrupt();
   });
   if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {
-    delete newSpace;
+    llvm::report_fatal_error(
+        "Expected to find GEMM, convolution, or attention op, and didn't.");
   }
   return newSpace;
 }
@@ -534,6 +542,9 @@ TuningTable *tuningTableCreate() {
 LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
                                   SmallVectorImpl<char> &out) {
   int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
+  if (attnOp.getNumCU().has_value()) {
+    numCU = attnOp.getNumCU().value();
+  }
   constexpr char sep = ' ';
   constexpr char tab = '\t';
   int64_t headDimQK;
@@ -655,28 +666,28 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     for (unsigned i = 0; i < size; ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto fs = filterAttr.getValue();
-      if (fs == "y")
-        fs = "0";
-      if (fs == "x")
-        fs = "1";
-      fLayoutMap[fs] = i;
+      StringRef fKey = filterAttr.getValue();
+      if (fKey == "y")
+        fKey = "0";
+      if (fKey == "x")
+        fKey = "1";
+      fLayoutMap[fKey] = i;
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto is = inputAttr.getValue();
-      if (is == "hi")
-        is = "0i";
-      if (is == "wi")
-        is = "1i";
-      iLayoutMap[is] = i;
+      StringRef iKey = inputAttr.getValue();
+      if (iKey == "hi")
+        iKey = "0i";
+      if (iKey == "wi")
+        iKey = "1i";
+      iLayoutMap[iKey] = i;
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto os = outputAttr.getValue();
-      if (os == "ho")
-        os = "0o";
-      if (os == "wo")
-        os = "1o";
-      oLayoutMap[os] = i;
+      StringRef oKey = outputAttr.getValue();
+      if (oKey == "ho")
+        oKey = "0o";
+      if (oKey == "wo")
+        oKey = "1o";
+      oLayoutMap[oKey] = i;
     }
 
     SmallString<6> fLayout;

@@ -218,6 +218,7 @@ def Rock_AttentionOp :
     UnitAttr:$oTransposed,
     StrAttr:$arch,
     Rock_GemmFeaturesAttr:$features,
+    OptionalAttr<I32Attr>:$numCU,
     OptionalAttr<RockTuningParamAttrInterface>:$params0,
     OptionalAttr<RockTuningParamAttrInterface>:$params1
   )>,

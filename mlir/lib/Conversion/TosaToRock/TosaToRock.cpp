@@ -60,8 +60,11 @@ static bool isConstantZero(Value v) {
   return false;
 }
 
+// Note:  we want something a bit more general than SmallString<8> for
+// the layout string, but it has to allow for inserting a character into
+// the string for the caller to see.
 static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, SmallString<5> &layout,
+                          Value operand, SmallString<8> &layout,
                           StringRef lowerName, int64_t g, uint32_t idx = 4) {
   auto loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
@@ -140,21 +143,27 @@ getArchAttributes(Operation *op, Type inputType) {
 }
 
 static FailureOr<rock::ConvOp>
-makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
-               Value filter, Value output, const DenseI64ArrayAttr &pad,
-               const DenseI64ArrayAttr &stride,
-               const DenseI64ArrayAttr &dilation, int64_t group) {
+makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
+             Value filter, Value output, DenseI64ArrayAttr pad,
+             DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
+             int64_t group) {
   Location loc = op->getLoc();
 
-  SmallString<5> filterLayout("kyxc");
+  SmallString<8> filterLayout("kyxc");
   if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
     filterLayout = attr.getValue();
-  SmallString<5> inputLayout("nhwc");
+  else if (filter.getType().template cast<ShapedType>().getRank() > 4)
+    filterLayout = "k012c";
+  SmallString<8> inputLayout("nhwc");
   if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
     inputLayout = attr.getValue();
-  SmallString<5> outputLayout("nhwk");
+  else if (input.getType().template cast<ShapedType>().getRank() > 4)
+    inputLayout = "n012c";
+  SmallString<8> outputLayout("nhwk");
   if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
     outputLayout = attr.getValue();
+  else if (output.getType().template cast<ShapedType>().getRank() > 4)
+    outputLayout = "n012k";
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
   // and add 'g into the layout
@@ -180,7 +189,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   SmallVector<StringAttr, 5> filterLayoutSpec;
   SmallVector<StringAttr, 5> inputLayoutSpec;
   SmallVector<StringAttr, 5> outputLayoutSpec;
-  for (size_t i = 0; i < 5; ++i) {
+  for (size_t i = 0; i < filterLayout.size(); ++i) {
     filterLayoutSpec.push_back(rw.getStringAttr(filterLayout.substr(i, 1)));
     inputLayoutSpec.push_back(rw.getStringAttr(inputLayout.substr(i, 1) + "i"));
     outputLayoutSpec.push_back(
@@ -205,12 +214,12 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   return cop;
 }
 
-class ConvConverter final : public OpConversionPattern<tosa::Conv2DOp> {
+template <typename OpT>
+class ConvConverter final : public OpConversionPattern<OpT> {
 public:
-  using OpConversionPattern<tosa::Conv2DOp>::OpConversionPattern;
+  using OpConversionPattern<OpT>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(tosa::Conv2DOp op,
-                                tosa::Conv2DOp::Adaptor adaptor,
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
@@ -218,17 +227,17 @@ public:
     auto input = operands[0];
     auto filter = operands[1];
     auto bias = operands[2];
-    auto outputType = op.getType().cast<RankedTensorType>();
+    auto outputType = op.getType().template cast<RankedTensorType>();
 
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
     int64_t group = 1;
-    if (op.getGroup().has_value())
-      group = *op.getGroup();
+    if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
+      group = attr.getInt(); // Use op.getGroup() when all OpT have it.
     FailureOr<rock::ConvOp> rockConv =
-        makeRockConv2D(rw, op, input, filter, output, op.getPadAttr(),
-                       op.getStrideAttr(), op.getDilationAttr(), group);
+        makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
+                     op.getStrideAttr(), op.getDilationAttr(), group);
     if (failed(rockConv))
       return failure();
 
@@ -241,17 +250,20 @@ public:
       if (!biasType.hasStaticShape())
         return failure();
 
-      SmallVector<int64_t, 4> biasShape{1, 1, 1};
+      int64_t nDims = input.getType().template cast<ShapedType>().getRank();
+      SmallVector<int64_t> biasShape;
+      for (int i = 0; i < nDims - 1; i++)
+        biasShape.push_back(1);
       biasShape.push_back(biasType.getShape()[0]);
       auto newType =
           RankedTensorType::get(biasShape, biasType.getElementType());
 
-      SmallVector<ReassociationExprs, 1> reassociations;
-
       // [[0, 1, 2, 3]]
-      reassociations.push_back(
-          {getAffineDimExpr(0, context), getAffineDimExpr(1, context),
-           getAffineDimExpr(2, context), getAffineDimExpr(3, context)});
+      ReassociationExprs exprs;
+      for (int i = 0; i < nDims; i++)
+        exprs.push_back(getAffineDimExpr(i, context));
+      SmallVector<ReassociationExprs, 1> reassociations;
+      reassociations.push_back(exprs);
 
       auto biasExpand =
           rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
@@ -984,6 +996,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         softmaxInput, rewriter, nullptr, elemwiseOtherArgs);
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
+    IntegerAttr numCUAttr =
+        numCu.has_value() ? rewriter.getI32IntegerAttr(numCu.value()) : nullptr;
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
         elemwiseOtherArgs, output,
@@ -992,7 +1006,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, arch,
-        rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+        rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
         /*params0=*/nullptr, /*params1=*/nullptr);
 
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
@@ -1149,8 +1163,9 @@ public:
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverter, MatMulConverter, ReduceSumConverter,
-               ReduceMaxConverter>(context);
+  patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
+      context);
 }
 
 void tosa::populateTosaToRockTensorConversionPatterns(
