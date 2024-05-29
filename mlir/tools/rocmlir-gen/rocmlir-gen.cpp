@@ -11,8 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/CallGraph.h"
-#include "mlir/Conversion/RocMLIRPasses.h"
-#include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -23,14 +21,16 @@
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
@@ -50,25 +50,18 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Parser/Parser.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "bf16convert.hpp"
-#include <unordered_map>
 
 #include <tuple>
 
@@ -622,7 +615,7 @@ static llvm::cl::alias
 static llvm::cl::opt<std::string> genValidation(
     "verifier",
     llvm::cl::desc(
-        "Select verification from: none(default), cpu, gpu, cpp, mlir, clone"),
+        "Select verification from: none(default), cpu, gpu, mlir, clone"),
     llvm::cl::cb<void, std::string>([](const std::string &v) {
       if (!v.empty())
         genHostHarness = true;
@@ -634,15 +627,6 @@ static llvm::cl::opt<bool>
                      llvm::cl::Optional, llvm::cl::cb<void, bool>([](bool v) {
                        if (v) {
                          genValidation = "mlir";
-                         genHostHarness = true;
-                       }
-                     }));
-
-static llvm::cl::opt<bool>
-    genCPPValidation("pv_with_cpp", llvm::cl::Hidden, llvm::cl::init(false),
-                     llvm::cl::Optional, llvm::cl::cb<void, bool>([](bool v) {
-                       if (v) {
-                         genValidation = "cpp";
                          genHostHarness = true;
                        }
                      }));
@@ -1709,6 +1693,15 @@ static Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref,
   return refNew;
 }
 
+static AffineMap getLinearIndexingMap(OpBuilder &b, ArrayRef<int64_t> lengths) {
+  size_t n = lengths.size();
+  AffineExpr res = b.getAffineConstantExpr(0);
+  for (auto [i, len] : llvm::enumerate(lengths)) {
+    res = res * b.getAffineConstantExpr(len) + b.getAffineDimExpr(i);
+  }
+  return AffineMap::get(n, 0, res, b.getContext());
+}
+
 static void
 createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
                       const rock::ConvGenerator::Config &genConfig) {
@@ -1832,36 +1825,27 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
     opd1 = block->getArgument(0);
     opd2 = block->getArgument(1);
     result = block->getArgument(2);
-    opd1Map = AffineMap::getMultiDimIdentityMap(
-        genConfig.filterDimension.size(), b.getContext());
-    opd2Map = AffineMap::getMultiDimIdentityMap(genConfig.inputDimension.size(),
-                                                b.getContext());
-    resultStoreMap = AffineMap::getMultiDimIdentityMap(
-        genConfig.outputDimension.size(), b.getContext());
+    opd1Map = getLinearIndexingMap(b, genConfig.filterDimension);
+    opd2Map = getLinearIndexingMap(b, genConfig.inputDimension);
+    resultStoreMap = getLinearIndexingMap(b, genConfig.outputDimension);
     resultInfo = outputInfo;
     break;
   case rock::ConvOpType::BwdWeight:
     opd1 = block->getArgument(2);
     opd2 = block->getArgument(1);
     result = block->getArgument(0);
-    opd1Map = AffineMap::getMultiDimIdentityMap(
-        genConfig.outputDimension.size(), b.getContext());
-    opd2Map = AffineMap::getMultiDimIdentityMap(genConfig.inputDimension.size(),
-                                                b.getContext());
-    resultStoreMap = AffineMap::getMultiDimIdentityMap(
-        genConfig.filterDimension.size(), b.getContext());
+    opd1Map = getLinearIndexingMap(b, genConfig.outputDimension);
+    opd2Map = getLinearIndexingMap(b, genConfig.inputDimension);
+    resultStoreMap = getLinearIndexingMap(b, genConfig.filterDimension);
     resultInfo = filterInfo;
     break;
   case rock::ConvOpType::BwdData:
     opd1 = block->getArgument(0);
     opd2 = block->getArgument(2);
     result = block->getArgument(1);
-    opd1Map = AffineMap::getMultiDimIdentityMap(
-        genConfig.filterDimension.size(), b.getContext());
-    opd2Map = AffineMap::getMultiDimIdentityMap(
-        genConfig.outputDimension.size(), b.getContext());
-    resultStoreMap = AffineMap::getMultiDimIdentityMap(
-        genConfig.inputDimension.size(), b.getContext());
+    opd1Map = getLinearIndexingMap(b, genConfig.filterDimension);
+    opd2Map = getLinearIndexingMap(b, genConfig.outputDimension);
+    resultStoreMap = getLinearIndexingMap(b, genConfig.inputDimension);
     resultInfo = inputInfo;
     break;
   }
@@ -2001,226 +1985,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
   b.create<func::ReturnOp>(loc, ValueRange{});
 }
 
-static void createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
-                                 const rock::ConvGenerator::Config &genConfig) {
-  OpBuilder b(module.getContext());
-
-  Block *block = func.addEntryBlock();
-  b.setInsertionPoint(block, block->begin());
-
-  auto loc = b.getUnknownLoc();
-
-  Type elemType = b.getF32Type();
-  if (genConfig.inputDataTypeStr == "i8") {
-    elemType = b.getI8Type();
-  }
-
-  Value filter = block->getArgument(0);
-  Value input = block->getArgument(1);
-  Value output = block->getArgument(2);
-
-  auto floatType = b.getF32Type();
-
-  filter = ensureFloatIsF32(b, loc, filter, floatType);
-  input = ensureFloatIsF32(b, loc, input, floatType);
-  output = ensureFloatIsF32(b, loc, output, floatType);
-
-  auto filterType = filter.getType().template dyn_cast<MemRefType>();
-  auto outputType = output.getType().template dyn_cast<MemRefType>();
-  // Emit memref_cast.
-  // %a0 = memref_cast %arg0 : memref<128x8x3x3xf32> to memref<*xf32>
-  // %a1 = memref_cast %arg1 : memref<128x8x32x32xf32> to memref<*xf32>
-  // %a2 = memref_cast %arg2 : memref<128x128x30x30xf32> to memref<*xf32>
-  auto unrankedMemRefType =
-      UnrankedMemRefType::get(filterType.getElementType(), 0);
-
-  auto unrankedMemRefOutputType =
-      UnrankedMemRefType::get(outputType.getElementType(), 0);
-
-  auto filterMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedMemRefType, filter);
-  auto inputMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedMemRefType, input);
-  auto outputMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedMemRefOutputType, output);
-
-  // Emit ConstantOps to be used for strides, paddings and dilations
-  auto intType = b.getIntegerType(32);
-
-  auto HEIGHT = mlir::rock::ConvGenerator::DIM::HEIGHT;
-  auto WIDTH = mlir::rock::ConvGenerator::DIM::WIDTH;
-
-  auto strideHeightConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.strideDims[HEIGHT], intType);
-
-  auto strideWidthConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.strideDims[WIDTH], intType);
-
-  auto paddingHeightLeftConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.paddingLeftDims[HEIGHT], intType);
-
-  auto paddingHeightRightConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.paddingRightDims[HEIGHT], intType);
-
-  auto paddingWidthLeftConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.paddingLeftDims[WIDTH], intType);
-
-  auto paddingWidthRightConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.paddingRightDims[WIDTH], intType);
-
-  auto dilationHeightConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.dilationDims[HEIGHT], intType);
-
-  auto dilationWidthConstantOp = b.create<arith::ConstantIntOp>(
-      loc, genConfig.dilationDims[WIDTH], intType);
-
-  // Emit ConstantIndex ops
-  // %c_0 = constant 0 : index
-  // %c_1 = constant 1 : index
-  // %c_2 = constant 2 : index
-  // %c_3 = constant 3 : index
-  // %c_4 = constant 4 : index
-  std::vector<arith::ConstantIndexOp> indexOpVec;
-  for (int i = 0; i < 5; i++) {
-    auto indexOp = b.create<arith::ConstantIndexOp>(loc, i);
-    indexOpVec.push_back(indexOp);
-  }
-
-  auto charType = b.getIntegerType(8);
-  // Emit Constant ops for letters used in layouts
-  //  these numbers are ascii codes , g = 103, k = 107
-  //  %g = constant 103: i8
-  //  %k = constant 107 : i8
-  //  %c = constant 99 : i8
-  //  %y = constant 121 : i8
-  //  %x = constant 120 : i8
-  //  %n = constant 110 : i8
-  //  %h = constant 104 : i8
-  //  %w = constant 119 : i8
-  auto kConstantOp = b.create<arith::ConstantIntOp>(loc, 'k', charType);
-  auto cConstantOp = b.create<arith::ConstantIntOp>(loc, 'c', charType);
-  auto yConstantOp = b.create<arith::ConstantIntOp>(loc, 'y', charType);
-  auto xConstantOp = b.create<arith::ConstantIntOp>(loc, 'x', charType);
-  auto nConstantOp = b.create<arith::ConstantIntOp>(loc, 'n', charType);
-  auto hConstantOp = b.create<arith::ConstantIntOp>(loc, 'h', charType);
-  auto wConstantOp = b.create<arith::ConstantIntOp>(loc, 'w', charType);
-  auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
-
-  // reduce precision if !xdlops
-  bool hasAccel = rock::isAccel(genConfig.features);
-  auto accelConstantOp = b.create<arith::ConstantIntOp>(loc, hasAccel, intType);
-
-  std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
-  layoutConstOps['g'] = gConstantOp;
-  layoutConstOps['k'] = kConstantOp;
-  layoutConstOps['c'] = cConstantOp;
-  layoutConstOps['y'] = yConstantOp;
-  layoutConstOps['x'] = xConstantOp;
-  layoutConstOps['n'] = nConstantOp;
-  layoutConstOps['h'] = hConstantOp;
-  layoutConstOps['w'] = wConstantOp;
-  layoutConstOps['0'] = yConstantOp;
-  layoutConstOps['1'] = xConstantOp;
-
-  // %3   = alloca() : memref<5xi8>
-  // %4   = alloca() : memref<5xi8>
-  // %5   = alloca() : memref<5xi8>
-  SmallVector<int64_t, 5> layoutVector({5});
-  auto layoutMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(layoutVector.begin(), layoutVector.end()), charType);
-  auto filLayoutAllocOp = b.create<memref::AllocaOp>(loc, layoutMemRefType);
-  auto inLayoutAllocOp = b.create<memref::AllocaOp>(loc, layoutMemRefType);
-  auto outLayoutAllocOp = b.create<memref::AllocaOp>(loc, layoutMemRefType);
-
-  // Store layouts into layoutAllocOp
-  // store %k, %3[%c_0]: memref<5xi32>
-  std::string fil_layout = genConfig.filterLayout;
-  std::string in_layout = genConfig.inputLayout;
-  std::string out_layout = genConfig.outputLayout;
-  for (int i = 0; i < 5; i++) {
-    b.create<memref::StoreOp>(loc, layoutConstOps[fil_layout[i]],
-                              filLayoutAllocOp, ValueRange{indexOpVec[i]});
-  }
-
-  layoutConstOps['0'] = hConstantOp;
-  layoutConstOps['1'] = wConstantOp;
-
-  for (int i = 0; i < 5; i++) {
-    b.create<memref::StoreOp>(loc, layoutConstOps[in_layout[i]],
-                              inLayoutAllocOp, ValueRange{indexOpVec[i]});
-  }
-
-  for (int i = 0; i < 5; i++) {
-    b.create<memref::StoreOp>(loc, layoutConstOps[out_layout[i]],
-                              outLayoutAllocOp, ValueRange{indexOpVec[i]});
-  }
-
-  // Emit memref_cast
-  // %6 = memref_cast %3 : memref<5xi8> to memref<*xi8>
-  // %7 = memref_cast %4 : memref<5xi8> to memref<*xi8>
-  // %8 = memref_cast %5 : memref<5xi8> to memref<*xi8>
-  auto unrankedLayoutMemRefType = UnrankedMemRefType::get(charType, 0);
-  auto filLayoutMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedLayoutMemRefType, filLayoutAllocOp);
-  auto inLayoutMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedLayoutMemRefType, inLayoutAllocOp);
-  auto outLayoutMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedLayoutMemRefType, outLayoutAllocOp);
-
-  std::string mcpuFuncName;
-
-  switch (genConfig.operation.value()) {
-  case rock::ConvOpType::Fwd:
-    mcpuFuncName = "mcpuConv2d";
-    break;
-  case rock::ConvOpType::BwdData:
-    mcpuFuncName = "mcpuConv2dBwdData";
-    break;
-  case rock::ConvOpType::BwdWeight:
-    mcpuFuncName = "mcpuConv2dBwdWeight";
-    break;
-  }
-
-  if (elemType.isF32()) {
-    mcpuFuncName += "Float";
-  } else if (elemType.isInteger(8)) {
-    mcpuFuncName += "Int8";
-  }
-
-  // Emit cpu convolution function call op
-  auto mcpuConv2dFuncOp = makeFuncDecl(
-      module, mcpuFuncName,
-      {unrankedMemRefType, unrankedMemRefType, unrankedMemRefOutputType,
-       unrankedLayoutMemRefType, unrankedLayoutMemRefType,
-       unrankedLayoutMemRefType, intType, intType, intType, intType, intType,
-       intType, intType, intType, intType});
-
-  b.create<func::CallOp>(
-      loc, mcpuConv2dFuncOp,
-      ValueRange{filterMemRefCastOp, inputMemRefCastOp, outputMemRefCastOp,
-                 filLayoutMemRefCastOp, inLayoutMemRefCastOp,
-                 outLayoutMemRefCastOp, strideHeightConstantOp,
-                 strideWidthConstantOp, paddingHeightLeftConstantOp,
-                 paddingHeightRightConstantOp, paddingWidthLeftConstantOp,
-                 paddingWidthRightConstantOp, dilationHeightConstantOp,
-                 dilationWidthConstantOp, accelConstantOp});
-
-  if (!isa<BlockArgument>(filter))
-    b.create<memref::DeallocOp>(loc, filter);
-  if (!isa<BlockArgument>(input))
-    b.create<memref::DeallocOp>(loc, input);
-  if (!isa<BlockArgument>(output)) {
-    BlockArgument resultBlockArg = block->getArgument(2);
-    Value resultFlat = makeNDMemRef(b, output, 1);
-    emitMemcpy(b, resultFlat, resultBlockArg);
-    b.create<memref::DeallocOp>(loc, output);
-  }
-
-  // Emit return op
-  b.create<func::ReturnOp>(loc, ValueRange{});
-  return;
-}
-
 static func::FuncOp
 createCPUConvFunc(ModuleOp module,
                   const rock::ConvGenerator::Config &genConfig) {
@@ -2248,13 +2012,13 @@ createCPUConvFunc(ModuleOp module,
     assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
   }
 
-  auto filterDimension = genConfig.filterDimension;
-  auto inputDimension = genConfig.inputDimension;
-  auto outputDimension = genConfig.outputDimension;
+  int64_t filterElems = computeProduct(genConfig.filterDimension);
+  int64_t inputElems = computeProduct(genConfig.inputDimension);
+  int64_t outputElems = computeProduct(genConfig.outputDimension);
 
-  auto filterType = MemRefType::get(filterDimension, elemType);
-  auto inputType = MemRefType::get(inputDimension, elemType);
-  auto outputType = MemRefType::get(outputDimension, outputElemType);
+  auto filterType = MemRefType::get(filterElems, elemType);
+  auto inputType = MemRefType::get(inputElems, elemType);
+  auto outputType = MemRefType::get(outputElems, outputElemType);
 
   // Create conv_host function
   rock::ConvGenerator convGenerator(genConfig);
@@ -2265,27 +2029,18 @@ createCPUConvFunc(ModuleOp module,
   }
   Type workspaceArgType;
   if (hasWorkspace) {
-    workspaceArgType = MemRefType::get(
-        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-        b.getF32Type());
+    workspaceArgType = MemRefType::get(filterElems, b.getF32Type());
   }
-
-  SmallVector<Type, 3> funcArgTypes = {filterType, inputType, outputType};
-
+  SmallVector<Type, 4> funcArgTypes = {filterType, inputType, outputType};
   if (hasWorkspace) {
-    funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
+    funcArgTypes.push_back(workspaceArgType);
   }
 
   func =
       func::FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
   module.push_back(func);
 
-  if (genValidation.getValue() == "mlir") { // -pv_with_mlir or -prc
-    createCPUConvWithMLIR(module, func, genConfig);
-  } else { // -pv_with_cpp
-    createCPUConvWithCPP(module, func, genConfig);
-  }
-
+  createCPUConvWithMLIR(module, func, genConfig);
   return func;
 }
 
@@ -2333,17 +2088,31 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   SmallVector<NamedAttribute, 2> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
+  SmallVector<Type, 3> flatTypes =
+      llvm::map_to_vector(argTypes, rock::getFlattenedType);
   auto func =
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
-                             b.getFunctionType(argTypes, {}), funcAttrs);
+                             b.getFunctionType(flatTypes, {}), funcAttrs);
   if (reverse_grid) {
     func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), b.getUnitAttr());
   }
 
+  constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
+  SmallVector<SmallVector<StringRef>> allArgNames;
+  allArgNames.emplace_back(SmallVector<StringRef>{
+      gName, transposeA ? kName : mName, transposeA ? mName : kName});
+  allArgNames.emplace_back(SmallVector<StringRef>{
+      gName, transposeB ? nName : kName, transposeB ? kName : nName});
+  allArgNames.emplace_back(SmallVector<StringRef>{
+      gName, transposeC ? nName : mName, transposeC ? mName : nName});
+
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
-  Value aVal = block->getArgument(0), bVal = block->getArgument(1),
-        cVal = block->getArgument(2);
+  SmallVector<Value, 3> expandedArgs;
+  rock::expandFlatFunctionArguments(b, func, allArgNames, argTypes,
+                                    expandedArgs);
+
+  Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
 
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
@@ -2420,6 +2189,40 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
   result.push_back(outType);
 }
 
+static void
+getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
+                     ArrayRef<Type> elementTypes) {
+  result.reserve(elementTypes.size());
+  constexpr StringLiteral gName = "g", seqQName = "seq_q", seqKName = "seq_k",
+                          headQKName = "head_qk", headVName = "head_v";
+  if (transposeQ)
+    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqQName});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, seqQName, headQKName});
+  if (transposeK)
+    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
+  if (transposeV)
+    result.emplace_back(SmallVector<StringRef>{gName, headVName, seqKName});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, seqKName, headVName});
+  bool isQuantized = elementTypes[0].isInteger(8);
+  if (isQuantized) {
+    result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
+    result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
+  }
+  if (hasAttnScale)
+    result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
+  if (hasAttnBias)
+    result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
+
+  if (transposeO)
+    result.emplace_back(SmallVector<StringRef>{gName, headVName, seqQName});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, seqQName, headVName});
+}
+
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
                                Args &&...args) {
@@ -2462,6 +2265,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
+  SmallVector<Type, 5> flatArgTypes =
+      llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
   SmallVector<NamedAttribute, 2> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
@@ -2469,7 +2274,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
-      loc, kernelName, builder.getFunctionType(argTypes, {}), funcAttrs);
+      loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
   if (reverse_grid) {
     func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());
@@ -2477,9 +2282,16 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
-  Value queries = block->getArgument(0);
-  Value keys = block->getArgument(1);
-  Value values = block->getArgument(2);
+
+  SmallVector<Value> unflattenedArgs;
+  SmallVector<SmallVector<StringRef>> allNames;
+  getAttentionDimNames(allNames, params.types);
+  rock::expandFlatFunctionArguments(builder, func, allNames, argTypes,
+                                    unflattenedArgs);
+
+  Value queries = unflattenedArgs[0];
+  Value keys = unflattenedArgs[1];
+  Value values = unflattenedArgs[2];
 
   Value quantBias;
   Value quantScale;
@@ -2488,22 +2300,22 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value output;
 
   SmallVector<Value> elemwiseInputs;
-  unsigned optionalArgsCounter{3};
+  unsigned optionalArgsCounter = 3;
   if (isQuantized) {
-    quantBias = block->getArgument(optionalArgsCounter++);
+    quantBias = unflattenedArgs[optionalArgsCounter++];
     elemwiseInputs.push_back(quantBias);
-    quantScale = block->getArgument(optionalArgsCounter++);
+    quantScale = unflattenedArgs[optionalArgsCounter++];
     elemwiseInputs.push_back(quantScale);
   }
   if (hasAttnScale) {
-    scale = block->getArgument(optionalArgsCounter++);
+    scale = unflattenedArgs[optionalArgsCounter++];
     elemwiseInputs.push_back(scale);
   }
   if (hasAttnBias) {
-    bias = block->getArgument(optionalArgsCounter++);
+    bias = unflattenedArgs[optionalArgsCounter++];
     elemwiseInputs.push_back(bias);
   }
-  output = block->getArgument(optionalArgsCounter);
+  output = unflattenedArgs[optionalArgsCounter];
 
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
@@ -2586,10 +2398,12 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   auto cpuTypes = params.types;
   SmallVector<Type, 3> argTypes;
   getGemmTypes(cpuTypes, argTypes, /*isCpuVerifier=*/true);
+  SmallVector<Type> flatArgTypes =
+      llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
-  auto func =
-      b.create<func::FuncOp>(loc, cpuKernName, b.getFunctionType(argTypes, {}));
+  auto func = b.create<func::FuncOp>(loc, cpuKernName,
+                                     b.getFunctionType(flatArgTypes, {}));
   module.push_back(func);
 
   Block *block = func.addEntryBlock();
@@ -2609,6 +2423,17 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 
   b.create<linalg::FillOp>(loc, zeroOut, cVal);
 
+  auto expandArg = [&loc, &b](Value arg, Type rawLogicalType) -> Value {
+    auto logicalType = cast<MemRefType>(rawLogicalType);
+    // Replicate the effect of ensureFloatIsF32()
+    if (isa<FloatType>(logicalType.getElementType()))
+      logicalType = cast<MemRefType>(
+          logicalType.clone(Float32Type::get(arg.getContext())));
+    ArrayRef<int64_t> logicalShape = logicalType.getShape();
+    ReassociationIndices allDims = llvm::to_vector(
+        llvm::iota_range<int64_t>(0, logicalShape.size(), false));
+    return b.create<memref::ExpandShapeOp>(loc, logicalType, arg, allDims);
+  };
   AffineExpr g = b.getAffineDimExpr(0), m = b.getAffineDimExpr(1),
              n = b.getAffineDimExpr(2), k = b.getAffineDimExpr(3);
   AffineMap aMap = AffineMap::get(
@@ -2617,8 +2442,11 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
                 4, 0, {g, transposeB ? n : k, transposeB ? k : n}, ctx),
             cMap = AffineMap::get(
                 4, 0, {g, transposeC ? n : m, transposeC ? m : n}, ctx);
+  Value aExpVal = expandArg(aVal, argTypes[0]),
+        bExpVal = expandArg(bVal, argTypes[1]),
+        cExpVal = expandArg(cVal, argTypes[2]);
   b.create<linalg::GenericOp>(
-      loc, ValueRange{aVal, bVal}, ValueRange{cVal},
+      loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
       ArrayRef<AffineMap>{aMap, bMap, cMap},
       ArrayRef<utils::IteratorType>{
           utils::IteratorType::parallel, utils::IteratorType::parallel,
@@ -2676,41 +2504,48 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
+  SmallVector<Type, 5> flatArgTypes =
+      llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_attention");
   auto func = builder.create<func::FuncOp>(
-      loc, cpuKernName, builder.getFunctionType(argTypes, {}));
+      loc, cpuKernName, builder.getFunctionType(flatArgTypes, {}));
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
 
-  auto getAsTensor = [&builder, &loc](mlir::Value value,
-                                      bool isWritable = false) {
+  auto getTensorForBlockArg = [&builder, &loc, &block,
+                               &argTypes](unsigned blockArgIndex,
+                                          bool isWritable = false) {
     constexpr bool isRestrict{true};
-    Value origTensor = builder.create<bufferization::ToTensorOp>(
-        loc, value, isRestrict, isWritable);
-    auto origShape = origTensor.getType().cast<ShapedType>().getShape();
+    Value flatTensor = builder.create<bufferization::ToTensorOp>(
+        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+    ArrayRef<int64_t> origShape =
+        cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
+    Value reshapedTensor;
     if (origShape.size() == 2) {
-      std::vector<int64_t> expShape(origShape.size() + 1);
-      std::copy(origShape.begin(), origShape.end(), expShape.begin() + 1);
+      SmallVector<int64_t, 3> expShape(origShape.size() + 1, 0);
       expShape[0] = 1;
-      Value reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, origTensor, expShape);
-      return reshapedTensor;
+      llvm::copy(origShape, expShape.begin() + 1);
+      reshapedTensor =
+          builder.create<tosa::ReshapeOp>(loc, flatTensor, expShape);
+    } else {
+      reshapedTensor =
+          builder.create<tosa::ReshapeOp>(loc, flatTensor, origShape);
     }
-    return origTensor;
+    return reshapedTensor;
   };
 
-  auto queriesTensor = getAsTensor(block->getArgument(0));
+  auto queriesTensor = getTensorForBlockArg(0);
   if (transposeQ) {
     queriesTensor = transposeMatrix(builder, loc, queriesTensor, {0, 2, 1});
   }
-  auto keysTensor = getAsTensor(block->getArgument(1));
+  auto keysTensor = getTensorForBlockArg(1);
   if (transposeK) {
     keysTensor = transposeMatrix(builder, loc, keysTensor, {0, 2, 1});
   }
-  auto valuesTensor = getAsTensor(block->getArgument(2));
+  auto valuesTensor = getTensorForBlockArg(2);
   if (transposeV) {
     valuesTensor = transposeMatrix(builder, loc, valuesTensor, {0, 2, 1});
   }
@@ -2720,35 +2555,35 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   }
   Value qkTensor = createOpAndInfer<tosa::MatMulOp>(
       builder, loc, firstGemmOutElemType, queriesTensor, keysTensor);
-  unsigned optionalArgsCounter{3};
+  unsigned optionalArgsCounter = 3;
   if (isQuantized) {
-    auto quantBiasI8 = getAsTensor(block->getArgument(optionalArgsCounter++));
+    auto quantBiasI8 = getTensorForBlockArg(optionalArgsCounter++);
     Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(
         builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
     qkTensor = createOpAndInfer<tosa::SubOp>(
         builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
     qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc,
                                               Float16Type::get(ctx), qkTensor);
-    auto quantScaleF16 = getAsTensor(block->getArgument(optionalArgsCounter++));
+    auto quantScaleF16 = getTensorForBlockArg(optionalArgsCounter++);
     qkTensor =
         createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
                                       qkTensor, quantScaleF16, /*shift=*/0);
   }
   if (hasAttnScale) {
-    auto scaleTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
+    auto scaleTensor = getTensorForBlockArg(optionalArgsCounter++);
     qkTensor = createOpAndInfer<tosa::MulOp>(
         builder, loc, scaleTensor.getType().cast<ShapedType>().getElementType(),
         qkTensor, scaleTensor, /*shift=*/0);
   }
 
   if (hasAttnBias) {
-    auto biasTensor = getAsTensor(block->getArgument(optionalArgsCounter++));
+    auto biasTensor = getTensorForBlockArg(optionalArgsCounter++);
     qkTensor = createOpAndInfer<tosa::AddOp>(
         builder, loc, biasTensor.getType().cast<ShapedType>().getElementType(),
         qkTensor, biasTensor);
   }
 
-  constexpr int64_t reductionAxis{2};
+  constexpr int64_t reductionAxis = 2;
   auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
       qkTensor, reductionAxis);
@@ -2778,16 +2613,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
   }
 
-  auto outputTensor = getAsTensor(block->getArguments().back(), true);
-  auto type = outputTensor.getType().cast<mlir::RankedTensorType>();
-  auto memrefType = MemRefType::get(type.getShape(), type.getElementType());
+  Value output = block->getArguments().back();
+  auto outputType = cast<MemRefType>(output.getType());
+  auto flatResultTensor =
+      builder.create<tosa::ReshapeOp>(loc, resultTensor, outputType.getShape());
 
-  auto outputMemref =
-      builder.create<bufferization::ToMemrefOp>(loc, memrefType, outputTensor);
-  auto resultMemref =
-      builder.create<bufferization::ToMemrefOp>(loc, memrefType, resultTensor);
+  auto flatResultMemref = builder.create<bufferization::ToMemrefOp>(
+      loc, outputType, flatResultTensor);
 
-  builder.create<memref::CopyOp>(loc, resultMemref, outputMemref);
+  builder.create<memref::CopyOp>(loc, flatResultMemref, output);
 
   builder.create<func::ReturnOp>(loc);
   module.push_back(func);

@@ -80,7 +80,7 @@ double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
   return (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
 }
 
-SmallVector<int64_t>
+static SmallVector<int64_t>
 computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
                             int32_t gemmNPerBlock, int32_t gemmKPerBlock,
                             int32_t kPack, uint32_t numCUs) {
@@ -134,12 +134,18 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
   return splitKValues;
 }
 
-SmallVector<int64_t>
+static SmallVector<int64_t>
 computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             int32_t gemmMPerBlock, int32_t gemmNPerBlock,
                             int32_t gemmKPerBlock, int32_t kPack) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
+  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  // We dont enable split-k on Navi yet because they dont
+  // still have atomic_add with packed_f16.
+  if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+    return splitKValues;
+  }
   const bool isAllowedTypeC =
       gemmOp.getCType().isF32() || gemmOp.getCType().isF16();
   if (!isAllowedTypeC) {
