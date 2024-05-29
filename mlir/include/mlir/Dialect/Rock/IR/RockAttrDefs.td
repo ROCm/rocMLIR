@@ -269,6 +269,7 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
     "int64_t":$mPerWave,
     "int64_t":$mnPerXdl,
     "int64_t":$kpack,
+    "int64_t":$wavesPerEU,
     "bool":$forceUnroll
   );
 
@@ -282,6 +283,7 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getMPerWave()) + ","
       + Twine(getMnPerXdl()) + ","
       + Twine(getKpack()) + ","
+      + Twine(getWavesPerEU()) + ","
       + Twine(getForceUnroll())).toVector(perfStr);
     }
 
@@ -465,6 +467,17 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
 
 def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
   let mnemonic = "reverse_grid";
+}
+
+def Rock_WavesPerEu : Rock_Attr<"WavesPerEu"> {
+  let mnemonic = "waves_per_eu";
+  let parameters = (ins
+    "int64_t":$waves_per_eu
+  );
+  let assemblyFormat = "`<` params `>`";
+  let description = [{
+    An attribute to express explicitly defined waves_per_eu for the kernel
+  }];
 }
 
 // It is a temporary attribute

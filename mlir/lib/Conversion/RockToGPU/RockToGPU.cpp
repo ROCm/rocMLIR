@@ -213,6 +213,9 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     if (auto isReverse = rock::getReverseGrid(theFunc).value_or(nullptr)) {
       gpuFunc->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), isReverse);
     }
+    if (auto wavesPerEu = rock::getWavesPerEU(theFunc).value_or(nullptr)) {
+      gpuFunc->setAttr(rock::WavesPerEuAttr::getMnemonic(), wavesPerEu);
+    }
 
     int32_t indexWidth = 32;
     if (theFunc->hasAttr("rock.64bitindex"))
@@ -424,6 +427,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       // analysis
       constexpr int64_t wavesPerEUUpperBound = 2;
       wavesPerEU = std::min(wavesPerEU, wavesPerEUUpperBound);
+      if(gpuFunc->hasAttr(rock::WavesPerEuAttr::getMnemonic())){
+        auto wavesPerEuAttr = gpuFunc->getAttrOfType<rock::WavesPerEuAttr>(rock::WavesPerEuAttr::getMnemonic());
+        wavesPerEU = wavesPerEuAttr.getWavesPerEu();
+      }
       if (wavesPerEU > 1) {
         LLVM_DEBUG(llvm::dbgs() << "waves_per_eu:" << wavesPerEU << "\n");
         gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(wavesPerEU));

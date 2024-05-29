@@ -248,7 +248,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   Attribute params0 = op.getParams0().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =
-      builder.getStringAttr("attn:v1:32,32,32,32,32,32,1,1");
+      builder.getStringAttr("attn:v1:32,32,32,32,32,32,1,0,1");
   if (!params0) {
     if (StringAttr mayBePerfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
@@ -256,6 +256,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     }
   }
   auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr);
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  func->setAttr(WavesPerEuAttr::getMnemonic(), builder.getAttr<WavesPerEuAttr>(attnPerfConfig.getWavesPerEU()));
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
   }

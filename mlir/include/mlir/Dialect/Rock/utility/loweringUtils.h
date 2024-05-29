@@ -179,6 +179,9 @@ FailureOr<int64_t> getNumCU(Operation *op);
 // Get whether to reverse the grid
 FailureOr<UnitAttr> getReverseGrid(Operation *op);
 
+// Get whether to reverse the grid
+FailureOr<WavesPerEuAttr> getWavesPerEU(Operation *op);
+
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 

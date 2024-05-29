@@ -2041,12 +2041,12 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   if (version != 1) {
     return {};
   }
-  SmallVector<StringRef, 8> tokens;
+  SmallVector<StringRef, 9> tokens;
   rest.split(tokens, ',');
-  if (tokens.size() != 8) {
+  if (tokens.size() != 9) {
     return {};
   }
-  SmallVector<int64_t, 8> params;
+  SmallVector<int64_t, 9> params;
   llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
     int param;
     llvm::to_integer(s, param);
@@ -2060,7 +2060,8 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
                                  /*mPerWave=*/params[4],
                                  /*mnPerXdl*/ params[5],
                                  /*kpack=*/params[6],
-                                 /*forceUnroll=*/params[7] == 1);
+                                 /*wavesPerEu=*/params[7],
+                                 /*forceUnroll=*/params[8] == 1);
 }
 
 //===-----------------------------------------------------===//
