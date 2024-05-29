@@ -166,7 +166,7 @@ func.func @scalar0d(%arg0: !migraphx.shaped<f32>) -> !migraphx.shaped<f32> {
 // -----
 
 // CHECK-LABEL: @conv3d_add
-// CHECK-SAME: (%{{.*}}: tensor<4x1x1x1x1xf32>, %{{.*}}: tensor<2x3x5x5x5xf32>, %{{.*}}: tensor<4x3x2x2x2xf32>) -> tensor<2x4x2x2x2xf32>
+// CHECK-SAME: (%{{.*}}: tensor<4xf32>, %{{.*}}: tensor<750xf32>, %{{.*}}: tensor<96xf32>) -> tensor<64xf32>
 func.func @conv3d_add(%arg0: !migraphx.shaped<2x4x2x2x2xf32, 0x1x0x0x0>, %arg1: !migraphx.shaped<2x3x5x5x5xf32, 375x125x25x5x1>, %arg2: !migraphx.shaped<4x3x2x2x2xf32, 24x8x4x2x1>) -> !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1>  {
   // CHECK-COUNT-3: tosa.transpose
   // CHECK: tosa.conv3d
