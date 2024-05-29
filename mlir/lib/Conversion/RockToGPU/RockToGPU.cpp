@@ -427,8 +427,9 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       // analysis
       constexpr int64_t wavesPerEUUpperBound = 2;
       wavesPerEU = std::min(wavesPerEU, wavesPerEUUpperBound);
-      if(gpuFunc->hasAttr(rock::WavesPerEuAttr::getMnemonic())){
-        auto wavesPerEuAttr = gpuFunc->getAttrOfType<rock::WavesPerEuAttr>(rock::WavesPerEuAttr::getMnemonic());
+      if (gpuFunc->hasAttr(rock::WavesPerEuAttr::getMnemonic())) {
+        auto wavesPerEuAttr = gpuFunc->getAttrOfType<rock::WavesPerEuAttr>(
+            rock::WavesPerEuAttr::getMnemonic());
         wavesPerEU = wavesPerEuAttr.getWavesPerEu();
       }
       if (wavesPerEU > 1) {

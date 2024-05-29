@@ -257,7 +257,9 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr);
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  func->setAttr(WavesPerEuAttr::getMnemonic(), builder.getAttr<WavesPerEuAttr>(attnPerfConfig.getWavesPerEU()));
+  func->setAttr(
+      WavesPerEuAttr::getMnemonic(),
+      builder.getAttr<WavesPerEuAttr>(attnPerfConfig.getWavesPerEU()));
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
   }

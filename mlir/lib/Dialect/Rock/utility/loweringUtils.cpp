@@ -728,8 +728,8 @@ FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
 }
 
 FailureOr<WavesPerEuAttr> mlir::rock::getWavesPerEU(Operation *op) {
-  return getAttrFromOpOrParents<WavesPerEuAttr>(
-      op, WavesPerEuAttr::getMnemonic());
+  return getAttrFromOpOrParents<WavesPerEuAttr>(op,
+                                                WavesPerEuAttr::getMnemonic());
 }
 
 FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
