@@ -103,9 +103,13 @@ class ROCDL_SpecialRegisterOp<string mnemonic,
     list<Trait> traits = []> :
   ROCDL_Op<mnemonic, !listconcat(traits, [Pure])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
-  string llvmBuilder = "$res = createIntrinsicCallWithRange(builder,"
+  string llvmBuilder = "llvm::Value *theRes = createIntrinsicCallWithRange(builder,"
     # "llvm::Intrinsic::amdgcn_" # !subst(".","_", mnemonic)
-    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));";
+    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));"
+    // TEMPORARY WORKAROUND FOR TESTING UNTIL LLVM #92801 or equivalent
+    // LANDS.
+    # "::llvm::cast<::llvm::CallInst>(theRes)->addRetAttr(::llvm::Attribute::NoUndef);"
+    # "$res = theRes;";
   let assemblyFormat = "attr-dict `:` type($res)";
 }
 
@@ -167,7 +171,7 @@ def ROCDL_BallotOp :
   let summary = "Vote across thread group";
 
   let description = [{
-      Ballot provides a bit mask containing the 1-bit predicate value from each lane. 
+      Ballot provides a bit mask containing the 1-bit predicate value from each lane.
       The nth bit of the result contains the 1 bit contributed by the nth warp lane.
   }];
 
