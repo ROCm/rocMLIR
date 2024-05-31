@@ -2756,7 +2756,7 @@ struct GridwiseGemmAccelRewritePattern
       {
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
-        b.create<amdgpu::SchedBarrierOp>(loc, amdgpu::sched_barrier_opt_enum::allow_none);
+        b.create<amdgpu::SchedBarrierOp>(loc, amdgpu::sched_barrier_opt_enum::allow_non_mem_non_sideffect);
 
         // Emit blockwise stores
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
