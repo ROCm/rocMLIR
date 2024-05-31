@@ -489,6 +489,41 @@ def AMDGPU_LDSBarrierOp : AMDGPU_Op<"lds_barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
+def AMDGPU_SchedBarrierOpOpt : I32EnumAttr<"sched_barrier_opt_enum",
+    "The possible options for scheduling barriers",
+    [
+      I32EnumAttrCase<"allow_none",            0x0000>,
+      I32EnumAttrCase<"allow_non_mem_non_sideffect",  0x0001>,
+      I32EnumAttrCase<"allow_valu", 0x0002>,
+      I32EnumAttrCase<"allow_salu", 0x0004>,
+      I32EnumAttrCase<"allow_mfma_wmma",  0x0008>,
+      I32EnumAttrCase<"allow_all_vmem",  0x0010>,
+      I32EnumAttrCase<"allow_vmem_read",  0x0020>,
+      I32EnumAttrCase<"allow_vmem_write", 0x0040>,
+      I32EnumAttrCase<"allow_all_ds", 0x0080>,
+      I32EnumAttrCase<"allow_ds_read", 0x0100>,
+      I32EnumAttrCase<"allow_ds_write", 0x0200>,
+      I32EnumAttrCase<"allow_transcendental", 0x0400>
+    ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::amdgpu";
+}
+
+def AMDGPU_SchedBarrierOpOptAttr : EnumAttr<AMDGPU_Dialect, AMDGPU_SchedBarrierOpOpt,
+  "sched_barrier_opt">;
+
+def AMDGPU_SchedBarrierOp : 
+  AMDGPU_Op<"sched_barrier">,
+  Arguments<(ins  AMDGPU_SchedBarrierOpOptAttr:$opt)>
+  {
+  let summary = "Barrier that includes a wait for LDS memory operations.";
+  let description = [{
+    `amdgpu.sched_barrier` is just a scheduling barrier for backend
+    scheduler.
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
 def AMDGPU_MFMAPermB : I32EnumAttr<"MFMAPermB",
     "The possible permutations of the lanes storing B available in an MFMA",
     [

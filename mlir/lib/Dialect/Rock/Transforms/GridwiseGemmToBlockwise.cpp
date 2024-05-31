@@ -47,6 +47,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 
 #include "GridLayoutEmitter.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
@@ -2755,6 +2756,7 @@ struct GridwiseGemmAccelRewritePattern
       {
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
+        b.create<amdgpu::SchedBarrierOp>(loc, amdgpu::sched_barrier_opt_enum::allow_none);
 
         // Emit blockwise stores
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
@@ -2825,7 +2827,7 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect, linalg::LinalgDialect,
-                         scf::SCFDialect, math::MathDialect>();
+                         scf::SCFDialect, math::MathDialect, amdgpu::AMDGPUDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
