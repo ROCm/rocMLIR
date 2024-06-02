@@ -439,7 +439,10 @@ LogicalResult makeToLayoutLikeFromLayoutAlong(
   bool inOrder = true;
   size_t prevIndex = 0;
   for (StringAttr expected : expectedOrder) {
-    size_t thisIndex = toLayoutIdxs.find(expected)->getSecond();
+    auto foundp = toLayoutIdxs.find(expected);
+    if (foundp == toLayoutIdxs.end())
+      return failure();
+    size_t thisIndex = foundp->getSecond();
     if (thisIndex <
         prevIndex) { // the values are not in the relative expected order
       inOrder = false;
@@ -453,9 +456,8 @@ LogicalResult makeToLayoutLikeFromLayoutAlong(
   /// And now we have to actually do the thing
   // Is just an attribute to allow array builder
   SmallVector<Attribute> newToLayout;
-  llvm::SmallDenseSet<StringAttr> permutedDimsSet;
-  for (StringAttr toPermute : expectedOrder)
-    permutedDimsSet.insert(toPermute);
+  llvm::SmallDenseSet<StringAttr> permutedDimsSet{expectedOrder.begin(),
+                                                  expectedOrder.end()};
 
   SmallVector<StringAttr>::const_iterator expectedOrderIter =
       expectedOrder.begin();
@@ -744,7 +746,6 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
   // This kernel is not run when there is padding on the GEMM
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
-
   b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,

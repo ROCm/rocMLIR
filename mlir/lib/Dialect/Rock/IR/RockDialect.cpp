@@ -34,6 +34,7 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
@@ -2012,6 +2013,54 @@ LogicalResult AttentionOp::verify() {
     return emitError("reduction dimensions of second gemm do not match");
   }
   return success();
+}
+
+//===-----------------------------------------------------===//
+// AttentionPerfConfig Attr
+//===-----------------------------------------------------===//
+
+AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
+  // Here a conventional c++ string split is being
+  // done because MLIR lacks parseSourceString() method
+  // to parse Attributes and its only there for Ops.
+  StringRef perfConfigStrRef = perfConfigStrAttr.strref();
+  StringRef token;
+  StringRef rest;
+  std::tie(token, rest) = perfConfigStrRef.split(':');
+  if (token != "attn") {
+    return {};
+  }
+  std::tie(token, rest) = rest.split(':');
+  if (token.substr(0, 1) != "v") {
+    return {};
+  }
+  int version;
+  if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
+    return {};
+  }
+  if (version != 1) {
+    return {};
+  }
+  SmallVector<StringRef, 8> tokens;
+  rest.split(tokens, ',');
+  if (tokens.size() != 8) {
+    return {};
+  }
+  SmallVector<int64_t, 8> params;
+  llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
+    int param;
+    llvm::to_integer(s, param);
+    return param;
+  });
+  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(),
+                                 /*mPerBlockG0=*/params[0],
+                                 /*mPerBlockG1=*/params[1],
+                                 /*nPerBlockG0=*/params[2],
+                                 /*kpackPerBlock=*/params[3],
+                                 /*mPerWave=*/params[4],
+                                 /*mnPerXdl*/ params[5],
+                                 /*kpack=*/params[6],
+                                 /*forceUnroll=*/params[7] == 1);
 }
 
 //===-----------------------------------------------------===//
