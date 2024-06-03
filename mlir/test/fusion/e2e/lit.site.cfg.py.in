@@ -32,6 +32,10 @@ config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"
 
+# Add common python test utils
+sys.path.append(config.rocmlir_common_python_tests_utils)
+from common import get_agents
+
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
 try:
