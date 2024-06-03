@@ -64,9 +64,9 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], l
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockConvInterface>,
                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>{
-    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5,6]>:$filter,
-                              TensorOrMemRefRankOf<inputTypes, [5,6]>:$input,
-                              TensorOrMemRefRankOf<outputTypes, [5,6]>:$output,
+    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [4,5,6]>:$filter,
+                              TensorOrMemRefRankOf<inputTypes, [4,5,6]>:$input,
+                              TensorOrMemRefRankOf<outputTypes, [4,5,6]>:$output,
                               StrAttr:$arch,
                               Rock_GemmFeaturesAttr:$features,
                               OptionalAttr<I32Attr>:$derivedBlockSize,

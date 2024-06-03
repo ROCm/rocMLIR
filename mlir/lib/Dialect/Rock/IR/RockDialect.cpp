@@ -560,6 +560,8 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
                           llvm::StringRef dim2) {
     auto layout = op->getAttr(tensor).template cast<ArrayAttr>().getValue();
+    if (layout.size() < 5)
+      return false;
     auto pos1 = -1, pos2 = -1;
     for (unsigned int i = 0; i < layout.size(); ++i) {
       if (layout[i].template cast<StringAttr>().getValue() == dim1)
@@ -574,8 +576,9 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
        isDisjointed("filter_layout", "0", "1")) ||
       (isDisjointed("input_layout", "hi", "wi") &&
        isDisjointed("input_layout", "0i", "1i") &&
-       isDisjointed("input_layout", "0", "1")))
+       isDisjointed("input_layout", "0", "1"))) {
     return op->emitError("Disjointed yx or hw!");
+  }
 
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
 

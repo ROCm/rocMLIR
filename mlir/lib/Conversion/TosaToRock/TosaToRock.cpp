@@ -154,16 +154,22 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
     filterLayout = attr.getValue();
   else if (filter.getType().template cast<ShapedType>().getRank() > 4)
     filterLayout = "k012c";
+  else if (filter.getType().template cast<ShapedType>().getRank() == 3)
+    filterLayout = "k0c";
   SmallString<8> inputLayout("nhwc");
   if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
     inputLayout = attr.getValue();
   else if (input.getType().template cast<ShapedType>().getRank() > 4)
     inputLayout = "n012c";
+  else if (input.getType().template cast<ShapedType>().getRank() == 3)
+    inputLayout = "n0c";
   SmallString<8> outputLayout("nhwk");
   if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
     outputLayout = attr.getValue();
   else if (output.getType().template cast<ShapedType>().getRank() > 4)
     outputLayout = "n012k";
+  else if (output.getType().template cast<ShapedType>().getRank() == 3)
+    outputLayout = "n0k";
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
   // and add 'g into the layout
@@ -229,6 +235,29 @@ public:
     auto bias = operands[2];
     auto outputType = op.getType().template cast<RankedTensorType>();
 
+    ArrayRef<int64_t> pads = op.getPadAttr();
+    ArrayRef<int64_t> strides = op.getStrideAttr();
+    ArrayRef<int64_t> dilations = op.getDilationAttr();
+
+    if (op->hasAttr(rock::ExpandedFrom1DAttr::getMnemonic())) {
+      //op->getParentOp()->dump();
+      //drop reshape op from input and filter, which should also reduce type
+      input = input.getDefiningOp()->getOperand(0);
+      filter = filter.getDefiningOp()->getOperand(0);
+
+      //drop reshape op from result and adjust outputType
+      assert(op.getResult().hasOneUse());
+      //assert(isa<tosa::ReshapeOp>(*op.getResult().getUsers().begin()));
+      auto realResult = *op.getResult().getUsers().begin();
+      assert(realResult->getNumResults() == 1);
+      outputType = realResult->getResultTypes().front().template cast<RankedTensorType>();
+
+      //remove the added elements of dilation, stride, padding
+      pads = pads.drop_back(2);
+      strides = strides.drop_back();
+      dilations = dilations.drop_back();
+    }
+
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
@@ -236,8 +265,11 @@ public:
     if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
       group = attr.getInt(); // Use op.getGroup() when all OpT have it.
     FailureOr<rock::ConvOp> rockConv =
-        makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
-                     op.getStrideAttr(), op.getDilationAttr(), group);
+      makeRockConv(rw, op, input, filter, output,
+                   DenseI64ArrayAttr::get(context, pads),
+                   DenseI64ArrayAttr::get(context, strides),
+                   DenseI64ArrayAttr::get(context, dilations),
+                   group);
     if (failed(rockConv))
       return failure();
 
@@ -273,6 +305,12 @@ public:
     }
 
     rw.replaceOp(op, result);
+    if (op->hasAttr(rock::ExpandedFrom1DAttr::getMnemonic())) {
+      auto reshapeOp = *op.getResult().getUsers().begin();
+      reshapeOp->replaceAllUsesWith(result.getDefiningOp());
+      reshapeOp->erase();
+      op->dropAllUses();
+    }
 
     return success();
   }
