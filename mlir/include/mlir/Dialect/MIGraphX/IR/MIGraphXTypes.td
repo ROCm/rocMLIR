@@ -118,9 +118,14 @@ def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
                      std::optional<::llvm::ArrayRef<int64_t>> strides,
                      ::mlir::Type elementType) const;
 
-    // Return the tensor type that represent the momy layout specified by this shape.
+    // Return the tensor type that represent the memory layout specified by this shape.
     // If there is no such tensor, returns nullptr.
     ::mlir::RankedTensorType asMemoryLayoutTensor() const;
+
+    // Return the tensor type that is a 1-D flattening of asMemoryLayoutTensor(),
+    // which is used as the actual function argument/result type so that indices
+    // are computed efficiently during lowering.
+    ::mlir::RankedTensorType asFlatMemoryTensor() const;
 
     /// Return the permutation that describes how the strides have been permuted
     /// from what they would be if the tensor were in standard shape. This function

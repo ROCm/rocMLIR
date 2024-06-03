@@ -3,11 +3,7 @@
 // ALLOW_RETRIES: 2
 
 module {
-  // CHECK:  [5,     5,     5],
-  // CHECK-NEXT: [5,     5,     5],
-  // CHECK-NEXT: [5,     5,     5],
-  // CHECK-NEXT: [5,     5,     5],
-  // CHECK-NEXT: [5,     5,     5]
+  // CHECK:  [5,     5,     5,  5,     5,     5,  5,     5,     5,  5,     5,     5,  5,     5,     5]
 
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
