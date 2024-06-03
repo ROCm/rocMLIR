@@ -31,6 +31,7 @@ config.random_data = "@MLIR_RANDOM_DATA@"
 config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"
+config.rocmlir_common_python_tests_utils = "@ROCMLIR_COMMON_PYTHON_TESTS_UTILS@"
 
 # Add common python test utils
 sys.path.append(config.rocmlir_common_python_tests_utils)
