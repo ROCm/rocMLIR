@@ -668,8 +668,6 @@ EXTERN int omp_is_coarse_grain_mem_region(void *ptr, size_t size) {
     FATAL_MESSAGE(omp_get_default_device(), "%s",
                   toString(DeviceOrErr.takeError()).c_str());
 
-  if (!DeviceOrErr->RTL->query_coarse_grain_mem_region)
-    return 0;
   return DeviceOrErr->RTL->query_coarse_grain_mem_region(
       omp_get_default_device(), ptr, size);
 }
@@ -685,7 +683,7 @@ EXTERN void *omp_get_mapped_ptr(const void *Ptr, int DeviceNum) {
     return nullptr;
   }
 
-  size_t NumDevices = omp_get_initial_device();
+  int NumDevices = omp_get_initial_device();
   if (DeviceNum == NumDevices) {
     DP("Device %d is initial device, returning Ptr " DPxMOD ".\n",
            DeviceNum, DPxPTR(Ptr));

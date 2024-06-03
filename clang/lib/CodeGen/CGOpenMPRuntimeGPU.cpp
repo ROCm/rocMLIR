@@ -97,9 +97,9 @@ static const ValueDecl *getPrivateItem(const Expr *RefExpr) {
     while (const auto *TempASE = dyn_cast<ArraySubscriptExpr>(Base))
       Base = TempASE->getBase()->IgnoreParenImpCasts();
     RefExpr = Base;
-  } else if (auto *OASE = dyn_cast<OMPArraySectionExpr>(RefExpr)) {
+  } else if (auto *OASE = dyn_cast<ArraySectionExpr>(RefExpr)) {
     const Expr *Base = OASE->getBase()->IgnoreParenImpCasts();
-    while (const auto *TempOASE = dyn_cast<OMPArraySectionExpr>(Base))
+    while (const auto *TempOASE = dyn_cast<ArraySectionExpr>(Base))
       Base = TempOASE->getBase()->IgnoreParenImpCasts();
     while (const auto *TempASE = dyn_cast<ArraySubscriptExpr>(Base))
       Base = TempASE->getBase()->IgnoreParenImpCasts();
@@ -1306,13 +1306,13 @@ void CGOpenMPRuntimeGPU::emitGenericVarsProlog(CodeGenFunction &CGF,
         VoidPtr, VarPtrTy, VD->getName() + "_on_stack");
     LValue VarAddr =
         CGF.MakeNaturalAlignPointeeRawAddrLValue(CastedVoidPtr, VarTy);
-    Rec.second.PrivateAddr = VarAddr.getAddress(CGF);
+    Rec.second.PrivateAddr = VarAddr.getAddress();
     Rec.second.GlobalizedVal = VoidPtr;
 
     // Assign the local allocation to the newly globalized location.
     if (EscapedParam) {
       CGF.EmitStoreOfScalar(ParValue, VarAddr);
-      I->getSecond().MappedParams->setVarAddr(CGF, VD, VarAddr.getAddress(CGF));
+      I->getSecond().MappedParams->setVarAddr(CGF, VD, VarAddr.getAddress());
     }
     if (auto *DI = CGF.getDebugInfo())
       VoidPtr->setDebugLoc(DI->SourceLocToDebugLoc(VD->getLocation()));
@@ -1326,7 +1326,7 @@ void CGOpenMPRuntimeGPU::emitGenericVarsProlog(CodeGenFunction &CGF,
     LValue Base = CGF.MakeAddrLValue(AddrSizePair.first, VD->getType(),
                                      CGM.getContext().getDeclAlign(VD),
                                      AlignmentSource::Decl);
-    I->getSecond().MappedParams->setVarAddr(CGF, VD, Base.getAddress(CGF));
+    I->getSecond().MappedParams->setVarAddr(CGF, VD, Base.getAddress());
   }
   I->getSecond().MappedParams->apply(CGF);
 }
@@ -2442,7 +2442,7 @@ static llvm::Value *emitListToGlobalCopyFunction(
         Bld.CreateInBoundsGEP(LLVMReductionsBufferTy, BufferArrPtr, Idxs);
     LValue GlobLVal = CGF.EmitLValueForField(
         CGF.MakeNaturalAlignRawAddrLValue(BufferPtr, StaticTy), FD);
-    Address GlobAddr = GlobLVal.getAddress(CGF);
+    Address GlobAddr = GlobLVal.getAddress();
     GlobLVal.setAddress(Address(GlobAddr.emitRawPointer(CGF),
                                 CGF.ConvertTypeForMem(Private->getType()),
                                 GlobAddr.getAlignment()));
@@ -2543,7 +2543,7 @@ static llvm::Value *emitListToGlobalReduceFunction(
         Bld.CreateInBoundsGEP(LLVMReductionsBufferTy, BufferArrPtr, Idxs);
     LValue GlobLVal = CGF.EmitLValueForField(
         CGF.MakeNaturalAlignRawAddrLValue(BufferPtr, StaticTy), FD);
-    Address GlobAddr = GlobLVal.getAddress(CGF);
+    Address GlobAddr = GlobLVal.getAddress();
     CGF.EmitStoreOfScalar(GlobAddr.emitRawPointer(CGF), Elem,
                           /*Volatile=*/false, C.VoidPtrTy);
     if ((*IPriv)->getType()->isVariablyModifiedType()) {
@@ -2649,7 +2649,7 @@ static llvm::Value *emitGlobalToListCopyFunction(
         Bld.CreateInBoundsGEP(LLVMReductionsBufferTy, BufferArrPtr, Idxs);
     LValue GlobLVal = CGF.EmitLValueForField(
         CGF.MakeNaturalAlignRawAddrLValue(BufferPtr, StaticTy), FD);
-    Address GlobAddr = GlobLVal.getAddress(CGF);
+    Address GlobAddr = GlobLVal.getAddress();
     GlobLVal.setAddress(Address(GlobAddr.emitRawPointer(CGF),
                                 CGF.ConvertTypeForMem(Private->getType()),
                                 GlobAddr.getAlignment()));
@@ -2750,7 +2750,7 @@ static llvm::Value *emitGlobalToListReduceFunction(
         Bld.CreateInBoundsGEP(LLVMReductionsBufferTy, BufferArrPtr, Idxs);
     LValue GlobLVal = CGF.EmitLValueForField(
         CGF.MakeNaturalAlignRawAddrLValue(BufferPtr, StaticTy), FD);
-    Address GlobAddr = GlobLVal.getAddress(CGF);
+    Address GlobAddr = GlobLVal.getAddress();
     CGF.EmitStoreOfScalar(GlobAddr.emitRawPointer(CGF), Elem,
                           /*Volatile=*/false, C.VoidPtrTy);
     if ((*IPriv)->getType()->isVariablyModifiedType()) {
@@ -3623,7 +3623,7 @@ void CGOpenMPRuntimeGPU::adjustTargetSpecificDataForLambdas(
       if (VD->getType().getCanonicalType()->isReferenceType())
         VDAddr = CGF.EmitLoadOfReferenceLValue(VDAddr,
                                                VD->getType().getCanonicalType())
-                     .getAddress(CGF);
+                     .getAddress();
       CGF.EmitStoreOfScalar(VDAddr.emitRawPointer(CGF), VarLVal);
     }
   }
@@ -3817,26 +3817,37 @@ std::pair<llvm::Value *, llvm::Value *>
 CGOpenMPRuntimeGPU::getXteamRedFunctionPtrs(CodeGenFunction &CGF,
                                             llvm::Type *RedVarType) {
   if (RedVarType->isIntegerTy()) {
+    if (RedVarType->getPrimitiveSizeInBits() == 16) {
+      return std::make_pair(
+          OMPBuilder
+              .getOrCreateRuntimeFunction(CGM.getModule(),
+                                          OMPRTL___kmpc_rfun_sum_s)
+              .getCallee(),
+          OMPBuilder
+              .getOrCreateRuntimeFunction(CGM.getModule(),
+                                          OMPRTL___kmpc_rfun_sum_lds_s)
+              .getCallee());
+    }
     if (RedVarType->getPrimitiveSizeInBits() == 32) {
       return std::make_pair(
           OMPBuilder
               .getOrCreateRuntimeFunction(CGM.getModule(),
-                                          OMPRTL___kmpc_rfun_sum_ui)
+                                          OMPRTL___kmpc_rfun_sum_i)
               .getCallee(),
           OMPBuilder
               .getOrCreateRuntimeFunction(CGM.getModule(),
-                                          OMPRTL___kmpc_rfun_sum_lds_ui)
+                                          OMPRTL___kmpc_rfun_sum_lds_i)
               .getCallee());
     }
     if (RedVarType->getPrimitiveSizeInBits() == 64) {
       return std::make_pair(
           OMPBuilder
               .getOrCreateRuntimeFunction(CGM.getModule(),
-                                          OMPRTL___kmpc_rfun_sum_ul)
+                                          OMPRTL___kmpc_rfun_sum_l)
               .getCallee(),
           OMPBuilder
               .getOrCreateRuntimeFunction(CGM.getModule(),
-                                          OMPRTL___kmpc_rfun_sum_lds_ul)
+                                          OMPRTL___kmpc_rfun_sum_lds_l)
               .getCallee());
     }
   }
@@ -3862,6 +3873,30 @@ CGOpenMPRuntimeGPU::getXteamRedFunctionPtrs(CodeGenFunction &CGF,
                                   CGM.getModule(), OMPRTL___kmpc_rfun_sum_lds_d)
                               .getCallee());
   }
+
+  if (RedVarType->isHalfTy()) {
+    return std::make_pair(OMPBuilder
+                              .getOrCreateRuntimeFunction(
+                                  CGM.getModule(), OMPRTL___kmpc_rfun_sum_h)
+                              .getCallee(),
+                          OMPBuilder
+                              .getOrCreateRuntimeFunction(
+                                  CGM.getModule(), OMPRTL___kmpc_rfun_sum_lds_h)
+                              .getCallee());
+  }
+
+  if (RedVarType->isBFloatTy()) {
+    return std::make_pair(
+        OMPBuilder
+            .getOrCreateRuntimeFunction(CGM.getModule(),
+                                        OMPRTL___kmpc_rfun_sum_bf)
+            .getCallee(),
+        OMPBuilder
+            .getOrCreateRuntimeFunction(CGM.getModule(),
+                                        OMPRTL___kmpc_rfun_sum_lds_bf)
+            .getCallee());
+  }
+
   llvm_unreachable("No support for other types currently.");
 }
 
@@ -3873,21 +3908,27 @@ llvm::Value *CGOpenMPRuntimeGPU::getXteamRedSum(
   // TODO handle more types
   llvm::Type *SumType = Val->getType();
   assert(
-      (SumType->isFloatTy() || SumType->isDoubleTy() ||
-       (SumType->isIntegerTy() && (SumType->getPrimitiveSizeInBits() == 32 ||
+      (SumType->isFloatTy() || SumType->isDoubleTy() || SumType->isHalfTy() ||
+       SumType->isBFloatTy() ||
+       (SumType->isIntegerTy() && (SumType->getPrimitiveSizeInBits() == 16 ||
+                                   SumType->getPrimitiveSizeInBits() == 32 ||
                                    SumType->getPrimitiveSizeInBits() == 64))) &&
       "Unhandled type");
 
+  llvm::Type *Int16Ty = llvm::Type::getInt16Ty(CGM.getLLVMContext());
   llvm::Type *Int32Ty = llvm::Type::getInt32Ty(CGM.getLLVMContext());
   llvm::Type *Int64Ty = llvm::Type::getInt64Ty(CGM.getLLVMContext());
 
   std::pair<llvm::Value *, llvm::Value *> RfunPair =
       getXteamRedFunctionPtrs(CGF, SumType);
-  llvm::Value *ZeroVal = (SumType->isFloatTy() || SumType->isDoubleTy())
+  llvm::Value *ZeroVal = (SumType->isFloatTy() || SumType->isDoubleTy()) ||
+                                 SumType->isHalfTy() || SumType->isBFloatTy()
                              ? llvm::ConstantFP::getZero(SumType)
-                             : SumType->getPrimitiveSizeInBits() == 32
-                                   ? llvm::ConstantInt::get(Int32Ty, 0)
-                                   : llvm::ConstantInt::get(Int64Ty, 0);
+                         : SumType->getPrimitiveSizeInBits() == 16
+                             ? llvm::ConstantInt::get(Int16Ty, 0)
+                         : SumType->getPrimitiveSizeInBits() == 32
+                             ? llvm::ConstantInt::get(Int32Ty, 0)
+                             : llvm::ConstantInt::get(Int64Ty, 0);
 
   llvm::Value *Args[] = {Val,           SumPtr,           DTeamVals,
                          DTeamsDonePtr, RfunPair.first,   RfunPair.second,
@@ -3902,327 +3943,110 @@ llvm::Value *CGOpenMPRuntimeGPU::getXteamRedSum(
          "XTeam Reduction blocksize must be a power of two");
 
   if (SumType->isIntegerTy()) {
+    if (SumType->getPrimitiveSizeInBits() == 16) {
+      if (WarpSize == 32) {
+        return CGF.EmitRuntimeCall(
+            OMPBuilder.getOrCreateRuntimeFunction(
+                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_s_32x32_fast_sum
+                                        : OMPRTL___kmpc_xteamr_s_32x32),
+            Args);
+      } else {
+        return CGF.EmitRuntimeCall(
+            OMPBuilder.getOrCreateRuntimeFunction(
+                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_s_16x64_fast_sum
+                                        : OMPRTL___kmpc_xteamr_s_16x64),
+            Args);
+      }
+    }
     if (SumType->getPrimitiveSizeInBits() == 32) {
       if (WarpSize == 32) {
-        switch (BlockSize) {
-        default:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_1x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_1x32),
-              Args);
-        case 64:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_2x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_2x32),
-              Args);
-        case 128:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_4x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_4x32),
-              Args);
-        case 256:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_8x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_8x32),
-              Args);
-        case 512:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_16x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_16x32),
-              Args);
-        case 1024:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_32x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_32x32),
-              Args);
-        }
+        return CGF.EmitRuntimeCall(
+            OMPBuilder.getOrCreateRuntimeFunction(
+                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_i_32x32_fast_sum
+                                        : OMPRTL___kmpc_xteamr_i_32x32),
+            Args);
       } else {
-        switch (BlockSize) {
-        default:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_1x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_1x64),
-              Args);
-        case 128:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_2x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_2x64),
-              Args);
-        case 256:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_4x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_4x64),
-              Args);
-        case 512:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_8x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_8x64),
-              Args);
-        case 1024:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ui_16x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ui_16x64),
-              Args);
-        }
+        return CGF.EmitRuntimeCall(
+            OMPBuilder.getOrCreateRuntimeFunction(
+                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_i_16x64_fast_sum
+                                        : OMPRTL___kmpc_xteamr_i_16x64),
+            Args);
       }
     }
     if (SumType->getPrimitiveSizeInBits() == 64) {
       if (WarpSize == 32) {
-        switch (BlockSize) {
-        default:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_1x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_1x32),
-              Args);
-        case 64:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_2x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_2x32),
-              Args);
-        case 128:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_4x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_4x32),
-              Args);
-        case 256:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_8x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_8x32),
-              Args);
-        case 512:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_16x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_16x32),
-              Args);
-        case 1024:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_32x32_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_32x32),
-              Args);
-        }
+        return CGF.EmitRuntimeCall(
+            OMPBuilder.getOrCreateRuntimeFunction(
+                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_l_32x32_fast_sum
+                                        : OMPRTL___kmpc_xteamr_l_32x32),
+            Args);
       } else {
-        switch (BlockSize) {
-        default:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_1x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_1x64),
-              Args);
-        case 128:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_2x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_2x64),
-              Args);
-        case 256:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_4x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_4x64),
-              Args);
-        case 512:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_8x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_8x64),
-              Args);
-        case 1024:
-          return CGF.EmitRuntimeCall(
-              OMPBuilder.getOrCreateRuntimeFunction(
-                  CGM.getModule(), IsFast
-                                       ? OMPRTL___kmpc_xteamr_ul_16x64_fast_sum
-                                       : OMPRTL___kmpc_xteamr_ul_16x64),
-              Args);
-        }
+        return CGF.EmitRuntimeCall(
+            OMPBuilder.getOrCreateRuntimeFunction(
+                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_l_16x64_fast_sum
+                                        : OMPRTL___kmpc_xteamr_l_16x64),
+            Args);
       }
     }
   }
   if (SumType->isFloatTy()) {
     if (WarpSize == 32) {
-      switch (BlockSize) {
-      default:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_1x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_1x32),
-            Args);
-      case 64:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_2x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_2x32),
-            Args);
-      case 128:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_4x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_4x32),
-            Args);
-      case 256:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_8x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_8x32),
-            Args);
-      case 512:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_16x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_16x32),
-            Args);
-      case 1024:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_32x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_32x32),
-            Args);
-      }
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_32x32_fast_sum
+                                      : OMPRTL___kmpc_xteamr_f_32x32),
+          Args);
     } else {
-      switch (BlockSize) {
-      default:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_1x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_1x64),
-            Args);
-      case 128:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_2x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_2x64),
-            Args);
-      case 256:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_4x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_4x64),
-            Args);
-      case 512:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_8x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_8x64),
-            Args);
-      case 1024:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_16x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_f_16x64),
-            Args);
-      }
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_f_16x64_fast_sum
+                                      : OMPRTL___kmpc_xteamr_f_16x64),
+          Args);
     }
   }
   if (SumType->isDoubleTy()) {
     if (WarpSize == 32) {
-      switch (BlockSize) {
-      default:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_1x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_1x32),
-            Args);
-      case 64:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_2x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_2x32),
-            Args);
-      case 128:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_4x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_4x32),
-            Args);
-      case 256:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_8x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_8x32),
-            Args);
-      case 512:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_16x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_16x32),
-            Args);
-      case 1024:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_32x32_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_32x32),
-            Args);
-      }
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_32x32_fast_sum
+                                      : OMPRTL___kmpc_xteamr_d_32x32),
+          Args);
     } else {
-      switch (BlockSize) {
-      default:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_1x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_1x64),
-            Args);
-      case 128:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_2x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_2x64),
-            Args);
-      case 256:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_4x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_4x64),
-            Args);
-      case 512:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_8x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_8x64),
-            Args);
-      case 1024:
-        return CGF.EmitRuntimeCall(
-            OMPBuilder.getOrCreateRuntimeFunction(
-                CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_16x64_fast_sum
-                                        : OMPRTL___kmpc_xteamr_d_16x64),
-            Args);
-      }
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_d_16x64_fast_sum
+                                      : OMPRTL___kmpc_xteamr_d_16x64),
+          Args);
+    }
+  }
+  if (SumType->isHalfTy()) {
+    if (WarpSize == 32) {
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_h_32x32_fast_sum
+                                      : OMPRTL___kmpc_xteamr_h_32x32),
+          Args);
+    } else {
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_h_16x64_fast_sum
+                                      : OMPRTL___kmpc_xteamr_h_16x64),
+          Args);
+    }
+  }
+  if (SumType->isBFloatTy()) {
+    if (WarpSize == 32) {
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_bf_32x32_fast_sum
+                                      : OMPRTL___kmpc_xteamr_bf_32x32),
+          Args);
+    } else {
+      return CGF.EmitRuntimeCall(
+          OMPBuilder.getOrCreateRuntimeFunction(
+              CGM.getModule(), IsFast ? OMPRTL___kmpc_xteamr_bf_16x64_fast_sum
+                                      : OMPRTL___kmpc_xteamr_bf_16x64),
+          Args);
     }
   }
   llvm_unreachable("No support for other types currently.");

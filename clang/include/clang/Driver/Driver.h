@@ -429,7 +429,7 @@ public:
     return ClangExecutable.c_str();
   }
 
-  /// Get the path to where the clang executable was installed.
+    /// Get the path to where the clang executable was installed.
   const char *getInstalledDir() const {
     return Dir.c_str();
   }
@@ -763,6 +763,9 @@ private:
   /// option.
   void setDriverMode(StringRef DriverModeValue);
 
+  /// Set the resource directory, depending on which driver is being used.
+  void setResourceDirectory();
+
   /// Parse the \p Args list for LTO options and record the type of LTO
   /// compilation based on which -f(no-)?lto(=.*)? option occurs last.
   void setLTOMode(const llvm::opt::ArgList &Args);
@@ -810,24 +813,6 @@ private:
   static const char *getExecutableForDriverMode(DriverMode Mode);
 
 public:
-  ///  Add string to OffloadArchs set for each '--offload-arch=' arg
-  ///
-  /// \param C - The compilation that is being built.
-  /// \param OffloadArchs - The mutable set of strings, one per Offloading arch
-  bool
-  GetTargetInfoFromOffloadArchOpts(Compilation &C,
-                                   std::set<std::string> &OffloadArchs) const;
-
-  ///  Add string to OffloadArchs set for each offloading arch specified
-  ///  with legacy args. Unlike the newer, '--offload-arch' arg, specifying
-  ///  an offload arch with legacy args required three args:
-  ///    '-fopenmp-targets=', '-Xopenmp-target=', and '-march=' .
-  ///
-  /// \param C - The compilation that is being built.
-  /// \param OffloadArchs - The mutable set of strings, one per Offloading arch
-  bool GetTargetInfoFromMarch(Compilation &C,
-                              std::set<std::string> &OffloadArchs) const;
-
   /// GetReleaseVersion - Parse (([0-9]+)(.([0-9]+)(.([0-9]+)?))?)? and
   /// return the grouped values as integers. Numbers which are not
   /// provided are set to 0.
