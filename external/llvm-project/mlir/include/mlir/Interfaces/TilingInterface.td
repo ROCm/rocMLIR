@@ -89,8 +89,8 @@ def TilingInterface : OpInterface<"TilingInterface"> {
           "unsigned":$resultNumber,
           "ArrayRef<OpFoldResult> ":$offsets,
           "ArrayRef<OpFoldResult> ":$sizes,
-          "SmallVectorImpl<OpFoldResult> &":$resultOffsets,
-          "SmallVectorImpl<OpFoldResult> &":$resultSizes),
+          "SmallVector<OpFoldResult> &":$resultOffsets,
+          "SmallVector<OpFoldResult> &":$resultSizes),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{
           return failure();
@@ -98,8 +98,8 @@ def TilingInterface : OpInterface<"TilingInterface"> {
       >,
       InterfaceMethod<
         /*desc=*/[{
-          Method to return the position of iteration domain tile computed by the
-          tiled operation.
+          Method to return the tile of the iteration domain where
+          values from the given tile of the operand are used.
         }],
         /*retType=*/"::mlir::LogicalResult",
         /*methodName=*/"getIterationDomainTileFromOperandTile",
@@ -154,6 +154,9 @@ def TilingInterface : OpInterface<"TilingInterface"> {
         /*desc=*/[{
           Method to generate the tiled implementation of an operation from
           operand tile position.
+
+          NOTE: For most operations, this should be a trivial composition of
+          getIterationDomainTileFromOperandTile and getTiledImplementation.
 
           Generates the IR that computes the tiled implementation of an
           operation from operand tile.  The `offsets` and `sizes`
@@ -225,11 +228,11 @@ def PartialReductionOpInterface : OpInterface<"PartialReductionOpInterface"> {
           operation reduction. The tensor shape is equal to operation result
           shape with new dimension for each non zero tile size.
         }],
-        /*retType=*/"FailureOr<Operation*>",
+        /*retType=*/"FailureOr<SmallVector<Value>>",
         /*methodName=*/"generateInitialTensorForPartialReduction",
         /*args=*/(ins
             "OpBuilder &":$b,
-            "Location ":$loc,
+            "Location":$loc,
             "ArrayRef<OpFoldResult>":$sizes,
             "ArrayRef<int>":$reductionDim),
         /*methodBody=*/"",

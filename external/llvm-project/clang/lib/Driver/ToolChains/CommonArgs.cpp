@@ -350,7 +350,7 @@ void tools::addDirectoryList(const ArgList &Args, ArgStringList &CmdArgs,
     return; // Nothing to do.
 
   StringRef Name(ArgName);
-  if (Name.equals("-I") || Name.equals("-L") || Name.empty())
+  if (Name == "-I" || Name == "-L" || Name.empty())
     CombinedArg = true;
 
   StringRef Dirs(DirList);
@@ -749,7 +749,7 @@ bool tools::isTLSDESCEnabled(const ToolChain &TC,
   StringRef V = A->getValue();
   bool SupportedArgument = false, EnableTLSDESC = false;
   bool Unsupported = !Triple.isOSBinFormatELF();
-  if (Triple.isRISCV()) {
+  if (Triple.isLoongArch() || Triple.isRISCV()) {
     SupportedArgument = V == "desc" || V == "trad";
     EnableTLSDESC = V == "desc";
   } else if (Triple.isX86()) {
@@ -1102,13 +1102,13 @@ std::string tools::FindDebugPerfInLibraryPath(const std::string &RLib) {
   StringRef::size_type Delim;
   while ((Delim = Dirs.find(llvm::sys::EnvPathSeparator)) != StringRef::npos) {
     if (Delim != 0) { // Leading colon.
-      if (Dirs.substr(0, Delim).endswith(RLib))
+      if (Dirs.substr(0, Delim).ends_with(RLib))
         return Dirs.substr(0, Delim).str();
     }
     Dirs = Dirs.substr(Delim + 1);
   }
   if (!Dirs.empty()) {
-    if (Dirs.endswith(RLib))
+    if (Dirs.ends_with(RLib))
       return Dirs.str();
   }
   return "";
@@ -1140,8 +1140,16 @@ void tools::addOpenMPRuntimeSpecificRPath(const ToolChain &TC,
     SmallString<256> DefaultLibPath =
         llvm::sys::path::parent_path(TC.getDriver().Dir);
     llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
+    if (TC.getSanitizerArgs(Args).needsAsanRt()) {
+      CmdArgs.push_back("-rpath");
+      CmdArgs.push_back(Args.MakeArgString(TC.getCompilerRTPath()));
+    }
     CmdArgs.push_back("-rpath");
     CmdArgs.push_back(Args.MakeArgString(CandidateRPath.c_str()));
+    if (llvm::find_if(CmdArgs, [](StringRef str) {
+          return !str.compare("--enable-new-dtags");
+        }) == CmdArgs.end())
+      CmdArgs.push_back("--disable-new-dtags");
   }
 }
 
@@ -1189,7 +1197,15 @@ void tools::addOpenMPRuntimeLibraryPath(const ToolChain &TC,
   SmallString<256> DefaultLibPath =
       llvm::sys::path::parent_path(TC.getDriver().Dir);
   llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
-  CmdArgs.push_back(Args.MakeArgString("-L" + DefaultLibPath));
+  if (TC.getSanitizerArgs(Args).needsAsanRt()) {
+    SmallString<256> ASanLibPath[2];
+    ASanLibPath[0].assign((DefaultLibPath + "/../../asan").str());
+    ASanLibPath[1].assign((DefaultLibPath + "/asan").str());
+    for (auto Path : ASanLibPath)
+      if (llvm::sys::fs::exists(Path))
+        CmdArgs.push_back(Args.MakeArgString("-L" + Path));
+  } else
+    CmdArgs.push_back(Args.MakeArgString("-L" + DefaultLibPath));
 }
 
 void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
@@ -1303,118 +1319,10 @@ bool tools::addOpenMPRuntime(const Compilation &C, ArgStringList &CmdArgs,
   return true;
 }
 
-/// Determines if --whole-archive is active in the list of arguments.
-static bool isWholeArchivePresent(const ArgList &Args) {
-  bool WholeArchiveActive = false;
-  for (auto *Arg : Args.filtered(options::OPT_Wl_COMMA)) {
-    if (Arg) {
-      for (StringRef ArgValue : Arg->getValues()) {
-        if (ArgValue == "--whole-archive")
-          WholeArchiveActive = true;
-        if (ArgValue == "--no-whole-archive")
-          WholeArchiveActive = false;
-      }
-    }
-  }
-
-  return WholeArchiveActive;
-}
-
-/// Determine if driver is invoked to create a shared object library (-static)
-static bool isSharedLinkage(const ArgList &Args) {
-  return Args.hasArg(options::OPT_shared);
-}
-
-/// Determine if driver is invoked to create a static object library (-shared)
-static bool isStaticLinkage(const ArgList &Args) {
-  return Args.hasArg(options::OPT_static);
-}
-
-/// Add Fortran runtime libs for MSVC
-static void addFortranRuntimeLibsMSVC(const ArgList &Args,
-                                      llvm::opt::ArgStringList &CmdArgs) {
-  unsigned RTOptionID = options::OPT__SLASH_MT;
-  if (auto *rtl = Args.getLastArg(options::OPT_fms_runtime_lib_EQ)) {
-    RTOptionID = llvm::StringSwitch<unsigned>(rtl->getValue())
-                     .Case("static", options::OPT__SLASH_MT)
-                     .Case("static_dbg", options::OPT__SLASH_MTd)
-                     .Case("dll", options::OPT__SLASH_MD)
-                     .Case("dll_dbg", options::OPT__SLASH_MDd)
-                     .Default(options::OPT__SLASH_MT);
-  }
-  switch (RTOptionID) {
-  case options::OPT__SLASH_MT:
-    CmdArgs.push_back("/WHOLEARCHIVE:Fortran_main.static.lib");
-    break;
-  case options::OPT__SLASH_MTd:
-    CmdArgs.push_back("/WHOLEARCHIVE:Fortran_main.static_dbg.lib");
-    break;
-  case options::OPT__SLASH_MD:
-    CmdArgs.push_back("/WHOLEARCHIVE:Fortran_main.dynamic.lib");
-    break;
-  case options::OPT__SLASH_MDd:
-    CmdArgs.push_back("/WHOLEARCHIVE:Fortran_main.dynamic_dbg.lib");
-    break;
-  }
-}
-
-// Add FortranMain runtime lib
-static void addFortranMain(const ToolChain &TC, const ArgList &Args,
-                           llvm::opt::ArgStringList &CmdArgs) {
-  // 0. Shared-library linkage
-  // If we are attempting to link a library, we should not add
-  // -lFortran_main.a to the link line, as the `main` symbol is not
-  // required for a library and should also be provided by one of
-  // the translation units of the code that this shared library
-  // will be linked against eventually.
-  if (isSharedLinkage(Args) || isStaticLinkage(Args)) {
-    return;
-  }
-
-  // 1. MSVC
-  if (TC.getTriple().isKnownWindowsMSVCEnvironment()) {
-    addFortranRuntimeLibsMSVC(Args, CmdArgs);
-    return;
-  }
-
-  // 2. GNU and similar
-  const Driver &D = TC.getDriver();
-  const char *FortranMainLinkFlag = "-lFortran_main";
-
-  // Warn if the user added `-lFortran_main` - this library is an implementation
-  // detail of Flang and should be handled automaticaly by the driver.
-  for (const char *arg : CmdArgs) {
-    if (strncmp(arg, FortranMainLinkFlag, strlen(FortranMainLinkFlag)) == 0)
-      D.Diag(diag::warn_drv_deprecated_custom)
-          << FortranMainLinkFlag
-          << "see the Flang driver documentation for correct usage";
-  }
-
-  // The --whole-archive option needs to be part of the link line to make
-  // sure that the main() function from Fortran_main.a is pulled in by the
-  // linker. However, it shouldn't be used if it's already active.
-  // TODO: Find an equivalent of `--whole-archive` for Darwin and AIX.
-  if (!isWholeArchivePresent(Args) && !TC.getTriple().isMacOSX() &&
-      !TC.getTriple().isOSAIX()) {
-    CmdArgs.push_back("--whole-archive");
-    CmdArgs.push_back(FortranMainLinkFlag);
-    CmdArgs.push_back("--no-whole-archive");
-    return;
-  }
-
-  CmdArgs.push_back(FortranMainLinkFlag);
-}
-
 /// Add Fortran runtime libs
 void tools::addFortranRuntimeLibs(const ToolChain &TC, const ArgList &Args,
                                   llvm::opt::ArgStringList &CmdArgs) {
-  // 1. Link FortranMain
-  // FortranMain depends on FortranRuntime, so needs to be listed first. If
-  // -fno-fortran-main has been passed, skip linking Fortran_main.a
-  if (!Args.hasArg(options::OPT_no_fortran_main))
-    addFortranMain(TC, Args, CmdArgs);
-
-  // 2. Link FortranRuntime and FortranDecimal
+  // Link FortranRuntime and FortranDecimal
   // These are handled earlier on Windows by telling the frontend driver to
   // add the correct libraries to link against as dependents in the object
   // file.

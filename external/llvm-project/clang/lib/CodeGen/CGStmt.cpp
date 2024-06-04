@@ -423,11 +423,13 @@ void CodeGenFunction::EmitXteamLocalAggregator(const ForStmt *FStmt) {
     const Expr *RedVarExpr = Itr->second.RedVarExpr;
     llvm::Type *RedVarType = ConvertTypeForMem(RedVarExpr->getType());
     assert((RedVarType->isFloatTy() || RedVarType->isDoubleTy() ||
+            RedVarType->isHalfTy() || RedVarType->isBFloatTy() ||
             RedVarType->isIntegerTy()) &&
            "Unhandled type");
     llvm::AllocaInst *XteamRedInst = Builder.CreateAlloca(RedVarType);
     llvm::Value *InitVal = nullptr;
-    if (RedVarType->isFloatTy() || RedVarType->isDoubleTy())
+    if (RedVarType->isFloatTy() || RedVarType->isDoubleTy() ||
+        RedVarType->isHalfTy() || RedVarType->isBFloatTy())
       InitVal = llvm::ConstantFP::getZero(RedVarType);
     else if (RedVarType->isIntegerTy())
       InitVal = llvm::ConstantInt::get(RedVarType, 0);
@@ -478,7 +480,7 @@ void CodeGenFunction::EmitXteamRedSum(const ForStmt *FStmt,
 
     const Expr *OrigRedVarExpr = RVI.RedVarExpr;
     const DeclRefExpr *DRE = cast<DeclRefExpr>(OrigRedVarExpr);
-    Address OrigRedVarAddr = EmitLValue(DRE).getAddress(*this);
+    Address OrigRedVarAddr = EmitLValue(DRE).getAddress();
     // Pass in OrigRedVarAddr.getPointer to kmpc_xteam_sum
     RT.getXteamRedSum(*this, Builder.CreateLoad(RVI.RedVarAddr),
                       OrigRedVarAddr.emitRawPointer(*this), DTeamVals, DTeamsDonePtr,
@@ -494,27 +496,13 @@ bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
   if (!isa<BinaryOperator>(S))
     return false;
 
-  auto getRedVarDecl =
-      [](const Expr *E,
-         const CodeGenModule::XteamRedVarMap &RVM) -> const VarDecl * {
-    if (!isa<DeclRefExpr>(E))
-      return nullptr;
-    const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
-    if (!isa<VarDecl>(ValDecl))
-      return nullptr;
-    const VarDecl *VD = cast<VarDecl>(ValDecl);
-    if (RVM.find(VD) == RVM.end())
-      return nullptr;
-    return VD;
-  };
-
   const BinaryOperator *RedBO = cast<BinaryOperator>(S);
   const CodeGenModule::XteamRedVarMap &RedVarMap =
       CGM.getXteamRedVarMap(CGM.getCurrentXteamRedStmt());
 
   // Is a reduction variable the lhs?
   const VarDecl *RedVarDecl =
-      getRedVarDecl(RedBO->getLHS()->IgnoreImpCasts(), RedVarMap);
+      CGM.getXteamRedVarDecl(RedBO->getLHS()->IgnoreImpCasts(), RedVarMap);
   if (RedVarDecl == nullptr)
     return false;
 
@@ -522,16 +510,6 @@ bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
   assert(
       (RedBO->getOpcode() == BO_AddAssign || RedBO->getOpcode() == BO_Assign) &&
       "Unexpected operator during Xteam CodeGen");
-
-  auto isRedVarExpr = [](const Expr *E, const VarDecl *RedVarDecl) {
-    if (!isa<DeclRefExpr>(E))
-      return false;
-    const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
-    if (!isa<VarDecl>(ValDecl))
-      return false;
-    const VarDecl *VD = cast<VarDecl>(ValDecl);
-    return VD == RedVarDecl;
-  };
 
   // Extract the rhs for the reduction.
   const Expr *RedRHSExpr = nullptr;
@@ -547,9 +525,10 @@ bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
     assert(OpcL2BO == BO_Add && "Unexpected operator");
     // If the redvar is lhs, use the rhs in the generated reduction statement
     // and vice-versa.
-    if (isRedVarExpr(L2BO->getLHS()->IgnoreImpCasts(), RedVarDecl))
+    if (CGM.isXteamRedVarExpr(L2BO->getLHS()->IgnoreImpCasts(), RedVarDecl))
       RedRHSExpr = L2BO->getRHS();
-    else if (isRedVarExpr(L2BO->getRHS()->IgnoreImpCasts(), RedVarDecl))
+    else if (CGM.isXteamRedVarExpr(L2BO->getRHS()->IgnoreImpCasts(),
+                                   RedVarDecl))
       RedRHSExpr = L2BO->getLHS();
     else
       llvm_unreachable("Unhandled add expression during xteam reduction");
@@ -560,15 +539,16 @@ bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
   // Compute *xteam_red_local_addr + rhs_value
   llvm::Value *RedRHS = nullptr;
   llvm::Type *RedVarType = ConvertTypeForMem(RedVarDecl->getType());
-  if (RedVarType->isFloatTy() || RedVarType->isDoubleTy()) {
+  if (RedVarType->isFloatTy() || RedVarType->isDoubleTy() ||
+      RedVarType->isHalfTy() || RedVarType->isBFloatTy()) {
     auto RHSOp = RHSValue->getType()->isIntegerTy()
-                     ? Builder.CreateUIToFP(RHSValue, RedVarType)
+                     ? Builder.CreateSIToFP(RHSValue, RedVarType)
                      : Builder.CreateFPCast(RHSValue, RedVarType);
     RedRHS = Builder.CreateFAdd(Builder.CreateLoad(XteamRedLocalAddr), RHSOp);
   } else if (RedVarType->isIntegerTy()) {
     auto RHSOp = RHSValue->getType()->isIntegerTy()
                      ? Builder.CreateIntCast(RHSValue, RedVarType, false)
-                     : Builder.CreateFPToUI(RHSValue, RedVarType);
+                     : Builder.CreateFPToSI(RHSValue, RedVarType);
     RedRHS = Builder.CreateAdd(Builder.CreateLoad(XteamRedLocalAddr), RHSOp);
   } else
     llvm_unreachable("Unhandled type");
@@ -1429,12 +1409,79 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
     incrementProfileCounter(&S);
 }
 
+bool CodeGenFunction::checkIfLoopMustProgress(const Expr *ControllingExpression,
+                                              bool HasEmptyBody) {
+  if (CGM.getCodeGenOpts().getFiniteLoops() ==
+      CodeGenOptions::FiniteLoopsKind::Never)
+    return false;
+
+  // Now apply rules for plain C (see  6.8.5.6 in C11).
+  // Loops with constant conditions do not have to make progress in any C
+  // version.
+  // As an extension, we consisider loops whose constant expression
+  // can be constant-folded.
+  Expr::EvalResult Result;
+  bool CondIsConstInt =
+      !ControllingExpression ||
+      (ControllingExpression->EvaluateAsInt(Result, getContext()) &&
+       Result.Val.isInt());
+
+  bool CondIsTrue = CondIsConstInt && (!ControllingExpression ||
+                                       Result.Val.getInt().getBoolValue());
+
+  // Loops with non-constant conditions must make progress in C11 and later.
+  if (getLangOpts().C11 && !CondIsConstInt)
+    return true;
+
+  // [C++26][intro.progress] (DR)
+  // The implementation may assume that any thread will eventually do one of the
+  // following:
+  // [...]
+  // - continue execution of a trivial infinite loop ([stmt.iter.general]).
+  if (CGM.getCodeGenOpts().getFiniteLoops() ==
+          CodeGenOptions::FiniteLoopsKind::Always ||
+      getLangOpts().CPlusPlus11) {
+    if (HasEmptyBody && CondIsTrue) {
+      CurFn->removeFnAttr(llvm::Attribute::MustProgress);
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+// [C++26][stmt.iter.general] (DR)
+// A trivially empty iteration statement is an iteration statement matching one
+// of the following forms:
+//  - while ( expression ) ;
+//  - while ( expression ) { }
+//  - do ; while ( expression ) ;
+//  - do { } while ( expression ) ;
+//  - for ( init-statement expression(opt); ) ;
+//  - for ( init-statement expression(opt); ) { }
+template <typename LoopStmt> static bool hasEmptyLoopBody(const LoopStmt &S) {
+  if constexpr (std::is_same_v<LoopStmt, ForStmt>) {
+    if (S.getInc())
+      return false;
+  }
+  const Stmt *Body = S.getBody();
+  if (!Body || isa<NullStmt>(Body))
+    return true;
+  if (const CompoundStmt *Compound = dyn_cast<CompoundStmt>(Body))
+    return Compound->body_empty();
+  return false;
+}
+
 void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
                                     ArrayRef<const Attr *> WhileAttrs) {
   // Emit the header for the loop, which will also become
   // the continue target.
   JumpDest LoopHeader = getJumpDestInCurrentScope("while.cond");
   EmitBlock(LoopHeader.getBlock());
+
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.push_back(emitConvergenceLoopToken(
+        LoopHeader.getBlock(), ConvergenceTokenStack.back()));
 
   // Create an exit block for when the condition fails, which will
   // also become the break target.
@@ -1463,13 +1510,12 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   // while(1) is common, avoid extra exit blocks.  Be sure
   // to correctly handle break/continue though.
   llvm::ConstantInt *C = dyn_cast<llvm::ConstantInt>(BoolCondVal);
-  bool CondIsConstInt = C != nullptr;
-  bool EmitBoolCondBranch = !CondIsConstInt || !C->isOne();
+  bool EmitBoolCondBranch = !C || !C->isOne();
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(LoopHeader.getBlock(), CGM.getContext(), CGM.getCodeGenOpts(),
                  WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()),
-                 checkIfLoopMustProgress(CondIsConstInt));
+                 checkIfLoopMustProgress(S.getCond(), hasEmptyLoopBody(S)));
 
   // When single byte coverage mode is enabled, add a counter to loop condition.
   if (llvm::EnableSingleByteCoverage)
@@ -1538,6 +1584,9 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   // block.
   if (llvm::EnableSingleByteCoverage)
     incrementProfileCounter(&S);
+
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.pop_back();
 }
 
 void CodeGenFunction::EmitDoStmt(const DoStmt &S,
@@ -1557,6 +1606,11 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
     EmitBlockWithFallThrough(LoopBody, S.getBody());
   else
     EmitBlockWithFallThrough(LoopBody, &S);
+
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.push_back(
+        emitConvergenceLoopToken(LoopBody, ConvergenceTokenStack.back()));
+
   {
     RunCleanupsScope BodyScope(*this);
     EmitStmt(S.getBody());
@@ -1580,14 +1634,13 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   // "do {} while (0)" is common in macros, avoid extra blocks.  Be sure
   // to correctly handle break/continue though.
   llvm::ConstantInt *C = dyn_cast<llvm::ConstantInt>(BoolCondVal);
-  bool CondIsConstInt = C;
   bool EmitBoolCondBranch = !C || !C->isZero();
 
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(LoopBody, CGM.getContext(), CGM.getCodeGenOpts(), DoAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()),
-                 checkIfLoopMustProgress(CondIsConstInt));
+                 checkIfLoopMustProgress(S.getCond(), hasEmptyLoopBody(S)));
 
   // As long as the condition is true, iterate the loop.
   if (EmitBoolCondBranch) {
@@ -1611,6 +1664,9 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
   // block.
   if (llvm::EnableSingleByteCoverage)
     incrementProfileCounter(&S);
+
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.pop_back();
 }
 
 void CodeGenFunction::EmitForStmt(const ForStmt &S,
@@ -1650,15 +1706,15 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
   llvm::BasicBlock *CondBlock = CondDest.getBlock();
   EmitBlock(CondBlock);
 
-  Expr::EvalResult Result;
-  bool CondIsConstInt =
-      !CondExpr || CondExpr->EvaluateAsInt(Result, getContext());
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.push_back(
+        emitConvergenceLoopToken(CondBlock, ConvergenceTokenStack.back()));
 
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()),
-                 checkIfLoopMustProgress(CondIsConstInt));
+                 checkIfLoopMustProgress(S.getCond(), hasEmptyLoopBody(S)));
 
   // Create a cleanup scope for the condition variable cleanups.
   LexicalScope ConditionScope(*this, S.getSourceRange());
@@ -1778,6 +1834,9 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
   // block.
   if (llvm::EnableSingleByteCoverage)
     incrementProfileCounter(&S);
+
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.pop_back();
 }
 
 void
@@ -1799,6 +1858,10 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   // later.
   llvm::BasicBlock *CondBlock = createBasicBlock("for.cond");
   EmitBlock(CondBlock);
+
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.push_back(
+        emitConvergenceLoopToken(CondBlock, ConvergenceTokenStack.back()));
 
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
@@ -1868,6 +1931,9 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   // block.
   if (llvm::EnableSingleByteCoverage)
     incrementProfileCounter(&S);
+
+  if (CGM.shouldEmitConvergenceTokens())
+    ConvergenceTokenStack.pop_back();
 }
 
 void CodeGenFunction::EmitReturnOfRValue(RValue RV, QualType Ty) {
@@ -2842,13 +2908,12 @@ std::pair<llvm::Value*, llvm::Type *> CodeGenFunction::EmitAsmInputLValue(
         getTargetHooks().isScalarizableAsmOperand(*this, Ty)) {
       Ty = llvm::IntegerType::get(getLLVMContext(), Size);
 
-      return {
-          Builder.CreateLoad(InputValue.getAddress(*this).withElementType(Ty)),
-          nullptr};
+      return {Builder.CreateLoad(InputValue.getAddress().withElementType(Ty)),
+              nullptr};
     }
   }
 
-  Address Addr = InputValue.getAddress(*this);
+  Address Addr = InputValue.getAddress();
   ConstraintStr += '*';
   return {InputValue.getPointer(*this), Addr.getElementType()};
 }
@@ -3044,7 +3109,7 @@ EmitAsmStores(CodeGenFunction &CGF, const AsmStmt &S,
     // ResultTypeRequiresCast.size() elements of RegResults.
     if ((i < ResultTypeRequiresCast.size()) && ResultTypeRequiresCast[i]) {
       unsigned Size = CGF.getContext().getTypeSize(ResultRegQualTys[i]);
-      Address A = Dest.getAddress(CGF).withElementType(ResultRegTypes[i]);
+      Address A = Dest.getAddress().withElementType(ResultRegTypes[i]);
       if (CGF.getTargetHooks().isScalarizableAsmOperand(CGF, TruncTy)) {
         Builder.CreateStore(Tmp, A);
         continue;
@@ -3246,7 +3311,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
             std::max((uint64_t)LargestVectorWidth,
                      VT->getPrimitiveSizeInBits().getKnownMinValue());
     } else {
-      Address DestAddr = Dest.getAddress(*this);
+      Address DestAddr = Dest.getAddress();
       // Matrix types in memory are represented by arrays, but accessed through
       // vector pointers, with the alignment specified on the access operation.
       // For inline assembly, update pointer arguments to use vector pointers.
@@ -3594,7 +3659,7 @@ CodeGenFunction::EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K) {
 
 Address CodeGenFunction::GenerateCapturedStmtArgument(const CapturedStmt &S) {
   LValue CapStruct = InitCapturedStruct(S);
-  return CapStruct.getAddress(*this);
+  return CapStruct.getAddress();
 }
 
 /// Creates the outlined function for a CapturedStmt.
@@ -3656,4 +3721,68 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S) {
   FinishFunction(CD->getBodyRBrace());
 
   return F;
+}
+
+namespace {
+// Returns the first convergence entry/loop/anchor instruction found in |BB|.
+// std::nullptr otherwise.
+llvm::IntrinsicInst *getConvergenceToken(llvm::BasicBlock *BB) {
+  for (auto &I : *BB) {
+    auto *II = dyn_cast<llvm::IntrinsicInst>(&I);
+    if (II && llvm::isConvergenceControlIntrinsic(II->getIntrinsicID()))
+      return II;
+  }
+  return nullptr;
+}
+
+} // namespace
+
+llvm::CallBase *
+CodeGenFunction::addConvergenceControlToken(llvm::CallBase *Input,
+                                            llvm::Value *ParentToken) {
+  llvm::Value *bundleArgs[] = {ParentToken};
+  llvm::OperandBundleDef OB("convergencectrl", bundleArgs);
+  auto Output = llvm::CallBase::addOperandBundle(
+      Input, llvm::LLVMContext::OB_convergencectrl, OB, Input);
+  Input->replaceAllUsesWith(Output);
+  Input->eraseFromParent();
+  return Output;
+}
+
+llvm::IntrinsicInst *
+CodeGenFunction::emitConvergenceLoopToken(llvm::BasicBlock *BB,
+                                          llvm::Value *ParentToken) {
+  CGBuilderTy::InsertPoint IP = Builder.saveIP();
+  if (BB->empty())
+    Builder.SetInsertPoint(BB);
+  else
+    Builder.SetInsertPoint(BB->getFirstInsertionPt());
+
+  llvm::CallBase *CB = Builder.CreateIntrinsic(
+      llvm::Intrinsic::experimental_convergence_loop, {}, {});
+  Builder.restoreIP(IP);
+
+  llvm::CallBase *I = addConvergenceControlToken(CB, ParentToken);
+  return cast<llvm::IntrinsicInst>(I);
+}
+
+llvm::IntrinsicInst *
+CodeGenFunction::getOrEmitConvergenceEntryToken(llvm::Function *F) {
+  llvm::BasicBlock *BB = &F->getEntryBlock();
+  llvm::IntrinsicInst *Token = getConvergenceToken(BB);
+  if (Token)
+    return Token;
+
+  // Adding a convergence token requires the function to be marked as
+  // convergent.
+  F->setConvergent();
+
+  CGBuilderTy::InsertPoint IP = Builder.saveIP();
+  Builder.SetInsertPoint(&BB->front());
+  llvm::CallBase *I = Builder.CreateIntrinsic(
+      llvm::Intrinsic::experimental_convergence_entry, {}, {});
+  assert(isa<llvm::IntrinsicInst>(I));
+  Builder.restoreIP(IP);
+
+  return cast<llvm::IntrinsicInst>(I);
 }

@@ -1356,6 +1356,9 @@ public:
   /// Return true iff the given type uses 'sret' when used as a return type.
   bool ReturnTypeUsesSRet(const CGFunctionInfo &FI);
 
+  /// Return true iff the given type has `inreg` set.
+  bool ReturnTypeHasInReg(const CGFunctionInfo &FI);
+
   /// Return true iff the given type uses an argument slot when 'sret' is used
   /// as a return type.
   bool ReturnSlotInterferesWithArgs(const CGFunctionInfo &FI);
@@ -1912,6 +1915,19 @@ public:
   void setCurrentXteamRedStmt(const Stmt *S) { CurrentXteamRedStmt = S; }
   const Stmt *getCurrentXteamRedStmt() { return CurrentXteamRedStmt; }
 
+  /// Return true if the provided expression accesses a variable in the provided
+  /// map, otherwise return false.
+  bool hasXteamRedVar(const Expr *E, const XteamRedVarMap &RedMap) const;
+
+  /// If present in the provided map, return the reduction variable accessed by
+  /// the provided expression, otherwise return nullptr.
+  const VarDecl *getXteamRedVarDecl(const Expr *E,
+                                    const XteamRedVarMap &RedMap) const;
+
+  /// Return true if the provided expression accesses the provided variable,
+  /// otherwise return false.
+  bool isXteamRedVarExpr(const Expr *E, const VarDecl *VD) const;
+
   /// Move some lazily-emitted states to the NewBuilder. This is especially
   /// essential for the incremental parsing environment like Clang Interpreter,
   /// because we'll lose all important information after each repl.
@@ -1951,6 +1967,14 @@ public:
                      llvm::Constant *AssociatedData = nullptr);
   void AddGlobalDtor(llvm::Function *Dtor, int Priority = 65535,
                      bool IsDtorAttrFunc = false);
+
+  // Return whether structured convergence intrinsics should be generated for
+  // this target.
+  bool shouldEmitConvergenceTokens() const {
+    // TODO: this should probably become unconditional once the controlled
+    // convergence becomes the norm.
+    return getTriple().isSPIRVLogical();
+  }
 
 private:
   llvm::Constant *GetOrCreateLLVMFunction(
