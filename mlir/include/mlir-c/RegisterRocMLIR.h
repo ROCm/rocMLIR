@@ -25,6 +25,9 @@ mlirRegisterRocMLIRDialects(MlirDialectRegistry registry);
 /// Register all compiler passes of rocMLIR.
 MLIR_CAPI_EXPORTED void mlirRegisterRocMLIRPasses(void);
 
+/// Register command-line options read from ROCMLIR_DEBUG_FLAGS.
+MLIR_CAPI_EXPORTED void mlirRegisterRocMLIROptions(void);
+
 #ifdef __cplusplus
 }
 #endif

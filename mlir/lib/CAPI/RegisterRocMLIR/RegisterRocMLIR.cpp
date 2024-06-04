@@ -16,6 +16,12 @@
 #include "llvm/Support/CommandLine.h"
 
 void mlirRegisterRocMLIRDialects(MlirDialectRegistry registry) {
+  mlir::registerRocMLIRDialects(*unwrap(registry));
+}
+
+void mlirRegisterRocMLIRPasses() { mlir::registerRocMLIRPasses(); }
+
+void mlirRegisterRocMLIROptions() {
   const char *fakeArgv[] = {"rocMLIR-invoked-as-library",
                             "--mlir-print-local-scope"};
   mlir::registerAsmPrinterCLOptions();
@@ -24,7 +30,4 @@ void mlirRegisterRocMLIRDialects(MlirDialectRegistry registry) {
   llvm::cl::ParseCommandLineOptions(sizeof(fakeArgv) / sizeof(const char*),
     fakeArgv, "Fake 'command line' for MIGraphX library debugging",
     nullptr, "ROCMLIR_DEBUG_FLAGS");
-  mlir::registerRocMLIRDialects(*unwrap(registry));
 }
-
-void mlirRegisterRocMLIRPasses() { mlir::registerRocMLIRPasses(); }
