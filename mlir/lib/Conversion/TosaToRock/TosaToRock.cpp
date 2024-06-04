@@ -149,17 +149,17 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              int64_t group) {
   Location loc = op->getLoc();
 
-  SmallString<8> filterLayout("kyxc");
+  SmallString<8> filterLayout("k01c");
   if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
     filterLayout = attr.getValue();
   else if (filter.getType().template cast<ShapedType>().getRank() > 4)
     filterLayout = "k012c";
-  SmallString<8> inputLayout("nhwc");
+  SmallString<8> inputLayout("n01c");
   if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
     inputLayout = attr.getValue();
   else if (input.getType().template cast<ShapedType>().getRank() > 4)
     inputLayout = "n012c";
-  SmallString<8> outputLayout("nhwk");
+  SmallString<8> outputLayout("n01k");
   if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
     outputLayout = attr.getValue();
   else if (output.getType().template cast<ShapedType>().getRank() > 4)
