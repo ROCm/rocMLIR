@@ -771,7 +771,7 @@ pipeline {
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.staticLib;
             }
-            agent any
+            agent { label 'build-only' }
             options {
                 skipDefaultCheckout()
             }
