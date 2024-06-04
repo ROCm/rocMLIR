@@ -1130,7 +1130,7 @@ void mlir::tosa::populateTosaToLinalgNamedConversionPatterns(
   }
   patterns->add<
       // clang-format off
-      ConvConverter<tosa::Conv2DOp, linalg::Conv2DNhwgcGfhwcOp, linalg::Conv2DNgchwGfchwQOp>,
+      ConvConverter<tosa::Conv2DOp, linalg::Conv2DNhwgcGfhwcOp, linalg::Conv2DNhwgcGfhwcQOp>,
       ConvConverter<tosa::Conv3DOp, linalg::Conv3DNdhwcDhwcfOp, linalg::Conv3DNdhwcDhwcfQOp>,
       DepthwiseConvConverter,
       MatMulConverter,
