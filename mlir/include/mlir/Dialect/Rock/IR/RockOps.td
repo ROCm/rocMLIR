@@ -71,9 +71,9 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], l
                               Rock_GemmFeaturesAttr:$features,
                               OptionalAttr<I32Attr>:$derivedBlockSize,
                               OptionalAttr<I32Attr>:$gridSize,
-                              IndexArrayLength<4>:$padding,
-                              IndexArrayLength<2>:$strides,
-                              IndexArrayLength<2>:$dilations,
+                              IndexArrayLength<2>:$padding,
+                              IndexArrayLength<1>:$strides,
+                              IndexArrayLength<1>:$dilations,
                               OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
 }

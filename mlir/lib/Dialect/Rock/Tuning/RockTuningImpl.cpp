@@ -787,11 +787,17 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     auto dilationVal =
         extractFromIntegerArrayAttr<int64_t>(convIF.getDilations());
     // padding
-    problemOS << "-p " << paddingVal[0] << " -q " << paddingVal[2] << sep;
+    problemOS << "-p " << paddingVal[0];
+    if (paddingVal.size() > 2) problemOS << " -q " << paddingVal[2];
+    problemOS << sep;
     // stride
-    problemOS << "-u " << strideVal[0] << " -v " << strideVal[1] << sep;
+    problemOS << "-u " << strideVal[0];
+    if (strideVal.size() > 1) problemOS << " -v " << strideVal[1];
+    problemOS << sep;
     // dilation
-    problemOS << "-l " << dilationVal[0] << " -j " << dilationVal[1] << sep;
+    problemOS << "-l " << dilationVal[0];
+    if (dilationVal.size() > 1) problemOS << " -j " << dilationVal[1];
+    problemOS << sep;
     // group
     problemOS << "-g " << inShape[iLayoutMap["gi"]] << sep;
 
