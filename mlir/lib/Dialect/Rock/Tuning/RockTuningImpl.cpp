@@ -257,9 +257,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                splitKFactor, forceUnroll, true);
                     if (gemmMPerBlock >= gemmMPerWave &&
                         gemmNPerBlock >= gemmMnPerXdl) {
-                      if (kind == TuningParamSetKind::Exhaustive ||
-                          (succeeded(tuningInfo.paramsProbablyValid(
-                               b, info, gemmParams)) &&
+                      if (succeeded(tuningInfo.paramsProbablyValid(
+                              b, info, gemmParams)) &&
+                          (kind == TuningParamSetKind::Exhaustive ||
                            succeeded(
                                tuningInfo.couldBePerformant(info, gemmParams))))
                         newSpace->tuningRange.push_back(
