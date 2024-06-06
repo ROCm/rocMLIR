@@ -536,6 +536,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   int64_t blockSize = obtainBlockSize(waveSize, param);
+  if (blockSize > maxHardwareWorkgroupSize)
+    return failure();
   // TBD: support fp16/bf16
 
   // clang-format off
@@ -790,6 +792,8 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
 
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   int64_t blockSize = obtainBlockSize(waveSize, param);
+  if (blockSize > maxHardwareWorkgroupSize)
+    return failure();
 
   // clang-format off
   std::vector<std::tuple<int, int, int>> validWaveGemmSize =
