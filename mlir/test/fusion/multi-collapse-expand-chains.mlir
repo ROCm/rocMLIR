@@ -17,7 +17,7 @@ module {
     %2 = rock.transform %arg2 by #transform_map0 : memref<4x3x3x3xf32> to memref<4x3x3x3x1xf32>
     %3 = rock.transform %0 by #transform_map1 : memref<4x4x1x1xf32> to memref<4x4x1x1x1xf32>
     rock.conv(%2, %1, %3) features =  mfma|dot|atomic_add {arch = "gfx908:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["k", "c", "0", "1", "g"], input_layout = ["ni", "ci", "0i", "1i", "gi"], output_layout = ["no", "ko", "0o", "1o", "go"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<4x3x3x3x1xf32>, memref<4x3x3x3x1xf32>, memref<4x4x1x1x1xf32>
-    %4 = memref.expand_shape %0 [[0], [1, 2], [3], [4]] : memref<4x4x1x1xf32> into memref<4x1x4x1x1xf32>
+    %4 = memref.expand_shape %0 [[0], [1, 2], [3], [4]] output_shape [4, 1, 4, 1, 1] : memref<4x4x1x1xf32> into memref<4x1x4x1x1xf32>
     %5 = memref.collapse_shape %4 [[0, 1], [2, 3, 4]] : memref<4x1x4x1x1xf32> into memref<4x4xf32>
     %6 = memref.collapse_shape %arg0 [[0, 1, 2, 3]] : memref<1x4x1x1xf32> into memref<4xf32>
     %77 = memref.alloc() : memref<4x4xf32>
@@ -28,7 +28,7 @@ module {
       %11 = arith.maximumf %10, %cst : f32
       linalg.yield %11 : f32
     }
-    %7 = memref.expand_shape %77 [[0, 1], [2, 3, 4]] : memref<4x4xf32> into memref<4x1x4x1x1xf32>
+    %7 = memref.expand_shape %77 [[0, 1], [2, 3, 4]] output_shape [4, 1, 4, 1, 1] : memref<4x4xf32> into memref<4x1x4x1x1xf32>
     %8 = memref.collapse_shape %7 [[0], [1, 2], [3], [4]] : memref<4x1x4x1x1xf32> into memref<4x4x1x1xf32>
     memref.copy %8, %arg3 : memref<4x4x1x1xf32> to memref<4x4x1x1xf32>
     return

@@ -1072,8 +1072,18 @@ static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
   auto oneDType = MemRefType::get({1}, type.getElementType(), nullptr,
                                   type.getMemorySpace());
   ArrayAttr expansions = b.getArrayAttr({});
+  SmallVector<ReassociationIndices, 4> reassociation;
+  for (Attribute attr : expansions) {
+    ArrayAttr arrayAttrElem = cast<ArrayAttr>(attr);
+    ReassociationIndices indices;
+    for (Attribute indexAttr : arrayAttrElem) {
+      indices.push_back(cast<IntegerAttr>(indexAttr).getInt());
+    }
+    reassociation.push_back(indices);
+  }
+  ArrayRef<ReassociationIndices> reassociationRef = reassociation;
   return b.createOrFold<memref::ExpandShapeOp>(memref.getLoc(), oneDType,
-                                               memref, expansions);
+                                               memref, reassociationRef);
 }
 
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {

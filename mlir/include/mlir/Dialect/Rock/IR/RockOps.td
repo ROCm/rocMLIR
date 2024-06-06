@@ -535,7 +535,7 @@ def Rock_LDSBarrierOp:
 
 def Rock_WorkgroupIdOp:
     Rock_Op<"workgroup_id", [Pure,
-      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+      DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workgroup ID";
   let description = [{
@@ -546,7 +546,7 @@ def Rock_WorkgroupIdOp:
 
 def Rock_WorkitemIdOp:
     Rock_Op<"workitem_id", [Pure,
-      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+      DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workitem ID";
   let description = [{

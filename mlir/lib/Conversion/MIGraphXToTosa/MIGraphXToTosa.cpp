@@ -767,7 +767,7 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
   auto inBTensor = cast<TypedValue<RankedTensorType>>(adaptor.getInB());
   Type elementType = inATensor.getType().getElementType();
   if (isa<IntegerType>(elementType)) {
-    Value div = createOpAndInfer<tosa::DivOp>(rewriter, loc, elementType,
+    Value div = createOpAndInfer<tosa::IntDivOp>(rewriter, loc, elementType,
                                               inATensor, inBTensor);
     rewriter.replaceOp(op, div);
     return success();

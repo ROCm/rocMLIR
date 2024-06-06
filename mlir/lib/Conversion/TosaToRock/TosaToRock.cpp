@@ -670,7 +670,7 @@ struct CollapseExpandRewritePattern
   using OpRewritePattern<tensor::ExpandShapeOp>::OpRewritePattern;
 
   bool checkExpand(tensor::ExpandShapeOp expOp) const {
-    auto srcSh = expOp.getOperand().getType().cast<ShapedType>().getShape();
+    auto srcSh = expOp.getOperand(0).getType().cast<ShapedType>().getShape();
     auto resSh = expOp.getResultType().cast<ShapedType>().getShape();
     // [[0, 1, 2], [3]]
     // NC -> NHWC
@@ -696,8 +696,7 @@ struct CollapseExpandRewritePattern
   LogicalResult matchAndRewrite(tensor::ExpandShapeOp expOp,
                                 PatternRewriter &b) const final {
     LogicalResult lres = failure();
-
-    Value expInp = expOp.getOperand();
+    Value expInp = expOp.getOperand(0);
     Value expOut = expOp.getResult();
 
     if (!checkExpand(expOp))
