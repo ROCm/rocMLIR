@@ -1760,6 +1760,14 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ThreadwiseGemmOpv2
+//===----------------------------------------------------------------------===//
+LogicalResult ThreadwiseGemmOpv2::verify() {
+  //TO-DO
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseAccelGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseAccelGemmOp::verify() {

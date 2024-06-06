@@ -25,6 +25,7 @@
 #ifndef MLIR_LIB_DIALECT_ROCK_TRANSFORMS_MLIR_ACCEL_EMITTER_H
 #define MLIR_LIB_DIALECT_ROCK_TRANSFORMS_MLIR_ACCEL_EMITTER_H
 
+#include "mlir/Dialect/Rock/IR/FmaInsnGroup.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -86,7 +87,7 @@ struct AccelEmitter {
   /// Select the right accelerator based on the set of features and architecture
   static std::unique_ptr<AccelEmitter>
   select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
-         RockAccelTuningParamAttrInterface tuningParams);
+         RockTuningParamAttrInterface tuningParams);
 
   /// Emit the actual intrinsic in the threadwise operation
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
@@ -150,15 +151,15 @@ struct AccelEmitter {
 
   virtual ~AccelEmitter() {}
 
-  enum AccelEmitterKind { AEK_MFMAEmitter, AEK_WMMAEmitter };
+  enum AccelEmitterKind { AEK_MFMAEmitter, AEK_WMMAEmitter, AEK_FMAEmitter};
 
   AccelEmitterKind getKind() const { return kind; }
 
 protected:
-  AccelEmitter(StringRef arch, RockAccelTuningParamAttrInterface tuningParams,
+  AccelEmitter(StringRef arch, RockTuningParamAttrInterface tuningParams,
                AccelEmitterParams accelEmitterParams, AccelEmitterKind kind);
 
-  RockAccelTuningParamAttrInterface tuningParams;
+  RockTuningParamAttrInterface tuningParams;
   AccelEmitterParams accelEmitterParams;
   int64_t waveSize;
 
@@ -170,7 +171,7 @@ private:
 struct MfmaEmitter : public AccelEmitter {
 
   MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
-              RockAccelTuningParamAttrInterface tuningParams);
+              RockTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
@@ -208,7 +209,7 @@ private:
   /// Initialize the emitter parameters for mfma
   AccelEmitterParams
   initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
-                         RockAccelTuningParamAttrInterface tuningParams);
+                         RockTuningParamAttrInterface tuningParams);
 
   MfmaInsnGroup mfmaGroup;
 };
@@ -217,7 +218,7 @@ private:
 struct WmmaEmitter : public AccelEmitter {
 
   WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
-              RockAccelTuningParamAttrInterface tuningParams);
+              RockTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
@@ -249,10 +250,49 @@ private:
   /// Initialize the emitter parameters for wmma
   AccelEmitterParams
   initAccelEmitterParams(WmmaInsn wmmaInsn,
-                         RockAccelTuningParamAttrInterface tuningParams);
+                         RockTuningParamAttrInterface tuningParams);
 
   // Specifc wmma parameters
   WmmaInsn wmmaInsn;
+};
+
+// Accel emitter implementation for fma
+
+struct FmaEmitter : public AccelEmitter {
+
+  FmaEmitter(FmaInsn fmaInsn, StringRef arch,
+             RockTuningParamAttrInterface tuningParams);
+
+  void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
+                          Value bufferC, ValueRange regCOffset) override;
+
+ virtual Value
+  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                       int64_t blockSize, int64_t dInCopyPerThread,
+                       StringRef dName, bool rotateDWithK,
+                       bool doSplitKAcrossThreadsFirst = false) const override;
+
+ virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(
+      OpBuilder &b, Location loc, int64_t kIters,
+      ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      bool rotateDWithK,
+      bool doSplitKAcrossThreadsFirst = false) const override;
+
+ RegsAsMatrixSubTiles computeOutputTransforms(
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+      int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
+      bool doSwapThreadIterSubDimsForN = false) override;
+
+private: 
+  // Initialize the emitter parameters for fma 
+  AccelEmitterParams
+  initAccelEmitterParams(FmaInsn fmaInsn,
+                         RockTuningParamAttrInterface tuningParams);
+
+  // Specific fma parameters
+  FmaInsn fmaInsn;
 };
 } // namespace accel
 } // namespace rock

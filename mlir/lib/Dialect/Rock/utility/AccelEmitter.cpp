@@ -23,6 +23,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -38,7 +39,7 @@ using namespace mlir::rock::accel;
 // ************************
 
 AccelEmitter::AccelEmitter(StringRef arch,
-                           RockAccelTuningParamAttrInterface tuningParams,
+                           RockTuningParamAttrInterface tuningParams,
                            AccelEmitterParams accelEmitterParams,
                            AccelEmitterKind kind)
     : tuningParams(tuningParams), accelEmitterParams(accelEmitterParams),
@@ -131,26 +132,109 @@ Value AccelEmitter::generateThreadwiseViewBufferC(PatternRewriter &b,
 }
 
 // **************************
+// Fma accelerator interface
+// **************************
+
+FmaEmitter::FmaEmitter(FmaInsn fmaInsn, StringRef arch,
+                        RockTuningParamAttrInterface tuningParams)
+    : AccelEmitter{arch, tuningParams,
+                   initAccelEmitterParams(fmaInsn, tuningParams), AccelEmitterKind::AEK_FMAEmitter},
+      fmaInsn(fmaInsn) {}
+
+AccelEmitterParams FmaEmitter::initAccelEmitterParams(
+    FmaInsn fmaInsn, RockTuningParamAttrInterface rawTuningParams) {
+    AccelEmitterParams params;
+
+    auto tuningParams = rawTuningParams.dyn_cast<GeneralGemmParamsAttr>();
+   
+    params.argTypeA = fmaInsn.argTypeA;  
+    params.argTypeB = fmaInsn.argTypeB;  
+
+    //TO-DO
+
+    return params;
+}
+
+void FmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
+                          Value bufferC, ValueRange regCOffset){
+
+      Type dataType = fmaInsn.argTypeA;
+
+      int64_t loadKpackLen = 1;
+      auto abType = VectorType::get(loadKpackLen, dataType);
+
+      Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);    
+      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, regCOffset);
+      Value aVector = b.create<vector::SplatOp>(loc, abType, argA);
+      Value bVector = b.create<vector::SplatOp>(loc, abType, argB);
+      Value cVector = b.create<vector::SplatOp>(loc, abType, cVal);    
+
+      Value result;
+      if (dataType.isa<IntegerType>()) {
+        Value mul = b.create<MulIOp>(loc, aVector, bVector);
+        result = b.create<AddIOp>(loc, mul, cVector);
+        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+      } else if (dataType.isa<FloatType>()) {
+        result = b.create<vector::FMAOp>(loc, aVector, bVector, cVector);
+        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+      } else {
+        llvm_unreachable("Validation should make this ints or floats only");
+      }
+
+      b.create<InBoundsStoreOp>(loc, result, bufferC, regCOffset);
+}
+
+Value FmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
+                                        Value buffer, int64_t blockSize,
+                                        int64_t dInCopyPerThread,
+                                        StringRef dName, bool rotateDWithK,
+                                        bool doSplitKAcrossThreadsFirst) const {
+                                          
+  //TO-DO
+}
+
+RegsAsMatrixSubTiles FmaEmitter::createAccelGemmOperandTransforms(
+    OpBuilder &b, Location loc, int64_t kIters,
+    ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
+    int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+    bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
+    
+  //TO-DO
+    }
+
+RegsAsMatrixSubTiles FmaEmitter::computeOutputTransforms(
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+      int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
+      bool doSwapThreadIterSubDimsForN){
+
+  //TO-DO
+}
+
+
+// **************************
 // Mfma accelerator interface
 // **************************
 
 MfmaEmitter::MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
-                         RockAccelTuningParamAttrInterface tuningParams)
+                         RockTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
                    initAccelEmitterParams(mfmaGroup, tuningParams),
                    AccelEmitterKind::AEK_MFMAEmitter},
       mfmaGroup{mfmaGroup} {}
 
 AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
-    MfmaInsnGroup mfmaGroup, RockAccelTuningParamAttrInterface tuningParams) {
+    MfmaInsnGroup mfmaGroup, RockTuningParamAttrInterface tuningParams) {
   AccelEmitterParams params;
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
   // Extract relevant tuning parameters
-  int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
-  int64_t kPack = tuningParams.getKpack();
+  XdlopsGemmDerivedParamsAttr mfmaParams =
+        tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
+  int64_t kpackPerBlock = mfmaParams.getKpackPerBlock();
+  int64_t mPerWave = mfmaParams.getMPerWave();
+  int64_t nPerWave = mfmaParams.getNPerWave();
+  int64_t kPack = mfmaParams.getKpack();
   int64_t K = kpackPerBlock * kPack;
 
   // Accelerator parameters
@@ -247,10 +331,12 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
     bool doSwapThreadIterSubDimsForN) {
 
   // Extract relevant tuning parameters
-  int64_t mPerBlock = tuningParams.getMPerBlock();
-  int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  XdlopsGemmDerivedParamsAttr mfmaParams =
+        tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
+  int64_t mPerBlock = mfmaParams.getMPerBlock();
+  int64_t nPerBlock = mfmaParams.getNPerBlock();
+  int64_t mPerWave = mfmaParams.getMPerWave();
+  int64_t nPerWave = mfmaParams.getNPerWave();
 
   // Extract relevant emitter parameters
   int64_t mRepeats = accelEmitterParams.mRepeats;
@@ -492,12 +578,14 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
 
   // Extract relevant tuning parameters
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
-  int64_t kPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerBlock = tuningParams.getMPerBlock();
-  int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t kPack = tuningParams.getKpack();
+  XdlopsGemmDerivedParamsAttr mfmaParams =
+        tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
+  int64_t mPerWave = mfmaParams.getMPerWave();
+  int64_t nPerWave = mfmaParams.getNPerWave();
+  int64_t kPerBlock = mfmaParams.getKpackPerBlock();
+  int64_t mPerBlock = mfmaParams.getMPerBlock();
+  int64_t nPerBlock = mfmaParams.getNPerBlock();
+  int64_t kPack = mfmaParams.getKpack();
 
   // Extract relevant emitter parameters
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
@@ -639,12 +727,14 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       dName == "m" ? bidGridLengths[1] : bidGridLengths[2];
 
   // Extract relevant tuning parameters
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
-  int64_t kPackPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerBlock = tuningParams.getMPerBlock();
-  int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t kPack = tuningParams.getKpack();
+  XdlopsGemmDerivedParamsAttr mfmaParams =
+        tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
+  int64_t mPerWave = mfmaParams.getMPerWave();
+  int64_t nPerWave = mfmaParams.getNPerWave();
+  int64_t kPackPerBlock = mfmaParams.getKpackPerBlock();
+  int64_t mPerBlock = mfmaParams.getMPerBlock();
+  int64_t nPerBlock = mfmaParams.getNPerBlock();
+  int64_t kPack = mfmaParams.getKpack();
 
   // Extract relevant emitter parameters
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
@@ -922,19 +1012,20 @@ LogicalResult MfmaEmitter::validateAcceleratorProperties() {
 // **************************
 
 WmmaEmitter::WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
-                         RockAccelTuningParamAttrInterface tuningParams)
+                         RockTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
                    initAccelEmitterParams(wmmaInsn, tuningParams),
                    AccelEmitterKind::AEK_WMMAEmitter},
       wmmaInsn(wmmaInsn) {}
 
 AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
-    WmmaInsn wmmaInsn, RockAccelTuningParamAttrInterface tuningParams) {
+    WmmaInsn wmmaInsn, RockTuningParamAttrInterface tuningParams) {
   AccelEmitterParams params;
 
   // Extract relevant tuning parameters
-  int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
-  int64_t kPack = tuningParams.getKpack();
+  WmmaGemmParamsAttr wmmaParams = tuningParams.cast<WmmaGemmParamsAttr>();
+  int64_t kpackPerBlock = wmmaParams.getKpackPerBlock();
+  int64_t kPack = wmmaParams.getKpack();
 
   params.mRepeats = wmmaInsn.mRepeats;
   params.nRepeats = wmmaInsn.nRepeats;
@@ -959,12 +1050,13 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         bool doSplitKAcrossThreadsFirst) const {
 
   // Extract relevant tuning parameters
-  int64_t mPerBlock = tuningParams.getMPerBlock();
-  int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t kPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
-  int64_t kPack = tuningParams.getKpack();
+  WmmaGemmParamsAttr wmmaParams = tuningParams.cast<WmmaGemmParamsAttr>();
+  int64_t mPerBlock = wmmaParams.getMPerBlock();
+  int64_t nPerBlock = wmmaParams.getNPerBlock();
+  int64_t kPerBlock = wmmaParams.getKpackPerBlock();
+  int64_t mPerWave = wmmaParams.getMPerWave();
+  int64_t nPerWave = wmmaParams.getNPerWave();
+  int64_t kPack = wmmaParams.getKpack();
 
   // Extract relevant emitter parameters
   int64_t inputLen = wmmaInsn.inputLen;
@@ -1051,12 +1143,13 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       dName == "m" ? bidGridLengths[1] : bidGridLengths[2];
 
   // Extract relevant tuning parameters
-  int64_t mPerBlock = tuningParams.getMPerBlock();
-  int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t kPackPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
-  int64_t kPack = tuningParams.getKpack();
+  WmmaGemmParamsAttr wmmaParams = tuningParams.cast<WmmaGemmParamsAttr>();
+  int64_t mPerBlock = wmmaParams.getMPerBlock();
+  int64_t nPerBlock = wmmaParams.getNPerBlock();
+  int64_t kPackPerBlock = wmmaParams.getKpackPerBlock();
+  int64_t mPerWave = wmmaParams.getMPerWave();
+  int64_t nPerWave = wmmaParams.getNPerWave();
+  int64_t kPack = wmmaParams.getKpack();
 
   // Extract relevant emitter parameters
   int64_t inputLen = wmmaInsn.inputLen;
@@ -1305,10 +1398,11 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
     bool doSwapThreadIterSubDimsForN) {
 
   // Extract relevant tuning parameters
-  int64_t mPerBlock = tuningParams.getMPerBlock();
-  int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  WmmaGemmParamsAttr wmmaParams = tuningParams.cast<WmmaGemmParamsAttr>();
+  int64_t mPerBlock = wmmaParams.getMPerBlock();
+  int64_t nPerBlock = wmmaParams.getNPerBlock();
+  int64_t mPerWave = wmmaParams.getMPerWave();
+  int64_t nPerWave = wmmaParams.getNPerWave();
 
   // Extract relevant emitter parameters
   int64_t mRepeats = accelEmitterParams.mRepeats;
@@ -1471,7 +1565,7 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
 std::unique_ptr<AccelEmitter>
 AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
                      StringRef arch,
-                     RockAccelTuningParamAttrInterface tuningParams) {
+                     RockTuningParamAttrInterface tuningParams) {
   bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
   if (isMfma) {
@@ -1486,15 +1580,21 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
                                          tuningParams);
   } else if (isWmma) {
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
+    WmmaGemmParamsAttr wmmaParams = tuningParams.cast<WmmaGemmParamsAttr>();
     auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
-                                               tuningParams.getMPerWave(),
-                                               tuningParams.getNPerWave());
+                                               wmmaParams.getMPerWave(),
+                                               wmmaParams.getNPerWave());
     if (failed(maybeWmmaInsnGroup)) {
       return nullptr;
     }
     return std::make_unique<WmmaEmitter>(*maybeWmmaInsnGroup, arch,
                                          tuningParams);
   } else {
-    return nullptr;
+      auto fmaTuningParams = tuningParams.cast<GeneralGemmParamsAttr>();
+      auto maybeFmaInsnGroup = FmaInsn::select(dataTypeA, dataTypeB, arch);
+      if (failed(maybeFmaInsnGroup)) {
+        return nullptr;
+      }
+      return std::make_unique<FmaEmitter>(*maybeFmaInsnGroup, arch, tuningParams);
   }
 }
