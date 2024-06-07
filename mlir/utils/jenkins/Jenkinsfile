@@ -492,19 +492,19 @@ pipeline {
                             equals expected: true, actual: params.sharedLib;
                         }
                         steps {
-                            script {
-                                if ( "${CODEPATH}" == 'navi3x' ) {
-                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                                        retry (count: 2, conditions: [agent(), nonresumable()]) {
+                            retry (count: 2, conditions: [agent(), nonresumable()]) {
+                                script {
+                                    if ( "${CODEPATH}" == 'navi3x' ) {
+                                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                             check_RockE2ETests_Navi3x(true)
                                         }
                                     }
-                                }
-                                else {
-                                    build_fixedE2ETests("${CODEPATH}")
-                                    preMergeCheck("${CODEPATH}")
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        sh 'cd build; ninja check-mlir check-rocmlir'
+                                    else {
+                                        build_fixedE2ETests("${CODEPATH}")
+                                        preMergeCheck("${CODEPATH}")
+                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                            sh 'cd build; ninja check-mlir check-rocmlir'
+                                        }
                                     }
                                 }
                             }
@@ -519,16 +519,16 @@ pipeline {
                             }
                         }
                         steps {
-                            script {
-                                if ( "${CODEPATH}" == 'navi3x') {
-                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                                        retry (count: 2, conditions: [agent(), nonresumable()]) {
+                            retry (count: 2, conditions: [agent(), nonresumable()]) {
+                                script {
+                                    if ( "${CODEPATH}" == 'navi3x') {
+                                        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                             check_RockE2ETests_Navi3x(false)
                                         }
                                     }
+                                    else
+                                        check_randomE2ETests("${CODEPATH}")
                                 }
-                                else
-                                    check_randomE2ETests("${CODEPATH}")
                             }
                         }
                     }
@@ -539,32 +539,34 @@ pipeline {
                             equals expected: false, actual: params.nightly;
                         }
                         steps {
-                            buildProject('ci-performance-scripts', '')
-                            dir('build') {
-                                sh """rm -rf ${WORKSPACE}/MITuna
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    // Tune gemms, fail if the DB is not created
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
-                                          [ -f tuning_gemm.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
-                                          [ -f tuning_conv.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
-                                          [ -f tuning_attention.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
-                                          [ -f quick_tuning_gemm.tsv ]"""
-                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
-                                          [ -f quick_tuning_conv.tsv ]"""
+                            retry (count: 2, conditions: [agent(), nonresumable()]) {
+                                buildProject('ci-performance-scripts', '')
+                                dir('build') {
+                                    sh """rm -rf ${WORKSPACE}/MITuna
+                                          git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
+                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                        // Tune gemms, fail if the DB is not created
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                              [ -f tuning_gemm.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                              [ -f tuning_conv.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                              [ -f tuning_attention.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                              [ -f quick_tuning_gemm.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                              [ -f quick_tuning_conv.tsv ]"""
+                                    }
                                 }
                             }
                         }
@@ -576,12 +578,14 @@ pipeline {
                             equals expected: false, actual: params.nightly;
                         }
                         steps {
-                            sh 'rm -f build/CMakeCache.txt'
-                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                            preMergeCheckPackage("${CODEPATH}")
-                            echo "Running tests on the newly-built static library"
-                            dir ('build') {
-                                sh 'ninja check-rocmlir'
+                            retry (count: 2, conditions: [agent(), nonresumable()]) {
+                                sh 'rm -f build/CMakeCache.txt'
+                                buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                preMergeCheckPackage("${CODEPATH}")
+                                echo "Running tests on the newly-built static library"
+                                dir ('build') {
+                                    sh 'ninja check-rocmlir'
+                                }
                             }
                         }
                     }
@@ -1085,36 +1089,33 @@ pipeline {
                             // Build with profiling on, and just code-generation tests.
                             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE',
                                        message: 'Code coverage stage had an error or timeout.') {
-                                retry (count: 2, conditions: [agent(), nonresumable()]) {
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        sh 'rm -f build/CMakeCache.txt'
-                                        sh 'rm -f build/*.profraw'
-                                        buildProject('check-rocmlir-build-only',
-                                                     '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
-                                        dir ('build') {
-                                            // Run tests.
-                                            sh 'ninja check-rocmlir'
-                                            // Profile processing.
-                                            // +++pf: using -10 until we get rocm-llvm-dev into Dockerfile.
-                                            sh 'llvm-profdata-10 merge -sparse ./*.profraw -o ./coverage.profdata'
-                                            sh "llvm-cov-10 report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
-                                            sh "cat ./coverage_${CPATH}.report"
-                                            sh "llvm-cov-10 export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
-                                            sh "llvm-cov-10 show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt-10 --format=html > ./coverage_${CPATH}.html"
-                                            // Upload to codecov.
-                                            withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
-                                                sh '''
-                                                   curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                   proxy_opt=""
-                                                   if [ -n "${http_proxy}" ]; then
-                                                       proxy_opt="-U ${http_proxy}"
-                                                   fi
-                                                   ./codecov -t ${CODECOV_TOKEN} --flags "${CPATH}" -f ./coverage_${CPATH}.lcov ${proxy_opt}
-                                                   '''
-                                            }
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    sh 'rm -f build/CMakeCache.txt'
+                                    sh 'rm -f build/*.profraw'
+                                    buildProject('check-rocmlir-build-only',
+                                                 '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                    dir ('build') {
+                                        // Run tests.
+                                        sh 'ninja check-rocmlir'
+                                        // Profile processing.
+                                        sh 'llvm-profdata merge -sparse ./*.profraw -o ./coverage.profdata'
+                                        sh "llvm-cov report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
+                                        sh "cat ./coverage_${CPATH}.report"
+                                        sh "llvm-cov export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
+                                        sh "llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
+                                        // Upload to codecov.
+                                        withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
+                                            sh '''
+                                               curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                               proxy_opt=""
+                                               if [ -n "${http_proxy}" ]; then
+                                                   proxy_opt="-U ${http_proxy}"
+                                               fi
+                                               ./codecov -t ${CODECOV_TOKEN} --flags "${CPATH}" -f ./coverage_${CPATH}.lcov ${proxy_opt}
+                                               '''
                                         }
-                                        archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                     }
+                                    archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                 }
                             }
                         }
