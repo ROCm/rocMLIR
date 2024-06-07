@@ -116,12 +116,12 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
                                                     GemmSize gemmSize) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
-  if (auto generalParams = params.dyn_cast<GeneralGemmParamsAttr>()) {
+  if (auto generalParams = dyn_cast<GeneralGemmParamsAttr>(params)) {
     kPerBlock = generalParams.getKPerBlock();
     mPerBlock = generalParams.getMPerBlock();
     nPerBlock = generalParams.getNPerBlock();
   } else if (auto accelParams =
-                 params.dyn_cast<RockAccelTuningParamAttrInterface>()) {
+                 dyn_cast<RockAccelTuningParamAttrInterface>(params)) {
     kPerBlock = accelParams.getKpackPerBlock();
     mPerBlock = accelParams.getMPerBlock();
     nPerBlock = accelParams.getNPerBlock();
@@ -186,8 +186,8 @@ PopulateParams::populateDerived(const InitParamsNonAccel &params) {
   LogicalResult res = calculateBlockGemmPerformanceParameters(params);
 
   if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
-                            << " size.\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Incoherent blockGemm tuning parameter " << " size.\n");
     return failure();
   }
 
@@ -321,7 +321,7 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
                                          const InitParamsAccel &params) {
   Attribute params0 = getGemmParamsAttr(b, params);
   RockAccelTuningParamAttrInterface accelParams0;
-  if (auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()) {
+  if (auto xdlopsParams0 = dyn_cast<XdlopsGemmParamsAttr>(params0)) {
     int64_t mWaves = params.gemmMPerBlock / params.gemmMPerWave;
     if (mWaves > maxWavesPerWG) {
       return failure();
@@ -329,7 +329,7 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
     auto xdlopsDerivedParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
     accelParams0 = xdlopsDerivedParams0;
   } else {
-    accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
+    accelParams0 = cast<RockAccelTuningParamAttrInterface>(params0);
   }
   return isValidBlockwiseGemm(accelParams0, info.gemmAType, info.gemmBType,
                               info.arch, false, false);
@@ -555,7 +555,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   // clang-format on
 
   XdlopsGemmDerivedParamsAttr xdlopsDerivedParams =
-      param.cast<XdlopsGemmDerivedParamsAttr>();
+      cast<XdlopsGemmDerivedParamsAttr>(param);
   if (xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getMPerWave() ||
       xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getNPerWave()) {
     LLVM_DEBUG(llvm::dbgs()
@@ -630,13 +630,13 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
-  if (param.cast<RockTuningParamAttrInterface>().getForceUnroll() == false) {
+  if (cast<RockTuningParamAttrInterface>(param).getForceUnroll() == false) {
     return failure();
   }
 
   // Reject invalid KPACK values.
   int64_t mnPerXdl = std::min(param.getMPerWave(), param.getNPerWave());
-  if (auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>()) {
+  if (auto derivedParam = cast<XdlopsGemmDerivedParamsAttr>(param)) {
     mnPerXdl = derivedParam.getMnPerXdl();
   }
   auto maybeMfmaInsnGroup =

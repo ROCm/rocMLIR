@@ -117,7 +117,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
       [](Value value, Attribute memorySpace,
          const bufferization::BufferizationOptions &options) {
         return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            value.getType().cast<TensorType>(), memorySpace);
+            cast<TensorType>(value.getType()), memorySpace);
       };
   // bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));

@@ -196,7 +196,7 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
     if (!attr) {
       return failure();
     }
-    size = attr.template dyn_cast<IntegerAttr>().getInt();
+    size = dyn_cast<IntegerAttr>(attr).getInt();
     return success();
   };
 

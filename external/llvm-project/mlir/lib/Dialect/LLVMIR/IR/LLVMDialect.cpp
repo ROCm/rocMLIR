@@ -3336,13 +3336,13 @@ Value mlir::LLVM::createGlobalString(Location loc, OpBuilder &builder,
   if (!global) {
     OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
     global = moduleBuilder.create<LLVM::GlobalOp>(
-       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
-       builder.getStringAttr(value), /*alignment=*/0);
+        loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+        builder.getStringAttr(value), /*alignment=*/0);
   } else {
     // Test for same value
     auto globalVal = global.getValue();
     assert(globalVal.has_value());
-    StringAttr globalStr = globalVal.value().dyn_cast_or_null<StringAttr>();
+    StringAttr globalStr = dyn_cast_or_null<StringAttr>(globalVal.value());
     assert(globalStr && globalStr.getValue() == value);
   }
 

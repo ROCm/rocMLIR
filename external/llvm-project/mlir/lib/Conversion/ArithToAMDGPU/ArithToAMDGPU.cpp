@@ -265,7 +265,7 @@ void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
 LogicalResult TruncfToFloat16RewritePattern::match(arith::TruncFOp op) const {
   Type outType = op.getOut().getType();
   Type inputType = getElementTypeOrSelf(op.getIn());
-  if (auto outVecType = outType.dyn_cast<VectorType>()) {
+  if (auto outVecType = dyn_cast<VectorType>(outType)) {
     if (outVecType.isScalable())
       return failure();
     if (outVecType.getShape().size() > 1)
@@ -284,7 +284,7 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
   VectorType truncResType = VectorType::get(2, outElemType);
 
   // Handle the case where input type is not a vector type
-  if (!in.getType().isa<VectorType>()) {
+  if (!isa<VectorType>(in.getType())) {
     auto sourceB = rewriter.create<LLVM::PoisonOp>(loc, rewriter.getF32Type());
     Value asF16s =
         rewriter.create<ROCDL::CvtPkRtz>(loc, truncResType, in, sourceB);
@@ -292,7 +292,7 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
         loc, asF16s, rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0));
     return rewriter.replaceOp(op, result);
   }
-  VectorType outType = op.getOut().getType().cast<VectorType>();
+  VectorType outType = cast<VectorType>(op.getOut().getType());
   int64_t numElements = outType.getNumElements();
   Value zero = rewriter.createOrFold<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));

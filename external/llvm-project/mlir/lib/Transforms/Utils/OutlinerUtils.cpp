@@ -39,17 +39,17 @@ using namespace mlir;
 #define DEBUG_TYPE "outliner-utility"
 
 static bool isZeroAttribute(Attribute value) {
-  if (auto intValue = value.dyn_cast<IntegerAttr>())
+  if (auto intValue = dyn_cast<IntegerAttr>(value))
     return intValue.getValue().isZero();
-  if (auto fpValue = value.dyn_cast<FloatAttr>())
+  if (auto fpValue = dyn_cast<FloatAttr>(value))
     return fpValue.getValue().isZero();
-  if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
+  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
     return isZeroAttribute(splatValue.getSplatValue<Attribute>());
-  if (auto elementsValue = value.dyn_cast<DenseResourceElementsAttr>())
+  if (auto elementsValue = dyn_cast<DenseResourceElementsAttr>(value))
     return false;
-  if (auto elementsValue = value.dyn_cast<ElementsAttr>())
+  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
     return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
-  if (auto arrayValue = value.dyn_cast<ArrayAttr>())
+  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
     return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
   return false;
 }
@@ -273,9 +273,9 @@ public:
         b.getNamedAttr(func::FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
     auto getAccessAttrs = [&](Type t,
                               bool inputs) -> std::optional<DictionaryAttr> {
-      if (t.isa<VectorType, RankedTensorType, UnrankedTensorType>())
+      if (isa<VectorType, RankedTensorType, UnrankedTensorType>(t))
         return b.getDictionaryAttr({inputs ? readAttr : writeAttr});
-      if (t.isa<MemRefType>())
+      if (isa<MemRefType>(t))
         return b.getDictionaryAttr({readAttr, writeAttr});
       return {};
     };
@@ -329,7 +329,7 @@ public:
         b.create<func::CallOp>(fusedLoc, outlinedFunc, _inputs.getArrayRef());
 
     for (auto it : llvm::zip(_results, callOp->getResults())) {
-      const_cast<Value&>(std::get<0>(it)).replaceAllUsesWith(std::get<1>(it));
+      const_cast<Value &>(std::get<0>(it)).replaceAllUsesWith(std::get<1>(it));
     }
   }
 

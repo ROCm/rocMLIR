@@ -52,12 +52,12 @@ static LogicalResult testVectorizationInference(func::FuncOp f) {
     Value input = op->getOperand(0);
     if (!isa<ShapedType>(input.getType()))
       return op->emitOpError("Expected shaped type input");
-    auto inDim = op->getAttr("in_dim").dyn_cast_or_null<IntegerAttr>();
+    auto inDim = dyn_cast_or_null<IntegerAttr>(op->getAttr("in_dim"));
     if (!inDim)
       return op->emitOpError("Expected integer attribute `in_dim`");
     std::optional<int64_t> inDimLen = std::nullopt;
     auto maxLenOverride =
-        op->getAttr("in_dim_len").dyn_cast_or_null<IntegerAttr>();
+        dyn_cast_or_null<IntegerAttr>(op->getAttr("in_dim_len"));
     if (maxLenOverride)
       inDimLen = maxLenOverride.getInt();
     Operation *operationRootForFusionTraversal = nullptr;

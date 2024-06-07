@@ -390,7 +390,7 @@ void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
   OpBuilder b(attnOp.getContext());
   GemmFeatures currentFeatures = attnOp.getFeatures();
   Type elemType =
-      attnOp.getQueries().getType().cast<ShapedType>().getElementType();
+      cast<ShapedType>(attnOp.getQueries().getType()).getElementType();
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
                      int64_t>
@@ -660,24 +660,21 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     llvm::StringMap<unsigned> oLayoutMap;
 
     for (unsigned i = 0; i < size; ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
       StringRef fKey = filterAttr.getValue();
       if (fKey == "y")
         fKey = "0";
       if (fKey == "x")
         fKey = "1";
       fLayoutMap[fKey] = i;
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
       StringRef iKey = inputAttr.getValue();
       if (iKey == "hi")
         iKey = "0i";
       if (iKey == "wi")
         iKey = "1i";
       iLayoutMap[iKey] = i;
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
       StringRef oKey = outputAttr.getValue();
       if (oKey == "ho")
         oKey = "0o";
@@ -824,7 +821,7 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 
     // OUtput datatype
     auto outType = gemmIF.getOutArgument()->get().getType();
-    auto elemTypeC = outType.dyn_cast<mlir::MemRefType>().getElementType();
+    auto elemTypeC = dyn_cast<mlir::MemRefType>(outType).getElementType();
     problemOS << " -out_datatype ";
     if (elemTypeC.isFloat8E4M3FNUZ()) {
       problemOS << "fp8" << sep;
