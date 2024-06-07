@@ -457,7 +457,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                              Value tOutput,
                                              ArrayRef<int32_t> dims,
                                              Value tInput) const {
-    for (auto &use : tOutput.getUses()) {
+    for (auto &use : llvm::make_early_inc_range(tOutput.getUses())) {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
             op.getReassociationIndices();
