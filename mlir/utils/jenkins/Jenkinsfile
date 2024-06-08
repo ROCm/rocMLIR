@@ -539,11 +539,17 @@ pipeline {
                             equals expected: false, actual: params.nightly;
                         }
                         steps {
-                            retry (count: 2, conditions: [agent(), nonresumable()]) {
-                                buildProject('ci-performance-scripts', '')
-                                dir('build') {
-                                    sh """rm -rf ${WORKSPACE}/MITuna
-                                          git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
+                            // +++pf: Unclear if https://issues.jenkins.io/browse/JENKINS-51454 is fixed
+                            // in installed version of workflow-basic-steps plugin.  It seems that it
+                            // should be, but I swear I saw a timeout not retry.  May need try/catch
+                            // workaround.  See also
+                            // https://stackoverflow.com/questions/59561757/retry-after-timeout-in-jenkins-pipeline-workarounds
+                            // And should retry be around all the steps or just the timeout?
+                            buildProject('ci-performance-scripts', '')
+                            dir('build') {
+                                sh """rm -rf ${WORKSPACE}/MITuna
+                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
+                                retry (count: 2, conditions: [agent(), nonresumable()]) {
                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
                                         // Tune gemms, fail if the DB is not created
                                         sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
