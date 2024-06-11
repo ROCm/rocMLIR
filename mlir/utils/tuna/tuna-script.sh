@@ -3,6 +3,7 @@
 # For installing mysql 8.0 for testing, or for running with an isolated database.
 function mysql_setup_generic
 {
+    echo mysql_setup_generic
     # Note that all this happens without privileges.
     export PATH=$PATH:/usr/mysql/bin
     mysqld --initialize-insecure --datadir=/tmp/mysql-data
@@ -15,6 +16,7 @@ function mysql_setup_generic
 
 function tuna_setup
 {
+    echo tuna_setup
 #     rm -rf /tmp/MITuna
 #     git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git /tmp/MITuna
 
@@ -29,6 +31,7 @@ function tuna_setup
 
 function clear_tables
 {
+    echo clear_tables
     tablekind=$1
 
     if [ "$tablekind" = "convolution" ]; then
@@ -44,6 +47,7 @@ function clear_tables
 
 function tuna_run
 {
+    echo tuna_run
     kind=$1
     space=$2
     baselabel=$(date --iso-8601=minutes)
@@ -123,14 +127,17 @@ export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 # If no mysqld running, assume it and Tuna need to be set up.
 # Otherwise, assume the usual setup.
 if ! pgrep mysqld ; then
+    echo no mysqld
     mysql_setup_generic
     tuna_setup
 else
+    echo yes mysqld
     PATH=$PATH:/usr/mysql/bin
     TUNA_DB_HOSTNAME=localhost
 fi
 
 if [ "$VIRTUAL_ENV" = "" ]; then
+    echo no virtualenv
     source /tuna-venv/bin/activate
 fi
 
