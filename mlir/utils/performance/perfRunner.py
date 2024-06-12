@@ -133,11 +133,22 @@ def getNanoSeconds(fileName):
         return np.nan
     with open(fileName, 'r') as csv_file:
         reader = csv.DictReader(csv_file, delimiter = ',')
-
         result = 0
         for row in reader:
             result += int(row['AverageNs'])
-        csv_file.close()
+        return result
+
+def getNanoSecondsV2(fileName):
+    if not os.path.exists(fileName):
+        return np.nan
+    with open(fileName, 'r') as csv_file:
+        reader = csv.DictReader(csv_file, delimiter = ',')
+        result = 0
+        for row in reader:
+            # Could also include CopyHostToDevice and CopyDeviceToHost ops if
+            # we want.  And what's a Marker operation?
+            if (row['Domain'] == 'HIP_OPS_DOMAIN' and row['Operation'] == 'KernelExecution'):
+                result += int(row['Stop_Timestamp']) - int(row['Start_Timestamp'])
         return result
 
 def getMetricArgsForRocprof(arch):
