@@ -1562,15 +1562,6 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FMAXIMUM, MVT::f32, Legal);
     setOperationAction(ISD::FMINIMUM, MVT::f16, Legal);
     setOperationAction(ISD::FMAXIMUM, MVT::f16, Legal);
-<<<<<<< HEAD
-    if (Subtarget->useNEONForSinglePrecisionFP()) {
-      setOperationAction(ISD::FMINIMUM, MVT::f32, Legal);
-      setOperationAction(ISD::FMAXIMUM, MVT::f32, Legal);
-      setOperationAction(ISD::FMINIMUM, MVT::f16, Legal);
-      setOperationAction(ISD::FMAXIMUM, MVT::f16, Legal);
-    }
-=======
->>>>>>> 1230b472cce0803154df35ae92b334ff8537e721
     setOperationAction(ISD::FMINIMUM, MVT::v2f32, Legal);
     setOperationAction(ISD::FMAXIMUM, MVT::v2f32, Legal);
     setOperationAction(ISD::FMINIMUM, MVT::v4f32, Legal);

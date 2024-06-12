@@ -393,7 +393,6 @@ def LLVM_LoadOp : LLVM_MemAccessOpBase<"load",
      # setSyncScopeCode
      # setAlignmentCode
      # setNonTemporalMetadataCode
-     # setInvariantLoadMetedataCode
      # setAccessGroupsMetadataCode
      # setAliasAnalysisMetadataCode;
   string mlirBuilder = [{

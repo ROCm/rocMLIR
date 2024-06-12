@@ -118,8 +118,9 @@ def ConvertAMDGPUToROCDL : Pass<"convert-amdgpu-to-rocdl"> {
 def ArithToAMDGPUConversionPass : Pass<"convert-arith-to-amdgpu"> {
   let summary = "Convert Arith operations to AMDGPU-specific implementations";
   let description = [{
-    Convert `arith` operations to operations in the `amdgpu` dialect. This pass is
-    done in two steps in order to avoid running a notional arith-to-rocdl and arith-to-llvm
+    Convert `arith` operations (currently extf and truncf on 8-bit floats)
+    to operations in the `amdgpu` dialect. This pass is done in two steps
+    in order to avoid running a notional arith-to-rocdl and arith-to-llvm
     simultaniously.
   }];
 
@@ -131,7 +132,7 @@ def ArithToAMDGPUConversionPass : Pass<"convert-arith-to-amdgpu"> {
                         "Chipset that these operations will run on">,
     Option<"saturateFP8Truncf", "saturate-fp8-truncf", "bool",
            /*default=*/"false",
-           "Whether truncation to 8-bit float types should be saturating">,
+           "Use saturating truncation for 8-bit float types">,
     Option<"allowPackedF16Rtz", "allow-packed-f16-round-to-zero", "bool",
            /*default=*/"false",
            "Whether we should allow f32->f16 packed round-to-zero conversion">,
@@ -845,13 +846,8 @@ def ConvertMemRefToSPIRV : Pass<"convert-memref-to-spirv"> {
 def ConvertNVVMToLLVMPass : Pass<"convert-nvvm-to-llvm"> {
   let summary = "Convert NVVM to PTX with Inline Assembly in LLVM dialect";
   let description = [{
-<<<<<<< HEAD
-    This pass generates PTX instructions using inline assembly for NVVM
-    operations implements `BasicPtxBuilderInterface`.
-=======
     This pass generates inline assembly for the NVVM ops which is not
     implemented in LLVM core.
->>>>>>> origin/develop
   }];
   let dependentDialects = [
     "NVVM::NVVMDialect",

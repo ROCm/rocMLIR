@@ -632,7 +632,7 @@ def GPU_LaunchFuncOp :GPU_Op<"launch_func", [
       "KernelDim3":$blockSize, "Value":$dynamicSharedMemorySize,
       "ValueRange":$kernelOperands,
       CArg<"Value", "nullptr">:$asyncObject,
-      CArg<"std::optional<KernelDim3>", "std::nullopt">:$clusterSize)>,
+      CArg<"std::optional<KernelDim3>", "std::nullopt">:$clusterSize)>
   ];
 
   let extraClassDeclaration = [{
