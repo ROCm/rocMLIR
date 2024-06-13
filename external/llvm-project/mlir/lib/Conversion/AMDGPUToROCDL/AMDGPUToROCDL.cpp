@@ -102,8 +102,6 @@ struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
       if (wantedVecType.getElementType().isBF16())
         llvmBufferValType = wantedVecType.clone(rewriter.getI16Type());
     if (atomicCmpData) {
-      if (isa<VectorType>(wantedDataType))
-        return gpuOp.emitOpError("vector compare-and-swap does not exist");
       if (auto floatType = dyn_cast<FloatType>(wantedDataType))
         llvmBufferValType = this->getTypeConverter()->convertType(
             rewriter.getIntegerType(floatType.getWidth()));
@@ -844,25 +842,43 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
     // Convert the source operand to the corresponding LLVM type
     Location loc = DppOp.getLoc();
     Value src = adaptor.getSrc();
+    Value old = adaptor.getOld();
     Type srcType = src.getType();
-    auto llvmI32Type = typeConverter->convertType(rewriter.getI32Type());
+    Type oldType = old.getType();
+    Type llvmType = nullptr;
+    if (srcType.getIntOrFloatBitWidth() < 32) {
+      llvmType = rewriter.getI32Type();
+    } else if (isa<FloatType>(srcType)) {
+      llvmType = (srcType.getIntOrFloatBitWidth() == 32)
+                     ? rewriter.getF32Type()
+                     : rewriter.getF64Type();
+    } else if (isa<IntegerType>(srcType)) {
+      llvmType = (srcType.getIntOrFloatBitWidth() == 32)
+                     ? rewriter.getI32Type()
+                     : rewriter.getI64Type();
+    }
     auto llvmSrcIntType = typeConverter->convertType(
         rewriter.getIntegerType(srcType.getIntOrFloatBitWidth()));
 
-    // If the source type is less or equal to i32 or f32, use bitcast to convert
-    // it to i32.
-    if (llvm::isa<FloatType>(srcType)) {
-      src = rewriter.create<LLVM::BitcastOp>(loc, llvmSrcIntType, src);
-    }
+    // If the source type is less of 32, use bitcast to convert it to i32.
+    auto convertOperand = [&](Value operand, Type operandType) {
+      if (operandType.getIntOrFloatBitWidth() <= 16) {
+        if (llvm::isa<FloatType>(operandType)) {
+          operand =
+              rewriter.create<LLVM::BitcastOp>(loc, llvmSrcIntType, operand);
+        }
+        auto llvmVecType = typeConverter->convertType(mlir::VectorType::get(
+            32 / operandType.getIntOrFloatBitWidth(), llvmSrcIntType));
+        Value undefVec = rewriter.create<LLVM::UndefOp>(loc, llvmVecType);
+        operand = rewriter.create<LLVM::InsertElementOp>(
+            loc, undefVec, operand, createI32Constant(rewriter, loc, 0));
+        operand = rewriter.create<LLVM::BitcastOp>(loc, llvmType, operand);
+      }
+      return operand;
+    };
 
-    if (srcType.getIntOrFloatBitWidth() < 32) {
-      auto llvmVecType = typeConverter->convertType(mlir::VectorType::get(
-          32 / srcType.getIntOrFloatBitWidth(), llvmSrcIntType));
-      Value undefVec = rewriter.create<LLVM::UndefOp>(loc, llvmVecType);
-      src = rewriter.create<LLVM::InsertElementOp>(
-          loc, undefVec, src, createI32Constant(rewriter, loc, 0));
-      src = rewriter.create<LLVM::BitcastOp>(loc, llvmI32Type, src);
-    }
+    src = convertOperand(src, srcType);
+    old = convertOperand(old, oldType);
 
     // This is taken from the following file llvm/lib/Target/AMDGPU/SIDefines.h
     enum DppCtrl : unsigned {
@@ -938,27 +954,20 @@ struct AMDGPUDPPLowering : public ConvertOpToLLVMPattern<DPPOp> {
 
     // Check for row_mask, bank_mask, bound_ctrl if they exist and create
     // constants
-    auto rowMask = DppOp->getAttrOfType<IntegerAttr>("row_mask")
-                       .dyn_cast<IntegerAttr>()
-                       .getInt();
-    auto bankMask = DppOp->getAttrOfType<IntegerAttr>("bank_mask")
-                        .dyn_cast<IntegerAttr>()
-                        .getInt();
-    bool boundCtrl = DppOp->getAttrOfType<IntegerAttr>("bound_ctrl")
-                         .dyn_cast<BoolAttr>()
-                         .getValue();
+    auto rowMask = DppOp->getAttrOfType<IntegerAttr>("row_mask").getInt();
+    auto bankMask = DppOp->getAttrOfType<IntegerAttr>("bank_mask").getInt();
+    bool boundCtrl = DppOp->getAttrOfType<BoolAttr>("bound_ctrl").getValue();
 
     // create a ROCDL_DPPMovOp instruction with the appropriate attributes
-    auto dppMovOp = rewriter.create<ROCDL::DPPMovOp>(
-        loc, llvmI32Type, src, DppCtrl, rowMask, bankMask, boundCtrl);
+    auto dppMovOp = rewriter.create<ROCDL::DPPUpdateOp>(
+        loc, llvmType, old, src, DppCtrl, rowMask, bankMask, boundCtrl);
 
     Value result = dppMovOp.getRes();
     if (srcType.getIntOrFloatBitWidth() < 32) {
       result = rewriter.create<LLVM::TruncOp>(loc, llvmSrcIntType, result);
-    }
-
-    if (!llvm::isa<IntegerType>(srcType)) {
-      result = rewriter.create<LLVM::BitcastOp>(loc, srcType, result);
+      if (!llvm::isa<IntegerType>(srcType)) {
+        result = rewriter.create<LLVM::BitcastOp>(loc, srcType, result);
+      }
     }
 
     // We are replacing the AMDGPU_DPPOp instruction with the new

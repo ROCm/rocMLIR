@@ -197,6 +197,22 @@ TransformMapAttr transformExtractSlice(OpBuilder &b, Location loc,
                                        ArrayRef<int64_t> offsets,
                                        ArrayRef<int64_t> sizes);
 
+/// Restore the logical shapes of the arguments to `func`, which were flattened
+/// to 1-D memrefs to improve indexing performance. The logical types in
+/// question are given in `logicalTypes`. `builder` should be placed at the
+/// front of `func`, and its insertion point will be updated after the function
+/// returns. The names of the logical dimensions for each argument will be taken
+/// from `names`, and the corresponding values will be placed in `expandedArgs`.
+///
+/// This is done to improve indexing performance, especially in cases where
+/// buffer loads are used, so that, for example, we don't have to mask all the
+/// non-final coordinates to 0 before feeding the index into the N-D row-major
+/// indexing map that's implicit with `memref`.
+void expandFlatFunctionArguments(OpBuilder &b, func::FuncOp func,
+                                 ArrayRef<SmallVector<StringRef>> names,
+                                 TypeRange logicalTypes,
+                                 SmallVectorImpl<Value> &expanded);
+
 // If the condition is satified, rotate the dimension `d` by `k` using
 // `d = (d+k*stride) % len(d)`
 rock::TopDownTMBuilder
