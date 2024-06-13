@@ -149,11 +149,12 @@ APValue Pointer::toAPValue() const {
   Pointer Ptr = *this;
   while (Ptr.isField() || Ptr.isArrayElement()) {
     if (Ptr.isArrayRoot()) {
-        Path.push_back(APValue::LValuePathEntry::ArrayIndex(0));
-        Ptr = Ptr.getBase();
+      Path.push_back(APValue::LValuePathEntry::ArrayIndex(0));
+      Ptr = Ptr.getBase();
     } else if (Ptr.isArrayElement()) {
       if (Ptr.isOnePastEnd())
-        Path.push_back(APValue::LValuePathEntry::ArrayIndex(Ptr.getArray().getNumElems()));
+        Path.push_back(
+            APValue::LValuePathEntry::ArrayIndex(Ptr.getArray().getNumElems()));
       else
         Path.push_back(APValue::LValuePathEntry::ArrayIndex(Ptr.getIndex()));
       Ptr = Ptr.getArray();
@@ -178,7 +179,8 @@ APValue Pointer::toAPValue() const {
   // Just invert the order of the elements.
   std::reverse(Path.begin(), Path.end());
 
-  return APValue(Base, Offset, Path, /*IsOnePastEnd=*/false, /*IsNullPtr=*/false);
+  return APValue(Base, Offset, Path, /*IsOnePastEnd=*/false,
+                 /*IsNullPtr=*/false);
 }
 
 void Pointer::print(llvm::raw_ostream &OS) const {

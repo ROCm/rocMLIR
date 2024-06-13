@@ -36,7 +36,7 @@ public:
 
   /// An identifier was deserialized from the AST file.
   virtual void IdentifierRead(serialization::IdentifierID ID,
-                              IdentifierInfo *II) { }
+                              IdentifierInfo *II) {}
   /// A macro was read from the AST file.
   virtual void MacroRead(serialization::MacroID ID, MacroInfo *MI) { }
   /// A type was deserialized from the AST file. The ID here has the

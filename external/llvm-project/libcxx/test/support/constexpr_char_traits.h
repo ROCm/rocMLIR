@@ -124,20 +124,20 @@ constexpr_char_traits<CharT>::find(const char_type* s, std::size_t n, const char
 
 template <class CharT>
 TEST_CONSTEXPR_CXX14 CharT* constexpr_char_traits<CharT>::move(char_type* s1, const char_type* s2, std::size_t n) {
-  if (s1 == s2)
-    return s1;
+    if (s1 == s2)
+        return s1;
 
-  char_type* r = s1;
-  if (is_pointer_in_range(s1, s1 + n, s2)) {
-    for (; n; --n)
-      assign(*s1++, *s2++);
-  } else {
-    s1 += n;
-    s2 += n;
-    for (; n; --n)
-      assign(*--s1, *--s2);
-  }
-  return r;
+    char_type* r = s1;
+    if (is_pointer_in_range(s1, s1 + n, s2)) {
+        for (; n; --n)
+            assign(*s1++, *s2++);
+    } else {
+        s1 += n;
+        s2 += n;
+        for (; n; --n)
+            assign(*--s1, *--s2);
+    }
+    return r;
 }
 
 template <class CharT>

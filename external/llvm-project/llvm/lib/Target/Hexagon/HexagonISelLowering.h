@@ -35,37 +35,37 @@ enum NodeType : unsigned {
   OP_BEGIN = ISD::BUILTIN_OP_END,
 
   CONST32 = OP_BEGIN,
-  CONST32_GP,  // For marking data present in GP.
-  ADDC,        // Add with carry: (X, Y, Cin) -> (X+Y, Cout).
-  SUBC,        // Sub with carry: (X, Y, Cin) -> (X+~Y+Cin, Cout).
+  CONST32_GP, // For marking data present in GP.
+  ADDC,       // Add with carry: (X, Y, Cin) -> (X+Y, Cout).
+  SUBC,       // Sub with carry: (X, Y, Cin) -> (X+~Y+Cin, Cout).
   ALLOCA,
 
-  AT_GOT,      // Index in GOT.
-  AT_PCREL,    // Offset relative to PC.
+  AT_GOT,   // Index in GOT.
+  AT_PCREL, // Offset relative to PC.
 
-  CALL,        // Function call.
-  CALLnr,      // Function call that does not return.
+  CALL,   // Function call.
+  CALLnr, // Function call that does not return.
   CALLR,
 
-  RET_GLUE,    // Return with a glue operand.
-  BARRIER,     // Memory barrier.
-  JT,          // Jump table.
-  CP,          // Constant pool.
+  RET_GLUE, // Return with a glue operand.
+  BARRIER,  // Memory barrier.
+  JT,       // Jump table.
+  CP,       // Constant pool.
 
   COMBINE,
-  VASL,        // Vector shifts by a scalar value
+  VASL, // Vector shifts by a scalar value
   VASR,
   VLSR,
-  MFSHL,       // Funnel shifts with the shift amount guaranteed to be
-  MFSHR,       // within the range of the bit width of the element.
+  MFSHL, // Funnel shifts with the shift amount guaranteed to be
+  MFSHR, // within the range of the bit width of the element.
 
-  SSAT,        // Signed saturate.
-  USAT,        // Unsigned saturate.
-  SMUL_LOHI,   // Same as ISD::SMUL_LOHI, but opaque to the combiner.
-  UMUL_LOHI,   // Same as ISD::UMUL_LOHI, but opaque to the combiner.
-               // We want to legalize MULH[SU] to [SU]MUL_LOHI, but the
-               // combiner will keep rewriting it back to MULH[SU].
-  USMUL_LOHI,  // Like SMUL_LOHI, but unsigned*signed.
+  SSAT,       // Signed saturate.
+  USAT,       // Unsigned saturate.
+  SMUL_LOHI,  // Same as ISD::SMUL_LOHI, but opaque to the combiner.
+  UMUL_LOHI,  // Same as ISD::UMUL_LOHI, but opaque to the combiner.
+              // We want to legalize MULH[SU] to [SU]MUL_LOHI, but the
+              // combiner will keep rewriting it back to MULH[SU].
+  USMUL_LOHI, // Like SMUL_LOHI, but unsigned*signed.
 
   TSTBIT,
   INSERT,
@@ -80,13 +80,13 @@ enum NodeType : unsigned {
   READTIMER,
   PTRUE,
   PFALSE,
-  D2P,         // Convert 8-byte value to 8-bit predicate register. [*]
-  P2D,         // Convert 8-bit predicate register to 8-byte value. [*]
-  V2Q,         // Convert HVX vector to a vector predicate reg. [*]
-  Q2V,         // Convert vector predicate to an HVX vector. [*]
-               // [*] The equivalence is defined as "Q <=> (V != 0)",
-               //     where the != operation compares bytes.
-               // Note: V != 0 is implemented as V >u 0.
+  D2P, // Convert 8-byte value to 8-bit predicate register. [*]
+  P2D, // Convert 8-bit predicate register to 8-byte value. [*]
+  V2Q, // Convert HVX vector to a vector predicate reg. [*]
+  Q2V, // Convert vector predicate to an HVX vector. [*]
+       // [*] The equivalence is defined as "Q <=> (V != 0)",
+       //     where the != operation compares bytes.
+       // Note: V != 0 is implemented as V >u 0.
   QCAT,
   QTRUE,
   QFALSE,
@@ -108,15 +108,15 @@ enum NodeType : unsigned {
                // are called again after everything else is legal, giving
                // us the opportunity to undo the wrapping.
 
-  TYPECAST,    // No-op that's used to convert between different legal
-               // types in a register.
-  VALIGN,      // Align two vectors (in Op0, Op1) to one that would have
-               // been loaded from address in Op2.
-  VALIGNADDR,  // Align vector address: Op0 & -Op1, except when it is
-               // an address in a vector load, then it's a no-op.
-  ISEL,        // Marker for nodes that were created during ISel, and
-               // which need explicit selection (would have been left
-               // unselected otherwise).
+  TYPECAST,   // No-op that's used to convert between different legal
+              // types in a register.
+  VALIGN,     // Align two vectors (in Op0, Op1) to one that would have
+              // been loaded from address in Op2.
+  VALIGNADDR, // Align vector address: Op0 & -Op1, except when it is
+              // an address in a vector load, then it's a no-op.
+  ISEL,       // Marker for nodes that were created during ISel, and
+              // which need explicit selection (would have been left
+              // unselected otherwise).
   OP_END
 };
 

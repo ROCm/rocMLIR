@@ -107,9 +107,13 @@ void DAGTypeLegalizer::PromoteIntegerResult(SDNode *N, unsigned ResNo) {
   case ISD::SIGN_EXTEND_INREG:
                          Res = PromoteIntRes_SIGN_EXTEND_INREG(N); break;
   case ISD::SRA:
-  case ISD::VP_SRA:      Res = PromoteIntRes_SRA(N); break;
+  case ISD::VP_SRA:
+                         Res = PromoteIntRes_SRA(N);
+                         break;
   case ISD::SRL:
-  case ISD::VP_SRL:      Res = PromoteIntRes_SRL(N); break;
+  case ISD::VP_SRL:
+                         Res = PromoteIntRes_SRL(N);
+                         break;
   case ISD::VP_TRUNCATE:
   case ISD::TRUNCATE:    Res = PromoteIntRes_TRUNCATE(N); break;
   case ISD::UNDEF:       Res = PromoteIntRes_UNDEF(N); break;

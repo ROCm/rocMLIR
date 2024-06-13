@@ -277,7 +277,8 @@ private:
   std::vector<serialization::UnalignedUInt64> TypeOffsets;
 
   /// The first ID number we can use for our own identifiers.
-  serialization::IdentifierID FirstIdentID = serialization::NUM_PREDEF_IDENT_IDS;
+  serialization::IdentifierID FirstIdentID =
+      serialization::NUM_PREDEF_IDENT_IDS;
 
   /// The identifier ID that will be assigned to the next new identifier.
   serialization::IdentifierID NextIdentID = FirstIdentID;
@@ -288,7 +289,8 @@ private:
   /// The ID numbers for identifiers are consecutive (in order of
   /// discovery), starting at 1. An ID of zero refers to a NULL
   /// IdentifierInfo.
-  llvm::MapVector<const IdentifierInfo *, serialization::IdentifierID> IdentifierIDs;
+  llvm::MapVector<const IdentifierInfo *, serialization::IdentifierID>
+      IdentifierIDs;
 
   /// The first ID number we can use for our own macros.
   serialization::MacroID FirstMacroID = serialization::NUM_PREDEF_MACRO_IDS;
@@ -853,7 +855,8 @@ public:
 private:
   // ASTDeserializationListener implementation
   void ReaderInitialized(ASTReader *Reader) override;
-  void IdentifierRead(serialization::IdentifierID ID, IdentifierInfo *II) override;
+  void IdentifierRead(serialization::IdentifierID ID,
+                      IdentifierInfo *II) override;
   void MacroRead(serialization::MacroID ID, MacroInfo *MI) override;
   void TypeRead(serialization::TypeIdx Idx, QualType T) override;
   void SelectorRead(serialization::SelectorID ID, Selector Sel) override;

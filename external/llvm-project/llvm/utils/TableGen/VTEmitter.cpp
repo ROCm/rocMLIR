@@ -72,7 +72,7 @@ void VTEmitter::run(raw_ostream &OS) {
     bool IsFP = VT->getValueAsBit("isFP");
     bool IsVector = VT->getValueAsBit("isVector");
     bool IsScalable = VT->getValueAsBit("isScalable");
-    bool IsNormalValueType =  VT->getValueAsBit("isNormalValueType");
+    bool IsNormalValueType = VT->getValueAsBit("isNormalValueType");
 
     UpdateVTRange("INTEGER_FIXEDLEN_VECTOR_VALUETYPE", Name,
                   IsInteger && IsVector && !IsScalable);

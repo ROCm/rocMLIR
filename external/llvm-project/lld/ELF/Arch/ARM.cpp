@@ -244,7 +244,8 @@ void ARM::writePltHeader(uint8_t *buf) const {
     // `pc` in the add instruction and 8 bytes for the `lr` adjustment.
     //
     uint64_t offset = in.gotPlt->getVA() - in.plt->getVA() - 16;
-    assert(llvm::isUInt<32>(offset) && "This should always fit into a 32-bit offset");
+    assert(llvm::isUInt<32>(offset) &&
+           "This should always fit into a 32-bit offset");
     write16(buf + 0, 0xb500);
     // Split into two halves to support endianness correctly.
     write16(buf + 2, 0xf8df);
@@ -255,7 +256,7 @@ void ARM::writePltHeader(uint8_t *buf) const {
     write16(buf + 10, 0xff08);
     write32(buf + 12, offset);
 
-    memcpy(buf + 16, trapInstr.data(), 4);  // Pad to 32-byte boundary
+    memcpy(buf + 16, trapInstr.data(), 4); // Pad to 32-byte boundary
     memcpy(buf + 20, trapInstr.data(), 4);
     memcpy(buf + 24, trapInstr.data(), 4);
     memcpy(buf + 28, trapInstr.data(), 4);
@@ -339,7 +340,8 @@ void ARM::writePlt(uint8_t *buf, const Symbol &sym,
     memcpy(buf + 12, trapInstr.data(), 4); // Pad to 16-byte boundary
   } else {
     uint64_t offset = sym.getGotPltVA() - pltEntryAddr - 12;
-    assert(llvm::isUInt<32>(offset) && "This should always fit into a 32-bit offset");
+    assert(llvm::isUInt<32>(offset) &&
+           "This should always fit into a 32-bit offset");
 
     // A PLT entry will be:
     //
@@ -359,10 +361,10 @@ void ARM::writePlt(uint8_t *buf, const Symbol &sym,
     write16(buf + 6, 0x0c00); // use `ip`
     relocateNoSym(buf + 4, R_ARM_THM_MOVT_ABS, offset);
 
-    write16(buf + 8, 0x44fc);       // add ip, pc
-    write16(buf + 10, 0xf8dc);      // ldr.w   pc, [ip] (bottom half)
-    write16(buf + 12, 0xf000);      // ldr.w   pc, [ip] (upper half)
-    write16(buf + 14, 0xe7fc);      // Branch to previous instruction
+    write16(buf + 8, 0x44fc);  // add ip, pc
+    write16(buf + 10, 0xf8dc); // ldr.w   pc, [ip] (bottom half)
+    write16(buf + 12, 0xf000); // ldr.w   pc, [ip] (upper half)
+    write16(buf + 14, 0xe7fc); // Branch to previous instruction
   }
 }
 
@@ -407,7 +409,8 @@ bool ARM::needsThunk(RelExpr expr, RelType type, const InputFile *file,
   case R_ARM_THM_JUMP24:
     // Source is Thumb, when all PLT entries are ARM interworking is required.
     // Otherwise we need to interwork if STT_FUNC Symbol has bit 0 clear (ARM).
-    if ((expr == R_PLT_PC && !config->armThumbPLTs) || (s.isFunc() && (s.getVA() & 1) == 0))
+    if ((expr == R_PLT_PC && !config->armThumbPLTs) ||
+        (s.isFunc() && (s.getVA() & 1) == 0))
       return true;
     [[fallthrough]];
   case R_ARM_THM_CALL: {

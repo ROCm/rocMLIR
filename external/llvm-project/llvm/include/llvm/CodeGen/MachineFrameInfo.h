@@ -711,9 +711,9 @@ public:
 
   /// Set "maybe pointed to by an LLVM IR value" for an object.
   void setIsAliasedObjectIndex(int ObjectIdx, bool IsAliased) {
-    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
+    assert(unsigned(ObjectIdx + NumFixedObjects) < Objects.size() &&
            "Invalid Object Idx!");
-    Objects[ObjectIdx+NumFixedObjects].isAliased = IsAliased;
+    Objects[ObjectIdx + NumFixedObjects].isAliased = IsAliased;
   }
 
   /// Returns true if the specified index corresponds to an immutable object.

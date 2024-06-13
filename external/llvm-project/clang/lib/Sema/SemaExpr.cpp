@@ -19317,7 +19317,7 @@ static ExprResult rebuildPotentialResultsAsNonOdrUsed(Sema &S, Expr *E,
       if (!Sub.isUsable())
         return Sub;
       BO->setLHS(Sub.get());
-    //   -- If e is a comma expression, ...
+      //   -- If e is a comma expression, ...
     } else if (BO->getOpcode() == BO_Comma) {
       ExprResult Sub = Rebuild(RHS);
       if (!Sub.isUsable())

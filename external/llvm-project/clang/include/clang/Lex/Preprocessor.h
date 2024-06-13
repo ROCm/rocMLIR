@@ -1432,8 +1432,7 @@ public:
                                MacroDirective *MD);
 
   /// Register an exported macro for a module and identifier.
-  ModuleMacro *addModuleMacro(Module *Mod, IdentifierInfo *II,
-                              MacroInfo *Macro,
+  ModuleMacro *addModuleMacro(Module *Mod, IdentifierInfo *II, MacroInfo *Macro,
                               ArrayRef<ModuleMacro *> Overrides, bool &IsNew);
   ModuleMacro *getModuleMacro(Module *Mod, const IdentifierInfo *II);
 

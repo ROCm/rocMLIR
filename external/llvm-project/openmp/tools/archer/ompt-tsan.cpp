@@ -167,7 +167,8 @@ DECLARE_TSAN_FUNCTION(AnnotateNewMemory, const char *, int,
 DECLARE_TSAN_FUNCTION(__tsan_func_entry, const void *)
 DECLARE_TSAN_FUNCTION(__tsan_func_exit)
 
-// RunningOnValgrind is used to detect absence of TSan and must intentionally be a nullptr.
+// RunningOnValgrind is used to detect absence of TSan and must intentionally be
+// a nullptr.
 static int (*RunningOnValgrind)(void);
 }
 

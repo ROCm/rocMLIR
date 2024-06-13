@@ -438,8 +438,9 @@ doPartitioning(SplitModuleLogger &SML, Module &M, unsigned NumParts,
   // assign X to a partition as usual, but when we get to Y, we check if it's
   // worth also putting it in Y's partition.
   const CostType LargeKernelThreshold =
-      LargeKernelFactor ? CostType(((ModuleCost / NumParts) * LargeKernelFactor))
-                        : std::numeric_limits<CostType>::max();
+      LargeKernelFactor
+          ? CostType(((ModuleCost / NumParts) * LargeKernelFactor))
+          : std::numeric_limits<CostType>::max();
 
   std::vector<DenseSet<const Function *>> Partitions;
   Partitions.resize(NumParts);

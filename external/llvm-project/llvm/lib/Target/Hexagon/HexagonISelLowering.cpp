@@ -1519,7 +1519,7 @@ HexagonTargetLowering::HexagonTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::INLINEASM_BR,         MVT::Other, Custom);
   setOperationAction(ISD::PREFETCH,             MVT::Other, Custom);
   setOperationAction(ISD::READCYCLECOUNTER,     MVT::i64,   Custom);
-  setOperationAction(ISD::READSTEADYCOUNTER,    MVT::i64,   Custom);
+  setOperationAction(ISD::READSTEADYCOUNTER, MVT::i64, Custom);
   setOperationAction(ISD::INTRINSIC_VOID,       MVT::Other, Custom);
   setOperationAction(ISD::EH_RETURN,            MVT::Other, Custom);
   setOperationAction(ISD::GLOBAL_OFFSET_TABLE,  MVT::i32,   Custom);
@@ -1945,7 +1945,8 @@ const char* HexagonTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case HexagonISD::VINSERTW0:     return "HexagonISD::VINSERTW0";
   case HexagonISD::VROR:          return "HexagonISD::VROR";
   case HexagonISD::READCYCLE:     return "HexagonISD::READCYCLE";
-  case HexagonISD::READTIMER:     return "HexagonISD::READTIMER";
+  case HexagonISD::READTIMER:
+    return "HexagonISD::READTIMER";
   case HexagonISD::PTRUE:         return "HexagonISD::PTRUE";
   case HexagonISD::PFALSE:        return "HexagonISD::PFALSE";
   case HexagonISD::D2P:           return "HexagonISD::D2P";
@@ -3403,7 +3404,8 @@ HexagonTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
     case ISD::INTRINSIC_VOID:       return LowerINTRINSIC_VOID(Op, DAG);
     case ISD::PREFETCH:             return LowerPREFETCH(Op, DAG);
     case ISD::READCYCLECOUNTER:     return LowerREADCYCLECOUNTER(Op, DAG);
-    case ISD::READSTEADYCOUNTER:    return LowerREADSTEADYCOUNTER(Op, DAG);
+    case ISD::READSTEADYCOUNTER:
+      return LowerREADSTEADYCOUNTER(Op, DAG);
       break;
   }
 

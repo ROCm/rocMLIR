@@ -1973,42 +1973,42 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
       bool HasRewrittenInit = false;
       const Expr *ArgE = nullptr;
       if (const auto *DefE = dyn_cast<CXXDefaultArgExpr>(S)) {
-        ArgE = DefE->getExpr();
-        HasRewrittenInit = DefE->hasRewrittenInit();
+      ArgE = DefE->getExpr();
+      HasRewrittenInit = DefE->hasRewrittenInit();
       } else if (const auto *DefE = dyn_cast<CXXDefaultInitExpr>(S)) {
-        ArgE = DefE->getExpr();
-        HasRewrittenInit = DefE->hasRewrittenInit();
+      ArgE = DefE->getExpr();
+      HasRewrittenInit = DefE->hasRewrittenInit();
       } else
-        llvm_unreachable("unknown constant wrapper kind");
+      llvm_unreachable("unknown constant wrapper kind");
 
       if (HasRewrittenInit) {
-        for (auto *N : PreVisit) {
-          ProgramStateRef state = N->getState();
-          const LocationContext *LCtx = N->getLocationContext();
-          state = state->BindExpr(S, LCtx, state->getSVal(ArgE, LCtx));
-          Bldr2.generateNode(S, N, state);
-        }
+      for (auto *N : PreVisit) {
+        ProgramStateRef state = N->getState();
+        const LocationContext *LCtx = N->getLocationContext();
+        state = state->BindExpr(S, LCtx, state->getSVal(ArgE, LCtx));
+        Bldr2.generateNode(S, N, state);
+      }
       } else {
-        // If it's not rewritten, the contents of these expressions are not
-        // actually part of the current function, so we fall back to constant
-        // evaluation.
-        bool IsTemporary = false;
-        if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(ArgE)) {
-          ArgE = MTE->getSubExpr();
-          IsTemporary = true;
-        }
+      // If it's not rewritten, the contents of these expressions are not
+      // actually part of the current function, so we fall back to constant
+      // evaluation.
+      bool IsTemporary = false;
+      if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(ArgE)) {
+        ArgE = MTE->getSubExpr();
+        IsTemporary = true;
+      }
 
-        std::optional<SVal> ConstantVal = svalBuilder.getConstantVal(ArgE);
-        const LocationContext *LCtx = Pred->getLocationContext();
-        for (auto *I : PreVisit) {
-          ProgramStateRef State = I->getState();
-          State = State->BindExpr(S, LCtx, ConstantVal.value_or(UnknownVal()));
-          if (IsTemporary)
-            State = createTemporaryRegionIfNeeded(State, LCtx, cast<Expr>(S),
-                                                  cast<Expr>(S));
+      std::optional<SVal> ConstantVal = svalBuilder.getConstantVal(ArgE);
+      const LocationContext *LCtx = Pred->getLocationContext();
+      for (auto *I : PreVisit) {
+        ProgramStateRef State = I->getState();
+        State = State->BindExpr(S, LCtx, ConstantVal.value_or(UnknownVal()));
+        if (IsTemporary)
+          State = createTemporaryRegionIfNeeded(State, LCtx, cast<Expr>(S),
+                                                cast<Expr>(S));
 
-          Bldr2.generateNode(S, I, State);
-        }
+        Bldr2.generateNode(S, I, State);
+      }
       }
 
       getCheckerManager().runCheckersForPostStmt(Dst, Tmp, S, *this);

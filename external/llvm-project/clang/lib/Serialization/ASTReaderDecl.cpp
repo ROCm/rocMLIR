@@ -4467,9 +4467,9 @@ namespace {
 
 void ASTReader::loadObjCCategories(GlobalDeclID ID, ObjCInterfaceDecl *D,
                                    unsigned PreviousGeneration) {
-  ObjCCategoriesVisitor Visitor(*this, D, CategoriesDeserialized, ID,
-                                PreviousGeneration);
-  ModuleMgr.visit(Visitor);
+    ObjCCategoriesVisitor Visitor(*this, D, CategoriesDeserialized, ID,
+                                  PreviousGeneration);
+    ModuleMgr.visit(Visitor);
 }
 
 template<typename DeclT, typename Fn>

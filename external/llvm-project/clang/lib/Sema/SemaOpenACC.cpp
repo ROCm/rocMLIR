@@ -746,9 +746,12 @@ SemaOpenACC::ActOnClause(ArrayRef<const OpenACCClause *> ExistingClauses,
     // still have to make sure it is a pointer type.
     llvm::SmallVector<Expr *> VarList{Clause.getVarList().begin(),
                                       Clause.getVarList().end()};
-    VarList.erase(std::remove_if(VarList.begin(), VarList.end(), [&](Expr *E) {
-      return CheckVarIsPointerType(OpenACCClauseKind::Attach, E);
-    }), VarList.end());
+    VarList.erase(std::remove_if(VarList.begin(), VarList.end(),
+                                 [&](Expr *E) {
+                                   return CheckVarIsPointerType(
+                                       OpenACCClauseKind::Attach, E);
+                                 }),
+                  VarList.end());
     Clause.setVarListDetails(VarList,
                              /*IsReadOnly=*/false, /*IsZero=*/false);
 
@@ -767,9 +770,12 @@ SemaOpenACC::ActOnClause(ArrayRef<const OpenACCClause *> ExistingClauses,
     // still have to make sure it is a pointer type.
     llvm::SmallVector<Expr *> VarList{Clause.getVarList().begin(),
                                       Clause.getVarList().end()};
-    VarList.erase(std::remove_if(VarList.begin(), VarList.end(), [&](Expr *E) {
-      return CheckVarIsPointerType(OpenACCClauseKind::DevicePtr, E);
-    }), VarList.end());
+    VarList.erase(std::remove_if(VarList.begin(), VarList.end(),
+                                 [&](Expr *E) {
+                                   return CheckVarIsPointerType(
+                                       OpenACCClauseKind::DevicePtr, E);
+                                 }),
+                  VarList.end());
     Clause.setVarListDetails(VarList,
                              /*IsReadOnly=*/false, /*IsZero=*/false);
 

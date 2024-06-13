@@ -6779,7 +6779,7 @@ OverflowResult llvm::computeOverflowForUnsignedMul(const Value *LHS,
 
   // mul nsw of two non-negative numbers is also nuw.
   if (IsNSW && LHSKnown.isNonNegative() && RHSKnown.isNonNegative())
-    return OverflowResult::NeverOverflows;
+      return OverflowResult::NeverOverflows;
 
   ConstantRange LHSRange = ConstantRange::fromKnownBits(LHSKnown, false);
   ConstantRange RHSRange = ConstantRange::fromKnownBits(RHSKnown, false);

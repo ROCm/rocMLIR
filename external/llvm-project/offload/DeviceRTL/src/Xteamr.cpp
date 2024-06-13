@@ -120,16 +120,24 @@ template <> struct __dispatch_tag<double> {
 template <> struct __dispatch_tag<float> {
   typedef _f_tag type;
 };
-template <> struct __dispatch_tag<_Float16> { typedef _h_tag type; };
-template <> struct __dispatch_tag<__bf16> { typedef _bf_tag type; };
+template <> struct __dispatch_tag<_Float16> {
+  typedef _h_tag type;
+};
+template <> struct __dispatch_tag<__bf16> {
+  typedef _bf_tag type;
+};
 template <> struct __dispatch_tag<double _Complex> {
   typedef _cd_tag type;
 };
 template <> struct __dispatch_tag<float _Complex> {
   typedef _cf_tag type;
 };
-template <> struct __dispatch_tag<short> { typedef _s_tag type; };
-template <> struct __dispatch_tag<unsigned short> { typedef _us_tag type; };
+template <> struct __dispatch_tag<short> {
+  typedef _s_tag type;
+};
+template <> struct __dispatch_tag<unsigned short> {
+  typedef _us_tag type;
+};
 template <> struct __dispatch_tag<int> {
   typedef _i_tag type;
 };

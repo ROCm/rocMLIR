@@ -2085,7 +2085,8 @@ inline bool ArrayElemPop(InterpState &S, CodePtr OpPC, uint32_t Index) {
 }
 
 template <PrimType Name, class T = typename PrimConv<Name>::T>
-inline bool CopyArray(InterpState &S, CodePtr OpPC, uint32_t SrcIndex, uint32_t DestIndex, uint32_t Size) {
+inline bool CopyArray(InterpState &S, CodePtr OpPC, uint32_t SrcIndex,
+                      uint32_t DestIndex, uint32_t Size) {
   const auto &SrcPtr = S.Stk.pop<Pointer>();
   const auto &DestPtr = S.Stk.peek<Pointer>();
 

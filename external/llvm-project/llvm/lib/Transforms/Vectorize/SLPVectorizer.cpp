@@ -2450,9 +2450,7 @@ public:
     return any_of(MustGather, [&](Value *V) { return Vals.contains(V); });
   }
   /// Checks if the given value is gathered in one of the nodes.
-  bool isGathered(const Value *V) const {
-    return MustGather.contains(V);
-  }
+  bool isGathered(const Value *V) const { return MustGather.contains(V); }
   /// Checks if the specified value was not schedule.
   bool isNotScheduled(const Value *V) const {
     return NonScheduledFirst.contains(V);
@@ -6885,9 +6883,9 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth,
       PHIHandler Handler(*DT, PH, VL);
       Handler.buildOperands();
       for (unsigned I : seq<unsigned>(0, PH->getNumOperands()))
-        TE->setOperand(I, Handler.getOperands(I));
+      TE->setOperand(I, Handler.getOperands(I));
       for (unsigned I : seq<unsigned>(0, PH->getNumOperands()))
-        buildTree_rec(Handler.getOperands(I), Depth + 1, {TE, I});
+      buildTree_rec(Handler.getOperands(I), Depth + 1, {TE, I});
       return;
     }
     case Instruction::ExtractValue:
@@ -6960,9 +6958,9 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth,
         TE = newTreeEntry(VL, Bundle /*vectorized*/, S, UserTreeIdx,
                           ReuseShuffleIndices, CurrentOrder);
         if (CurrentOrder.empty())
-          LLVM_DEBUG(dbgs() << "SLP: added a vector of loads.\n");
+        LLVM_DEBUG(dbgs() << "SLP: added a vector of loads.\n");
         else
-          LLVM_DEBUG(dbgs() << "SLP: added a vector of jumbled loads.\n");
+        LLVM_DEBUG(dbgs() << "SLP: added a vector of jumbled loads.\n");
         TE->setOperandsInOrder();
         break;
       case TreeEntry::StridedVectorize:
@@ -13521,9 +13519,9 @@ Value *BoUpSLP::vectorizeTree(
       if (VecTE->isSame(TE->UserTreeIndices.front().UserTE->getOperand(
               TE->UserTreeIndices.front().EdgeIdx)) &&
           VecTE->isSame(TE->Scalars))
-        // Found gather node which is absolutely the same as one of the
-        // vectorized nodes. It may happen after reordering.
-        continue;
+          // Found gather node which is absolutely the same as one of the
+          // vectorized nodes. It may happen after reordering.
+          continue;
     auto *PrevVec = cast<Instruction>(TE->VectorizedValue);
     TE->VectorizedValue = nullptr;
     auto *UserI =
@@ -15182,10 +15180,10 @@ bool BoUpSLP::collectValuesToDemote(
                "Expected min/max intrinsics only.");
         unsigned SignBits = OrigBitWidth - BitWidth;
         APInt Mask = APInt::getBitsSetFrom(OrigBitWidth, BitWidth - 1);
-        unsigned Op0SignBits = ComputeNumSignBits(I->getOperand(0), *DL, 0, AC,
-                                              nullptr, DT);
-        unsigned Op1SignBits = ComputeNumSignBits(I->getOperand(1), *DL, 0, AC,
-                                              nullptr, DT);
+        unsigned Op0SignBits =
+            ComputeNumSignBits(I->getOperand(0), *DL, 0, AC, nullptr, DT);
+        unsigned Op1SignBits =
+            ComputeNumSignBits(I->getOperand(1), *DL, 0, AC, nullptr, DT);
         return SignBits <= Op0SignBits &&
                ((SignBits != Op0SignBits &&
                  !isKnownNonNegative(I->getOperand(0), SimplifyQuery(*DL))) ||
@@ -15503,8 +15501,8 @@ void BoUpSLP::computeMinimumValueSizes() {
       if (MinBWs.contains(TE))
         continue;
       bool IsSigned = any_of(TE->Scalars, [&](Value *R) {
-                        return !isKnownNonNegative(R, SimplifyQuery(*DL));
-                      });
+        return !isKnownNonNegative(R, SimplifyQuery(*DL));
+      });
       MinBWs.try_emplace(TE, MaxBitWidth, IsSigned);
     }
   }

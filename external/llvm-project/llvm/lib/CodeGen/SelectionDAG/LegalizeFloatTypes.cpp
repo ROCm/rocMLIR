@@ -968,8 +968,8 @@ bool DAGTypeLegalizer::SoftenFloatOperand(SDNode *N, unsigned OpNo) {
   case ISD::SETCC:       Res = SoftenFloatOp_SETCC(N); break;
   case ISD::STORE:       Res = SoftenFloatOp_STORE(N, OpNo); break;
   case ISD::ATOMIC_STORE:
-    Res = SoftenFloatOp_ATOMIC_STORE(N, OpNo);
-    break;
+                         Res = SoftenFloatOp_ATOMIC_STORE(N, OpNo);
+                         break;
   case ISD::FCOPYSIGN:   Res = SoftenFloatOp_FCOPYSIGN(N); break;
   }
 
@@ -2884,7 +2884,8 @@ void DAGTypeLegalizer::SoftPromoteHalfResult(SDNode *N, unsigned ResNo) {
                        "result!");
 
   case ISD::ARITH_FENCE:
-    R = SoftPromoteHalfRes_ARITH_FENCE(N); break;
+    R = SoftPromoteHalfRes_ARITH_FENCE(N);
+    break;
   case ISD::BITCAST:    R = SoftPromoteHalfRes_BITCAST(N); break;
   case ISD::ConstantFP: R = SoftPromoteHalfRes_ConstantFP(N); break;
   case ISD::EXTRACT_VECTOR_ELT:
@@ -3259,8 +3260,8 @@ bool DAGTypeLegalizer::SoftPromoteHalfOperand(SDNode *N, unsigned OpNo) {
   case ISD::SETCC:      Res = SoftPromoteHalfOp_SETCC(N); break;
   case ISD::STORE:      Res = SoftPromoteHalfOp_STORE(N, OpNo); break;
   case ISD::ATOMIC_STORE:
-    Res = SoftPromoteHalfOp_ATOMIC_STORE(N, OpNo);
-    break;
+                        Res = SoftPromoteHalfOp_ATOMIC_STORE(N, OpNo);
+                        break;
   case ISD::STACKMAP:
     Res = SoftPromoteHalfOp_STACKMAP(N, OpNo);
     break;

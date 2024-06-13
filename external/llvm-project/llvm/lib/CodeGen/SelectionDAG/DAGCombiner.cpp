@@ -10006,7 +10006,7 @@ SDValue DAGCombiner::visitSHL(SDNode *N) {
       return LHSC.ult(OpSizeInBits) && RHSC.ult(OpSizeInBits) &&
              LHSC.getZExtValue() <= RHSC.getZExtValue();
     };
-    
+
     // fold (shl (sr[la] exact X,  C1), C2) -> (shl    X, (C2-C1)) if C1 <= C2
     // fold (shl (sr[la] exact X,  C1), C2) -> (sr[la] X, (C2-C1)) if C1 >= C2
     if (N0->getFlags().hasExact()) {

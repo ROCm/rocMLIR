@@ -1125,10 +1125,10 @@ public:
 class TagTableInfo : public CommonTypeTableInfo<TagTableInfo, TagInfo> {
 public:
   unsigned getUnversionedInfoSize(const TagInfo &TI) {
-    return 2 + (TI.SwiftImportAs ? TI.SwiftImportAs->size() : 0) +
-           2 + (TI.SwiftRetainOp ? TI.SwiftRetainOp->size() : 0) +
-           2 + (TI.SwiftReleaseOp ? TI.SwiftReleaseOp->size() : 0) +
-           2 + getCommonTypeInfoSize(TI);
+    return 2 + (TI.SwiftImportAs ? TI.SwiftImportAs->size() : 0) + 2 +
+           (TI.SwiftRetainOp ? TI.SwiftRetainOp->size() : 0) + 2 +
+           (TI.SwiftReleaseOp ? TI.SwiftReleaseOp->size() : 0) + 2 +
+           getCommonTypeInfoSize(TI);
   }
 
   void emitUnversionedInfo(raw_ostream &OS, const TagInfo &TI) {

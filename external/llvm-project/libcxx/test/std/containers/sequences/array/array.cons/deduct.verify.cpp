@@ -24,7 +24,10 @@
 int main(int, char**)
 {
     {
-    std::array arr{1,2,3L}; // expected-error-re {{no viable constructor or deduction guide for deduction of template arguments of '{{(std::)?}}array'}}
+      std::array arr{
+          1,
+          2,
+          3L}; // expected-error-re {{no viable constructor or deduction guide for deduction of template arguments of '{{(std::)?}}array'}}
     }
 
   return 0;

@@ -400,8 +400,7 @@ public:
   /// declaration group or associated statement.
   StmtResult ActOnEndStmtDirective(OpenACCDirectiveKind K,
                                    SourceLocation StartLoc,
-                                   SourceLocation DirLoc,
-                                   SourceLocation EndLoc,
+                                   SourceLocation DirLoc, SourceLocation EndLoc,
                                    ArrayRef<OpenACCClause *> Clauses,
                                    StmtResult AssocStmt);
 

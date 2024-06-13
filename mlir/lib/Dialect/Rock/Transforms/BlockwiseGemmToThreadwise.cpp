@@ -333,7 +333,8 @@ struct BlockwiseGemmRewritePattern
 
     // Main loop.
     Value workitem = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
-    LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n " << "k =  " << k << "\n"
+    LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
+                            << "k =  " << k << "\n"
                             << " kPerThread = " << kPerThread << "\n");
     auto loopOp =
         b.replaceOpWithNewOp<affine::AffineForOp>(op, 0, k, kPerThread);

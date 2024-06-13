@@ -487,11 +487,11 @@ void SemaObjC::ActOnStartOfObjCMethodDef(Scope *FnBodyScope, Decl *D) {
       if (Family == OMF_dealloc) {
         if (!(getLangOpts().ObjCAutoRefCount ||
               getLangOpts().getGC() == LangOptions::GCOnly))
-          SemaRef.getCurFunction()->ObjCShouldCallSuper = true;
+            SemaRef.getCurFunction()->ObjCShouldCallSuper = true;
 
       } else if (Family == OMF_finalize) {
         if (Context.getLangOpts().getGC() != LangOptions::NonGC)
-          SemaRef.getCurFunction()->ObjCShouldCallSuper = true;
+            SemaRef.getCurFunction()->ObjCShouldCallSuper = true;
 
       } else {
         const ObjCMethodDecl *SuperMethod =
@@ -1922,11 +1922,11 @@ ObjCCategoryImplDecl *SemaObjC::ActOnStartCategoryImplementation(
     if (!CatIDecl) {
       // Category @implementation with no corresponding @interface.
       // Create and install one.
-      CatIDecl =
-          ObjCCategoryDecl::Create(Context, SemaRef.CurContext, AtCatImplLoc,
-                                   ClassLoc, CatLoc, CatName, IDecl,
-                                   /*typeParamList=*/nullptr);
-      CatIDecl->setImplicit();
+     CatIDecl =
+         ObjCCategoryDecl::Create(Context, SemaRef.CurContext, AtCatImplLoc,
+                                  ClassLoc, CatLoc, CatName, IDecl,
+                                  /*typeParamList=*/nullptr);
+     CatIDecl->setImplicit();
     }
   }
 

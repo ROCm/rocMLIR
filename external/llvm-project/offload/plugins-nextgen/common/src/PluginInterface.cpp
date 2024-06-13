@@ -69,7 +69,6 @@ namespace llvm::omp::target::plugin {
 int PrintKernelTrace = 0;
 } // namespace llvm::omp::target::plugin
 
-
 // TODO: Fix any thread safety issues for multi-threaded kernel recording.
 namespace llvm::omp::target::plugin {
 struct RecordReplayTy {
@@ -1735,14 +1734,16 @@ int32_t GenericPluginTy::is_valid_binary(__tgt_device_image *Image,
       if (!Initialized || !*MatchOrErr)
         return *MatchOrErr;
 
-      // Perform plugin-dependent checks for the specific architecture if needed.
+      // Perform plugin-dependent checks for the specific architecture if
+      // needed.
       auto CompatibleOrErr = isELFCompatible(Buffer);
       if (Error Err = CompatibleOrErr.takeError())
         return HandleError(std::move(Err));
       return *CompatibleOrErr;
     }
     case file_magic::offload_binary: {
-      // Perform plugin-dependent checks for the specific architecture if needed.
+      // Perform plugin-dependent checks for the specific architecture if
+      // needed.
       auto CompatibleOrErr = isELFCompatible(Buffer);
       if (Error Err = CompatibleOrErr.takeError())
         return HandleError(std::move(Err));
@@ -1858,12 +1859,12 @@ int32_t GenericPluginTy::initialize_record_replay(int32_t DeviceId,
         isRecord ? RecordReplayTy::RRStatusTy::RRRecording
                  : RecordReplayTy::RRStatusTy::RRReplaying;
 
-  if (auto Err = RecordReplay->init(&Device, MemorySize, VAddr, Status,
-                                    SaveOutput, ReqPtrArgOffset)) {
-    REPORT("WARNING RR did not intialize RR-properly with %lu bytes"
-           "(Error: %s)\n",
-           MemorySize, toString(std::move(Err)).data());
-    RecordReplay->setStatus(RecordReplayTy::RRStatusTy::RRDeactivated);
+    if (auto Err = RecordReplay->init(&Device, MemorySize, VAddr, Status,
+                                      SaveOutput, ReqPtrArgOffset)) {
+      REPORT("WARNING RR did not intialize RR-properly with %lu bytes"
+             "(Error: %s)\n",
+             MemorySize, toString(std::move(Err)).data());
+      RecordReplay->setStatus(RecordReplayTy::RRStatusTy::RRDeactivated);
 
       if (!isRecord) {
         return OFFLOAD_FAIL;
@@ -2422,10 +2423,10 @@ int32_t GenericPluginTy::get_global(__tgt_device_binary Binary, uint64_t Size,
     *DevicePtr = DeviceGlobal.getPtr();
     assert(DevicePtr && "Invalid device global's address");
 
-  // Save the loaded globals if we are recording.
-  RecordReplayTy &RecordReplay = Device.Plugin.getRecordReplay();
-  if (RecordReplay.isRecording())
-    RecordReplay.addEntry(Name, Size, *DevicePtr);
+    // Save the loaded globals if we are recording.
+    RecordReplayTy &RecordReplay = Device.Plugin.getRecordReplay();
+    if (RecordReplay.isRecording())
+      RecordReplay.addEntry(Name, Size, *DevicePtr);
 
     return OFFLOAD_SUCCESS;
   }();

@@ -3747,12 +3747,12 @@ namespace {
 } // end anonymous namespace
 
 bool SemaObjC::isKnownName(StringRef name) {
-  ASTContext &Context = getASTContext();
-  if (name.empty())
-    return false;
-  LookupResult R(SemaRef, &Context.Idents.get(name), SourceLocation(),
-                 Sema::LookupOrdinaryName);
-  return SemaRef.LookupName(R, SemaRef.TUScope, false);
+    ASTContext &Context = getASTContext();
+    if (name.empty())
+      return false;
+    LookupResult R(SemaRef, &Context.Idents.get(name), SourceLocation(),
+                   Sema::LookupOrdinaryName);
+    return SemaRef.LookupName(R, SemaRef.TUScope, false);
 }
 
 template <typename DiagBuilderT>

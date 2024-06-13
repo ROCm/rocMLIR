@@ -47,9 +47,8 @@ struct RISCVProfile {
 
 } // end anonymous namespace
 
-static const char *RISCVGImplications[] = {
-  "i", "m", "a", "f", "d", "zicsr", "zifencei"
-};
+static const char *RISCVGImplications[] = {"i", "m",     "a",       "f",
+                                           "d", "zicsr", "zifencei"};
 
 #define GET_SUPPORTED_EXTENSIONS
 #include "llvm/TargetParser/RISCVTargetParserDef.inc"
@@ -829,11 +828,11 @@ Error RISCVISAInfo::checkDependency() {
 
   if ((HasZcmt || Exts.count("zcmp")) && Exts.count("d") &&
       (HasC || Exts.count("zcd")))
-    return createStringError(
-        errc::invalid_argument,
-        Twine("'") + (HasZcmt ? "zcmt" : "zcmp") +
-        "' extension is incompatible with '" + (HasC ? "c" : "zcd") +
-        "' extension when 'd' extension is enabled");
+    return createStringError(errc::invalid_argument,
+                             Twine("'") + (HasZcmt ? "zcmt" : "zcmp") +
+                                 "' extension is incompatible with '" +
+                                 (HasC ? "c" : "zcd") +
+                                 "' extension when 'd' extension is enabled");
 
   if (XLen != 32 && Exts.count("zcf"))
     return createStringError(errc::invalid_argument,

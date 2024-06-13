@@ -7110,9 +7110,9 @@ SDValue SystemZTargetLowering::combineSTORE(
 
   // Transform a store of a 128-bit value moved from parts into two stores.
   if (SN->isSimple() && ISD::isNormalStore(SN)) {
-    SDValue LoPart, HiPart;
-    if ((MemVT == MVT::i128 && isI128MovedFromParts(Op1, LoPart, HiPart)) ||
-        (MemVT == MVT::f128 && isF128MovedFromParts(Op1, LoPart, HiPart))) {
+      SDValue LoPart, HiPart;
+      if ((MemVT == MVT::i128 && isI128MovedFromParts(Op1, LoPart, HiPart)) ||
+          (MemVT == MVT::f128 && isF128MovedFromParts(Op1, LoPart, HiPart))) {
       SDLoc DL(SN);
       SDValue Chain0 =
         DAG.getStore(SN->getChain(), DL, HiPart, SN->getBasePtr(),
@@ -7127,7 +7127,7 @@ SDValue SystemZTargetLowering::combineSTORE(
                      SN->getMemOperand()->getFlags(), SN->getAAInfo());
 
       return DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Chain0, Chain1);
-    }
+      }
   }
 
   // Replicate a reg or immediate with VREP instead of scalar multiply or

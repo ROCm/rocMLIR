@@ -2502,9 +2502,9 @@ void CodeGenFunction::pushIrregularPartialArrayCleanup(llvm::Value *arrayBegin,
                                                        QualType elementType,
                                                        CharUnits elementAlign,
                                                        Destroyer *destroyer) {
-  pushFullExprCleanup<IrregularPartialArrayDestroy>(
-      NormalAndEHCleanup, arrayBegin, arrayEndPointer, elementType,
-      elementAlign, destroyer);
+    pushFullExprCleanup<IrregularPartialArrayDestroy>(
+        NormalAndEHCleanup, arrayBegin, arrayEndPointer, elementType,
+        elementAlign, destroyer);
 }
 
 /// pushRegularPartialArrayCleanup - Push an EH cleanup to destroy

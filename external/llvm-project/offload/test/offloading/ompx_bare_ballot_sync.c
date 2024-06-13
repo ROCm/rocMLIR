@@ -28,7 +28,8 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < N; ++i)
     data[i] = i & 0x1;
 
-#pragma omp target teams ompx_bare num_teams(num_blocks) thread_limit(block_size) map(tofrom: data[0:N])
+#pragma omp target teams ompx_bare num_teams(num_blocks)                       \
+    thread_limit(block_size) map(tofrom : data[0 : N])
   {
     int tid = ompx_thread_id_x();
     uint64_t mask = ompx_ballot_sync(~0U, data[tid]);

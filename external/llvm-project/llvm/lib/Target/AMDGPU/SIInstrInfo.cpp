@@ -4540,8 +4540,7 @@ MachineInstr *SIInstrInfo::buildShrunkInst(MachineInstr &MI,
 
   const MCInstrDesc &Op32Desc = get(Op32);
   MachineInstrBuilder Inst32 =
-    BuildMI(*MBB, MI, MI.getDebugLoc(), Op32Desc)
-    .setMIFlags(MI.getFlags());
+      BuildMI(*MBB, MI, MI.getDebugLoc(), Op32Desc).setMIFlags(MI.getFlags());
 
   // Add the dst operand if the 32-bit encoding also has an explicit $vdst.
   // For VOPC instructions, this is replaced by an implicit def of vcc.
@@ -4561,14 +4560,14 @@ MachineInstr *SIInstrInfo::buildShrunkInst(MachineInstr &MI,
 
     if (&Use == Src2) {
       if (AMDGPU::getNamedOperandIdx(Op32, AMDGPU::OpName::src2) == -1) {
-        // In the case of V_CNDMASK_B32_e32, the explicit operand src2 is
-        // replaced with an implicit read of vcc or vcc_lo. The implicit read
-        // of vcc was already added during the initial BuildMI, but we
-        // 1) may need to change vcc to vcc_lo to preserve the original register
-        // 2) have to preserve the original flags.
-        fixImplicitOperands(*Inst32);
-        copyFlagsToImplicitVCC(*Inst32, *Src2);
-        continue;
+          // In the case of V_CNDMASK_B32_e32, the explicit operand src2 is
+          // replaced with an implicit read of vcc or vcc_lo. The implicit read
+          // of vcc was already added during the initial BuildMI, but we
+          // 1) may need to change vcc to vcc_lo to preserve the original
+          // register 2) have to preserve the original flags.
+          fixImplicitOperands(*Inst32);
+          copyFlagsToImplicitVCC(*Inst32, *Src2);
+          continue;
       }
     }
 

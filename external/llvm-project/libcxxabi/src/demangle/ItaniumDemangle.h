@@ -5715,7 +5715,8 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParam() {
 }
 
 // <template-param-decl> ::= Ty                          # type parameter
-//                       ::= Tk <concept name> [<template-args>] # constrained type parameter
+//                       ::= Tk <concept name> [<template-args>] # constrained
+//                       type parameter
 //                       ::= Tn <type>                   # non-type parameter
 //                       ::= Tt <template-param-decl>* E # template parameter
 //                       ::= Tp <template-param-decl>    # parameter pack

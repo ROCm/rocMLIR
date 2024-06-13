@@ -19,16 +19,16 @@ namespace charinfo {
   extern const uint16_t InfoTable[256];
 
   enum {
-    CHAR_HORZ_WS  = 0x0001,  // '\t', '\f', '\v'.  Note, no '\0'
-    CHAR_VERT_WS  = 0x0002,  // '\r', '\n'
-    CHAR_SPACE    = 0x0004,  // ' '
-    CHAR_DIGIT    = 0x0008,  // 0-9
-    CHAR_XLETTER  = 0x0010,  // a-f,A-F
-    CHAR_UPPER    = 0x0020,  // A-Z
-    CHAR_LOWER    = 0x0040,  // a-z
-    CHAR_UNDER    = 0x0080,  // _
-    CHAR_PERIOD   = 0x0100,  // .
-    CHAR_PUNCT    = 0x0200,  // {}[]#<>%:;?*+-/^&|~!=,"'`$@()
+    CHAR_HORZ_WS = 0x0001, // '\t', '\f', '\v'.  Note, no '\0'
+    CHAR_VERT_WS = 0x0002, // '\r', '\n'
+    CHAR_SPACE = 0x0004,   // ' '
+    CHAR_DIGIT = 0x0008,   // 0-9
+    CHAR_XLETTER = 0x0010, // a-f,A-F
+    CHAR_UPPER = 0x0020,   // A-Z
+    CHAR_LOWER = 0x0040,   // a-z
+    CHAR_UNDER = 0x0080,   // _
+    CHAR_PERIOD = 0x0100,  // .
+    CHAR_PUNCT = 0x0200,   // {}[]#<>%:;?*+-/^&|~!=,"'`$@()
   };
 
   enum {

@@ -548,7 +548,7 @@ set_registers(_Unwind_Exception* unwind_exception, _Unwind_Context* context,
               const scan_results& results)
 {
 #if defined(__USING_SJLJ_EXCEPTIONS__) || defined(__WASM_EXCEPTIONS__)
-#define __builtin_eh_return_data_regno(regno) regno
+#  define __builtin_eh_return_data_regno(regno) regno
 #elif defined(__ibmxl__)
 // IBM xlclang++ compiler does not support __builtin_eh_return_data_regno.
 #define __builtin_eh_return_data_regno(regno) regno + 3
@@ -694,8 +694,8 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
         uintptr_t landingPad = readEncodedPointer(&callSitePtr, callSiteEncoding);
         uintptr_t actionEntry = readULEB128(&callSitePtr);
         if ((start <= ipOffset) && (ipOffset < (start + length)))
-#else  // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__
-        // ip is 1-based index into this table
+#else  // __USING_SJLJ_EXCEPTIONS__ || __WASM_EXCEPTIONS__                                                             \
+       // ip is 1-based index into this table
         uintptr_t landingPad = readULEB128(&callSitePtr);
         uintptr_t actionEntry = readULEB128(&callSitePtr);
         if (--ip == 0)
@@ -839,8 +839,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
             }  // there is no break out of this loop, only return
         }
 #if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__WASM_EXCEPTIONS__)
-        else if (ipOffset < start)
-        {
+        else if (ipOffset < start) {
             // There is no call site for this ip
             // Something bad has happened.  We should never get here.
             // Possible stack corruption.
@@ -903,7 +902,7 @@ _UA_CLEANUP_PHASE
 */
 
 #if !defined(_LIBCXXABI_ARM_EHABI)
-#ifdef __WASM_EXCEPTIONS__
+#  ifdef __WASM_EXCEPTIONS__
 _Unwind_Reason_Code __gxx_personality_wasm0
 #elif defined(__SEH__) && !defined(__USING_SJLJ_EXCEPTIONS__)
 static _Unwind_Reason_Code __gxx_personality_imp
@@ -972,7 +971,7 @@ __gxx_personality_v0
             exc->languageSpecificData = results.languageSpecificData;
             exc->catchTemp = reinterpret_cast<void*>(results.landingPad);
             exc->adjustedPtr = results.adjustedPtr;
-#ifdef __WASM_EXCEPTIONS__
+#  ifdef __WASM_EXCEPTIONS__
             // Wasm only uses a single phase (_UA_SEARCH_PHASE), so save the
             // results here.
             set_registers(unwind_exception, context, results);

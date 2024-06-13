@@ -1225,7 +1225,8 @@ bool ByteCodeExprGen<Emitter>::visitInitList(ArrayRef<const Expr *> Inits,
       // If the initializer is of vector type itself, we have to deconstruct
       // that and initialize all the target fields from the initializer fields.
       if (const auto *InitVecT = Init->getType()->getAs<VectorType>()) {
-        if (!this->emitCopyArray(ElemT, 0, InitIndex, InitVecT->getNumElements(), E))
+        if (!this->emitCopyArray(ElemT, 0, InitIndex,
+                                 InitVecT->getNumElements(), E))
           return false;
         InitIndex += InitVecT->getNumElements();
       } else {

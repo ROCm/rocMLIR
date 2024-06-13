@@ -18,30 +18,30 @@ int g;
 __attribute__((noinline)) void bar(int i) { g += i; }
 
 __attribute__((noinline)) void foo(int n, int N) {
-// PROMO-LABEL: @foo
-// PROMO: load{{.*}}@__profc_foo{{.*}} 24){{.*}}
-// PROMO-NEXT: add
-// PROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 24){{.*}}
-// PROMO: load{{.*}}@__profc_foo, align
-// PROMO-NEXT: add
-// PROMO-NEXT: store{{.*}}@__profc_foo, align
-// PROMO-NEXT: load{{.*}}@__profc_foo{{.*}} 8){{.*}}
-// PROMO-NEXT: add
-// PROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 8){{.*}}
-// PROMO: load{{.*}}@__profc_foo{{.*}} 16){{.*}}
-// PROMO-NEXT: add
-// PROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 16){{.*}}
-//
-// NOPROMO-LABEL: @foo
-// NOPROMO: load{{.*}}@__profc_foo, align
-// NOPROMO-NEXT: add
-// NOPROMO-NEXT: store{{.*}}@__profc_foo, align
-// NOPROMO: load{{.*}}@__profc_foo{{.*}} 8){{.*}}
-// NOPROMO-NEXT: add
-// NOPROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 8){{.*}}
-// NOPROMO: load{{.*}}@__profc_foo{{.*}} 16){{.*}}
-// NOPROMO-NEXT: add
-// NOPROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 16){{.*}}
+  // PROMO-LABEL: @foo
+  // PROMO: load{{.*}}@__profc_foo{{.*}} 24){{.*}}
+  // PROMO-NEXT: add
+  // PROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 24){{.*}}
+  // PROMO: load{{.*}}@__profc_foo, align
+  // PROMO-NEXT: add
+  // PROMO-NEXT: store{{.*}}@__profc_foo, align
+  // PROMO-NEXT: load{{.*}}@__profc_foo{{.*}} 8){{.*}}
+  // PROMO-NEXT: add
+  // PROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 8){{.*}}
+  // PROMO: load{{.*}}@__profc_foo{{.*}} 16){{.*}}
+  // PROMO-NEXT: add
+  // PROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 16){{.*}}
+  //
+  // NOPROMO-LABEL: @foo
+  // NOPROMO: load{{.*}}@__profc_foo, align
+  // NOPROMO-NEXT: add
+  // NOPROMO-NEXT: store{{.*}}@__profc_foo, align
+  // NOPROMO: load{{.*}}@__profc_foo{{.*}} 8){{.*}}
+  // NOPROMO-NEXT: add
+  // NOPROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 8){{.*}}
+  // NOPROMO: load{{.*}}@__profc_foo{{.*}} 16){{.*}}
+  // NOPROMO-NEXT: add
+  // NOPROMO-NEXT: store{{.*}}@__profc_foo{{.*}} 16){{.*}}
   int i;
   for (i = 0; i < N; i++) {
     if (i < n + 1)

@@ -65,8 +65,7 @@ static bool getFullyQualifiedTemplateName(const ASTContext &Ctx,
   assert(ArgTDecl != nullptr);
   QualifiedTemplateName *QTName = TName.getAsQualifiedTemplateName();
 
-  if (QTName &&
-      !QTName->hasTemplateKeyword() &&
+  if (QTName && !QTName->hasTemplateKeyword() &&
       (NNS = QTName->getQualifier())) {
     NestedNameSpecifier *QNNS = getFullyQualifiedNestedNameSpecifier(
         Ctx, NNS, WithGlobalNsPrefix);

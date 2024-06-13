@@ -62,7 +62,7 @@ STATISTIC(NumAShrsConverted, "Number of ashr converted to lshr");
 STATISTIC(NumAShrsRemoved, "Number of ashr removed");
 STATISTIC(NumSRems,     "Number of srem converted to urem");
 STATISTIC(NumSExt,      "Number of sext converted to zext");
-STATISTIC(NumSIToFP,    "Number of sitofp converted to uitofp");
+STATISTIC(NumSIToFP, "Number of sitofp converted to uitofp");
 STATISTIC(NumSICmps,    "Number of signed icmp preds simplified to unsigned");
 STATISTIC(NumAnd,       "Number of ands removed");
 STATISTIC(NumNW,        "Number of no-wrap deductions");

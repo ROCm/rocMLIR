@@ -1347,8 +1347,7 @@ void Parser::ParseOpenACCCacheVarList() {
   ParseOpenACCVarList(OpenACCClauseKind::Invalid);
 }
 
-Parser::OpenACCDirectiveParseInfo
-Parser::ParseOpenACCDirective() {
+Parser::OpenACCDirectiveParseInfo Parser::ParseOpenACCDirective() {
   SourceLocation StartLoc = ConsumeAnnotationToken();
   SourceLocation DirLoc = getCurToken().getLocation();
   OpenACCDirectiveKind DirKind = ParseOpenACCDirectiveKind(*this);
