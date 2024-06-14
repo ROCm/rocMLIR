@@ -108,9 +108,11 @@ endif()
 
 add_mlir_dialect_library(MLIRROCDLTarget
   ROCDL/Target.cpp
+  ROCDL/Utils.cpp
 
   LINK_COMPONENTS
   MCParser
+  Object
   ${AMDGPU_LIBS}
 
   LINK_LIBS PUBLIC
