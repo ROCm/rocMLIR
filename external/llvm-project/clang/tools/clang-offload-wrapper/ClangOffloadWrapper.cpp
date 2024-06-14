@@ -110,11 +110,10 @@ static cl::opt<bool> AddOpenMPOffloadNotes(
     "add-omp-offload-notes",
     cl::desc("Add LLVMOMPOFFLOAD ELF notes to ELF device images."), cl::Hidden);
 
-static cl::list<std::string>
-    OffloadArch("offload-arch",
-                cl::desc("Contains offload-arch of the following target binary."),
-                cl::value_desc("offload-arch-name"),
-                cl::cat(ClangOffloadWrapperCategory));
+static cl::list<std::string> OffloadArch(
+    "offload-arch",
+    cl::desc("Contains offload-arch of the following target binary."),
+    cl::value_desc("offload-arch-name"), cl::cat(ClangOffloadWrapperCategory));
 
 namespace {
 
@@ -155,9 +154,10 @@ private:
   // };
   StructType *getEntryTy() {
     if (!EntryTy)
-      EntryTy = StructType::create("__tgt_offload_entry", PointerType::getUnqual(C),
-                                   PointerType::getUnqual(C), getSizeTTy(),
-                                   Type::getInt32Ty(C), Type::getInt32Ty(C));
+      EntryTy =
+          StructType::create("__tgt_offload_entry", PointerType::getUnqual(C),
+                             PointerType::getUnqual(C), getSizeTTy(),
+                             Type::getInt32Ty(C), Type::getInt32Ty(C));
     return EntryTy;
   }
 
@@ -171,9 +171,9 @@ private:
   // };
   StructType *getDeviceImageTy() {
     if (!ImageTy)
-      ImageTy = StructType::create("__tgt_device_image", PointerType::getUnqual(C),
-                                   PointerType::getUnqual(C), getEntryPtrTy(),
-                                   getEntryPtrTy());
+      ImageTy = StructType::create(
+          "__tgt_device_image", PointerType::getUnqual(C),
+          PointerType::getUnqual(C), getEntryPtrTy(), getEntryPtrTy());
     return ImageTy;
   }
 
@@ -257,9 +257,8 @@ private:
         ConstantAggregateZero::get(ArrayType::get(getEntryTy(), 0u));
     auto *DummyEntry = new GlobalVariable(
         M, DummyInit->getType(), true,
-        Triple(Target).isAMDGCN() ?
-          GlobalVariable::WeakAnyLinkage :
-          GlobalVariable::ExternalLinkage,
+        Triple(Target).isAMDGCN() ? GlobalVariable::WeakAnyLinkage
+                                  : GlobalVariable::ExternalLinkage,
         DummyInit, "__dummy.omp_offloading.entry");
     DummyEntry->setSection("omp_offloading_entries");
     DummyEntry->setVisibility(GlobalValue::HiddenVisibility);
@@ -637,7 +636,7 @@ bundleImage(ArrayRef<OffloadingImage> Images) {
   SmallVector<std::unique_ptr<MemoryBuffer>> Buffers;
   for (const OffloadingImage &Image : Images)
     Buffers.emplace_back(
-	MemoryBuffer::getMemBufferCopy(OffloadBinary::write(Image)));
+        MemoryBuffer::getMemBufferCopy(OffloadBinary::write(Image)));
 
   return std::move(Buffers);
 }
@@ -726,7 +725,7 @@ int main(int argc, const char **argv) {
   int numOffloadArch = 0;
   for (const std::string &File : Inputs) {
     ErrorOr<std::unique_ptr<MemoryBuffer>> BufOrErr =
-      MemoryBuffer::getFileOrSTDIN(File);
+        MemoryBuffer::getFileOrSTDIN(File);
     if (!BufOrErr) {
       reportError(createFileError(File, BufOrErr.getError()));
       return 1;
@@ -737,26 +736,25 @@ int main(int argc, const char **argv) {
       Buffer = Wrapper.addELFNotes(std::move(Buffer), File);
     }
 
-   OffloadingImage TheImage{};
-   if (llvm::identify_magic(Buffer->getBuffer()) == llvm::file_magic::bitcode)
+    OffloadingImage TheImage{};
+    if (llvm::identify_magic(Buffer->getBuffer()) == llvm::file_magic::bitcode)
       TheImage.TheImageKind = IMG_Bitcode;
-   else
+    else
       TheImage.TheImageKind = IMG_Object;
-   TheImage.TheOffloadKind = OFK_OpenMP ;
-   if (!AuxTriple.empty() || OffloadArchs.size() == 0) {
+    TheImage.TheOffloadKind = OFK_OpenMP;
+    if (!AuxTriple.empty() || OffloadArchs.size() == 0) {
       TheImage.StringData["triple"] = Target.c_str();
-   } else {
+    } else {
       TheImage.StringData["triple"] =
           GuessTargetFromArch(OffloadArch[numOffloadArch].c_str());
-   }
-   if(OffloadArchs.size() != 0){
-     TheImage.StringData["arch"] =
-       OffloadArch[numOffloadArch].c_str();
-     numOffloadArch++;
-   } else
-     TheImage.StringData["arch"] = "";
-   TheImage.Image = std::move(Buffer);
-   Images[OFK_OpenMP].emplace_back(std::move(TheImage));
+    }
+    if (OffloadArchs.size() != 0) {
+      TheImage.StringData["arch"] = OffloadArch[numOffloadArch].c_str();
+      numOffloadArch++;
+    } else
+      TheImage.StringData["arch"] = "";
+    TheImage.Image = std::move(Buffer);
+    Images[OFK_OpenMP].emplace_back(std::move(TheImage));
   }
 
   // Bundle and wrap binaries
@@ -772,13 +770,13 @@ int main(int argc, const char **argv) {
     if (!BundledImagesOrErr)
       return 1;
     for (const auto &myImage : *BundledImagesOrErr)
-    BuffersToWrap.emplace_back(
-      ArrayRef<char>(myImage->getBufferStart(), myImage->getBufferSize()));
+      BuffersToWrap.emplace_back(
+          ArrayRef<char>(myImage->getBufferStart(), myImage->getBufferSize()));
     // Create a wrapper for device binaries and write its bitcode to the file.
     WriteBitcodeToFile(
-      Wrapper.wrapBinaries(BuffersToWrap,
-                           ArrayRef(OffloadArchs.data(), OffloadArchs.size())),
-                           Out.os());
+        Wrapper.wrapBinaries(
+            BuffersToWrap, ArrayRef(OffloadArchs.data(), OffloadArchs.size())),
+        Out.os());
     if (Out.os().has_error()) {
       reportError(createFileError(Output, Out.os().error()));
       return 1;

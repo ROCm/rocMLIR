@@ -430,35 +430,34 @@ bool CoroIdElider::attemptElide() {
     NumOfCoroElided++;
 
 #ifndef NDEBUG
-      if (!CoroElideInfoOutputFilename.empty())
+    if (!CoroElideInfoOutputFilename.empty())
       *getOrCreateLogFile() << "Elide " << CalleeCoroutineName << " in "
                             << FEI.ContainingFunction->getName() << "\n";
 #endif
 
-      ORE.emit([&]() {
-        return OptimizationRemark(DEBUG_TYPE, "CoroElide", CoroId)
-               << "'" << ore::NV("callee", CalleeCoroutineName)
-               << "' elided in '" << ore::NV("caller", CallerFunctionName)
-               << "' (frame_size="
-               << ore::NV("frame_size", FrameSizeAndAlign->first) << ", align="
-               << ore::NV("align", FrameSizeAndAlign->second.value()) << ")";
-      });
+    ORE.emit([&]() {
+      return OptimizationRemark(DEBUG_TYPE, "CoroElide", CoroId)
+             << "'" << ore::NV("callee", CalleeCoroutineName) << "' elided in '"
+             << ore::NV("caller", CallerFunctionName) << "' (frame_size="
+             << ore::NV("frame_size", FrameSizeAndAlign->first) << ", align="
+             << ore::NV("align", FrameSizeAndAlign->second.value()) << ")";
+    });
   } else {
-      ORE.emit([&]() {
-        auto Remark = OptimizationRemarkMissed(DEBUG_TYPE, "CoroElide", CoroId)
-                      << "'" << ore::NV("callee", CalleeCoroutineName)
-                      << "' not elided in '"
-                      << ore::NV("caller", CallerFunctionName);
+    ORE.emit([&]() {
+      auto Remark = OptimizationRemarkMissed(DEBUG_TYPE, "CoroElide", CoroId)
+                    << "'" << ore::NV("callee", CalleeCoroutineName)
+                    << "' not elided in '"
+                    << ore::NV("caller", CallerFunctionName);
 
-        if (FrameSizeAndAlign)
-          return Remark << "' (frame_size="
-                        << ore::NV("frame_size", FrameSizeAndAlign->first)
-                        << ", align="
-                        << ore::NV("align", FrameSizeAndAlign->second.value())
-                        << ")";
-        else
-          return Remark << "' (frame_size=unknown, align=unknown)";
-      });
+      if (FrameSizeAndAlign)
+        return Remark << "' (frame_size="
+                      << ore::NV("frame_size", FrameSizeAndAlign->first)
+                      << ", align="
+                      << ore::NV("align", FrameSizeAndAlign->second.value())
+                      << ")";
+      else
+        return Remark << "' (frame_size=unknown, align=unknown)";
+    });
   }
 
   return true;
@@ -467,12 +466,12 @@ bool CoroIdElider::attemptElide() {
 PreservedAnalyses CoroElidePass::run(Function &F, FunctionAnalysisManager &AM) {
   auto &M = *F.getParent();
   if (!coro::declaresIntrinsics(M, {"llvm.coro.id"}))
-      return PreservedAnalyses::all();
+    return PreservedAnalyses::all();
 
   FunctionElideInfo FEI{&F};
   // Elide is not necessary if there's no coro.id within the function.
   if (!FEI.hasCoroIds())
-      return PreservedAnalyses::all();
+    return PreservedAnalyses::all();
 
   AAResults &AA = AM.getResult<AAManager>(F);
   DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
@@ -480,8 +479,8 @@ PreservedAnalyses CoroElidePass::run(Function &F, FunctionAnalysisManager &AM) {
 
   bool Changed = false;
   for (auto *CII : FEI.getCoroIds()) {
-      CoroIdElider CIE(CII, FEI, AA, DT, ORE);
-      Changed |= CIE.attemptElide();
+    CoroIdElider CIE(CII, FEI, AA, DT, ORE);
+    Changed |= CIE.attemptElide();
   }
 
   return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();

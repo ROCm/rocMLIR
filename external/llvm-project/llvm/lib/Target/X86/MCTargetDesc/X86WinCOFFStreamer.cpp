@@ -20,6 +20,7 @@ using namespace llvm;
 namespace {
 class X86WinCOFFStreamer : public MCWinCOFFStreamer {
   Win64EH::UnwindEmitter EHStreamer;
+
 public:
   X86WinCOFFStreamer(MCContext &C, std::unique_ptr<MCAsmBackend> AB,
                      std::unique_ptr<MCCodeEmitter> CE,
@@ -76,4 +77,3 @@ MCStreamer *llvm::createX86WinCOFFStreamer(MCContext &C,
   S->getAssembler().setIncrementalLinkerCompatible(IncrementalLinkerCompatible);
   return S;
 }
-

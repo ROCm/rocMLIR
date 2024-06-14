@@ -170,20 +170,32 @@ std::string EVT::getEVTString() const {
     if (isFloatingPoint())
       return "f" + utostr(getSizeInBits());
     llvm_unreachable("Invalid EVT!");
-  case MVT::bf16:      return "bf16";
-  case MVT::ppcf128:   return "ppcf128";
-  case MVT::isVoid:    return "isVoid";
-  case MVT::Other:     return "ch";
-  case MVT::Glue:      return "glue";
-  case MVT::x86mmx:    return "x86mmx";
-  case MVT::x86amx:    return "x86amx";
-  case MVT::i64x8:     return "i64x8";
-  case MVT::Metadata:  return "Metadata";
-  case MVT::Untyped:   return "Untyped";
-  case MVT::funcref:   return "funcref";
+  case MVT::bf16:
+    return "bf16";
+  case MVT::ppcf128:
+    return "ppcf128";
+  case MVT::isVoid:
+    return "isVoid";
+  case MVT::Other:
+    return "ch";
+  case MVT::Glue:
+    return "glue";
+  case MVT::x86mmx:
+    return "x86mmx";
+  case MVT::x86amx:
+    return "x86amx";
+  case MVT::i64x8:
+    return "i64x8";
+  case MVT::Metadata:
+    return "Metadata";
+  case MVT::Untyped:
+    return "Untyped";
+  case MVT::funcref:
+    return "funcref";
   case MVT::exnref:
     return "exnref";
-  case MVT::externref: return "externref";
+  case MVT::externref:
+    return "externref";
   case MVT::aarch64svcount:
     return "aarch64svcount";
   case MVT::spirvbuiltin:
@@ -586,22 +598,29 @@ Type *EVT::getTypeForEVT(LLVMContext &Context) const {
 /// they are invalid.
 /// NB: This includes pointer types, which require a DataLayout to convert
 /// to a concrete value type.
-MVT MVT::getVT(Type *Ty, bool HandleUnknown){
+MVT MVT::getVT(Type *Ty, bool HandleUnknown) {
   assert(Ty != nullptr && "Invalid type");
   switch (Ty->getTypeID()) {
   default:
-    if (HandleUnknown) return MVT(MVT::Other);
+    if (HandleUnknown)
+      return MVT(MVT::Other);
     llvm_unreachable("Unknown type!");
   case Type::VoidTyID:
     return MVT::isVoid;
   case Type::IntegerTyID:
     return getIntegerVT(cast<IntegerType>(Ty)->getBitWidth());
-  case Type::HalfTyID:      return MVT(MVT::f16);
-  case Type::BFloatTyID:    return MVT(MVT::bf16);
-  case Type::FloatTyID:     return MVT(MVT::f32);
-  case Type::DoubleTyID:    return MVT(MVT::f64);
-  case Type::X86_FP80TyID:  return MVT(MVT::f80);
-  case Type::X86_MMXTyID:   return MVT(MVT::x86mmx);
+  case Type::HalfTyID:
+    return MVT(MVT::f16);
+  case Type::BFloatTyID:
+    return MVT(MVT::bf16);
+  case Type::FloatTyID:
+    return MVT(MVT::f32);
+  case Type::DoubleTyID:
+    return MVT(MVT::f64);
+  case Type::X86_FP80TyID:
+    return MVT(MVT::f80);
+  case Type::X86_MMXTyID:
+    return MVT(MVT::x86mmx);
   case Type::TargetExtTyID: {
     TargetExtType *TargetExtTy = cast<TargetExtType>(Ty);
     if (TargetExtTy->getName() == "aarch64.svcount")
@@ -612,15 +631,17 @@ MVT MVT::getVT(Type *Ty, bool HandleUnknown){
       return MVT(MVT::Other);
     llvm_unreachable("Unknown target ext type!");
   }
-  case Type::X86_AMXTyID:   return MVT(MVT::x86amx);
-  case Type::FP128TyID:     return MVT(MVT::f128);
-  case Type::PPC_FP128TyID: return MVT(MVT::ppcf128);
+  case Type::X86_AMXTyID:
+    return MVT(MVT::x86amx);
+  case Type::FP128TyID:
+    return MVT(MVT::f128);
+  case Type::PPC_FP128TyID:
+    return MVT(MVT::ppcf128);
   case Type::FixedVectorTyID:
   case Type::ScalableVectorTyID: {
     VectorType *VTy = cast<VectorType>(Ty);
-    return getVectorVT(
-      getVT(VTy->getElementType(), /*HandleUnknown=*/ false),
-            VTy->getElementCount());
+    return getVectorVT(getVT(VTy->getElementType(), /*HandleUnknown=*/false),
+                       VTy->getElementCount());
   }
   }
 }
@@ -630,7 +651,7 @@ MVT MVT::getVT(Type *Ty, bool HandleUnknown){
 /// they are invalid.
 /// NB: This includes pointer types, which require a DataLayout to convert
 /// to a concrete value type.
-EVT EVT::getEVT(Type *Ty, bool HandleUnknown){
+EVT EVT::getEVT(Type *Ty, bool HandleUnknown) {
   switch (Ty->getTypeID()) {
   default:
     return MVT::getVT(Ty, HandleUnknown);
@@ -642,7 +663,7 @@ EVT EVT::getEVT(Type *Ty, bool HandleUnknown){
   case Type::ScalableVectorTyID: {
     VectorType *VTy = cast<VectorType>(Ty);
     return getVectorVT(Ty->getContext(),
-                       getEVT(VTy->getElementType(), /*HandleUnknown=*/ false),
+                       getEVT(VTy->getElementType(), /*HandleUnknown=*/false),
                        VTy->getElementCount());
   }
   }
@@ -661,4 +682,3 @@ void MVT::print(raw_ostream &OS) const {
   else
     OS << EVT(*this).getEVTString();
 }
-

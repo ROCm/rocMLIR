@@ -143,8 +143,8 @@ struct _LIBCPP_TEMPLATE_VIS pair
 
   template <
 #  if _LIBCPP_STD_VER >= 23 // http://wg21.link/P1951
-      class _U1                                                                    = _T1,
-      class _U2                                                                    = _T2,
+      class _U1 = _T1,
+      class _U2 = _T2,
 #  else
       class _U1,
       class _U2,

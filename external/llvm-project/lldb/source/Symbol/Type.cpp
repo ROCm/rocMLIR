@@ -483,23 +483,24 @@ std::optional<uint64_t> Type::GetByteSize(ExecutionContextScope *exe_scope) {
     }
   } break;
 
-    // If we are a pointer or reference, then this is just a pointer size;
-    case eEncodingIsPointerUID:
-    case eEncodingIsLValueReferenceUID:
-    case eEncodingIsRValueReferenceUID:
-    case eEncodingIsLLVMPtrAuthUID: {
+  // If we are a pointer or reference, then this is just a pointer size;
+  case eEncodingIsPointerUID:
+  case eEncodingIsLValueReferenceUID:
+  case eEncodingIsRValueReferenceUID:
+  case eEncodingIsLLVMPtrAuthUID: {
     if (ArchSpec arch = m_symbol_file->GetObjectFile()->GetArchitecture()) {
       m_byte_size = arch.GetAddressByteSize();
       m_byte_size_has_value = true;
       return static_cast<uint64_t>(m_byte_size);
     }
-    } break;
+  } break;
   }
   return {};
 }
 
 llvm::Expected<uint32_t> Type::GetNumChildren(bool omit_empty_base_classes) {
-  return GetForwardCompilerType().GetNumChildren(omit_empty_base_classes, nullptr);
+  return GetForwardCompilerType().GetNumChildren(omit_empty_base_classes,
+                                                 nullptr);
 }
 
 bool Type::IsAggregateType() {
@@ -880,9 +881,7 @@ ConstString TypeAndOrName::GetName() const {
   return ConstString("<invalid>");
 }
 
-void TypeAndOrName::SetName(ConstString type_name) {
-  m_type_name = type_name;
-}
+void TypeAndOrName::SetName(ConstString type_name) { m_type_name = type_name; }
 
 void TypeAndOrName::SetName(const char *type_name_cstr) {
   m_type_name.SetCString(type_name_cstr);
@@ -1013,9 +1012,7 @@ bool TypeImpl::operator==(const TypeImpl &rhs) const {
          m_dynamic_type == rhs.m_dynamic_type;
 }
 
-bool TypeImpl::operator!=(const TypeImpl &rhs) const {
-  return !(*this == rhs);
-}
+bool TypeImpl::operator!=(const TypeImpl &rhs) const { return !(*this == rhs); }
 
 bool TypeImpl::IsValid() const {
   // just a name is not valid

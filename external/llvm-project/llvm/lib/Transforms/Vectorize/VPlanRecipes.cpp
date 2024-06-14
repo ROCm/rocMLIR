@@ -398,7 +398,8 @@ Value *VPInstruction::generatePerPart(VPTransformState &State, unsigned Part) {
     Value *Step =
         createStepForVF(Builder, ScalarTC->getType(), State.VF, State.UF);
     Value *Sub = Builder.CreateSub(ScalarTC, Step);
-    Value *Cmp = Builder.CreateICmp(CmpInst::Predicate::ICMP_UGT, ScalarTC, Step);
+    Value *Cmp =
+        Builder.CreateICmp(CmpInst::Predicate::ICMP_UGT, ScalarTC, Step);
     Value *Zero = ConstantInt::get(ScalarTC->getType(), 0);
     return Builder.CreateSelect(Cmp, Sub, Zero);
   }
@@ -1505,9 +1506,9 @@ void VPBlendRecipe::execute(VPTransformState &State) {
   //                      In0)))
   // Note that Mask0 is never used: lanes for which no path reaches this phi and
   // are essentially undef are taken from In0.
- VectorParts Entry(State.UF);
- bool OnlyFirstLaneUsed = vputils::onlyFirstLaneUsed(this);
- for (unsigned In = 0; In < NumIncoming; ++In) {
+  VectorParts Entry(State.UF);
+  bool OnlyFirstLaneUsed = vputils::onlyFirstLaneUsed(this);
+  for (unsigned In = 0; In < NumIncoming; ++In) {
     for (unsigned Part = 0; Part < State.UF; ++Part) {
       // We might have single edge PHIs (blocks) - use an identity
       // 'select' for the first PHI operand.
@@ -1522,7 +1523,7 @@ void VPBlendRecipe::execute(VPTransformState &State) {
             State.Builder.CreateSelect(Cond, In0, Entry[Part], "predphi");
       }
     }
- }
+  }
   for (unsigned Part = 0; Part < State.UF; ++Part)
     State.set(this, Entry[Part], Part, OnlyFirstLaneUsed);
 }

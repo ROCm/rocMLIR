@@ -667,7 +667,7 @@ public:
   void handleUnsafeOperation(UnsafeBufferUsageHandler &Handler,
                              bool IsRelatedToDecl,
                              ASTContext &Ctx) const override {
-      Handler.handleUnsafeOperation(ASE, IsRelatedToDecl, Ctx);
+    Handler.handleUnsafeOperation(ASE, IsRelatedToDecl, Ctx);
   }
   SourceLocation getSourceLoc() const override { return ASE->getBeginLoc(); }
 
