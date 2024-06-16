@@ -4,15 +4,10 @@
 function mysql_setup_generic
 {
     echo mysql_setup_generic
-    # Note that all this happens without privileges.
+    # --user=daemon allows it to work with or without privileges.
     export PATH=$PATH:/usr/mysql/bin
-    mysqld --initialize-insecure --datadir=/tmp/mysql-data
-    SU=""
-    if [ $UID == 0 ]; then
-        # mysqld refuses to run as root, so switch to daemon in that case.
-        SU="sudo -u daemon"
-    fi
-    $SU mysqld -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
+    mysqld --user=daemon --initialize-insecure --datadir=/tmp/mysql-data
+    mysqld --user=daemon -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
 
     # Using this name should force socket access, which we want.
     TUNA_DB_HOSTNAME=localhost
