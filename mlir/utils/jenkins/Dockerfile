@@ -39,6 +39,7 @@ RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/dow
     mkdir -p /etc/cmake; \
     /cmake.sh --prefix=/etc/cmake --skip-license; \
     ln -s /etc/cmake/bin/cmake /usr/bin/cmake; \
+    ln -s /etc/cmake/bin/ctest /usr/bin/ctest; \
     cmake --version; \
     rm /cmake.sh
 
