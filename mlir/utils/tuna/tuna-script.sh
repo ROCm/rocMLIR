@@ -3,10 +3,10 @@
 # For installing mysql 8.0 for testing, or for running with an isolated database.
 function mysql_setup_generic
 {
-    # Note that all this happens without privileges.
+    # --user=daemon allows it to work with or without privileges.
     export PATH=$PATH:/usr/mysql/bin
-    mysqld --initialize-insecure --datadir=/tmp/mysql-data
-    mysqld -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
+    mysqld --user=daemon --initialize-insecure --datadir=/tmp/mysql-data
+    mysqld --user=daemon -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
 
     # Using this name should force socket access, which we want.
     TUNA_DB_HOSTNAME=localhost
