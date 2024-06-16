@@ -7,7 +7,12 @@ function mysql_setup_generic
     # Note that all this happens without privileges.
     export PATH=$PATH:/usr/mysql/bin
     mysqld --initialize-insecure --datadir=/tmp/mysql-data
-    mysqld -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
+    SU=""
+    if [ $UID == 0 ]; then
+        # mysqld refuses to run as root, so switch to daemon in that case.
+        SU="sudo -u daemon"
+    fi
+    $SU mysqld -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
 
     # Using this name should force socket access, which we want.
     TUNA_DB_HOSTNAME=localhost
