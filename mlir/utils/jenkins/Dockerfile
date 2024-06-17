@@ -64,6 +64,7 @@ RUN echo 'install llvm ${LLVM_VERSION}' && \
     ln -s /usr/bin/llvm-profdata-${LLVM_VERSION} /usr/bin/llvm-profdata && \
     ln -s /usr/bin/llvm-cov-${LLVM_VERSION} /usr/bin/llvm-cov && \
     ln -s /usr/bin/llvm-symbolizer-${LLVM_VERSION} /usr/bin/llvm-symbolizer && \
+    ln -s /usr/bin/llvm-cxxfilt-${LLVM_VERSION} /usr/bin/llvm-cxxfilt && \
     clang --version
 
 RUN echo 'configure locale' && \
