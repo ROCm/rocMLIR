@@ -112,18 +112,15 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
   auto mod = unwrap(module);
   if (bin == nullptr && size == nullptr)
     return success;
-  mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      if (bin != nullptr) { // return binary regardless the presence of *size
-        std::string hsaco = hsacoAttr.getValue().str();
-        std::copy(hsaco.begin(), hsaco.end(), bin);
-        success = true;
-      } else {
-        *size = hsacoAttr.getValue().size();
-        success = true;
-      }
+  mod.walk([&](mlir::gpu::BinaryOp binary) {
+    auto object = llvm::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+    if (bin != nullptr) { // return binary regardless the presence of *size
+      llvm::StringRef hsaco = object.getObject().getValue();
+      std::copy(hsaco.begin(), hsaco.end(), bin);
+      success = true;
+    } else {
+      *size = object.getObject().getValue().size();
+      success = true;
     }
   });
   return success;
