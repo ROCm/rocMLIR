@@ -20,7 +20,6 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -275,7 +274,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 
   // set the prefill attribute
   auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  auto attrName = mhal::PrefillAttr::getMnemonic();
+  auto attrName = rock::PrefillAttr::getMnemonic();
   auto elementType = cast<MemRefType>(c.getType()).getElementType();
   Attribute zero;
   if (llvm::isa<FloatType>(elementType)) {
@@ -535,9 +534,6 @@ AttentionRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
 
   RockAccelTuningParamAttrInterface accelParams0 =
       cast<RockAccelTuningParamAttrInterface>(op.getParams0Attr());
-
-  RockAccelTuningParamAttrInterface accelParams1 =
-      cast<RockAccelTuningParamAttrInterface>(op.getParams1Attr());
 
   SmallVector<int64_t, 3> queriesShape =
       llvm::to_vector<3>(cast<MemRefType>(queries.getType()).getShape());
