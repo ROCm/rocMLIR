@@ -20,6 +20,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRParser
     MLIRRocmExecutionEngineUtils
     MLIRJitRunner
+    MLIRGPUToLLVMIRTranslation
   )
 
   add_rocmlir_tool(xmir-runner
