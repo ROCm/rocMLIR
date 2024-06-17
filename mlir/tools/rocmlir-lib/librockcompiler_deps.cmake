@@ -216,6 +216,7 @@ MLIRMHAL
 MLIRMHALPipeline
 MLIRMHALSupport
 MLIRMHALTransforms
+MLIRMHALUtility
 MLIRMIGraphXDialect
 MLIRMIGraphXPipeline
 MLIRMIGraphXToTosa

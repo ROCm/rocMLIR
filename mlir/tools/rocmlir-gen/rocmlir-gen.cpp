@@ -2895,7 +2895,7 @@ void insertPrefills(func::FuncOp fut) {
         size_t argCount = calleeFunc.getArguments().size();
         for (size_t i = 0; i < argCount; i++) {
           if (Attribute initAttr =
-                  calleeFunc.getArgAttr(i, mhal::PrefillAttr::getMnemonic())) {
+                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
             argInitValues[i] = initAttr;
           }
         }

@@ -82,7 +82,7 @@ func.func @gemm_transposed_from_gridwise(%a: memref<1x128x72xf32>, %b: memref<1x
 }
 
 // CHECK-LABEL: func.func @gemm_pad_for_split_k
-// CHECK-SAME: (%[[a:.*]]: memref<1x128x238xf32>, %[[b:.*]]: memref<1x238x512xf32>, %[[c:.*]]: memref<1x128x512xf32> {mhal.prefill = {{.*}} : f32})
+// CHECK-SAME: (%[[a:.*]]: memref<1x128x238xf32>, %[[b:.*]]: memref<1x238x512xf32>, %[[c:.*]]: memref<1x128x512xf32> {rock.prefill = {{.*}} : f32})
 func.func @gemm_pad_for_split_k(%a: memref<1x128x238xf32>, %b: memref<1x238x512xf32>, %c: memref<1x128x512xf32>) {
   // CHECK-DAG: %[[transA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x128x238xf32> to memref<1x238x128xf32{{.*}}>
   // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[transA]] by {{.*}} : memref<1x238x128xf32> to memref<1x240x128xf32{{.*}}>

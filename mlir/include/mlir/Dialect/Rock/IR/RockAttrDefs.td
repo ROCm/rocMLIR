@@ -477,4 +477,24 @@ def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
 def Rock_ExpandedFrom1D : Rock_Attr<"ExpandedFrom1D"> {
   let mnemonic = "expanded_from_1d";
 }
+
+def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
+  let mnemonic = "rock.prefill";
+
+  let description = [{
+      A user interface parameter for initializing specific memory buffers
+
+      The attribute is a way to describe which specific kernel parameter
+      (typically memref) must be initialized with specific value before
+      a kernel invocation.
+
+  }];
+
+  let parameters = (ins
+    "uint32_t":$argIndex,
+    "TypedAttr":$initValue
+  );
+  let assemblyFormat = "`<` params `>`";
+}
+
 #endif

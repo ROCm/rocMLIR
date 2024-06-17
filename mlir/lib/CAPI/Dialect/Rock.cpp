@@ -12,7 +12,7 @@
 #include "mlir/CAPI/Registration.h"
 #include "mlir/CAPI/Wrap.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/MHAL/Utility/Utils.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -174,7 +174,7 @@ size_t mlirGetNumPrefillArgs(MlirModule module) {
 
   if (!func.has_value())
     return 0;
-  auto attrs = rock::getStoredPrefillAttributes(func.value());
+  auto attrs = mhal::getStoredPrefillAttributes(func.value());
   return attrs.size();
 }
 
@@ -190,7 +190,7 @@ void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
 
   if (!func.has_value())
     return;
-  auto attrs = rock::getStoredPrefillAttributes(func.value());
+  auto attrs = mhal::getStoredPrefillAttributes(func.value());
 
   assert(attrs.size() >= length && "length cannot exceed the attr size");
   for (size_t i = 0; i < length; ++i) {
