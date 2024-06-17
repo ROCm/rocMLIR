@@ -1,5 +1,4 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
@@ -72,7 +71,7 @@ void AffixTuningParameters::runOnOperation() {
       OpBuilder b(op.getContext());
       auto func = llvm::cast<func::FuncOp>(op->getParentOp());
       auto c = op.getC();
-      auto attrName = mhal::PrefillAttr::getMnemonic();
+      auto attrName = rock::PrefillAttr::getMnemonic();
       auto elementType = c.getType().cast<MemRefType>().getElementType();
       Attribute zero;
       if (llvm::isa<FloatType>(elementType)) {

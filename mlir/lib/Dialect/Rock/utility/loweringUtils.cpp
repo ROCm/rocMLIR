@@ -745,19 +745,3 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
     reassociation.push_back(i);
   return reassociation;
 }
-
-SmallVector<mhal::PrefillAttr>
-mlir::rock::getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func) {
-  SmallVector<mhal::PrefillAttr> storedAttrs;
-  auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
-  if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
-    if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
-      for (auto attr : arrayAttr) {
-        if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
-          storedAttrs.push_back(prefillAttr);
-        }
-      }
-    }
-  }
-  return storedAttrs;
-}

@@ -222,7 +222,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     llvm::SmallVector<Attribute, 4> prefillAttrs;
     for (uint32_t argIdx = 0; argIdx < theFunc.getNumArguments(); ++argIdx) {
       if (auto attr =
-              theFunc.getArgAttr(argIdx, mhal::PrefillAttr::getMnemonic())) {
+              theFunc.getArgAttr(argIdx, rock::PrefillAttr::getMnemonic())) {
         auto prefillAttr =
             b.getAttr<mhal::PrefillAttr>(argIdx, cast<TypedAttr>(attr));
         prefillAttrs.push_back(prefillAttr);

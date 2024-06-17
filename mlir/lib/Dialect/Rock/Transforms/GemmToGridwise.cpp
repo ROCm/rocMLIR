@@ -20,7 +20,6 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -275,7 +274,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 
   // set the prefill attribute
   auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  auto attrName = mhal::PrefillAttr::getMnemonic();
+  auto attrName = rock::PrefillAttr::getMnemonic();
   auto elementType = c.getType().cast<MemRefType>().getElementType();
   Attribute zero;
   if (llvm::isa<FloatType>(elementType)) {
