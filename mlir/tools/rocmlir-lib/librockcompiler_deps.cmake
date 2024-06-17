@@ -79,7 +79,6 @@ MLIRAsyncToLLVM
 MLIRBufferizationDialect
 MLIRBufferizationTransformOps
 MLIRBufferizationTransforms
-MLIRBuiltinToLLVMIRTranslation
 MLIRBytecodeOpInterface
 MLIRBytecodeReader
 MLIRBytecodeWriter
