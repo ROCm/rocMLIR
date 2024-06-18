@@ -39,6 +39,7 @@ RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/dow
     mkdir -p /etc/cmake; \
     /cmake.sh --prefix=/etc/cmake --skip-license; \
     ln -s /etc/cmake/bin/cmake /usr/bin/cmake; \
+    ln -s /etc/cmake/bin/ctest /usr/bin/ctest; \
     cmake --version; \
     rm /cmake.sh
 
@@ -63,6 +64,7 @@ RUN echo 'install llvm ${LLVM_VERSION}' && \
     ln -s /usr/bin/llvm-profdata-${LLVM_VERSION} /usr/bin/llvm-profdata && \
     ln -s /usr/bin/llvm-cov-${LLVM_VERSION} /usr/bin/llvm-cov && \
     ln -s /usr/bin/llvm-symbolizer-${LLVM_VERSION} /usr/bin/llvm-symbolizer && \
+    ln -s /usr/bin/llvm-cxxfilt-${LLVM_VERSION} /usr/bin/llvm-cxxfilt && \
     clang --version
 
 RUN echo 'configure locale' && \

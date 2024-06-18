@@ -26,7 +26,7 @@ echo "dl.mlse.buildbot@amd.com" > "${WORKER_NAME}/info/admin"
   rocm-smi --showdriverversion --showid --showmeminfo all ;\
   lsb_release -d | cut -f 2- ; \
   clang --version | head -n1 ; \
-  ld.lld-10 --version ; \
+  ld.lld --version ; \
   cmake --version | head -n1 ; \
 ) > ${WORKER_NAME}/info/host
 
