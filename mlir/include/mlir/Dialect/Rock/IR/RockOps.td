@@ -542,6 +542,9 @@ def Rock_WorkgroupIdOp:
     The `rock.workgroup_id` op gets the current workgroup ID.
   }];
   let assemblyFormat = "attr-dict `:` type($id)";
+  let extraClassDeclaration = [{
+    void inferResultRanges(::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges, ::mlir::SetIntRangeFn setResultRanges);
+  }];
 }
 
 def Rock_WorkitemIdOp:
@@ -553,6 +556,9 @@ def Rock_WorkitemIdOp:
     The `rock.workgroup_id` op gets the current workitem ID.
   }];
   let assemblyFormat = "attr-dict `:` type($id)";
+  let extraClassDeclaration = [{
+    void inferResultRanges(::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges, ::mlir::SetIntRangeFn setResultRanges);
+  }];
 }
 
 // extract_slice
