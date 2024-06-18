@@ -561,6 +561,7 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
                           llvm::StringRef dim2) {
     auto layout = op->getAttr(tensor).template cast<ArrayAttr>().getValue();
     auto pos1 = -1, pos2 = -1;
+    if (layout.size() < 5) return false;
     for (unsigned int i = 0; i < layout.size(); ++i) {
       if (layout[i].template cast<StringAttr>().getValue() == dim1)
         pos1 = i;
