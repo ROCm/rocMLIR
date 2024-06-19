@@ -48,6 +48,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/InitRocMLIRCLOptions.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
@@ -3664,9 +3665,7 @@ int main(int argc, char **argv) {
   DialectRegistry registry;
   registerRocMLIRDialects(registry);
   // Parse pass names in main to ensure static initialization completed.
-  mlir::registerMLIRContextCLOptions();
-  mlir::registerAsmPrinterCLOptions();
-  mlir::registerPassManagerCLOptions();
+  mlir::registerMLIRCLOptions();
   MLIRContext context(registry, MLIRContext::Threading::DISABLED);
   // LLVM dialect is temporary for the freeze trick.
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,

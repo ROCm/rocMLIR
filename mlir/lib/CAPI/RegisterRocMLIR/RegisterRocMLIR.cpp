@@ -10,9 +10,9 @@
 #include "mlir-c/RegisterRocMLIR.h"
 
 #include "mlir/CAPI/IR.h"
+#include "mlir/InitRocMLIRCLOptions.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
-#include "mlir/Pass/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 
 void mlirRegisterRocMLIRDialects(MlirDialectRegistry registry) {
@@ -24,9 +24,7 @@ void mlirRegisterRocMLIRPasses() { mlir::registerRocMLIRPasses(); }
 void mlirRegisterRocMLIROptions() {
   const char *fakeArgv[] = {"rocMLIR-invoked-as-library",
                             "--mlir-print-local-scope"};
-  mlir::registerAsmPrinterCLOptions();
-  mlir::registerMLIRContextCLOptions();
-  mlir::registerPassManagerCLOptions();
+  mlir::registerMLIRCLOptions();
   llvm::cl::ParseCommandLineOptions(
       sizeof(fakeArgv) / sizeof(const char *), fakeArgv,
       "Fake 'command line' for MIGraphX library debugging", nullptr,
