@@ -1071,7 +1071,7 @@ static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
   auto type = cast<MemRefType>(memref.getType());
   auto oneDType = MemRefType::get({1}, type.getElementType(), nullptr,
                                   type.getMemorySpace());
-  ArrayAttr expansions = b.getArrayAttr({});
+  ArrayRef<ReassociationIndices> expansions {};
   return b.createOrFold<memref::ExpandShapeOp>(memref.getLoc(), oneDType,
                                                memref, expansions);
 }
