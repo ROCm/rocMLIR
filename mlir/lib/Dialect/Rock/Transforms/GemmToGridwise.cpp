@@ -536,9 +536,6 @@ AttentionRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   RockAccelTuningParamAttrInterface accelParams0 =
       op.getParams0Attr().cast<RockAccelTuningParamAttrInterface>();
 
-  RockAccelTuningParamAttrInterface accelParams1 =
-      op.getParams1Attr().cast<RockAccelTuningParamAttrInterface>();
-
   SmallVector<int64_t, 3> queriesShape =
       llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
 
