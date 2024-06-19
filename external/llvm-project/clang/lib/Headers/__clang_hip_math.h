@@ -74,10 +74,12 @@
 #endif
 #endif // __OPENMP_AMDGCN__
 
-#if defined(__cplusplus) && __cplusplus < 201103L
+#if defined (__cplusplus) && __cplusplus < 201103L
 // emulate static_assert on type sizes
-template <bool> struct __compare_result {};
-template <> struct __compare_result<true> {
+template<bool>
+struct __compare_result{};
+template<>
+struct __compare_result<true> {
   static const bool valid;
 };
 
@@ -93,10 +95,12 @@ __DEVICE__ void __static_assert_equal_size() {
   __suppress_unused_warning(__compare_result<S == T>::valid);
 }
 
-#define __static_assert_type_size_equal(A, B) __static_assert_equal_size<A, B>()
+#define __static_assert_type_size_equal(A, B) \
+  __static_assert_equal_size<A,B>()
 
 #else
-#define __static_assert_type_size_equal(A, B) static_assert((A) == (B), "")
+#define __static_assert_type_size_equal(A,B) \
+  static_assert((A) == (B), "")
 
 #endif
 
@@ -334,11 +338,17 @@ float __tanf(float __x) {
 
 #if defined(__cplusplus)
 __DEVICE__
-int abs(int __x) { return __builtin_abs(__x); }
+int abs(int __x) {
+  return __builtin_abs(__x);
+}
 __DEVICE__
-long labs(long __x) { return __builtin_labs(__x); }
+long labs(long __x) {
+  return __builtin_labs(__x);
+}
 __DEVICE__
-long long llabs(long long __x) { return __builtin_llabs(__x); }
+long long llabs(long long __x) {
+  return __builtin_llabs(__x);
+}
 #endif
 
 __DEVICE__
@@ -440,7 +450,9 @@ __DEVICE__
 float fmodf(float __x, float __y) { return __ocml_fmod_f32(__x, __y); }
 
 __DEVICE_NOCE__
-float frexpf(float __x, int *__nptr) { return __builtin_frexpf(__x, __nptr); }
+float frexpf(float __x, int *__nptr) {
+  return __builtin_frexpf(__x, __nptr);
+}
 
 __DEVICE__
 float hypotf(float __x, float __y) { return __ocml_hypot_f32(__x, __y); }
@@ -740,6 +752,7 @@ float ynf(int __n, float __x) { // TODO: we could use Ahmes multiplication
   return __x1;
 }
 
+
 // END FLOAT
 
 // BEGIN DOUBLE
@@ -771,7 +784,9 @@ __DEVICE__
 double ceil(double __x) { return __builtin_ceil(__x); }
 
 __DEVICE__
-double copysign(double __x, double __y) { return __builtin_copysign(__x, __y); }
+double copysign(double __x, double __y) {
+  return __builtin_copysign(__x, __y);
+}
 
 __DEVICE__
 double cos(double __x) { return __ocml_cos_f64(__x); }
@@ -839,7 +854,9 @@ __DEVICE__
 double fmod(double __x, double __y) { return __ocml_fmod_f64(__x, __y); }
 
 __DEVICE_NOCE__
-double frexp(double __x, int *__nptr) { return __builtin_frexp(__x, __nptr); }
+double frexp(double __x, int *__nptr) {
+  return __builtin_frexp(__x, __nptr);
+}
 
 __DEVICE__
 double hypot(double __x, double __y) { return __ocml_hypot_f64(__x, __y); }
@@ -1287,10 +1304,11 @@ double __fma_rn(double __x, double __y, double __z) {
 
 // C only macros
 #if !defined(__cplusplus) && __STDC_VERSION__ >= 201112L
-#define isfinite(__x) _Generic((__x), float: __finitef, double: __finite)(__x)
-#define isinf(__x) _Generic((__x), float: __isinff, double: __isinf)(__x)
-#define isnan(__x) _Generic((__x), float: __isnanf, double: __isnan)(__x)
-#define signbit(__x) _Generic((__x), float: __signbitf, double: __signbit)(__x)
+#define isfinite(__x) _Generic((__x), float : __finitef, double : __finite)(__x)
+#define isinf(__x) _Generic((__x), float : __isinff, double : __isinf)(__x)
+#define isnan(__x) _Generic((__x), float : __isnanf, double : __isnan)(__x)
+#define signbit(__x)                                                           \
+  _Generic((__x), float : __signbitf, double : __signbit)(__x)
 #endif // !defined(__cplusplus) && __STDC_VERSION__ >= 201112L
 
 #if defined(__cplusplus) && !defined(__BUILD_MATH_BUILTINS_LIB__)

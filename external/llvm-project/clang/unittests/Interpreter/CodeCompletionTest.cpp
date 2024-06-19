@@ -8,8 +8,8 @@
 
 #include "InterpreterTestFixture.h"
 
-#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Interpreter/CodeCompletion.h"
+#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Interpreter/Interpreter.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/CodeCompleteConsumer.h"
@@ -215,7 +215,8 @@ TEST_F(CodeCompletionTest, NestedInvocations) {
 }
 
 TEST_F(CodeCompletionTest, TemplateFunctions) {
-  cantFail(Interp->Parse("template <typename T> T id(T a) { return a;} "));
+  cantFail(
+      Interp->Parse("template <typename T> T id(T a) { return a;} "));
   cantFail(Interp->Parse("int apple = 84;"));
   {
     auto Err = llvm::Error::success();

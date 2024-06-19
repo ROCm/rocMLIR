@@ -36,6 +36,5 @@ static __inline fixint_t __fixint(fp_t a) {
   if (exponent < significandBits)
     return (fixint_t)(sign * (significand >> (significandBits - exponent)));
   else
-    return (fixint_t)(sign *
-                      ((fixuint_t)significand << (exponent - significandBits)));
+    return (fixint_t)(sign * ((fixuint_t)significand << (exponent - significandBits)));
 }

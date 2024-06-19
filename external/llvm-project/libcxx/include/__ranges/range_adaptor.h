@@ -75,8 +75,8 @@ operator|(_Range&& __range, _Closure&& __closure) noexcept(is_nothrow_invocable_
 template <_RangeAdaptorClosure _Closure, _RangeAdaptorClosure _OtherClosure>
   requires constructible_from<decay_t<_Closure>, _Closure> && constructible_from<decay_t<_OtherClosure>, _OtherClosure>
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator|(_Closure&& __c1, _OtherClosure&& __c2) noexcept(
-    is_nothrow_constructible_v<decay_t<_Closure>, _Closure> &&
-    is_nothrow_constructible_v<decay_t<_OtherClosure>, _OtherClosure>) {
+    is_nothrow_constructible_v<decay_t<_Closure>, _Closure>&&
+        is_nothrow_constructible_v<decay_t<_OtherClosure>, _OtherClosure>) {
   return __range_adaptor_closure_t(std::__compose(std::forward<_OtherClosure>(__c2), std::forward<_Closure>(__c1)));
 }
 

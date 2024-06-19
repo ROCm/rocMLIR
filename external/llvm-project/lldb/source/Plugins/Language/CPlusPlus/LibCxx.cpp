@@ -587,9 +587,9 @@ lldb_private::formatters::LibcxxSharedPtrSyntheticFrontEnd::GetChildAtIndex(
   if (idx == 1) {
     if (auto ptr_sp = valobj_sp->GetChildMemberWithName("__ptr_")) {
       Status status;
-      auto value_type_sp = valobj_sp->GetCompilerType()
-                               .GetTypeTemplateArgument(0)
-                               .GetPointerType();
+      auto value_type_sp =
+            valobj_sp->GetCompilerType()
+              .GetTypeTemplateArgument(0).GetPointerType();
       ValueObjectSP cast_ptr_sp = ptr_sp->Cast(value_type_sp);
       ValueObjectSP value_sp = cast_ptr_sp->Dereference(status);
       if (status.Success()) {
@@ -775,8 +775,8 @@ ExtractLibcxxStringInfo(ValueObject &valobj) {
                             ? StringLayout::DSC
                             : StringLayout::CSD;
 
-  bool short_mode = false;    // this means the string is in short-mode and the
-                              // data is stored inline
+  bool short_mode = false; // this means the string is in short-mode and the
+                           // data is stored inline
   bool using_bitmasks = true; // Whether the class uses bitmasks for the mode
                               // flag (pre-D123580).
   uint64_t size;
@@ -1010,23 +1010,23 @@ bool lldb_private::formatters::LibcxxStringSummaryProviderUTF32(
 }
 
 static std::tuple<bool, ValueObjectSP, size_t>
-LibcxxExtractStringViewData(ValueObject &valobj) {
+LibcxxExtractStringViewData(ValueObject& valobj) {
   auto dataobj = GetChildMemberWithName(
       valobj, {ConstString("__data_"), ConstString("__data")});
   auto sizeobj = GetChildMemberWithName(
       valobj, {ConstString("__size_"), ConstString("__size")});
   if (!dataobj || !sizeobj)
-    return std::make_tuple<bool, ValueObjectSP, size_t>(false, {}, {});
+    return std::make_tuple<bool,ValueObjectSP,size_t>(false, {}, {});
 
   if (!dataobj->GetError().Success() || !sizeobj->GetError().Success())
-    return std::make_tuple<bool, ValueObjectSP, size_t>(false, {}, {});
+    return std::make_tuple<bool,ValueObjectSP,size_t>(false, {}, {});
 
   bool success{false};
   uint64_t size = sizeobj->GetValueAsUnsigned(0, &success);
   if (!success)
-    return std::make_tuple<bool, ValueObjectSP, size_t>(false, {}, {});
+    return std::make_tuple<bool,ValueObjectSP,size_t>(false, {}, {});
 
-  return std::make_tuple(true, dataobj, size);
+  return std::make_tuple(true,dataobj,size);
 }
 
 template <StringPrinter::StringElementType element_type>
@@ -1111,7 +1111,7 @@ LibcxxChronoTimePointSecondsSummaryProvider(ValueObject &valobj, Stream &stream,
 #else
   const std::time_t chrono_timestamp_min = -43'200; // 1969-12-31T12:00:00Z
   const std::time_t chrono_timestamp_max =
-      32'536'850'399; // 3001-01-19T21:59:59
+      32'536'850'399;                       // 3001-01-19T21:59:59
 #endif
 
   const std::time_t seconds = ptr_sp->GetValueAsSigned(0);

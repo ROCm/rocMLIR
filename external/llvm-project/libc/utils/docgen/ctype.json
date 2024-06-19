@@ -36,7 +36,7 @@
     "isxdigit": {
       "c-definition": "7.4.1.12"
     },
-    "tolower": {
+    "tolower" : {
       "c-definition": "7.4.2.1"
     },
     "toupper": {
@@ -44,3 +44,4 @@
     }
   }
 }
+
