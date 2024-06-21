@@ -23,10 +23,10 @@ import reportUtils
 from perfCommonUtils import Operation, GEMMLibrary
 
 # global variables.
-ROCPROF = '/opt/rocm/bin/rocprof'
+ROCPROF = '/opt/rocm/bin/rocprofv2'
 MIOPENDRIVER = '/opt/rocm/bin/MIOpenDriver'
-BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
-BENCHMARKING_METRICS_FILE_NAME = 'results.csv'
+BENCHMARKING_RESULT_FILE_NAME = 'results_stats.csv'
+BENCHMARKING_METRICS_FILE_NAME = 'stats'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
@@ -139,16 +139,14 @@ def getNanoSeconds(fileName):
         return result
 
 def getNanoSecondsV2(fileName):
+    fileName = './pmc_1/' + fileName
     if not os.path.exists(fileName):
         return np.nan
     with open(fileName, 'r') as csv_file:
         reader = csv.DictReader(csv_file, delimiter = ',')
         result = 0
         for row in reader:
-            # Could also include CopyHostToDevice and CopyDeviceToHost ops if
-            # we want.  And what's a Marker operation?
-            if (row['Domain'] == 'HIP_OPS_DOMAIN' and row['Operation'] == 'KernelExecution'):
-                result += int(row['Stop_Timestamp']) - int(row['Start_Timestamp'])
+            result += int(row['End_Timestamp']) - int(row['Start_Timestamp'])
         return result
 
 def getMetricArgsForRocprof(arch):
@@ -164,6 +162,7 @@ def getMetricArgsForRocprof(arch):
 # Bank conflict functions.The percentage of GPUTime LDS is stalled by bank
 # conflicts. Value range: 0% (optimal) to 100% (bad).
 def getBankConflict(fileName):
+    fileName = './pmc_1/' + fileName
     if not os.path.exists(fileName):
         result = "NaN"
         return result
@@ -308,7 +307,7 @@ class ConvConfiguration(PerfConfiguration):
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
-        bankConflict = getBankConflict(BENCHMARKING_METRICS_FILE_NAME)
+        bankConflict = getBankConflict(BENCHMARKING_RESULT_FILE_NAME)
         result = OrderedDict()
         values = [self.direction, self.dataType, self.chip, self.numCU, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
@@ -516,7 +515,7 @@ class ConvConfiguration(PerfConfiguration):
 
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
-        os.system("rm -f "+BENCHMARKING_METRICS_FILE_NAME)
+        os.system("rm -f "+BENCHMARKING_RESULT_FILE_NAME)
         config = cls.fromCommandLine(commandLine, arch, numCU)
         MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(commandLine))
@@ -632,7 +631,7 @@ class GemmConfiguration(PerfConfiguration):
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
-        bankConflict = getBankConflict(BENCHMARKING_METRICS_FILE_NAME)
+        bankConflict = getBankConflict(BENCHMARKING_RESULT_FILE_NAME)
         result = OrderedDict()
         values = [self.dataType, self.outDataType, self.chip, self.numCU, self.transA, self.transB, \
                    self.g, self.m, self.k, self.n, self.perfConfig, bankConflict, self.computeTFlops(nanoSeconds)]
@@ -959,7 +958,8 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] +  getMetricArgsForRocprof(arch) + ['--stats', '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF] +  getMetricArgsForRocprof(arch) + ['-o', BENCHMARKING_METRICS_FILE_NAME, '--plugin', 'file', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    print(profilerCommand)
 
     # invoke rocmlir-gen.
     p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -994,7 +994,7 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
 
     runConfigWithMLIR(config, paths, arch, rocmlir_gen_flags)
     # get nanoseconds from rocprof output.
-    nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+    nanoSeconds = getNanoSecondsV2(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen or rocBLAS performance results
@@ -1239,7 +1239,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         rocmlirGenArgs = ['-ph', '-fut='+futName+'_wrapper', '--perf_config='+bestPerf, '-']
         runFusionKernel(filename, rocmlirGenArgs, paths)
         # Get nanoseconds of fusion test
-        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        nanoSeconds = getNanoSecondsV2(BENCHMARKING_RESULT_FILE_NAME)
         oneEntry = config.tableEntry(nanoSeconds)
         # Keep the best performance
         if testVector in perfResults and oneEntry['TFlops'] <= perfResults[testVector]['TFlops']:
@@ -1248,7 +1248,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         # Run gemm or conv op with the same configuration
         runConfigWithMLIR(config, paths, arch, '')
         # Get nanoseconds of gemm/conv
-        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        nanoSeconds = getNanoSecondsV2(BENCHMARKING_RESULT_FILE_NAME)
         oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
         oneEntry['Fusion/MLIR'] = oneEntry['TFlops']/oneEntry['MLIR TFlops']
         oneEntry['FileName'] = filename
