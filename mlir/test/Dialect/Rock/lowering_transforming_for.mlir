@@ -108,13 +108,14 @@ func.func @no_transform_unrolled_strided() {
 // CHECK-LABEL: func.func @one_transform
 // CHECK-SAME:(%[[arg0:.*]]: index, %[[arg1:.*]]: index)
 func.func @one_transform(%arg0: index, %arg1: index) {
-    // CHECK: %[[true:.*]] = arith.constant true
+    // CHECK-DAG: %[[c4:.*]] = arith.constant 4
+    // CHECK-DAG: %[[true:.*]] = arith.constant true
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
-    // CHECK: %[[u0:.*]] = arith.addi %[[arg0]], %[[d0]]
-    // CHECK: %[[cmp0:.*]] = arith.muli %[[u0]]
+    // CHECK: %[[u0:.*]] = arith.addi %[[arg0]], %[[d0]] overflow<nsw, nuw>
+    // CHECK: %[[cmp0:.*]] = arith.muli %[[u0]], %[[c4]] overflow<nsw, nuw>
     // CHECK: affine.for %[[d1:.*]] = 0 to 3
-    // CHECK: %[[u1:.*]] = arith.addi %[[arg1]], %[[d1]]
-    // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[u1]], %[[cmp0]]
+    // CHECK: %[[u1:.*]] = arith.addi %[[arg1]], %[[d1]] overflow<nsw, nuw>
+    // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[u1]], %[[cmp0]] overflow<nsw, nuw>
     // CHECK-NEXT: gpu.printf "%d, %d" %[[l0]], %[[true]]
     rock.transforming_for (%arg2) = [#transform_map0](%arg0, %arg1) (%arg3) = validity bounds [2, 3] strides [1, 1] {
         gpu.printf "%d, %d" %arg2, %arg3 : index, i1
@@ -125,14 +126,15 @@ func.func @one_transform(%arg0: index, %arg1: index) {
 // CHECK-LABEL: func.func @one_transform_index_diff
 // CHECK-SAME:(%[[arg0:.*]]: index, %[[arg1:.*]]: index)
 func.func @one_transform_index_diff(%arg0: index, %arg1: index) {
-    // CHECK: %[[true:.*]] = arith.constant true
-    // CHECK: %[[linit_cmp:.*]] = arith.muli %[[arg0]]
-    // CHECK: %[[linit:.*]] = arith.addi %[[arg1]], %[[linit_cmp]]
+    // CHECK-DAG: %[[c4:.*]] = arith.constant 4
+    // CHECK-DAG: %[[true:.*]] = arith.constant true
+    // CHECK: %[[linit_cmp:.*]] = arith.muli %[[arg0]], %[[c4]] overflow<nsw, nuw>
+    // CHECK: %[[linit:.*]] = arith.addi %[[arg1]], %[[linit_cmp]] overflow<nsw, nuw>
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
     // CHECK-NEXT: affine.for %[[d1:.*]] = 0 to 3
-    // CHECK-NEXT: %[[c0:.*]] = arith.muli %[[d0]]
+    // CHECK-NEXT: %[[c0:.*]] = arith.muli %[[d0]], %[[c4]] overflow<nuw>
     // CHECK-NEXT: %[[c1:.*]] = arith.addi %[[d1]], %[[c0]]
-    // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[linit]], %[[c1]]
+    // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[linit]], %[[c1]] overflow<nuw>
     // CHECK-NEXT: gpu.printf "%d, %d" %[[l0]], %[[true]]
     rock.transforming_for {useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) (%arg3) = validity bounds [2, 3] strides [1, 1] {
         gpu.printf "%d, %d" %arg2, %arg3 : index, i1
