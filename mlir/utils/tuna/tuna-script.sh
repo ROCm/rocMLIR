@@ -1,16 +1,13 @@
 #!/bin/bash
 
+export PATH=$PATH:/usr/mysql/bin
+
 # For installing mysql 8.0 for testing, or for running with an isolated database.
 function mysql_setup_generic
 {
     # --user=daemon allows it to work with or without privileges.
-    export PATH=$PATH:/usr/mysql/bin
     mysqld --user=daemon --initialize-insecure --datadir=/tmp/mysql-data
     mysqld --user=daemon -D --basedir=/usr/mysql --datadir=/tmp/mysql-data --log-error=/tmp/mysql-errors.log
-
-    # Using this name should force socket access, which we want.
-    TUNA_DB_HOSTNAME=localhost
-    mysql --user root -e 'create database tuna;'
 }
 
 function tuna_setup
@@ -18,13 +15,15 @@ function tuna_setup
 #     rm -rf /tmp/MITuna
 #     git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git /tmp/MITuna
 
+    # Using this name should force socket access, which we want.
+    TUNA_DB_HOSTNAME=localhost
+    mysql --user root -e 'create database tuna;'
+
     source /tuna-venv/bin/activate
     #export TUNA_DIR=/tmp/MITuna
     export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
-    if pgrep mysqld ; then
-        ${TUNA_DIR}/tuna/go_fish.py rocmlir --add_tables
-    fi
+    ${TUNA_DIR}/tuna/go_fish.py rocmlir --add_tables
 }
 
 function clear_tables
@@ -116,18 +115,18 @@ done
 
 export TUNA_DB_USER_NAME=root
 export TUNA_DB_USER_PASSWORD=
-export TUNA_DB_HOSTNAME=127.0.0.1
+export TUNA_DB_HOSTNAME=localhost
 export TUNA_DB_NAME=tuna
 export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
 
 # If no mysqld running, assume it and Tuna need to be set up.
 # Otherwise, assume the usual setup.
+
 if ! pgrep mysqld ; then
     mysql_setup_generic
+fi
+if ! mysql --user root -e 'use tuna;' 2>/dev/null ; then
     tuna_setup
-else
-    PATH=$PATH:/usr/mysql/bin
-    TUNA_DB_HOSTNAME=localhost
 fi
 
 if [ "$VIRTUAL_ENV" = "" ]; then
