@@ -28,11 +28,11 @@
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/IR/AffineExprVisitor.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
@@ -67,100 +67,6 @@ struct RockSugarToLoopsPass
     : public rock::impl::RockSugarToLoopsPassBase<RockSugarToLoopsPass> {
   void runOnOperation() override;
 };
-
-static constexpr IntegerOverflowFlags noWrap =
-    IntegerOverflowFlags::nuw | IntegerOverflowFlags::nsw;
-/// Visitor for AffineExpr's where we assume all the inputs are non-negative
-/// becaues we're doing the speculative execution/validity thing and there's no
-/// good way to hint this after the fact. Visit affine expressions recursively
-/// and build the sequence of operations that correspond to it.  Visitation
-/// functions return an Value of the expression subtree they visited along with
-/// whether the subexpression is still known to be nonnegative. Unlike the
-/// version over in the affine map utilities, doesn't bother to track errors
-/// like zero divisors.
-class NonNegativeInsAffineExprExpander
-    : public AffineExprVisitor<NonNegativeInsAffineExprExpander,
-                               std::pair<Value, bool>> {
-public:
-  /// This internal class expects arguments to be non-null, checks must be
-  /// performed at the call site.
-  NonNegativeInsAffineExprExpander(OpBuilder &builder, ValueRange dimValues,
-                                   ValueRange symbolValues, Location loc)
-      : builder(builder), dimValues(dimValues), symbolValues(symbolValues),
-        loc(loc) {}
-
-  template <typename OpTy>
-  std::pair<Value, bool> buildBinaryExpr(AffineBinaryOpExpr expr) {
-    auto [lhs, lhsNneg] = visit(expr.getLHS());
-    auto [rhs, rhsNneg] = visit(expr.getRHS());
-    auto op = builder.create<OpTy>(loc, lhs, rhs);
-    return std::make_pair(op.getResult(), lhsNneg && rhsNneg);
-  }
-
-  std::pair<Value, bool> visitAddExpr(AffineBinaryOpExpr expr) {
-    auto [result, isNneg] = buildBinaryExpr<AddIOp>(expr);
-    result.getDefiningOp<AddIOp>().setOverflowFlags(
-        isNneg ? noWrap : IntegerOverflowFlags::none);
-    return std::make_pair(result, isNneg);
-  }
-
-  std::pair<Value, bool> visitMulExpr(AffineBinaryOpExpr expr) {
-    auto [result, isNneg] = buildBinaryExpr<MulIOp>(expr);
-    result.getDefiningOp<MulIOp>().setOverflowFlags(
-        isNneg ? noWrap : IntegerOverflowFlags::none);
-    return std::make_pair(result, isNneg);
-  }
-
-  std::pair<Value, bool> visitModExpr(AffineBinaryOpExpr expr) {
-    return buildBinaryExpr<RemUIOp>(expr);
-  }
-  std::pair<Value, bool> visitFloorDivExpr(AffineBinaryOpExpr expr) {
-    return buildBinaryExpr<DivUIOp>(expr);
-  }
-  std::pair<Value, bool> visitCeilDivExpr(AffineBinaryOpExpr expr) {
-    return buildBinaryExpr<CeilDivUIOp>(expr);
-  }
-
-  std::pair<Value, bool> visitConstantExpr(AffineConstantExpr expr) {
-    int64_t value = expr.getValue();
-    auto op = builder.create<arith::ConstantIndexOp>(loc, value);
-    // The one source of potentially negative numbers in here.
-    return std::make_pair(op.getResult(), value >= 0);
-  }
-
-  std::pair<Value, bool> visitDimExpr(AffineDimExpr expr) {
-    assert(expr.getPosition() < dimValues.size() &&
-           "affine dim position out of range");
-    return std::make_pair(dimValues[expr.getPosition()], true);
-  }
-
-  std::pair<Value, bool> visitSymbolExpr(AffineSymbolExpr expr) {
-    assert(expr.getPosition() < symbolValues.size() &&
-           "symbol dim position out of range");
-    return std::make_pair(symbolValues[expr.getPosition()], true);
-  }
-
-private:
-  OpBuilder &builder;
-  ValueRange dimValues;
-  ValueRange symbolValues;
-
-  Location loc;
-};
-
-SmallVector<Value, 8> expandNonNegativeAffineMap(OpBuilder &builder,
-                                                 Location loc,
-                                                 AffineMap affineMap,
-                                                 ValueRange operands) {
-  auto numDims = affineMap.getNumDims();
-  NonNegativeInsAffineExprExpander expander(
-      builder, operands.take_front(numDims), operands.drop_front(numDims), loc);
-  auto expanded = llvm::to_vector<8>(
-      llvm::map_range(affineMap.getResults(), [&expander](AffineExpr expr) {
-        return std::get<0>(expander.visit(expr));
-      }));
-  return expanded;
-}
 
 //===----------------------------------------------------------------------===//
 // TransformingFor lowering.
@@ -217,13 +123,15 @@ struct TransformingForRewritePattern
         }
         for (auto t : transforms.getAsRange<TransformMapAttr>()) {
           AffineMap map = t.getMap().getAffineMap();
-          AffineResults init;
+          std::optional<AffineResults> init;
           if (lowerInit.empty())
-            init = expandNonNegativeAffineMap(b, loc, map, op.getUpperInits(i));
+            init = affine::expandAffineMap(b, loc, map, op.getUpperInits(i));
           else
-            init = expandNonNegativeAffineMap(b, loc, map,
-                                              lowerInit[lowerInit.size() - 1]);
-          lowerInit.push_back(init);
+            init = affine::expandAffineMap(b, loc, map,
+                                           lowerInit[lowerInit.size() - 1]);
+          if (!init)
+            return failure();
+          lowerInit.push_back(*init);
         }
       }
     } else { // !useDiffs
@@ -294,14 +202,16 @@ struct TransformingForRewritePattern
         // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
           computed.push_back(
-              b.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p), noWrap));
+              b.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
         }
         for (const auto &[composedMap, transform] : allComposedMaps[i]) {
           if (!composedMap) // empty transformations
             continue;
-          AffineResults transformed =
-              expandNonNegativeAffineMap(b, loc, composedMap, computed);
-          computed.assign(transformed);
+          std::optional<AffineResults> transformed =
+              affine::expandAffineMap(b, loc, composedMap, computed);
+          if (!transformed)
+            return failure();
+          computed.assign(*transformed);
           if (transform) { // Time for bounds checks or other validity updates
             Value validityUpdate =
                 updateValidityAfter(b, loc, transform, computed);
@@ -586,8 +496,7 @@ struct IndexDiffUpdateRewritePattern
     // value : lower level updated coordinate on that dimension.
     DenseMap<uint32_t, Value> lowerIndicesUpdatedMap;
 
-    auto addToOriginal = [&b, loc](Value original, Value diff,
-                                   bool canBeInvalid = false) -> Value {
+    auto addToOriginal = [&b, loc](Value original, Value diff) -> Value {
       auto mbDiffConst = isConstantValue(diff);
       if (mbDiffConst.has_value()) {
         int64_t diff = mbDiffConst.value();
@@ -599,15 +508,7 @@ struct IndexDiffUpdateRewritePattern
           return b.create<ConstantIndexOp>(loc, diff + mbOriginalConst.value());
         }
       }
-      // If the operation is something like Embed{} or Pad{} that can produce
-      // negative results (but thereby cancel validity - that is, if a negative
-      // result means all the further operations are being speculatively
-      // executed), we conservatively don't say anything. However, in other
-      // cases, the original value must be non-negative and the index diff can't
-      // make it go below zero, so we can declare nuw.
-      return b.create<AddIOp>(loc, original, diff,
-                              canBeInvalid ? IntegerOverflowFlags::none
-                                           : (IntegerOverflowFlags::nuw));
+      return b.create<AddIOp>(loc, original, diff);
     };
 
     LLVM_DEBUG(llvm::dbgs()
@@ -645,8 +546,8 @@ struct IndexDiffUpdateRewritePattern
 
         uint32_t lowerDim = q[0];
         lowerIndicesDiffMap[lowerDim] = lowerDiff;
-        lowerIndicesUpdatedMap[lowerDim] = addToOriginal(
-            lowerIndicesOriginal[lowerDim], lowerDiff, /*canBeInvalid=*/true);
+        lowerIndicesUpdatedMap[lowerDim] =
+            addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
       } else if (transformation == TransformType::Unmerge) {
         assert(e.size() == p.size());
         assert(q.size() == 1);
@@ -661,13 +562,11 @@ struct IndexDiffUpdateRewritePattern
             lowerDiff = b.create<ConstantIndexOp>(
                 loc, mbUpperDiff.value() + coefficient * mbLowerDiff.value());
           } else {
-            // nuw as per the affine map expander above, but not nsw for adds
-            // because these can be vegative
             lowerDiff = b.create<AddIOp>(
                 loc, upperIndicesDiff[upperDim],
                 b.create<MulIOp>(loc,
                                  b.create<ConstantIndexOp>(loc, coefficient),
-                                 lowerDiff, IntegerOverflowFlags::nuw));
+                                 lowerDiff));
           }
         }
         uint32_t lowerDim = q[0];
@@ -684,9 +583,8 @@ struct IndexDiffUpdateRewritePattern
           Value upperDiff = upperIndicesDiff[upperDim];
           Value lowerDiff = upperDiff;
           lowerIndicesDiffMap[lowerDim] = lowerDiff;
-          lowerIndicesUpdatedMap[lowerDim] = addToOriginal(
-              lowerIndicesOriginal[lowerDim], lowerDiff,
-              /*canBeInvalid=*/transformation == TransformType::Pad);
+          lowerIndicesUpdatedMap[lowerDim] =
+              addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
         }
       } else if (transformation == TransformType::Merge) {
         assert(p.size() == 1);
@@ -852,7 +750,7 @@ struct IndexDiffUpdateRewritePattern
           // transformations this computation should get hit by the dead code
           // eleminator
           Value newDiff = b.create<SubIOp>(
-              loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp, noWrap));
+              loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp));
 
           overflowOp = carry;
           lowerDiffsCarryChecked[lowerDim] = newDiff;
