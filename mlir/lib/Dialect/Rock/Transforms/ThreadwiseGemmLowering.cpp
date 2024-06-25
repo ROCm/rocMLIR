@@ -90,6 +90,168 @@ struct ThreadwiseReadIntoRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
+// ThreadwiseGemmV2 lowering.
+//===----------------------------------------------------------------------===//
+struct ThreadwiseGemmv2RewritePattern
+    : public OpConversionPattern<ThreadwiseGemmOpv2> {
+  using OpConversionPattern<ThreadwiseGemmOpv2>::OpConversionPattern;
+
+  TransformMapAttr normalizeView(OpBuilder &b, Location loc,
+                                 ArrayRef<StringRef> names,
+                                 ArrayRef<int64_t> sizes, bool ignoreStartShape,
+                                 DenseSet<StringRef> ignoreNames) const {
+    unsigned pos = 0;
+    unsigned newPos = 0;
+    TopDownTMBuilder td(b, names, sizes, loc);
+    // Convert the normalizedView to a real view by ignoring
+    // the names contained in `ignoreNames` and letting the rest pass through
+    for (pos = 0; pos < names.size(); pos++) {
+      if (ignoreNames.contains(names[pos])) {
+        td.ignore(names[pos]);
+      } else {
+        td.passThrough({newPos++}, {pos});
+      }
+    }
+    return td.get();
+  }
+
+  LogicalResult matchAndRewrite(ThreadwiseGemmOpv2 op,
+                                ThreadwiseGemmOpv2Adaptor adaptor,
+                                ConversionPatternRewriter &b) const override {
+
+    bool isMfma = rock::bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
+    bool isWmma = rock::bitEnumContainsAll(op.getFeatures(), GemmFeatures::wmma);
+
+    Location loc = op.getLoc();
+
+    Value bufferA = adaptor.getMatrixA();
+    Value bufferB = adaptor.getMatrixB();
+    Value bufferC = adaptor.getMatrixC();
+
+    auto dataTypeA = adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
+    auto dataTypeB = adaptor.getMatrixB().getType().cast<MemRefType>().getElementType();
+
+    auto bufferAShape = op.getMatrixA().getType().getShape();
+    auto bufferCShape = op.getMatrixC().getType().getShape();
+
+    if (dataTypeA.isa<VectorType>()) {
+        dataTypeA = dataTypeA.cast<VectorType>().getElementType();
+    }
+    if (dataTypeB.isa<VectorType>()) {
+        dataTypeB = dataTypeB.cast<VectorType>().getElementType();
+    }
+
+    auto emitter = rock::accel::AccelEmitter::select(
+          op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), op.getParams());
+
+    if (!emitter)
+        return emitError(loc)
+              << "Failed to select any accelerator instruction.\n";
+
+    rock::accel::AccelEmitterParams params = emitter->getParams();
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+
+    // llvm::outs() << "\n**** ARGTYPE: " << argTypeA << "\n";
+
+    TransformMapAttr normalizedViewA, normalizedViewB, normalizedViewC;
+
+    // Sizes of the [i,j,k] axis
+    int64_t i = *(bufferCShape.end() - 2);
+    int64_t j = bufferCShape.back();
+    int64_t k = bufferAShape.back();
+
+    if(isMfma || isWmma){
+      normalizedViewA =
+          normalizeView(b, loc, {"i", "j", "k"}, {i, j, k}, true, {"j"});
+      normalizedViewB =
+          normalizeView(b, loc, {"i", "j", "k"}, {i, j, k}, true, {"i"});
+      normalizedViewC = normalizeView(
+          b, loc, {"i", "j", "k"}, {i, j, k}, false, {"k"});
+    } else {
+      int64_t kPack = bufferAShape[2];
+
+      SmallVector<int64_t, 3> dimensions = {k, i, j, kPack};
+      SmallVector<int64_t, 3> strides = {1, 1, 1, 1};
+       
+      normalizedViewA = normalizeView(b, loc, {"k", "i", "j", "kpack"}, dimensions, true, {"j"});
+      normalizedViewB = normalizeView(b, loc, {"k", "i", "j", "kpack"}, dimensions, true, {"i"});
+      normalizedViewC = normalizeView(b, loc, {"k", "i", "j", "kpack"}, dimensions, true, {"k", "kpack"});
+    }
+
+    auto [rawBufferA, bufferViewA, sourceANeeds64BitIdx] =
+          untransform(b, bufferA, normalizedViewA);
+    auto [rawBufferB, bufferViewB, sourceBNeeds64BitIdx] =
+          untransform(b, bufferB, normalizedViewB);
+    auto [rawBufferC, bufferViewC, dstNeeds64BitIdx] =
+          untransform(b, bufferC, normalizedViewC);
+    assert(!sourceANeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
+    assert(!sourceBNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
+    assert(!dstNeeds64BitIdx && "Registers shouldn't need 64-bit indexing");
+
+    // Loop properties
+    auto computeStart = llvm::to_vector(op.getComputeIndices());
+
+    if(isMfma || isWmma){
+
+      // Emit the loop
+      auto accelLoop = b.create<TransformingForOp>(
+          loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
+          ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
+          /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
+          /*strides=*/ArrayRef<int64_t>{1, 1, 1},
+          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(accelLoop.getBody());
+        auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
+        auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
+        auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
+
+        Value argA = b.create<memref::LoadOp>(loc, argTypeA, rawBufferA, coordsA);
+        Value argB = b.create<memref::LoadOp>(loc, argTypeB, rawBufferB, coordsB);
+        // llvm::outs() << "\n*** argA: " << argA << "\n"
+        //              << "\n*** argB: " << argB << "\n";
+        emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
+      }
+      b.eraseOp(op);
+      return success();
+    } else {
+      
+      int64_t k = bufferAShape.back();
+      int64_t i = *(bufferCShape.end() - 2);
+      int64_t kPack = bufferAShape[2];
+      int64_t j = bufferCShape.back();
+
+      SmallVector<int64_t, 3> dimensions = {k, i, j, kPack};
+
+      auto gemmLoop = b.create<TransformingForOp>(
+          loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
+          ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC}, dimensions,
+          /*strides=*/std::nullopt, /*forceUnroll=*/true,
+          /*useIndexDiffs=*/false);
+
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(gemmLoop.getBody());
+
+        auto coordsA = gemmLoop.getLowerCoords(/*domain=*/0);
+        auto coordsB = gemmLoop.getLowerCoords(/*domain=*/1);
+        auto coordsC = gemmLoop.getLowerCoords(/*domain=*/2); 
+        
+        Value argA = b.create<memref::LoadOp>(loc, argTypeA, rawBufferA, coordsA);
+        Value argB = b.create<memref::LoadOp>(loc, argTypeB, rawBufferB, coordsB);
+
+        emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
+        
+        b.eraseOp(op);
+      }
+      return success();
+    }
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseGemmRewritePattern
@@ -234,7 +396,7 @@ struct ThreadwiseAccelGemmRewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams().cast<RockAccelTuningParamAttrInterface>();
 
     auto dataTypeA =
         adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
@@ -796,14 +958,14 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp, rock::ThreadwiseGemmOpv2>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(
+  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern, ThreadwiseGemmv2RewritePattern>(
       ctx);
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();

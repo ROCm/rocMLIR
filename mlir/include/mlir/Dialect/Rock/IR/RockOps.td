@@ -390,9 +390,10 @@ def Rock_GridwiseGemmOp :
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmAccumulatorTypes, [3]>:$c,
                    Rock_GemmFeaturesAttr:$features,
+                   StrAttr:$arch,
                    I32Attr:$numCU,
                    I32Attr:$gridSize,
-                   Rock_GeneralGemmParamsAttr:$params)> {
+                   RockTuningParamAttrInterface:$params)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM.
@@ -415,7 +416,7 @@ def Rock_GridwiseGemmAccelOp :
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   RockAccelTuningParamAttrInterface:$params)> {
+                   RockTuningParamAttrInterface:$params)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
@@ -1116,7 +1117,9 @@ def Rock_BlockwiseGemmOp:
                    I32Attr:$inNPerThread,
                    UnitAttr:$rotateMWithK,
                    UnitAttr:$rotateNWithK,
-                   Rock_GeneralGemmParamsAttr:$params
+                   StrAttr:$arch,
+                   Rock_GemmFeaturesAttr:$features,
+                   RockTuningParamAttrInterface:$params
                    )> {
   let summary = "Blockwise GEMM non accelerated version";
   let description = [{
@@ -1168,7 +1171,7 @@ def Rock_BlockwiseGemmAccelOp:
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
-                   RockAccelTuningParamAttrInterface:$params)>{
+                   RockTuningParamAttrInterface:$params)>{
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.block_gemm_v2` op does GEMM at workgroup (block) level.
@@ -1215,7 +1218,7 @@ def Rock_ThreadwiseAccelGemmOp:
                    Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C", [MemRead, MemWrite]>:$matrixC, Variadic<Index>:$computeIndices,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
-                   RockAccelTuningParamAttrInterface:$params)> {
+                   RockTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
   let description = [{
     The `rock.accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
@@ -1223,6 +1226,21 @@ def Rock_ThreadwiseAccelGemmOp:
 
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
+  let assemblyFormat = [{
+    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` `features` `=` $features attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
+  }];
+  let hasVerifier = 1;
+}
+// threadwise_gemmv2
+def Rock_ThreadwiseGemmOpv2:
+    Rock_Op<"threadwise_gemmv2">,
+    Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source register view A", [MemRead]>:$matrixA,
+                   Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B", [MemRead]>:$matrixB,
+                   Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C", [MemRead, MemWrite]>:$matrixC, Variadic<Index>:$computeIndices,
+                   StrAttr:$arch,
+                   Rock_GemmFeaturesAttr:$features,
+                   RockTuningParamAttrInterface:$params)> {
   let assemblyFormat = [{
     $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` `features` `=` $features attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)

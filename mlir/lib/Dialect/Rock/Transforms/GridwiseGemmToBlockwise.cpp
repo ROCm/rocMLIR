@@ -305,7 +305,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Obtain critical tuning parameters.
     uint32_t gridSize = op.getGridSize();
-    GeneralGemmParamsAttr tuningParams = op.getParams();
+    GeneralGemmParamsAttr tuningParams = op.getParams().cast<GeneralGemmParamsAttr>();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed
@@ -639,7 +639,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
           b.getI32IntegerAttr(copyMPerThread),
           b.getI32IntegerAttr(copyNPerThread),
           rotateMWithK ? b.getUnitAttr() : nullptr,
-          rotateNWithK ? b.getUnitAttr() : nullptr, op.getParamsAttr());
+          rotateNWithK ? b.getUnitAttr() : nullptr,
+          op.getArchAttr(), op.getFeaturesAttr(), op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -2427,7 +2428,7 @@ struct GridwiseGemmAccelRewritePattern
     StringRef arch = op.getArch();
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
-    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams().cast<RockAccelTuningParamAttrInterface>();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed
