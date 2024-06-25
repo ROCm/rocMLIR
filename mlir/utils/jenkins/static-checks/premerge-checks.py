@@ -35,11 +35,9 @@ def get_diff(base_commit) -> Tuple[bool, str]:
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
   )
-  is_diff_run_succesful = diff_run.returncode == 0
+  is_diff_run_succesful = diff_run.returncode <= 1
   diff = diff_run.stdout.decode()
   print(diff)
-  if (not is_diff_run_succesful):
-    print(diff_run.stderr.decode())
   return is_diff_run_succesful, diff
 
 def check_external_file(filename: str) -> bool:
@@ -74,9 +72,6 @@ def run_clang_format(base_commit, ignore_config, ignore_external_files: bool = F
         continue
     hunk: unidiff.Hunk
     for hunk in patched_file:
-      print(patched_file_src)
-      print(patched_file_tgt)
-      os.exit(1)
       success = False
 
   if not success:
