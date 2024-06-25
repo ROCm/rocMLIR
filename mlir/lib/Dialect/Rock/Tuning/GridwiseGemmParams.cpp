@@ -186,8 +186,8 @@ PopulateParams::populateDerived(const InitParamsNonAccel &params) {
   LogicalResult res = calculateBlockGemmPerformanceParameters(params);
 
   if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Incoherent blockGemm tuning parameter " << " size.\n");
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
+                            << " size.\n");
     return failure();
   }
 
