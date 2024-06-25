@@ -16,8 +16,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/InitializePasses.h"
-#include "llvm/Pass.h"
 #include "llvm/TargetParser/Triple.h"
+#include "llvm/Pass.h"
 #include "llvm/Transforms/Utils.h"
 
 using namespace llvm;
@@ -152,7 +152,7 @@ struct PostInlineEntryExitInstrumenter : public FunctionPass {
   bool runOnFunction(Function &F) override { return ::runOnFunction(F, true); }
 };
 char PostInlineEntryExitInstrumenter::ID = 0;
-} // namespace
+}
 
 INITIALIZE_PASS_BEGIN(
     PostInlineEntryExitInstrumenter, "post-inline-ee-instrument",

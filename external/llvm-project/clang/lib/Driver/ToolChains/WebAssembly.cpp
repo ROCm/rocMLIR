@@ -353,14 +353,12 @@ void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
     if (DriverArgs.hasFlag(options::OPT_mno_multivalue,
                            options::OPT_mmultivalue, false)) {
       getDriver().Diag(diag::err_drv_argument_not_allowed_with)
-          << "-fwasm-exceptions"
-          << "-mno-multivalue";
+          << "-fwasm-exceptions" << "-mno-multivalue";
     }
     if (DriverArgs.hasFlag(options::OPT_mno_reference_types,
                            options::OPT_mreference_types, false)) {
       getDriver().Diag(diag::err_drv_argument_not_allowed_with)
-          << "-fwasm-exceptions"
-          << "-mno-reference-types";
+          << "-fwasm-exceptions" << "-mno-reference-types";
     }
     CC1Args.push_back("-target-feature");
     CC1Args.push_back("+multivalue");
@@ -433,14 +431,12 @@ void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
       if (DriverArgs.hasFlag(options::OPT_mno_multivalue,
                              options::OPT_mmultivalue, false)) {
         getDriver().Diag(diag::err_drv_argument_not_allowed_with)
-            << "-mllvm -wasm-enable-sjlj"
-            << "-mno-multivalue";
+            << "-mllvm -wasm-enable-sjlj" << "-mno-multivalue";
       }
       if (DriverArgs.hasFlag(options::OPT_mno_reference_types,
                              options::OPT_mreference_types, false)) {
         getDriver().Diag(diag::err_drv_argument_not_allowed_with)
-            << "-mllvm -wasm-enable-sjlj"
-            << "-mno-reference-types";
+            << "-mllvm -wasm-enable-sjlj" << "-mno-reference-types";
       }
       CC1Args.push_back("-target-feature");
       CC1Args.push_back("+multivalue");

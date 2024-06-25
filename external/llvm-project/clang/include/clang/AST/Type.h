@@ -143,174 +143,170 @@ using CanQualType = CanQual<Type>;
 
 /// Pointer-authentication qualifiers.
 class PointerAuthQualifier {
-    enum : uint32_t {
-      EnabledShift = 0,
-      EnabledBits = 1,
-      EnabledMask = 1 << EnabledShift,
-      AddressDiscriminatedShift = EnabledShift + EnabledBits,
-      AddressDiscriminatedBits = 1,
-      AddressDiscriminatedMask = 1 << AddressDiscriminatedShift,
-      AuthenticationModeShift =
-          AddressDiscriminatedShift + AddressDiscriminatedBits,
-      AuthenticationModeBits = 2,
-      AuthenticationModeMask = ((1 << AuthenticationModeBits) - 1)
-                               << AuthenticationModeShift,
-      IsaPointerShift = AuthenticationModeShift + AuthenticationModeBits,
-      IsaPointerBits = 1,
-      IsaPointerMask = ((1 << IsaPointerBits) - 1) << IsaPointerShift,
-      AuthenticatesNullValuesShift = IsaPointerShift + IsaPointerBits,
-      AuthenticatesNullValuesBits = 1,
-      AuthenticatesNullValuesMask = ((1 << AuthenticatesNullValuesBits) - 1)
-                                    << AuthenticatesNullValuesShift,
-      KeyShift = AuthenticatesNullValuesShift + AuthenticatesNullValuesBits,
-      KeyBits = 10,
-      KeyMask = ((1 << KeyBits) - 1) << KeyShift,
-      DiscriminatorShift = KeyShift + KeyBits,
-      DiscriminatorBits = 16,
-      DiscriminatorMask = ((1u << DiscriminatorBits) - 1) << DiscriminatorShift,
-    };
+  enum : uint32_t {
+    EnabledShift = 0,
+    EnabledBits = 1,
+    EnabledMask = 1 << EnabledShift,
+    AddressDiscriminatedShift = EnabledShift + EnabledBits,
+    AddressDiscriminatedBits = 1,
+    AddressDiscriminatedMask = 1 << AddressDiscriminatedShift,
+    AuthenticationModeShift =
+        AddressDiscriminatedShift + AddressDiscriminatedBits,
+    AuthenticationModeBits = 2,
+    AuthenticationModeMask = ((1 << AuthenticationModeBits) - 1)
+                             << AuthenticationModeShift,
+    IsaPointerShift = AuthenticationModeShift + AuthenticationModeBits,
+    IsaPointerBits = 1,
+    IsaPointerMask = ((1 << IsaPointerBits) - 1) << IsaPointerShift,
+    AuthenticatesNullValuesShift = IsaPointerShift + IsaPointerBits,
+    AuthenticatesNullValuesBits = 1,
+    AuthenticatesNullValuesMask = ((1 << AuthenticatesNullValuesBits) - 1)
+                                  << AuthenticatesNullValuesShift,
+    KeyShift = AuthenticatesNullValuesShift + AuthenticatesNullValuesBits,
+    KeyBits = 10,
+    KeyMask = ((1 << KeyBits) - 1) << KeyShift,
+    DiscriminatorShift = KeyShift + KeyBits,
+    DiscriminatorBits = 16,
+    DiscriminatorMask = ((1u << DiscriminatorBits) - 1) << DiscriminatorShift,
+  };
 
-    // bits:     |0      |1      |2..3              |4          |
-    //           |Enabled|Address|AuthenticationMode|ISA pointer|
-    // bits:     |5                |6..15|   16...31   |
-    //           |AuthenticatesNull|Key  |Discriminator|
-    uint32_t Data = 0;
+  // bits:     |0      |1      |2..3              |4          |
+  //           |Enabled|Address|AuthenticationMode|ISA pointer|
+  // bits:     |5                |6..15|   16...31   |
+  //           |AuthenticatesNull|Key  |Discriminator|
+  uint32_t Data = 0;
 
-    // The following static assertions check that each of the 32 bits is present
-    // exactly in one of the constants.
-    static_assert((EnabledBits + AddressDiscriminatedBits +
-                   AuthenticationModeBits + IsaPointerBits +
-                   AuthenticatesNullValuesBits + KeyBits + DiscriminatorBits) ==
-                      32,
-                  "PointerAuthQualifier should be exactly 32 bits");
-    static_assert((EnabledMask + AddressDiscriminatedMask +
-                   AuthenticationModeMask + IsaPointerMask +
-                   AuthenticatesNullValuesMask + KeyMask + DiscriminatorMask) ==
-                      0xFFFFFFFF,
-                  "All masks should cover the entire bits");
-    static_assert((EnabledMask ^ AddressDiscriminatedMask ^
-                   AuthenticationModeMask ^ IsaPointerMask ^
-                   AuthenticatesNullValuesMask ^ KeyMask ^ DiscriminatorMask) ==
-                      0xFFFFFFFF,
-                  "All masks should cover the entire bits");
+  // The following static assertions check that each of the 32 bits is present
+  // exactly in one of the constants.
+  static_assert((EnabledBits + AddressDiscriminatedBits +
+                 AuthenticationModeBits + IsaPointerBits +
+                 AuthenticatesNullValuesBits + KeyBits + DiscriminatorBits) ==
+                    32,
+                "PointerAuthQualifier should be exactly 32 bits");
+  static_assert((EnabledMask + AddressDiscriminatedMask +
+                 AuthenticationModeMask + IsaPointerMask +
+                 AuthenticatesNullValuesMask + KeyMask + DiscriminatorMask) ==
+                    0xFFFFFFFF,
+                "All masks should cover the entire bits");
+  static_assert((EnabledMask ^ AddressDiscriminatedMask ^
+                 AuthenticationModeMask ^ IsaPointerMask ^
+                 AuthenticatesNullValuesMask ^ KeyMask ^ DiscriminatorMask) ==
+                    0xFFFFFFFF,
+                "All masks should cover the entire bits");
 
-    PointerAuthQualifier(unsigned Key, bool IsAddressDiscriminated,
-                         unsigned ExtraDiscriminator,
-                         PointerAuthenticationMode AuthenticationMode,
-                         bool IsIsaPointer, bool AuthenticatesNullValues)
-        : Data(EnabledMask |
-               (IsAddressDiscriminated
-                    ? llvm::to_underlying(AddressDiscriminatedMask)
-                    : 0) |
-               (Key << KeyShift) |
-               (llvm::to_underlying(AuthenticationMode)
-                << AuthenticationModeShift) |
-               (ExtraDiscriminator << DiscriminatorShift) |
-               (IsIsaPointer << IsaPointerShift) |
-               (AuthenticatesNullValues << AuthenticatesNullValuesShift)) {
-      assert(Key <= KeyNoneInternal);
-      assert(ExtraDiscriminator <= MaxDiscriminator);
-      assert((Data == 0) ==
-             (getAuthenticationMode() == PointerAuthenticationMode::None));
-    }
+  PointerAuthQualifier(unsigned Key, bool IsAddressDiscriminated,
+                       unsigned ExtraDiscriminator,
+                       PointerAuthenticationMode AuthenticationMode,
+                       bool IsIsaPointer, bool AuthenticatesNullValues)
+      : Data(EnabledMask |
+             (IsAddressDiscriminated
+                  ? llvm::to_underlying(AddressDiscriminatedMask)
+                  : 0) |
+             (Key << KeyShift) |
+             (llvm::to_underlying(AuthenticationMode)
+              << AuthenticationModeShift) |
+             (ExtraDiscriminator << DiscriminatorShift) |
+             (IsIsaPointer << IsaPointerShift) |
+             (AuthenticatesNullValues << AuthenticatesNullValuesShift)) {
+    assert(Key <= KeyNoneInternal);
+    assert(ExtraDiscriminator <= MaxDiscriminator);
+    assert((Data == 0) ==
+           (getAuthenticationMode() == PointerAuthenticationMode::None));
+  }
 
-  public:
-    enum {
-      KeyNoneInternal = (1u << KeyBits) - 1,
+public:
+  enum {
+    KeyNoneInternal = (1u << KeyBits) - 1,
 
-      /// The maximum supported pointer-authentication key.
-      MaxKey = KeyNoneInternal - 1,
+    /// The maximum supported pointer-authentication key.
+    MaxKey = KeyNoneInternal - 1,
 
-      /// The maximum supported pointer-authentication discriminator.
-      MaxDiscriminator = (1u << DiscriminatorBits) - 1
-    };
+    /// The maximum supported pointer-authentication discriminator.
+    MaxDiscriminator = (1u << DiscriminatorBits) - 1
+  };
 
-  public:
-    PointerAuthQualifier() = default;
+public:
+  PointerAuthQualifier() = default;
 
-    static PointerAuthQualifier
-    Create(unsigned Key, bool IsAddressDiscriminated,
-           unsigned ExtraDiscriminator,
-           PointerAuthenticationMode AuthenticationMode, bool IsIsaPointer,
-           bool AuthenticatesNullValues) {
-      if (Key == PointerAuthKeyNone)
-        Key = KeyNoneInternal;
-      assert(Key <= KeyNoneInternal && "out-of-range key value");
-      return PointerAuthQualifier(Key, IsAddressDiscriminated,
-                                  ExtraDiscriminator, AuthenticationMode,
-                                  IsIsaPointer, AuthenticatesNullValues);
-    }
+  static PointerAuthQualifier
+  Create(unsigned Key, bool IsAddressDiscriminated, unsigned ExtraDiscriminator,
+         PointerAuthenticationMode AuthenticationMode, bool IsIsaPointer,
+         bool AuthenticatesNullValues) {
+    if (Key == PointerAuthKeyNone)
+      Key = KeyNoneInternal;
+    assert(Key <= KeyNoneInternal && "out-of-range key value");
+    return PointerAuthQualifier(Key, IsAddressDiscriminated, ExtraDiscriminator,
+                                AuthenticationMode, IsIsaPointer,
+                                AuthenticatesNullValues);
+  }
 
-    bool isPresent() const {
-      assert((Data == 0) ==
-             (getAuthenticationMode() == PointerAuthenticationMode::None));
-      return Data != 0;
-    }
+  bool isPresent() const {
+    assert((Data == 0) ==
+           (getAuthenticationMode() == PointerAuthenticationMode::None));
+    return Data != 0;
+  }
 
-    explicit operator bool() const { return isPresent(); }
+  explicit operator bool() const { return isPresent(); }
 
-    unsigned getKey() const {
-      assert(isPresent());
-      return (Data & KeyMask) >> KeyShift;
-    }
+  unsigned getKey() const {
+    assert(isPresent());
+    return (Data & KeyMask) >> KeyShift;
+  }
 
-    bool hasKeyNone() const {
-      return isPresent() && getKey() == KeyNoneInternal;
-    }
+  bool hasKeyNone() const { return isPresent() && getKey() == KeyNoneInternal; }
 
-    bool isAddressDiscriminated() const {
-      assert(isPresent());
-      return (Data & AddressDiscriminatedMask) >> AddressDiscriminatedShift;
-    }
+  bool isAddressDiscriminated() const {
+    assert(isPresent());
+    return (Data & AddressDiscriminatedMask) >> AddressDiscriminatedShift;
+  }
 
-    unsigned getExtraDiscriminator() const {
-      assert(isPresent());
-      return (Data >> DiscriminatorShift);
-    }
+  unsigned getExtraDiscriminator() const {
+    assert(isPresent());
+    return (Data >> DiscriminatorShift);
+  }
 
-    PointerAuthenticationMode getAuthenticationMode() const {
-      return PointerAuthenticationMode((Data & AuthenticationModeMask) >>
-                                       AuthenticationModeShift);
-    }
+  PointerAuthenticationMode getAuthenticationMode() const {
+    return PointerAuthenticationMode((Data & AuthenticationModeMask) >>
+                                     AuthenticationModeShift);
+  }
 
-    bool isIsaPointer() const {
-      assert(isPresent());
-      return (Data & IsaPointerMask) >> IsaPointerShift;
-    }
+  bool isIsaPointer() const {
+    assert(isPresent());
+    return (Data & IsaPointerMask) >> IsaPointerShift;
+  }
 
-    bool authenticatesNullValues() const {
-      assert(isPresent());
-      return (Data & AuthenticatesNullValuesMask) >>
-             AuthenticatesNullValuesShift;
-    }
+  bool authenticatesNullValues() const {
+    assert(isPresent());
+    return (Data & AuthenticatesNullValuesMask) >> AuthenticatesNullValuesShift;
+  }
 
-    PointerAuthQualifier withoutKeyNone() const {
-      return hasKeyNone() ? PointerAuthQualifier() : *this;
-    }
+  PointerAuthQualifier withoutKeyNone() const {
+    return hasKeyNone() ? PointerAuthQualifier() : *this;
+  }
 
-    friend bool operator==(PointerAuthQualifier Lhs, PointerAuthQualifier Rhs) {
-      return Lhs.Data == Rhs.Data;
-    }
-    friend bool operator!=(PointerAuthQualifier Lhs, PointerAuthQualifier Rhs) {
-      return Lhs.Data != Rhs.Data;
-    }
+  friend bool operator==(PointerAuthQualifier Lhs, PointerAuthQualifier Rhs) {
+    return Lhs.Data == Rhs.Data;
+  }
+  friend bool operator!=(PointerAuthQualifier Lhs, PointerAuthQualifier Rhs) {
+    return Lhs.Data != Rhs.Data;
+  }
 
-    bool isEquivalent(PointerAuthQualifier Other) const {
-      return withoutKeyNone() == Other.withoutKeyNone();
-    }
+  bool isEquivalent(PointerAuthQualifier Other) const {
+    return withoutKeyNone() == Other.withoutKeyNone();
+  }
 
-    uint32_t getAsOpaqueValue() const { return Data; }
+  uint32_t getAsOpaqueValue() const { return Data; }
 
-    // Deserialize pointer-auth qualifiers from an opaque representation.
-    static PointerAuthQualifier fromOpaqueValue(uint32_t Opaque) {
-      PointerAuthQualifier Result;
-      Result.Data = Opaque;
-      assert((Result.Data == 0) == (Result.getAuthenticationMode() ==
-                                    PointerAuthenticationMode::None));
-      return Result;
-    }
+  // Deserialize pointer-auth qualifiers from an opaque representation.
+  static PointerAuthQualifier fromOpaqueValue(uint32_t Opaque) {
+    PointerAuthQualifier Result;
+    Result.Data = Opaque;
+    assert((Result.Data == 0) ==
+           (Result.getAuthenticationMode() == PointerAuthenticationMode::None));
+    return Result;
+  }
 
-    void Profile(llvm::FoldingSetNodeID &ID) const { ID.AddInteger(Data); }
+  void Profile(llvm::FoldingSetNodeID &ID) const { ID.AddInteger(Data); }
 };
 
 /// The collection of all-type qualifiers we support.
@@ -372,16 +368,16 @@ public:
   /// Returns the common set of qualifiers while removing them from
   /// the given sets.
   static Qualifiers removeCommonQualifiers(Qualifiers &L, Qualifiers &R) {
-      Qualifiers Q;
-      PointerAuthQualifier LPtrAuth = L.getPointerAuth();
-      if (LPtrAuth.isPresent() &&
-          LPtrAuth.getKey() != PointerAuthQualifier::KeyNoneInternal &&
-          LPtrAuth == R.getPointerAuth()) {
-        Q.setPointerAuth(LPtrAuth);
-        PointerAuthQualifier Empty;
-        L.setPointerAuth(Empty);
-        R.setPointerAuth(Empty);
-      }
+    Qualifiers Q;
+    PointerAuthQualifier LPtrAuth = L.getPointerAuth();
+    if (LPtrAuth.isPresent() &&
+        LPtrAuth.getKey() != PointerAuthQualifier::KeyNoneInternal &&
+        LPtrAuth == R.getPointerAuth()) {
+      Q.setPointerAuth(LPtrAuth);
+      PointerAuthQualifier Empty;
+      L.setPointerAuth(Empty);
+      R.setPointerAuth(Empty);
+    }
 
     // If both are only CVR-qualified, bit operations are sufficient.
     if (!(L.Mask & ~CVRMask) && !(R.Mask & ~CVRMask)) {

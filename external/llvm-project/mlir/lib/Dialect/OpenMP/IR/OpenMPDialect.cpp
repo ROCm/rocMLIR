@@ -1079,7 +1079,7 @@ static void printMembersIndex(OpAsmPrinter &p, MapInfoOp op,
                               DenseIntElementsAttr membersIdx) {
   llvm::ArrayRef<int64_t> shape = membersIdx.getShapedType().getShape();
   assert(shape.size() <= 2);
-
+  
   if (!membersIdx)
     return;
 
@@ -1087,7 +1087,8 @@ static void printMembersIndex(OpAsmPrinter &p, MapInfoOp op,
     p << "[";
     int rowOffset = i * shape[1];
     for (int j = 0; j < shape[1]; ++j) {
-      p << membersIdx.getValues<int32_t>()[rowOffset + j];
+      p << membersIdx.getValues<
+          int32_t>()[rowOffset + j];
       if ((j + 1) < shape[1])
         p << ",";
     }

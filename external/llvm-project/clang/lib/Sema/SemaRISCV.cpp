@@ -345,7 +345,7 @@ void RISCVIntrinsicManagerImpl::ConstructRVVIntrinsics(
                            /*IsMask=*/true, *PolicyTypes, MaskedHasPolicy, P);
         }
       } // End for different LMUL
-    }   // End for different TypeRange
+    } // End for different TypeRange
   }
 }
 

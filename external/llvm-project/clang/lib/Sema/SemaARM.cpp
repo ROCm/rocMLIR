@@ -577,8 +577,7 @@ static void checkArmStreamingBuiltin(Sema &S, CallExpr *TheCall,
       BuiltinType == SemaARM::ArmNonStreaming)
     S.Diag(TheCall->getBeginLoc(), diag::warn_attribute_arm_sm_incompat_builtin)
         << TheCall->getSourceRange() << "streaming";
-  else if (FnType == SemaARM::ArmNonStreaming &&
-           BuiltinType == SemaARM::ArmStreaming)
+  else if (FnType == SemaARM::ArmNonStreaming && BuiltinType == SemaARM::ArmStreaming)
     S.Diag(TheCall->getBeginLoc(), diag::warn_attribute_arm_sm_incompat_builtin)
         << TheCall->getSourceRange() << "non-streaming";
   else if (FnType == SemaARM::ArmStreamingCompatible &&
@@ -1076,18 +1075,11 @@ bool SemaARM::CheckAArch64BuiltinFunctionCall(const TargetInfo &TI,
   // range check them here.
   unsigned i = 0, l = 0, u = 0;
   switch (BuiltinID) {
-  default:
-    return false;
+  default: return false;
   case AArch64::BI__builtin_arm_dmb:
   case AArch64::BI__builtin_arm_dsb:
-  case AArch64::BI__builtin_arm_isb:
-    l = 0;
-    u = 15;
-    break;
-  case AArch64::BI__builtin_arm_tcancel:
-    l = 0;
-    u = 65535;
-    break;
+  case AArch64::BI__builtin_arm_isb: l = 0; u = 15; break;
+  case AArch64::BI__builtin_arm_tcancel: l = 0; u = 65535; break;
   }
 
   return SemaRef.BuiltinConstantArgRange(TheCall, i, l, u + l);

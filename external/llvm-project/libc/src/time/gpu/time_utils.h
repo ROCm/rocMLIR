@@ -24,8 +24,8 @@ constexpr uint64_t clock_freq = 100000000UL;
 // We provide an externally visible symbol such that the runtime can set
 // this to the correct value.
 extern "C" {
-[[gnu::visibility("protected")]] extern gpu::Constant<uint64_t>
-    __llvm_libc_clock_freq;
+[[gnu::visibility("protected")]]
+extern gpu::Constant<uint64_t> __llvm_libc_clock_freq;
 }
 #define GPU_CLOCKS_PER_SEC static_cast<clock_t>(__llvm_libc_clock_freq)
 

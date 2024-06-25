@@ -3775,9 +3775,8 @@ public:
     return isInterestingIdentifier(II, 0);
   }
 
-  std::pair<unsigned, unsigned> EmitKeyDataLength(raw_ostream &Out,
-                                                  const IdentifierInfo *II,
-                                                  IdentifierID ID) {
+  std::pair<unsigned, unsigned>
+  EmitKeyDataLength(raw_ostream &Out, const IdentifierInfo *II, IdentifierID ID) {
     // Record the location of the identifier data. This is used when generating
     // the mapping from persistent IDs to strings.
     Writer.SetIdentifierOffset(II, Out.tell());
@@ -7834,7 +7833,7 @@ void ASTRecordWriter::writeOpenACCClause(const OpenACCClause *C) {
   case OpenACCClauseKind::If: {
     const auto *IC = cast<OpenACCIfClause>(C);
     writeSourceLocation(IC->getLParenLoc());
-    AddStmt(const_cast<Expr *>(IC->getConditionExpr()));
+    AddStmt(const_cast<Expr*>(IC->getConditionExpr()));
     return;
   }
   case OpenACCClauseKind::Self: {
@@ -7842,7 +7841,7 @@ void ASTRecordWriter::writeOpenACCClause(const OpenACCClause *C) {
     writeSourceLocation(SC->getLParenLoc());
     writeBool(SC->hasConditionExpr());
     if (SC->hasConditionExpr())
-      AddStmt(const_cast<Expr *>(SC->getConditionExpr()));
+      AddStmt(const_cast<Expr*>(SC->getConditionExpr()));
     return;
   }
   case OpenACCClauseKind::NumGangs: {
@@ -7856,13 +7855,13 @@ void ASTRecordWriter::writeOpenACCClause(const OpenACCClause *C) {
   case OpenACCClauseKind::NumWorkers: {
     const auto *NWC = cast<OpenACCNumWorkersClause>(C);
     writeSourceLocation(NWC->getLParenLoc());
-    AddStmt(const_cast<Expr *>(NWC->getIntExpr()));
+    AddStmt(const_cast<Expr*>(NWC->getIntExpr()));
     return;
   }
   case OpenACCClauseKind::VectorLength: {
     const auto *NWC = cast<OpenACCVectorLengthClause>(C);
     writeSourceLocation(NWC->getLParenLoc());
-    AddStmt(const_cast<Expr *>(NWC->getIntExpr()));
+    AddStmt(const_cast<Expr*>(NWC->getIntExpr()));
     return;
   }
   case OpenACCClauseKind::Private: {
@@ -7941,7 +7940,7 @@ void ASTRecordWriter::writeOpenACCClause(const OpenACCClause *C) {
     writeSourceLocation(AC->getLParenLoc());
     writeBool(AC->hasIntExpr());
     if (AC->hasIntExpr())
-      AddStmt(const_cast<Expr *>(AC->getIntExpr()));
+      AddStmt(const_cast<Expr*>(AC->getIntExpr()));
     return;
   }
   case OpenACCClauseKind::Wait: {

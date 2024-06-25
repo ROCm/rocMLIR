@@ -1693,54 +1693,40 @@ void X86DAGToDAGISel::PostprocessISelDAG() {
       switch (Move.getMachineOpcode()) {
       default:
         continue;
-        CASE(VMOVAPDrr)
-        CASE(VMOVUPDrr)
-        CASE(VMOVAPSrr)
-        CASE(VMOVUPSrr)
-        CASE(VMOVDQArr)
-        CASE(VMOVDQUrr)
-        CASE(VMOVAPDYrr)
-        CASE(VMOVUPDYrr)
-        CASE(VMOVAPSYrr)
-        CASE(VMOVUPSYrr)
-        CASE(VMOVDQAYrr)
-        CASE(VMOVDQUYrr)
-        CASE(VMOVAPDZ128rr)
-        CASE(VMOVUPDZ128rr)
-        CASE(VMOVAPSZ128rr)
-        CASE(VMOVUPSZ128rr)
-        CASE(VMOVDQA32Z128rr)
-        CASE(VMOVDQU32Z128rr)
-        CASE(VMOVDQA64Z128rr)
-        CASE(VMOVDQU64Z128rr)
-        CASE(VMOVAPDZ256rr)
-        CASE(VMOVUPDZ256rr)
-        CASE(VMOVAPSZ256rr)
-        CASE(VMOVUPSZ256rr)
-        CASE(VMOVDQA32Z256rr)
-        CASE(VMOVDQU32Z256rr)
-        CASE(VMOVDQA64Z256rr)
-        CASE(VMOVDQU64Z256rr)
+        CASE(VMOVAPDrr)       CASE(VMOVUPDrr)
+        CASE(VMOVAPSrr)       CASE(VMOVUPSrr)
+        CASE(VMOVDQArr)       CASE(VMOVDQUrr)
+        CASE(VMOVAPDYrr)      CASE(VMOVUPDYrr)
+        CASE(VMOVAPSYrr)      CASE(VMOVUPSYrr)
+        CASE(VMOVDQAYrr)      CASE(VMOVDQUYrr)
+        CASE(VMOVAPDZ128rr)   CASE(VMOVUPDZ128rr)
+        CASE(VMOVAPSZ128rr)   CASE(VMOVUPSZ128rr)
+        CASE(VMOVDQA32Z128rr) CASE(VMOVDQU32Z128rr)
+        CASE(VMOVDQA64Z128rr) CASE(VMOVDQU64Z128rr)
+        CASE(VMOVAPDZ256rr)   CASE(VMOVUPDZ256rr)
+        CASE(VMOVAPSZ256rr)   CASE(VMOVUPSZ256rr)
+        CASE(VMOVDQA32Z256rr) CASE(VMOVDQU32Z256rr)
+        CASE(VMOVDQA64Z256rr) CASE(VMOVDQU64Z256rr)
       }
 #undef CASE
 
-      SDValue In = Move.getOperand(0);
-      if (!In.isMachineOpcode() ||
-          In.getMachineOpcode() <= TargetOpcode::GENERIC_OP_END)
-        continue;
+    SDValue In = Move.getOperand(0);
+    if (!In.isMachineOpcode() ||
+        In.getMachineOpcode() <= TargetOpcode::GENERIC_OP_END)
+      continue;
 
-      // Make sure the instruction has a VEX, XOP, or EVEX prefix. This covers
-      // the SHA instructions which use a legacy encoding.
-      uint64_t TSFlags = getInstrInfo()->get(In.getMachineOpcode()).TSFlags;
-      if ((TSFlags & X86II::EncodingMask) != X86II::VEX &&
-          (TSFlags & X86II::EncodingMask) != X86II::EVEX &&
-          (TSFlags & X86II::EncodingMask) != X86II::XOP)
-        continue;
+    // Make sure the instruction has a VEX, XOP, or EVEX prefix. This covers
+    // the SHA instructions which use a legacy encoding.
+    uint64_t TSFlags = getInstrInfo()->get(In.getMachineOpcode()).TSFlags;
+    if ((TSFlags & X86II::EncodingMask) != X86II::VEX &&
+        (TSFlags & X86II::EncodingMask) != X86II::EVEX &&
+        (TSFlags & X86II::EncodingMask) != X86II::XOP)
+      continue;
 
-      // Producing instruction is another vector instruction. We can drop the
-      // move.
-      CurDAG->UpdateNodeOperands(N, N->getOperand(0), In, N->getOperand(2));
-      MadeChange = true;
+    // Producing instruction is another vector instruction. We can drop the
+    // move.
+    CurDAG->UpdateNodeOperands(N, N->getOperand(0), In, N->getOperand(2));
+    MadeChange = true;
     }
     }
   }

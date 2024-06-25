@@ -684,87 +684,37 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::INTRINSIC_W_CHAIN, ISD::INTRINSIC_VOID},
                        MVT::Other, Custom);
 
-    static const unsigned IntegerVPOps[] = {ISD::VP_ADD,
-                                            ISD::VP_SUB,
-                                            ISD::VP_MUL,
-                                            ISD::VP_SDIV,
-                                            ISD::VP_UDIV,
-                                            ISD::VP_SREM,
-                                            ISD::VP_UREM,
-                                            ISD::VP_AND,
-                                            ISD::VP_OR,
-                                            ISD::VP_XOR,
-                                            ISD::VP_SRA,
-                                            ISD::VP_SRL,
-                                            ISD::VP_SHL,
-                                            ISD::VP_REDUCE_ADD,
-                                            ISD::VP_REDUCE_AND,
-                                            ISD::VP_REDUCE_OR,
-                                            ISD::VP_REDUCE_XOR,
-                                            ISD::VP_REDUCE_SMAX,
-                                            ISD::VP_REDUCE_SMIN,
-                                            ISD::VP_REDUCE_UMAX,
-                                            ISD::VP_REDUCE_UMIN,
-                                            ISD::VP_MERGE,
-                                            ISD::VP_SELECT,
-                                            ISD::VP_FP_TO_SINT,
-                                            ISD::VP_FP_TO_UINT,
-                                            ISD::VP_SETCC,
-                                            ISD::VP_SIGN_EXTEND,
-                                            ISD::VP_ZERO_EXTEND,
-                                            ISD::VP_TRUNCATE,
-                                            ISD::VP_SMIN,
-                                            ISD::VP_SMAX,
-                                            ISD::VP_UMIN,
-                                            ISD::VP_UMAX,
-                                            ISD::VP_ABS,
-                                            ISD::EXPERIMENTAL_VP_REVERSE,
-                                            ISD::EXPERIMENTAL_VP_SPLICE,
-                                            ISD::VP_SADDSAT,
-                                            ISD::VP_UADDSAT,
-                                            ISD::VP_SSUBSAT,
-                                            ISD::VP_USUBSAT,
-                                            ISD::VP_CTTZ_ELTS,
-                                            ISD::VP_CTTZ_ELTS_ZERO_UNDEF};
+    static const unsigned IntegerVPOps[] = {
+        ISD::VP_ADD,         ISD::VP_SUB,         ISD::VP_MUL,
+        ISD::VP_SDIV,        ISD::VP_UDIV,        ISD::VP_SREM,
+        ISD::VP_UREM,        ISD::VP_AND,         ISD::VP_OR,
+        ISD::VP_XOR,         ISD::VP_SRA,         ISD::VP_SRL,
+        ISD::VP_SHL,         ISD::VP_REDUCE_ADD,  ISD::VP_REDUCE_AND,
+        ISD::VP_REDUCE_OR,   ISD::VP_REDUCE_XOR,  ISD::VP_REDUCE_SMAX,
+        ISD::VP_REDUCE_SMIN, ISD::VP_REDUCE_UMAX, ISD::VP_REDUCE_UMIN,
+        ISD::VP_MERGE,       ISD::VP_SELECT,      ISD::VP_FP_TO_SINT,
+        ISD::VP_FP_TO_UINT,  ISD::VP_SETCC,       ISD::VP_SIGN_EXTEND,
+        ISD::VP_ZERO_EXTEND, ISD::VP_TRUNCATE,    ISD::VP_SMIN,
+        ISD::VP_SMAX,        ISD::VP_UMIN,        ISD::VP_UMAX,
+        ISD::VP_ABS, ISD::EXPERIMENTAL_VP_REVERSE, ISD::EXPERIMENTAL_VP_SPLICE,
+        ISD::VP_SADDSAT,     ISD::VP_UADDSAT,     ISD::VP_SSUBSAT,
+        ISD::VP_USUBSAT,     ISD::VP_CTTZ_ELTS,   ISD::VP_CTTZ_ELTS_ZERO_UNDEF};
 
-    static const unsigned FloatingPointVPOps[] = {ISD::VP_FADD,
-                                                  ISD::VP_FSUB,
-                                                  ISD::VP_FMUL,
-                                                  ISD::VP_FDIV,
-                                                  ISD::VP_FNEG,
-                                                  ISD::VP_FABS,
-                                                  ISD::VP_FMA,
-                                                  ISD::VP_REDUCE_FADD,
-                                                  ISD::VP_REDUCE_SEQ_FADD,
-                                                  ISD::VP_REDUCE_FMIN,
-                                                  ISD::VP_REDUCE_FMAX,
-                                                  ISD::VP_MERGE,
-                                                  ISD::VP_SELECT,
-                                                  ISD::VP_SINT_TO_FP,
-                                                  ISD::VP_UINT_TO_FP,
-                                                  ISD::VP_SETCC,
-                                                  ISD::VP_FP_ROUND,
-                                                  ISD::VP_FP_EXTEND,
-                                                  ISD::VP_SQRT,
-                                                  ISD::VP_FMINNUM,
-                                                  ISD::VP_FMAXNUM,
-                                                  ISD::VP_FCEIL,
-                                                  ISD::VP_FFLOOR,
-                                                  ISD::VP_FROUND,
-                                                  ISD::VP_FROUNDEVEN,
-                                                  ISD::VP_FCOPYSIGN,
-                                                  ISD::VP_FROUNDTOZERO,
-                                                  ISD::VP_FRINT,
-                                                  ISD::VP_FNEARBYINT,
-                                                  ISD::VP_IS_FPCLASS,
-                                                  ISD::VP_FMINIMUM,
-                                                  ISD::VP_FMAXIMUM,
-                                                  ISD::VP_LRINT,
-                                                  ISD::VP_LLRINT,
-                                                  ISD::EXPERIMENTAL_VP_REVERSE,
-                                                  ISD::EXPERIMENTAL_VP_SPLICE,
-                                                  ISD::VP_REDUCE_FMINIMUM,
-                                                  ISD::VP_REDUCE_FMAXIMUM};
+    static const unsigned FloatingPointVPOps[] = {
+        ISD::VP_FADD,        ISD::VP_FSUB,        ISD::VP_FMUL,
+        ISD::VP_FDIV,        ISD::VP_FNEG,        ISD::VP_FABS,
+        ISD::VP_FMA,         ISD::VP_REDUCE_FADD, ISD::VP_REDUCE_SEQ_FADD,
+        ISD::VP_REDUCE_FMIN, ISD::VP_REDUCE_FMAX, ISD::VP_MERGE,
+        ISD::VP_SELECT,      ISD::VP_SINT_TO_FP,  ISD::VP_UINT_TO_FP,
+        ISD::VP_SETCC,       ISD::VP_FP_ROUND,    ISD::VP_FP_EXTEND,
+        ISD::VP_SQRT,        ISD::VP_FMINNUM,     ISD::VP_FMAXNUM,
+        ISD::VP_FCEIL,       ISD::VP_FFLOOR,      ISD::VP_FROUND,
+        ISD::VP_FROUNDEVEN,  ISD::VP_FCOPYSIGN,   ISD::VP_FROUNDTOZERO,
+        ISD::VP_FRINT,       ISD::VP_FNEARBYINT,  ISD::VP_IS_FPCLASS,
+        ISD::VP_FMINIMUM,    ISD::VP_FMAXIMUM,    ISD::VP_LRINT,
+        ISD::VP_LLRINT,      ISD::EXPERIMENTAL_VP_REVERSE,
+        ISD::EXPERIMENTAL_VP_SPLICE, ISD::VP_REDUCE_FMINIMUM,
+        ISD::VP_REDUCE_FMAXIMUM};
 
     static const unsigned IntegerVecReduceOps[] = {
         ISD::VECREDUCE_ADD,  ISD::VECREDUCE_AND,  ISD::VECREDUCE_OR,
@@ -1001,33 +951,16 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
         ISD::STRICT_FDIV, ISD::STRICT_FSQRT, ISD::STRICT_FMA};
 
     // TODO: support more vp ops.
-    static const unsigned ZvfhminPromoteVPOps[] = {ISD::VP_FADD,
-                                                   ISD::VP_FSUB,
-                                                   ISD::VP_FMUL,
-                                                   ISD::VP_FDIV,
-                                                   ISD::VP_FNEG,
-                                                   ISD::VP_FABS,
-                                                   ISD::VP_FMA,
-                                                   ISD::VP_REDUCE_FADD,
-                                                   ISD::VP_REDUCE_SEQ_FADD,
-                                                   ISD::VP_REDUCE_FMIN,
-                                                   ISD::VP_REDUCE_FMAX,
-                                                   ISD::VP_SQRT,
-                                                   ISD::VP_FMINNUM,
-                                                   ISD::VP_FMAXNUM,
-                                                   ISD::VP_FCEIL,
-                                                   ISD::VP_FFLOOR,
-                                                   ISD::VP_FROUND,
-                                                   ISD::VP_FROUNDEVEN,
-                                                   ISD::VP_FCOPYSIGN,
-                                                   ISD::VP_FROUNDTOZERO,
-                                                   ISD::VP_FRINT,
-                                                   ISD::VP_FNEARBYINT,
-                                                   ISD::VP_SETCC,
-                                                   ISD::VP_FMINIMUM,
-                                                   ISD::VP_FMAXIMUM,
-                                                   ISD::VP_REDUCE_FMINIMUM,
-                                                   ISD::VP_REDUCE_FMAXIMUM};
+    static const unsigned ZvfhminPromoteVPOps[] = {
+        ISD::VP_FADD,        ISD::VP_FSUB,         ISD::VP_FMUL,
+        ISD::VP_FDIV,        ISD::VP_FNEG,         ISD::VP_FABS,
+        ISD::VP_FMA,         ISD::VP_REDUCE_FADD,  ISD::VP_REDUCE_SEQ_FADD,
+        ISD::VP_REDUCE_FMIN, ISD::VP_REDUCE_FMAX,  ISD::VP_SQRT,
+        ISD::VP_FMINNUM,     ISD::VP_FMAXNUM,      ISD::VP_FCEIL,
+        ISD::VP_FFLOOR,      ISD::VP_FROUND,       ISD::VP_FROUNDEVEN,
+        ISD::VP_FCOPYSIGN,   ISD::VP_FROUNDTOZERO, ISD::VP_FRINT,
+        ISD::VP_FNEARBYINT,  ISD::VP_SETCC,        ISD::VP_FMINIMUM,
+        ISD::VP_FMAXIMUM,    ISD::VP_REDUCE_FMINIMUM, ISD::VP_REDUCE_FMAXIMUM};
 
     // Sets common operation actions on RVV floating-point vector types.
     const auto SetCommonVFPActions = [&](MVT VT) {
@@ -13661,11 +13594,10 @@ static SDValue expandMul(SDNode *N, SelectionDAG &DAG,
     return SDValue();
   uint64_t MulAmt = CNode->getZExtValue();
 
-  // WARNING: The code below is knowingly incorrect with regards to undef
-  // semantics. We're adding additional uses of X here, and in principle, we
-  // should be freezing X before doing so.  However, adding freeze here causes
-  // real regressions, and no other target properly freezes X in these cases
-  // either.
+  // WARNING: The code below is knowingly incorrect with regards to undef semantics.
+  // We're adding additional uses of X here, and in principle, we should be freezing
+  // X before doing so.  However, adding freeze here causes real regressions, and no
+  // other target properly freezes X in these cases either.
   SDValue X = N->getOperand(0);
 
   for (uint64_t Divisor : {3, 5, 9}) {
@@ -13701,7 +13633,8 @@ static SDValue expandMul(SDNode *N, SelectionDAG &DAG,
           DAG.getNode(RISCVISD::SHL_ADD, DL, VT, X,
                       DAG.getConstant(Log2_64(Divisor - 1), DL, VT), X);
       return DAG.getNode(RISCVISD::SHL_ADD, DL, VT, Mul359,
-                         DAG.getConstant(Log2_64(MulAmt2 - 1), DL, VT), Mul359);
+                         DAG.getConstant(Log2_64(MulAmt2 - 1), DL, VT),
+                         Mul359);
     }
   }
 
@@ -13761,9 +13694,9 @@ static SDValue expandMul(SDNode *N, SelectionDAG &DAG,
       SDValue Shift1 =
           DAG.getNode(ISD::SHL, DL, VT, X,
                       DAG.getConstant(Log2_64(MulAmt + Offset), DL, VT));
-      SDValue Mul359 =
-          DAG.getNode(RISCVISD::SHL_ADD, DL, VT, X,
-                      DAG.getConstant(Log2_64(Offset - 1), DL, VT), X);
+      SDValue Mul359 = DAG.getNode(RISCVISD::SHL_ADD, DL, VT, X,
+                                   DAG.getConstant(Log2_64(Offset - 1), DL, VT),
+                                   X);
       return DAG.getNode(ISD::SUB, DL, VT, Shift1, Mul359);
     }
   }

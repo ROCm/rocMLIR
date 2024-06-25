@@ -560,13 +560,13 @@ static ObjCMethodDecl *LookupMethodInReceiverType(Sema &S, Selector sel,
     // Special case for 'self' in class method implementations.
     if (PT->isObjCClassType() &&
         S.ObjC().isSelfExpr(const_cast<Expr *>(PRE->getBase()))) {
-        // This cast is safe because isSelfExpr is only true within
-        // methods.
-        ObjCMethodDecl *method =
-            cast<ObjCMethodDecl>(S.CurContext->getNonClosureAncestor());
-        return S.ObjC().LookupMethodInObjectType(
-            sel, S.Context.getObjCInterfaceType(method->getClassInterface()),
-            /*instance*/ false);
+      // This cast is safe because isSelfExpr is only true within
+      // methods.
+      ObjCMethodDecl *method =
+        cast<ObjCMethodDecl>(S.CurContext->getNonClosureAncestor());
+      return S.ObjC().LookupMethodInObjectType(
+          sel, S.Context.getObjCInterfaceType(method->getClassInterface()),
+          /*instance*/ false);
     }
 
     return S.ObjC().LookupMethodInObjectType(sel, PT->getPointeeType(), true);
@@ -575,8 +575,7 @@ static ObjCMethodDecl *LookupMethodInReceiverType(Sema &S, Selector sel,
   if (PRE->isSuperReceiver()) {
     if (const ObjCObjectPointerType *PT =
         PRE->getSuperReceiverType()->getAs<ObjCObjectPointerType>())
-        return S.ObjC().LookupMethodInObjectType(sel, PT->getPointeeType(),
-                                                 true);
+      return S.ObjC().LookupMethodInObjectType(sel, PT->getPointeeType(), true);
 
     return S.ObjC().LookupMethodInObjectType(sel, PRE->getSuperReceiverType(),
                                              false);

@@ -3986,13 +3986,13 @@ bool RecursiveASTVisitor<Derived>::VisitOpenACCClauseList(
 
   for (const auto *C : Clauses)
     TRY_TO(VisitOpenACCClause(C));
-  //    if (const auto *WithCond = dyn_cast<OopenACCClauseWithCondition>(C);
-  //        WithCond && WIthCond->hasConditionExpr()) {
-  //      TRY_TO(TraverseStmt(WithCond->getConditionExpr());
-  //    } else if (const auto *
-  //  }
-  //  OpenACCClauseWithCondition::getConditionExpr/hasConditionExpr
-  // OpenACCClauseWithExprs::children (might be null?)
+//    if (const auto *WithCond = dyn_cast<OopenACCClauseWithCondition>(C);
+//        WithCond && WIthCond->hasConditionExpr()) {
+//      TRY_TO(TraverseStmt(WithCond->getConditionExpr());
+//    } else if (const auto *
+//  }
+//  OpenACCClauseWithCondition::getConditionExpr/hasConditionExpr
+//OpenACCClauseWithExprs::children (might be null?)
   // TODO OpenACC: When we have Clauses with expressions, we should visit them
   // here.
   return true;

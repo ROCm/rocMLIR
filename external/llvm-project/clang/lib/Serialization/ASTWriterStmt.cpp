@@ -473,17 +473,17 @@ addConstraintSatisfaction(ASTRecordWriter &Record,
   if (!Satisfaction.IsSatisfied) {
     Record.push_back(Satisfaction.NumRecords);
     for (const auto &DetailRecord : Satisfaction) {
-        Record.writeStmtRef(DetailRecord.first);
-        auto *E = DetailRecord.second.dyn_cast<Expr *>();
-        Record.push_back(E == nullptr);
-        if (E)
-          Record.AddStmt(E);
-        else {
-          auto *Diag =
-              DetailRecord.second.get<std::pair<SourceLocation, StringRef> *>();
-          Record.AddSourceLocation(Diag->first);
-          Record.AddString(Diag->second);
-        }
+      Record.writeStmtRef(DetailRecord.first);
+      auto *E = DetailRecord.second.dyn_cast<Expr *>();
+      Record.push_back(E == nullptr);
+      if (E)
+        Record.AddStmt(E);
+      else {
+        auto *Diag = DetailRecord.second.get<std::pair<SourceLocation,
+                                                       StringRef> *>();
+        Record.AddSourceLocation(Diag->first);
+        Record.AddString(Diag->second);
+      }
     }
   }
 }

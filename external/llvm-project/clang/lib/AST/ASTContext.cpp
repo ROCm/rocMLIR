@@ -3813,7 +3813,7 @@ QualType ASTContext::getDependentSizedArrayType(QualType elementType,
 
   // Look for an existing type with these properties.
   DependentSizedArrayType *canonTy =
-      DependentSizedArrayTypes.FindNodeOrInsertPos(ID, insertPos);
+    DependentSizedArrayTypes.FindNodeOrInsertPos(ID, insertPos);
 
   // Dependently-sized array types that do not have a specified number
   // of elements will have their sizes deduced from a dependent

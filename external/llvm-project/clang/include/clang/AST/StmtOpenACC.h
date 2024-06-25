@@ -99,7 +99,9 @@ protected:
   }
 
 public:
-  static bool classof(const Stmt *T) { return false; }
+  static bool classof(const Stmt *T) {
+    return false;
+  }
 
   child_range children() {
     if (getAssociatedStmt())

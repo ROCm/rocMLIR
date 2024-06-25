@@ -10,11 +10,11 @@
 // If we use %p with MS CRTs, it comes out all upper case. Use %08x to get
 // lowercase hex.
 #ifdef _WIN32
-#  ifdef _WIN64
-#    define PTR_FMT "0x%08llx"
-#  else
-#    define PTR_FMT "0x%08x"
-#  endif
+# ifdef _WIN64
+#  define PTR_FMT "0x%08llx"
+# else
+#  define PTR_FMT "0x%08x"
+# endif
 // Solaris libc omits the leading 0x.
 #elif defined(__sun__) && defined(__svr4__)
 # define PTR_FMT "0x%p"

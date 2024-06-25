@@ -25,9 +25,8 @@ int main() {
   }
 
 // DEFAULT: 13 (MaxFlatWorkGroupSize:
-#pragma omp target
-#pragma omp teams distribute parallel for simd num_teams(te),                  \
-    thread_limit(th + 1) simdlen(64)
+  #pragma omp target
+  #pragma omp teams distribute parallel for simd num_teams(te), thread_limit(th+1) simdlen(64)
   for(int i = 0; i < n; i++) {
   }
 

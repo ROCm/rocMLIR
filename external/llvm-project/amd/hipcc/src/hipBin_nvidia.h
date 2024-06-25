@@ -180,10 +180,10 @@ void HipBinNvidia::initializeHipLdFlags() {
   const string& cudaPath = getCompilerPath();
   if (getOSInfo() == windows)
     hipLdFlags = " -Wno-deprecated-gpu-targets -lcuda -lcudart -L\"" +
-                 cudaPath + "/lib64\"";
+               cudaPath + "/lib64\"";
   else
-    hipLdFlags =
-        " -Wno-deprecated-gpu-targets -lcuda -lcudart -L" + cudaPath + "/lib64";
+    hipLdFlags = " -Wno-deprecated-gpu-targets -lcuda -lcudart -L" +
+               cudaPath + "/lib64";
   hipLdFlags_ = hipLdFlags;
 }
 

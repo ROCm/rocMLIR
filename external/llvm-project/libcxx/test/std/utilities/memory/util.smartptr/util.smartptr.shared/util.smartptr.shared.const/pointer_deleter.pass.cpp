@@ -40,12 +40,12 @@ static_assert( std::is_constructible<std::shared_ptr<Base>,  Derived*, test_dele
 static_assert(!std::is_constructible<std::shared_ptr<A>,  int*, test_deleter<A> >::value, "");
 
 #if TEST_STD_VER >= 17
-static_assert(std::is_constructible<std::shared_ptr<int[]>, int*, test_deleter<int> >::value, "");
+static_assert( std::is_constructible<std::shared_ptr<int[]>,  int*, test_deleter<int> >::value, "");
 static_assert(!std::is_constructible<std::shared_ptr<int[]>,  int*, bad_deleter>::value, "");
-static_assert(!std::is_constructible<std::shared_ptr<int[]>, int (*)[], test_deleter<int> >::value, "");
-static_assert(std::is_constructible<std::shared_ptr<int[5]>, int*, test_deleter<int> >::value, "");
+static_assert(!std::is_constructible<std::shared_ptr<int[]>,  int(*)[], test_deleter<int> >::value, "");
+static_assert( std::is_constructible<std::shared_ptr<int[5]>, int*, test_deleter<int> >::value, "");
 static_assert(!std::is_constructible<std::shared_ptr<int[5]>, int*, bad_deleter>::value, "");
-static_assert(!std::is_constructible<std::shared_ptr<int[5]>, int (*)[5], test_deleter<int> >::value, "");
+static_assert(!std::is_constructible<std::shared_ptr<int[5]>, int(*)[5], test_deleter<int> >::value, "");
 #endif
 
 int f() { return 5; }
@@ -53,20 +53,20 @@ int f() { return 5; }
 // https://cplusplus.github.io/LWG/issue3018
 // LWG 3018. shared_ptr of function type
 struct function_pointer_deleter {
-    function_pointer_deleter(bool& deleter_called) : deleter_called_(deleter_called) {}
+  function_pointer_deleter(bool& deleter_called) : deleter_called_(deleter_called) {}
 
-    void operator()(int (*)()) const { deleter_called_ = true; }
+  void operator()(int (*)()) const { deleter_called_ = true; }
 
-    bool& deleter_called_;
+  bool& deleter_called_;
 };
 
 void test_function_type() {
-    bool deleter_called = false;
-    {
-      std::shared_ptr<int()> p(&f, function_pointer_deleter(deleter_called));
-      assert((*p)() == 5);
-    }
-    assert(deleter_called);
+  bool deleter_called = false;
+  {
+    std::shared_ptr<int()> p(&f, function_pointer_deleter(deleter_called));
+    assert((*p)() == 5);
+  }
+  assert(deleter_called);
 }
 
 int main(int, char**)
@@ -115,6 +115,6 @@ int main(int, char**)
     }
 #endif // TEST_STD_VER >= 11
 
-    test_function_type();
-    return 0;
+  test_function_type();
+  return 0;
 }

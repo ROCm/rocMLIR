@@ -1006,8 +1006,7 @@ static bool readBit(unsigned &Bits) {
   return Value;
 }
 
-IdentifierID
-ASTIdentifierLookupTrait::ReadIdentifierID(const unsigned char *d) {
+IdentifierID ASTIdentifierLookupTrait::ReadIdentifierID(const unsigned char *d) {
   using namespace llvm::support;
 
   unsigned RawID = endian::readNext<uint32_t, llvm::endianness::little>(d);
@@ -8234,11 +8233,11 @@ void ASTReader::UpdateSema() {
     assert(SemaDeclRefs.size() % 3 == 0);
     for (unsigned I = 0; I != SemaDeclRefs.size(); I += 3) {
       if (!SemaObj->StdNamespace)
-          SemaObj->StdNamespace = SemaDeclRefs[I].get();
+        SemaObj->StdNamespace = SemaDeclRefs[I].get();
       if (!SemaObj->StdBadAlloc)
-          SemaObj->StdBadAlloc = SemaDeclRefs[I + 1].get();
+        SemaObj->StdBadAlloc = SemaDeclRefs[I + 1].get();
       if (!SemaObj->StdAlignValT)
-          SemaObj->StdAlignValT = SemaDeclRefs[I + 2].get();
+        SemaObj->StdAlignValT = SemaDeclRefs[I + 2].get();
     }
     SemaDeclRefs.clear();
   }
@@ -8551,7 +8550,7 @@ namespace serialization {
 static void addMethodsToPool(Sema &S, ArrayRef<ObjCMethodDecl *> Methods,
                              ObjCMethodList &List) {
   for (ObjCMethodDecl *M : llvm::reverse(Methods))
-      S.ObjC().addMethodToGlobalList(&List, M);
+    S.ObjC().addMethodToGlobalList(&List, M);
 }
 
 void ASTReader::ReadMethodPool(Selector Sel) {

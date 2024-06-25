@@ -84,17 +84,15 @@ static cl::list<std::string> Inputs(cl::Positional, cl::OneOrMore,
                                     cl::cat(ClangOffloadWrapperCategory));
 
 // The target triple for offload objects (input files).
-static cl::opt<std::string> Target("target", cl::Required,
-                                   cl::desc("Target triple for input files"),
-                                   cl::value_desc("triple"),
-                                   cl::cat(ClangOffloadWrapperCategory));
+static cl::opt<std::string>
+    Target("target", cl::Required,
+           cl::desc("Target triple for input files"),
+           cl::value_desc("triple"), cl::cat(ClangOffloadWrapperCategory));
 
-// The target triple for the host, not the wrapped offload objects.  NOTE: This
-// argument is optional, and if it is omitted it defaults to using the value
-// given by the
-// "-target" option above (which is then presumed to match the host
-// architecture, not the offload target).  This is wrong, but matches legacy
-// behaviour.
+// The target triple for the host, not the wrapped offload objects.  NOTE: This argument
+// is optional, and if it is omitted it defaults to using the value given by the
+// "-target" option above (which is then presumed to match the host architecture, not the
+// offload target).  This is wrong, but matches legacy behaviour.
 static cl::opt<std::string>
     AuxTriple("aux-triple", cl::Optional,
               cl::desc("Target triple for the output module"),
@@ -650,9 +648,9 @@ bundleImage(ArrayRef<OffloadingImage> Images) {
 // (e.g., offloading to x86_64 from x86_64).  This is a best-effort attempt,
 // and may not DTRT in all circumstances.
 static const char *GuessTargetFromArch(const char *Arch) {
-  if (strncmp(Arch, "gfx", 3) == 0) {
+  if (strncmp (Arch, "gfx", 3) == 0) {
     return "amdgcn-amd-amdhsa";
-  } else if (strncmp(Arch, "sm_", 3) == 0) {
+  } else if (strncmp (Arch, "sm_", 3) == 0) {
     return "nvptx64-nvidia-cuda";
   } else {
     return Target.c_str();
@@ -692,9 +690,9 @@ int main(int argc, const char **argv) {
 
   if (!AuxTriple.empty() &&
       Triple(AuxTriple).getArch() == Triple::UnknownArch) {
-    reportError(createStringError(errc::invalid_argument,
-                                  "'" + AuxTriple +
-                                      "': unsupported aux target triple"));
+    reportError(createStringError(
+        errc::invalid_argument, "'" + AuxTriple +
+        "': unsupported aux target triple"));
     return 1;
   }
 
@@ -739,15 +737,15 @@ int main(int argc, const char **argv) {
 
    OffloadingImage TheImage{};
    if (llvm::identify_magic(Buffer->getBuffer()) == llvm::file_magic::bitcode)
-      TheImage.TheImageKind = IMG_Bitcode;
+     TheImage.TheImageKind = IMG_Bitcode;
    else
-      TheImage.TheImageKind = IMG_Object;
+     TheImage.TheImageKind = IMG_Object;
    TheImage.TheOffloadKind = OFK_OpenMP ;
    if (!AuxTriple.empty() || OffloadArchs.size() == 0) {
-      TheImage.StringData["triple"] = Target.c_str();
+     TheImage.StringData["triple"] = Target.c_str();
    } else {
-      TheImage.StringData["triple"] =
-          GuessTargetFromArch(OffloadArch[numOffloadArch].c_str());
+     TheImage.StringData["triple"] =
+       GuessTargetFromArch(OffloadArch[numOffloadArch].c_str());
    }
    if(OffloadArchs.size() != 0){
      TheImage.StringData["arch"] =

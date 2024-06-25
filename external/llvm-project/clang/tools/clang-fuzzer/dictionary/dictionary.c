@@ -22,14 +22,13 @@
 static void emit(const char *Name, const char *Spelling) {
   static char Hex[] = "0123456789abcdef";
   // Skip EmptySpellingName for IsDeducible.
-  if (!Name[0])
-    return;
+  if (!Name[0]) return;
 
   printf("%s=\"", Name);
   unsigned char C;
   while ((C = *Spelling++)) {
     if (C < 32 || C == '"' || C == '\\')
-      printf("\\x%c%c", Hex[C >> 4], Hex[C % 16]);
+      printf("\\x%c%c", Hex[C>>4], Hex[C%16]);
     else
       printf("%c", C);
   }
@@ -57,3 +56,4 @@ int main(int argc, char **argv) {
   emit("esc_nl", "\\\n");
   emit("hex", "0x");
 }
+

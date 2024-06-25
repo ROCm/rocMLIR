@@ -677,7 +677,7 @@ static void AttemptToFoldSymbolOffsetDifference(
     } else if (!isa<MCDummyFragment>(FA)) {
       // Testing FA < FB is slow. Use setLayoutOrder to speed up computation.
       // The formal layout order will be finalized in MCAssembler::layout.
-      if (FA->getLayoutOrder() == 0 || FB->getLayoutOrder() == 0) {
+      if (FA->getLayoutOrder() == 0 || FB->getLayoutOrder()== 0) {
         unsigned LayoutOrder = 0;
         for (MCFragment &F : *FA->getParent())
           F.setLayoutOrder(++LayoutOrder);

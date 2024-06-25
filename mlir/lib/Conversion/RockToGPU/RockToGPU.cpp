@@ -262,27 +262,28 @@ void LowerRockOpsToGPUPass::runOnOperation() {
 
     // Clone in global constants
     llvm::SmallDenseMap<SymbolRefAttr, FlatSymbolRefAttr> clonedConsts;
-    WalkResult result = funcBody.walk([&](memref::GetGlobalOp op)
-                                          -> WalkResult {
-      SymbolRefAttr globalSym = op.getNameAttr();
-      auto toClone = dyn_cast_or_null<memref::GlobalOp>(
-          SymbolTable::lookupNearestSymbolFrom(op, globalSym));
-      if (!toClone)
-        return WalkResult::interrupt();
-      if (toClone->getParentOfType<gpu::GPUModuleOp>() == gpuMod)
-        // Already cloned, continue
-        return WalkResult::advance();
-      auto maybeMapped = clonedConsts.find(globalSym);
-      if (maybeMapped == clonedConsts.end()) {
-        OpBuilder::InsertionGuard guard(b);
-        Operation *cloned = toClone.clone();
-        // There probably shouldn't be any renames, but let's be careful.
-        StringAttr newNameAttr = gpuModuleSymbolTable.insert(cloned);
-        clonedConsts.insert({globalSym, FlatSymbolRefAttr::get(newNameAttr)});
-      }
-      op.setNameAttr(clonedConsts.find(globalSym)->second);
-      return WalkResult::advance();
-    });
+    WalkResult result =
+        funcBody.walk([&](memref::GetGlobalOp op) -> WalkResult {
+          SymbolRefAttr globalSym = op.getNameAttr();
+          auto toClone = dyn_cast_or_null<memref::GlobalOp>(
+              SymbolTable::lookupNearestSymbolFrom(op, globalSym));
+          if (!toClone)
+            return WalkResult::interrupt();
+          if (toClone->getParentOfType<gpu::GPUModuleOp>() == gpuMod)
+            // Already cloned, continue
+            return WalkResult::advance();
+          auto maybeMapped = clonedConsts.find(globalSym);
+          if (maybeMapped == clonedConsts.end()) {
+            OpBuilder::InsertionGuard guard(b);
+            Operation *cloned = toClone.clone();
+            // There probably shouldn't be any renames, but let's be careful.
+            StringAttr newNameAttr = gpuModuleSymbolTable.insert(cloned);
+            clonedConsts.insert(
+                {globalSym, FlatSymbolRefAttr::get(newNameAttr)});
+          }
+          op.setNameAttr(clonedConsts.find(globalSym)->second);
+          return WalkResult::advance();
+        });
     if (result.wasInterrupted())
       return theFunc.emitOpError("failed to clone referenced global constants");
     // copy original_func attribute
@@ -428,8 +429,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
         LLVM_DEBUG(llvm::dbgs() << "waves_per_eu:" << wavesPerEU << "\n");
         gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(wavesPerEU));
       } else {
-        LLVM_DEBUG(llvm::dbgs() << "waves_per_eu not set"
-                                << "\n");
+        LLVM_DEBUG(llvm::dbgs() << "waves_per_eu not set" << "\n");
       }
     }
   });

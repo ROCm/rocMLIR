@@ -161,8 +161,9 @@ int main(int Argc, char *Argv[]) {
     amd_comgr_data_t DataElement;
 
     // bitcode host element (empty)
-    Status = amd_comgr_action_data_get_data(
-        DataSetUnbundled, AMD_COMGR_DATA_KIND_BC, 0, &DataElement);
+    Status = amd_comgr_action_data_get_data(DataSetUnbundled,
+                                            AMD_COMGR_DATA_KIND_BC,
+                                            0, &DataElement);
     checkError(Status, "amd_comgr_action_data_get_data");
 
     size_t name_size;
@@ -174,8 +175,8 @@ int main(int Argc, char *Argv[]) {
 
     char *expectedName = "square-host-x86_64-unknown-linux-gnu.bc";
     if (strcmp(Name, expectedName)) {
-      printf("Bitcode host element name mismatch: %s (expected %s)\n", Name,
-             expectedName);
+      printf("Bitcode host element name mismatch: %s (expected %s)\n",
+             Name, expectedName);
     }
 
     size_t bytesSize = 0;
@@ -190,8 +191,9 @@ int main(int Argc, char *Argv[]) {
     }
 
     // bitcode hip-gfx900 element (non-empty)
-    Status = amd_comgr_action_data_get_data(
-        DataSetUnbundled, AMD_COMGR_DATA_KIND_BC, 1, &DataElement);
+    Status = amd_comgr_action_data_get_data(DataSetUnbundled,
+                                            AMD_COMGR_DATA_KIND_BC,
+                                            1, &DataElement);
     checkError(Status, "amd_comgr_action_data_get_data");
 
     Status = amd_comgr_get_data_name(DataElement, &name_size, NULL);
@@ -229,8 +231,9 @@ int main(int Argc, char *Argv[]) {
     }
 
     // object host element (empty)
-    Status = amd_comgr_action_data_get_data(
-        DataSetUnbundled, AMD_COMGR_DATA_KIND_EXECUTABLE, 0, &DataElement);
+    Status = amd_comgr_action_data_get_data(DataSetUnbundled,
+                                            AMD_COMGR_DATA_KIND_EXECUTABLE,
+                                            0, &DataElement);
     checkError(Status, "amd_comgr_action_data_get_data");
 
     Status = amd_comgr_get_data_name(DataElement, &name_size, NULL);
@@ -240,8 +243,8 @@ int main(int Argc, char *Argv[]) {
 
     expectedName = "double-host-x86_64-unknown-linux-gnu.o";
     if (strcmp(Name, expectedName)) {
-      printf("Object host element name mismatch: %s (expected %s)\n", Name,
-             expectedName);
+      printf("Object host element name mismatch: %s (expected %s)\n",
+             Name, expectedName);
     }
 
     bytesSize = 0;
@@ -256,8 +259,9 @@ int main(int Argc, char *Argv[]) {
     }
 
     // object hip-gfx900 element (non-empty)
-    Status = amd_comgr_action_data_get_data(
-        DataSetUnbundled, AMD_COMGR_DATA_KIND_EXECUTABLE, 1, &DataElement);
+    Status = amd_comgr_action_data_get_data(DataSetUnbundled,
+                                            AMD_COMGR_DATA_KIND_EXECUTABLE,
+                                            1, &DataElement);
     checkError(Status, "amd_comgr_action_data_get_data");
 
     Status = amd_comgr_get_data_name(DataElement, &name_size, NULL);
@@ -294,8 +298,9 @@ int main(int Argc, char *Argv[]) {
     }
 
     // archive host element (empty, size 8)
-    Status = amd_comgr_action_data_get_data(
-        DataSetUnbundled, AMD_COMGR_DATA_KIND_AR, 0, &DataElement);
+    Status = amd_comgr_action_data_get_data(DataSetUnbundled,
+                                            AMD_COMGR_DATA_KIND_AR,
+                                            0, &DataElement);
     checkError(Status, "amd_comgr_action_data_get_data");
 
     Status = amd_comgr_get_data_name(DataElement, &name_size, NULL);
@@ -305,8 +310,8 @@ int main(int Argc, char *Argv[]) {
 
     expectedName = "cube-host-x86_64-unknown-linux-gnu.a";
     if (strcmp(Name, expectedName)) {
-      printf("Archive host element name mismatch: %s (expected %s)\n", Name,
-             expectedName);
+      printf("Archive host element name mismatch: %s (expected %s)\n",
+             Name, expectedName);
     }
 
     bytesSize = 0;
@@ -321,8 +326,9 @@ int main(int Argc, char *Argv[]) {
     }
 
     // archive hip-gfx900 element (non-empty)
-    Status = amd_comgr_action_data_get_data(
-        DataSetUnbundled, AMD_COMGR_DATA_KIND_AR, 1, &DataElement);
+    Status = amd_comgr_action_data_get_data(DataSetUnbundled,
+                                            AMD_COMGR_DATA_KIND_AR,
+                                            1, &DataElement);
     checkError(Status, "amd_comgr_action_data_get_data");
 
     Status = amd_comgr_get_data_name(DataElement, &name_size, NULL);

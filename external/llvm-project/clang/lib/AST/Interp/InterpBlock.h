@@ -52,14 +52,14 @@ public:
   Block(const std::optional<unsigned> &DeclID, const Descriptor *Desc,
         bool IsStatic = false, bool IsExtern = false)
       : DeclID(DeclID), IsStatic(IsStatic), IsExtern(IsExtern), Desc(Desc) {
-    assert(Desc);
-  }
+        assert(Desc);
+      }
 
   Block(const Descriptor *Desc, bool IsStatic = false, bool IsExtern = false)
       : DeclID((unsigned)-1), IsStatic(IsStatic), IsExtern(IsExtern),
         Desc(Desc) {
-    assert(Desc);
-  }
+          assert(Desc);
+        }
 
   /// Returns the block's descriptor.
   const Descriptor *getDescriptor() const { return Desc; }

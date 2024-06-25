@@ -2874,8 +2874,7 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
   for (const Arg *A : Args) {
     switch (A->getOption().getID()) {
     // If this isn't an FP option skip the claim below
-    default:
-      continue;
+    default: continue;
 
     case options::OPT_fcx_limited_range:
       if (GccRangeComplexOption.empty()) {
@@ -3094,7 +3093,7 @@ static void RenderFloatingPointOptions(const ToolChain &TC, const Driver &D,
         FPExceptionBehavior = Val;
         // AOCC Begin
         if (Val == "maytrap") {
-          ;
+	  ;
         }
         // AOCC End
       } else if (Val == "strict") {
@@ -8971,6 +8970,7 @@ static bool isArchiveOfBundlesFileName(StringRef FilePath) {
   if (!FileName.ends_with(".a"))
     return false;
 
+
   if (FileName.starts_with("lib")) {
     if (FileName.contains("amdgcn") && FileName.contains("gfx"))
       return false;
@@ -9264,9 +9264,8 @@ void LinkerWrapper::ConstructOpaqueJob(Compilation &C, const JobAction &JA,
         getTargetFeatures(TC.getDriver(), TheTriple, Args, Features, false,
                           false, TargetID);
 
-        llvm::copy_if(
-            Features, std::back_inserter(FeatureArgs),
-            [](StringRef Arg) { return !Arg.starts_with("-target"); });
+        llvm::copy_if(Features, std::back_inserter(FeatureArgs),
+                      [](StringRef Arg) { return !Arg.starts_with("-target"); });
 
         SmallVector<std::string> Parts{
             "file=" + std::string(UnpackagedFileName),

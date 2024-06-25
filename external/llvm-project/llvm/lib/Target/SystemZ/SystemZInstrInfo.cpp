@@ -107,8 +107,7 @@ void SystemZInstrInfo::splitMove(MachineBasicBlock::iterator MI,
     // If Reg128 was killed, set kill flag on MI.
     unsigned Reg128UndefImpl = (Reg128Undef | RegState::Implicit);
     MachineInstrBuilder(MF, HighPartMI).addReg(Reg128, Reg128UndefImpl);
-    MachineInstrBuilder(MF, LowPartMI)
-        .addReg(Reg128, (Reg128UndefImpl | Reg128Killed));
+    MachineInstrBuilder(MF, LowPartMI).addReg(Reg128, (Reg128UndefImpl | Reg128Killed));
   } else {
     // If HighPartMI clobbers any of the address registers, it needs to come
     // after LowPartMI.
@@ -624,9 +623,10 @@ void SystemZInstrInfo::insertSelect(MachineBasicBlock &MBB,
     .addImm(CCValid).addImm(CCMask);
 }
 
-MachineInstr *SystemZInstrInfo::optimizeLoadInstr(
-    MachineInstr &MI, const MachineRegisterInfo *MRI,
-    Register &FoldAsLoadDefReg, MachineInstr *&DefMI) const {
+MachineInstr *SystemZInstrInfo::optimizeLoadInstr(MachineInstr &MI,
+                                                  const MachineRegisterInfo *MRI,
+                                                  Register &FoldAsLoadDefReg,
+                                                  MachineInstr *&DefMI) const {
   // Check whether we can move the DefMI load, and that it only has one use.
   DefMI = MRI->getVRegDef(FoldAsLoadDefReg);
   assert(DefMI);
@@ -1557,7 +1557,8 @@ MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
   if (get(RegMemOpcode).hasImplicitDefOfPhysReg(SystemZ::CC)) {
     assert(LoadMI.getParent() == MI.getParent() && "Assuming a local fold.");
     assert(LoadMI != InsertPt && "Assuming InsertPt not to be first in MBB.");
-    for (MachineBasicBlock::iterator MII = std::prev(InsertPt);; --MII) {
+    for (MachineBasicBlock::iterator MII = std::prev(InsertPt);;
+         --MII) {
       if (MII->definesRegister(SystemZ::CC, /*TRI=*/nullptr)) {
         if (!MII->registerDefIsDead(SystemZ::CC, /*TRI=*/nullptr))
           return nullptr;
@@ -1585,12 +1586,12 @@ MachineInstr *SystemZInstrInfo::foldMemoryOperandImpl(
   MachineOperand &Base = LoadMI.getOperand(1);
   MachineOperand &Disp = LoadMI.getOperand(2);
   MachineOperand &Indx = LoadMI.getOperand(3);
-  MachineInstrBuilder MIB = BuildMI(*MI.getParent(), InsertPt, MI.getDebugLoc(),
-                                    get(RegMemOpcode), DstReg)
-                                .add(RegMO)
-                                .add(Base)
-                                .add(Disp)
-                                .add(Indx);
+  MachineInstrBuilder MIB =
+      BuildMI(*MI.getParent(), InsertPt, MI.getDebugLoc(), get(RegMemOpcode), DstReg)
+          .add(RegMO)
+          .add(Base)
+          .add(Disp)
+          .add(Indx);
   MIB->addRegisterDead(SystemZ::CC, &RI);
   MRI->setRegClass(DstReg, FPRC);
   MRI->setRegClass(RegMO.getReg(), FPRC);

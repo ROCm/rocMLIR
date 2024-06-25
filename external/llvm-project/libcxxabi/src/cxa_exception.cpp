@@ -208,21 +208,21 @@ void __cxa_free_exception(void *thrown_object) throw() {
 
 __cxa_exception* __cxa_init_primary_exception(void* object, std::type_info* tinfo,
 #ifdef __wasm__
-                                              // In Wasm, a destructor returns its argument
-                                              void*(_LIBCXXABI_DTOR_FUNC* dest)(void*)) throw() {
+// In Wasm, a destructor returns its argument
+                                              void *(_LIBCXXABI_DTOR_FUNC* dest)(void*)) throw() {
 #else
                                               void(_LIBCXXABI_DTOR_FUNC* dest)(void*)) throw() {
 #endif
-    __cxa_exception* exception_header = cxa_exception_from_thrown_object(object);
-    exception_header->referenceCount = 0;
-    exception_header->unexpectedHandler = std::get_unexpected();
-    exception_header->terminateHandler = std::get_terminate();
-    exception_header->exceptionType = tinfo;
-    exception_header->exceptionDestructor = dest;
-    setOurExceptionClass(&exception_header->unwindHeader);
-    exception_header->unwindHeader.exception_cleanup = exception_cleanup_func;
+  __cxa_exception* exception_header = cxa_exception_from_thrown_object(object);
+  exception_header->referenceCount = 0;
+  exception_header->unexpectedHandler = std::get_unexpected();
+  exception_header->terminateHandler = std::get_terminate();
+  exception_header->exceptionType = tinfo;
+  exception_header->exceptionDestructor = dest;
+  setOurExceptionClass(&exception_header->unwindHeader);
+  exception_header->unwindHeader.exception_cleanup = exception_cleanup_func;
 
-    return exception_header;
+  return exception_header;
 }
 
 //  This function shall allocate a __cxa_dependent_exception and
@@ -274,7 +274,7 @@ exception.
 void
 #ifdef __wasm__
 // In Wasm, a destructor returns its argument
-__cxa_throw(void* thrown_object, std::type_info* tinfo, void*(_LIBCXXABI_DTOR_FUNC* dest)(void*)) {
+__cxa_throw(void *thrown_object, std::type_info *tinfo, void *(_LIBCXXABI_DTOR_FUNC *dest)(void *)) {
 #else
 __cxa_throw(void *thrown_object, std::type_info *tinfo, void (_LIBCXXABI_DTOR_FUNC *dest)(void *)) {
 #endif

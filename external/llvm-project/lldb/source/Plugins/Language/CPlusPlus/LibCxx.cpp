@@ -1111,7 +1111,7 @@ LibcxxChronoTimePointSecondsSummaryProvider(ValueObject &valobj, Stream &stream,
 #else
   const std::time_t chrono_timestamp_min = -43'200; // 1969-12-31T12:00:00Z
   const std::time_t chrono_timestamp_max =
-      32'536'850'399;                       // 3001-01-19T21:59:59
+      32'536'850'399; // 3001-01-19T21:59:59
 #endif
 
   const std::time_t seconds = ptr_sp->GetValueAsSigned(0);

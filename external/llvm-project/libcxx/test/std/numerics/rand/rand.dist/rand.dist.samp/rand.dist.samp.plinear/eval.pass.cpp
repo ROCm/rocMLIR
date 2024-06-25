@@ -76,17 +76,17 @@ test1()
         p[i] /= S;
     for (std::size_t i = 0; i < N; ++i)
     {
-        std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
-        if (k != kp) {
-          a = 0;
-          for (int j = 0; j < k; ++j)
-            a += areas[j];
-          m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
-          bk = b[k];
-          c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
-          kp = k;
+      std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
+      if (k != kp) {
+        a = 0;
+        for (int j = 0; j < k; ++j)
+          a += areas[j];
+        m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
+        bk = b[k];
+        c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
+        kp = k;
         }
-        assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
+      assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
     }
 }
 
@@ -127,17 +127,17 @@ test2()
         p[i] /= S;
     for (std::size_t i = 0; i < N; ++i)
     {
-        std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
-        if (k != kp) {
-          a = 0;
-          for (int j = 0; j < k; ++j)
-            a += areas[j];
-          m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
-          bk = b[k];
-          c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
-          kp = k;
+      std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
+      if (k != kp) {
+        a = 0;
+        for (int j = 0; j < k; ++j)
+          a += areas[j];
+        m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
+        bk = b[k];
+        c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
+        kp = k;
         }
-        assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
+      assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
     }
 }
 
@@ -178,17 +178,17 @@ test3()
         p[i] /= S;
     for (std::size_t i = 0; i < N; ++i)
     {
-        std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
-        if (k != kp) {
-          a = 0;
-          for (int j = 0; j < k; ++j)
-            a += areas[j];
-          m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
-          bk = b[k];
-          c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
-          kp = k;
+      std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
+      if (k != kp) {
+        a = 0;
+        for (int j = 0; j < k; ++j)
+          a += areas[j];
+        m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
+        bk = b[k];
+        c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
+        kp = k;
         }
-        assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
+      assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
     }
 }
 
@@ -229,18 +229,18 @@ test4()
         p[i] /= S;
     for (std::size_t i = 0; i < N; ++i)
     {
-        std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
-        if (k != kp) {
-          a = 0;
-          for (int j = 0; j < k; ++j)
-            a += areas[j];
-          assert(k < static_cast<int>(Np));
-          m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
-          bk = b[k];
-          c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
-          kp = k;
+      std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
+      if (k != kp) {
+        a = 0;
+        for (int j = 0; j < k; ++j)
+          a += areas[j];
+        assert(k < static_cast<int>(Np));
+        m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
+        bk = b[k];
+        c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
+        kp = k;
         }
-        assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
+      assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
     }
 }
 
@@ -282,18 +282,18 @@ test5()
         p[i] /= S;
     for (std::size_t i = 0; i < N; ++i)
     {
-        std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
-        if (k != kp) {
-          a = 0;
-          for (int j = 0; j < k; ++j)
-            a += areas[j];
-          assert(k < static_cast<int>(Np));
-          m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
-          bk = b[k];
-          c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
-          kp = k;
+      std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
+      if (k != kp) {
+        a = 0;
+        for (int j = 0; j < k; ++j)
+          a += areas[j];
+        assert(k < static_cast<int>(Np));
+        m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
+        bk = b[k];
+        c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
+        kp = k;
         }
-        assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
+      assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
     }
 }
 
@@ -334,17 +334,17 @@ test6()
         p[i] /= S;
     for (std::size_t i = 0; i < N; ++i)
     {
-        std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
-        if (k != kp) {
-          a = 0;
-          for (int j = 0; j < k; ++j)
-            a += areas[j];
-          m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
-          bk = b[k];
-          c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
-          kp = k;
+      std::ptrdiff_t k = std::lower_bound(b, b + Np + 1, u[i]) - b - 1;
+      if (k != kp) {
+        a = 0;
+        for (int j = 0; j < k; ++j)
+          a += areas[j];
+        m  = (p[k + 1] - p[k]) / (b[k + 1] - b[k]);
+        bk = b[k];
+        c  = (b[k + 1] * p[k] - b[k] * p[k + 1]) / (b[k + 1] - b[k]);
+        kp = k;
         }
-        assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
+      assert(std::abs(f(u[i], a, m, bk, c) - double(i) / N) < .0013);
     }
 }
 

@@ -140,8 +140,7 @@ void ppc::getPPCTargetFeatures(const Driver &D, const llvm::Triple &Triple,
                       options::OPT_fno_data_sections,
                       UseSeparateSections || HasDefaultDataSections))
       D.Diag(diag::err_drv_argument_only_allowed_with)
-          << "-maix-small-local-[exec|dynamic]-tls"
-          << "-fdata-sections";
+          << "-maix-small-local-[exec|dynamic]-tls" << "-fdata-sections";
   }
 }
 

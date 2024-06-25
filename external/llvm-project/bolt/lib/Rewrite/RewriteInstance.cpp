@@ -1560,7 +1560,7 @@ void RewriteInstance::registerFragments() {
       }
     }
 
-  registerParent:
+registerParent:
     // No local parent is found, use global parent function.
     if (!ParentAddress)
       if (BinaryData *ParentBD = BC->getBinaryDataByName(ParentName))

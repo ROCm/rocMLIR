@@ -613,7 +613,7 @@ TEST_F(PatternMatchTest, BitCast) {
 
 TEST_F(PatternMatchTest, CheckedInt) {
   Type *I8Ty = IRB.getInt8Ty();
-  const Constant *CRes = nullptr;
+  const Constant * CRes = nullptr;
   auto CheckUgt1 = [](const APInt &C) { return C.ugt(1); };
   auto CheckTrue = [](const APInt &) { return true; };
   auto CheckFalse = [](const APInt &) { return false; };
