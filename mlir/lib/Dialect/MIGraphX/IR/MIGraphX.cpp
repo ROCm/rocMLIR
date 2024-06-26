@@ -58,7 +58,7 @@ void MIGraphXDialect::initialize() {
 Operation *MIGraphXDialect::materializeConstant(OpBuilder &builder,
                                                 Attribute value, Type type,
                                                 Location loc) {
-  if (!type.isa<MIXRShapedType>())
+  if (!isa<MIXRShapedType>(type))
     return nullptr;
   ElementsAttr elemsValue = dyn_cast<ElementsAttr>(value);
   if (!elemsValue)

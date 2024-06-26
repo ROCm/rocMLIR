@@ -80,7 +80,7 @@ static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
                                            Type type) {
   Location loc = buffer.getLoc();
   Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  auto bufferType = buffer.getType().cast<MemRefType>();
+  auto bufferType = cast<MemRefType>(buffer.getType());
   int64_t byteWidth = getByteWidth(type);
   int64_t numBytes = bufferType.getShape()[0];
   assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
@@ -177,13 +177,13 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
                                               int64_t d, int64_t kPerThread,
                                               int64_t dPerThread,
                                               bool rotateDWithK = false) {
-  MemRefType bufferType = buffer.getType().cast<MemRefType>();
+  MemRefType bufferType = cast<MemRefType>(buffer.getType());
   ArrayRef<int64_t> bufferShape = bufferType.getShape();
   Type dataType = ldsReadType;
   if (bufferShape.size() != 1)
     return emitError(loc, "Expected a flat buffer");
   int64_t kpack = 1;
-  if (auto vectorDataType = dataType.dyn_cast<VectorType>()) {
+  if (auto vectorDataType = dyn_cast<VectorType>(dataType)) {
     kpack = vectorDataType.getNumElements();
     dataType = vectorDataType.getElementType();
   }
@@ -743,7 +743,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldsTileByteBuffer, int64_t kpacksPerBlock, StringRef nonKDimName,
       int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
       int64_t copyDPerThread, bool forceUnroll) const {
-    Type elemType = regBuffer.getType().cast<MemRefType>().getElementType();
+    Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
     ArrayAttr storeBufferViews =
         invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
     Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews);
@@ -784,11 +784,9 @@ struct GridwiseAttentionAccelRewritePattern
       PatternRewriter &rewriter, const accel::AccelEmitter &accelEmitter,
       std::optional<int64_t> forceKPerThread = std::nullopt) const {
 
-    MemRefType destBufferType = destBuffer.getType().cast<MemRefType>();
+    MemRefType destBufferType = cast<MemRefType>(destBuffer.getType());
     mlir::gpu::AddressSpace destBufferAddrSpace =
-        destBufferType.getMemorySpace()
-            .cast<gpu::AddressSpaceAttr>()
-            .getValue();
+        cast<gpu::AddressSpaceAttr>(destBufferType.getMemorySpace()).getValue();
     bool isDestBufferLDS = destBufferAddrSpace == gpu::AddressSpace::Workgroup;
     if (!isDestBufferLDS && destBufferAddrSpace != gpu::AddressSpace::Private) {
       return emitError(loc) << "the destination buffer to load global input "
@@ -797,9 +795,9 @@ struct GridwiseAttentionAccelRewritePattern
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
     int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
-    int64_t kGlobal = in.getType().cast<MemRefType>().getShape()[1];
+    int64_t kGlobal = cast<MemRefType>(in.getType()).getShape()[1];
     int64_t kIters = kGlobal / kPerBlock;
-    Type elemType = in.getType().cast<MemRefType>().getElementType();
+    Type elemType = cast<MemRefType>(in.getType()).getElementType();
     if (copyPerThread == 0) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
@@ -971,7 +969,7 @@ struct GridwiseAttentionAccelRewritePattern
 
   void zeroAccBuffer(PatternRewriter &rewriter, Location loc,
                      Value accBuffer) const {
-    MemRefType accBufferType = accBuffer.getType().cast<MemRefType>();
+    MemRefType accBufferType = cast<MemRefType>(accBuffer.getType());
     Value zeroConstantCOp =
         createZeroConstantOp(rewriter, loc, accBufferType.getElementType());
     rewriter.create<FillOp>(loc, accBuffer, zeroConstantCOp);
@@ -1074,7 +1072,7 @@ struct GridwiseAttentionAccelRewritePattern
         untransform(rewriter, gemm0OutThreadwiseView);
 
     MemRefType gemm0OutViewType =
-        gemm0OutThreadwiseView.getType().cast<MemRefType>();
+        cast<MemRefType>(gemm0OutThreadwiseView.getType());
     int64_t g0Mpt = gemm0OutViewType.getShape()[0];
     int64_t g0Npt = gemm0OutViewType.getShape()[1];
 
@@ -1140,7 +1138,7 @@ struct GridwiseAttentionAccelRewritePattern
         untransform(rewriter, gemm0OutBufferSumView);
 
     MemRefType gemm0OutViewType =
-        gemm0OutBufferSumView.getType().cast<MemRefType>();
+        cast<MemRefType>(gemm0OutBufferSumView.getType());
     int64_t g0Mpt = gemm0OutViewType.getShape()[0];
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
@@ -1201,7 +1199,7 @@ struct GridwiseAttentionAccelRewritePattern
     std::tie(attentionOutAccBuffer, attentionOutAccTrs, std::ignore) =
         untransform(rewriter, attentionOutAccBufferView);
     MemRefType attentionOutAccViewType =
-        attentionOutAccBufferView.getType().cast<MemRefType>();
+        cast<MemRefType>(attentionOutAccBufferView.getType());
     Type outElemType = attentionOutAccViewType.getElementType();
     int64_t g1Mpt = attentionOutAccViewType.getShape()[0];
     int64_t g1Npt = attentionOutAccViewType.getShape()[1];
@@ -1261,7 +1259,7 @@ struct GridwiseAttentionAccelRewritePattern
         untransform(rewriter, attentionOutAccBufferView);
 
     MemRefType attentionOutAccBufferType =
-        attentionOutAccBufferView.getType().cast<MemRefType>();
+        cast<MemRefType>(attentionOutAccBufferView.getType());
     Type outElemType = attentionOutAccBufferType.getElementType();
     int64_t g1Mpt = attentionOutAccBufferType.getShape()[0];
     int64_t g1Npt = attentionOutAccBufferType.getShape()[1];
@@ -1381,7 +1379,7 @@ struct GridwiseAttentionAccelRewritePattern
       PatternRewriter &rewriter, Location loc,
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews) const {
-    MemRefType gemm0OutBufferType = gemm0OutBuffer.getType().cast<MemRefType>();
+    MemRefType gemm0OutBufferType = cast<MemRefType>(gemm0OutBuffer.getType());
     auto negInfTyped = createConstantFloatOp(
         rewriter, loc, gemm0OutBufferType.getElementType(),
         gemm0OutBufferType.getElementType(),
@@ -1426,7 +1424,7 @@ struct GridwiseAttentionAccelRewritePattern
                                  Value gemm0OutBuffer,
                                  RegsAsMatrixSubTiles gemm0OutViews,
                                  TypedAttr splatVal) const {
-    MemRefType bufType = gemm0OutBuffer.getType().cast<MemRefType>();
+    MemRefType bufType = cast<MemRefType>(gemm0OutBuffer.getType());
     SmallVector<AffineMap, 2> indexingMaps{
         2, rewriter.getMultiDimIdentityMap(bufType.getRank())};
     SmallVector<utils::IteratorType> iteratorTypes(
@@ -1464,7 +1462,7 @@ struct GridwiseAttentionAccelRewritePattern
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
       SmallVector<Value> inputTileBuffers;
       inputTileBuffers.push_back(srcGemm0OutBuffer);
-      MemRefType srcBufType = srcGemm0OutBuffer.getType().cast<MemRefType>();
+      MemRefType srcBufType = cast<MemRefType>(srcGemm0OutBuffer.getType());
 
       // Pull non-identiy index maps to rock transforms
       res = makeLinalgGenericWithIdentityAffMaps(rewriter, genOp);
@@ -1490,7 +1488,7 @@ struct GridwiseAttentionAccelRewritePattern
 
       for (auto [idx, otherInput] :
            llvm::enumerate(op.getPreSoftmaxElemWiseInputs())) {
-        MemRefType otherInputBufType = otherInput.getType().cast<MemRefType>();
+        MemRefType otherInputBufType = cast<MemRefType>(otherInput.getType());
         MemRefType tileBufType = MemRefType::get(
             srcBufType.getShape(), otherInputBufType.getElementType(),
             AffineMap{}, privateMemoryAddressSpace);
@@ -1581,8 +1579,8 @@ struct GridwiseAttentionAccelRewritePattern
   /// for the B operand of the second gemm.
   bool canBypassLDSForSecondGemm(GridwiseAttentionAccelOp op) const {
     Type elemTypeQ =
-        op.getQueries().getType().cast<MemRefType>().getElementType();
-    Type elemTypeK = op.getKeys().getType().cast<MemRefType>().getElementType();
+        cast<MemRefType>(op.getQueries().getType()).getElementType();
+    Type elemTypeK = cast<MemRefType>(op.getKeys().getType()).getElementType();
     StringRef arch = op.getArch();
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
@@ -1616,7 +1614,7 @@ struct GridwiseAttentionAccelRewritePattern
   /// Q tiles to accel_gemm layouts
   bool canBypassLDSForQ(GridwiseAttentionAccelOp op) const {
     ArrayRef<int64_t> qShape =
-        op.getQueries().getType().cast<MemRefType>().getShape();
+        cast<MemRefType>(op.getQueries().getType()).getShape();
     int64_t gemm0K = qShape[1];
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
     int64_t gemm0kpack = gemm0TuningParams.getKpack();
@@ -1648,20 +1646,20 @@ struct GridwiseAttentionAccelRewritePattern
     uint32_t gridSize = op.getGridSize();
 
     TypedValue<MemRefType> inQ = op.getQueries();
-    ArrayRef<int64_t> qShape = inQ.getType().cast<MemRefType>().getShape();
-    Type elemTypeQ = inQ.getType().cast<MemRefType>().getElementType();
+    ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
+    Type elemTypeQ = cast<MemRefType>(inQ.getType()).getElementType();
 
     TypedValue<MemRefType> inK = op.getKeys();
-    ArrayRef<int64_t> kShape = inK.getType().cast<MemRefType>().getShape();
-    Type elemTypeK = inK.getType().cast<MemRefType>().getElementType();
+    ArrayRef<int64_t> kShape = cast<MemRefType>(inK.getType()).getShape();
+    Type elemTypeK = cast<MemRefType>(inK.getType()).getElementType();
 
     TypedValue<MemRefType> inV = op.getValues();
     Type elemTypeV = inV.getType().getElementType();
 
     TypedValue<MemRefType> out = op.getOut();
     Value trOut = transposeAttnOperand(rewriter, loc, out);
-    ArrayRef<int64_t> outShape = trOut.getType().cast<MemRefType>().getShape();
-    Type elemTypeOut = trOut.getType().cast<MemRefType>().getElementType();
+    ArrayRef<int64_t> outShape = cast<MemRefType>(trOut.getType()).getShape();
+    Type elemTypeOut = cast<MemRefType>(trOut.getType()).getElementType();
 
     // Gemm0 out is casted to be elemTypeV
     Type elemTypeQxK = elemTypeV;
@@ -2354,7 +2352,7 @@ struct GridwiseAttentionAccelRewritePattern
     // where those are iterated.
     Value attentionOutAccBufferOutTypedFlat = attentionOutAccBufferOutTyped;
     MemRefType attentionOutAccBufferOutType =
-        attentionOutAccBufferOutTyped.getType().cast<MemRefType>();
+        cast<MemRefType>(attentionOutAccBufferOutTyped.getType());
     int64_t numElementsAttnOut = attentionOutAccBufferOutType.getNumElements();
     if (attentionOutAccBufferOutType.getRank() > 1) {
       Type attentionOutAccBufferOutTypedElType =

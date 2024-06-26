@@ -250,7 +250,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     kernelFuncNames.push_back(funcOp.getSymName().str());
   }
   for (Type argType : funcs[0].getArgumentTypes()) {
-    auto shapedTy = argType.dyn_cast<ShapedType>();
+    auto shapedTy = dyn_cast<ShapedType>(argType);
     if (!shapedTy) {
       return funcs[0].emitOpError("all kernel inputs must be shaped types");
     }

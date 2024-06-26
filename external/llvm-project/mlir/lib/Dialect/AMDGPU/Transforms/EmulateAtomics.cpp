@@ -92,7 +92,7 @@ static void patchOperandSegmentSizes(ArrayRef<NamedAttribute> attrs,
 // A helper function to flatten a vector element into a integer equivalent
 static Value flattenVecToInt(ConversionPatternRewriter &rewriter, Location loc,
                              Value val) {
-  if (auto vectorType = val.getType().dyn_cast_or_null<VectorType>()) {
+  if (auto vectorType = dyn_cast_or_null<VectorType>(val.getType())) {
     int64_t bitwidth =
         vectorType.getElementTypeBitWidth() * vectorType.getNumElements();
     Type elemType = rewriter.getIntegerType(bitwidth);

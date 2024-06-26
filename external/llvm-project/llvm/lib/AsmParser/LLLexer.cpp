@@ -566,6 +566,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(fast);
   KEYWORD(nuw);
   KEYWORD(nsw);
+  KEYWORD(nusw);
   KEYWORD(exact);
   KEYWORD(disjoint);
   KEYWORD(inbounds);
@@ -710,6 +711,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(blockaddress);
   KEYWORD(dso_local_equivalent);
   KEYWORD(no_cfi);
+  KEYWORD(ptrauth);
 
   // Metadata types.
   KEYWORD(distinct);
@@ -974,7 +976,7 @@ lltok::Kind LLLexer::LexIdentifier() {
     return lltok::NameTableKind;
   }
 
-  if (Keyword.startswith("DIOp")) {
+  if (Keyword.starts_with("DIOp")) {
     StrVal.assign(Keyword.begin(), Keyword.end());
     return lltok::DIOp;
   }

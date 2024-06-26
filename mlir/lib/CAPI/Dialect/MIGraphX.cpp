@@ -65,7 +65,7 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
     auto args = f.getArguments();
     for (auto arg : args) {
       argNum++;
-      auto sType = arg.getType().template cast<mlir::ShapedType>();
+      auto sType = mlir::cast<mlir::ShapedType>(arg.getType());
       auto rank = sType.getRank();
       info.push_back(rank);
       for (int i = 0; i < rank; i++)

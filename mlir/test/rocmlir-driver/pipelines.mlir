@@ -110,4 +110,4 @@
 // HIGHLEVEL-NEXT:func.func(empty-tensor-to-alloc-tensor,
 // HIGHLEVEL-NEXT:linalg-fold-unit-extent-dims{use-rank-reducing-slices=false}),
 // HIGHLEVEL-NEXT:one-shot-bufferize{allow-return-allocs-from-loops=false allow-unknown-ops=false analysis-fuzzer-seed=0 analysis-heuristic=bottom-up bufferize-function-boundaries=false copy-before-write=false  dump-alias-sets=false function-boundary-type-conversion=infer-layout-map must-infer-memory-space=false  print-conflicts=false test-analysis-only=false unknown-type-conversion=fully-dynamic-layout-map},
-// HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false})
+// HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false hoist-static-allocs=false})

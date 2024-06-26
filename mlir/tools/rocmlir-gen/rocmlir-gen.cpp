@@ -1132,7 +1132,7 @@ static func::FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
 
 static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
   MLIRContext *context = b.getContext();
-  auto oprType = var.getType().template cast<ShapedType>();
+  auto oprType = cast<ShapedType>(var.getType());
   if (!oprType.hasStaticShape())
     return Value();
 
@@ -1385,7 +1385,7 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
   }
 
   Value toFillFlat = makeNDMemRef(b, toFill, 1);
-  MemRefType flatType = toFillFlat.getType().cast<MemRefType>();
+  MemRefType flatType = cast<MemRefType>(toFillFlat.getType());
   SmallVector<int64_t, 1> lowerBounds;
   SmallVector<int64_t, 1> upperBounds;
   SmallVector<int64_t, 1> steps;
@@ -1430,7 +1430,7 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
   };
 
   Value toFillFlat = makeNDMemRef(b, toFill, 1);
-  auto flatType = toFillFlat.getType().cast<MemRefType>();
+  auto flatType = cast<MemRefType>(toFillFlat.getType());
 
   bool isRandFloat = (randomDataType == "float");
   func::FuncOp randFunc;
@@ -1667,8 +1667,8 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
 
   Value srcFlat = makeNDMemRef(b, src, 1);
   Value dstFlat = makeNDMemRef(b, dst, 1);
-  auto srcFlatType = srcFlat.getType().cast<MemRefType>();
-  auto dstFlatType = dstFlat.getType().cast<MemRefType>();
+  auto srcFlatType = cast<MemRefType>(srcFlat.getType());
+  auto dstFlatType = cast<MemRefType>(dstFlat.getType());
 
   if (srcFlatType == dstFlatType) {
     b.create<memref::CopyOp>(loc, srcFlat, dstFlat);
@@ -1682,7 +1682,7 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
 // Used when a CPU kernel will have parameters that it can't handle natively.
 static Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref,
                               Type floatType) {
-  auto refType = ref.getType().template dyn_cast<MemRefType>();
+  auto refType = dyn_cast<MemRefType>(ref.getType());
   Type refElemType = refType.getElementType();
   if (!isa<FloatType>(refElemType) || refElemType.isF32())
     return ref;
@@ -1726,7 +1726,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
     resultTensor = block->getArgument(0);
     break;
   }
-  auto resultType = resultTensor.getType().template dyn_cast<MemRefType>();
+  auto resultType = dyn_cast<MemRefType>(resultTensor.getType());
   Type elemType = resultType.getElementType();
   SmallVector<float, 1> zeroPattern = {0.0};
   if (failed(
@@ -2244,7 +2244,7 @@ static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
 
 Value addTensorArgToBlock(OpBuilder &builder, Location loc,
                           Block *preSoftmaxElemwiseBlock, Value funcArg) {
-  ShapedType funcArgType = funcArg.getType().cast<ShapedType>();
+  ShapedType funcArgType = cast<ShapedType>(funcArg.getType());
   Value funcArgMemRef = preSoftmaxElemwiseBlock->addArgument(
       MemRefType::get(funcArgType.getShape(), funcArgType.getElementType()),
       loc);
@@ -2331,7 +2331,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
         &attention.getPreSoftmaxBody().emplaceBlock();
     PatternRewriter::InsertionGuard guard(builder);
     builder.setInsertionPointToStart(preSoftmaxElemwiseBlock);
-    ShapedType qType = queries.getType().cast<ShapedType>();
+    ShapedType qType = cast<ShapedType>(queries.getType());
     ArrayRef<int64_t> qShape = qType.getShape();
     Type qkElemType = qType.getElementType();
     if (isQuantized) {
@@ -2361,20 +2361,19 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
       qkTensor = createOpAndInfer<tosa::MulOp>(
           builder, loc,
-          scaleTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
+          cast<ShapedType>(scaleTensor.getType()).getElementType(), qkTensor,
           scaleTensor, /*shift=*/0);
     }
     if (hasAttnBias) {
       Value biasTensor =
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, bias);
       qkTensor = createOpAndInfer<tosa::AddOp>(
-          builder, loc,
-          biasTensor.getType().cast<ShapedType>().getElementType(), qkTensor,
-          biasTensor);
+          builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
+          qkTensor, biasTensor);
     }
     MemRefType resMemRefType =
         MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
-                        qkTensor.getType().cast<ShapedType>().getElementType());
+                        cast<ShapedType>(qkTensor.getType()).getElementType());
     Value resMemref =
         builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, qkTensor);
     Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
@@ -2419,7 +2418,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   bVal = ensureFloatIsF32(b, loc, bVal, floatType);
   cVal = ensureFloatIsF32(b, loc, cVal, floatType);
 
-  auto cType = cVal.getType().cast<MemRefType>();
+  auto cType = cast<MemRefType>(cVal.getType());
   Value zeroOut = rock::createZeroConstantOp(b, loc, cType.getElementType());
 
   b.create<linalg::FillOp>(loc, zeroOut, cVal);
@@ -2486,7 +2485,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
                              ArrayRef<int64_t> perm) {
-  auto elemType = src.getType().cast<RankedTensorType>().getElementType();
+  auto elemType = cast<RankedTensorType>(src.getType()).getElementType();
   auto permutationAttr = DenseIntElementsAttr::get(
       RankedTensorType::get({(int64_t)perm.size()}, builder.getI64Type()),
       perm);
@@ -2573,42 +2572,42 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   if (hasAttnScale) {
     auto scaleTensor = getTensorForBlockArg(optionalArgsCounter++);
     qkTensor = createOpAndInfer<tosa::MulOp>(
-        builder, loc, scaleTensor.getType().cast<ShapedType>().getElementType(),
+        builder, loc, cast<ShapedType>(scaleTensor.getType()).getElementType(),
         qkTensor, scaleTensor, /*shift=*/0);
   }
 
   if (hasAttnBias) {
     auto biasTensor = getTensorForBlockArg(optionalArgsCounter++);
     qkTensor = createOpAndInfer<tosa::AddOp>(
-        builder, loc, biasTensor.getType().cast<ShapedType>().getElementType(),
+        builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
         qkTensor, biasTensor);
   }
 
   constexpr int64_t reductionAxis = 2;
   auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(
-      builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
+      builder, loc, cast<ShapedType>(qkTensor.getType()).getElementType(),
       qkTensor, reductionAxis);
   auto normilizedQkTensor = createOpAndInfer<tosa::SubOp>(
-      builder, loc, qkTensor.getType().cast<ShapedType>().getElementType(),
+      builder, loc, cast<ShapedType>(qkTensor.getType()).getElementType(),
       qkTensor, qkMaxs);
   auto expsTensor = createOpAndInfer<tosa::ExpOp>(
       builder, loc,
-      normilizedQkTensor.getType().cast<ShapedType>().getElementType(),
+      cast<ShapedType>(normilizedQkTensor.getType()).getElementType(),
       normilizedQkTensor);
   auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(
-      builder, loc, expsTensor.getType().cast<ShapedType>().getElementType(),
+      builder, loc, cast<ShapedType>(expsTensor.getType()).getElementType(),
       expsTensor, reductionAxis);
   auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(
-      builder, loc, expsSums.getType().cast<ShapedType>().getElementType(),
+      builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
       expsSums);
   Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
-      builder, loc, expsSums.getType().cast<ShapedType>().getElementType(),
+      builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
       expsTensor, invExpsSums, /*shift=*/0);
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
   softmaxTensor = qkTensor;
 #endif
   Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, softmaxTensor.getType().cast<ShapedType>().getElementType(),
+      builder, loc, cast<ShapedType>(softmaxTensor.getType()).getElementType(),
       softmaxTensor, valuesTensor);
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
@@ -2631,7 +2630,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
 static void emitPrintTensor(OpBuilder &b, Value var) {
   auto loc = b.getUnknownLoc();
-  auto varType = var.getType().template dyn_cast<MemRefType>();
+  auto varType = dyn_cast<MemRefType>(var.getType());
   auto elemType = varType.getElementType();
   auto floatType = b.getF32Type();
   auto int32Type = b.getIntegerType(32);
@@ -2722,7 +2721,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   // %val_flat = memref.collapse_shape %arg1 ...
   Value testFlat = makeNDMemRef(b, test, 1);
   Value valFlat = makeNDMemRef(b, val, 1);
-  auto valFlatType = valFlat.getType().cast<MemRefType>();
+  auto valFlatType = cast<MemRefType>(valFlat.getType());
   // Emit constants for thresholds
 
   // clang-format off
@@ -2959,8 +2958,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   bool isSmallFloatIn = false;
   if (!genParams.types.empty()) {
     FloatType ftype, itype;
-    if ((ftype = genParams.types[0].dyn_cast<FloatType>()) &&
-        (itype = genParams.types[1].dyn_cast<FloatType>()))
+    if ((ftype = dyn_cast<FloatType>(genParams.types[0])) &&
+        (itype = dyn_cast<FloatType>(genParams.types[1])))
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
   bool gpuValidation = validationType == "gpu" &&
@@ -3098,8 +3097,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   for (int32_t outIdx : outIndices) {
     Value testResult = localVars[outIdx];
     Value valResult = valVars[outIdx];
-    auto testType = testResult.getType().dyn_cast<MemRefType>();
-    auto valType = valResult.getType().dyn_cast<MemRefType>();
+    auto testType = dyn_cast<MemRefType>(testResult.getType());
+    auto valType = dyn_cast<MemRefType>(valResult.getType());
     std::string funcName =
         root0.func.getName().str() + "_verify" + std::to_string(outIdx);
     auto verifierFunc =
@@ -3140,8 +3139,8 @@ static LogicalResult populateHostHarnessLogic(
   bool isSmallFloatIn = false;
   if (!genParams.types.empty()) {
     FloatType ftype, itype;
-    if ((ftype = genParams.types[0].dyn_cast<FloatType>()) &&
-        (itype = genParams.types[1].dyn_cast<FloatType>()))
+    if ((ftype = dyn_cast<FloatType>(genParams.types[0])) &&
+        (itype = dyn_cast<FloatType>(genParams.types[1])))
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
   bool gpuValidation = validationType == "gpu" &&

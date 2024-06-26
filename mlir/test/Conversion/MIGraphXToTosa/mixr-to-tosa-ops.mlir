@@ -450,7 +450,7 @@ module {
   }
 
   // CHECK-LABEL: func.func @func_div_i32
-  // CHECK: tosa.div
+  // CHECK: tosa.int_div
   func.func @func_div_i32(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
     %0 = migraphx.div %arg0, %arg1 : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi32, 884736x24576x64x1>
     return %0 : !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>

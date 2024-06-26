@@ -1,5 +1,5 @@
 // RUN: rocmlir-opt -pass-pipeline="builtin.module(func.func(tosa-to-linalg-named, tosa-to-linalg))" %s |\
-// RUN: rocmlir-opt  -linalg-fuse-elementwise-ops -empty-tensor-to-alloc-tensor -linalg-bufferize -func-bufferize -bufferization-bufferize -buffer-results-to-out-params -finalizing-bufferize |\
+// RUN: rocmlir-opt  -linalg-fuse-elementwise-ops -empty-tensor-to-alloc-tensor --one-shot-bufferize="copy-before-write bufferize-function-boundaries function-boundary-type-conversion=identity-layout-map"  -buffer-results-to-out-params -finalizing-bufferize |\
 // RUN: rocmlir-gen -ph -pr -rand 1 -fut test_fusion - |\
 // RUN: rocmlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf \
 // RUN:   --convert-arith-to-llvm --expand-strided-metadata --finalize-memref-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \

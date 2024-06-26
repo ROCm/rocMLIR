@@ -57,7 +57,7 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
   int64_t nResultVectors = accelEmitterParams.nResultVectors;
   VectorType accVectorType = accelEmitterParams.accVectorType;
 
-  Type destType = regDest.getType().dyn_cast<MemRefType>().getElementType();
+  Type destType = dyn_cast<MemRefType>(regDest.getType()).getElementType();
 
   int64_t accVectorLen = accVectorType.getNumElements();
   int64_t numElements = accVectorLen * (mRepeats * nRepeats * nResultVectors);
@@ -1476,7 +1476,7 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
   if (isMfma) {
     XdlopsGemmDerivedParamsAttr mfmaParams =
-        tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
+        cast<XdlopsGemmDerivedParamsAttr>(tuningParams);
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch,
                                                     mfmaParams.getMnPerXdl());
     if (failed(maybeMfmaInsnGroup)) {

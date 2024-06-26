@@ -408,13 +408,13 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t nPerWave = tuningParams.getNPerWave();
 
     Type bufferElemTypeA =
-        adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
+        cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
     Type bufferElemTypeB =
-        adaptor.getMatrixB().getType().cast<MemRefType>().getElementType();
+        cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
     Type dataTypeA = bufferElemTypeA, dataTypeB = bufferElemTypeB;
-    if (auto bufferVecTypeA = bufferElemTypeA.dyn_cast<VectorType>())
+    if (auto bufferVecTypeA = dyn_cast<VectorType>(bufferElemTypeA))
       dataTypeA = bufferVecTypeA.getElementType();
-    if (auto bufferVecTypeB = bufferElemTypeB.dyn_cast<VectorType>())
+    if (auto bufferVecTypeB = dyn_cast<VectorType>(bufferElemTypeB))
       dataTypeB = bufferVecTypeB.getElementType();
 
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
@@ -558,7 +558,7 @@ struct BlockwiseReduceRewritePattern
                               ArrayAttr regTensorView, int64_t reduceAxis,
                               bool makeRDimZero = false) const {
     TransformMapAttr lowestTr =
-        regTensorView[regTensorView.size() - 1].cast<TransformMapAttr>();
+        cast<TransformMapAttr>(regTensorView[regTensorView.size() - 1]);
     ArrayRef<int64_t> lowestShape = lowestTr.getLowerBounds().asArrayRef();
     TopDownTMBuilder tensorToLDSViewBuilder(rewriter, lowestShape, loc);
     SmallVector<StringRef, 4> upperNameRefs;
@@ -605,7 +605,7 @@ struct BlockwiseReduceRewritePattern
       std::optional<int64_t> rDimZeroLen = std::nullopt) const {
 
     TransformMapAttr lowestTr =
-        regTensorView[regTensorView.size() - 1].cast<TransformMapAttr>();
+        cast<TransformMapAttr>(regTensorView[regTensorView.size() - 1]);
     ArrayRef<int64_t> lowestShape = lowestTr.getLowerBounds().asArrayRef();
     TopDownTMBuilder tensorToLDSViewBuilder(rewriter, lowestShape, loc);
     SmallVector<StringRef, 4> upperNameRefs;
@@ -780,7 +780,7 @@ struct BlockwiseReduceRewritePattern
     // acc, zeroConstantOp);
     Type elementType = op.getInput().getType().getElementType();
 
-    if (!acc.getType().isa<VectorType>() && input.getType().isa<VectorType>()) {
+    if (!isa<VectorType>(acc.getType()) && isa<VectorType>(input.getType())) {
       // This means accumulator is a scalar type and input is a vector type,
       // therefore its a elementwise reduction between two operands.
       vector::CombiningKind kind;
@@ -843,11 +843,10 @@ struct BlockwiseReduceRewritePattern
                               ArrayAttr inputThreadSubTile2dView) const {
     Value inputRawBuffer = op.getInput();
     int64_t numElements =
-        inputRawBuffer.getType().cast<MemRefType>().getNumElements();
+        cast<MemRefType>(inputRawBuffer.getType()).getNumElements();
     constexpr size_t nrDim = 0;
 
-    Type elemType =
-        inputRawBuffer.getType().cast<MemRefType>().getElementType();
+    Type elemType = cast<MemRefType>(inputRawBuffer.getType()).getElementType();
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{{zero}, {zero}},
@@ -879,7 +878,7 @@ struct BlockwiseReduceRewritePattern
                                    ArrayAttr inputThreadSubTile2dView,
                                    ArrayAttr tidSubTileSliceView,
                                    ArrayAttr toFlatLDSView) const {
-    Type elemType = reducedBuffer.getType().cast<MemRefType>().getElementType();
+    Type elemType = cast<MemRefType>(reducedBuffer.getType()).getElementType();
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
     ArrayAttr inputThreadSubTile2dViewInv =
@@ -978,8 +977,8 @@ struct BlockwiseReduceRewritePattern
         rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
 
     // Create strides and bounds to iterate the virtual tensor
-    TransformMapAttr lowerTr = inputViewArrayAttr[inputViewArrayAttr.size() - 1]
-                                   .cast<TransformMapAttr>();
+    TransformMapAttr lowerTr = cast<TransformMapAttr>(
+        inputViewArrayAttr[inputViewArrayAttr.size() - 1]);
     ArrayRef<int64_t> lowerTrLowerBounds =
         lowerTr.getLowerBounds().asArrayRef();
     SmallVector<int64_t, 4> regTensorShape =
@@ -1034,7 +1033,7 @@ struct BlockwiseReduceRewritePattern
         ArrayAttr threadsToLDSViewReducedTrs = createLDSWorkspaceView(
             loc, rewriter, threadsToTensorTrs, rDim, /*makeRDimZero-*/ true);
         ArrayRef<int64_t> threadViewShape =
-            threadToLDSViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
+            cast<TransformMapAttr>(threadToLDSViewTrs[0]).getUpperBounds();
         constexpr size_t nrIterDim = 1;
         constexpr size_t rIterDim = 2;
 
@@ -1151,7 +1150,7 @@ struct BlockwiseReduceRewritePattern
         ArrayAttr threadToLDSViewTrs =
             createLDSWorkspaceView(loc, rewriter, threadToTensorViewTrs, rDim);
         ArrayRef<int64_t> threadViewShape =
-            threadToLDSViewTrs[0].cast<TransformMapAttr>().getUpperBounds();
+            cast<TransformMapAttr>(threadToLDSViewTrs[0]).getUpperBounds();
         constexpr size_t rTidDim = 1;
         constexpr size_t rIterDim = 2;
 

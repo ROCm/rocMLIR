@@ -224,6 +224,7 @@ protected:
   bool HasImageStoreD16Bug = false;
   bool HasImageGather4D16Bug = false;
   bool HasMSAALoadDstSelBug = false;
+  bool HasPrivEnabledTrap2NopBug = false;
   bool Has1_5xVGPRs = false;
   bool HasMADIntraFwdBug = false;
   bool HasVOPDInsts = false;
@@ -248,6 +249,10 @@ public:
 
   GCNSubtarget &initializeSubtargetDependencies(const Triple &TT,
                                                    StringRef GPU, StringRef FS);
+
+  /// Diagnose inconsistent subtarget features before attempting to codegen
+  /// function \p F.
+  void checkSubtargetFeatures(const Function &F) const;
 
   const SIInstrInfo *getInstrInfo() const override {
     return &InstrInfo;
@@ -1032,6 +1037,8 @@ public:
 
   bool hasMSAALoadDstSelBug() const { return HasMSAALoadDstSelBug; }
 
+  bool hasPrivEnabledTrap2NopBug() const { return HasPrivEnabledTrap2NopBug; }
+
   bool hasNSAEncoding() const { return HasNSAEncoding; }
 
   bool hasNonNSAEncoding() const { return getGeneration() < GFX12; }
@@ -1304,6 +1311,9 @@ public:
 
   // \returns true if the target has IEEE fminimum/fmaximum instructions
   bool hasIEEEMinMax() const { return getGeneration() >= GFX12; }
+
+  // \returns true if the target has IEEE fminimum3/fmaximum3 instructions
+  bool hasIEEEMinMax3() const { return hasIEEEMinMax(); }
 
   // \returns true if the target has WG_RR_MODE kernel descriptor mode bit
   bool hasRrWGMode() const { return getGeneration() >= GFX12; }
