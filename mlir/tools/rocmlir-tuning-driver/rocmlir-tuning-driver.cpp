@@ -368,12 +368,14 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Extract binary and benchmark
     SmallVector<std::string> hipModules;
     for (const auto &fnName : kernelFuncNames) {
-      Operation *module = tuneCopy->lookupSymbol(fnName + "_module");
-      if (!isa<gpu::GPUModuleOp>(module)) {
-        llvm::errs() << "could not find the GPU module\n";
+      auto binary = tuneCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
+      if (!binary) {
+        llvm::errs() << "could not find the GPU binary\n";
       }
-      hipModules.push_back(
-          module->getAttrOfType<StringAttr>("gpu.binary").getValue().str());
+      hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
+                               .getObject()
+                               .getValue()
+                               .str());
     }
 
     FailureOr<double> timing =
