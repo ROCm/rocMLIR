@@ -8,6 +8,7 @@ void buildProject(String target, String cmakeOpts) {
             steps: [[args: target]],\
             cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
               -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+              -DLLVM_CCACHE_BUILD=ON -DLLVM_USE_LINKER=lld
               ${cmakeOpts}"""
     }
 }
@@ -272,20 +273,20 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
     // Run nightly E2E tests in multiple smaller batches to increase the chance of successful completion
     else {
         sh '[ ! -d build ] || rm -rf build'
+        // -DROCK_E2E_TEST_SUITES='part1'
         buildProject('check-mlir check-rocmlir', """
              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
              -DROCK_E2E_TEST_ENABLED=1
-             -DROCK_E2E_TEST_SUITES='part1'
              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
              -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 1'
              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
         """)
-        checkRocmlirOnNavi3x(fixed, 'part2')
-        checkRocmlirOnNavi3x(fixed, 'part3')
-        checkRocmlirOnNavi3x(fixed, 'part4')
-        checkRocmlirOnNavi3x(fixed, 'part5')
+//        checkRocmlirOnNavi3x(fixed, 'part2')
+//        checkRocmlirOnNavi3x(fixed, 'part3')
+//        checkRocmlirOnNavi3x(fixed, 'part4')
+//        checkRocmlirOnNavi3x(fixed, 'part5')
     }
 }
 
