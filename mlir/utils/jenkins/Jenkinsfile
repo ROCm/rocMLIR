@@ -183,7 +183,7 @@ String getLabelFromCodepath(String codepath) {
         // and server nodes (gfx1030)
         label = 'mlir && ( gfx1030w || gfx1030 )'
     } else if (codepath == "vanilla"){
-        label = 'mlir && gfx906'
+        label = 'mlir'
     } else if (codepath == "navi3x") {
         label = 'mlir && ( gfx1100 || gfx1101 )'
     } else {
@@ -668,7 +668,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 agent {
@@ -790,7 +790,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
                     }
                 }
                 when {
