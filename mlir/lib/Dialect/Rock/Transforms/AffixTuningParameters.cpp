@@ -73,7 +73,7 @@ void AffixTuningParameters::runOnOperation() {
       auto func = llvm::cast<func::FuncOp>(op->getParentOp());
       auto c = op.getC();
       auto attrName = mhal::PrefillAttr::getMnemonic();
-      auto elementType = c.getType().cast<MemRefType>().getElementType();
+      auto elementType = cast<MemRefType>(c.getType()).getElementType();
       Attribute zero;
       if (llvm::isa<FloatType>(elementType)) {
         zero = b.getFloatAttr(elementType, 0.0);
@@ -91,7 +91,7 @@ template <typename T>
 void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
   OpBuilder b(&getContext());
 
-  int64_t numElements = arg.getType().cast<ShapedType>().getNumElements();
+  int64_t numElements = cast<ShapedType>(arg.getType()).getNumElements();
   uint32_t blockSize = kUtilityKernelBlockSize;
   int64_t elemsPerThread = kUtilityKernelElemsPerThread;
   uint32_t gridSize =
@@ -172,10 +172,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
     RockAccelTuningParamAttrInterface gemmParams;
     Attribute gemmParamsAttr =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
-    if (auto xdlopsParams = gemmParamsAttr.dyn_cast<XdlopsGemmParamsAttr>()) {
+    if (auto xdlopsParams = dyn_cast<XdlopsGemmParamsAttr>(gemmParamsAttr)) {
       gemmParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
     } else {
-      gemmParams = gemmParamsAttr.cast<RockAccelTuningParamAttrInterface>();
+      gemmParams = cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
     }
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
@@ -203,54 +203,40 @@ void AffixTuningParameters::affixTuningParametersImpl(
                             b.getI32IntegerAttr(validParams.blockSize));
   }
 }
-
-static InitParamsAccel deriveGemm1TuningParams(OpBuilder &builder,
-                                               AttentionOp op) {
+static RockAccelTuningParamAttrInterface
+deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
+                        AttnPerfConfigAttr attnPerfConfig) {
   auto gemm0TuningParams =
-      op.getParams0().value().cast<RockAccelTuningParamAttrInterface>();
-  auto oShape = op.getOut().getType().cast<ShapedType>().getShape();
-  int64_t gemm1MPerBlock = gemm0TuningParams.getMPerBlock();
-  // There is a nan failure when the gemm1MPerBlock
-  // is increased beyond gemm0MPerBlock when getMPerWave
-  // is less than 32 (i.e. 16).
-  int64_t gemm1M = op.getOTransposed() ? oShape[1] : oShape[2];
-  // This is good enough heuristic for now to guard from cases where
-  // head dimension exceed 256 for i8, 128 for f16 and 64 for for f32
-  Type gemm1ElemType =
-      op.getValues().getType().cast<ShapedType>().getElementType();
-  int64_t gemm1ElemTypeByteWidth = gemm1ElemType.getIntOrFloatBitWidth() / 8;
-  int64_t gemm1MUpperBound = 256 / gemm1ElemTypeByteWidth;
-  gemm1M = math_util::integer_least_multiple(gemm1M,
-                                             gemm0TuningParams.getMPerBlock());
-  int64_t gemm1MPerBlockNew = std::min(gemm1M, gemm1MUpperBound);
-  if (gemm0TuningParams.getMPerWave() >= 32 &&
-      gemm0TuningParams.getMPerBlock() < gemm1MPerBlockNew) {
-    gemm1MPerBlock = gemm1MPerBlockNew;
-  }
+      cast<RockAccelTuningParamAttrInterface>(op.getParams0().value());
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
   int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
   if (auto gemm0XdlDerivedParams =
-          op.getParams0().value().dyn_cast<XdlopsGemmDerivedParamsAttr>()) {
+          dyn_cast<XdlopsGemmDerivedParamsAttr>(op.getParams0().value())) {
     gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
+    return XdlopsGemmDerivedParamsAttr::get(
+        builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+        attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
+        gemm0TuningParams.getKpack(),
+        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
+                                           gemm0TuningParams.getMPerBlock()),
+        gemm0XdlDerivedParams.getNPerWave(),
+        gemm0XdlDerivedParams.getMnPerXdl(), 1,
+        gemm0XdlDerivedParams.getForceUnroll());
   }
-  return InitParamsAccel(
-      /*gemmMPerBlock=*/gemm1MPerBlock,
-      /*gemmNPerBlock=*/gemm0TuningParams.getNPerBlock(),
-      /*gemmKpackPerBlock=*/gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      /*gemmMPerWave=*/gemm0TuningParams.getMPerWave() *
-          (gemm1MPerBlock / gemm0TuningParams.getMPerBlock()),
-      /*gemmNPerWaveOrMnPerXdl=*/gemmNPerWaveOrMnPerXdl,
-      /*gemmKPack=*/gemm1KPack,
-      /*splitKFactor*/ 1,
-      /*forceUnroll=*/gemm0TuningParams.getForceUnroll(), false);
+  return WmmaGemmParamsAttr::get(
+      builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
+      gemm0TuningParams.getKpack(),
+      gemm0TuningParams.getMPerWave() *
+          (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
+      gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getForceUnroll());
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   OpBuilder builder(op.getContext());
-  Type elemTypeQ =
-      op.getQueries().getType().cast<MemRefType>().getElementType();
-  Type elemTypeK = op.getKeys().getType().cast<MemRefType>().getElementType();
-  Type elemTypeV = op.getValues().getType().cast<MemRefType>().getElementType();
+  Type elemTypeQ = cast<MemRefType>(op.getQueries().getType()).getElementType();
+  Type elemTypeK = cast<MemRefType>(op.getKeys().getType()).getElementType();
+  Type elemTypeV = cast<MemRefType>(op.getValues().getType()).getElementType();
   bool isAccel = rock::isAccel(op.getFeatures());
   if (!isAccel) {
     op.emitError("Currently, attention op is only supported on GPUs "
@@ -260,45 +246,51 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   Attribute params0 = op.getParams0().value_or(nullptr);
   // set a default one if params is not provided
-  std::string perfConfigStr = "v2:32,32,32,32,32,1,1,1,1";
-  InitParamsAccel initAccelParams;
+  StringAttr perfConfigStrAttr =
+      builder.getStringAttr("attn:v1:32,32,32,32,32,32,1,1");
   if (!params0) {
-    if (StringAttr perfConfigStrAttr =
+    if (StringAttr mayBePerfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
-      perfConfigStr = perfConfigStrAttr.str();
+      perfConfigStrAttr = mayBePerfConfigStrAttr;
     }
   }
-  GemmFeatures features = op.getFeatures();
-  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-  if (initAccelParams.deserialize(perfConfigStr)) {
-    params0 =
-        populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams);
-  } else {
+  auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr);
+  if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
+  }
+  GemmFeatures features = op.getFeatures();
+  RockAccelTuningParamAttrInterface accelParams0;
+  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
+    auto xdlopsParams0 = XdlopsGemmParamsAttr::get(
+        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll());
+    accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
+  } else {
+    accelParams0 = WmmaGemmParamsAttr::get(
+        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll());
+  }
+  op.setParams0Attr(accelParams0);
+  if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
+    op.emitError(
+        "The MPerBlockG0 should be larger or equal to getMPerBlockG1.");
     signalPassFailure();
     return;
   }
-  RockAccelTuningParamAttrInterface accelParams0;
-  if (auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()) {
-    accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
-  } else {
-    accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
-  }
-  op.setParams0Attr(accelParams0);
-  auto initAccelParams1 = deriveGemm1TuningParams(builder, op);
-  Attribute params1 =
-      populateParamsAccelPtr->getGemmParamsAttr(builder, initAccelParams1);
-  RockAccelTuningParamAttrInterface accelParams1;
-  if (auto xdlopsParams1 = params1.dyn_cast<XdlopsGemmParamsAttr>()) {
-    accelParams1 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams1);
-  } else {
-    accelParams1 = params1.cast<RockAccelTuningParamAttrInterface>();
-  }
+  RockAccelTuningParamAttrInterface accelParams1 =
+      deriveGemm1TuningParams(builder, op, attnPerfConfig);
   op.setParams1Attr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
+  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+  LLVM_DEBUG(llvm::dbgs() << "accelParams0=" << accelParams0 << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams0, elemTypeQ, elemTypeK, op.getArch(),

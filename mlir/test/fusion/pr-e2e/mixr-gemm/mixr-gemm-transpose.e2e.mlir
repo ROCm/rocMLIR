@@ -3,9 +3,7 @@
 // ALLOW_RETRIES: 2
 
 module {
-  // CHECK:  [4, 4, 4, 4, 4],
-  // CHECK-NEXT: [4, 4, 4, 4, 4],
-  // CHECK-NEXT: [4, 4, 4, 4, 4]
+  // CHECK:  [4, 4, 4, 4, 4,  4, 4, 4, 4, 4,  4, 4, 4, 4, 4]
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
   func.func @dot_transpose(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>) -> !migraphx.shaped<1x3x5xf32, 15x5x1> attributes{kernel, arch = ""} {

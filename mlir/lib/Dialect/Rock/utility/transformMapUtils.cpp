@@ -142,7 +142,7 @@ bool mlir::rock::needs64BitIndices(TransformMapAttr map) {
 TransformOp mlir::rock::reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
                                       ArrayRef<StringRef> names,
                                       ArrayRef<int64_t> shape) {
-  MemRefType bufferType = buffer.getType().cast<MemRefType>();
+  MemRefType bufferType = cast<MemRefType>(buffer.getType());
   ArrayRef<int64_t> outShape = bufferType.getShape();
   assert(outShape.size() == 1 && "Buffer being reshaped must start linear");
 
@@ -1178,7 +1178,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     OpBuilder &b, ArrayRef<int64_t> outShape, Value inp, AffineMap inpIdxMap) {
   if (!inpIdxMap.isIdentity()) {
     Location loc = inp.getLoc();
-    auto inpType = inp.getType().template cast<MemRefType>();
+    auto inpType = cast<MemRefType>(inp.getType());
     ArrayRef<int64_t> inpShape = inpType.getShape();
 
     int64_t diff = outShape.size() - inpShape.size();
@@ -1236,7 +1236,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
         }
       }
       inp = b.create<TransformOp>(loc, inp, collapseTransform.get());
-      auto inpType = inp.getType().template cast<MemRefType>();
+      auto inpType = cast<MemRefType>(inp.getType());
       inpShape = inpType.getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     } else if (diff > 0) {
@@ -1258,7 +1258,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
         }
       }
       inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
-      inpShape = inp.getType().cast<ShapedType>().getShape();
+      inpShape = cast<ShapedType>(inp.getType()).getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     }
 
@@ -1310,7 +1310,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     // of the fusion argument.
     if (!permMap.isIdentity()) {
       BottomUpTMBuilder permtransform(
-          b, inp.getType().cast<ShapedType>().getShape(), loc);
+          b, cast<ShapedType>(inp.getType()).getShape(), loc);
       llvm::SmallVector<uint32_t, 4> identityVec;
       for (uint32_t i = 0; i < outShape.size(); ++i) {
         identityVec.push_back(i);
@@ -1332,7 +1332,7 @@ mlir::rock::makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
   if (outs.size() > 1)
     return laOp.emitError("Only 1 output supported");
   Value out = outs[0];
-  auto outType = out.getType().cast<ShapedType>();
+  auto outType = cast<ShapedType>(out.getType());
 
   SmallVector<Value> inps(laOp.getInputs());
   for (auto pair : llvm::zip(inps, idxMaps)) {
@@ -1612,6 +1612,26 @@ TopDownTMBuilder mlir::rock::rotateIf(bool condition, TopDownTMBuilder &builder,
   }
 }
 
+void mlir::rock::expandFlatFunctionArguments(
+    OpBuilder &b, func::FuncOp func, ArrayRef<SmallVector<StringRef>> names,
+    TypeRange logicalTypes, SmallVectorImpl<Value> &expanded) {
+  expanded.resize_for_overwrite(names.size());
+  for (auto [arg, nameList, logicalType, logicalVal] :
+       llvm::zip(func.getArguments(), names, logicalTypes, expanded)) {
+    Location loc = arg.getLoc();
+    auto logicalShapedTy = dyn_cast<ShapedType>(logicalType);
+    // Pass scalars through unaltered
+    if (!logicalShapedTy) {
+      logicalVal = arg;
+      continue;
+    }
+    TopDownTMBuilder flattener(b, nameList, logicalShapedTy.getShape(), loc);
+    flattener.unmerge("raw", 0, nameList, logicalShapedTy.getShape());
+    TransformMapAttr expandMap = flattener.get();
+    logicalVal = b.create<rock::TransformOp>(loc, arg, expandMap);
+  }
+}
+
 void mlir::rock::convertDimStridestoSizes(ArrayRef<int64_t> orderedDimStrides,
                                           int64_t numElements,
                                           SmallVectorImpl<int64_t> &dimSizes) {
@@ -1649,8 +1669,7 @@ ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
 }
 
 ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack) {
-  return transformStack[transformStack.size() - 1]
-      .cast<TransformMapAttr>()
+  return cast<TransformMapAttr>(transformStack[transformStack.size() - 1])
       .getLowerBounds();
 }
 

@@ -72,7 +72,7 @@ void MHALPrefillPass::insertPrefillOps(OpBuilder &builder,
     assert(argIdx < kernelOperands.size() &&
            "provided arg index is out of bounds");
     auto arg = kernelOperands[argIdx];
-    auto type = arg.getType().cast<MemRefType>();
+    auto type = cast<MemRefType>(arg.getType());
     auto elementType = type.getElementType();
     builder.setInsertionPoint(launchOp->getBlock(),
                               --Block::iterator(launchOp));

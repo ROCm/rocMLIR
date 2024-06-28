@@ -69,7 +69,7 @@ public:
 #define GET_INT_VALUE2(var, dict, name)                                        \
   int64_t var = 0;                                                             \
   if (auto var##Attr = dict.get(name))                                         \
-    var = var##Attr.cast<IntegerAttr>().getInt();                              \
+    var = cast<IntegerAttr>(var##Attr).getInt();                               \
   else                                                                         \
     return removeBinary()
 

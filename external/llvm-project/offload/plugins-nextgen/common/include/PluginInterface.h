@@ -55,6 +55,7 @@ namespace plugin {
 struct GenericPluginTy;
 struct GenericKernelTy;
 struct GenericDeviceTy;
+struct RecordReplayTy;
 
 /// Class that wraps the __tgt_async_info to simply its usage. In case the
 /// object is constructed without a valid __tgt_async_info, the object will use
@@ -270,12 +271,6 @@ struct GenericKernelTy {
 
   /// Get the kernel name.
   const char *getName() const { return Name; }
-
-  /// Return true if this kernel is a constructor or destructor.
-  bool isCtorOrDtor() const {
-    // TODO: This is not a great solution and should be revisited.
-    return StringRef(Name).ends_with("tor");
-  }
 
   /// Get the kernel image.
   DeviceImageTy &getImage() const {
@@ -829,9 +824,9 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   bool hasAPUDevice();
   virtual bool hasAPUDeviceImpl() { return false; }
 
-  // Returns true if the system is equipped with a dGPU that supports USM/
-  bool hasDGpuWithUsmSupport();
-  virtual bool hasDGpuWithUsmSupportImpl() { return false; }
+  // Returns true if the device is a gfx90a.
+  bool hasGfx90aDevice();
+  virtual bool hasGfx90aDeviceImpl() { return false; }
 
   // Returns true if the system supports unified memory.
   bool supportsUnifiedMemory();
@@ -887,6 +882,12 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   uint32_t getDynamicMemorySize() const { return OMPX_SharedMemorySize; }
   virtual uint64_t getClockFrequency() const { return CLOCKS_PER_SEC; }
 
+  virtual uint32_t getOMPXGenericSpmdTeamsPerCU() const {
+    llvm_unreachable("Unimplemented");
+  }
+  virtual uint32_t getOMPXBigJumpLoopTeamsPerCU() const {
+    llvm_unreachable("Unimplemented");
+  }
   virtual uint32_t getOMPXLowTripCount() const {
     llvm_unreachable("Unimplemented");
   }
@@ -1067,8 +1068,8 @@ struct GenericPluginTy {
 
   /// Construct a plugin instance.
   GenericPluginTy(Triple::ArchType TA)
-      : RequiresFlags(OMP_REQ_UNDEFINED), GlobalHandler(nullptr), JIT(TA),
-        RPCServer(nullptr) {}
+      : GlobalHandler(nullptr), JIT(TA), RPCServer(nullptr),
+        RecordReplay(nullptr) {}
 
   virtual ~GenericPluginTy() {}
 
@@ -1116,6 +1117,9 @@ struct GenericPluginTy {
   /// Get the target triple of this plugin.
   virtual Triple::ArchType getTripleArch() const = 0;
 
+  /// Get the constant name identifier for this plugin.
+  virtual const char *getName() const = 0;
+
   /// Allocate a structure using the internal allocator.
   template <typename Ty> Ty *allocate() {
     return reinterpret_cast<Ty *>(Allocator.Allocate(sizeof(Ty), alignof(Ty)));
@@ -1137,11 +1141,11 @@ struct GenericPluginTy {
     return *RPCServer;
   }
 
-  /// Get the OpenMP requires flags set for this plugin.
-  int64_t getRequiresFlags() const { return RequiresFlags; }
-
-  /// Set the OpenMP requires flags for this plugin.
-  void setRequiresFlag(int64_t Flags) { RequiresFlags = Flags; }
+  /// Get a reference to the record and replay interface for the plugin.
+  RecordReplayTy &getRecordReplay() {
+    assert(RecordReplay && "RR interface not initialized");
+    return *RecordReplay;
+  }
 
   /// Initialize a device within the plugin.
   Error initDevice(int32_t DeviceId);
@@ -1159,6 +1163,10 @@ struct GenericPluginTy {
   /// Top level interface to verify if a given ELF image can be executed on a
   /// given target. Returns true if the \p Image is compatible with the plugin.
   Expected<bool> checkELFImage(StringRef Image) const;
+
+  /// Return true if the \p Image can be compiled to run on the platform's
+  /// target architecture.
+  Expected<bool> checkBitcodeImage(StringRef Image) const;
 
   /// Indicate if an image is compatible with the plugin devices. Notice that
   /// this function may be called before actually initializing the devices. So
@@ -1182,8 +1190,11 @@ protected:
 public:
   // TODO: This plugin interface needs to be cleaned up.
 
+  /// Returns true if the plugin has been initialized.
+  int32_t is_initialized() const;
+
   /// Returns non-zero if the provided \p Image can be executed by the runtime.
-  int32_t is_valid_binary(__tgt_device_image *Image);
+  int32_t is_valid_binary(__tgt_device_image *Image, bool Initialized = true);
 
   /// Checks if the image is not supported.
   void check_invalid_image(__tgt_device_image *InvalidImage);
@@ -1203,8 +1214,8 @@ public:
   /// Returns if this device is an APU.
   bool has_apu_device(int32_t DeviceId);
 
-  /// Returns if this discrete GPU supports USM.
-  bool has_USM_capable_dGPU(int32_t DeviceId);
+  /// Returns if this discrete GPU is a gfx90a.
+  bool is_gfx90a(int32_t DeviceId);
 
   /// Returns if this device supports USM.
   bool supports_unified_memory(int32_t DeviceId);
@@ -1214,9 +1225,6 @@ public:
 
   /// Returns if managed memory is supported.
   bool is_system_supporting_managed_memory(int32_t DeviceId);
-
-  /// Initializes the OpenMP register requires information.
-  int64_t init_requires(int64_t RequiresFlags);
 
   /// Returns non-zero if the data can be exchanged between the two devices.
   int32_t is_data_exchangable(int32_t SrcDeviceId, int32_t DstDeviceId);
@@ -1351,6 +1359,9 @@ public:
                                            bool isEagerMaps);
 
 private:
+  /// Indicates if the platform runtime has been fully initialized.
+  bool Initialized = false;
+
   /// Number of devices available for the plugin.
   int32_t NumDevices = 0;
 
@@ -1365,9 +1376,6 @@ private:
   /// device was not initialized yet.
   llvm::SmallVector<GenericDeviceTy *> Devices;
 
-  /// OpenMP requires flags.
-  int64_t RequiresFlags;
-
   /// Pointer to the global handler for this plugin.
   GenericGlobalHandlerTy *GlobalHandler;
 
@@ -1379,13 +1387,16 @@ private:
 
   /// The interface between the plugin and the GPU for host services.
   RPCServerTy *RPCServer;
+
+  /// The interface between the plugin and the GPU for host services.
+  RecordReplayTy *RecordReplay;
 };
 
 namespace Plugin {
 /// Create a success error. This is the same as calling Error::success(), but
 /// it is recommended to use this one for consistency with Plugin::error() and
 /// Plugin::check().
-static Error success() { return Error::success(); }
+static inline Error success() { return Error::success(); }
 
 /// Create a string error.
 template <typename... ArgsTy>
@@ -1404,95 +1415,6 @@ static Error error(const char *ErrFmt, ArgsTy... Args) {
 template <typename... ArgsTy>
 static Error check(int32_t ErrorCode, const char *ErrFmt, ArgsTy... Args);
 } // namespace Plugin
-
-/// Class for simplifying the getter operation of the plugin. Anywhere on the
-/// code, the current plugin can be retrieved by Plugin::get(). The class also
-/// declares functions to create plugin-specific object instances. The check(),
-/// createPlugin(), createDevice() and createGlobalHandler() functions should be
-/// defined by each plugin implementation.
-class PluginTy {
-  // Reference to the plugin instance.
-  static GenericPluginTy *SpecificPlugin;
-
-  PluginTy() {
-    if (auto Err = init())
-      REPORT("Failed to initialize plugin: %s\n",
-             toString(std::move(Err)).data());
-  }
-
-  ~PluginTy() {
-    if (auto Err = deinit())
-      REPORT("Failed to deinitialize plugin: %s\n",
-             toString(std::move(Err)).data());
-  }
-
-  PluginTy(const PluginTy &) = delete;
-  void operator=(const PluginTy &) = delete;
-
-  /// Create and intialize the plugin instance.
-  static Error init() {
-    assert(!SpecificPlugin && "Plugin already created");
-
-    // Create the specific plugin.
-    SpecificPlugin = createPlugin();
-    assert(SpecificPlugin && "Plugin was not created");
-
-    // Initialize the plugin.
-    return SpecificPlugin->init();
-  }
-
-  // Deinitialize and destroy the plugin instance.
-  static Error deinit() {
-    assert(SpecificPlugin && "Plugin no longer valid");
-
-    for (int32_t DevNo = 0, NumDev = SpecificPlugin->getNumDevices();
-         DevNo < NumDev; ++DevNo)
-      if (auto Err = SpecificPlugin->deinitDevice(DevNo))
-        return Err;
-
-    // Deinitialize the plugin.
-    if (auto Err = SpecificPlugin->deinit())
-      return Err;
-
-    // Delete the plugin instance.
-    delete SpecificPlugin;
-
-    // Invalidate the plugin reference.
-    SpecificPlugin = nullptr;
-
-    return Plugin::success();
-  }
-
-public:
-  /// Initialize the plugin if needed. The plugin could have been initialized by
-  /// a previous call to Plugin::get().
-  static Error initIfNeeded() {
-    // Trigger the initialization if needed.
-    get();
-
-    return Error::success();
-  }
-
-  /// Get a reference (or create if it was not created) to the plugin instance.
-  static GenericPluginTy &get() {
-    // This static variable will initialize the underlying plugin instance in
-    // case there was no previous explicit initialization. The initialization is
-    // thread safe.
-    static PluginTy Plugin;
-
-    assert(SpecificPlugin && "Plugin is not active");
-    return *SpecificPlugin;
-  }
-
-  /// Get a reference to the plugin with a specific plugin-specific type.
-  template <typename Ty> static Ty &get() { return static_cast<Ty &>(get()); }
-
-  /// Indicate whether the plugin is active.
-  static bool isActive() { return SpecificPlugin != nullptr; }
-
-  /// Create a plugin instance.
-  static GenericPluginTy *createPlugin();
-};
 
 /// Auxiliary interface class for GenericDeviceResourceManagerTy. This class
 /// acts as a reference to a device resource, such as a stream, and requires

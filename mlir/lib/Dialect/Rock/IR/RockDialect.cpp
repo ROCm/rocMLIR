@@ -34,6 +34,7 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
@@ -66,15 +67,15 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
   using OpAsmDialectInterface::OpAsmDialectInterface;
 
   AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
-    if (attr.isa<TransformMapAttr>()) {
+    if (isa<TransformMapAttr>(attr)) {
       os << "transform_map";
       return AliasResult::OverridableAlias;
     }
-    if (attr.isa<GeneralGemmParamsAttr>()) {
+    if (isa<GeneralGemmParamsAttr>(attr)) {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
-    if (attr.isa<XdlopsGemmParamsAttr>()) {
+    if (isa<XdlopsGemmParamsAttr>(attr)) {
       os << "xldops_gemm_params";
       return AliasResult::OverridableAlias;
     }
@@ -401,24 +402,24 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       op->template getAttrOfType<ArrayAttr>("output_layout");
 
   // Get shape of filter tensor.
-  auto filterType = op->getOperand(0).getType().template cast<MemRefType>();
+  auto filterType = cast<MemRefType>(op->getOperand(0).getType());
   ArrayRef<int64_t> filterShape = filterType.getShape();
 
   // Get shape of input tensor.
-  auto inputType = op->getOperand(1).getType().template cast<MemRefType>();
+  auto inputType = cast<MemRefType>(op->getOperand(1).getType());
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
   // Get shape of output tensor.
-  auto outputType = op->getOperand(2).getType().template cast<MemRefType>();
+  auto outputType = cast<MemRefType>(op->getOperand(2).getType());
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
   int64_t y, x, ho, wo, hi, wi, k, c, n, g;
   y = x = ho = wo = hi = wi = k = c = n = g = 0;
 
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
-    auto outputAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>();
+    auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
+    auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
+    auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
 
     if (filterAttr.getValue() == "y") {
       y = filterShape[i];
@@ -527,13 +528,13 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
           "Wmma gridwise supports only F16/BF16/int8 data types");
     }
   }
-  if (elemTypeA.isa<FloatType>() && !elemTypeC.isa<FloatType>()) {
+  if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
     return op->emitOpError("floating-point input type ")
            << elemTypeA
            << " requires a floating-point output type, but the output type is "
            << elemTypeC;
   }
-  if (elemTypeA.isa<IntegerType>() && !elemTypeC.isa<IntegerType>()) {
+  if (isa<IntegerType>(elemTypeA) && !isa<IntegerType>(elemTypeC)) {
     return op->emitOpError("integer input type ")
            << elemTypeA
            << " requires an integer output type, but the output type is "
@@ -544,10 +545,7 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
 
 static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType();
-  Type elemTypeC = gemmOp.getOutArgument()
-                       ->get()
-                       .getType()
-                       .cast<ShapedType>()
+  Type elemTypeC = cast<ShapedType>(gemmOp.getOutArgument()->get().getType())
                        .getElementType();
 
   return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), elemTypeA, elemTypeB,
@@ -558,12 +556,12 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   Operation *op = convOp.getOperation();
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
                           llvm::StringRef dim2) {
-    auto layout = op->getAttr(tensor).template cast<ArrayAttr>().getValue();
+    auto layout = cast<ArrayAttr>(op->getAttr(tensor)).getValue();
     auto pos1 = -1, pos2 = -1;
     for (unsigned int i = 0; i < layout.size(); ++i) {
-      if (layout[i].template cast<StringAttr>().getValue() == dim1)
+      if (cast<StringAttr>(layout[i]).getValue() == dim1)
         pos1 = i;
-      if (layout[i].template cast<StringAttr>().getValue() == dim2)
+      if (cast<StringAttr>(layout[i]).getValue() == dim2)
         pos2 = i;
     }
     return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
@@ -788,7 +786,7 @@ LogicalResult GemmOp::verify() {
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
   // The integer gemm will produce i32 and then truncate/extend to the requested
   // iN e.g. i8.
-  if (inElems.isa<FloatType>() && !outElems.isa<FloatType>())
+  if (isa<FloatType>(inElems) && !isa<FloatType>(outElems))
     return emitOpError(
         "float-valued inputs must have a floating-point output type");
 
@@ -822,14 +820,14 @@ LogicalResult GemmOp::verify() {
   bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops &&
-        !params.isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>())
+        !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
-        !params.isa<GeneralGemmParamsAttr>())
+        !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
                          "tuning parameters");
     if (getDerivedBlockSize().has_value() &&
-        params.isa<GeneralGemmParamsAttr>()) {
+        isa<GeneralGemmParamsAttr>(params)) {
       return emitOpError(
           "cannot have derivedBlockSize when gemm has generalGemmParams");
     }
@@ -942,7 +940,7 @@ LogicalResult ExtractSliceOp::canonicalize(ExtractSliceOp op,
 }
 
 LogicalResult ExtractSliceOp::verify() {
-  if (auto destType = getResult().getType().dyn_cast<VectorType>()) {
+  if (auto destType = dyn_cast<VectorType>(getResult().getType())) {
     size_t destSize = destType.getDimSize(0);
     size_t sourceSize = getVector().getType().getDimSize(0);
     if (destSize > sourceSize)
@@ -966,7 +964,7 @@ LogicalResult InsertSliceOp::canonicalize(InsertSliceOp op,
   return failure();
 }
 LogicalResult InsertSliceOp::verify() {
-  if (auto sourceType = getSource().getType().dyn_cast<VectorType>()) {
+  if (auto sourceType = dyn_cast<VectorType>(getSource().getType())) {
     size_t sourceSize = sourceType.getDimSize(0);
     size_t destSize = getDest().getType().getDimSize(0);
     if (sourceSize > destSize)
@@ -1080,8 +1078,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
     if (domain.empty()) // No transforms, copy upper coordinates
       len = upperLen;
     else
-      len = domain[domain.size() - 1]
-                .cast<TransformMapAttr>()
+      len = cast<TransformMapAttr>(domain[domain.size() - 1])
                 .getLowerBounds()
                 .size();
     for (int32_t i = 0; i < len; ++i)
@@ -1155,18 +1152,17 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
           }
         } else {
           for (Attribute a : theseTransforms) {
-            if (!a.isa<TransformMapAttr>()) {
+            if (!isa<TransformMapAttr>(a)) {
               return parser.emitError(loopIterLoc,
                                       "Expected transform map attributes");
             }
           }
-          size_t nInputs = theseTransforms[0]
-                               .cast<TransformMapAttr>()
+          size_t nInputs = cast<TransformMapAttr>(theseTransforms[0])
                                .getMap()
                                .getAffineMap()
                                .getNumInputs();
-          size_t nOutputs = theseTransforms[theseTransforms.size() - 1]
-                                .cast<TransformMapAttr>()
+          size_t nOutputs = cast<TransformMapAttr>(
+                                theseTransforms[theseTransforms.size() - 1])
                                 .getMap()
                                 .getAffineMap()
                                 .getNumResults();
@@ -1341,8 +1337,8 @@ LogicalResult TransformingForOp::verify() {
     return emitOpError("Bounds list and strides list must have same length");
 
   for (size_t i = 0, e = getBounds().size(); i < e; ++i) {
-    int64_t bound = getBounds()[i].cast<IntegerAttr>().getInt();
-    int64_t stride = getStrides()[i].cast<IntegerAttr>().getInt();
+    int64_t bound = cast<IntegerAttr>(getBounds()[i]).getInt();
+    int64_t stride = cast<IntegerAttr>(getStrides()[i]).getInt();
     if (stride <= 0)
       return emitOpError("Negative and zero strides are not permitted");
     if (bound % stride != 0)
@@ -1380,13 +1376,11 @@ LogicalResult TransformingForOp::verify() {
                            Twine(i));
       }
     } else {
-      size_t nUpper = transforms[0]
-                          .cast<TransformMapAttr>()
+      size_t nUpper = cast<TransformMapAttr>(transforms[0])
                           .getMap()
                           .getValue()
                           .getNumInputs();
-      size_t nLower = transforms[transforms.size() - 1]
-                          .cast<TransformMapAttr>()
+      size_t nLower = cast<TransformMapAttr>(transforms[transforms.size() - 1])
                           .getMap()
                           .getValue()
                           .getNumResults();
@@ -1420,7 +1414,9 @@ void TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
   for (auto *op : ops)
     op->moveBefore(*this);
 }
-SmallVector<Region *> TransformingForOp::getLoopRegions() { return {&getRegion()}; }
+SmallVector<Region *> TransformingForOp::getLoopRegions() {
+  return {&getRegion()};
+}
 
 //===-----------------------------------------------------===//
 // IndexDiffUpdateOp
@@ -1467,7 +1463,7 @@ LogicalResult GlobalLoadOp::verify() {
   if (getCanReadOffEnd() && nDims != 1)
     return emitOpError("can only have one dimension in canReadOffEnd loads");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
-  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Source memref must live in global memory");
@@ -1485,7 +1481,7 @@ LogicalResult GlobalStoreOp::verify() {
   if (getCanStoreOffEnd() && nDims != 1)
     return emitOpError("can only have one dimension in a canStoreOffEnd write");
   Attribute memSpaceAttr = destType.getMemorySpace();
-  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return emitOpError("Destination memref must live in global memory");
@@ -1505,7 +1501,7 @@ LogicalResult InBoundsLoadOp::verify() {
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   Type resultType = getResult().getType();
-  if (resultType.isa<ShapedType>() && !resultType.isa<VectorType>())
+  if (isa<ShapedType>(resultType) && !isa<VectorType>(resultType))
     return emitOpError(
         "Non-scalar loads must return vectors, not other shaped types");
   return success();
@@ -1520,7 +1516,7 @@ LogicalResult InBoundsStoreOp::verify() {
   if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   Type dataType = getData().getType();
-  if (dataType.isa<ShapedType>() && !dataType.isa<VectorType>())
+  if (isa<ShapedType>(dataType) && !isa<VectorType>(dataType))
     return emitOpError(
         "Non-scalar data types must be vectors, not other shaped types");
   return success();
@@ -1563,9 +1559,9 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   Attribute dstMemSpaceAttr = destType.getMemorySpace();
   Attribute srcMemSpaceAttr = srcType.getMemorySpace();
   auto gpuDstMemSpaceAttr =
-      dstMemSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(dstMemSpaceAttr);
   auto gpuSrcMemSpaceAttr =
-      srcMemSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
   if (dstMemSpaceAttr &&
       (!gpuDstMemSpaceAttr ||
        gpuDstMemSpaceAttr.getValue() != gpu::AddressSpace::Private))
@@ -1575,7 +1571,7 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   if (extraViews.empty())
     inputShape = getSource().getType().getShape();
   else
-    inputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+    inputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
 
   size_t extraIdxCount = getExtraIndices().size();
   if (inputShape.empty()) {
@@ -1587,8 +1583,8 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 
   // Add more constraints if we see vector buffers (e.g.,
   // memref<Kxvector<vxf16>>)
-  VectorType srcVectorType = srcType.getElementType().dyn_cast<VectorType>();
-  VectorType dstVectorType = destType.getElementType().dyn_cast<VectorType>();
+  VectorType srcVectorType = dyn_cast<VectorType>(srcType.getElementType());
+  VectorType dstVectorType = dyn_cast<VectorType>(destType.getElementType());
   if ((srcVectorType || dstVectorType) &&
       gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
       gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
@@ -1641,7 +1637,7 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
   Attribute memSpaceAttr = sourceType.getMemorySpace();
-  auto gpuMemSpaceAttr = memSpaceAttr.dyn_cast_or_null<gpu::AddressSpaceAttr>();
+  auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
                                                gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
@@ -1650,7 +1646,7 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
   if (extraViews.empty())
     outputShape = getDest().getType().getShape();
   else
-    outputShape = extraViews[0].cast<TransformMapAttr>().getUpperBounds();
+    outputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
 
   size_t extraIdxCount = getExtraIndices().size();
   if (outputShape.empty()) {
@@ -1812,7 +1808,7 @@ getIdRange(StringRef idName, Operation *op,
   APInt max(bitwidth, fallback);
   if (func::FuncOp container = op->getParentOfType<func::FuncOp>()) {
     if (IntegerAttr size =
-            container->getAttr(idName).dyn_cast_or_null<IntegerAttr>()) {
+            dyn_cast_or_null<IntegerAttr>(container->getAttr(idName))) {
       // Range inference uses ranges that're inclusive on both ends
       max = APInt(bitwidth, size.getValue().getSExtValue() - 1);
     }
@@ -1836,9 +1832,9 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 
 LogicalResult ReduceOp::verify() {
   APInt axis = getAxis();
-  ArrayRef<int64_t> inpShape = getIn().getType().cast<ShapedType>().getShape();
+  ArrayRef<int64_t> inpShape = cast<ShapedType>(getIn().getType()).getShape();
   for (const auto &dimAndSize :
-       llvm::enumerate(getOut().getType().cast<ShapedType>().getShape())) {
+       llvm::enumerate(cast<ShapedType>(getOut().getType()).getShape())) {
     size_t dim = dimAndSize.index();
     int64_t dimSize = dimAndSize.value();
     if (dim == axis) {
@@ -1865,30 +1861,27 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   // where {d0, ... , Dr , ... , dn} represent a blockwise tile
   // of a larger tensor that is being reduced.
   size_t inputViewArrLen = inputViewArrayAttr.size();
-  ArrayRef<int64_t> inputTensorShape = inputViewArrayAttr[inputViewArrLen - 1]
-                                           .cast<TransformMapAttr>()
-                                           .getLowerBounds()
-                                           .asArrayRef();
+  ArrayRef<int64_t> inputTensorShape =
+      cast<TransformMapAttr>(inputViewArrayAttr[inputViewArrLen - 1])
+          .getLowerBounds()
+          .asArrayRef();
   ArrayAttr tidSubTileSliceView = getTidSubTileSliceView();
   int64_t axis = getAxis().getSExtValue();
   size_t tidSubTileSliceViewArrLen = tidSubTileSliceView.size();
   ArrayRef<int64_t> inputPartialReductionTensorShape =
-      tidSubTileSliceView[tidSubTileSliceViewArrLen - 1]
-          .cast<TransformMapAttr>()
+      cast<TransformMapAttr>(tidSubTileSliceView[tidSubTileSliceViewArrLen - 1])
           .getLowerBounds()
           .asArrayRef();
-  ArrayRef<int64_t> inputThreadView = inputViewArrayAttr[0]
-                                          .cast<TransformMapAttr>()
-                                          .getUpperBounds()
-                                          .asArrayRef();
+  ArrayRef<int64_t> inputThreadView =
+      cast<TransformMapAttr>(inputViewArrayAttr[0])
+          .getUpperBounds()
+          .asArrayRef();
   ArrayRef<int64_t> wsShape = getWorkspaceBuffer().getType().getShape();
   int64_t blockSize = getBlockSize();
 
   gpu::AddressSpaceAttr inMemSpaceAttr =
-      getInput()
-          .getType()
-          .getMemorySpace()
-          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(
+          getInput().getType().getMemorySpace());
   if (!inMemSpaceAttr) {
     return emitError("No gpu memspace attr found in input memref; the input "
                      "memref should be in regs");
@@ -1899,10 +1892,8 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   }
 
   gpu::AddressSpaceAttr outMemSpaceAttr =
-      getOutput()
-          .getType()
-          .getMemorySpace()
-          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(
+          getOutput().getType().getMemorySpace());
   if (!outMemSpaceAttr) {
     return emitError("No gpu memspace attr found in output memref; the output "
                      "memref should be in regs");
@@ -1913,10 +1904,8 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   }
 
   gpu::AddressSpaceAttr wsMemSpaceAttr =
-      getWorkspaceBuffer()
-          .getType()
-          .getMemorySpace()
-          .dyn_cast_or_null<gpu::AddressSpaceAttr>();
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(
+          getWorkspaceBuffer().getType().getMemorySpace());
   if (!wsMemSpaceAttr) {
     return emitError("No gpu memspace attr found in workspace memref; the "
                      "workspace memref should be in LDS");
@@ -1959,9 +1948,8 @@ LogicalResult BlockwiseFillOp::verify() {
   if (memrefType.getRank() != 1) {
     return emitError("Blockwise fill expects a flat memref");
   }
-  if (gpu::AddressSpaceAttr memSpace =
-          memrefType.getMemorySpace()
-              .dyn_cast_or_null<gpu::AddressSpaceAttr>()) {
+  if (gpu::AddressSpaceAttr memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+          memrefType.getMemorySpace())) {
     if (memSpace.getValue() != gpu::AddressSpace::Workgroup) {
       return emitError("Memory space is expected to be workgroup");
     }
@@ -2012,6 +2000,54 @@ LogicalResult AttentionOp::verify() {
     return emitError("reduction dimensions of second gemm do not match");
   }
   return success();
+}
+
+//===-----------------------------------------------------===//
+// AttentionPerfConfig Attr
+//===-----------------------------------------------------===//
+
+AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
+  // Here a conventional c++ string split is being
+  // done because MLIR lacks parseSourceString() method
+  // to parse Attributes and its only there for Ops.
+  StringRef perfConfigStrRef = perfConfigStrAttr.strref();
+  StringRef token;
+  StringRef rest;
+  std::tie(token, rest) = perfConfigStrRef.split(':');
+  if (token != "attn") {
+    return {};
+  }
+  std::tie(token, rest) = rest.split(':');
+  if (token.substr(0, 1) != "v") {
+    return {};
+  }
+  int version;
+  if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
+    return {};
+  }
+  if (version != 1) {
+    return {};
+  }
+  SmallVector<StringRef, 8> tokens;
+  rest.split(tokens, ',');
+  if (tokens.size() != 8) {
+    return {};
+  }
+  SmallVector<int64_t, 8> params;
+  llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
+    int param;
+    llvm::to_integer(s, param);
+    return param;
+  });
+  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(),
+                                 /*mPerBlockG0=*/params[0],
+                                 /*mPerBlockG1=*/params[1],
+                                 /*nPerBlockG0=*/params[2],
+                                 /*kpackPerBlock=*/params[3],
+                                 /*mPerWave=*/params[4],
+                                 /*mnPerXdl*/ params[5],
+                                 /*kpack=*/params[6],
+                                 /*forceUnroll=*/params[7] == 1);
 }
 
 //===-----------------------------------------------------===//

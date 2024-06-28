@@ -55,6 +55,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Frontend/OpenMP/OMPDeviceConstants.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/AttributeMask.h"
 #include "llvm/IR/CallingConv.h"
@@ -71,11 +72,12 @@
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/RISCVISAInfo.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/xxhash.h"
+#include "llvm/TargetParser/RISCVISAInfo.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/TargetParser/X86TargetParser.h"
+#include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include <optional>
 
 using namespace clang;
@@ -370,7 +372,8 @@ CodeGenModule::CodeGenModule(ASTContext &C,
   IntTy = llvm::IntegerType::get(LLVMContext, C.getTargetInfo().getIntWidth());
   IntPtrTy = llvm::IntegerType::get(LLVMContext,
     C.getTargetInfo().getMaxPointerWidth());
-  Int8PtrTy = llvm::PointerType::get(LLVMContext, 0);
+  Int8PtrTy = llvm::PointerType::get(LLVMContext,
+                                     C.getTargetAddressSpace(LangAS::Default));
   const llvm::DataLayout &DL = M.getDataLayout();
   AllocaInt8PtrTy =
       llvm::PointerType::get(LLVMContext, DL.getAllocaAddrSpace());
@@ -446,6 +449,11 @@ CodeGenModule::CodeGenModule(ASTContext &C,
       }
     ModuleNameHash = llvm::getUniqueInternalLinkagePostfix(Path);
   }
+
+  // Record mregparm value now so it is visible through all of codegen.
+  if (Context.getTargetInfo().getTriple().getArch() == llvm::Triple::x86)
+    getModule().addModuleFlag(llvm::Module::Error, "NumRegisterParameters",
+                              CodeGenOpts.NumRegisterParameters);
 }
 
 CodeGenModule::~CodeGenModule() {}
@@ -984,11 +992,6 @@ void CodeGenModule::Release() {
       NMD->addOperand(MD);
   }
 
-  // Record mregparm value now so it is visible through rest of codegen.
-  if (Context.getTargetInfo().getTriple().getArch() == llvm::Triple::x86)
-    getModule().addModuleFlag(llvm::Module::Error, "NumRegisterParameters",
-                              CodeGenOpts.NumRegisterParameters);
-
   if (CodeGenOpts.DwarfVersion) {
     getModule().addModuleFlag(llvm::Module::Max, "Dwarf Version",
                               CodeGenOpts.DwarfVersion);
@@ -1198,6 +1201,37 @@ void CodeGenModule::Release() {
     if (!LangOpts.isSignReturnAddressWithAKey())
       getModule().addModuleFlag(llvm::Module::Min,
                                 "sign-return-address-with-bkey", 1);
+
+    if (getTriple().isOSLinux()) {
+      assert(getTriple().isOSBinFormatELF());
+      using namespace llvm::ELF;
+      uint64_t PAuthABIVersion =
+          (LangOpts.PointerAuthIntrinsics
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_INTRINSICS) |
+          (LangOpts.PointerAuthCalls
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_CALLS) |
+          (LangOpts.PointerAuthReturns
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_RETURNS) |
+          (LangOpts.PointerAuthAuthTraps
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_AUTHTRAPS) |
+          (LangOpts.PointerAuthVTPtrAddressDiscrimination
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_VPTRADDRDISCR) |
+          (LangOpts.PointerAuthVTPtrTypeDiscrimination
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_VPTRTYPEDISCR) |
+          (LangOpts.PointerAuthInitFini
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_INITFINI);
+      static_assert(AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_INITFINI ==
+                        AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_LAST,
+                    "Update when new enum items are defined");
+      if (PAuthABIVersion != 0) {
+        getModule().addModuleFlag(llvm::Module::Error,
+                                  "aarch64-elf-pauthabi-platform",
+                                  AARCH64_PAUTH_PLATFORM_LLVM_LINUX);
+        getModule().addModuleFlag(llvm::Module::Error,
+                                  "aarch64-elf-pauthabi-version",
+                                  PAuthABIVersion);
+      }
+    }
   }
 
   if (CodeGenOpts.StackClashProtector)
@@ -4125,7 +4159,7 @@ llvm::GlobalValue::LinkageTypes getMultiversionLinkage(CodeGenModule &CGM,
 }
 
 static FunctionDecl *createDefaultTargetVersionFrom(const FunctionDecl *FD) {
-  DeclContext *DeclCtx = FD->getASTContext().getTranslationUnitDecl();
+  auto *DeclCtx = const_cast<DeclContext *>(FD->getDeclContext());
   TypeSourceInfo *TInfo = FD->getTypeSourceInfo();
   StorageClass SC = FD->getStorageClass();
   DeclarationName Name = FD->getNameInfo().getName();
@@ -4790,6 +4824,10 @@ CodeGenModule::CreateRuntimeFunction(llvm::FunctionType *FTy, StringRef Name,
         }
       }
       setDSOLocal(F);
+      // FIXME: We should use CodeGenModule::SetLLVMFunctionAttributes() instead
+      // of trying to approximate the attributes using the LLVM function
+      // signature. This requires revising the API of CreateRuntimeFunction().
+      markRegisterParameterAttributes(F);
     }
   }
 
@@ -5312,6 +5350,18 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
       !IsDefinitionAvailableExternally &&
       D->needsDestruction(getContext()) == QualType::DK_cxx_destructor;
 
+  // It is helpless to emit the definition for an available_externally variable
+  // which can't be marked as const.
+  // We don't need to check if it needs global ctor or dtor. See the above
+  // comment for ideas.
+  if (IsDefinitionAvailableExternally &&
+      (!D->hasConstantInitialization() ||
+       // TODO: Update this when we have interface to check constexpr
+       // destructor.
+       D->needsDestruction(getContext()) ||
+       !D->getType().isConstantStorage(getContext(), true, true)))
+    return;
+
   const VarDecl *InitDecl;
   const Expr *InitExpr = D->getAnyInitializer(InitDecl);
 
@@ -5711,15 +5761,17 @@ CodeGenModule::getLLVMLinkageVarDefinition(const VarDecl *VD) {
 static void replaceUsesOfNonProtoConstant(llvm::Constant *old,
                                           llvm::Function *newFn) {
   // Fast path.
-  if (old->use_empty()) return;
+  if (old->use_empty())
+    return;
 
   llvm::Type *newRetTy = newFn->getReturnType();
-  SmallVector<llvm::Value*, 4> newArgs;
+  SmallVector<llvm::Value *, 4> newArgs;
+
+  SmallVector<llvm::CallBase *> callSitesToBeRemovedFromParent;
 
   for (llvm::Value::use_iterator ui = old->use_begin(), ue = old->use_end();
-         ui != ue; ) {
-    llvm::Value::use_iterator use = ui++; // Increment before the use is erased.
-    llvm::User *user = use->getUser();
+       ui != ue; ui++) {
+    llvm::User *user = ui->getUser();
 
     // Recognize and replace uses of bitcasts.  Most calls to
     // unprototyped functions will use bitcasts.
@@ -5731,8 +5783,9 @@ static void replaceUsesOfNonProtoConstant(llvm::Constant *old,
 
     // Recognize calls to the function.
     llvm::CallBase *callSite = dyn_cast<llvm::CallBase>(user);
-    if (!callSite) continue;
-    if (!callSite->isCallee(&*use))
+    if (!callSite)
+      continue;
+    if (!callSite->isCallee(&*ui))
       continue;
 
     // If the return types don't match exactly, then we can't
@@ -5801,6 +5854,10 @@ static void replaceUsesOfNonProtoConstant(llvm::Constant *old,
     if (callSite->getDebugLoc())
       newCall->setDebugLoc(callSite->getDebugLoc());
 
+    callSitesToBeRemovedFromParent.push_back(callSite);
+  }
+
+  for (auto *callSite : callSitesToBeRemovedFromParent) {
     callSite->eraseFromParent();
   }
 }
@@ -6083,9 +6140,6 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
     return ConstantAddress(
         C, C->getValueType(), CharUnits::fromQuantity(C->getAlignment()));
 
-  llvm::Constant *Zero = llvm::Constant::getNullValue(Int32Ty);
-  llvm::Constant *Zeros[] = { Zero, Zero };
-
   const ASTContext &Context = getContext();
   const llvm::Triple &Triple = getTriple();
 
@@ -6156,8 +6210,7 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
 
     // Decay array -> ptr
     CFConstantStringClassRef =
-        IsSwiftABI ? llvm::ConstantExpr::getPtrToInt(C, Ty)
-                   : llvm::ConstantExpr::getGetElementPtr(Ty, C, Zeros);
+        IsSwiftABI ? llvm::ConstantExpr::getPtrToInt(C, Ty) : C;
   }
 
   QualType CFTy = Context.getCFConstantStringType();
@@ -6213,10 +6266,7 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
     GV->setSection(".rodata");
 
   // String.
-  llvm::Constant *Str =
-      llvm::ConstantExpr::getGetElementPtr(GV->getValueType(), GV, Zeros);
-
-  Fields.add(Str);
+  Fields.add(GV);
 
   // String length.
   llvm::IntegerType *LengthTy =
@@ -7826,8 +7876,9 @@ private:
 /// red_var
 class XteamRedExprChecker final : public ConstStmtVisitor<XteamRedExprChecker> {
 public:
-  XteamRedExprChecker(const CodeGenModule::XteamRedVarMap &RVM)
-      : RedMap(RVM), IsSupported(true) {}
+  XteamRedExprChecker(CodeGenModule &CGM,
+                      const CodeGenModule::XteamRedVarMap &RVM)
+      : CGM(CGM), RedMap(RVM), IsSupported(true) {}
   XteamRedExprChecker() = delete;
 
   bool isSupported() const { return IsSupported; }
@@ -7835,18 +7886,6 @@ public:
   void VisitStmt(const Stmt *S) {
     if (!S)
       return;
-
-    auto isExprXteamRedVar = [this](const Expr *E) {
-      if (!isa<DeclRefExpr>(E))
-        return false;
-      auto *Decl = cast<DeclRefExpr>(E)->getDecl();
-      if (!isa<VarDecl>(Decl))
-        return false;
-      auto *VD = cast<VarDecl>(Decl);
-      if (RedMap.find(VD) != RedMap.end())
-        return true;
-      return false;
-    };
 
     if (isa<BinaryOperator>(S)) {
       const BinaryOperator *BinOpExpr = cast<BinaryOperator>(S);
@@ -7858,51 +7897,77 @@ public:
       // We punt on anything more complex.
 
       const Expr *LHS = BinOpExpr->getLHS()->IgnoreImpCasts();
-      if (isExprXteamRedVar(LHS)) {
-        auto BinOpExprOp = BinOpExpr->getOpcode();
-        if (BinOpExprOp != BO_Assign && BinOpExprOp != BO_AddAssign &&
-            BinOpExprOp != BO_Add) {
+      auto BinOpExprOp = BinOpExpr->getOpcode();
+      // Get the reduction variable, if any, from the LHS.
+      const VarDecl *RedVarDecl = CGM.getXteamRedVarDecl(LHS, RedMap);
+      if (RedVarDecl != nullptr) {
+        if (BinOpExprOp == BO_Assign || BinOpExprOp == BO_AddAssign) {
+          const Expr *RHS = BinOpExpr->getRHS()->IgnoreImpCasts();
+          // If operator +=, reject if RHS accesses any reduction variable.
+          if (BinOpExprOp == BO_AddAssign) {
+            ValidateChildren(RHS);
+            if (!IsSupported)
+              return;
+          } else { // BinOpExprOp == BO_Assign
+            if (isa<BinaryOperator>(RHS)) {
+              const BinaryOperator *BinOpRHS = cast<BinaryOperator>(RHS);
+              if (BinOpRHS->getOpcode() == BO_Add) {
+                const Expr *LHSBinOpRHS = BinOpRHS->getLHS()->IgnoreImpCasts();
+                const Expr *RHSBinOpRHS = BinOpRHS->getRHS()->IgnoreImpCasts();
+                // If LHS is the reduction variable, the RHS must not access any
+                // reduction variable. Similarly, vice-versa for RHS.
+                if (CGM.isXteamRedVarExpr(LHSBinOpRHS, RedVarDecl))
+                  ValidateChildren(RHSBinOpRHS);
+                else if (CGM.isXteamRedVarExpr(RHSBinOpRHS, RedVarDecl))
+                  ValidateChildren(LHSBinOpRHS);
+                else // Neither LHS nor RHS is the reduction variable.
+                  IsSupported = false;
+                if (!IsSupported)
+                  return;
+              } else { // Not an add binary operator.
+                IsSupported = false;
+                return;
+              }
+            } else { // RHS is not a binary operator for assignment.
+              IsSupported = false;
+              return;
+            }
+          }
+        } else { // Binary operator is neither +=, nor =.
           IsSupported = false;
           return;
         }
-        // We only need to further examine the assignment case.
-        // If += or +, Codegen will extract the rhs.
-        if (BinOpExpr->getOpcode() == BO_Assign) {
-          const Expr *RHS = BinOpExpr->getRHS()->IgnoreImpCasts();
-          if (!isa<BinaryOperator>(RHS)) {
-            IsSupported = false;
-            return;
-          }
-          const BinaryOperator *BinOpRHS = cast<BinaryOperator>(RHS);
-          if (BinOpRHS->getOpcode() != BO_Add) {
-            IsSupported = false;
-            return;
-          }
-          const Expr *LHSBinOpRHS = BinOpRHS->getLHS()->IgnoreImpCasts();
-          const Expr *RHSBinOpRHS = BinOpRHS->getRHS()->IgnoreImpCasts();
-          if (!isExprXteamRedVar(LHSBinOpRHS) &&
-              !isExprXteamRedVar(RHSBinOpRHS)) {
-            IsSupported = false;
-            return;
-          }
-        }
+      } else { // LHS of binary operator does not access any reduction variable.
+        // Ensure that RHS does not access any reduction variable either.
+        ValidateChildren(S);
+        if (!IsSupported)
+          return;
       }
-    } else if (isa<UnaryOperator>(S)) {
-      const Expr *UnaryOpExpr =
-          cast<UnaryOperator>(S)->getSubExpr()->IgnoreImpCasts();
-      // Xteam reduction does not handle unary operators currently.
-      if (isExprXteamRedVar(UnaryOpExpr)) {
+    } else if (isa<DeclRefExpr>(S)) {
+      // Not a binary operator, so not supported at this point. So ensure no
+      // reduction variable is accessed.
+      if (CGM.hasXteamRedVar(cast<DeclRefExpr>(S), RedMap)) {
         IsSupported = false;
         return;
       }
+    } else {
+      // Recursively check the children.
+      ValidateChildren(S);
+      if (!IsSupported)
+        return;
     }
-
-    for (const Stmt *Child : S->children())
-      if (Child)
+  }
+  void ValidateChildren(const Stmt *S) {
+    for (auto Child : S->children())
+      if (Child) {
         Visit(Child);
+        if (!IsSupported)
+          return;
+      }
   }
 
 private:
+  CodeGenModule &CGM;
   /// Map of reduction variables for this directive.
   const CodeGenModule::XteamRedVarMap &RedMap;
   /// Set to false if codegen does not support the reduction expression.
@@ -8388,7 +8453,7 @@ CodeGenModule::getXteamRedForStmtStatus(const OMPExecutableDirective &D,
   // the directive
   const ForStmt *FStmt = getSingleForStmt(OMPStmt);
   assert(FStmt != nullptr && "Unexpected missing For Stmt");
-  XteamRedExprChecker Chk(RVM);
+  XteamRedExprChecker Chk(*this, RVM);
   Chk.Visit(FStmt);
   if (!Chk.isSupported())
     return std::make_pair(NxUnsupportedRedExpr, HasNestedGenericCall);
@@ -8527,10 +8592,12 @@ CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
         llvm::Type *RefType = getTypes().ConvertTypeForMem(Ref->getType());
         // TODO support more data types
         if (!RefType->isFloatTy() && !RefType->isDoubleTy() &&
+            !RefType->isHalfTy() && !RefType->isBFloatTy() &&
             !RefType->isIntegerTy())
           return std::make_pair(NxUnsupportedRedType,
                                 std::make_pair(VarMap, VarVec));
-        if (RefType->isIntegerTy() && RefType->getPrimitiveSizeInBits() != 32 &&
+        if (RefType->isIntegerTy() && RefType->getPrimitiveSizeInBits() != 16 &&
+            RefType->getPrimitiveSizeInBits() != 32 &&
             RefType->getPrimitiveSizeInBits() != 64)
           return std::make_pair(NxUnsupportedRedIntSize,
                                 std::make_pair(VarMap, VarVec));
@@ -8566,6 +8633,45 @@ CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
     return std::make_pair(NxNoRedVar, std::make_pair(VarMap, VarVec));
 
   return std::make_pair(NxSuccess, std::make_pair(VarMap, VarVec));
+}
+
+bool CodeGenModule::hasXteamRedVar(const Expr *E,
+                                   const XteamRedVarMap &RedMap) const {
+  assert(E && "Unexpected null expression");
+  if (!isa<DeclRefExpr>(E))
+    return false;
+  auto *Decl = cast<DeclRefExpr>(E)->getDecl();
+  if (!isa<VarDecl>(Decl))
+    return false;
+  auto *VD = cast<VarDecl>(Decl);
+  if (RedMap.find(VD) != RedMap.end())
+    return true;
+  return false;
+}
+
+const VarDecl *
+CodeGenModule::getXteamRedVarDecl(const Expr *E,
+                                  const XteamRedVarMap &RedMap) const {
+  if (!isa<DeclRefExpr>(E))
+    return nullptr;
+  const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
+  if (!isa<VarDecl>(ValDecl))
+    return nullptr;
+  const VarDecl *VD = cast<VarDecl>(ValDecl);
+  if (RedMap.find(VD) == RedMap.end())
+    return nullptr;
+  return VD;
+}
+
+bool CodeGenModule::isXteamRedVarExpr(const Expr *E,
+                                      const VarDecl *RedVarDecl) const {
+  if (!isa<DeclRefExpr>(E))
+    return false;
+  const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
+  if (!isa<VarDecl>(ValDecl))
+    return false;
+  const VarDecl *VD = cast<VarDecl>(ValDecl);
+  return VD == RedVarDecl;
 }
 
 const OMPExecutableDirective *

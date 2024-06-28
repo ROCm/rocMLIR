@@ -9,15 +9,15 @@ func.func private @mlir_reshape_convolution(%arg0: !migraphx.shaped<1x1x16x2x16x
 }
 
 // CHECK-LABEL: module
-// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<1x1x16x16x1x1xf32> {func.read_access}, {{.*}}: memref<1x1x3x3xf32> {func.read_access}, {{.*}}: memref<1x1x32x32xf32> {func.write_access})
-// CHECK: func.func @mlir_reshape_convolution_wrapper({{.*}}: memref<1x1x16x16x1x1xf32>, {{.*}}: memref<1x1x3x3xf32>, {{.*}}: memref<1x1x32x32xf32>)
+// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<256xf32> {func.read_access}, {{.*}}: memref<9xf32> {func.read_access}, {{.*}}: memref<1024xf32> {func.write_access})
+// CHECK: func.func @mlir_reshape_convolution_wrapper({{.*}}: memref<256xf32>, {{.*}}: memref<9xf32>, {{.*}}: memref<1024xf32>)
 // CHECK: module @__xmodule_ attributes {mhal.arch = "{{.*}}", mhal.module}
-// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<1x1x16x16x1x1xf32> {func.read_access}, {{.*}}: memref<1x1x3x3xf32> {func.read_access}, {{.*}}: memref<1x1x32x32xf32> {func.write_access}) attributes {kernel, original_func = @mlir_reshape_convolution}
+// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<256xf32> {func.read_access}, {{.*}}: memref<9xf32> {func.read_access}, {{.*}}: memref<1024xf32> {func.write_access}) attributes {kernel, original_func = @mlir_reshape_convolution}
 // CHECK-LABEL: @main
-// CHECK: call @mlir_reshape_convolution_wrapper({{.*}}, {{.*}}, {{.*}}) : (memref<1x1x16x16x1x1xf32>, memref<1x1x3x3xf32>, memref<1x1x32x32xf32>) -> ()
-// CHECK: call @mlir_reshape_convolution_wrapper_cloned({{.*}}, {{.*}}, {{.*}}) : (memref<1x1x16x16x1x1xf32>, memref<1x1x3x3xf32>, memref<1x1x32x32xf32>) -> ()
-// CHECK: call @mlir_reshape_convolution_wrapper_verify2({{.*}}, {{.*}}) : (memref<1x1x32x32xf32>, memref<1x1x32x32xf32>) -> ()
-// CHECK: func.func @mlir_reshape_convolution_wrapper_cloned({{.*}}: memref<1x1x16x16x1x1xf32>, {{.*}}: memref<1x1x3x3xf32>, {{.*}}: memref<1x1x32x32xf32>)
+// CHECK: call @mlir_reshape_convolution_wrapper({{.*}}, {{.*}}, {{.*}}) : (memref<256xf32>, memref<9xf32>, memref<1024xf32>) -> ()
+// CHECK: call @mlir_reshape_convolution_wrapper_cloned({{.*}}, {{.*}}, {{.*}}) : (memref<256xf32>, memref<9xf32>, memref<1024xf32>) -> ()
+// CHECK: call @mlir_reshape_convolution_wrapper_verify2({{.*}}, {{.*}}) : (memref<1024xf32>, memref<1024xf32>) -> ()
+// CHECK: func.func @mlir_reshape_convolution_wrapper_cloned({{.*}}: memref<256xf32>, {{.*}}: memref<9xf32>, {{.*}}: memref<1024xf32>)
 
 // CHECK_FULL-LABEL: module
 // CHECK_FULL: func.func private @mlir_reshape_convolution

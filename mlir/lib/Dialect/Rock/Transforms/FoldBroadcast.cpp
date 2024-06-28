@@ -59,7 +59,7 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     size_t level = 0;
 
     while (!workList.empty() && level < views.size()) {
-      auto curMap = views[level++].cast<TransformMapAttr>();
+      auto curMap = cast<TransformMapAttr>(views[level++]);
       auto ops = curMap.getOps();
       DenseSet<uint32_t> newWorkList;
       // Let's consider all the operations of the current transform map
@@ -123,7 +123,7 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     if (views.empty())
       return false;
 
-    auto trMap = views[0].cast<TransformMapAttr>();
+    auto trMap = cast<TransformMapAttr>(views[0]);
 
     // There is no batch, hence nothing that can be a broadcast
     if (trMap.getUpperBounds().size() != 3)
@@ -205,7 +205,7 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     // Remove dummy transforms from the gemm output and use it to replace the
     // original op through all the IR
     Value result = rw.create<rock::TensorUntransformCastOp>(
-        loc, op.getC().getType().cast<RankedTensorType>(), gemm.getResult(),
+        loc, cast<RankedTensorType>(op.getC().getType()), gemm.getResult(),
         gemm.getC());
     rw.replaceOp(op, result);
 

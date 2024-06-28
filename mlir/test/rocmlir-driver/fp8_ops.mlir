@@ -6,7 +6,7 @@
 // COM: the fp8 expander isn't limited to GPU code.
 // RUN: rocmlir-gen --arch gfx940 --operation gemm -t fp8 -p -pv | rocmlir-driver -kernel-pipeline=full | FileCheck %s --check-prefix=HOST
 
-// MFMA: rocdl.mfma.f32.32x32x16.fp8.fp8
+// MFMA: rocdl.mfma.f32.16x16x32.fp8.fp8
 // MFMA-NOT: llvm.mlir.global private constant @__rocmlir_extf_tbl_f8E4M3FNUZ
 // MFMA_OFF: rocdl.cvt.f32.fp8
 // MFMA_OFF-NOT: llvm.mlir.global private constant @__rocmlir_extf_tbl_f8E4M3FNUZ

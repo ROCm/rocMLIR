@@ -111,11 +111,15 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
       }
     }
 
-    if (expanded)
+    if (srcShape == resShape) {
+      b.replaceAllUsesWith(res, src);
+      b.eraseOp(op);
+    } else if (expanded) {
       b.replaceOpWithNewOp<memref::ExpandShapeOp>(op, res.getType(), src,
                                                   merges);
-    else
+    } else {
       b.replaceOpWithNewOp<memref::CollapseShapeOp>(op, src, merges);
+    }
     return success();
   }
 };

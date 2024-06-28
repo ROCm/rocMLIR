@@ -89,12 +89,12 @@
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
-#include "llvm/Support/RISCVISAInfo.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/StringSaver.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/RISCVISAInfo.h"
 #include <cstdlib> // ::getenv
 #include <map>
 #include <memory>
@@ -231,9 +231,6 @@ Driver::Driver(StringRef ClangExecutable, StringRef TargetTriple,
     UserConfigDir = static_cast<std::string>(P);
   }
 #endif
-
-  // Compute the path to the resource directory.
-  ResourceDir = GetResourcesPath(ClangExecutable, CLANG_RESOURCE_DIR);
 }
 
 void Driver::setDriverMode(StringRef Value) {
@@ -250,6 +247,24 @@ void Driver::setDriverMode(StringRef Value) {
     Mode = *M;
   else
     Diag(diag::err_drv_unsupported_option_argument) << OptName << Value;
+}
+
+void Driver::setResourceDirectory() {
+  // Compute the path to the resource directory, depending on the driver mode.
+  switch (Mode) {
+  case GCCMode:
+  case GXXMode:
+  case CPPMode:
+  case CLMode:
+  case DXCMode:
+    ResourceDir = GetResourcesPath(ClangExecutable, CLANG_RESOURCE_DIR);
+    break;
+  case FlangMode:
+    SmallString<64> customResourcePathRelativeToDriver{".."};
+    ResourceDir =
+        GetResourcesPath(ClangExecutable, customResourcePathRelativeToDriver);
+    break;
+  }
 }
 
 InputArgList Driver::ParseArgStrings(ArrayRef<const char *> ArgStrings,
@@ -363,6 +378,7 @@ phases::ID Driver::getFinalPhase(const DerivedArgList &DAL,
              (PhaseArg = DAL.getLastArg(options::OPT_rewrite_legacy_objc)) ||
              (PhaseArg = DAL.getLastArg(options::OPT__migrate)) ||
              (PhaseArg = DAL.getLastArg(options::OPT__analyze)) ||
+             (PhaseArg = DAL.getLastArg(options::OPT_emit_cir)) ||
              (PhaseArg = DAL.getLastArg(options::OPT_emit_ast))) {
     FinalPhase = phases::Compile;
 
@@ -565,9 +581,9 @@ static llvm::Triple computeTargetTriple(const Driver &D,
       StringRef ObjectMode = *ObjectModeValue;
       llvm::Triple::ArchType AT = llvm::Triple::UnknownArch;
 
-      if (ObjectMode.equals("64")) {
+      if (ObjectMode == "64") {
         AT = Target.get64BitArchVariant().getArch();
-      } else if (ObjectMode.equals("32")) {
+      } else if (ObjectMode == "32") {
         AT = Target.get32BitArchVariant().getArch();
       } else {
         D.Diag(diag::err_drv_invalid_object_mode) << ObjectMode;
@@ -758,125 +774,6 @@ Driver::OpenMPRuntimeKind Driver::getOpenMPRuntime(const ArgList &Args) const {
   }
 
   return RT;
-}
-
-bool GetTargetInfoFromOffloadArch(Compilation &C, const char *OpenMPTarget,
-                                  std::set<std::string> &OffloadArchs,
-                                  bool erase = false) {
-  StringRef DeviceTripleStr;
-  if (!std::strncmp(OpenMPTarget, "gfx", 3)) {
-    DeviceTripleStr = "amdgcn-amd-amdhsa";
-
-    if (erase)
-      OffloadArchs.erase(
-          DeviceTripleStr.str().append("^").append(OpenMPTarget));
-    else {
-      llvm::Triple TT(DeviceTripleStr);
-      llvm::StringMap<bool> Features;
-      StringRef IdStr(OpenMPTarget);
-      auto Arch = parseTargetID(TT, IdStr, &Features);
-      if (!Arch) {
-        C.getDriver().Diag(clang::diag::err_drv_bad_target_id) << IdStr;
-        C.setContainsError();
-        return false;
-      }
-      OffloadArchs.insert(
-          DeviceTripleStr.str().append("^").append(OpenMPTarget));
-    }
-  } else if (!std::strncmp(OpenMPTarget, "sm_", 3)) {
-    const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
-    const llvm::Triple &HostTriple = HostTC->getTriple();
-    DeviceTripleStr = HostTriple.isArch64Bit() ? "nvptx64-nvidia-cuda^"
-                                               : "nvptx-nvidia-cuda^";
-    if (erase)
-      OffloadArchs.erase(DeviceTripleStr.str().append(OpenMPTarget));
-    else
-      OffloadArchs.insert(DeviceTripleStr.str().append(OpenMPTarget));
-  } else {
-    const ToolChain *HostTC = C.getSingleOffloadToolChain<Action::OFK_Host>();
-    const llvm::Triple &HostTriple = HostTC->getTriple();
-    StringRef HostTripleStr = HostTriple.str();
-    if (erase)
-      OffloadArchs.erase(HostTripleStr.str().append("^").append(OpenMPTarget));
-    else
-      OffloadArchs.insert(HostTripleStr.str().append("^").append(OpenMPTarget));
-  }
-  return true;
-}
-
-bool Driver::GetTargetInfoFromMarch(Compilation &C,
-                                    std::set<std::string> &OffloadArchs) const {
-  for (Arg *A : C.getInputArgs()) {
-    if (A->getOption().matches(options::OPT_Xopenmp_target_EQ)) {
-      for (auto *V : A->getValues()) {
-        StringRef VStr = StringRef(V);
-        if (VStr.startswith("-march=") || VStr.startswith("--march="))
-          for (StringRef OpenMPTargetArch :
-               llvm::split(VStr.split('=').second, ",")) {
-            StringRef OpenMPTargetTriple = StringRef(A->getValue(0));
-            llvm::Triple TargetTriple(OpenMPTargetTriple);
-            llvm::StringMap<bool> Features;
-            auto ArchStr =
-                parseTargetID(TargetTriple, OpenMPTargetArch, &Features);
-            if (TargetTriple.isAMDGCN() && !ArchStr) {
-              C.getDriver().Diag(clang::diag::err_drv_bad_target_id)
-                  << OpenMPTargetArch;
-              C.setContainsError();
-              return false;
-            }
-            StringRef ArchProc = OpenMPTargetArch.split(":").first;
-            if (ArchProc.empty()) {
-              C.getDriver().Diag(clang::diag::err_drv_cuda_bad_gpu_arch)
-                  << VStr;
-              C.setContainsError();
-              return false;
-            }
-
-            // Append Triple and Arch to form a unique key for each instance of
-            // the ToolChain
-            if (!OpenMPTargetTriple.empty() && !OpenMPTargetArch.empty())
-              OffloadArchs.insert(TargetTriple.normalize().append("^").append(
-                  OpenMPTargetArch.str()));
-          }
-        A->claim();
-      }
-    }
-  }
-  return true;
-}
-
-bool Driver::GetTargetInfoFromOffloadArchOpts(
-    Compilation &C, std::set<std::string> &OffloadArchs) const {
-  for (Arg *A : C.getInputArgs()) {
-    if (!(A->getOption().matches(options::OPT_offload_arch_EQ) ||
-          A->getOption().matches(options::OPT_no_offload_arch_EQ))) {
-      continue;
-    }
-    A->claim();
-
-    StringRef ArchStr = A->getValue();
-
-    if (A->getOption().matches(options::OPT_no_offload_arch_EQ) &&
-        ArchStr == "all") {
-      OffloadArchs.clear();
-      continue;
-    }
-    if (ArchStr.empty())
-      continue;
-    else if (A->getOption().matches(options::OPT_offload_arch_EQ)) {
-      for (StringRef ArchVal : llvm::split(ArchStr, ",")) {
-        auto status = GetTargetInfoFromOffloadArch(C, ArchVal.str().c_str(),
-                                                   OffloadArchs);
-        if (!status)
-          return false;
-      }
-    } else if (A->getOption().matches(options::OPT_no_offload_arch_EQ))
-      GetTargetInfoFromOffloadArch(C, ArchStr.str().c_str(), OffloadArchs,
-                                   /* erase */ true);
-    else
-      llvm_unreachable("Unexpected option.");
-  }
-  return true;
 }
 
 void Driver::CreateOffloadingDeviceToolChains(Compilation &C,
@@ -1336,6 +1233,7 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   if (!DriverMode.empty())
     setDriverMode(DriverMode);
 
+  setResourceDirectory();
   // FIXME: What are we going to do with -V and -b?
 
   // Arguments specified in command line.
@@ -2778,22 +2676,13 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
       Diag(clang::diag::note_drv_t_option_is_global);
   }
 
-  // CUDA/HIP and their preprocessor expansions can be accepted by CL mode.
   // Warn -x after last input file has no effect
-  auto LastXArg = Args.getLastArgValue(options::OPT_x);
-  const llvm::StringSet<> ValidXArgs = {"cuda", "hip", "cui", "hipi"};
-  if (!IsCLMode() || ValidXArgs.contains(LastXArg)) {
+  {
     Arg *LastXArg = Args.getLastArgNoClaim(options::OPT_x);
     Arg *LastInputArg = Args.getLastArgNoClaim(options::OPT_INPUT);
     if (LastXArg && LastInputArg &&
         LastInputArg->getIndex() < LastXArg->getIndex())
       Diag(clang::diag::warn_drv_unused_x) << LastXArg->getValue();
-  } else {
-    // In CL mode suggest /TC or /TP since -x doesn't make sense if passed via
-    // /clang:.
-    if (auto *A = Args.getLastArg(options::OPT_x))
-      Diag(diag::err_drv_unsupported_opt_with_suggestion)
-          << A->getAsString(Args) << "/TC' or '/TP";
   }
 
   for (Arg *A : Args) {
@@ -4856,7 +4745,8 @@ Driver::getOffloadArchs(Compilation &C, const llvm::opt::DerivedArgList &Args,
 
     // Add or remove the seen architectures in order of appearance. If an
     // invalid architecture is given we simply exit.
-    if (Arg->getOption().matches(options::OPT_offload_arch_EQ)) {
+    if (Arg->getOption().matches(options::OPT_offload_arch_EQ) ||
+        Arg->getOption().matches(options::OPT_march_EQ)) {
       for (StringRef Arch : llvm::split(Arg->getValue(), ",")) {
         if (Arch == "native" || Arch.empty()) {
           auto GPUsOrErr = TC->getSystemGPUArchs(Args);
@@ -5186,6 +5076,8 @@ Action *Driver::ConstructPhaseAction(
       return C.MakeAction<MigrateJobAction>(Input, types::TY_Remap);
     if (Args.hasArg(options::OPT_emit_ast))
       return C.MakeAction<CompileJobAction>(Input, types::TY_AST);
+    if (Args.hasArg(options::OPT_emit_cir))
+      return C.MakeAction<CompileJobAction>(Input, types::TY_CIR);
     if (Args.hasArg(options::OPT_module_file_info))
       return C.MakeAction<CompileJobAction>(Input, types::TY_ModuleFile);
     if (Args.hasArg(options::OPT_verify_pch))
@@ -7115,7 +7007,7 @@ llvm::StringRef clang::driver::getDriverMode(StringRef ProgName,
   return Opt.consume_front(OptName) ? Opt : "";
 }
 
-bool driver::IsClangCL(StringRef DriverMode) { return DriverMode.equals("cl"); }
+bool driver::IsClangCL(StringRef DriverMode) { return DriverMode == "cl"; }
 
 llvm::Error driver::expandResponseFiles(SmallVectorImpl<const char *> &Args,
                                         bool ClangCLMode,

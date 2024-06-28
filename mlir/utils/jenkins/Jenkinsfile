@@ -249,7 +249,7 @@ void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
              -DROCK_E2E_TEST_SUITES=${testSuite}
              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
-             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
+             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 1'
              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
      """)
 }
@@ -264,7 +264,7 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                  -DROCK_E2E_TEST_ENABLED=0
                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir'
+                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 1'
                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
          """)
          echo "Static Test step skipped"
@@ -279,7 +279,7 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
              -DROCK_E2E_TEST_SUITES='part1'
              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
-             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
+             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 1'
              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
         """)
         checkRocmlirOnNavi3x(fixed, 'part2')
@@ -494,13 +494,8 @@ pipeline {
                         steps {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x' ) {
-                                    try {
+                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                         check_RockE2ETests_Navi3x(true)
-                                    } catch (Exception e) {
-                                        if (params.nightly)
-                                            currentBuild.result = 'SUCCESS'
-                                        else
-                                            currentBuild.result = 'FAILURE'
                                     }
                                 }
                                 else {
@@ -524,10 +519,8 @@ pipeline {
                         steps {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x') {
-                                    try {
+                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                         check_RockE2ETests_Navi3x(false)
-                                    } catch (Exception e) {
-                                        currentBuild.result = 'SUCCESS'
                                     }
                                 }
                                 else
@@ -778,7 +771,7 @@ pipeline {
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.staticLib;
             }
-            agent any
+            agent { label 'build-only' }
             options {
                 skipDefaultCheckout()
             }

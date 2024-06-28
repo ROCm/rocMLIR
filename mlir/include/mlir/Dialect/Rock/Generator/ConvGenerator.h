@@ -123,14 +123,6 @@ public:
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,
                               const Vector &targetSpec) {
-#if 0
-    auto permutation = layoutPermutation(src, srcSpec);
-
-    std::string targetLayout;
-    std::transform(permutation.begin(), permutation.end(),
-                   std::back_inserter(targetLayout),
-                   [&targetSpec](int64_t p) { return targetSpec[p]; });
-#else
     std::string targetLayout;
     for (auto ch : src) {
       auto pos = srcSpec.find(ch);
@@ -140,7 +132,6 @@ public:
         targetLayout.push_back(std::tolower(ch));
       }
     }
-#endif /* 1 */
 
     // +++pf:  update old key names.
     std::replace(targetLayout.begin(), targetLayout.end(), 'y', '0');

@@ -58,7 +58,7 @@ void MIGraphXDialect::initialize() {
 Operation *MIGraphXDialect::materializeConstant(OpBuilder &builder,
                                                 Attribute value, Type type,
                                                 Location loc) {
-  if (!type.isa<MIXRShapedType>())
+  if (!isa<MIXRShapedType>(type))
     return nullptr;
   ElementsAttr elemsValue = dyn_cast<ElementsAttr>(value);
   if (!elemsValue)
@@ -247,6 +247,11 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
     }
   }
   return RankedTensorType::get(orderedShape, getElementType());
+}
+
+RankedTensorType MIXRShapedType::asFlatMemoryTensor() const {
+  RankedTensorType memoryTensorType = asMemoryLayoutTensor();
+  return memoryTensorType.clone(memoryTensorType.getNumElements());
 }
 
 void MIXRShapedType::getStridePermutation(SmallVectorImpl<int64_t> &ret) const {

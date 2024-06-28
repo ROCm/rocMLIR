@@ -2,17 +2,17 @@
 
 llvm.func @rocdl_special_regs() -> i32 {
   // CHECK-LABEL: rocdl_special_regs
-  // CHECK: call i32 @llvm.amdgcn.workitem.id.x()
+  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.x()
   %1 = rocdl.workitem.id.x : i32
-  // CHECK: call i32 @llvm.amdgcn.workitem.id.y()
+  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.y()
   %2 = rocdl.workitem.id.y : i32
-  // CHECK: call i32 @llvm.amdgcn.workitem.id.z()
+  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.z()
   %3 = rocdl.workitem.id.z : i32
-  // CHECK: call i32 @llvm.amdgcn.workgroup.id.x()
+  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.x()
   %4 = rocdl.workgroup.id.x : i32
-  // CHECK: call i32 @llvm.amdgcn.workgroup.id.y()
+  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.y()
   %5 = rocdl.workgroup.id.y : i32
-  // CHECK: call i32 @llvm.amdgcn.workgroup.id.z()
+  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.z()
   %6 = rocdl.workgroup.id.z : i32
   // CHECK: call i64 @__ockl_get_local_size(i32 0)
   %7 = rocdl.workgroup.dim.x : i64
@@ -27,7 +27,7 @@ llvm.func @rocdl_special_regs() -> i32 {
   // CHECK: call i64 @__ockl_get_num_groups(i32 2)
   %12 = rocdl.grid.dim.z : i64
 
-  // CHECK: call i32 @llvm.amdgcn.workitem.id.x(),
+  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.x(),
   // CHECK-SAME: !range ![[$RANGE:[0-9]+]]
   %13 = rocdl.workitem.id.x {range = array<i32: 0, 64>} : i32
 
@@ -428,31 +428,6 @@ llvm.func @rocdl.raw.ptr.buffer.atomic.cmpswap(%rsrc : !llvm.ptr<8>,
 
   %val = rocdl.raw.ptr.buffer.atomic.cmpswap %src, %cmp, %rsrc, %offset, %soffset, %aux : i32
   llvm.return %val : i32
-}
-
-llvm.func @rocdl.mubuf(%rsrc : vector<4xi32>, %vindex : i32,
-                       %offset : i32, %vdata1 : vector<1xf32>,
-                       %vdata2 : vector<2xf32>, %vdata4 : vector<4xf32>) {
-  %glc = llvm.mlir.constant(false) : i1
-  %slc = llvm.mlir.constant(true) : i1
-  // CHECK-LABEL: rocdl.mubuf
-  // CHECK: call <1 x float> @llvm.amdgcn.buffer.load.v1f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i1 {{.*}}, i1 {{.*}})
-  // CHECK: call <2 x float> @llvm.amdgcn.buffer.load.v2f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i1 {{.*}}, i1 {{.*}})
-  // CHECK: call <4 x float> @llvm.amdgcn.buffer.load.v4f32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i1 {{.*}}, i1 {{.*}})
-
-  // CHECK: call void @llvm.amdgcn.buffer.store.v1f32(<1 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i1 {{.*}}, i1 {{.*}})
-  // CHECK: call void @llvm.amdgcn.buffer.store.v2f32(<2 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i1 {{.*}}, i1 {{.*}})
-  // CHECK: call void @llvm.amdgcn.buffer.store.v4f32(<4 x float> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i1 {{.*}}, i1 {{.*}})
-
-  %r1 = rocdl.buffer.load %rsrc, %vindex, %offset, %glc, %slc : vector<1xf32>
-  %r2 = rocdl.buffer.load %rsrc, %vindex, %offset, %glc, %slc : vector<2xf32>
-  %r4 = rocdl.buffer.load %rsrc, %vindex, %offset, %glc, %slc : vector<4xf32>
-
-  rocdl.buffer.store %vdata1, %rsrc, %vindex, %offset, %glc, %slc : vector<1xf32>
-  rocdl.buffer.store %vdata2, %rsrc, %vindex, %offset, %glc, %slc : vector<2xf32>
-  rocdl.buffer.store %vdata4, %rsrc, %vindex, %offset, %glc, %slc : vector<4xf32>
-
-  llvm.return
 }
 
 llvm.func @rocdl.raw.buffer(%rsrc : vector<4xi32>,

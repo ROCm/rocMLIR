@@ -18,6 +18,8 @@
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -64,7 +66,7 @@ migraphx::MIXRShapedToMemoryLayoutConverter::
     MIXRShapedToMemoryLayoutConverter() {
   addConversion([](Type type) { return type; });
   addConversion(
-      [](MIXRShapedType shaped) { return shaped.asMemoryLayoutTensor(); });
+      [](MIXRShapedType shaped) { return shaped.asFlatMemoryTensor(); });
 }
 
 //===----------------------------------------------------------------------===//
@@ -91,7 +93,7 @@ static TosaOp createOpAndInfer(PatternRewriter &rewriter, Location loc,
 
 static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
                                  Type resElementType, Value input) {
-  ShapedType inputType = input.getType().cast<ShapedType>();
+  ShapedType inputType = cast<ShapedType>(input.getType());
   Type resType = inputType.cloneWith({}, resElementType);
 
   auto op = rewriter.create<tosa::CastOp>(loc, resType, input);
@@ -99,7 +101,7 @@ static tosa::CastOp createCastOp(PatternRewriter &rewriter, Location loc,
 }
 
 static Type getShapedElementTy(Value v) {
-  return v.getType().cast<ShapedType>().getElementType();
+  return cast<ShapedType>(v.getType()).getElementType();
 }
 
 static Value getZeroTensor(Location loc, RankedTensorType type,
@@ -126,7 +128,7 @@ static tosa::TransposeOp getTransposeOp(Location loc, Value input,
       DenseIntElementsAttr::get(permutationAttrType, permutation);
   Value permutationValue =
       rewriter.create<tosa::ConstOp>(loc, permutationAttrType, permutationAttr);
-  ShapedType inputTy = input.getType().cast<ShapedType>();
+  ShapedType inputTy = cast<ShapedType>(input.getType());
   auto inputShape = inputTy.getShape();
   SmallVector<int64_t> newShape;
   newShape.reserve(len);
@@ -163,7 +165,8 @@ LogicalResult TrivialConverter<MIGraphXOp, TosaOp>::matchAndRewrite(
   SmallVector<Type, 1> types;
   if (failed(getTypeConverter()->convertTypes(op->getResultTypes(), types)))
     return failure();
-  SmallVector<NamedAttribute> filteredAttrs = llvm::to_vector(op->getDiscardableAttrDictionary());
+  SmallVector<NamedAttribute> filteredAttrs =
+      llvm::to_vector(op->getDiscardableAttrDictionary());
   rewriter.replaceOpWithNewOp<TosaOp>(op, types, adaptor.getOperands(),
                                       filteredAttrs);
   return success();
@@ -210,7 +213,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   Value filter = adaptor.getFilter();
   ValueRange results = op->getResults();
   Type elementTy = inputType.getElementType();
-  auto outputTy = results[0].getType().template cast<MIXRShapedType>();
+  auto outputTy = cast<MIXRShapedType>(results[0].getType());
   SmallVector<int64_t> NCHW2NHWC{0, 2, 3, 1};
   SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
@@ -235,57 +238,98 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
 
+  // There is no tosa.conv1d, so instead we'll add a dummy x1 dimension
+  // to the input tensors, and make a tosa.conv2d.  We'll also add the
+  // ExpandedFrom1D attribute so we can undo it in tosa-to-rock.
+  auto expandTo2D = [&rewriter, loc](mlir::Value value) {
+    ArrayRef<int64_t> origShape = cast<ShapedType>(value.getType()).getShape();
+    SmallVector<int64_t> expShape(origShape.drop_back());
+    expShape.push_back(1);
+    expShape.push_back(origShape.back());
+    Value reshaped = rewriter.create<tosa::ReshapeOp>(
+        loc, value, rewriter.getDenseI64ArrayAttr(expShape));
+    return reshaped;
+  };
+
   // Construct a new Conv2DOp.
   Operation *cop;
+  Type new1DOutTy;
   switch (dims) {
+  case 1:
+    // Expand to do a conv2d, because there's no conv1d op.
+    newShape.insert(std::prev(newShape.end()), 1);
+    new1DOutTy = RankedTensorType::get(newShape, outputTy.getElementType());
+    input = expandTo2D(input);
+    filter = expandTo2D(filter);
+
+    cop = rewriter.create<tosa::Conv2DOp>(
+        loc, new1DOutTy,
+        ValueRange{
+            input, filter,
+            getZeroTensor(loc, outputTy.getElementType(),
+                          cast<ShapedType>(filter.getType()).getShape()[0],
+                          rewriter)});
+    cop->setAttr(rock::ExpandedFrom1DAttr::getMnemonic(),
+                 rewriter.getUnitAttr());
+    break;
+
   case 2:
     cop = rewriter.create<tosa::Conv2DOp>(
         loc, newOutTy,
         ValueRange{
             input, filter,
-            getZeroTensor(
-                loc, outputTy.getElementType(),
-                filter.getType().template cast<ShapedType>().getShape()[0],
-                rewriter)});
+            getZeroTensor(loc, outputTy.getElementType(),
+                          cast<ShapedType>(filter.getType()).getShape()[0],
+                          rewriter)});
     break;
   case 3:
     cop = rewriter.create<tosa::Conv3DOp>(
         loc, newOutTy,
         ValueRange{
             input, filter,
-            getZeroTensor(
-                loc, outputTy.getElementType(),
-                filter.getType().template cast<ShapedType>().getShape()[0],
-                rewriter)});
+            getZeroTensor(loc, outputTy.getElementType(),
+                          cast<ShapedType>(filter.getType()).getShape()[0],
+                          rewriter)});
     break;
   default:
-    llvm_unreachable("Only 2-D and 3-D have been implemented.");
+    return op->emitError("Only 1-D, 2-D, and 3-D have been implemented.");
     break;
   }
 
   // translate attributes
-  auto padAttr = op->getAttr("padding").template cast<ArrayAttr>();
-  auto strideAttr = op->getAttr("stride").template cast<ArrayAttr>();
-  auto dilationAttr = op->getAttr("dilation").template cast<ArrayAttr>();
+  auto padAttr = cast<ArrayAttr>(op->getAttr("padding"));
+  auto strideAttr = cast<ArrayAttr>(op->getAttr("stride"));
+  auto dilationAttr = cast<ArrayAttr>(op->getAttr("dilation"));
   // MIGraphX padAttr is [hlow, wlow, hhigh, whigh] while TOSA padAttr
   // is [hlow, hhigh, wlow, whigh].
   SmallVector<int64_t> pads;
   for (int i = 0; i < dims; i++) {
-    pads.push_back(padAttr[i].template dyn_cast<IntegerAttr>().getInt());
-    pads.push_back(padAttr[i + dims].template dyn_cast<IntegerAttr>().getInt());
+    pads.push_back(dyn_cast<IntegerAttr>(padAttr[i]).getInt());
+    pads.push_back(dyn_cast<IntegerAttr>(padAttr[i + dims]).getInt());
   }
 
   SmallVector<int64_t> strides;
   SmallVector<int64_t> dilations;
   for (size_t i = 0; i < strideAttr.size(); i++) {
-    strides.push_back(strideAttr[i].template dyn_cast<IntegerAttr>().getInt());
-    dilations.push_back(
-        dilationAttr[i].template dyn_cast<IntegerAttr>().getInt());
+    strides.push_back(dyn_cast<IntegerAttr>(strideAttr[i]).getInt());
+    dilations.push_back(dyn_cast<IntegerAttr>(dilationAttr[i]).getInt());
   }
 
   int64_t group = op.getGroup();
 
   // convolution config attributes
+
+  if (dims == 1) {
+    if ((dilations.size() != 1) || (strides.size() != 1) ||
+        (pads.size() != 2)) {
+      return op->emitError(
+          "1-D convolution has improper dilation, stride, or pad.");
+    }
+    dilations.push_back(0);
+    strides.push_back(1);
+    pads.push_back(0);
+    pads.push_back(0);
+  }
 
   cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
   cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
@@ -308,6 +352,12 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     auto quantAttr = rewriter.getAttr<tosa::ConvOpQuantizationAttr>(
         /*inputZp =*/0, /*weightZp =*/0);
     cop->setAttr("quantization_info", quantAttr);
+  }
+
+  if (dims == 1) {
+    cop = rewriter.create<tosa::ReshapeOp>(
+        loc, cop->getResult(0),
+        rewriter.getDenseI64ArrayAttr(cast<ShapedType>(newOutTy).getShape()));
   }
 
   // transpose the output back to NCHW so that it can match following
@@ -477,7 +527,7 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   uint32_t outRank = op.getOutput().getType().getRank();
   Type elemType = op.getOutput().getType().getElementType();
   auto axis =
-      static_cast<size_t>(op->getAttr("axis").cast<IntegerAttr>().getInt());
+      static_cast<size_t>(cast<IntegerAttr>(op->getAttr("axis")).getInt());
 
   SmallVector<int64_t, 5> newShape;
   for (uint32_t i = 0; i < outRank; i++) {
@@ -520,10 +570,9 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
           adaptor.getInput().getDefiningOp<tosa::ConstOp>()) {
     if (constOp.getValueAttr().isSplat()) {
       auto outTy = RankedTensorType::get(outShape, elemType);
-      auto bcastConstAttr =
-          DenseElementsAttr::get(outTy, constOp.getValueAttr()
-                                            .cast<DenseElementsAttr>()
-                                            .getSplatValue<Attribute>());
+      auto bcastConstAttr = DenseElementsAttr::get(
+          outTy, cast<DenseElementsAttr>(constOp.getValueAttr())
+                     .getSplatValue<Attribute>());
       tosa::ConstOp newConstOp =
           rewriter.create<tosa::ConstOp>(loc, outTy, bcastConstAttr);
       rewriter.replaceOp(op, newConstOp);
@@ -579,7 +628,7 @@ ReshapeConverter::matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
   Type outputTy = getTypeConverter()->convertType(op.getOutput().getType());
   SmallVector<int64_t, 5> newShape;
   for (auto dim : dims) {
-    newShape.push_back(dim.dyn_cast<IntegerAttr>().getInt());
+    newShape.push_back(dyn_cast<IntegerAttr>(dim).getInt());
   }
 
   auto rop = rewriter.create<tosa::ReshapeOp>(
@@ -608,9 +657,9 @@ SliceConverter::matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
   }
 
   for (auto [axis, axisS, axisE] : llvm::zip(axes, axesStarts, axesEnds)) {
-    int64_t axisInt = axis.cast<IntegerAttr>().getInt();
-    int64_t axisSInt = axisS.cast<IntegerAttr>().getInt();
-    int64_t axisEInt = axisE.cast<IntegerAttr>().getInt();
+    int64_t axisInt = cast<IntegerAttr>(axis).getInt();
+    int64_t axisSInt = cast<IntegerAttr>(axisS).getInt();
+    int64_t axisEInt = cast<IntegerAttr>(axisE).getInt();
     start[axisInt] = axisSInt;
     size[axisInt] = axisEInt - axisSInt;
   }
@@ -668,7 +717,8 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
   if (axes.size() != 1) {
     return op.emitError("We only support single axes reductions!");
   }
-  IntegerAttr axis = rewriter.getI32IntegerAttr(axes[0].cast<IntegerAttr>().getInt());
+  IntegerAttr axis =
+      rewriter.getI32IntegerAttr(cast<IntegerAttr>(axes[0]).getInt());
   auto input = cast<TypedValue<RankedTensorType>>(adaptor.getInput());
   Type elementType = input.getType().getElementType();
 
@@ -714,8 +764,8 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
   auto inBTensor = cast<TypedValue<RankedTensorType>>(adaptor.getInB());
   Type elementType = inATensor.getType().getElementType();
   if (isa<IntegerType>(elementType)) {
-    Value div = createOpAndInfer<tosa::DivOp>(rewriter, loc, elementType,
-                                              inATensor, inBTensor);
+    Value div = createOpAndInfer<tosa::IntDivOp>(rewriter, loc, elementType,
+                                                 inATensor, inBTensor);
     rewriter.replaceOp(op, div);
     return success();
   }
@@ -887,12 +937,12 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxF.convertFromAPInt(maxI, /*IsSigned=*/true,
                             APFloat::rmNearestTiesToEven);
     }
-    
+
     FloatAttr minFatt = rewriter.getFloatAttr(rewriter.getF32Type(), minF);
     FloatAttr maxFatt = rewriter.getFloatAttr(rewriter.getF32Type(), maxF);
-    result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
-                                             minI.getSExtValue(),
-                                             maxI.getSExtValue(), minFatt, maxFatt);
+    result = createOpAndInfer<tosa::ClampOp>(
+        rewriter, loc, biasType, result, minI.getSExtValue(),
+        maxI.getSExtValue(), minFatt, maxFatt);
     result = createCastOp(rewriter, loc, outputType, result);
   }
   rewriter.replaceOp(op, result);
@@ -927,7 +977,7 @@ SoftmaxConverter::matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
   Location loc = op.getLoc();
   Value input = adaptor.getInput();
   IntegerAttr axisAttr = rewriter.getI32IntegerAttr(op.getAxisAttr().getInt());
-  ShapedType inputType = input.getType().cast<ShapedType>();
+  ShapedType inputType = cast<ShapedType>(input.getType());
   Type elementType = inputType.getElementType();
 
   auto tosaMax = createOpAndInfer<tosa::ReduceMaxOp>(rewriter, loc, elementType,
@@ -1058,6 +1108,14 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   RankedTensorType resultType = op.getOut().getType();
   Value in = adaptor.getIn();
 
+  // First, expand ourselves back out to the N-D type that we're logically
+  // working with in memory.
+  RankedTensorType memoryLayoutType = inType.asMemoryLayoutTensor();
+  Value expanded = in;
+  if (in.getType() != memoryLayoutType)
+    expanded =
+        rewriter.create<tosa::ReshapeOp>(loc, in, memoryLayoutType.getShape());
+
   // This is the permutation that reorders the strides into standard shape.
   // Equivalently, it is the permutation that, when applied to a standard
   // shape, produces its in-memory layout. So, to get back to standard/logical
@@ -1071,9 +1129,9 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
     permutation[from] = to;
     hasTranspose |= (from != static_cast<int64_t>(to));
   }
-  Value transposed = in;
+  Value transposed = expanded;
   if (hasTranspose)
-    transposed = getTransposeOp(loc, in, rewriter, permutation);
+    transposed = getTransposeOp(loc, expanded, rewriter, permutation);
   auto transposedType = cast<RankedTensorType>(transposed.getType());
   if (transposedType == resultType) {
     rewriter.replaceOp(op, transposed);
@@ -1111,6 +1169,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   MIXRShapedType resultType = op.getOut().getType();
+  RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
   auto resultTensorType =
       cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
   if (!resultTensorType)
@@ -1124,12 +1183,17 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
     transposed = getTransposeOp(loc, in, rewriter, permutation);
-  if (transposed.getType() != resultTensorType) {
+  if (transposed.getType() != memoryLayoutType) {
     rewriter.eraseOp(transposed.getDefiningOp());
     return op.emitOpError(
         "writing to tensors with long strides or broadcasts is unsupported");
   }
-  rewriter.replaceOp(op, transposed);
+
+  Value collapsed = transposed;
+  if (transposed.getType() != resultTensorType)
+    collapsed = rewriter.create<tosa::ReshapeOp>(loc, transposed,
+                                                 resultTensorType.getShape());
+  rewriter.replaceOp(op, collapsed);
   return success();
 }
 

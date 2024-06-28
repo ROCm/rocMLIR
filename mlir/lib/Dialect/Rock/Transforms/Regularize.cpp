@@ -165,7 +165,7 @@ void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
 
       if (isa<BlockArgument>(inp)) {
         auto arg = dyn_cast<BlockArgument>(inp);
-        auto shape = inp.getType().cast<ShapedType>();
+        auto shape = cast<ShapedType>(inp.getType());
         int64_t argSize = shape.getNumElements();
         if (inputIdx == 0 || argSize > majorTensorSize ||
             (argSize == majorTensorSize && argIdx > arg.getArgNumber())) {
@@ -302,7 +302,7 @@ struct PushTransformsUpRewritePattern
           }
 
           // create new buffer (substitue in fusee)
-          MemRefType nbufferType = readInp.getType().cast<MemRefType>();
+          MemRefType nbufferType = cast<MemRefType>(readInp.getType());
           Value nbuffer =
               rw.create<memref::AllocOp>(loc, nbufferType).getResult();
           // update fusee with new buffer input

@@ -50,10 +50,12 @@ void deinitRuntime() {
 
   if (RefCount == 1) {
     DP("Deinit offload library!\n");
+    PM->deinit();
     delete PM;
     PM = nullptr;
   }
 
+  RefCount--;
 }
 
 // HACK: These depricated device stubs still needs host versions for fallback

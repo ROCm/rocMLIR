@@ -15,7 +15,7 @@
 ; (Specifically, there were reviewer questions about the lowering for halfs
 ;  and their calling convention which remain unresolved.)
 
-define void @store_half(half* %fptr, half %v) {
+define void @store_half(ptr %fptr, half %v) {
 ; X86-SSE1-LABEL: store_half:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    movzwl {{[0-9]+}}(%esp), %eax
@@ -55,11 +55,11 @@ define void @store_half(half* %fptr, half %v) {
 ; X64-AVX-NEXT:    vpextrw $0, %xmm0, %eax
 ; X64-AVX-NEXT:    movw %ax, (%rdi)
 ; X64-AVX-NEXT:    retq
-  store atomic half %v, half* %fptr unordered, align 2
+  store atomic half %v, ptr %fptr unordered, align 2
   ret void
 }
 
-define void @store_float(float* %fptr, float %v) {
+define void @store_float(ptr %fptr, float %v) {
 ; X86-LABEL: store_float:
 ; X86:       # %bb.0:
 ; X86-NEXT:    movl {{[0-9]+}}(%esp), %eax
@@ -76,11 +76,11 @@ define void @store_float(float* %fptr, float %v) {
 ; X64-AVX:       # %bb.0:
 ; X64-AVX-NEXT:    vmovss %xmm0, (%rdi)
 ; X64-AVX-NEXT:    retq
-  store atomic float %v, float* %fptr unordered, align 4
+  store atomic float %v, ptr %fptr unordered, align 4
   ret void
 }
 
-define void @store_double(double* %fptr, double %v) {
+define void @store_double(ptr %fptr, double %v) {
 ; X86-SSE1-LABEL: store_double:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    movl {{[0-9]+}}(%esp), %eax
@@ -127,11 +127,12 @@ define void @store_double(double* %fptr, double %v) {
 ; X64-AVX:       # %bb.0:
 ; X64-AVX-NEXT:    vmovsd %xmm0, (%rdi)
 ; X64-AVX-NEXT:    retq
-  store atomic double %v, double* %fptr unordered, align 8
+  store atomic double %v, ptr %fptr unordered, align 8
   ret void
 }
 
-define half @load_half(half* %fptr) {
+
+define half @load_half(ptr %fptr) {
 ; X86-SSE1-LABEL: load_half:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    movl {{[0-9]+}}(%esp), %eax
@@ -169,11 +170,11 @@ define half @load_half(half* %fptr) {
 ; X64-AVX-NEXT:    movzwl (%rdi), %eax
 ; X64-AVX-NEXT:    vpinsrw $0, %eax, %xmm0, %xmm0
 ; X64-AVX-NEXT:    retq
-  %v = load atomic half, half* %fptr unordered, align 2
+  %v = load atomic half, ptr %fptr unordered, align 2
   ret half %v
 }
 
-define float @load_float(float* %fptr) {
+define float @load_float(ptr %fptr) {
 ; X86-SSE1-LABEL: load_float:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    pushl %eax
@@ -231,11 +232,11 @@ define float @load_float(float* %fptr) {
 ; X64-AVX:       # %bb.0:
 ; X64-AVX-NEXT:    vmovss {{.*#+}} xmm0 = mem[0],zero,zero,zero
 ; X64-AVX-NEXT:    retq
-  %v = load atomic float, float* %fptr unordered, align 4
+  %v = load atomic float, ptr %fptr unordered, align 4
   ret float %v
 }
 
-define double @load_double(double* %fptr) {
+define double @load_double(ptr %fptr) {
 ; X86-SSE1-LABEL: load_double:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    subl $12, %esp
@@ -300,7 +301,7 @@ define double @load_double(double* %fptr) {
 ; X64-AVX:       # %bb.0:
 ; X64-AVX-NEXT:    vmovsd {{.*#+}} xmm0 = mem[0],zero
 ; X64-AVX-NEXT:    retq
-  %v = load atomic double, double* %fptr unordered, align 8
+  %v = load atomic double, ptr %fptr unordered, align 8
   ret double %v
 }
 
@@ -577,7 +578,7 @@ define double @exchange_double(ptr %fptr, double %x) {
 ; Check the seq_cst lowering since that's the
 ; interesting one from an ordering perspective on x86.
 
-define void @store_float_seq_cst(float* %fptr, float %v) {
+define void @store_float_seq_cst(ptr %fptr, float %v) {
 ; X86-LABEL: store_float_seq_cst:
 ; X86:       # %bb.0:
 ; X86-NEXT:    movl {{[0-9]+}}(%esp), %eax
@@ -596,11 +597,11 @@ define void @store_float_seq_cst(float* %fptr, float %v) {
 ; X64-AVX-NEXT:    vmovd %xmm0, %eax
 ; X64-AVX-NEXT:    xchgl %eax, (%rdi)
 ; X64-AVX-NEXT:    retq
-  store atomic float %v, float* %fptr seq_cst, align 4
+  store atomic float %v, ptr %fptr seq_cst, align 4
   ret void
 }
 
-define void @store_double_seq_cst(double* %fptr, double %v) {
+define void @store_double_seq_cst(ptr %fptr, double %v) {
 ; X86-SSE1-LABEL: store_double_seq_cst:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    movl {{[0-9]+}}(%esp), %eax
@@ -653,11 +654,11 @@ define void @store_double_seq_cst(double* %fptr, double %v) {
 ; X64-AVX-NEXT:    vmovq %xmm0, %rax
 ; X64-AVX-NEXT:    xchgq %rax, (%rdi)
 ; X64-AVX-NEXT:    retq
-  store atomic double %v, double* %fptr seq_cst, align 8
+  store atomic double %v, ptr %fptr seq_cst, align 8
   ret void
 }
 
-define float @load_float_seq_cst(float* %fptr) {
+define float @load_float_seq_cst(ptr %fptr) {
 ; X86-SSE1-LABEL: load_float_seq_cst:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    pushl %eax
@@ -715,11 +716,11 @@ define float @load_float_seq_cst(float* %fptr) {
 ; X64-AVX:       # %bb.0:
 ; X64-AVX-NEXT:    vmovss {{.*#+}} xmm0 = mem[0],zero,zero,zero
 ; X64-AVX-NEXT:    retq
-  %v = load atomic float, float* %fptr seq_cst, align 4
+  %v = load atomic float, ptr %fptr seq_cst, align 4
   ret float %v
 }
 
-define double @load_double_seq_cst(double* %fptr) {
+define double @load_double_seq_cst(ptr %fptr) {
 ; X86-SSE1-LABEL: load_double_seq_cst:
 ; X86-SSE1:       # %bb.0:
 ; X86-SSE1-NEXT:    subl $12, %esp
@@ -784,6 +785,103 @@ define double @load_double_seq_cst(double* %fptr) {
 ; X64-AVX:       # %bb.0:
 ; X64-AVX-NEXT:    vmovsd {{.*#+}} xmm0 = mem[0],zero
 ; X64-AVX-NEXT:    retq
-  %v = load atomic double, double* %fptr seq_cst, align 8
+  %v = load atomic double, ptr %fptr seq_cst, align 8
   ret double %v
+}
+
+define void @store_bfloat(ptr %fptr, bfloat %v) {
+; X86-LABEL: store_bfloat:
+; X86:       # %bb.0:
+; X86-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    movzwl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    movw %cx, (%eax)
+; X86-NEXT:    retl
+;
+; X64-SSE-LABEL: store_bfloat:
+; X64-SSE:       # %bb.0:
+; X64-SSE-NEXT:    pextrw $0, %xmm0, %eax
+; X64-SSE-NEXT:    movw %ax, (%rdi)
+; X64-SSE-NEXT:    retq
+;
+; X64-AVX-LABEL: store_bfloat:
+; X64-AVX:       # %bb.0:
+; X64-AVX-NEXT:    vpextrw $0, %xmm0, %eax
+; X64-AVX-NEXT:    movw %ax, (%rdi)
+; X64-AVX-NEXT:    retq
+  store atomic bfloat %v, ptr %fptr unordered, align 2
+  ret void
+}
+
+; Work around issue #92899 by casting to float
+define float @load_bfloat(ptr %fptr) {
+; X86-SSE1-LABEL: load_bfloat:
+; X86-SSE1:       # %bb.0:
+; X86-SSE1-NEXT:    pushl %eax
+; X86-SSE1-NEXT:    .cfi_def_cfa_offset 8
+; X86-SSE1-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; X86-SSE1-NEXT:    movzwl (%eax), %eax
+; X86-SSE1-NEXT:    shll $16, %eax
+; X86-SSE1-NEXT:    movl %eax, (%esp)
+; X86-SSE1-NEXT:    flds (%esp)
+; X86-SSE1-NEXT:    popl %eax
+; X86-SSE1-NEXT:    .cfi_def_cfa_offset 4
+; X86-SSE1-NEXT:    retl
+;
+; X86-SSE2-LABEL: load_bfloat:
+; X86-SSE2:       # %bb.0:
+; X86-SSE2-NEXT:    pushl %eax
+; X86-SSE2-NEXT:    .cfi_def_cfa_offset 8
+; X86-SSE2-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; X86-SSE2-NEXT:    movzwl (%eax), %eax
+; X86-SSE2-NEXT:    shll $16, %eax
+; X86-SSE2-NEXT:    movd %eax, %xmm0
+; X86-SSE2-NEXT:    movd %xmm0, (%esp)
+; X86-SSE2-NEXT:    flds (%esp)
+; X86-SSE2-NEXT:    popl %eax
+; X86-SSE2-NEXT:    .cfi_def_cfa_offset 4
+; X86-SSE2-NEXT:    retl
+;
+; X86-AVX-LABEL: load_bfloat:
+; X86-AVX:       # %bb.0:
+; X86-AVX-NEXT:    pushl %eax
+; X86-AVX-NEXT:    .cfi_def_cfa_offset 8
+; X86-AVX-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; X86-AVX-NEXT:    movzwl (%eax), %eax
+; X86-AVX-NEXT:    shll $16, %eax
+; X86-AVX-NEXT:    vmovd %eax, %xmm0
+; X86-AVX-NEXT:    vmovd %xmm0, (%esp)
+; X86-AVX-NEXT:    flds (%esp)
+; X86-AVX-NEXT:    popl %eax
+; X86-AVX-NEXT:    .cfi_def_cfa_offset 4
+; X86-AVX-NEXT:    retl
+;
+; X86-NOSSE-LABEL: load_bfloat:
+; X86-NOSSE:       # %bb.0:
+; X86-NOSSE-NEXT:    pushl %eax
+; X86-NOSSE-NEXT:    .cfi_def_cfa_offset 8
+; X86-NOSSE-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; X86-NOSSE-NEXT:    movzwl (%eax), %eax
+; X86-NOSSE-NEXT:    shll $16, %eax
+; X86-NOSSE-NEXT:    movl %eax, (%esp)
+; X86-NOSSE-NEXT:    flds (%esp)
+; X86-NOSSE-NEXT:    popl %eax
+; X86-NOSSE-NEXT:    .cfi_def_cfa_offset 4
+; X86-NOSSE-NEXT:    retl
+;
+; X64-SSE-LABEL: load_bfloat:
+; X64-SSE:       # %bb.0:
+; X64-SSE-NEXT:    movzwl (%rdi), %eax
+; X64-SSE-NEXT:    shll $16, %eax
+; X64-SSE-NEXT:    movd %eax, %xmm0
+; X64-SSE-NEXT:    retq
+;
+; X64-AVX-LABEL: load_bfloat:
+; X64-AVX:       # %bb.0:
+; X64-AVX-NEXT:    movzwl (%rdi), %eax
+; X64-AVX-NEXT:    shll $16, %eax
+; X64-AVX-NEXT:    vmovd %eax, %xmm0
+; X64-AVX-NEXT:    retq
+  %v = load atomic bfloat, ptr %fptr unordered, align 2
+  %ext = fpext bfloat %v to float
+  ret float %ext
 }

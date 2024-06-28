@@ -81,9 +81,9 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
     Location loc = op->getLoc();
 
-    auto memSpaceValue = type.getMemorySpace()
-                             .dyn_cast_or_null<gpu::AddressSpaceAttr>()
-                             .getValue();
+    auto memSpaceValue =
+        dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
+            .getValue();
     if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
       BlockArgument attribution = func.addWorkgroupAttribution(type, loc);
       func.setWorkgroupAttributionAttr(
@@ -200,13 +200,13 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
     if (auto attr = theFunc->getAttr("block_size")) {
       gpuFunc->setAttr("block_size", attr);
-      blockSize = attr.template cast<IntegerAttr>().getInt();
+      blockSize = cast<IntegerAttr>(attr).getInt();
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownBlockSizeAttrName(),
                        b.getDenseI32ArrayAttr({blockSize, 1, 1}));
     }
     if (auto attr = theFunc->getAttr("grid_size")) {
       gpuFunc->setAttr("grid_size", attr);
-      gridSize = attr.template cast<IntegerAttr>().getInt();
+      gridSize = cast<IntegerAttr>(attr).getInt();
       gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
                        b.getDenseI32ArrayAttr({gridSize, 1, 1}));
     }
@@ -295,8 +295,8 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     SmallVector<func::CallOp, 4> calls;
     op.walk([&](func::CallOp call) {
       if (auto callable = call.getCallableForCallee()) {
-        if (FlatSymbolRefAttr symRef = callable.dyn_cast<SymbolRefAttr>()
-                                           .dyn_cast<FlatSymbolRefAttr>()) {
+        if (FlatSymbolRefAttr symRef = mlir::dyn_cast<FlatSymbolRefAttr>(
+                mlir::dyn_cast<SymbolRefAttr>(callable))) {
           if (symRef.getValue() == theFunc.getName()) {
             OpBuilder b(call);
             auto gridVal = b.create<arith::ConstantIndexOp>(loc, gridSize);
@@ -366,7 +366,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     int64_t ldsUsage = 0;
     for (const auto &en : llvm::enumerate(gpuFunc.getWorkgroupAttributions())) {
       BlockArgument ldsBuf = en.value();
-      ShapedType ldsBufType = ldsBuf.getType().cast<ShapedType>();
+      ShapedType ldsBufType = cast<ShapedType>(ldsBuf.getType());
       Type elemType = ldsBufType.getElementType();
       int64_t numElems = ldsBufType.getNumElements();
       int64_t sizeBytes = (elemType.getIntOrFloatBitWidth() / 8) * numElems;

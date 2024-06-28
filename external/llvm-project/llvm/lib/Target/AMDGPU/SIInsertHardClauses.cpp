@@ -43,14 +43,6 @@ using namespace llvm;
 
 namespace {
 
-// A clause length of 64 instructions could be encoded in the s_clause
-// instruction, but the hardware documentation (at least for GFX11) says that
-// 63 is the maximum allowed.
-constexpr unsigned MaxInstructionsInClause = 63;
-// There's some weird hardware behavior we've seen with large store clauses on
-// gfx11, try to work around this.
-constexpr unsigned MaxInstructionsInVmemStoreClause = 32;
-
 enum HardClauseType {
   // For GFX10:
 
@@ -185,7 +177,7 @@ public:
   bool emitClause(const ClauseInfo &CI, const SIInstrInfo *SII) {
     if (CI.First == CI.Last)
       return false;
-    assert(CI.Length <= MaxInstructionsInClause &&
+    assert(CI.Length <= ST->maxHardClauseLength() &&
            "Hard clause is too long!");
 
     auto &MBB = *CI.First->getParent();
@@ -227,9 +219,7 @@ public:
           }
         }
 
-        if (CI.Length == MaxInstructionsInClause ||
-            (CI.Type == HARDCLAUSE_VMEM_STORE &&
-             CI.Length == MaxInstructionsInVmemStoreClause) ||
+        if (CI.Length == ST->maxHardClauseLength() ||
             (CI.Length && Type != HARDCLAUSE_INTERNAL &&
              Type != HARDCLAUSE_IGNORE &&
              (Type != CI.Type ||

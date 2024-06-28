@@ -7,7 +7,6 @@
 
 #include "oclc.h"
 #include "ockl.h"
-#include "ockl_priv.h"
 
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_int64_extended_atomics : enable
@@ -173,12 +172,6 @@ typedef struct heap_s {
 #endif
 } heap_t;
 
-// Inhibit control flow optimizations
-#define O0(X) X = o0(X)
-__attribute__((overloadable)) static int o0(int x) { int y; __asm__ volatile("" : "=v"(y) : "0"(x)); return y; }
-__attribute__((overloadable)) static uint o0(uint x) { uint y; __asm__ volatile("" : "=v"(y) : "0"(x)); return y; }
-__attribute__((overloadable)) static ulong o0(ulong x) { ulong y; __asm__ volatile("" : "=v"(y) : "0"(x)); return y; }
-
 // Atomics wrappers
 #define AL(P, O) __opencl_atomic_load(P, O, memory_scope_device)
 #define AS(P, V, O) __opencl_atomic_store(P, V, O, memory_scope_device)
@@ -294,9 +287,14 @@ first(__global void * v)
     return __builtin_astype(w2, __global void *);
 }
 
-REQUIRES_WAVE64
+// Read val from one active lane whose predicate is one.
+// If no lanes have the predicate set, return none
+// This is like first, except that first may not have its predicate set
 static uint
-elect_uint_wave64(int pred, uint val, uint none) {
+elect_uint(int pred, uint val, uint none)
+{
+  // Pretend wave32 doesn't exist. The wave64 ballot works, and the high half
+  // will fold out as 0.
     uint ret = none;
 
     ulong mask = __builtin_amdgcn_ballot_w64(pred != 0);
@@ -308,49 +306,12 @@ elect_uint_wave64(int pred, uint val, uint none) {
     return ret;
 }
 
-REQUIRES_WAVE32
-static uint
-elect_uint_wave32(int pred, uint val, uint none) {
-    uint ret = none;
-    uint mask = __builtin_amdgcn_ballot_w32(pred != 0);
-    if (mask != 0U) {
-        uint l = __ockl_ctz_u32(mask);
-        ret = __builtin_amdgcn_ds_bpermute(l << 2, val);
-    }
-
-    return ret;
-}
-
-// Read val from one active lane whose predicate is one.
-// If no lanes have the predicate set, return none
-// This is like first, except that first may not have its predicate set
-static uint
-elect_uint(int pred, uint val, uint none)
-{
-    return __oclc_wavefrontsize64 ?  elect_uint_wave64(pred, val, none) : elect_uint_wave32(pred, val, none);
-}
-
-REQUIRES_WAVE64
-static uint
-votes_wave64(bool b)
-{
-    ulong mask = __builtin_amdgcn_ballot_w64(b);
-    return __builtin_popcountl(mask);
-}
-
-REQUIRES_WAVE32
-static uint
-votes_wave32(bool b)
-{
-    uint mask = __builtin_amdgcn_ballot_w32(b);
-    return __builtin_popcount(mask);
-}
-
 // Count the number of nonzero arguments across the wave
 static uint
 votes(bool b)
 {
-    return __oclc_wavefrontsize64 ?  votes_wave64(b) : votes_wave32(b);
+    ulong mask = __builtin_amdgcn_ballot_w64(b);
+    return __builtin_popcountl(mask);
 }
 
 // The kind of the smallest block that can hold sz bytes
@@ -433,7 +394,6 @@ __ockl_dm_dealloc(ulong addr)
     __global heap_t *hp = get_heap_ptr();
     int go = 1;
     do {
-        o0(go);
         if (go) {
             kind_t first_k = first(my_k);
             sid_t first_i = first(my_i);
@@ -550,7 +510,6 @@ static uint
 try_grow_num_recordable_slabs(__global heap_t *hp, kind_t k)
 {
     uint aid = __ockl_activelane_u32();
-    O0(aid);
     uint nrs = 0;
     if (aid == 0)
         nrs = AL(&hp->num_recordable_slabs[k].value, memory_order_relaxed);
@@ -584,7 +543,6 @@ try_grow_num_recordable_slabs(__global heap_t *hp, kind_t k)
 
 
     for (;;) {
-        O0(aid);
         if (aid == 0)
             nrs = AL(&hp->num_recordable_slabs[k].value, memory_order_relaxed);
         nrs = first(nrs);
@@ -635,7 +593,6 @@ static void
 initialize_slab(__global slab_t *s, kind_t k)
 {
     uint aid = __ockl_activelane_u32();
-    O0(aid);
     uint nactive = active_lane_count();
     uint g = gap_unusable(k);
     uint m = num_blocks(k);
@@ -679,7 +636,6 @@ try_allocate_new_slab(__global heap_t *hp, kind_t k)
     uint aid = __ockl_activelane_u32();
 
     for (;;) {
-        O0(aid);
         uint nas = 0;
         uint nrs = 0;;
 
@@ -730,7 +686,6 @@ try_allocate_new_slab(__global heap_t *hp, kind_t k)
         initialize_slab((__global slab_t *)saddr, k);
 
         for (;;) {
-            O0(aid);
             if (aid == 0)
                 nas = AL(&hp->num_allocated_slabs[k].value, memory_order_relaxed);
             nas = first(nas);
@@ -777,7 +732,6 @@ normal_slab_find(__global heap_t *hp, kind_t k, uint nas)
     uint nactive = active_lane_count();
 
     for (;;) {
-        O0(aid);
         if (nas > 0) {
             int nleft = nas;
 
@@ -823,7 +777,6 @@ final_slab_find(__global heap_t *hp, kind_t k0)
     uint nactive = active_lane_count();
 
     for (kind_t k = k0;;) {
-        O0(aid);
         __global sdata_t *sda = hp->sdata[k];
         int nleft = MAX_RECORDABLE_SLABS;
 
@@ -871,7 +824,6 @@ static __global sdata_t *
 slab_find(__global heap_t *hp, kind_t k)
 {
     uint aid = __ockl_activelane_u32();
-    O0(aid);
 
     uint nas = 0;
     if (aid == 0)
@@ -890,7 +842,6 @@ static __global void *
 block_find(__global sdata_t *sdp)
 {
     uint aid = __ockl_activelane_u32();
-    O0(aid);
     uint nactive = active_lane_count();
     __global slab_t *sp = (__global slab_t *)AL(&sdp->saddr, memory_order_relaxed);
     kind_t k = sp->k;
@@ -936,13 +887,11 @@ slab_malloc(int sz)
 
     int k_go = 1;
     do {
-        O0(k_go);
         if (k_go) {
             kind_t first_k = first(my_k);
             if (first_k == my_k) {
                 int s_go = 1;
                 do {
-                    O0(s_go);
                     if (s_go) {
                         __global sdata_t *sdp = first(slab_find(hp, first_k));
                         if (sdp != (__global sdata_t *)0) {

@@ -350,11 +350,15 @@ class ConvConfiguration(PerfConfiguration):
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
-    MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NCHWG": "kcyxg", "NHWC": "kyxc", "NHWCG": "kyxcg"}
-    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NCHWG": "nkhwg", "NHWC": "nhwk", "NHWCG": "nhwkg"}
-    filterLayoutMap = {'N':'k', 'C':'c', 'H':'y', 'W':'x', 'G':'g'}
-    inputLayoutMap = {'N':'n', 'C':'c', 'H':'h', 'W':'w', 'G':'g'}
-    outputLayoutMap = {'N':'n', 'C':'k', 'H':'h', 'W':'w', 'G':'g'}
+    MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NCHWG": "kcyxg", "NHWC": "kyxc", "NHWCG": "kyxcg",
+                           "NC01": "kc01", "NC01G": "kc01g", "N01C": "k01c", "N01CG": "k01cg",
+                           "GNC01":"gkc01"}
+    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NCHWG": "nkhwg", "NHWC": "nhwk", "NHWCG": "nhwkg",
+                           "NC01": "nk01", "NC01G": "nk01g", "N01C": "n01k", "N01CG": "n01kg",
+                           "NGC01":"ngk01"}
+    filterLayoutMap = {'N':'k', 'C':'c', 'H':'0', 'W':'1', 'G':'g'}
+    inputLayoutMap = {'N':'n', 'C':'c', 'H':'0', 'W':'1', 'G':'g'}
+    outputLayoutMap = {'N':'n', 'C':'k', 'H':'0', 'W':'1', 'G':'g'}
 
     INVERSE_FILTER_LAYOUTS = {v: k for k, v in MLIR_FILTER_LAYOUTS.items()}
     INVERSE_OUTPUT_LAYOUTS = {v: k for k, v in MLIR_OUTPUT_LAYOUTS.items()}

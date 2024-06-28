@@ -218,6 +218,7 @@ def Rock_AttentionOp :
     UnitAttr:$oTransposed,
     StrAttr:$arch,
     Rock_GemmFeaturesAttr:$features,
+    OptionalAttr<I32Attr>:$numCU,
     OptionalAttr<RockTuningParamAttrInterface>:$params0,
     OptionalAttr<RockTuningParamAttrInterface>:$params1
   )>,
@@ -329,11 +330,11 @@ def Rock_TransformOp :
    OpBuilder<(ins "Value":$input, "TransformMapAttr":$transform),
    [{
      $_state.addOperands({input});
-     ShapedType lowerType = input.getType().template cast<ShapedType>();
+     ShapedType lowerType = cast<ShapedType>(input.getType());
      Type elemType = lowerType.getElementType();
      ShapedType upperType;
-     if (auto mrType = lowerType.template dyn_cast<MemRefType>()) {
-       auto memorySpace = mrType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+     if (auto mrType = dyn_cast<MemRefType>(lowerType)) {
+       auto memorySpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(mrType.getMemorySpace());
        upperType = MemRefType::get(transform.getUpperBounds(), elemType,
         MemRefLayoutAttrInterface{}, memorySpace);
      } else {
@@ -534,7 +535,7 @@ def Rock_LDSBarrierOp:
 
 def Rock_WorkgroupIdOp:
     Rock_Op<"workgroup_id", [Pure,
-      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+      DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workgroup ID";
   let description = [{
@@ -545,7 +546,7 @@ def Rock_WorkgroupIdOp:
 
 def Rock_WorkitemIdOp:
     Rock_Op<"workitem_id", [Pure,
-      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+      DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workitem ID";
   let description = [{
@@ -790,7 +791,7 @@ def Rock_TransformingForOp :
     }
 
     ArrayAttr getTransforms(uint32_t domain) {
-      return getTransforms()[domain].cast<ArrayAttr>();
+      return cast<ArrayAttr>(getTransforms()[domain]);
     }
 
     uint32_t domains() {
