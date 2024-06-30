@@ -487,7 +487,6 @@ pipeline {
                             showEnv()
                         }
                     }
-                    parallel {
                     stage("Shared Library: fixed E2E tests") {
                         when {
                             beforeAgent true;
@@ -529,7 +528,6 @@ pipeline {
                                     check_randomE2ETests("${CODEPATH}")
                             }
                         }
-                    }
                     }
                     stage("Tune selected rocmlir configs") {
                         when {
