@@ -498,6 +498,7 @@ pipeline {
                             expression { return "${PHASE}" == 'otherwise' }
                         }
                         steps {
+                          retry (count: 2, conditions: [agent(), nonresumable()]) {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x' ) {
                                     catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
@@ -512,6 +513,7 @@ pipeline {
                                     }
                                 }
                             }
+                          }
                         }
                     }
                     stage("Shared Library: random E2E tests") {
@@ -524,6 +526,7 @@ pipeline {
                             }
                         }
                         steps {
+                          retry (count: 2, conditions: [agent(), nonresumable()]) {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x') {
                                     catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
@@ -533,6 +536,7 @@ pipeline {
                                 else
                                     check_randomE2ETests("${CODEPATH}")
                             }
+                          |
                         }
                     }
                     stage("Tune selected rocmlir configs") {
@@ -543,6 +547,7 @@ pipeline {
                             expression { return "${PHASE}" == 'otherwise' }
                         }
                         steps {
+                          retry (count: 2, conditions: [agent(), nonresumable()]) {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
                                 sh """rm -rf ${WORKSPACE}/MITuna
@@ -571,6 +576,7 @@ pipeline {
                                           [ -f quick_tuning_conv.tsv ]"""
                                 }
                             }
+                          }
                         }
                     }
                     stage("Static Library: build rocMLIR packages") {
