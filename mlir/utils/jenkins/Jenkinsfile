@@ -536,7 +536,7 @@ pipeline {
                                 else
                                     check_randomE2ETests("${CODEPATH}")
                             }
-                          |
+                          }
                         }
                     }
                     stage("Tune selected rocmlir configs") {
