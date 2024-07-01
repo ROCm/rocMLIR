@@ -463,6 +463,10 @@ pipeline {
                         name 'CODEPATH'
                         values 'vanilla', 'mfma', 'navi21', 'navi3x'
                     }
+                    axis {
+                        name 'PHASE'
+                        values 'randome2e', 'otherwise'
+                    }
                 }
                 agent {
                     docker {
@@ -491,6 +495,7 @@ pipeline {
                         when {
                             beforeAgent true;
                             equals expected: true, actual: params.sharedLib;
+                            expression { return "${PHASE}" == 'otherwise' }
                         }
                         steps {
                             script {
@@ -515,6 +520,7 @@ pipeline {
                             allOf {
                                 equals expected: true, actual: params.sharedLib;
                                 equals expected: true, actual: params.nightly
+                                expression { return "${PHASE}" == 'randome2e' }
                             }
                         }
                         steps {
@@ -534,6 +540,7 @@ pipeline {
                             beforeAgent true;
                             equals expected: true, actual: params.sharedLib;
                             equals expected: false, actual: params.nightly;
+                            expression { return "${PHASE}" == 'otherwise' }
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
@@ -571,6 +578,7 @@ pipeline {
                             beforeAgent true;
                             equals expected: true, actual: params.staticLib;
                             equals expected: false, actual: params.nightly;
+                            expression { return "${PHASE}" == 'otherwise' }
                         }
                         steps {
                             sh 'rm -f build/CMakeCache.txt'
