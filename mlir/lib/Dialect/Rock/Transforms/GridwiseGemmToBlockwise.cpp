@@ -851,7 +851,6 @@ struct GridwiseAttentionAccelRewritePattern
     if (failed(maybeVectorDimInfo)) {
       return failure();
     }
-    int64_t vectorLen = maybeVectorDimInfo->vectorLen;
     GemmDimension vectorDim = maybeVectorDimInfo->vectorDim;
     FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews;
     if (!isDestBufferLDS) {
@@ -2525,15 +2524,13 @@ struct GridwiseGemmAccelRewritePattern
         math_util::integer_divide_ceil(bCopyPerThread, kpack);
 
     // Get the vector copy layout for A and B
-    FailureOr<VectorDimInfo> maybeVecDimInfoA =
-        getVectorDim(b, loc, op.getA(), elementTypeA, blockSize, kPerBlock,
-                     mPerBlock, kpack);
+    FailureOr<VectorDimInfo> maybeVecDimInfoA = getVectorDim(
+        b, loc, matA, elementTypeA, blockSize, kPerBlock, mPerBlock, kpack);
     if (failed(maybeVecDimInfoA)) {
       return failure();
     }
-    FailureOr<VectorDimInfo> maybeVecDimInfoB =
-        getVectorDim(b, loc, op.getB(), elementTypeB, blockSize, kPerBlock,
-                     nPerBlock, kpack);
+    FailureOr<VectorDimInfo> maybeVecDimInfoB = getVectorDim(
+        b, loc, matB, elementTypeB, blockSize, kPerBlock, nPerBlock, kpack);
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
@@ -2560,23 +2557,23 @@ struct GridwiseGemmAccelRewritePattern
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
-        kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
+        b, loc, matA, "m", bidGridOrder, bidGridLengths, blockSize, kPerBlock,
+        mPerBlock, maybeVecDimInfoA->inKPerThread,
         maybeVecDimInfoA->inDPerThread,
         maybeVecDimInfoA->vectorDim == GemmDimension::K);
     if (failed(maybeABufferViews)) {
       return failure();
     }
-    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridSubTile);
+    Value wrappedA = transform(b, matA, maybeABufferViews->gridSubTile);
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
-        kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
+        b, loc, matB, "n", bidGridOrder, bidGridLengths, blockSize, kPerBlock,
+        nPerBlock, maybeVecDimInfoB->inKPerThread,
         maybeVecDimInfoB->inDPerThread,
         maybeVecDimInfoB->vectorDim == GemmDimension::K);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
-    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
+    Value wrappedB = transform(b, matB, maybeBBufferViews->gridSubTile);
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -2616,7 +2613,7 @@ struct GridwiseGemmAccelRewritePattern
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
         getPackedRegsAsTileViews(
-            b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+            b, loc, matA, "m", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
             maybeVecDimInfoA->inDPerThread, kpack, isKContiguousDimA,
             ldsLayoutConfigA.doSwapThreadIterSubDims);
@@ -2634,7 +2631,7 @@ struct GridwiseGemmAccelRewritePattern
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
         getPackedRegsAsTileViews(
-            b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+            b, loc, matB, "n", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
             maybeVecDimInfoB->inDPerThread, kpack, isKContiguousDimB,
             ldsLayoutConfigB.doSwapThreadIterSubDims);

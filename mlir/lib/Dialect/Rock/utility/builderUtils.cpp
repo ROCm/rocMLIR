@@ -52,6 +52,10 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
     semantics = APFloat::S_Float8E4M3FNUZ;
   } else if (elementType.isFloat8E5M2FNUZ()) {
     semantics = APFloat::S_Float8E5M2FNUZ;
+  } else if (elementType.isFloat8E4M3FN()) {
+    semantics = APFloat::S_Float8E4M3FN;
+  } else if (elementType.isFloat8E5M2()) {
+    semantics = APFloat::S_Float8E5M2;
   } else {
     llvm_unreachable("Unexpected float semantics");
   }
@@ -94,7 +98,7 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   if (auto sourceVec = dyn_cast<VectorType>(sourceType)) {
     if (auto destVec = dyn_cast<VectorType>(destType)) {
       assert(sourceVec.getNumElements() == destVec.getNumElements() &&
-             "source and destinatioon have same length");
+             "source and destination have same length");
     } else {
       llvm_unreachable("Can't store vector sources to scalar destinations in "
                        "output writeback");
