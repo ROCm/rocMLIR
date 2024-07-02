@@ -13,6 +13,7 @@
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
@@ -36,29 +37,29 @@ namespace {
 struct RockCheckResidencyPass
     : public rock::impl::RockCheckResidencyPassBase<RockCheckResidencyPass> {
 public:
-  LogicalResult checkFunc(gpu::GPUModuleOp mod, LLVM::LLVMFuncOp func) {
-    bool hasGlobalSync = func->hasAttr("rock.has_global_sync");
+  LogicalResult checkFunc(gpu::BinaryOp bop, gpu::KernelAttr &kernel) {
+    bool hasGlobalSync = kernel.getAttr("rock.has_global_sync") != nullptr;
 
     auto removeBinary = [&]() -> LogicalResult {
       if (hasGlobalSync) {
-        // from mod and remove func
+        // from bop and remove func
         assert(0);
       }
       return failure(hasGlobalSync);
     };
 
-#define GET_INT_VALUE(var, op, attr_name)                                      \
+#define GET_INT_VALUE(var, kernelMD, attr_name)                                \
   int64_t var = 0;                                                             \
-  if (auto attr = op->getAttrOfType<IntegerAttr>(attr_name))                   \
+  if (auto attr = kernelMD.getAttr<IntegerAttr>(attr_name))                    \
     var = attr.getInt();                                                       \
   else                                                                         \
     return removeBinary()
 
-    GET_INT_VALUE(ldsRequired, func, "rock.shared_buffer_size");
-    GET_INT_VALUE(gridSize, func, "grid_size");
-    GET_INT_VALUE(blockSize, func, "block_size");
+    GET_INT_VALUE(ldsRequired, kernel, "rock.shared_buffer_size");
+    GET_INT_VALUE(gridSize, kernel, "grid_size");
+    GET_INT_VALUE(blockSize, kernel, "block_size");
 
-    auto funcName = func.getName();
+    auto funcName = kernel.getName();
     LLVM_DEBUG(llvm::dbgs()
                << "\nfunc:                 " << funcName << "\n"
                << "  Grid Size:          " << gridSize << "\n"
@@ -66,24 +67,16 @@ public:
                << "  Shared Buffer Size: " << ldsRequired << "\n"
                << "  has Global Sync:    " << hasGlobalSync << "\n");
 
-#define GET_INT_VALUE2(var, dict, name)                                        \
-  int64_t var = 0;                                                             \
-  if (auto var##Attr = dict.get(name))                                         \
-    var = cast<IntegerAttr>(var##Attr).getInt();                               \
-  else                                                                         \
-    return removeBinary()
-
-    auto metaData = mod->getAttrOfType<DictionaryAttr>("rocdl.metadata");
-    if (!metaData)
+    if (!kernel.getMetadata())
       return removeBinary();
 
-    GET_INT_VALUE2(nextVGPR, metaData, "amdhsa_next_free_vgpr");
-    GET_INT_VALUE2(nextSGPR, metaData, "amdhsa_next_free_sgpr");
+    GET_INT_VALUE(nextVGPR, kernel, "vgpr_count");
+    GET_INT_VALUE(nextSGPR, kernel, "sgpr_count");
 
     LLVM_DEBUG(llvm::dbgs() << "  VGPR Size:          " << nextVGPR << "\n"
                             << "  SGPR Size:          " << nextSGPR << "\n");
 
-    auto archAttr = mod->getParentOfType<ModuleOp>()->getAttrOfType<StringAttr>(
+    auto archAttr = bop->getParentOfType<ModuleOp>()->getAttrOfType<StringAttr>(
         "mhal.arch");
     if (!archAttr)
       return removeBinary();
@@ -116,8 +109,11 @@ public:
     bool allBlocksResident = arch.minNumCU >= numCUsRequired;
 
     // Add attribute to kernel func
-    auto intTy = IntegerType::get(func->getContext(), 32);
-    func->setAttr("rock.blocks_per_cu", IntegerAttr::get(intTy, blocksPerCU));
+    auto intTy = IntegerType::get(&getContext(), 32);
+
+    kernel = kernel.appendMetadata(
+        {NamedAttribute(StringAttr::get(&getContext(), "rock.blocks_per_cu"),
+                        IntegerAttr::get(intTy, blocksPerCU))});
 
     if (hasGlobalSync && !allBlocksResident)
       return removeBinary();
@@ -125,14 +121,56 @@ public:
   }
 
   void runOnOperation() override {
-    auto mod = getOperation();
-
-    mod->walk([&](LLVM::LLVMFuncOp f) {
-      if (failed(checkFunc(mod, f))) {
-        // Disabled failure: may be valid to simply remove the binary
-        // signalPassFailure();
+    Operation *topOp = getOperation();
+    MLIRContext *context = &getContext();
+    // Search for nested binaries:
+    for (Region &region : topOp->getRegions()) {
+      for (Block &block : region) {
+        for (Operation &op : block) {
+          auto binOp = dyn_cast<gpu::BinaryOp>(&op);
+          if (!binOp)
+            continue;
+          SmallVector<Attribute, 8> objects;
+          bool changedObj = false;
+          // Walk all objects in the binary.
+          for (Attribute objRaw : binOp.getObjects()) {
+            auto obj = cast<gpu::ObjectAttr>(objRaw);
+            gpu::KernelTableAttr metadata = obj.getKernels();
+            // Continue if the object has invalid metadata.
+            if (!metadata)
+              continue;
+            bool changedMD = false;
+            NamedAttrList updatedMD;
+            // Walk each of the kernels in the object.
+            for (auto [name, attr] : metadata) {
+              gpu::KernelAttr kernel = attr;
+              if (failed(checkFunc(binOp, kernel))) {
+                // Disabled failure: may be valid to simply remove the binary
+                // signalPassFailure();
+              }
+              if (kernel != attr)
+                changedMD = true;
+              // Append the kernel metadata in case it was updated.
+              updatedMD.append(name, kernel);
+            }
+            if (!changedMD) {
+              objects.push_back(obj);
+              continue;
+            }
+            // Update the object attribute in case any of the objects was
+            // updated with info from checkFunc.
+            objects.push_back(gpu::ObjectAttr::get(
+                context, obj.getTarget(), obj.getFormat(), obj.getObject(),
+                obj.getProperties(),
+                gpu::KernelTableAttr::get(updatedMD.getDictionary(context))));
+            changedObj = true;
+          }
+          // If any of the objects was updated, update the binary.
+          if (changedObj)
+            binOp.setObjectsAttr(ArrayAttr::get(context, objects));
+        }
       }
-    });
+    }
   }
 };
 } // namespace

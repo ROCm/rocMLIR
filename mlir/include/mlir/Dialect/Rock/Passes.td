@@ -122,9 +122,9 @@ def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", "::mlir::LLVM::LLVMFuncOp"> 
   let dependentDialects = ["ROCDL::ROCDLDialect"];
 }
 
-def RockCheckResidencyPass : Pass<"rock-check-residency", "::mlir::gpu::GPUModuleOp"> {
+def RockCheckResidencyPass : Pass<"rock-check-residency"> {
   let summary = "For global_sync check for full kernel launch residency";
-  let dependentDialects = ["LLVM::LLVMDialect", "gpu::GPUDialect"];
+  let dependentDialects = ["LLVM::LLVMDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

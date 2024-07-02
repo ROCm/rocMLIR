@@ -92,16 +92,21 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
 // Returns block_size and grid_size as uint32_t[2]
 MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
   auto mod = unwrap(module);
-  mod.walk([&](mlir::LLVM::LLVMFuncOp llvmFunc) {
-    // There can be math lib ext linkage functions that does not represent
-    // the kernel
-    if (llvmFunc->hasAttr("block_size") && llvmFunc->hasAttr("grid_size")) {
-      attrs[0] =
-          llvmFunc->getAttrOfType<mlir::IntegerAttr>("block_size").getInt();
-      attrs[1] =
-          llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
+  size_t count = 0;
+  mod.walk([&](mlir::gpu::BinaryOp binary) {
+    mlir::gpu::KernelTableAttr metadata =
+        mlir::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]).getKernels();
+    for (auto [name, kernel] : metadata) {
+      auto block = kernel.getAttr<mlir::IntegerAttr>("block_size");
+      auto grid = kernel.getAttr<mlir::IntegerAttr>("grid_size");
+      if (!block || !grid)
+        continue;
+      attrs[0] = block.getInt();
+      attrs[1] = grid.getInt();
+      ++count;
     }
   });
+  assert(count == 1 && "invalid number of kernels");
 }
 
 // Returns the size of compiled binary if called with null ptr
@@ -112,18 +117,15 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
   auto mod = unwrap(module);
   if (bin == nullptr && size == nullptr)
     return success;
-  mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      if (bin != nullptr) { // return binary regardless the presence of *size
-        std::string hsaco = hsacoAttr.getValue().str();
-        std::copy(hsaco.begin(), hsaco.end(), bin);
-        success = true;
-      } else {
-        *size = hsacoAttr.getValue().size();
-        success = true;
-      }
+  mod.walk([&](mlir::gpu::BinaryOp binary) {
+    auto object = llvm::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+    if (bin != nullptr) { // return binary regardless the presence of *size
+      llvm::StringRef hsaco = object.getObject().getValue();
+      std::copy(hsaco.begin(), hsaco.end(), bin);
+      success = true;
+    } else {
+      *size = object.getObject().getValue().size();
+      success = true;
     }
   });
   return success;
