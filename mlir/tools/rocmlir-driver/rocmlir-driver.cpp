@@ -79,6 +79,11 @@ static cl::opt<bool> dumpPipelines(
     "dump-pipelines", cl::init(false),
     cl::desc("Print out a textual form of the requested pipelines"));
 
+static cl::opt<std::string> dumpAsmFileName(
+    "dump-asm-to", cl::desc("dump assembly to the given filepath"),
+    cl::value_desc("A filepath where the AMDGPU assembly should be dumped"),
+    cl::init(""));
+
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec
 static cl::opt<bool> cpuOnly("cpu-only", cl::Hidden, cl::init(false),
@@ -190,6 +195,9 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     opts.features = devName.getFeaturesForBackend();
     opts.optLevel = optLevel;
     opts.compile = !isRocdlOnly;
+    if (!dumpAsmFileName.empty()) {
+      opts.generateAsm = true;
+    }
     rock::buildBackendPipeline(pm, opts);
   }
 
@@ -468,6 +476,22 @@ int main(int argc, char **argv) {
   if (failed(runMLIRPasses(module, passPipeline))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
+  }
+
+  // Set up the assmebly dump file
+  if (!dumpAsmFileName.empty()) {
+    auto assemblyFile = openOutputFile(dumpAsmFileName, &errorMessage);
+    if (!assemblyFile) {
+      llvm::errs() << errorMessage << "\n";
+      exit(1);
+    }
+    module.walk([&](mlir::gpu::BinaryOp binary) {
+      auto object = llvm::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+      llvm::StringRef asmStr = object.getObject().getValue();
+      llvm::errs() << asmStr;
+      assemblyFile->os() << asmStr;
+      assemblyFile->keep();
+    });
   }
 
   // Set up the output file.

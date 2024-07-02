@@ -227,7 +227,12 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     opts.features = options.features;
     opts.optLevel = options.optLevel;
     pm.addPass(createGpuROCDLAttachTarget(opts));
-    pm.addPass(createGpuModuleToBinaryPass());
+    GpuModuleToBinaryPassOptions gpuModuleToBinaryPassOptions;
+    gpuModuleToBinaryPassOptions.compilationTarget = "bin";
+    if (options.generateAsm) {
+      gpuModuleToBinaryPassOptions.compilationTarget = "isa";
+    }
+    pm.addPass(createGpuModuleToBinaryPass(gpuModuleToBinaryPassOptions));
     pm.addPass(createRockCheckResidencyPass());
   }
   // Quick hack around the facct that our host code runner pipeline can't
