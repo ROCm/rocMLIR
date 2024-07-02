@@ -40,7 +40,7 @@ def MHAL_TargetObjectAttr : MHAL_Attr<"TargetObject"> {
       AttrParameter<"::mlir::mhal::TargetObjectType", "The target object type">:$type,
       StringRefParameter<"The architecture target">:$arch,
       AttrParameter<"DictionaryAttr", "The object type">:$attributes,
-      StringRefParameter<"The object binary">:$binary
+      AttrParameter<"Attribute", "The object binary">:$binary
     );
 
     let genVerifyDecl = 0;
