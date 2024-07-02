@@ -1081,11 +1081,13 @@ BlockArgument LaunchOp::addPrivateAttribution(Type type, Location loc) {
 //===----------------------------------------------------------------------===//
 
 void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
-                         GPUFuncOp kernelFunc, KernelDim3 gridSize,
+                         SymbolRefAttr kernelSymbol, KernelDim3 gridSize,
                          KernelDim3 getBlockSize, Value dynamicSharedMemorySize,
                          ValueRange kernelOperands, Type asyncTokenType,
                          ValueRange asyncDependencies,
                          std::optional<KernelDim3> clusterSize) {
+  assert(kernelSymbol.getNestedReferences().size() == 1 &&
+         "expected a symbol reference with a single nested reference");
   result.addOperands(asyncDependencies);
   if (asyncTokenType)
     result.types.push_back(builder.getType<AsyncTokenType>());
@@ -1098,10 +1100,6 @@ void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
   if (dynamicSharedMemorySize)
     result.addOperands(dynamicSharedMemorySize);
   result.addOperands(kernelOperands);
-  auto kernelModule = kernelFunc->getParentOfType<GPUModuleOp>();
-  auto kernelSymbol =
-      SymbolRefAttr::get(kernelModule.getNameAttr(),
-                         {SymbolRefAttr::get(kernelFunc.getNameAttr())});
 
   Properties &prop = result.getOrAddProperties<Properties>();
   prop.kernel = kernelSymbol;
@@ -1120,6 +1118,21 @@ void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
   prop.operandSegmentSizes[segmentSizesLen - 2] =
       static_cast<int32_t>(kernelOperands.size());
   prop.operandSegmentSizes[segmentSizesLen - 1] = 0;
+}
+
+void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
+                         GPUFuncOp kernelFunc, KernelDim3 gridSize,
+                         KernelDim3 getBlockSize, Value dynamicSharedMemorySize,
+                         ValueRange kernelOperands, Type asyncTokenType,
+                         ValueRange asyncDependencies,
+                         std::optional<KernelDim3> clusterSize) {
+  auto kernelModule = kernelFunc->getParentOfType<GPUModuleOp>();
+  auto kernelSymbol =
+      SymbolRefAttr::get(kernelModule.getNameAttr(),
+                         {SymbolRefAttr::get(kernelFunc.getNameAttr())});
+  build(builder, result, kernelSymbol, gridSize, getBlockSize,
+        dynamicSharedMemorySize, kernelOperands, asyncTokenType,
+        asyncDependencies, clusterSize);
 }
 
 void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
@@ -1730,12 +1743,11 @@ void GPUModuleOp::build(OpBuilder &builder, OperationState &result,
                         StringRef name, ArrayAttr targets,
                         Attribute offloadingHandler) {
   ensureTerminator(*result.addRegion(), builder, result.location);
-  result.attributes.push_back(builder.getNamedAttr(
-      ::mlir::SymbolTable::getSymbolAttrName(), builder.getStringAttr(name)));
 
   Properties &props = result.getOrAddProperties<Properties>();
   if (targets)
     props.targets = targets;
+  props.setSymName(builder.getStringAttr(name));
   props.offloadingHandler = offloadingHandler;
 }
 
@@ -1751,11 +1763,11 @@ ParseResult GPUModuleOp::parse(OpAsmParser &parser, OperationState &result) {
   StringAttr nameAttr;
   ArrayAttr targetsAttr;
 
-  if (parser.parseSymbolName(nameAttr, mlir::SymbolTable::getSymbolAttrName(),
-                             result.attributes))
+  if (parser.parseSymbolName(nameAttr))
     return failure();
 
   Properties &props = result.getOrAddProperties<Properties>();
+  props.setSymName(nameAttr);
 
   // Parse the optional offloadingHandler
   if (succeeded(parser.parseOptionalLess())) {
@@ -2142,7 +2154,8 @@ void AllocOp::getCanonicalizationPatterns(RewritePatternSet &results,
 
 LogicalResult ObjectAttr::verify(function_ref<InFlightDiagnostic()> emitError,
                                  Attribute target, CompilationTarget format,
-                                 StringAttr object, DictionaryAttr properties) {
+                                 StringAttr object, DictionaryAttr properties,
+                                 KernelTableAttr kernels) {
   if (!target)
     return emitError() << "the target attribute cannot be null";
   if (target.hasPromiseOrImplementsInterface<TargetAttrInterface>())
@@ -2224,6 +2237,72 @@ LogicalResult gpu::DynamicSharedMemoryOp::verify() {
   if (memrefType.hasStaticShape()) {
     return emitOpError() << "result memref type must be memref<?xi8, "
                             "#gpu.address_space<workgroup>>";
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GPU KernelAttr
+//===----------------------------------------------------------------------===//
+
+KernelAttr KernelAttr::get(FunctionOpInterface kernel,
+                           DictionaryAttr metadata) {
+  assert(kernel && "invalid kernel");
+  return get(kernel.getNameAttr(), kernel.getFunctionType(),
+             kernel.getAllArgAttrs(), metadata);
+}
+
+KernelAttr KernelAttr::getChecked(function_ref<InFlightDiagnostic()> emitError,
+                                  FunctionOpInterface kernel,
+                                  DictionaryAttr metadata) {
+  assert(kernel && "invalid kernel");
+  return getChecked(emitError, kernel.getNameAttr(), kernel.getFunctionType(),
+                    kernel.getAllArgAttrs(), metadata);
+}
+
+KernelAttr KernelAttr::appendMetadata(ArrayRef<NamedAttribute> attrs) const {
+  if (attrs.empty())
+    return *this;
+  NamedAttrList attrList;
+  if (auto dict = getMetadata())
+    attrList.append(dict);
+  attrList.append(attrs);
+  return KernelAttr::get(getName(), getFunctionType(), getArgAttrs(),
+                         attrList.getDictionary(getContext()));
+}
+
+LogicalResult KernelAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                                 StringAttr name, Type functionType,
+                                 ArrayAttr argAttrs, DictionaryAttr metadata) {
+  if (name.empty())
+    return emitError() << "the kernel name can't be empty";
+  if (argAttrs) {
+    if (llvm::any_of(argAttrs, [](Attribute attr) {
+          return !llvm::isa<DictionaryAttr>(attr);
+        }))
+      return emitError()
+             << "all attributes in the array must be a dictionary attribute";
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GPU KernelTableAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+KernelTableAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                        DictionaryAttr dict) {
+  if (!dict)
+    return emitError() << "table cannot be null";
+  for (NamedAttribute attr : dict) {
+    auto kernel = llvm::dyn_cast<KernelAttr>(attr.getValue());
+    if (!kernel)
+      return emitError()
+             << "all the dictionary values must be `#gpu.kernel` attributes";
+    if (kernel.getName() != attr.getName())
+      return emitError() << "expected kernel to be named `" << attr.getName()
+                         << "` but got `" << kernel.getName() << "`";
   }
   return success();
 }
