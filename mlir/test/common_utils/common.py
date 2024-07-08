@@ -30,6 +30,8 @@ def get_arch_features(arch: str):
             arch_features = 'atomic_fmax_f32'
     elif major == 'gfx11':
         arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
+    elif major == 'gfx12':
+        arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
     if arch_features and 'mfma' in arch_features:
         support_mfma = True
         pass
