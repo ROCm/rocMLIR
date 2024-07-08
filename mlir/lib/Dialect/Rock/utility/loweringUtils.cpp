@@ -69,6 +69,10 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
 
   int64_t gemmKBlock = 1;
 
+  assert(gemmM > 0 && gemmN > 0 && gemmK > 0);
+  assert(MPerBlock > 0 && NPerBlock > 0 && KPerBlock > 0 && KPack > 0 &&
+         batchSize > 0);
+
   if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
       (gemmK % (KPerBlock * KPack) != 0))
     return failure();
@@ -99,28 +103,25 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
 }
 
 SmallVector<int64_t>
-mlir::rock::backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
-                                  int64_t dilationHeight, int64_t dilationWidth,
-                                  int64_t filterHeight, int64_t filterWidth) {
-  int64_t gcdStrideDilationH = math_util::gcd(strideHeight, dilationHeight);
-  int64_t gcdStrideDilationW = math_util::gcd(strideWidth, dilationWidth);
+mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
+                                  ArrayRef<int64_t> dilationDims,
+                                  ArrayRef<int64_t> filterDims) {
+  assert(strideDims.size() == dilationDims.size());
+  SmallVector<int64_t, 5> gcdStrideDilations;
+  for (const auto &[stride, dilation] : zip(strideDims, dilationDims))
+    gcdStrideDilations.push_back(math_util::gcd(stride, dilation));
 
-  int64_t yTilda = strideHeight / gcdStrideDilationH;
-  int64_t xTilda = strideWidth / gcdStrideDilationW;
-
-  int64_t y = filterHeight;
-  int64_t x = filterWidth;
+  SmallVector<int64_t, 5> filTilda;
+  for (const auto &[stride, gcdSD] : zip(strideDims, gcdStrideDilations))
+    filTilda.push_back(stride / gcdSD);
 
   // Heuristic to determine if every pixel in the output would be written by the
   // backward data convolution algorithm.
   auto isEveryPixelWritten = [&]() -> bool {
     bool result = true;
-    for (int32_t dim = 0; dim < 2; ++dim) {
-      int64_t convStride = (dim == 0) ? strideHeight : strideWidth;
-      int64_t convDilation = (dim == 0) ? dilationHeight : dilationWidth;
-      int64_t filterSize = (dim == 0) ? filterHeight : filterWidth;
-
-      if (!(convDilation == 1 && convStride <= filterSize))
+    for (const auto &[stride, dilation, filterSize] :
+         zip(strideDims, dilationDims, filterDims)) {
+      if (!(dilation == 1 && stride <= filterSize))
         result = false;
     }
     return result;
@@ -133,18 +134,42 @@ mlir::rock::backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
 
   // Populate the kernel IDs according to the current backward data convolution
   // algorithm implementation.
-  for (int64_t kernelId = 0; kernelId < yTilda * xTilda; ++kernelId) {
+  int64_t subproduct = 1;
+  int64_t product;
+  for (size_t i = 1; i < filterDims.size(); i++)
+    subproduct *= filTilda[i];
+  product = subproduct * filTilda[0];
+  for (int64_t kernelId = 0; kernelId < product; ++kernelId) {
     // gemmK size is different for each GEMM
-    const int64_t iYTilda = kernelId / xTilda;
-    const int64_t iXTilda = kernelId % xTilda;
+    SmallVector<int64_t, 3> iTilda;
+    SmallVector<int64_t, 3> iDotSlice;
+    int64_t divisor = 1;
+    iTilda.resize(filterDims.size());
+    switch (filterDims.size()) {
+    default:
+      llvm_unreachable("Only 2-D and 3-D have been implemented.");
+      break;
+    case 3:
+      divisor = filTilda[2];
+      iTilda[2] = kernelId % divisor;
+      [[fallthrough]];
+    case 2:
+      iTilda[1] = (kernelId % subproduct) / divisor;
+      iTilda[0] = kernelId / subproduct;
+    }
+    for (size_t i = 0; i < filterDims.size(); i++)
+      iDotSlice.push_back(math_util::integer_divide_ceil(
+          filterDims[i] - iTilda[i], filTilda[i]));
 
-    int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-    int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
     // gemmK must > 0, otherwise not need to run
-    if (yDotSlice * xDotSlice > 0) {
+    int64_t gemmKproduct = 1;
+    for (int64_t ds : iDotSlice)
+      gemmKproduct *= ds;
+    if (gemmKproduct > 0) {
       kernelIds.push_back(kernelId);
     }
   }
+
   return kernelIds;
 }
 
@@ -193,7 +218,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
 
-  MemRefType matrixType = globalBuffer.getType().cast<MemRefType>();
+  MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   int64_t kGlobal = matrixShape[1];
   int64_t dGlobal = matrixShape[2];
@@ -278,7 +303,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
 
-  MemRefType matrixType = globalBuffer.getType().cast<MemRefType>();
+  MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   int64_t kGlobal = matrixShape[1];
   int64_t dGlobal = matrixShape[2];
@@ -369,7 +394,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
                                   bool doTranspose, StringRef firstDim,
                                   StringRef secondDim) {
-  auto matrixType = matrix.getType().cast<MemRefType>();
+  auto matrixType = cast<MemRefType>(matrix.getType());
   bool addGroup = matrixType.getShape().size() != 3;
   if (!addGroup && !doTranspose)
     return matrix;
@@ -397,7 +422,7 @@ Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
                             StringRef secondDim, int64_t secondDimPad) {
   if (firstDimPad == 0 && secondDimPad == 0)
     return matrix;
-  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> shape = cast<MemRefType>(matrix.getType()).getShape();
   BottomUpTMBuilder padder(b, {"gemmG", firstDim, secondDim}, shape, loc);
   padder.passThrough("gemmG");
   if (firstDimPad == 0) {
@@ -496,7 +521,7 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
 
 Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
                                         Value buffer, Value sliceIdx) {
-  MemRefType bufType = buffer.getType().cast<MemRefType>();
+  MemRefType bufType = cast<MemRefType>(buffer.getType());
   ArrayRef<int64_t> originalShape = bufType.getShape().slice(1);
   int64_t mbMemRefTypeRank = bufType.getRank();
   IntegerAttr zero = rewriter.getIndexAttr(0);
@@ -719,20 +744,4 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
   for (int i = 0, e = srcTp.getRank(); i < e; i++)
     reassociation.push_back(i);
   return reassociation;
-}
-
-SmallVector<mhal::PrefillAttr>
-mlir::rock::getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func) {
-  SmallVector<mhal::PrefillAttr> storedAttrs;
-  auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
-  if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
-    if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
-      for (auto attr : arrayAttr) {
-        if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
-          storedAttrs.push_back(prefillAttr);
-        }
-      }
-    }
-  }
-  return storedAttrs;
 }

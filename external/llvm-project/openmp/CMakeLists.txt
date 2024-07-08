@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.20.0)
+set(LLVM_SUBPROJECT_TITLE "OpenMP")
 
 if(DEFINED LIBOMP_SHARED_LINKER_FLAGS)
   set(CMAKE_SHARED_LINKER_FLAGS "${LIBOMP_SHARED_LINKER_FLAGS}")
@@ -95,12 +96,6 @@ else()
   set(CMAKE_CXX_EXTENSIONS NO)
 endif()
 
-if(SANITIZER_AMDGPU)
-  add_definitions(-DSANITIZER_AMDGPU=1)
-  # Check for COMGr package , ASan requires COMGr with minimum version 2.4
-  find_package(amd_comgr QUIET 2.4.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
-endif()
-
 if((CMAKE_BUILD_TYPE MATCHES Debug) AND (${LIBOMPTARGET_NVPTX_DEBUG}))
   if(SANITIZER_AMDGPU)
     set(OPENMP_LIBDIR_SUFFIX "-debug/asan")
@@ -154,19 +149,7 @@ option(OPENMP_ENABLE_LIBOMP_PROFILING "Enable time profiling for libomp." OFF)
 
 # Header install location
 if(${OPENMP_STANDALONE_BUILD})
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    execute_process(
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      COMMAND ${CMAKE_CXX_COMPILER} --print-resource-dir
-      RESULT_VARIABLE COMMAND_RETURN_CODE
-      OUTPUT_VARIABLE COMPILER_RESOURCE_DIR
-    )
-    #FIXME: Need changes in prototype script for link creations
-    #set(LIBOMP_HEADERS_INSTALL_PATH "${COMPILER_RESOURCE_DIR}/include")
-    set(LIBOMP_HEADERS_INSTALL_PATH "${CMAKE_INSTALL_INCLUDEDIR}")
-  else()
-    set(LIBOMP_HEADERS_INSTALL_PATH "${CMAKE_INSTALL_INCLUDEDIR}")
-  endif()
+  set(LIBOMP_HEADERS_INSTALL_PATH "${CMAKE_INSTALL_INCLUDEDIR}")
 else()
   include(GetClangResourceDir)
   get_clang_resource_dir(LIBOMP_HEADERS_INSTALL_PATH SUBDIR include)

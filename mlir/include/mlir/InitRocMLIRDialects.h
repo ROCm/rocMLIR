@@ -20,6 +20,14 @@
 #include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
 
 // MLIR includes
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -49,7 +57,6 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
-#include "mlir/InitAllExtensions.h"
 #include "mlir/InitMHALDialects.h"
 
 namespace mlir {
@@ -80,7 +87,16 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
   rock::registerBufferizableOpInterfaceExternalModels(registry);
 
   // Register all dialect extensions.
-  registerAllExtensions(registry);
+  bufferization::registerTransformDialectExtension(registry);
+
+  // Register all conversions to LLVM extensions.
+  arith::registerConvertArithToLLVMInterface(registry);
+  registerConvertComplexToLLVMInterface(registry);
+  cf::registerConvertControlFlowToLLVMInterface(registry);
+  registerConvertFuncToLLVMInterface(registry);
+  registerConvertMathToLLVMInterface(registry);
+  registerConvertMemRefToLLVMInterface(registry);
+  ub::registerConvertUBToLLVMInterface(registry);
 
   // Register all external models.
   arith::registerBufferizableOpInterfaceExternalModels(registry);

@@ -437,6 +437,15 @@ struct AMDGPUMemoryPoolTy {
     return Plugin::check(Status, "Error in hsa_amd_memory_pool_free: %s");
   }
 
+  /// Returns if the \p Agent can access the memory pool.
+  bool canAccess(hsa_agent_t Agent) {
+    hsa_amd_memory_pool_access_t Access;
+    if (hsa_amd_agent_memory_pool_get_info(
+            Agent, MemoryPool, HSA_AMD_AGENT_MEMORY_POOL_INFO_ACCESS, &Access))
+      return false;
+    return Access != HSA_AMD_MEMORY_POOL_ACCESS_NEVER_ALLOWED;
+  }
+
   /// Allow the device to access a specific allocation.
   Error enableAccess(void *Ptr, int64_t Size,
                      const llvm::SmallVector<hsa_agent_t> &Agents) const {
@@ -688,7 +697,7 @@ struct AMDGPUKernelTy : public GenericKernelTy {
     WGSizeName += "_wg_size";
     GlobalTy HostConstWGSize(WGSizeName, sizeof(decltype(ConstWGSize)),
                              &ConstWGSize);
-    GenericGlobalHandlerTy &GHandler = PluginTy::get().getGlobalHandler();
+    GenericGlobalHandlerTy &GHandler = Device.Plugin.getGlobalHandler();
     if (auto Err =
             GHandler.readGlobalFromImage(Device, AMDImage, HostConstWGSize)) {
       // In case it is not found, we simply stick with the defaults.
@@ -933,8 +942,11 @@ private:
       } else {
         // num_teams clause is not specified. Choose lower of tripcount-based
         // num-groups and a value that maximizes occupancy. At this point, aim
-        // to have 16 wavefronts in a CU.
-        uint64_t MaxOccupancyFactor = 16 / NumWavesInGroup;
+        // to have 16 wavefronts in a CU. Allow for override with envar.
+        uint64_t MaxOccupancyFactor =
+            GenericDevice.getOMPXBigJumpLoopTeamsPerCU() > 0
+                ? GenericDevice.getOMPXBigJumpLoopTeamsPerCU()
+                : 16 / NumWavesInGroup;
         NumGroups = std::min(NumGroups, MaxOccupancyFactor * DeviceNumCUs);
 
         // If the user specifies a number of teams for low trip count loops,
@@ -1065,10 +1077,22 @@ private:
         TripCountNumBlocks = LoopTripCount;
       }
     }
+
+    auto getAdjustedDefaultNumBlocks =
+        [this](GenericDeviceTy &GenericDevice,
+               uint64_t DeviceNumCUs) -> uint64_t {
+      if (!isGenericSPMDMode() ||
+          GenericDevice.getOMPXGenericSpmdTeamsPerCU() == 0)
+        return static_cast<uint64_t>(GenericDevice.getDefaultNumBlocks());
+      return DeviceNumCUs * static_cast<uint64_t>(
+                                GenericDevice.getOMPXGenericSpmdTeamsPerCU());
+    };
+
     // If the loops are long running we rather reuse blocks than spawn too many.
     // Additionally, under an env-var, adjust the number of teams based on the
     // number of wave-slots in a CU that we aim to occupy.
-    uint64_t AdjustedNumBlocks = GenericDevice.getDefaultNumBlocks();
+    uint64_t AdjustedNumBlocks =
+        getAdjustedDefaultNumBlocks(GenericDevice, DeviceNumCUs);
     if (GenericDevice.getOMPXAdjustNumTeamsForSmallBlockSize()) {
       uint64_t DefaultNumWavesInGroup =
           (GenericDevice.getDefaultNumThreads() - 1) /
@@ -2277,10 +2301,10 @@ private:
   hsa_agent_t Agent;
 
   /// The maximum number of queues.
-  int MaxNumQueues;
+  uint32_t MaxNumQueues;
 
   /// The size of created queues.
-  int QueueSize;
+  uint32_t QueueSize;
 };
 
 /// Abstract class that holds the common members of the actual kernel devices
@@ -2457,11 +2481,14 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   // Create an AMDGPU device with a device id and default AMDGPU grid values.
   AMDGPUDeviceTy(GenericPluginTy &Plugin, int32_t DeviceId, int32_t NumDevices,
                  AMDHostDeviceTy &HostDevice, hsa_agent_t Agent)
-      : GenericDeviceTy(Plugin, DeviceId, NumDevices, {0}),
-        AMDGenericDeviceTy(),
+      : GenericDeviceTy(Plugin, DeviceId, NumDevices, {}), AMDGenericDeviceTy(),
         OMPX_NumQueues("LIBOMPTARGET_AMDGPU_NUM_HSA_QUEUES", 4),
         OMPX_QueueSize("LIBOMPTARGET_AMDGPU_HSA_QUEUE_SIZE", 512),
         OMPX_DefaultTeamsPerCU("LIBOMPTARGET_AMDGPU_TEAMS_PER_CU", 6),
+        OMPX_GenericSpmdTeamsPerCU(
+            "LIBOMPTARGET_AMDGPU_GENERIC_SPMD_TEAMS_PER_CU", 0),
+        OMPX_BigJumpLoopTeamsPerCU(
+            "LIBOMPTARGET_AMDGPU_BIG_JUMP_LOOP_TEAMS_PER_CU", 0),
         OMPX_LowTripCount("LIBOMPTARGET_AMDGPU_LOW_TRIPCOUNT", 2000),
         OMPX_SmallBlockSize("LIBOMPTARGET_MIN_THREADS_FOR_LOW_TRIP_COUNT", 8),
         OMPX_NumBlocksForLowTripcount("LIBOMPTARGET_BLOCKS_FOR_LOW_TRIP_COUNT",
@@ -2488,7 +2515,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
         OMPX_SyncCopyBack("LIBOMPTARGET_SYNC_COPY_BACK", true),
         OMPX_APUPrefaultMemcopy("LIBOMPTARGET_APU_PREFAULT_MEMCOPY", "true"),
         OMPX_APUPrefaultMemcopySize("LIBOMPTARGET_APU_PREFAULT_MEMCOPY_SIZE",
-                                    2 * 1024 * 1024), // 2MB
+                                    1 * 1024 * 1024), // 1MB
         AMDGPUStreamManager(*this, Agent), AMDGPUEventManager(*this),
         AMDGPUSignalManager(*this), Agent(Agent), HostDevice(HostDevice) {}
 
@@ -2514,6 +2541,12 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     return OMPX_NumQueues;
   }
 
+  virtual uint32_t getOMPXGenericSpmdTeamsPerCU() const override {
+    return OMPX_GenericSpmdTeamsPerCU;
+  }
+  virtual uint32_t getOMPXBigJumpLoopTeamsPerCU() const override {
+    return OMPX_BigJumpLoopTeamsPerCU;
+  }
   virtual uint32_t getOMPXLowTripCount() const override {
     return OMPX_LowTripCount;
   }
@@ -2733,6 +2766,14 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     if (auto Err = checkIfAPU())
       return Err;
 
+    // detect if device is GFX90a.
+    if (auto Err = checkIfGFX90a())
+      return Err;
+
+    // detect if device is an MI300X.
+    if (auto Err = checkIfMI300x())
+      return Err;
+
     // detect special cases for MI200 and MI300A
     specialBehaviorHandling();
 
@@ -2793,9 +2834,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     return Plugin::success();
   }
 
-  const uint64_t getStreamBusyWaitMicroseconds() const {
-    return OMPX_StreamBusyWait;
-  }
+  uint64_t getStreamBusyWaitMicroseconds() const { return OMPX_StreamBusyWait; }
 
   Expected<std::unique_ptr<MemoryBuffer>>
   doJITPostProcessing(std::unique_ptr<MemoryBuffer> MB) const override {
@@ -2878,7 +2917,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     if (!AMDGPUKernel)
       return Plugin::error("Failed to allocate memory for AMDGPU kernel");
 
-    new (AMDGPUKernel) AMDGPUKernelTy(Name, PluginTy::get().getGlobalHandler());
+    new (AMDGPUKernel) AMDGPUKernelTy(Name, Plugin.getGlobalHandler());
 
     return *AMDGPUKernel;
   }
@@ -3786,26 +3825,12 @@ private:
   /// Detect if current architecture is an APU.
   Error checkIfAPU() {
     // TODO: replace with ROCr API once it becomes available.
-    // MI200
-    llvm::StringRef StrGfxName(ComputeUnitKind);
-    IsEquippedWithGFX90A = llvm::StringSwitch<bool>(StrGfxName)
-                               .Case("gfx90a", true)
-                               .Default(false);
-    if (IsEquippedWithGFX90A)
-      return Plugin::success();
-
     // MI300A
+    llvm::StringRef StrGfxName(ComputeUnitKind);
     IsAPU = llvm::StringSwitch<bool>(StrGfxName)
                 .Case("gfx940", true)
                 .Default(false);
     if (IsAPU)
-      return Plugin::success();
-
-    // MI300X
-    IsEquippedWithMI300X = llvm::StringSwitch<bool>(StrGfxName)
-                               .Case("gfx941", true)
-                               .Default(false);
-    if (IsEquippedWithMI300X)
       return Plugin::success();
 
     bool MayBeAPU = llvm::StringSwitch<bool>(StrGfxName)
@@ -3819,11 +3844,43 @@ private:
     if (auto Err = getDeviceAttr(HSA_AMD_AGENT_INFO_CHIP_ID, ChipID))
       return Err;
 
-    if (!(ChipID & 0x1)) {
+    if (!(ChipID & 0x1))
       IsAPU = true;
+
+    return Plugin::success();
+  }
+
+  Error checkIfGFX90a() {
+    llvm::StringRef StrGfxName(ComputeUnitKind);
+    IsEquippedWithGFX90A = llvm::StringSwitch<bool>(StrGfxName)
+                               .Case("gfx90a", true)
+                               .Default(false);
+    return Plugin::success();
+  }
+
+  Error checkIfMI300x() {
+    llvm::StringRef StrGfxName(ComputeUnitKind);
+    IsEquippedWithMI300X = llvm::StringSwitch<bool>(StrGfxName)
+                               .Case("gfx941", true)
+                               .Default(false);
+
+    if (IsEquippedWithMI300X)
       return Plugin::success();
-    }
-    IsEquippedWithMI300X = true;
+
+    bool isMI300 = llvm::StringSwitch<bool>(StrGfxName)
+                       .Case("gfx942", true)
+                       .Default(false);
+    if (!isMI300)
+      return Plugin::success();
+
+    // Can be MI300A or MI300X
+    uint32_t ChipID = 0;
+    if (auto Err = getDeviceAttr(HSA_AMD_AGENT_INFO_CHIP_ID, ChipID))
+      return Err;
+
+    if (ChipID & 0x1)
+      IsEquippedWithMI300X = true;
+
     return Plugin::success();
   }
 
@@ -3847,14 +3904,11 @@ private:
 
   bool hasAPUDeviceImpl() override final { return IsAPU; }
 
-  // TODO: move the following two functions in private section.
+  // TODO: move the following function in private section.
   bool hasMI300xDevice() { return IsEquippedWithMI300X; }
 
-  bool hasGfx90aDevice() { return IsEquippedWithGFX90A; }
-
-  bool hasDGpuWithUsmSupportImpl() override final {
-    return hasGfx90aDevice() || hasMI300xDevice();
-  }
+  /// Returns whether the device is a gfx90a.
+  bool hasGfx90aDeviceImpl() override final { return IsEquippedWithGFX90A; }
 
   /// Returns whether AMD GPU supports unified memory in
   /// the current configuration.
@@ -3874,6 +3928,18 @@ private:
   /// of compute units (CUs) the device has:
   ///   #default_teams = OMPX_DefaultTeamsPerCU * #CUs.
   UInt32Envar OMPX_DefaultTeamsPerCU;
+
+  /// Envar for controlling the number of teams relative to the number of
+  /// compute units (CUs) for generic-SPMD kernels. 0 indicates that this value
+  /// is not specified, so instead OMPX_DefaultTeamsPerCU should be used. If
+  /// non-zero, the number of teams = OMPX_GenericSpmdTeamsPerCU * #CUs.
+  UInt32Envar OMPX_GenericSpmdTeamsPerCU;
+
+  /// Envar for controlling the number of teams relative to the number of
+  /// compute units (CUs) for Big-Jump-Loop kernels. 0 indicates that this value
+  /// is not specified. If non-zero, the number of teams =
+  /// OMPX_BigJumpLoopTeamsPerCU * #CUs.
+  UInt32Envar OMPX_BigJumpLoopTeamsPerCU;
 
   /// Envar specifying tripcount below which the blocksize should be adjusted.
   UInt32Envar OMPX_LowTripCount;
@@ -4211,10 +4277,6 @@ struct AMDGPUPluginTy final : public GenericPluginTy {
     UInt32Envar KernTrace("LIBOMPTARGET_KERNEL_TRACE", 0);
     llvm::omp::target::plugin::PrintKernelTrace = KernTrace.get();
 
-#ifdef OMPT_SUPPORT
-    ompt::connectLibrary();
-#endif
-
     // Register event handler to detect memory errors on the devices.
     Status = hsa_amd_register_system_event_handler(eventHandler, nullptr);
     if (auto Err = Plugin::check(
@@ -4302,6 +4364,8 @@ struct AMDGPUPluginTy final : public GenericPluginTy {
   }
 
   Triple::ArchType getTripleArch() const override { return Triple::amdgcn; }
+
+  const char *getName() const override { return GETNAME(TARGET_NAME); }
 
   /// Get the ELF code for recognizing the compatible image binary.
   uint16_t getMagicElfBits() const override { return ELF::EM_AMDGPU; }
@@ -4622,8 +4686,6 @@ Error AMDGPUKernelTy::printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
   return Plugin::success();
 }
 
-GenericPluginTy *PluginTy::createPlugin() { return new AMDGPUPluginTy(); }
-
 template <typename... ArgsTy>
 static Error Plugin::check(int32_t Code, const char *ErrFmt, ArgsTy... Args) {
   hsa_status_t ResultCode = static_cast<hsa_status_t>(Code);
@@ -4649,10 +4711,14 @@ void *AMDGPUMemoryManagerTy::allocate(size_t Size, void *HstPtr,
   }
   assert(Ptr && "Invalid pointer");
 
-  auto &KernelAgents = Plugin.getKernelAgents();
+  // Get a list of agents that can access this memory pool.
+  llvm::SmallVector<hsa_agent_t> Agents;
+  llvm::copy_if(
+      Plugin.getKernelAgents(), std::back_inserter(Agents),
+      [&](hsa_agent_t Agent) { return MemoryPool->canAccess(Agent); });
 
-  // Allow all kernel agents to access the allocation.
-  if (auto Err = MemoryPool->enableAccess(Ptr, Size, KernelAgents)) {
+  // Allow all valid kernel agents to access the allocation.
+  if (auto Err = MemoryPool->enableAccess(Ptr, Size, Agents)) {
     REPORT("%s\n", toString(std::move(Err)).data());
     return nullptr;
   }
@@ -4692,13 +4758,17 @@ void *AMDGPUDeviceTy::allocate(size_t Size, void *, TargetAllocTy Kind) {
   }
 
   if (Alloc) {
-    auto &KernelAgents =
-        static_cast<AMDGPUPluginTy &>(Plugin).getKernelAgents();
-    // Inherently necessary for host or shared allocations
-    // Also enabled for device memory to allow device to device memcpy
+    // Get a list of agents that can access this memory pool. Inherently
+    // necessary for host or shared allocations Also enabled for device memory
+    // to allow device to device memcpy
+    llvm::SmallVector<hsa_agent_t> Agents;
+    llvm::copy_if(static_cast<AMDGPUPluginTy &>(Plugin).getKernelAgents(),
+                  std::back_inserter(Agents), [&](hsa_agent_t Agent) {
+                    return MemoryPool->canAccess(Agent);
+                  });
 
-    // Enable all kernel agents to access the buffer.
-    if (auto Err = MemoryPool->enableAccess(Alloc, Size, KernelAgents)) {
+    // Enable all valid kernel agents to access the buffer.
+    if (auto Err = MemoryPool->enableAccess(Alloc, Size, Agents)) {
       REPORT("%s\n", toString(std::move(Err)).data());
       return nullptr;
     }
@@ -4716,17 +4786,22 @@ void *AMDGPUDeviceTy::allocate(size_t Size, void *, TargetAllocTy Kind) {
 namespace llvm::omp::target::plugin {
 
 /// Enable/disable kernel profiling for the given device.
-void setOmptQueueProfile(int DeviceId, int Enable) {
-  AMDGPUPluginTy &Plugin = PluginTy::get<AMDGPUPluginTy>();
-  static_cast<AMDGPUDeviceTy &>(Plugin.getDevice(DeviceId))
-      .setOmptQueueProfile(Enable);
+void setOmptQueueProfile(void *Device, int Enable) {
+  reinterpret_cast<llvm::omp::target::plugin::AMDGPUDeviceTy *>(Device)
+      ->setOmptQueueProfile(Enable);
 }
 
 } // namespace llvm::omp::target::plugin
 
 /// Enable/disable kernel profiling for the given device.
-void setGlobalOmptKernelProfile(int DeviceId, int Enable) {
-  llvm::omp::target::plugin::setOmptQueueProfile(DeviceId, Enable);
+void setGlobalOmptKernelProfile(void *Device, int Enable) {
+  llvm::omp::target::plugin::setOmptQueueProfile(Device, Enable);
 }
 
 #endif
+
+extern "C" {
+llvm::omp::target::plugin::GenericPluginTy *createPlugin_amdgpu() {
+  return new llvm::omp::target::plugin::AMDGPUPluginTy();
+}
+}

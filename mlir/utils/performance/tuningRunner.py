@@ -131,6 +131,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
             commandLine = testVector.split(sep=' ')
             config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
             config.MLIR_N_REPEATS=1
+            testVector = config.toCommandLine()
             print("Tuning:", testVector, file=sys.stderr)
             commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
             # Note, we don't need the -ph, this goes to the tuning driver
@@ -235,7 +236,7 @@ def main(args=None):
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR tuning runner",
-        description="A script for tunning MLIR conv2d or gemm kernels",
+        description="A script for tuning MLIR conv or gemm kernels",
         allow_abbrev=False,
     )
 

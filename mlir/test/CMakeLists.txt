@@ -1,5 +1,8 @@
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 add_subdirectory(CAPI)
 add_subdirectory(lib)
+add_subdirectory(common_utils)
 
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
@@ -39,10 +42,15 @@ message(STATUS "MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR: ${MLIR_CONV_VALIDATION
 
 # Need to explicitly give paths to llvm tools
 set(LLVM_LIT_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
-set(LLVM_EXTERNAL_LIT "${LLVM_LIT_TOOLS_DIR}/llvm-lit")
 set(LLVM_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 set(MLIR_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 set(ROCMLIR_TOOLS_DIR ${ROCMLIR_BIN_DIR})
+if(CMAKE_HOST_WIN32 AND NOT CYGWIN)
+  set(LLVM_EXTERNAL_LIT "${LLVM_LIT_TOOLS_DIR}/llvm-lit.py")
+else()
+  set(LLVM_EXTERNAL_LIT "${LLVM_LIT_TOOLS_DIR}/llvm-lit")
+endif()
+message(STATUS "LLVM_EXTERNAL_LIT: ${LLVM_EXTERNAL_LIT}")
 
 # Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
 set(MLIR_RANDOM_DATA "")
@@ -78,6 +86,7 @@ set(ROCMLIR_TEST_DEPENDS
   rocmlir-driver
   rocmlir-gen
   rocmlir-lib-test
+  rocmlir-common-python-test-utils
 
   opt
   llc
@@ -88,7 +97,10 @@ set(ROCMLIR_TEST_DEPENDS
   mlir-tosa-miir-test
 )
 
-list(APPEND ROCMLIR_TEST_DEPENDS RocMLIRUnitTests)
+list(APPEND ROCMLIR_TEST_DEPENDS
+  RocMLIRUnitTests
+  rocmlir-common-python-test-utils
+)
 
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS

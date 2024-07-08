@@ -973,7 +973,7 @@ void Linux::AddHIPRuntimeLibArgs(const ArgList &Args,
       Args.MakeArgString(StringRef("-L") + RocmInstallation->getLibPath()));
 
   if (Args.hasFlag(options::OPT_frtlib_add_rpath,
-                   options::OPT_fno_rtlib_add_rpath, true))
+                   options::OPT_fno_rtlib_add_rpath, false))
     CmdArgs.append(
         {"-rpath", Args.MakeArgString(RocmInstallation->getLibPath())});
 
@@ -1074,25 +1074,6 @@ void Linux::addProfileRTLibs(const llvm::opt::ArgList &Args,
     CmdArgs.push_back(Args.MakeArgString(
         Twine("-u", llvm::getInstrProfRuntimeHookVarName())));
   ToolChain::addProfileRTLibs(Args, CmdArgs);
-}
-
-llvm::DenormalMode
-Linux::getDefaultDenormalModeForType(const llvm::opt::ArgList &DriverArgs,
-                                     const JobAction &JA,
-                                     const llvm::fltSemantics *FPType) const {
-  switch (getTriple().getArch()) {
-  case llvm::Triple::x86:
-  case llvm::Triple::x86_64: {
-    std::string Unused;
-    // DAZ and FTZ are turned on in crtfastmath.o
-    if (!DriverArgs.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles) &&
-        isFastMathRuntimeAvailable(DriverArgs, Unused))
-      return llvm::DenormalMode::getPreserveSign();
-    return llvm::DenormalMode::getIEEE();
-  }
-  default:
-    return llvm::DenormalMode::getIEEE();
-  }
 }
 
 void Linux::addExtraOpts(llvm::opt::ArgStringList &CmdArgs) const {

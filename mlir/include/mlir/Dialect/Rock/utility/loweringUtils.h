@@ -10,7 +10,6 @@
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -122,10 +121,9 @@ LogicalResult calculateKBlockNum(const int64_t batchSize,
 /// partipate the backward data convolution. The ID -1 represents a zero
 /// initialization utility kernel The zero initialization kernel, if needed,
 /// would be placed in the front of the vector.
-SmallVector<int64_t>
-backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
-                      int64_t dilationHeight, int64_t dilationWidth,
-                      int64_t filterHeight, int64_t filterWidth);
+SmallVector<int64_t> backwardDataKernelIds(ArrayRef<int64_t> strideDims,
+                                           ArrayRef<int64_t> dilationDims,
+                                           ArrayRef<int64_t> filterDims);
 
 /// Return a vector type of length `len` if `len` is more than 1, otherwise,
 /// return `type`.
@@ -188,10 +186,6 @@ AffineMap getIdxReversalMap(OpBuilder &b);
 
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
-
-// Return `mhal::PrefillAttr` attributes for a given function
-SmallVector<mhal::PrefillAttr>
-getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func);
 
 } // end namespace rock
 } // end namespace mlir

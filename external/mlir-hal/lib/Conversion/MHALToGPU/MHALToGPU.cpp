@@ -69,7 +69,7 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
     return std::nullopt;
 
   for (auto targetAttr : attr.getValue()) {
-    auto kernelPkg = targetAttr.cast<mhal::KernelPackageAttr>();
+    auto kernelPkg = cast<mhal::KernelPackageAttr>(targetAttr);
     if (kernelPkg && kernelPkg.getType() == mhal::TargetType::GPU)
       return kernelPkg;
   }
@@ -258,7 +258,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
       auto fidx = i - diff;
       Value opr = operands[i];
       // move input memories to GPU
-      if (opr.getType().isa<MemRefType>()) {
+      if (isa<MemRefType>(opr.getType())) {
         bool readAccess{
             func.getArgAttr(fidx, func::FuncOp::getReadAccessAttrName())};
         bool writeAccess{

@@ -65,7 +65,7 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
     auto args = f.getArguments();
     for (auto arg : args) {
       argNum++;
-      auto sType = arg.getType().template cast<mlir::ShapedType>();
+      auto sType = mlir::cast<mlir::ShapedType>(arg.getType());
       auto rank = sType.getRank();
       info.push_back(rank);
       for (int i = 0; i < rank; i++)
@@ -134,6 +134,8 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 MLIR_CAPI_EXPORTED
 void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   auto passMan = unwrap(pm);
+  if (failed(applyPassManagerCLOptions(*passMan)))
+    llvm::errs() << "Failed to apply command-line options.\n";
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
   mlir::rock::buildBufferizePipeline(*passMan);
@@ -153,6 +155,8 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *arch) {
   auto *passMan = unwrap(pm);
+  if (failed(applyPassManagerCLOptions(*passMan)))
+    return false;
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;

@@ -61,7 +61,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   auto &funcPm = pm.nest<func::FuncOp>();
   // TOSA conversion to rock and/or linalg with mhal.launch's
   if (!noRock) {
-    // convert tosa.conv2d/matmul to rock.conv2d
+    // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
     funcPm.addPass(tosa::createTosaToTensor());
@@ -117,7 +117,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
       [](Value value, Attribute memorySpace,
          const bufferization::BufferizationOptions &options) {
         return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            value.getType().cast<TensorType>(), memorySpace);
+            cast<TensorType>(value.getType()), memorySpace);
       };
   // bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));

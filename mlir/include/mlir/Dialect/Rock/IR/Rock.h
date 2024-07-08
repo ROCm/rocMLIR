@@ -64,6 +64,10 @@ ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 // limit the maxWaves per workgroup to be 4.
 constexpr int64_t maxWavesPerWG = 4;
 
+// The largest workgroup size ("block size") that LLVM and the runtime
+// support.
+constexpr int64_t maxHardwareWorkgroupSize = 1024;
+
 } // end namespace rock
 } // end namespace mlir
 

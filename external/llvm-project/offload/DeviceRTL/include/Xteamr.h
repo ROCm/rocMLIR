@@ -10,9 +10,7 @@
 //     External __kmpc headers for cross team reduction functions defined
 //     in DeviceRTL/src/Xteamr.cpp. Clang generates a call to one of these
 //     functions when it encounter a reduction. The specific function depends
-//     on datatype, warpsize, and number of waves in the teamsize.  The number
-//     of waves must be a power of 2 and the total number of threads must
-//     be greater than or equal to the number of teams.
+//     on datatype and warpsize. The number of waves must be a power of 2.
 //
 //===----------------------------------------------------------------------===//
 
@@ -22,6 +20,7 @@
 
 #define _CD double _Complex
 #define _CF float _Complex
+#define _US unsigned short
 #define _UI unsigned int
 #define _UL unsigned long
 #define _INLINE_ATTR_ __attribute__((flatten, always_inline))
@@ -31,14 +30,15 @@ extern "C" {
 /// External cross team reduction (xteamr) helper functions
 ///
 /// The template for name of xteamr helper function is:
-/// __kmpc_xteamr_<dtype>_<waves>x<WSZ> where
-///    <dtype> is letter(s) representing data type, e.g. d=double
-///    <waves> number of waves in thread block
-///    <WSZ>   warp size, 32 or 64
-/// So <waves> x <WSZ> is the number of threads per team.
+/// __kmpc_xteamr_<dtype>_<max_waves>x<WSZ> where
+///    <dtype> is letter(s) representing data type, e.g. d=double.
+///    <max_waves> maximum number of waves in thread block.
+///    <WSZ>   warp size, 32 or 64.
+///    IS_FAST There is an optional template boolean type (defaulting to false)
+///    that indicates if an atomic add should be used instead of the last
+///    reduction round. This applies to only sum reduction currently.
 /// Example: __kmpc_xteamr_d_16x64 is the reduction helper function
-///          for all reductions with data type double using 1024 threads
-///          per team.
+///          for all reductions with data type double for warp size 64.
 /// All xteamr helper functions are defined in Xteamr.cpp. They each call the
 /// internal templated function _xteam_reduction also defined in Xteamr.cpp.
 /// Clang/flang code generation for C, C++, and FORTRAN instantiate a call to
@@ -57,10 +57,10 @@ extern "C" {
 /// External intra-team reduction (iteamr) helper functions
 ///
 /// The name template for intra-team helper functions is
-/// __kmpc_iteamr_<dtype>_<waves>x<WSZ> where
-///    <dtype> is letter(s) representing data type, e.g. d=double
-///    <waves> number of waves in thread block
-///    <WSZ>   warp size, 32 or 64
+/// __kmpc_iteamr_<dtype>_<max_waves>x<WSZ> where
+///    <dtype> is letter(s) representing data type, e.g. d=double.
+///    <max_waves> maximum number of waves in thread block.
+///    <WSZ>   warp size, 32 or 64.
 /// All iteamr helper functions are defined in Xteamr.cpp. They each call the
 /// internal templated function _iteam_reduction also defined in Xteamr.cpp.
 ///
@@ -77,6 +77,13 @@ void _INLINE_ATTR_ __kmpc_xteamr_d_16x64(
     void (*_rf)(double *, double),
     void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_d_16x64_fast_sum(
+    double v, double *r_ptr, double *tvs, uint32_t *td,
+    void (*_rf)(double *, double),
+    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_d_16x64(double v, double *r_ptr,
                                          void (*_rf)(double *, double),
@@ -89,6 +96,13 @@ void _INLINE_ATTR_ __kmpc_xteamr_f_16x64(
     void (*_rf)(float *, float),
     void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_f_16x64_fast_sum(
+    float v, float *r_ptr, float *tvs, uint32_t *td,
+    void (*_rf)(float *, float),
+    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_f_16x64(float v, float *r_ptr,
                                          void (*_rf)(float *, float),
@@ -96,7 +110,51 @@ void _INLINE_ATTR_ __kmpc_iteamr_f_16x64(float v, float *r_ptr,
                                                          _RF_LDS float *),
                                          const float rnv, const uint64_t k);
 /// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_h_16x64(
+    _Float16 v, _Float16 *r_ptr, _Float16 *tvs, uint32_t *td,
+    void (*_rf)(_Float16 *, _Float16),
+    void (*_rf_lds)(_RF_LDS _Float16 *, _RF_LDS _Float16 *), const _Float16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_h_16x64_fast_sum(
+    _Float16 v, _Float16 *r_ptr, _Float16 *tvs, uint32_t *td,
+    void (*_rf)(_Float16 *, _Float16),
+    void (*_rf_lds)(_RF_LDS _Float16 *, _RF_LDS _Float16 *), const _Float16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_h_16x64(_Float16 v, _Float16 *r_ptr,
+                                         void (*_rf)(_Float16 *, _Float16),
+                                         void (*_rf_lds)(_RF_LDS _Float16 *,
+                                                         _RF_LDS _Float16 *),
+                                         const _Float16 rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_bf_16x64(
+    __bf16 v, __bf16 *r_ptr, __bf16 *tvs, uint32_t *td,
+    void (*_rf)(__bf16 *, __bf16),
+    void (*_rf_lds)(_RF_LDS __bf16 *, _RF_LDS __bf16 *), const __bf16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_bf_16x64_fast_sum(
+    __bf16 v, __bf16 *r_ptr, __bf16 *tvs, uint32_t *td,
+    void (*_rf)(__bf16 *, __bf16),
+    void (*_rf_lds)(_RF_LDS __bf16 *, _RF_LDS __bf16 *), const __bf16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_bf_16x64(__bf16 v, __bf16 *r_ptr,
+                                          void (*_rf)(__bf16 *, __bf16),
+                                          void (*_rf_lds)(_RF_LDS __bf16 *,
+                                                          _RF_LDS __bf16 *),
+                                          const __bf16 rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_xteamr_cd_16x64(
+    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
+    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_cd_16x64_fast_sum(
     _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
     void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
     const uint64_t k, const uint32_t numteams);
@@ -111,6 +169,12 @@ void _INLINE_ATTR_ __kmpc_xteamr_cf_16x64(
     _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
     void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_cf_16x64_fast_sum(
+    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
+    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_cf_16x64(_CF v, _CF *r_ptr,
                                           void (*_rf)(_CF *, _CF),
@@ -118,7 +182,49 @@ void _INLINE_ATTR_ __kmpc_iteamr_cf_16x64(_CF v, _CF *r_ptr,
                                                           _RF_LDS _CF *),
                                           const _CF rnv, const uint64_t k);
 /// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_s_16x64(
+    short v, short *r_ptr, short *tvs, uint32_t *td,
+    void (*_rf)(short *, short),
+    void (*_rf_lds)(_RF_LDS short *, _RF_LDS short *), const short rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_s_16x64_fast_sum(
+    short v, short *r_ptr, short *tvs, uint32_t *td,
+    void (*_rf)(short *, short),
+    void (*_rf_lds)(_RF_LDS short *, _RF_LDS short *), const short rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_s_16x64(short v, short *r_ptr,
+                                         void (*_rf)(short *, short),
+                                         void (*_rf_lds)(_RF_LDS short *,
+                                                         _RF_LDS short *),
+                                         const short rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_us_16x64(
+    _US v, _US *r_ptr, _US *tvs, uint32_t *td, void (*_rf)(_US *, _US),
+    void (*_rf_lds)(_RF_LDS _US *, _RF_LDS _US *), const _US rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_us_16x64_fast_sum(
+    _US v, _US *r_ptr, _US *tvs, uint32_t *td, void (*_rf)(_US *, _US),
+    void (*_rf_lds)(_RF_LDS _US *, _RF_LDS _US *), const _US rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_us_16x64(_US v, _US *r_ptr,
+                                          void (*_rf)(_US *, _US),
+                                          void (*_rf_lds)(_RF_LDS _US *,
+                                                          _RF_LDS _US *),
+                                          const _US rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_xteamr_i_16x64(
+    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
+    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_i_16x64_fast_sum(
     int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
     void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
     const uint64_t k, const uint32_t numteams);
@@ -133,6 +239,12 @@ void _INLINE_ATTR_ __kmpc_xteamr_ui_16x64(
     _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
     void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_ui_16x64_fast_sum(
+    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
+    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_ui_16x64(_UI v, _UI *r_ptr,
                                           void (*_rf)(_UI *, _UI),
@@ -141,6 +253,12 @@ void _INLINE_ATTR_ __kmpc_iteamr_ui_16x64(_UI v, _UI *r_ptr,
                                           const _UI rnv, const uint64_t k);
 /// Cross team reduction (xteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_xteamr_l_16x64(
+    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
+    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_l_16x64_fast_sum(
     long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
     void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
     const uint64_t k, const uint32_t numteams);
@@ -155,6 +273,12 @@ void _INLINE_ATTR_ __kmpc_xteamr_ul_16x64(
     _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
     void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_ul_16x64_fast_sum(
+    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
+    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_ul_16x64(_UL v, _UL *r_ptr,
                                           void (*_rf)(_UL *, _UL),
@@ -162,367 +286,14 @@ void _INLINE_ATTR_ __kmpc_iteamr_ul_16x64(_UL v, _UL *r_ptr,
                                                           _RF_LDS _UL *),
                                           const _UL rnv, const uint64_t k);
 /// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_8x64(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_8x64(double v, double *r_ptr,
-                                        void (*_rf)(double *, double),
-                                        void (*_rf_lds)(_RF_LDS double *,
-                                                        _RF_LDS double *),
-                                        const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_8x64(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_8x64(float v, float *r_ptr,
-                                        void (*_rf)(float *, float),
-                                        void (*_rf_lds)(_RF_LDS float *,
-                                                        _RF_LDS float *),
-                                        const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_8x64(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_8x64(_CD v, _CD *r_ptr,
-                                         void (*_rf)(_CD *, _CD),
-                                         void (*_rf_lds)(_RF_LDS _CD *,
-                                                         _RF_LDS _CD *),
-                                         const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_8x64(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_8x64(_CF v, _CF *r_ptr,
-                                         void (*_rf)(_CF *, _CF),
-                                         void (*_rf_lds)(_RF_LDS _CF *,
-                                                         _RF_LDS _CF *),
-                                         const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_8x64(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_8x64(int v, int *r_ptr,
-                                        void (*_rf)(int *, int),
-                                        void (*_rf_lds)(_RF_LDS int *,
-                                                        _RF_LDS int *),
-                                        const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_8x64(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_8x64(_UI v, _UI *r_ptr,
-                                         void (*_rf)(_UI *, _UI),
-                                         void (*_rf_lds)(_RF_LDS _UI *,
-                                                         _RF_LDS _UI *),
-                                         const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_8x64(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_8x64(long v, long *r_ptr,
-                                        void (*_rf)(long *, long),
-                                        void (*_rf_lds)(_RF_LDS long *,
-                                                        _RF_LDS long *),
-                                        const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_8x64(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_8x64(_UL v, _UL *r_ptr,
-                                         void (*_rf)(_UL *, _UL),
-                                         void (*_rf_lds)(_RF_LDS _UL *,
-                                                         _RF_LDS _UL *),
-                                         const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_4x64(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_4x64(double v, double *r_ptr,
-                                        void (*_rf)(double *, double),
-                                        void (*_rf_lds)(_RF_LDS double *,
-                                                        _RF_LDS double *),
-                                        const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_4x64(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_4x64(float v, float *r_ptr,
-                                        void (*_rf)(float *, float),
-                                        void (*_rf_lds)(_RF_LDS float *,
-                                                        _RF_LDS float *),
-                                        const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_4x64(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_4x64(_CD v, _CD *r_ptr,
-                                         void (*_rf)(_CD *, _CD),
-                                         void (*_rf_lds)(_RF_LDS _CD *,
-                                                         _RF_LDS _CD *),
-                                         const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_4x64(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_4x64(_CF v, _CF *r_ptr,
-                                         void (*_rf)(_CF *, _CF),
-                                         void (*_rf_lds)(_RF_LDS _CF *,
-                                                         _RF_LDS _CF *),
-                                         const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_4x64(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_4x64(int v, int *r_ptr,
-                                        void (*_rf)(int *, int),
-                                        void (*_rf_lds)(_RF_LDS int *,
-                                                        _RF_LDS int *),
-                                        const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_4x64(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_4x64(_UI v, _UI *r_ptr,
-                                         void (*_rf)(_UI *, _UI),
-                                         void (*_rf_lds)(_RF_LDS _UI *,
-                                                         _RF_LDS _UI *),
-                                         const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_4x64(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_4x64(long v, long *r_ptr,
-                                        void (*_rf)(long *, long),
-                                        void (*_rf_lds)(_RF_LDS long *,
-                                                        _RF_LDS long *),
-                                        const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_4x64(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_4x64(_UL v, _UL *r_ptr,
-                                         void (*_rf)(_UL *, _UL),
-                                         void (*_rf_lds)(_RF_LDS _UL *,
-                                                         _RF_LDS _UL *),
-                                         const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_2x64(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_2x64(double v, double *r_ptr,
-                                        void (*_rf)(double *, double),
-                                        void (*_rf_lds)(_RF_LDS double *,
-                                                        _RF_LDS double *),
-                                        const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_2x64(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_2x64(float v, float *r_ptr,
-                                        void (*_rf)(float *, float),
-                                        void (*_rf_lds)(_RF_LDS float *,
-                                                        _RF_LDS float *),
-                                        const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_2x64(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_2x64(_CD v, _CD *r_ptr,
-                                         void (*_rf)(_CD *, _CD),
-                                         void (*_rf_lds)(_RF_LDS _CD *,
-                                                         _RF_LDS _CD *),
-                                         const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_2x64(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_2x64(_CF v, _CF *r_ptr,
-                                         void (*_rf)(_CF *, _CF),
-                                         void (*_rf_lds)(_RF_LDS _CF *,
-                                                         _RF_LDS _CF *),
-                                         const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_2x64(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_2x64(int v, int *r_ptr,
-                                        void (*_rf)(int *, int),
-                                        void (*_rf_lds)(_RF_LDS int *,
-                                                        _RF_LDS int *),
-                                        const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_2x64(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_2x64(_UI v, _UI *r_ptr,
-                                         void (*_rf)(_UI *, _UI),
-                                         void (*_rf_lds)(_RF_LDS _UI *,
-                                                         _RF_LDS _UI *),
-                                         const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_2x64(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_2x64(long v, long *r_ptr,
-                                        void (*_rf)(long *, long),
-                                        void (*_rf_lds)(_RF_LDS long *,
-                                                        _RF_LDS long *),
-                                        const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_2x64(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_2x64(_UL v, _UL *r_ptr,
-                                         void (*_rf)(_UL *, _UL),
-                                         void (*_rf_lds)(_RF_LDS _UL *,
-                                                         _RF_LDS _UL *),
-                                         const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_1x64(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_1x64(double v, double *r_ptr,
-                                        void (*_rf)(double *, double),
-                                        void (*_rf_lds)(_RF_LDS double *,
-                                                        _RF_LDS double *),
-                                        const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_1x64(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_1x64(float v, float *r_ptr,
-                                        void (*_rf)(float *, float),
-                                        void (*_rf_lds)(_RF_LDS float *,
-                                                        _RF_LDS float *),
-                                        const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_1x64(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_1x64(_CD v, _CD *r_ptr,
-                                         void (*_rf)(_CD *, _CD),
-                                         void (*_rf_lds)(_RF_LDS _CD *,
-                                                         _RF_LDS _CD *),
-                                         const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_1x64(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_1x64(_CF v, _CF *r_ptr,
-                                         void (*_rf)(_CF *, _CF),
-                                         void (*_rf_lds)(_RF_LDS _CF *,
-                                                         _RF_LDS _CF *),
-                                         const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_1x64(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_1x64(int v, int *r_ptr,
-                                        void (*_rf)(int *, int),
-                                        void (*_rf_lds)(_RF_LDS int *,
-                                                        _RF_LDS int *),
-                                        const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_1x64(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_1x64(_UI v, _UI *r_ptr,
-                                         void (*_rf)(_UI *, _UI),
-                                         void (*_rf_lds)(_RF_LDS _UI *,
-                                                         _RF_LDS _UI *),
-                                         const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_1x64(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_1x64(long v, long *r_ptr,
-                                        void (*_rf)(long *, long),
-                                        void (*_rf_lds)(_RF_LDS long *,
-                                                        _RF_LDS long *),
-                                        const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_1x64(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_1x64(_UL v, _UL *r_ptr,
-                                         void (*_rf)(_UL *, _UL),
-                                         void (*_rf_lds)(_RF_LDS _UL *,
-                                                         _RF_LDS _UL *),
-                                         const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_xteamr_d_32x32(
+    double v, double *r_ptr, double *tvs, uint32_t *td,
+    void (*_rf)(double *, double),
+    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_d_32x32_fast_sum(
     double v, double *r_ptr, double *tvs, uint32_t *td,
     void (*_rf)(double *, double),
     void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
@@ -539,6 +310,13 @@ void _INLINE_ATTR_ __kmpc_xteamr_f_32x32(
     void (*_rf)(float *, float),
     void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_f_32x32_fast_sum(
+    float v, float *r_ptr, float *tvs, uint32_t *td,
+    void (*_rf)(float *, float),
+    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_f_32x32(float v, float *r_ptr,
                                          void (*_rf)(float *, float),
@@ -546,7 +324,51 @@ void _INLINE_ATTR_ __kmpc_iteamr_f_32x32(float v, float *r_ptr,
                                                          _RF_LDS float *),
                                          const float rnv, const uint64_t k);
 /// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_h_32x32(
+    _Float16 v, _Float16 *r_ptr, _Float16 *tvs, uint32_t *td,
+    void (*_rf)(_Float16 *, _Float16),
+    void (*_rf_lds)(_RF_LDS _Float16 *, _RF_LDS _Float16 *), const _Float16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_h_32x32_fast_sum(
+    _Float16 v, _Float16 *r_ptr, _Float16 *tvs, uint32_t *td,
+    void (*_rf)(_Float16 *, _Float16),
+    void (*_rf_lds)(_RF_LDS _Float16 *, _RF_LDS _Float16 *), const _Float16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_h_32x32(_Float16 v, _Float16 *r_ptr,
+                                         void (*_rf)(_Float16 *, _Float16),
+                                         void (*_rf_lds)(_RF_LDS _Float16 *,
+                                                         _RF_LDS _Float16 *),
+                                         const _Float16 rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_bf_32x32(
+    __bf16 v, __bf16 *r_ptr, __bf16 *tvs, uint32_t *td,
+    void (*_rf)(__bf16 *, __bf16),
+    void (*_rf_lds)(_RF_LDS __bf16 *, _RF_LDS __bf16 *), const __bf16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_bf_32x32_fast_sum(
+    __bf16 v, __bf16 *r_ptr, __bf16 *tvs, uint32_t *td,
+    void (*_rf)(__bf16 *, __bf16),
+    void (*_rf_lds)(_RF_LDS __bf16 *, _RF_LDS __bf16 *), const __bf16 rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_bf_32x32(__bf16 v, __bf16 *r_ptr,
+                                          void (*_rf)(__bf16 *, __bf16),
+                                          void (*_rf_lds)(_RF_LDS __bf16 *,
+                                                          _RF_LDS __bf16 *),
+                                          const __bf16 rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_xteamr_cd_32x32(
+    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
+    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_cd_32x32_fast_sum(
     _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
     void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
     const uint64_t k, const uint32_t numteams);
@@ -561,6 +383,12 @@ void _INLINE_ATTR_ __kmpc_xteamr_cf_32x32(
     _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
     void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_cf_32x32_fast_sum(
+    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
+    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_cf_32x32(_CF v, _CF *r_ptr,
                                           void (*_rf)(_CF *, _CF),
@@ -568,7 +396,49 @@ void _INLINE_ATTR_ __kmpc_iteamr_cf_32x32(_CF v, _CF *r_ptr,
                                                           _RF_LDS _CF *),
                                           const _CF rnv, const uint64_t k);
 /// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_s_32x32(
+    short v, short *r_ptr, short *tvs, uint32_t *td,
+    void (*_rf)(short *, short),
+    void (*_rf_lds)(_RF_LDS short *, _RF_LDS short *), const short rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_s_32x32_fast_sum(
+    short v, short *r_ptr, short *tvs, uint32_t *td,
+    void (*_rf)(short *, short),
+    void (*_rf_lds)(_RF_LDS short *, _RF_LDS short *), const short rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_s_32x32(short v, short *r_ptr,
+                                         void (*_rf)(short *, short),
+                                         void (*_rf_lds)(_RF_LDS short *,
+                                                         _RF_LDS short *),
+                                         const short rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_xteamr_us_32x32(
+    _US v, _US *r_ptr, _US *tvs, uint32_t *td, void (*_rf)(_US *, _US),
+    void (*_rf_lds)(_RF_LDS _US *, _RF_LDS _US *), const _US rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_us_32x32_fast_sum(
+    _US v, _US *r_ptr, _US *tvs, uint32_t *td, void (*_rf)(_US *, _US),
+    void (*_rf_lds)(_RF_LDS _US *, _RF_LDS _US *), const _US rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Intra-team reduction (iteamr) helper function, see documentation above.
+void _INLINE_ATTR_ __kmpc_iteamr_us_32x32(_US v, _US *r_ptr,
+                                          void (*_rf)(_US *, _US),
+                                          void (*_rf_lds)(_RF_LDS _US *,
+                                                          _RF_LDS _US *),
+                                          const _US rnv, const uint64_t k);
+/// Cross team reduction (xteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_xteamr_i_32x32(
+    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
+    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_i_32x32_fast_sum(
     int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
     void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
     const uint64_t k, const uint32_t numteams);
@@ -583,6 +453,12 @@ void _INLINE_ATTR_ __kmpc_xteamr_ui_32x32(
     _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
     void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_ui_32x32_fast_sum(
+    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
+    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_ui_32x32(_UI v, _UI *r_ptr,
                                           void (*_rf)(_UI *, _UI),
@@ -591,6 +467,12 @@ void _INLINE_ATTR_ __kmpc_iteamr_ui_32x32(_UI v, _UI *r_ptr,
                                           const _UI rnv, const uint64_t k);
 /// Cross team reduction (xteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_xteamr_l_32x32(
+    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
+    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
+    const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_l_32x32_fast_sum(
     long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
     void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
     const uint64_t k, const uint32_t numteams);
@@ -605,372 +487,19 @@ void _INLINE_ATTR_ __kmpc_xteamr_ul_32x32(
     _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
     void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
     const uint64_t k, const uint32_t numteams);
+/// Fast Cross team sum reduction (xteamr) helper function, see documentation
+/// above.
+void _INLINE_ATTR_ __kmpc_xteamr_ul_32x32_fast_sum(
+    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
+    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
+    const uint64_t k, const uint32_t numteams);
 /// Intra-team reduction (iteamr) helper function, see documentation above.
 void _INLINE_ATTR_ __kmpc_iteamr_ul_32x32(_UL v, _UL *r_ptr,
                                           void (*_rf)(_UL *, _UL),
                                           void (*_rf_lds)(_RF_LDS _UL *,
                                                           _RF_LDS _UL *),
                                           const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_16x32(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_16x32(double v, double *r_ptr,
-                                         void (*_rf)(double *, double),
-                                         void (*_rf_lds)(_RF_LDS double *,
-                                                         _RF_LDS double *),
-                                         const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_16x32(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_16x32(float v, float *r_ptr,
-                                         void (*_rf)(float *, float),
-                                         void (*_rf_lds)(_RF_LDS float *,
-                                                         _RF_LDS float *),
-                                         const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_16x32(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_16x32(_CD v, _CD *r_ptr,
-                                          void (*_rf)(_CD *, _CD),
-                                          void (*_rf_lds)(_RF_LDS _CD *,
-                                                          _RF_LDS _CD *),
-                                          const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_16x32(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_16x32(_CF v, _CF *r_ptr,
-                                          void (*_rf)(_CF *, _CF),
-                                          void (*_rf_lds)(_RF_LDS _CF *,
-                                                          _RF_LDS _CF *),
-                                          const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_16x32(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_16x32(int v, int *r_ptr,
-                                         void (*_rf)(int *, int),
-                                         void (*_rf_lds)(_RF_LDS int *,
-                                                         _RF_LDS int *),
-                                         const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_16x32(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_16x32(_UI v, _UI *r_ptr,
-                                          void (*_rf)(_UI *, _UI),
-                                          void (*_rf_lds)(_RF_LDS _UI *,
-                                                          _RF_LDS _UI *),
-                                          const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_16x32(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_16x32(long v, long *r_ptr,
-                                         void (*_rf)(long *, long),
-                                         void (*_rf_lds)(_RF_LDS long *,
-                                                         _RF_LDS long *),
-                                         const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_16x32(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_16x32(_UL v, _UL *r_ptr,
-                                          void (*_rf)(_UL *, _UL),
-                                          void (*_rf_lds)(_RF_LDS _UL *,
-                                                          _RF_LDS _UL *),
-                                          const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_8x32(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_8x32(double v, double *r_ptr,
-                                        void (*_rf)(double *, double),
-                                        void (*_rf_lds)(_RF_LDS double *,
-                                                        _RF_LDS double *),
-                                        const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_8x32(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_8x32(float v, float *r_ptr,
-                                        void (*_rf)(float *, float),
-                                        void (*_rf_lds)(_RF_LDS float *,
-                                                        _RF_LDS float *),
-                                        const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_8x32(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_8x32(_CD v, _CD *r_ptr,
-                                         void (*_rf)(_CD *, _CD),
-                                         void (*_rf_lds)(_RF_LDS _CD *,
-                                                         _RF_LDS _CD *),
-                                         const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_8x32(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_8x32(_CF v, _CF *r_ptr,
-                                         void (*_rf)(_CF *, _CF),
-                                         void (*_rf_lds)(_RF_LDS _CF *,
-                                                         _RF_LDS _CF *),
-                                         const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_8x32(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_8x32(int v, int *r_ptr,
-                                        void (*_rf)(int *, int),
-                                        void (*_rf_lds)(_RF_LDS int *,
-                                                        _RF_LDS int *),
-                                        const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_8x32(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_8x32(_UI v, _UI *r_ptr,
-                                         void (*_rf)(_UI *, _UI),
-                                         void (*_rf_lds)(_RF_LDS _UI *,
-                                                         _RF_LDS _UI *),
-                                         const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_8x32(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_8x32(long v, long *r_ptr,
-                                        void (*_rf)(long *, long),
-                                        void (*_rf_lds)(_RF_LDS long *,
-                                                        _RF_LDS long *),
-                                        const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_8x32(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_8x32(_UL v, _UL *r_ptr,
-                                         void (*_rf)(_UL *, _UL),
-                                         void (*_rf_lds)(_RF_LDS _UL *,
-                                                         _RF_LDS _UL *),
-                                         const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_4x32(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_4x32(double v, double *r_ptr,
-                                        void (*_rf)(double *, double),
-                                        void (*_rf_lds)(_RF_LDS double *,
-                                                        _RF_LDS double *),
-                                        const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_4x32(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_4x32(float v, float *r_ptr,
-                                        void (*_rf)(float *, float),
-                                        void (*_rf_lds)(_RF_LDS float *,
-                                                        _RF_LDS float *),
-                                        const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_4x32(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_4x32(_CD v, _CD *r_ptr,
-                                         void (*_rf)(_CD *, _CD),
-                                         void (*_rf_lds)(_RF_LDS _CD *,
-                                                         _RF_LDS _CD *),
-                                         const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_4x32(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_4x32(_CF v, _CF *r_ptr,
-                                         void (*_rf)(_CF *, _CF),
-                                         void (*_rf_lds)(_RF_LDS _CF *,
-                                                         _RF_LDS _CF *),
-                                         const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_4x32(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_4x32(int v, int *r_ptr,
-                                        void (*_rf)(int *, int),
-                                        void (*_rf_lds)(_RF_LDS int *,
-                                                        _RF_LDS int *),
-                                        const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_4x32(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_4x32(_UI v, _UI *r_ptr,
-                                         void (*_rf)(_UI *, _UI),
-                                         void (*_rf_lds)(_RF_LDS _UI *,
-                                                         _RF_LDS _UI *),
-                                         const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_4x32(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_4x32(long v, long *r_ptr,
-                                        void (*_rf)(long *, long),
-                                        void (*_rf_lds)(_RF_LDS long *,
-                                                        _RF_LDS long *),
-                                        const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_4x32(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_4x32(_UL v, _UL *r_ptr,
-                                         void (*_rf)(_UL *, _UL),
-                                         void (*_rf_lds)(_RF_LDS _UL *,
-                                                         _RF_LDS _UL *),
-                                         const _UL rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_d_2x32(
-    double v, double *r_ptr, double *tvs, uint32_t *td,
-    void (*_rf)(double *, double),
-    void (*_rf_lds)(_RF_LDS double *, _RF_LDS double *), const double rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_d_2x32(double v, double *r_ptr,
-                                        void (*_rf)(double *, double),
-                                        void (*_rf_lds)(_RF_LDS double *,
-                                                        _RF_LDS double *),
-                                        const double rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_f_2x32(
-    float v, float *r_ptr, float *tvs, uint32_t *td,
-    void (*_rf)(float *, float),
-    void (*_rf_lds)(_RF_LDS float *, _RF_LDS float *), const float rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_f_2x32(float v, float *r_ptr,
-                                        void (*_rf)(float *, float),
-                                        void (*_rf_lds)(_RF_LDS float *,
-                                                        _RF_LDS float *),
-                                        const float rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cd_2x32(
-    _CD v, _CD *r_ptr, _CD *tvs, uint32_t *td, void (*_rf)(_CD *, _CD),
-    void (*_rf_lds)(_RF_LDS _CD *, _RF_LDS _CD *), const _CD rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cd_2x32(_CD v, _CD *r_ptr,
-                                         void (*_rf)(_CD *, _CD),
-                                         void (*_rf_lds)(_RF_LDS _CD *,
-                                                         _RF_LDS _CD *),
-                                         const _CD rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_cf_2x32(
-    _CF v, _CF *r_ptr, _CF *tvs, uint32_t *td, void (*_rf)(_CF *, _CF),
-    void (*_rf_lds)(_RF_LDS _CF *, _RF_LDS _CF *), const _CF rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_cf_2x32(_CF v, _CF *r_ptr,
-                                         void (*_rf)(_CF *, _CF),
-                                         void (*_rf_lds)(_RF_LDS _CF *,
-                                                         _RF_LDS _CF *),
-                                         const _CF rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_i_2x32(
-    int v, int *r_ptr, int *tvs, uint32_t *td, void (*_rf)(int *, int),
-    void (*_rf_lds)(_RF_LDS int *, _RF_LDS int *), const int rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_i_2x32(int v, int *r_ptr,
-                                        void (*_rf)(int *, int),
-                                        void (*_rf_lds)(_RF_LDS int *,
-                                                        _RF_LDS int *),
-                                        const int rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ui_2x32(
-    _UI v, _UI *r_ptr, _UI *tvs, uint32_t *td, void (*_rf)(_UI *, _UI),
-    void (*_rf_lds)(_RF_LDS _UI *, _RF_LDS _UI *), const _UI rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ui_2x32(_UI v, _UI *r_ptr,
-                                         void (*_rf)(_UI *, _UI),
-                                         void (*_rf_lds)(_RF_LDS _UI *,
-                                                         _RF_LDS _UI *),
-                                         const _UI rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_l_2x32(
-    long v, long *r_ptr, long *tvs, uint32_t *td, void (*_rf)(long *, long),
-    void (*_rf_lds)(_RF_LDS long *, _RF_LDS long *), const long rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_l_2x32(long v, long *r_ptr,
-                                        void (*_rf)(long *, long),
-                                        void (*_rf_lds)(_RF_LDS long *,
-                                                        _RF_LDS long *),
-                                        const long rnv, const uint64_t k);
-/// Cross team reduction (xteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_xteamr_ul_2x32(
-    _UL v, _UL *r_ptr, _UL *tvs, uint32_t *td, void (*_rf)(_UL *, _UL),
-    void (*_rf_lds)(_RF_LDS _UL *, _RF_LDS _UL *), const _UL rnv,
-    const uint64_t k, const uint32_t numteams);
-/// Intra-team reduction (iteamr) helper function, see documentation above.
-void _INLINE_ATTR_ __kmpc_iteamr_ul_2x32(_UL v, _UL *r_ptr,
-                                         void (*_rf)(_UL *, _UL),
-                                         void (*_rf_lds)(_RF_LDS _UL *,
-                                                         _RF_LDS _UL *),
-                                         const _UL rnv, const uint64_t k);
+
 /// Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_sum_d(double *val, double otherval);
 /// LDS Built-in pair reduction function, see documentation above.
@@ -980,6 +509,14 @@ void __kmpc_rfun_sum_f(float *val, float otherval);
 /// LDS Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_sum_lds_f(_RF_LDS float *val, _RF_LDS float *otherval);
 /// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_h(_Float16 *val, _Float16 otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_lds_h(_RF_LDS _Float16 *val, _RF_LDS _Float16 *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_bf(__bf16 *val, __bf16 otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_lds_bf(_RF_LDS __bf16 *val, _RF_LDS __bf16 *otherval);
+/// Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_sum_cd(_CD *val, _CD otherval);
 /// LDS Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_sum_lds_cd(_RF_LDS _CD *val, _RF_LDS _CD *otherval);
@@ -987,6 +524,14 @@ void __kmpc_rfun_sum_lds_cd(_RF_LDS _CD *val, _RF_LDS _CD *otherval);
 void __kmpc_rfun_sum_cf(_CF *val, _CF otherval);
 /// LDS Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_sum_lds_cf(_RF_LDS _CF *val, _RF_LDS _CF *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_s(short *val, short otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_lds_s(_RF_LDS short *val, _RF_LDS short *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_us(_US *val, _US otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_sum_lds_us(_RF_LDS _US *val, _RF_LDS _US *otherval);
 /// Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_sum_i(int *val, int otherval);
 /// LDS Built-in pair reduction function, see documentation above.
@@ -1012,6 +557,22 @@ void __kmpc_rfun_max_f(float *val, float otherval);
 /// LDS Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_max_lds_f(_RF_LDS float *val, _RF_LDS float *otherval);
 /// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_h(_Float16 *val, _Float16 otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_lds_h(_RF_LDS _Float16 *val, _RF_LDS _Float16 *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_bf(__bf16 *val, __bf16 otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_lds_bf(_RF_LDS __bf16 *val, _RF_LDS __bf16 *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_s(short *val, short otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_lds_s(_RF_LDS short *val, _RF_LDS short *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_us(_US *val, _US otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_max_lds_us(_RF_LDS _US *val, _RF_LDS _US *otherval);
+/// Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_max_i(int *val, int otherval);
 /// LDS Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_max_lds_i(_RF_LDS int *val, _RF_LDS int *otherval);
@@ -1036,6 +597,22 @@ void __kmpc_rfun_min_f(float *val, float otherval);
 /// LDS Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_min_lds_f(_RF_LDS float *val, _RF_LDS float *otherval);
 /// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_h(_Float16 *val, _Float16 otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_lds_h(_RF_LDS _Float16 *val, _RF_LDS _Float16 *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_bf(__bf16 *val, __bf16 otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_lds_bf(_RF_LDS __bf16 *val, _RF_LDS __bf16 *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_s(short *val, short otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_lds_s(_RF_LDS short *val, _RF_LDS short *otherval);
+/// Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_us(_US *val, _US otherval);
+/// LDS Built-in pair reduction function, see documentation above.
+void __kmpc_rfun_min_lds_us(_RF_LDS _US *val, _RF_LDS _US *otherval);
+/// Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_min_i(int *val, int otherval);
 /// LDS Built-in pair reduction function, see documentation above.
 void __kmpc_rfun_min_lds_i(_RF_LDS int *val, _RF_LDS int *otherval);
@@ -1055,6 +632,7 @@ void __kmpc_rfun_min_lds_ul(_RF_LDS _UL *val, _RF_LDS _UL *otherval);
 
 #undef _CD
 #undef _CF
+#undef _US
 #undef _UI
 #undef _UL
 #undef _INLINE_ATTR_

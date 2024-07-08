@@ -76,6 +76,10 @@ LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
 
 bool isSplitKRequested(ModuleOp mod, StringRef perfConfig);
 
+// This method checks a given fused module is actually fusible
+// for the given perfConfig
+bool isModuleFusible(ModuleOp module, StringRef perfConfig);
+
 RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
                                                 int64_t nDim, int64_t kDim,
                                                 int64_t numCUs);

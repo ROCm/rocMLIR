@@ -50,23 +50,23 @@ class Rock_Attr<string name, list<Trait> traits = []> :
     AttrDef<Rock_Dialect, name, traits>;
 
 /// ConvOpType
-def ConvOp2DType : I32EnumAttrCase<"Fwd", 0, "conv2d">;
-def ConvOp2DBwdDataType : I32EnumAttrCase<"BwdData", 1, "conv2d_bwd_data">;
-def ConvOp2DBwdWeightType : I32EnumAttrCase<"BwdWeight", 2, "conv2d_bwd_weight">;
+def ConvOpType : I32EnumAttrCase<"Fwd", 0, "conv">;
+def ConvOpBwdDataType : I32EnumAttrCase<"BwdData", 1, "conv_bwd_data">;
+def ConvOpBwdWeightType : I32EnumAttrCase<"BwdWeight", 2, "conv_bwd_weight">;
 
-def ConvOpType : Rock_I32Enum<"ConvOpType", "The type of a 2D convolution operation",
-  [ConvOp2DType, ConvOp2DBwdDataType, ConvOp2DBwdWeightType]>;
+def ConvOpTypes : Rock_I32Enum<"ConvOpType", "The type of a convolution operation",
+  [ConvOpType, ConvOpBwdDataType, ConvOpBwdWeightType]>;
 
 /// Kerneltype
-def KernelTypeConv2D : I32EnumAttrCase<"Conv2D", 0>;
-def KernelTypeConv2DBwdData : I32EnumAttrCase<"Conv2DBwdData", 1>;
-def KernelTypeConv2DBwdWeight : I32EnumAttrCase<"Conv2DBwdWeight", 2>;
+def KernelTypeConv : I32EnumAttrCase<"Conv", 0>;
+def KernelTypeConvBwdData : I32EnumAttrCase<"ConvBwdData", 1>;
+def KernelTypeConvBwdWeight : I32EnumAttrCase<"ConvBwdWeight", 2>;
 def KernelTypeGemm : I32EnumAttrCase<"Gemm", 3>;
 def KernelTypeAttention : I32EnumAttrCase<"Attention", 4>;
 
 def KernelType : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
-  [KernelTypeConv2D, KernelTypeConv2DBwdData,
-    KernelTypeConv2DBwdWeight, KernelTypeGemm,
+  [KernelTypeConv, KernelTypeConvBwdData,
+    KernelTypeConvBwdWeight, KernelTypeGemm,
     KernelTypeAttention]>;
 
 /// TransformType
@@ -256,6 +256,47 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
+def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterface]> {
+  let mnemonic = "attn_perf_config";
+  let description = [{
+    The perf configs for rock.attention operator.
+  }];
+  let parameters = (ins
+    "int64_t":$mPerBlockG0,
+    "int64_t":$mPerBlockG1,
+    "int64_t":$nPerBlockG0,
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerWave,
+    "int64_t":$mnPerXdl,
+    "int64_t":$kpack,
+    "bool":$forceUnroll
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+      ("attn:v1:"
+      + Twine(getMPerBlockG0()) + ","
+      + Twine(getMPerBlockG1()) + ","
+      + Twine(getNPerBlockG0()) + ","
+      + Twine(getKpackPerBlock()) + ","
+      + Twine(getMPerWave()) + ","
+      + Twine(getMnPerXdl()) + ","
+      + Twine(getKpack()) + ","
+      + Twine(getForceUnroll())).toVector(perfStr);
+    }
+
+    int64_t getSplitKFactor() { return 1; }
+  }];
+
+  let builders = [
+      AttrBuilderWithInferredContext<(ins  "StringAttr":$perfConfigStr)>
+  ];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
 def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
@@ -428,7 +469,32 @@ def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
 
 // It is a temporary attribute
 // TODO[split-K]: remove after integrating split-K into MIGraphX
-def Rock_EnableSpliKForTuning : Rock_Attr<"EnableSpliKForTuning"> {
-  let mnemonic = "enable_splik_for_tuning";
+def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
+  let mnemonic = "enable_splitk_for_tuning";
 }
+
+// Used when converting 1-dimensional migraphx.convolution to tosa.conv2d
+def Rock_ExpandedFrom1D : Rock_Attr<"ExpandedFrom1D"> {
+  let mnemonic = "expanded_from_1d";
+}
+
+def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
+  let mnemonic = "rock.prefill";
+
+  let description = [{
+      A user interface parameter for initializing specific memory buffers
+
+      The attribute is a way to describe which specific kernel parameter
+      (typically memref) must be initialized with specific value before
+      a kernel invocation.
+
+  }];
+
+  let parameters = (ins
+    "uint32_t":$argIndex,
+    "TypedAttr":$initValue
+  );
+  let assemblyFormat = "`<` params `>`";
+}
+
 #endif

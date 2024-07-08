@@ -34,7 +34,7 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op->getLoc();
     auto results = op->getResults();
-    auto resultType = results[0].getType().template cast<MemRefType>();
+    auto resultType = cast<MemRefType>(results[0].getType());
     auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
     SmallVector<Value, 8> mrOperands(op.getOperands());
     SmallVector<Value, 8> cobjArgs;
@@ -99,7 +99,7 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
                 RankedTensorType::get({1}, rewriter.getI64Type()), zero));
         cobjArgs.push_back(offsetOp);
         // shape
-        auto argType = arg.getType().cast<MemRefType>();
+        auto argType = cast<MemRefType>(arg.getType());
         auto argShape = argType.getShape();
         for (auto it = argShape.rbegin(); it != argShape.rend(); ++it) {
           auto constOp = rewriter.create<mlir::migraphx::LiteralOp>(

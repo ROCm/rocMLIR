@@ -58,15 +58,15 @@ class TensorOrMemRefOf<list<Type> allowedTypes> :
              /*summary=*/"Constraints the type to be either a Tensor or MemRef of certain types of elements.",
              "::mlir::ShapedType">;
 
-class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayCount<n>]>;
+class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayMinCount<n>]>;
 
-class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
+class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockConvInterface>,
                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>{
-    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5]>:$filter,
-                              TensorOrMemRefRankOf<inputTypes, [5]>:$input,
-                              TensorOrMemRefRankOf<outputTypes, [5]>:$output,
+    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5,6]>:$filter,
+                              TensorOrMemRefRankOf<inputTypes, [5,6]>:$input,
+                              TensorOrMemRefRankOf<outputTypes, [5,6]>:$output,
                               StrAttr:$arch,
                               Rock_GemmFeaturesAttr:$features,
                               OptionalAttr<I32Attr>:$derivedBlockSize,
@@ -83,12 +83,12 @@ defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ];
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
 
-def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes> {
+def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
   dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
-  let summary = "2D convolution forward";
+  let summary = "N-D convolution forward";
   let description = [{
-    The `rock.conv2d` op computes 2D convolution forward.
+    The `rock.conv` op computes N-D convolution forward.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -97,13 +97,13 @@ def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", GemmInputTypes, GemmOutputTypes>
   }];
 }
 
-def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
+def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 {
   dag additionalArgs = (ins IndexAttr:$kernelId, OptionalAttr<I32Attr>:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
-  let summary = "2D convolution backward data";
+  let summary = "N-D convolution backward data";
   let description = [{
-    The `rock.conv2d_bwd_data` op computes 2D convolution backward data.
+    The `rock.conv_bwd_data` op computes N-D convolution backward data.
 
     The kernel ID represents which of the multiple backwards data kernels
     needed for the correct computation of the result this kernel is.
@@ -116,14 +116,14 @@ def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
 }
 
 
-def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
+def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
                             OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
-  let summary = "2D convolution backward weight";
+  let summary = "N-D convolution backward weight";
   let description = [{
-    The `rock.conv2d_bwd_weight` op computes 2D convolution backward weight.
+    The `rock.conv_bwd_weight` op computes N-D convolution backward weight.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -218,6 +218,7 @@ def Rock_AttentionOp :
     UnitAttr:$oTransposed,
     StrAttr:$arch,
     Rock_GemmFeaturesAttr:$features,
+    OptionalAttr<I32Attr>:$numCU,
     OptionalAttr<RockTuningParamAttrInterface>:$params0,
     OptionalAttr<RockTuningParamAttrInterface>:$params1
   )>,
@@ -329,11 +330,11 @@ def Rock_TransformOp :
    OpBuilder<(ins "Value":$input, "TransformMapAttr":$transform),
    [{
      $_state.addOperands({input});
-     ShapedType lowerType = input.getType().template cast<ShapedType>();
+     ShapedType lowerType = cast<ShapedType>(input.getType());
      Type elemType = lowerType.getElementType();
      ShapedType upperType;
-     if (auto mrType = lowerType.template dyn_cast<MemRefType>()) {
-       auto memorySpace = mrType.getMemorySpace().dyn_cast_or_null<gpu::AddressSpaceAttr>();
+     if (auto mrType = dyn_cast<MemRefType>(lowerType)) {
+       auto memorySpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(mrType.getMemorySpace());
        upperType = MemRefType::get(transform.getUpperBounds(), elemType,
         MemRefLayoutAttrInterface{}, memorySpace);
      } else {
@@ -366,7 +367,7 @@ def Rock_TensorUntransformCastOp :
     %t1 = rock.transform %buf : T to I1
     ...
     %output = rock.transform %tK : TK to U
-    %result = rock.conv2d(..., %output) : ..., U
+    %result = rock.conv(..., %output) : ..., U
     op(%result, ...)
     ```
     where op required a value of type %T.
@@ -534,7 +535,7 @@ def Rock_LDSBarrierOp:
 
 def Rock_WorkgroupIdOp:
     Rock_Op<"workgroup_id", [Pure,
-      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+      DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workgroup ID";
   let description = [{
@@ -545,7 +546,7 @@ def Rock_WorkgroupIdOp:
 
 def Rock_WorkitemIdOp:
     Rock_Op<"workitem_id", [Pure,
-      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+      DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workitem ID";
   let description = [{
@@ -790,7 +791,7 @@ def Rock_TransformingForOp :
     }
 
     ArrayAttr getTransforms(uint32_t domain) {
-      return getTransforms()[domain].cast<ArrayAttr>();
+      return cast<ArrayAttr>(getTransforms()[domain]);
     }
 
     uint32_t domains() {

@@ -1,0 +1,50 @@
+directory = "conv_regression_fwd_navi3x"
+prefix = "rocmlir-gen"
+suffix = "-rand_type float -arch %arch %pv %random_data %rocmlir_gen_flags --absDiff_threshold 1 -relDiff_threshold 0.00001 | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "operation"
+values = ["conv"]
+prefix = "--operation "
+
+[[axis]]
+name = "layout"
+values = ["-fil_layout=kcyx -in_layout=nchw -out_layout=nkhw", "-fil_layout=kyxc -in_layout=nhwc -out_layout=nhwk", "-fil_layout=yxck -in_layout=nhwc -out_layout=nhwk"]
+
+[[axis]]
+name = "data type"
+values = ["f32", "f16"]
+prefix = "-t "
+
+[[suite]]
+name = "config"
+
+[[suite.test]]
+config = "-p"
+
+[[suite.test]]
+config = "-p -rand_side filter"
+
+[[suite.test]]
+config = "-p -rand_side input"
+
+#############################################################################################
+# Cases reported in https://github.com/ROCm/rocMLIR-internal/issues/127 #
+#############################################################################################
+[[suite.test]]
+config = "-groupsize=1 -batchsize=128 -in_channels=256 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
+
+[[suite.test]]
+config = "-groupsize=1 -batchsize=512 -in_channels=256 -out_channels=512 -in_h=7 -in_w=7 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
+
+[[suite.test]]
+config = "-groupsize=1 -batchsize=64 -in_channels=256 -out_channels=64 -in_h=56 -in_w=56 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
+
+[[suite.test]]
+config = "-groupsize=1 -batchsize=256 -in_channels=256 -out_channels=256 -in_h=30 -in_w=30 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
+
+[[suite.test]]
+config = "-groupsize=1 -batchsize=256 -in_channels=512 -out_channels=512 -in_h=16 -in_w=16 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
+
+[[suite.test]]
+config = "-groupsize=1 -batchsize=256 -in_channels=128 -out_channels=128 -in_h=58 -in_w=58 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"

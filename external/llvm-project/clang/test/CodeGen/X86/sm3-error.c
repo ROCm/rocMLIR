@@ -1,6 +1,4 @@
-// RUN: %clang_cc1 %s -ffreestanding -triple=i686-unknown-unknown -target-feature +sm3  -emit-llvm -fsyntax-only -verify
-
-// XFAIL: *
+// RUN: %clang_cc1 %s -ffreestanding -triple=i686-unknown-unknown -target-feature +sm3  -fsyntax-only -verify
 
 #include <immintrin.h>
 

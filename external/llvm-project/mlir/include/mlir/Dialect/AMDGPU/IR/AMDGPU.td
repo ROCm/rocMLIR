@@ -222,7 +222,7 @@ def AMDGPU_RawBufferAtomicCmpswapOp :
       AttrSizedOperandSegments,
       AllTypesMatch<["src", "cmp", "value"]>,
       AllElementTypesMatch<["value", "memref"]>]>,
-    Arguments<(ins AnyTypeOf<[I32, I64, F32, F64]>:$src,
+    Arguments<(ins AnyType:$src,
                    AnyType:$cmp,
                    Arg<AnyMemRef, "buffer to operate on", [MemRead, MemWrite]>:$memref,
                    Variadic<I32>:$indices,
@@ -434,8 +434,9 @@ def AMDGPU_DPPPerm : I32EnumAttr<"DPPPerm",
 def AMDGPU_DPPPermAttr : EnumAttr<AMDGPU_Dialect, AMDGPU_DPPPerm,
   "dpp_perm">;
 
-def AMDGPU_DPPOp : AMDGPU_Op<"dpp", [SameTypeOperands, AllTypesMatch<["result", "src"]>]>,
-  Arguments<(ins AnyType:$src,
+def AMDGPU_DPPOp : AMDGPU_Op<"dpp", [SameTypeOperands, AllTypesMatch<["result", "old", "src"]>]>,
+  Arguments<(ins AnyType:$old,
+                  AnyType:$src,
                   AMDGPU_DPPPermAttr:$kind,
                   OptionalAttr<AnyAttrOf<[I32Attr, ArrayAttr, UnitAttr]>>:$permArgument,
                   DefaultValuedAttr<I32Attr, "0xf">:$row_mask,
@@ -460,7 +461,7 @@ def AMDGPU_DPPOp : AMDGPU_Op<"dpp", [SameTypeOperands, AllTypesMatch<["result", 
   }];
   let results = (outs AnyType:$result);
   let assemblyFormat = [{
-    $src $kind (`(` $permArgument^ `)`)? attr-dict `:` type($result)
+    $old $src $kind (`(` $permArgument^ `)`)? attr-dict `:` type($result)
   }];
   let hasVerifier = 1;
 }

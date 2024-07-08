@@ -98,7 +98,9 @@ LogicalResult RockEnabled(const mlir::rock::ConvGenerator::Config &conf) {
 
   const static std::set<std::tuple<std::string, std::string, std::string>>
       supportedLayouts = {{"ngchw", "gkcyx", "ngkhw"},
-                          {"nhwgc", "gkyxc", "nhwgk"}};
+                          {"nhwgc", "gkyxc", "nhwgk"},
+                          {"ngc01", "gkc01", "ngk01"},
+                          {"n01gc", "gk01c", "n01gk"}};
 
   bool layoutSupported =
       supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) >
@@ -194,7 +196,7 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
     if (!attr) {
       return failure();
     }
-    size = attr.template dyn_cast<IntegerAttr>().getInt();
+    size = dyn_cast<IntegerAttr>(attr).getInt();
     return success();
   };
 

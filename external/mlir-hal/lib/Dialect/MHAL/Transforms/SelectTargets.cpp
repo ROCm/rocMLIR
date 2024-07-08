@@ -76,7 +76,7 @@ struct MHALSelectTargetsPass
     if (auto targets = func->getAttrOfType<ArrayAttr>(targetsTag)) {
       mhal::KernelPackageAttr targetKrn;
       for (auto targetAttr : targets.getValue()) {
-        auto pkgAttr = targetAttr.cast<mhal::KernelPackageAttr>();
+        auto pkgAttr = cast<mhal::KernelPackageAttr>(targetAttr);
         auto type = pkgAttr.getType();
         auto arch = pkgAttr.getTarget();
         if (testArch(type, arch)) {

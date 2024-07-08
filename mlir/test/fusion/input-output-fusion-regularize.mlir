@@ -10,7 +10,7 @@
 // CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<#map{{.*}} by [<PassThrough ["gemmG", "gemmM", "gemmK"] at [0, 1, 2] -> ["gemmG", "gemmM", "gemmK"] at [0, 1, 2]>] bounds = [1, 32, 32] -> [1, 32, 32]>
 #transform_map2 = #rock.transform_map<#map1 by [<PassThrough ["gemmG", "gemmM", "gemmK"] at [0, 1, 2] -> ["gemmG", "gemmM", "gemmK"] at [0, 1, 2]>] bounds = [1, 32, 32] -> [1, 32, 32]>
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
-  func.func @rock_gemm(%arg0: memref<1x32x16xf16>, %arg1: memref<1x16x32xf32>, %arg2: memref<1x32x32xf32>) attributes {block_size = 128 : i32, enable_splik_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
+  func.func @rock_gemm(%arg0: memref<1x32x16xf16>, %arg1: memref<1x16x32xf32>, %arg2: memref<1x32x32xf32>) attributes {block_size = 128 : i32, enable_splitk_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     // CHECK: %[[ALLOC:.*]] = memref.alloc() : memref<1x32x16xf32>
     // CHECK-NEXT: %[[TRAN:.*]] = rock.transform %[[ALLOC]] by #[[MAP]]
     %alloc = memref.alloc() : memref<1x16x32xf32>

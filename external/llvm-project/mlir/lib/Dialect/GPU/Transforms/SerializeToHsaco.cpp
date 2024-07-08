@@ -240,9 +240,9 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
       StringRef funcName = f.getName();
       if ("printf" == funcName)
         needOpenCl = true;
-      if (funcName.startswith("__ockl_"))
+      if (funcName.starts_with("__ockl_"))
         needOckl = true;
-      if (funcName.startswith("__ocml_"))
+      if (funcName.starts_with("__ocml_"))
         needOcml = true;
     }
   }
@@ -459,7 +459,6 @@ LogicalResult SerializeToHsacoPass::assembleIsa(const std::string &isa,
       mab->createObjectWriter(os), std::unique_ptr<llvm::MCCodeEmitter>(ce),
       *sti, mcOptions.MCRelaxAll, mcOptions.MCIncrementalLinkerCompatible,
       /*DWARFMustBeAtTheEnd*/ false));
-  mcStreamer->setUseAssemblerInfoForParsing(true);
 
   std::unique_ptr<llvm::MCAsmParser> parser(
       createMCAsmParser(srcMgr, ctx, *mcStreamer, *mai));

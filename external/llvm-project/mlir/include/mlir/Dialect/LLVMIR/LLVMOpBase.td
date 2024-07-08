@@ -245,12 +245,6 @@ class LLVM_MemOpPatterns {
       inst->setMetadata(llvm::LLVMContext::MD_nontemporal, metadata);
     }
   }];
-  code setInvariantLoadMetedataCode = [{
-    if ($invariant) {
-      llvm::MDNode *metadata = llvm::MDNode::get(inst->getContext(), std::nullopt);
-      inst->setMetadata(llvm::LLVMContext::MD_invariant_load, metadata);
-    }
-  }];
   code setAccessGroupsMetadataCode = [{
     moduleTranslation.setAccessGroupsMetadata(op, inst);
   }];
