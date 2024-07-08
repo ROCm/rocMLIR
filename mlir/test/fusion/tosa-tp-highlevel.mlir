@@ -1,5 +1,5 @@
 // RUN: rocmlir-driver --host-pipeline highlevel %s | FileCheck %s
-// CHECK-COUNT-2: linalg.generic
+// CHECK-COUNT-3: linalg.generic
 // CHECK-NOT: linalg.generic
 // This is only to detect any changes in tosa transpose optimization, nothing wrong it differs
 // Just test needs to be amended once any change is detected.
