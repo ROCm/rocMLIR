@@ -4,6 +4,7 @@
 // RUN: rocmlir-opt -rock-gemm-to-gridwise %s | FileCheck %s
 
 #general_gemm_params0 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
+#general_gemm_params_splitk = #rock.general_gemm_params<blockSize = 64, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 2>
 #general_gemm_params1 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1>
 #xdlops_gemm_params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 1>
 #xdlops_gemm_params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64, mnPerXdl = 32, forceUnroll = true, splitKFactor = 1>
@@ -19,6 +20,18 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
     arch = "amdgcn-amd-amdhsa:gfx906",
     gridSize = 4 : i32,
     params = #general_gemm_params0
+  } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_splitk
+func.func @gemm_splitk(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
+  // CHECK: rock.gridwise_gemm
+  // CHECK-SAME: storeMethod( atomic_add)
+  rock.gemm %c = tr %a * %b features = atomic_add storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx1100",
+    gridSize = 4 : i32,
+    params = #general_gemm_params_splitk
   } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
   func.return
 }
