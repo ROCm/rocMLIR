@@ -232,7 +232,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
         params.cast<RockAccelTuningParamAttrInterface>());
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
+    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(), op.getStoreMethodAttr(),
                               numCUAttr, gridSize,
                               params.cast<GeneralGemmParamsAttr>());
   }

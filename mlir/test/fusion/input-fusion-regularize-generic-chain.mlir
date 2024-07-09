@@ -29,7 +29,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     // CHECK: %[[IN:.+]] = rock.transform %alloc_0 by #[[MAP]]
     %0 = rock.transform %alloc_0 by #transform_map : memref<1x32x16xf32> to memref<1x16x32xf32>
     // CHECK-NEXT: rock.gridwise_gemm %{{.*}} = %[[IN]] * %{{.*}}
-    rock.gridwise_gemm %arg2 = %0 * %arg1 features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
+    rock.gridwise_gemm %arg2 = %0 * %arg1 storeMethod(set) features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
     return
   }
 
@@ -60,7 +60,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
       linalg.yield %3 : f32
     }
     // CHECK: rock.gridwise_gemm %{{.+}} = %[[gemmIn]] * %{{.+}}
-    rock.gridwise_gemm %arg2 = %alloc_0 * %arg1 features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
+    rock.gridwise_gemm %arg2 = %alloc_0 * %arg1 storeMethod(set) features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
     return
   }
 }
