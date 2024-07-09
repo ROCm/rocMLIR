@@ -230,11 +230,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     rw.create<GridwiseGemmAccelOp>(
         loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
         op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
-        params.cast<RockAccelTuningParamAttrInterface>());
+        cast<RockAccelTuningParamAttrInterface>(params));
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(), op.getStoreMethodAttr(),
-                              numCUAttr, gridSize,
-                              params.cast<GeneralGemmParamsAttr>());
+    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
+                              op.getStoreMethodAttr(), numCUAttr, gridSize,
+                              cast<GeneralGemmParamsAttr>(params));
   }
 
   if (accumulator != c) {
