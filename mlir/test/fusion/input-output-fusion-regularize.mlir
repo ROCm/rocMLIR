@@ -27,7 +27,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     // CHECK-NEXT: %[[ALLOC_0:.*]] = memref.alloc() : memref<1x32x32xf32>
     %gemmOut = memref.alloc() : memref<1x32x32xf32>
     // CHECK-NEXT: rock.gridwise_gemm %[[ALLOC_0]] = %[[IN]] * %{{.*}}
-    rock.gridwise_gemm %gemmOut = %1 * %arg1 features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
+    rock.gridwise_gemm %gemmOut = %1 * %arg1 storeMethod(set) features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
     // CHECK-NEXT: %[[ALLOC_1:.*]] = memref.alloc() : memref<1x32x32xf32>
     // CHECK-NEXT: %[[OUTS:.*]] = rock.transform %alloc_1 by #[[MAP2]]
     %alloc_1 = memref.alloc() : memref<1x32x32xf32>
