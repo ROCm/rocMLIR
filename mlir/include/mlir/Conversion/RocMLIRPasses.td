@@ -28,7 +28,8 @@ def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
     "gpu::GPUDialect",
     "LLVM::LLVMDialect",
     "memref::MemRefDialect",
-    "affine::AffineDialect"
+    "affine::AffineDialect",
+    "mhal::MHALDialect"
   ];
 }
 
