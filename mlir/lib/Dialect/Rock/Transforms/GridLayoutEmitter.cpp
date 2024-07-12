@@ -52,7 +52,7 @@ static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
   Value lastNumChipletMultipleVal =
       b.createOrFold<ConstantIndexOp>(loc, lastNumChipletMultiple);
   Value isBidLargerThanlastNumChipletMultiple = b.create<arith::CmpIOp>(
-      loc, arith::CmpIPredicate::ugt, bid, lastNumChipletMultipleVal);
+      loc, arith::CmpIPredicate::sgt, bid, lastNumChipletMultipleVal);
   bid = b.create<arith::SelectOp>(loc, isBidLargerThanlastNumChipletMultiple,
                                   bid, rearrangedBid);
   return bid;
