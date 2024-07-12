@@ -85,11 +85,6 @@ struct ThreadwiseWriteAllRewritePattern
     Value convertedC = op.getSource();
     Value matC = op.getDest();
     Type destType = op.getDest().getType().getElementType();
-    MemRefType destMemRefType = cast<MemRefType>(op.getDest().getType());
-    // if ThreadwiseWriteAllOp is saving to LDS, skip pass
-    if(hasWorkgroupMemoryAddressSpace(destMemRefType)) {
-        return success();
-    }
 
     // Convert from reg -> memory transform to reg -> block
     ArrayAttr srcTransform = op.getExtraViewsAttr();
@@ -281,12 +276,28 @@ struct ThreadwiseWriteAllRewritePattern
 } // end anonymous namespace
 
 void RockGemmOutputSwizzlePass::runOnOperation() {
-    func::FuncOp func = getOperation();
-    //Location loc = func->getLoc();
+  func::FuncOp func = getOperation();
+
+    SmallVector<ThreadwiseWriteAllOp> writes;
+    func.walk([&](ThreadwiseWriteAllOp threadwiseWriteAll) {
+        MemRefType destMemRefType = cast<MemRefType>(threadwiseWriteAll.getDest().getType());
+        // if ThreadwiseWriteAllOp is saving to LDS, skip this one
+        if(!hasWorkgroupMemoryAddressSpace(destMemRefType)) {
+            writes.push_back(threadwiseWriteAll);
+        }
+    });
+    LLVM_DEBUG(llvm::dbgs() << "number of ThreadwiseWriteAllOp ops to rewrite: " << writes.size() << "\n");
 
     // Rewrite 
     RewritePatternSet patterns(&getContext());
     patterns.add<ThreadwiseWriteAllRewritePattern>(
         &getContext());
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    
+    GreedyRewriteConfig config;
+    config.strictMode = GreedyRewriteStrictness::ExistingOps;
+    for (Operation *op : writes) {
+        if(failed(applyOpPatternsAndFold(op, std::move(patterns), config))) {
+            return signalPassFailure();
+        }
+    }
 }
