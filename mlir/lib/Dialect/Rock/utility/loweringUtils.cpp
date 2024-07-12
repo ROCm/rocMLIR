@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -731,6 +732,10 @@ FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }
 
+FailureOr<IntegerAttr> mlir::rock::getBlockSize(Operation *op) {
+  return getAttrFromOpOrParents<IntegerAttr>(op, "block_size");
+}
+
 AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
   auto dimExpr = mlir::getAffineDimExpr(0, b.getContext());
   auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
@@ -744,4 +749,33 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
   for (int i = 0, e = srcTp.getRank(); i < e; i++)
     reassociation.push_back(i);
   return reassociation;
+}
+
+static TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
+                                           Type type) {
+  Location loc = buffer.getLoc();
+  Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  auto bufferType = cast<MemRefType>(buffer.getType());
+  int64_t byteWidth = getByteWidth(type);
+  int64_t numBytes = bufferType.getShape()[0];
+  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
+  int64_t length = numBytes / byteWidth;
+  auto newBufferType = bufferType.cloneWith({length}, type);
+  auto view =
+      b.create<memref::ViewOp>(loc, newBufferType, buffer, zeroByteOffset,
+                               /*dynamic dim sizes=*/ValueRange{});
+  return TypedValue<MemRefType>(view.getResult());
+}
+
+Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
+               gpu::AddressSpace memoryAddressSpace) {
+  auto memoryAddressSpaceAttr =
+      b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
+
+  auto rawMemType =
+      MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
+                      AffineMap{}, memoryAddressSpaceAttr);
+  auto buffer = b.create<GpuAllocOp>(loc, rawMemType);
+
+  return viewBufferAs(b, buffer, elementType);
 }

@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 
 namespace mlir {
 class Operation;
@@ -180,11 +181,23 @@ FailureOr<UnitAttr> getReverseGrid(Operation *op);
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 
+// Get blockSize
+FailureOr<IntegerAttr> getBlockSize(Operation *op);
+
 // Return an affine map to reverse loop coordinates
 AffineMap getIdxReversalMap(OpBuilder &b);
 
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
+
+/// Construct a `memref.view` operation that interprets the buffer `buffer`,
+/// whose elements are bytes, as a buffer of `type`.
+static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
+                                           Type type);
+
+// helper to allocate memory on the GPU
+Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
+               gpu::AddressSpace memoryAddressSpace);
 
 } // end namespace rock
 } // end namespace mlir
