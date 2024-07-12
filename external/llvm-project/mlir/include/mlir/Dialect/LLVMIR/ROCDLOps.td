@@ -89,11 +89,11 @@ class ROCDL_IntrPure1Op<string mnemonic> :
 
 class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
   list<int> overloadedOperands, list<Trait> traits, int numResults,
-  int requiresAccessGroup = 0, int requiresAliasAnalysis = 0> :
+  int requiresAccessGroup = 0, int requiresAliasAnalysis = 0, list<int> immArgPositions = []> :
   LLVM_IntrOpBase<ROCDL_Dialect,  mnemonic,
     "amdgcn_" # !subst(".", "_", mnemonic), overloadedResults,
     overloadedOperands, traits, numResults, requiresAccessGroup,
-    requiresAliasAnalysis>;
+    requiresAliasAnalysis, 0, immArgPositions>;
 
 //===----------------------------------------------------------------------===//
 // ROCDL special register op definitions
@@ -247,12 +247,10 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
-def ROCDL_BarrierSignalOp : ROCDL_IntrOp<"s.barrier.signal", [], [], [], 0>,
+def ROCDL_BarrierSignalOp : ROCDL_IntrOp<"s.barrier.signal", [], [], [], 0, 0, 0, [0]>,
   Arguments<(ins I32Attr:$id)> {
   let results = (outs);
   let assemblyFormat = "$id attr-dict";
-  string llvmBuilder =
-    "createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier_signal,builder.getInt32(op.getId()));";
 }
 
 def ROCDL_BarrierWaitOp : ROCDL_IntrOp<"s.barrier.wait", [], [], [], 0>,
@@ -263,12 +261,10 @@ def ROCDL_BarrierWaitOp : ROCDL_IntrOp<"s.barrier.wait", [], [], [], 0>,
     "createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier_wait,builder.getInt16(op.getId()));";
 }
 
-def ROCDL_WaitDscntOp: ROCDL_IntrOp<"s.wait.dscnt", [], [], [], 0>,
+def ROCDL_WaitDscntOp: ROCDL_IntrOp<"s.wait.dscnt", [], [], [], 0, 0, 0, [0]>,
   Arguments<(ins I16Attr:$id)> {
   let results = (outs);
   let assemblyFormat = "$id attr-dict";
-  string llvmBuilder =
-    "createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_wait_dscnt,builder.getInt16(op.getId()));";
 }
 
 def ROCDL_SetPrioOp : ROCDL_IntrOp<"s.setprio", [], [], [], 0>,

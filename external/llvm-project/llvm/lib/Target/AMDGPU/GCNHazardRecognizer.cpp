@@ -2911,8 +2911,8 @@ bool GCNHazardRecognizer::fixVALUMaskWriteHazard(MachineInstr *MI) {
 
   // Add s_waitcnt_depctr sa_sdst(0) after SALU write.
   auto NewMI = BuildMI(*MI->getParent(), NextMI, MI->getDebugLoc(),
-                      TII.get(AMDGPU::S_WAITCNT_DEPCTR))
-                  .addImm(AMDGPU::DepCtr::encodeFieldSaSdst(0));
+                       TII.get(AMDGPU::S_WAITCNT_DEPCTR))
+                   .addImm(AMDGPU::DepCtr::encodeFieldSaSdst(0));
 
   // SALU write may be s_getpc in a bundle.
   updateGetPCBundle(NewMI);
