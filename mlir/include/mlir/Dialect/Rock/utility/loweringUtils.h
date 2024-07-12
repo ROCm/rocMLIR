@@ -192,7 +192,7 @@ ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
 
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.
-static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
+TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
                                            Type type);
 
 // helper to allocate memory on the GPU

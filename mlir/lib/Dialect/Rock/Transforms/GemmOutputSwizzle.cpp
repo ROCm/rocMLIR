@@ -25,11 +25,15 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
+#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Value.h"
@@ -37,10 +41,11 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKGEMMOUTPUTSWIZZLE
+#define GEN_PASS_DEF_ROCKGEMMOUTPUTSWIZZLEPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
@@ -64,7 +69,7 @@ bool hasWorkgroupMemoryAddressSpace(MemRefType type) {
   if (!memorySpace)
     return false;
   if (auto gpuAttr = llvm::dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
-    return gpuAttr.getValue() == getWorkgroupAddressSpace();
+    return gpuAttr.getValue() == AddressSpace::Workgroup;
   return false;
 }
 
@@ -80,7 +85,7 @@ struct ThreadwiseWriteAllRewritePattern
     Value convertedC = op.getSource();
     Value matC = op.getDest();
     Type destType = op.getDest().getType().getElementType();
-    MemRefType destMemRefType = cast<MemRefType>(destType.getDest().getType());
+    MemRefType destMemRefType = cast<MemRefType>(op.getDest().getType());
     // if ThreadwiseWriteAllOp is saving to LDS, skip pass
     if(hasWorkgroupMemoryAddressSpace(destMemRefType)) {
         return success();
@@ -93,10 +98,11 @@ struct ThreadwiseWriteAllRewritePattern
     dimensionsToRemove.insert("g_block");
     dimensionsToRemove.insert("m_block");
     dimensionsToRemove.insert("n_block");
-    FailureOr<ArrayAttr> idToLDS = removeUpperDims(b, srcTransform, dimensionsToRemove);
-    if (failed(idToLDS)) {
+    FailureOr<ArrayAttr> maybeIdToLDS = removeUpperDims(b, srcTransform, dimensionsToRemove);
+    if (failed(maybeIdToLDS)) {
       return failure();
     }
+    ArrayAttr idToLDS = maybeIdToLDS.value();
 
     // TODO: decide if we want to skip this pass 
     // if writes are already coalesced and 128b
@@ -107,7 +113,11 @@ struct ThreadwiseWriteAllRewritePattern
     int64_t G = cShape[0];
     int64_t M = cShape[1];
     int64_t N = cShape[2];
-    uint32_t blockSize = getBlockSize(op);
+    FailureOr<IntegerAttr> maybeBlockSize = getBlockSize(op);
+    if (failed(maybeBlockSize)) {
+        return failure();
+    }
+    int64_t blockSize = maybeBlockSize.value().getValue().getSExtValue();
     int64_t mPerBlock = getLowerShape(idToLDS)[0];
     int64_t nPerBlock = getLowerShape(idToLDS)[1];
     int64_t mBlocks = M / mPerBlock;
@@ -118,12 +128,11 @@ struct ThreadwiseWriteAllRewritePattern
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
-    // Get current workgroup ID.
-    auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
     // Allocate LDS for output.
+    // TODO: reuse LDS memory
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getWorkgroupAddressSpace());
     auto ldsMemRefOutputType =
@@ -160,9 +169,6 @@ struct ThreadwiseWriteAllRewritePattern
     } else {
         dim = dimensionN;
     }
-
-    // LDS barrier.
-    b.create<LDSBarrierOp>(loc);
     
     // Load from LDS.
     int64_t elementsWrittenPerThread = 128 / destType.getIntOrFloatBitWidth();
@@ -210,6 +216,9 @@ struct ThreadwiseWriteAllRewritePattern
     ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
     auto ldsBufferForLoad = transform(b, ldsBufferOutput, ldsRead);
 
+    // LDS barrier.
+    b.create<LDSBarrierOp>(loc);
+    
     b.create<ThreadwiseReadIntoOp>(
         loc, ldsBufferForLoad, finalC, b.getArrayAttr({}),
         ValueRange{tid}, forceUnroll, useIndexDiffs);
@@ -273,8 +282,7 @@ struct ThreadwiseWriteAllRewritePattern
 
 void RockGemmOutputSwizzlePass::runOnOperation() {
     func::FuncOp func = getOperation();
-    Location loc = func->getLoc();
-    IRRewriter rewriter(ctx);
+    //Location loc = func->getLoc();
 
     // Rewrite 
     RewritePatternSet patterns(&getContext());

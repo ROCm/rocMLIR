@@ -751,7 +751,7 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
   return reassociation;
 }
 
-static TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
+TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
                                            Type type) {
   Location loc = buffer.getLoc();
   Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
