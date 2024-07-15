@@ -390,6 +390,7 @@ def Rock_GridwiseGemmOp :
                    MemRefRankOf<GemmInputTypes, [3]>:$b,
                    MemRefRankOf<GemmAccumulatorTypes, [3]>:$c,
                    Rock_GemmFeaturesAttr:$features,
+                   StoreMethodAttr:$storeMethod,
                    I32Attr:$numCU,
                    I32Attr:$gridSize,
                    Rock_GeneralGemmParamsAttr:$params)> {
@@ -398,7 +399,7 @@ def Rock_GridwiseGemmOp :
     The `rock.gridwise_gemm` op computes gridwise GEMM.
   }];
   let assemblyFormat = [{
-    $c `=` $a `*` $b `features` `=` $features attr-dict `:` type($c) `=` type($a) `*` type($b)
+    $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
   let hasVerifier = 1;
 }
