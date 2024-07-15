@@ -226,3 +226,34 @@ func.func @lds_barrier() {
   amdgpu.lds_barrier
   func.return
 }
+
+// CHECK-LABEL: func @sched_barrier
+func.func @sched_barrier() {
+  // rocdl.sched.barrier 0
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_none>]
+  // rocdl.sched.barrier 1
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_non_mem_non_sideffect>]
+  // rocdl.sched.barrier 2
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_valu>]
+  // rocdl.sched.barrier 4
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_salu>]
+  // rocdl.sched.barrier 8
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_mfma_wmma>]
+  // rocdl.sched.barrier 16
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_all_vmem>]
+  // rocdl.sched.barrier 32
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_vmem_read>]
+  // rocdl.sched.barrier 64
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_vmem_write>]
+  // rocdl.sched.barrier 128
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_all_ds>]
+  // rocdl.sched.barrier 256
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_ds_read>]
+  // rocdl.sched.barrier 512
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_ds_write>]
+  // rocdl.sched.barrier 1024
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_transcendental>]
+  // rocdl.sched.barrier 18
+  amdgpu.sched_barrier [#amdgpu<sched_barrier_opt allow_valu>, #amdgpu<sched_barrier_opt allow_all_vmem>]
+  func.return
+}
