@@ -151,7 +151,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockGemmToGridwisePass());
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
-  funcPm.addPass(rock::createRockGemmOutputSwizzlePass());
   funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
 
   if (!options.enableApplicability) {
@@ -166,6 +165,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
       funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
+    funcPm.addPass(rock::createRockGemmOutputSwizzlePass());
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
