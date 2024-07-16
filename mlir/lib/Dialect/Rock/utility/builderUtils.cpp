@@ -102,25 +102,25 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   }
   Type sourceElemType = getElementTypeOrSelf(sourceType);
   Type destElemType = getElementTypeOrSelf(destType);
+  unsigned sourceWidth = sourceElemType.getIntOrFloatBitWidth();
+  unsigned destWidth = destElemType.getIntOrFloatBitWidth();
   if (sourceElemType != destElemType) {
     // All these ops act elementwise on vectors.
     if (isa<IntegerType>(sourceElemType) && isa<IntegerType>(destElemType)) {
-      uint32_t sourceWidth = sourceElemType.getIntOrFloatBitWidth();
-      uint32_t destWidth = destElemType.getIntOrFloatBitWidth();
       if (sourceWidth <= destWidth) {
         result = b.create<arith::ExtSIOp>(loc, destType, source);
       } else {
         result = b.create<arith::TruncIOp>(loc, destType, source);
       }
-    } else if (sourceElemType.getIntOrFloatBitWidth() < 32 &&
-               isa<FloatType>(sourceElemType) && destElemType.isF32()) {
-      result = b.create<arith::ExtFOp>(loc, destType, source);
-    } else if (sourceElemType.isF32() && isa<FloatType>(destElemType) &&
-               destElemType.getIntOrFloatBitWidth() < 32) {
-      result = b.create<arith::TruncFOp>(loc, destType, source);
+    } else if (isa<FloatType>(sourceElemType) && isa<FloatType>(destElemType)) {
+      if (sourceWidth < destWidth) {
+        result = b.create<arith::ExtFOp>(loc, destType, source);
+      } else {
+        result = b.create<arith::TruncFOp>(loc, destType, source);
+      }
     } else {
       llvm_unreachable("Only float-to-float and int-to-int conversions "
-                       "allowed, and doubles are not supported");
+                       "allowed");
     }
   }
   return result;
