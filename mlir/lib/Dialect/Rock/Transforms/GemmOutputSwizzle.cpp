@@ -65,20 +65,35 @@ struct RockGemmOutputSwizzlePass
   void runOnOperation() override;
 };
 
+bool hasPrivateMemoryAddressSpace(MemRefType type) {
+  Attribute memorySpace = type.getMemorySpace();
+  if (!memorySpace)
+    return false;
+  if (auto gpuAttr = llvm::dyn_cast<gpu::AddressSpaceAttr>(memorySpace)) {
+
+    return gpuAttr.getValue() == AddressSpace::Private;
+  }
+  return false;
+}
+
 bool hasWorkgroupMemoryAddressSpace(MemRefType type) {
   Attribute memorySpace = type.getMemorySpace();
   if (!memorySpace)
     return false;
-  if (auto gpuAttr = llvm::dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
+  if (auto gpuAttr = llvm::dyn_cast<gpu::AddressSpaceAttr>(memorySpace)) {
+
     return gpuAttr.getValue() == AddressSpace::Workgroup;
+  }
   return false;
+}
+
+bool hasGlobalMemoryAddressSpace(MemRefType type) {
+  return !hasWorkgroupMemoryAddressSpace(type) &&
+         !hasPrivateMemoryAddressSpace(type);
 }
 
 // Function to create the schedule of the current set of stages
 void reuseDeadLDS(func::FuncOp &func) {
-  MLIRContext *ctx = func->getContext();
-  IRRewriter rewriter(ctx);
-
   // Retrieve all GpuAlloc operations targeting LDS and
   // calculate the total memory space required for all operations
   // except the last one. Additionally, compute the memory space
@@ -109,6 +124,8 @@ void reuseDeadLDS(func::FuncOp &func) {
   // LDS allocations because they are no longer needed
 
   // New allocation
+  MLIRContext *ctx = func->getContext();
+  IRRewriter rewriter(ctx);
   int64_t requiredMemory = std::max(deadSize, lastSize);
   auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getWorkgroupAddressSpace());
@@ -131,19 +148,51 @@ void reuseDeadLDS(func::FuncOp &func) {
     assert(elementBytes == 1 && "All GpuAllocOp should allocate bytes");
     assert(rank == 1 && "Rank should be one");
 
-    rewriter.setInsertionPoint(alloc);
+    rewriter.setInsertionPointAfter(alloc);
     Location loc = alloc->getLoc();
 
     if (i == allocs.size() - 1) {
       offset = 0;
     }
-    auto subView = rewriter.create<memref::SubViewOp>(
-        loc, bufferType, ldsByteBuffer,
-        ValueRange{rewriter.create<arith::ConstantIndexOp>(loc, offset)},
-        ValueRange{rewriter.create<arith::ConstantIndexOp>(loc, numElements)},
-        ValueRange{rewriter.create<arith::ConstantIndexOp>(loc, 1)});
+    LLVM_DEBUG(llvm::dbgs() << "offset: " << offset
+                            << " numElements: " << numElements << "\n");
+
+    bool replaceWithSubView = offset == 0;
+    if (!replaceWithSubView) {
+      size_t numViews = 0;
+      for (OpOperand &use : alloc->getUses()) {
+        Operation *owner = use.getOwner();
+        if (auto view = dyn_cast<memref::ViewOp>(owner)) {
+          Value byteOffset =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
+
+          auto newView = rewriter.create<memref::ViewOp>(
+              loc, view.getType(), ldsByteBuffer, byteOffset,
+              view.getDynamicSizes());
+          // rewriter.replaceAllOpUsesWith(view, newView);
+          rewriter.replaceAllUsesWith(view->getResults(),
+                                      newView->getResults());
+          rewriter.eraseOp(view);
+          ++numViews;
+        } else {
+          llvm_unreachable("All uses should be views");
+        }
+      }
+      if (numViews > 0) {
+        rewriter.eraseOp(alloc);
+      } else {
+        replaceWithSubView = true;
+      }
+    }
+
+    if (replaceWithSubView) {
+      auto subView = rewriter.create<memref::SubViewOp>(
+          loc, ldsByteBuffer, ArrayRef<int64_t>{offset},
+          ArrayRef<int64_t>{numElements}, ArrayRef<int64_t>{1});
+      rewriter.replaceOp(alloc, subView);
+    }
+
     offset += numElements;
-    rewriter.replaceOp(alloc, subView);
     i++;
   }
 }
@@ -221,6 +270,10 @@ struct ThreadwiseWriteAllRewritePattern
     ArrayAttr transformMNToRaw = b.getArrayAttr(transformMNToRawAttrs);
 
     auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
+
+    // LDS barrier.
+    // This barrier is needed because we reuse A and B buffers
+    b.create<LDSBarrierOp>(loc);
 
     // Store C results to LDS.
     b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
@@ -363,12 +416,16 @@ struct ThreadwiseWriteAllRewritePattern
 void RockGemmOutputSwizzlePass::runOnOperation() {
   func::FuncOp func = getOperation();
 
+  // Only run this pass on GPU kernel functions.
+  if (!func->hasAttr("kernel"))
+    return;
+
   SmallVector<ThreadwiseWriteAllOp> writes;
   func.walk([&](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
-    // if ThreadwiseWriteAllOp is saving to LDS, skip this one
-    if (!hasWorkgroupMemoryAddressSpace(destMemRefType)) {
+    // keep ThreadwiseWriteAllOp that save to global memory
+    if (hasGlobalMemoryAddressSpace(destMemRefType)) {
       writes.push_back(threadwiseWriteAll);
     }
   });
@@ -391,5 +448,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
   // LDS allocations because they are no longer needed
   // Note: this is a temporary trick that will be solved here:
   // https://github.com/ROCm/rocMLIR-internal/issues/1487
-  reuseDeadLDS(func);
+  if (!writes.empty()) {
+    reuseDeadLDS(func);
+  }
 }
