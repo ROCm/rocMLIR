@@ -15,7 +15,7 @@
 // limitations under the License.
 // ============================================================
 //
-// This pass changes ThreadwiseWriteAllOp to swizzle on LDS before writing to 
+// This pass changes ThreadwiseWriteAllOp to swizzle on LDS before writing to
 // GPU memory
 //
 //===-----------------------------------------------------===//
@@ -26,22 +26,22 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir {
@@ -74,6 +74,80 @@ bool hasWorkgroupMemoryAddressSpace(MemRefType type) {
   return false;
 }
 
+// Function to create the schedule of the current set of stages
+void reuseDeadLDS(func::FuncOp &func) {
+  MLIRContext *ctx = func->getContext();
+  IRRewriter rewriter(ctx);
+
+  // Retrieve all GpuAlloc operations targeting LDS and
+  // calculate the total memory space required for all operations
+  // except the last one. Additionally, compute the memory space
+  // required by the last GpuAlloc operation.
+  SmallVector<GpuAllocOp> allocs;
+  int64_t totalSize = 0;
+  int64_t lastSize = 0;
+  func.walk([&](GpuAllocOp gpuAlloc) {
+    auto type = gpuAlloc.getOutput().getType();
+    auto memSpaceValue =
+        dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
+            .getValue();
+    if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+      lastSize = type.getNumElements() * getByteWidth(type.getElementType());
+      totalSize += lastSize;
+      allocs.push_back(gpuAlloc);
+    }
+  });
+  // There should be at least two LDS allocations
+  if (allocs.size() < 2) {
+    return;
+  }
+  LLVM_DEBUG(llvm::dbgs() << "number of GpuAllocOp ops to rewrite: "
+                          << allocs.size() << "\n");
+  int64_t deadSize = totalSize - lastSize;
+
+  // we assume the last GpuAllocOp can reuse previous
+  // LDS allocations because they are no longer needed
+
+  // New allocation
+  int64_t requiredMemory = std::max(deadSize, lastSize);
+  auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+      gpu::GPUDialect::getWorkgroupAddressSpace());
+  auto ldsMemRefBufferType =
+      MemRefType::get({requiredMemory}, rewriter.getI8Type(), AffineMap{},
+                      workgroupMemoryAddressSpace);
+
+  rewriter.setInsertionPoint(allocs[0]);
+  Location loc = allocs[0]->getLoc();
+  auto ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
+
+  // Rewrite all GpuAllocs as SubViewOp
+  int64_t offset = 0;
+  size_t i = 0;
+  for (GpuAllocOp alloc : allocs) {
+    auto bufferType = alloc.getOutput().getType();
+    auto numElements = bufferType.getNumElements();
+    auto elementBytes = getByteWidth(bufferType.getElementType());
+    auto rank = bufferType.getRank();
+    assert(elementBytes == 1 && "All GpuAllocOp should allocate bytes");
+    assert(rank == 1 && "Rank should be one");
+
+    rewriter.setInsertionPoint(alloc);
+    Location loc = alloc->getLoc();
+
+    if (i == allocs.size() - 1) {
+      offset = 0;
+    }
+    auto subView = rewriter.create<memref::SubViewOp>(
+        loc, bufferType, ldsByteBuffer,
+        ValueRange{rewriter.create<arith::ConstantIndexOp>(loc, offset)},
+        ValueRange{rewriter.create<arith::ConstantIndexOp>(loc, numElements)},
+        ValueRange{rewriter.create<arith::ConstantIndexOp>(loc, 1)});
+    offset += numElements;
+    rewriter.replaceOp(alloc, subView);
+    i++;
+  }
+}
+
 struct ThreadwiseWriteAllRewritePattern
     : public OpRewritePattern<ThreadwiseWriteAllOp> {
   using OpRewritePattern<ThreadwiseWriteAllOp>::OpRewritePattern;
@@ -94,13 +168,14 @@ struct ThreadwiseWriteAllRewritePattern
     dimensionsToRemove.insert("g_block");
     dimensionsToRemove.insert("m_block");
     dimensionsToRemove.insert("n_block");
-    FailureOr<ArrayAttr> maybeIdToLDS = removeUpperDims(b, srcTransform, dimensionsToRemove);
+    FailureOr<ArrayAttr> maybeIdToLDS =
+        removeUpperDims(b, srcTransform, dimensionsToRemove);
     if (failed(maybeIdToLDS)) {
       return failure();
     }
     ArrayAttr idToLDS = maybeIdToLDS.value();
 
-    // TODO: decide if we want to skip this pass 
+    // TODO: decide if we want to skip this pass
     // if writes are already coalesced and 128b
 
     // Obtain critical matrix dimensions.
@@ -111,7 +186,7 @@ struct ThreadwiseWriteAllRewritePattern
     int64_t N = cShape[2];
     FailureOr<IntegerAttr> maybeBlockSize = getBlockSize(op);
     if (failed(maybeBlockSize)) {
-        return failure();
+      return failure();
     }
     int64_t blockSize = maybeBlockSize.value().getValue().getSExtValue();
     int64_t mPerBlock = getLowerShape(idToLDS)[0];
@@ -120,7 +195,7 @@ struct ThreadwiseWriteAllRewritePattern
     int64_t nBlocks = N / nPerBlock;
     bool useIndexDiffs = true;
     bool forceUnroll = true;
-    
+
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
@@ -128,93 +203,87 @@ struct ThreadwiseWriteAllRewritePattern
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
     // Allocate LDS for output.
-    // TODO: reuse LDS memory
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getWorkgroupAddressSpace());
-    auto ldsMemRefOutputType =
-        MemRefType::get({mPerBlock*nPerBlock*getByteWidth(destType)}, b.getI8Type(), AffineMap{},
-                        workgroupMemoryAddressSpace);
+    auto ldsMemRefOutputType = MemRefType::get(
+        {mPerBlock * nPerBlock * getByteWidth(destType)}, b.getI8Type(),
+        AffineMap{}, workgroupMemoryAddressSpace);
     auto ldsBufferOutput = b.create<GpuAllocOp>(loc, ldsMemRefOutputType);
     auto typedBuffer = viewBufferAs(b, ldsBufferOutput, destType);
 
     // Convert from raw -> mPerBlock, nPerBlock
-    TopDownTMBuilder MNtoRaw(b, {"gemmM", "gemmN"},
-                            {mPerBlock, nPerBlock});
-    MNtoRaw.unmerge("flatten", 0, {"gemmM", "gemmN"},
-                        {mPerBlock, nPerBlock});
-    auto MNtoRawAttr = MNtoRaw.get();
+    TopDownTMBuilder mnToRaw(b, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
+    mnToRaw.unmerge("flatten", 0, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
+    auto mnToRawAttr = mnToRaw.get();
 
     SmallVector<Attribute> transformMNToRawAttrs;
-    transformMNToRawAttrs.push_back(MNtoRawAttr);
+    transformMNToRawAttrs.push_back(mnToRawAttr);
     ArrayAttr transformMNToRaw = b.getArrayAttr(transformMNToRawAttrs);
 
     auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
 
-    // Emit blockwise stores.
+    // Store C results to LDS.
     b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
-                                    /*extraViews=*/idToLDS,
-                                    /*extraIndices=*/ValueRange{tid},
-                                    op.getFeatures(), StoreMethod::Set,
-                                    /*forceUnroll=*/forceUnroll,
-                                    /*useIndexDiffs=*/useIndexDiffs);
+                                   /*extraViews=*/idToLDS,
+                                   /*extraIndices=*/ValueRange{tid},
+                                   op.getFeatures(), StoreMethod::Set,
+                                   /*forceUnroll=*/forceUnroll,
+                                   /*useIndexDiffs=*/useIndexDiffs);
 
     // Decide register vectorization.
     constexpr int64_t dimensionM = 1;
     constexpr int64_t dimensionN = 2;
     int64_t dataPerThread = (nPerBlock * mPerBlock) / blockSize;
-    VectorizationResult mVectorRes = getMaxVectorization(
-        matC, dimensionM, /*inputDimLen=*/
-        dataPerThread,
-        matC.getDefiningOp());
+    VectorizationResult mVectorRes =
+        getMaxVectorization(matC, dimensionM, /*inputDimLen=*/
+                            dataPerThread, matC.getDefiningOp());
     int64_t mVectorLen = mVectorRes.max;
-    VectorizationResult nVectorRes = getMaxVectorization(
-        matC, dimensionN, /*inputDimLen=*/
-        dataPerThread,
-        matC.getDefiningOp());
+    VectorizationResult nVectorRes =
+        getMaxVectorization(matC, dimensionN, /*inputDimLen=*/
+                            dataPerThread, matC.getDefiningOp());
     int64_t nVectorLen = nVectorRes.max;
 
     int64_t dim;
     if (mVectorLen > nVectorLen) {
-        dim = dimensionM;
+      dim = dimensionM;
     } else {
-        dim = dimensionN;
+      dim = dimensionN;
     }
-    
-    // Load from LDS.
+
+    // Load from LDS to registers.
     int64_t elementsWrittenPerThread = 128 / destType.getIntOrFloatBitWidth();
     int64_t iter = dataPerThread / elementsWrittenPerThread;
-    Value finalC = gpuAlloc(b, loc, dataPerThread, destType,
-                                AddressSpace::Private);
-    
+    Value finalC =
+        gpuAlloc(b, loc, dataPerThread, destType, AddressSpace::Private);
+
     TopDownTMBuilder tidIterMerge(b, {"tid", "iter"},
-                            {blockSize, dataPerThread});
+                                  {blockSize, dataPerThread});
     SmallVector<StringRef, 5> throughDims{"tid"};
     tidIterMerge.passThrough(throughDims);
-    tidIterMerge.merge(
-        {"iter", "numElements"}, {1, 2}, "iter",
-        {iter, elementsWrittenPerThread});
+    tidIterMerge.merge({"iter", "numElements"}, {1, 2}, "iter",
+                       {iter, elementsWrittenPerThread});
     auto tidIterMergeAttr = tidIterMerge.get();
 
-    auto tidIterFlatten = TopDownTMBuilder::below(tidIterMerge, tidIterMergeAttr);
+    auto tidIterFlatten =
+        TopDownTMBuilder::below(tidIterMerge, tidIterMergeAttr);
     tidIterFlatten.unmerge("flattenBlock", 0, {"iter", "tid", "numElements"},
-                        {iter, blockSize, elementsWrittenPerThread});
+                           {iter, blockSize, elementsWrittenPerThread});
     auto tidIterFlattenAttr = tidIterFlatten.get();
 
-    auto flattenToLDS = TopDownTMBuilder::below(tidIterFlatten, tidIterFlattenAttr);
-    if(dim == dimensionN) {
-        flattenToLDS.merge(
-            {"gemmM", "gemmN"}, {0, 1}, "flattenBlock",
-            {mPerBlock, nPerBlock});
+    auto flattenToLDS =
+        TopDownTMBuilder::below(tidIterFlatten, tidIterFlattenAttr);
+    if (dim == dimensionN) {
+      flattenToLDS.merge({"gemmM", "gemmN"}, {0, 1}, "flattenBlock",
+                         {mPerBlock, nPerBlock});
     } else {
-        flattenToLDS.merge(
-            {"gemmN", "gemmM"}, {0, 1}, "flattenBlock",
-            {nPerBlock, mPerBlock});
+      flattenToLDS.merge({"gemmN", "gemmM"}, {0, 1}, "flattenBlock",
+                         {nPerBlock, mPerBlock});
     }
     auto flattenToLDSAttr = flattenToLDS.get();
 
     auto flattenAgain = TopDownTMBuilder::below(flattenToLDS, flattenToLDSAttr);
     flattenAgain.unmerge("flatten", 0, {"gemmM", "gemmN"},
-                        {mPerBlock, nPerBlock});
+                         {mPerBlock, nPerBlock});
     auto flattenAgainAttr = flattenAgain.get();
 
     SmallVector<Attribute> transformAttrs;
@@ -222,66 +291,67 @@ struct ThreadwiseWriteAllRewritePattern
     transformAttrs.push_back(tidIterFlattenAttr);
     transformAttrs.push_back(flattenToLDSAttr);
     transformAttrs.push_back(flattenAgainAttr);
-    
+
     ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
     auto ldsBufferForLoad = transform(b, typedBuffer, ldsRead);
 
     // LDS barrier.
     b.create<LDSBarrierOp>(loc);
-    
-    b.create<ThreadwiseReadIntoOp>(
-        loc, ldsBufferForLoad, finalC, b.getArrayAttr({}),
-        ValueRange{tid}, forceUnroll, useIndexDiffs);
+
+    b.create<ThreadwiseReadIntoOp>(loc, ldsBufferForLoad, finalC,
+                                   b.getArrayAttr({}), ValueRange{tid},
+                                   forceUnroll, useIndexDiffs);
 
     // Save to memory
     // Create views as gridwise sub-tile of C
-    TopDownTMBuilder tidIterMerge2(
+    TopDownTMBuilder tidIterMergeMem(
         b, {"g_block", "m_block", "n_block", "tid", "iter"},
         {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
-        dataPerThread},
+         dataPerThread},
         loc);
-    tidIterMerge2.passThrough({"g_block", "m_block", "n_block", "tid"});
-    tidIterMerge2.merge(
-        {"iter", "numElements"}, {4, 5}, "iter",
-        {iter, elementsWrittenPerThread});
-    auto tidIterMerge2Attr = tidIterMerge2.get();
+    tidIterMergeMem.passThrough({"g_block", "m_block", "n_block", "tid"});
+    tidIterMergeMem.merge({"iter", "numElements"}, {4, 5}, "iter",
+                          {iter, elementsWrittenPerThread});
+    auto tidIterMergeMemAttr = tidIterMergeMem.get();
 
-    TopDownTMBuilder tidIterFlatten2 = TopDownTMBuilder::below(tidIterMerge2, tidIterMerge2Attr);
-    tidIterFlatten2.passThrough({"g_block", "m_block", "n_block"});
-    tidIterFlatten2.unmerge("flattenBlock", 3, {"iter", "tid", "numElements"},
-                        {iter, blockSize, elementsWrittenPerThread});
-    auto tidIterFlatten2Attr = tidIterFlatten2.get();
-                        
-    auto flattenToBlockCoord = TopDownTMBuilder::below(tidIterFlatten2, tidIterFlatten2Attr);
+    TopDownTMBuilder tidIterFlattenMem =
+        TopDownTMBuilder::below(tidIterMergeMem, tidIterMergeMemAttr);
+    tidIterFlattenMem.passThrough({"g_block", "m_block", "n_block"});
+    tidIterFlattenMem.unmerge("flattenBlock", 3, {"iter", "tid", "numElements"},
+                              {iter, blockSize, elementsWrittenPerThread});
+    auto tidIterFlattenMemAttr = tidIterFlattenMem.get();
+
+    auto flattenToBlockCoord =
+        TopDownTMBuilder::below(tidIterFlattenMem, tidIterFlattenMemAttr);
     flattenToBlockCoord.passThrough({"g_block", "m_block", "n_block"});
-    if(dim == dimensionN) {
-        flattenToBlockCoord.merge(
-            {"block_m", "block_n"}, {3, 4}, "flattenBlock",
-            {mPerBlock, nPerBlock});
+    if (dim == dimensionN) {
+      flattenToBlockCoord.merge({"block_m", "block_n"}, {3, 4}, "flattenBlock",
+                                {mPerBlock, nPerBlock});
     } else {
-        flattenToBlockCoord.merge(
-            {"block_n", "block_m"}, {3, 4}, "flattenBlock",
-            {nPerBlock, mPerBlock});
+      flattenToBlockCoord.merge({"block_n", "block_m"}, {3, 4}, "flattenBlock",
+                                {nPerBlock, mPerBlock});
     }
     TransformMapAttr flattenToBlockCoordAttr = flattenToBlockCoord.get();
 
-    auto toMatrixC = TopDownTMBuilder::below(flattenToBlockCoord, flattenToBlockCoordAttr);
+    auto toMatrixC =
+        TopDownTMBuilder::below(flattenToBlockCoord, flattenToBlockCoordAttr);
     toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
-    toMatrixC.unmerge("gemmM", 1, {"m_block", "block_m"}, {bidGridLengths[1], mPerBlock});
-    toMatrixC.unmerge("gemmN", 2, {"n_block", "block_n"}, {bidGridLengths[2], nPerBlock});
+    toMatrixC.unmerge("gemmM", 1, {"m_block", "block_m"},
+                      {bidGridLengths[1], mPerBlock});
+    toMatrixC.unmerge("gemmN", 2, {"n_block", "block_n"},
+                      {bidGridLengths[2], nPerBlock});
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
-    SmallVector<Attribute> transformAttrsStore{tidIterMerge2Attr,
-                                        tidIterFlatten2Attr,
-                                        flattenToBlockCoordAttr,
-                                        toMatrixCAttr};
+    SmallVector<Attribute> transformAttrsStore{
+        tidIterMergeMemAttr, tidIterFlattenMemAttr, flattenToBlockCoordAttr,
+        toMatrixCAttr};
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrsStore);
 
-    b.create<ThreadwiseWriteAllOp>(
-        loc, finalC, matC, idToMatrixCMaps,
-        /*extraIndices=*/
-        extraIndices,
-        op.getFeatures(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
+    b.create<ThreadwiseWriteAllOp>(loc, finalC, matC, idToMatrixCMaps,
+                                   /*extraIndices=*/
+                                   extraIndices, op.getFeatures(),
+                                   op.getStoreMethod(), forceUnroll,
+                                   useIndexDiffs);
 
     b.eraseOp(op);
     return success();
@@ -293,29 +363,33 @@ struct ThreadwiseWriteAllRewritePattern
 void RockGemmOutputSwizzlePass::runOnOperation() {
   func::FuncOp func = getOperation();
 
-    SmallVector<ThreadwiseWriteAllOp> writes;
-    func.walk([&](ThreadwiseWriteAllOp threadwiseWriteAll) {
-        MemRefType destMemRefType = cast<MemRefType>(threadwiseWriteAll.getDest().getType());
-        // if ThreadwiseWriteAllOp is saving to LDS, skip this one
-        if(!hasWorkgroupMemoryAddressSpace(destMemRefType)) {
-            writes.push_back(threadwiseWriteAll);
-        }
-    });
-    LLVM_DEBUG(llvm::dbgs() << "number of ThreadwiseWriteAllOp ops to rewrite: " << writes.size() << "\n");
-
-    // Rewrite 
-    RewritePatternSet patterns(&getContext());
-    patterns.add<ThreadwiseWriteAllRewritePattern>(
-        &getContext());
-    
-    GreedyRewriteConfig config;
-    config.strictMode = GreedyRewriteStrictness::ExistingOps;
-    for (Operation *op : writes) {
-        if(failed(applyOpPatternsAndFold(op, std::move(patterns), config))) {
-            return signalPassFailure();
-        }
+  SmallVector<ThreadwiseWriteAllOp> writes;
+  func.walk([&](ThreadwiseWriteAllOp threadwiseWriteAll) {
+    MemRefType destMemRefType =
+        cast<MemRefType>(threadwiseWriteAll.getDest().getType());
+    // if ThreadwiseWriteAllOp is saving to LDS, skip this one
+    if (!hasWorkgroupMemoryAddressSpace(destMemRefType)) {
+      writes.push_back(threadwiseWriteAll);
     }
+  });
+  LLVM_DEBUG(llvm::dbgs() << "number of ThreadwiseWriteAllOp ops to rewrite: "
+                          << writes.size() << "\n");
 
-    // TODO: ADD LDS CODE HERE
-    // TODO: ADD COMMENT IT'S TEMPORARY 
+  // Rewrite
+  RewritePatternSet patterns(&getContext());
+  patterns.add<ThreadwiseWriteAllRewritePattern>(&getContext());
+
+  GreedyRewriteConfig config;
+  config.strictMode = GreedyRewriteStrictness::ExistingOps;
+  for (Operation *op : writes) {
+    if (failed(applyOpPatternsAndFold(op, std::move(patterns), config))) {
+      return signalPassFailure();
+    }
+  }
+
+  // Reuse LDS, we assume the last GpuAllocOp can reuse previous
+  // LDS allocations because they are no longer needed
+  // Note: this is a temporary trick that will be solved here:
+  // https://github.com/ROCm/rocMLIR-internal/issues/1487
+  reuseDeadLDS(func);
 }

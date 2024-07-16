@@ -132,9 +132,4 @@ def RockGemmOutputSwizzlePass : Pass<"rock-gemm-output-swizzle", "::mlir::func::
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect", "linalg::LinalgDialect", "scf::SCFDialect"];
 }
 
-def RockGemmReuseDeadLDSPass : Pass<"rock-reuse-dead-lds", "::mlir::func::FuncOp"> {
-  let summary = "This pass changes GPUAllocOp to reuse LDS memory of previous allocations which are assumed dead";
-  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect", "linalg::LinalgDialect", "scf::SCFDialect"];
-}
-
 #endif // MLIR_DIALECT_ROCK_PASSES
