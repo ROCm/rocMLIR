@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -131,12 +132,26 @@ struct ThreadwiseWriteAllRewritePattern
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getWorkgroupAddressSpace());
     auto ldsMemRefOutputType =
-        MemRefType::get({mPerBlock, nPerBlock}, destType, AffineMap{},
+        MemRefType::get({mPerBlock*nPerBlock*getByteWidth(destType)}, b.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
     auto ldsBufferOutput = b.create<GpuAllocOp>(loc, ldsMemRefOutputType);
+    auto typedBuffer = viewBufferAs(b, ldsBufferOutput, destType);
+
+    // Convert from raw -> mPerBlock, nPerBlock
+    TopDownTMBuilder MNtoRaw(b, {"gemmM", "gemmN"},
+                            {mPerBlock, nPerBlock});
+    MNtoRaw.unmerge("flatten", 0, {"gemmM", "gemmN"},
+                        {mPerBlock, nPerBlock});
+    auto MNtoRawAttr = MNtoRaw.get();
+
+    SmallVector<Attribute> transformMNToRawAttrs;
+    transformMNToRawAttrs.push_back(MNtoRawAttr);
+    ArrayAttr transformMNToRaw = b.getArrayAttr(transformMNToRawAttrs);
+
+    auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
 
     // Emit blockwise stores.
-    b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferOutput,
+    b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
                                     /*extraViews=*/idToLDS,
                                     /*extraIndices=*/ValueRange{tid},
                                     op.getFeatures(), StoreMethod::Set,
@@ -193,23 +208,23 @@ struct ThreadwiseWriteAllRewritePattern
     } else {
         flattenToLDS.merge(
             {"gemmN", "gemmM"}, {0, 1}, "flattenBlock",
-            {mPerBlock, nPerBlock});
+            {nPerBlock, mPerBlock});
     }
     auto flattenToLDSAttr = flattenToLDS.get();
+
+    auto flattenAgain = TopDownTMBuilder::below(flattenToLDS, flattenToLDSAttr);
+    flattenAgain.unmerge("flatten", 0, {"gemmM", "gemmN"},
+                        {mPerBlock, nPerBlock});
+    auto flattenAgainAttr = flattenAgain.get();
 
     SmallVector<Attribute> transformAttrs;
     transformAttrs.push_back(tidIterMergeAttr);
     transformAttrs.push_back(tidIterFlattenAttr);
     transformAttrs.push_back(flattenToLDSAttr);
-    if(dim == dimensionM) {
-        auto switchMandN = TopDownTMBuilder::below(flattenToLDS, flattenToLDSAttr);
-        switchMandN.passThrough({0, 1}, {1, 0});
-        auto switchMandNAttr = switchMandN.get();
-        transformAttrs.push_back(switchMandNAttr);
-    }
+    transformAttrs.push_back(flattenAgainAttr);
     
     ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
-    auto ldsBufferForLoad = transform(b, ldsBufferOutput, ldsRead);
+    auto ldsBufferForLoad = transform(b, typedBuffer, ldsRead);
 
     // LDS barrier.
     b.create<LDSBarrierOp>(loc);
@@ -300,4 +315,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
             return signalPassFailure();
         }
     }
+
+    // TODO: ADD LDS CODE HERE
+    // TODO: ADD COMMENT IT'S TEMPORARY 
 }

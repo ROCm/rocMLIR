@@ -24,6 +24,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   RockPrepareLLVM.cpp
   VectorizeFusions.cpp
   GemmOutputSwizzle.cpp
+  GemmReuseDeadLDS.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
