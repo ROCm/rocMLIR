@@ -338,7 +338,7 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
 LogicalResult
 PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
                                        const InitParamsAccel &params) {
-  return specificCouldBePerformant(params, info.gemmAType, info.gemmBType);
+  return specificCouldBePerformant(params, info);
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
