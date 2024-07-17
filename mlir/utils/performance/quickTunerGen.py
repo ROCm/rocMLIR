@@ -486,77 +486,8 @@ def orderByType(input_file: str, normalize=False):
     result = {dtype: group.drop(['DataType'], axis=1) for dtype, group in perf_configs.groupby('DataType')}
 
     return result
-        
-
-def orderByType2(input_file: str, normalize=False):
-    """
-    return a dictionary keyed by datatype with values of an ordered dataframe
-    of the input_fileectory
-    """
-    df_dir = {}
-
-    for root, dirs, files in os.walk(input_file):
-        for file in files:
-            file_path = os.path.join(root, file)
-            root_name = os.path.basename(root)
-
-            parts = file.split('__')
-            prefix = parts[0]
-            header = parts[1].split('_')
-
-            t1 = prefix.split('-')[0].split('_')[0]
-
-            data = pd.read_csv(file_path,
-                               delim_whitespace=True,
-                               header=None,
-                               names=['perf_config', 'performance'],
-                               comment='#')
-
-            data['perf_config'] = data['perf_config'].str.split(':').str[1]
-            
-            tile_params = data['perf_config'].str.split(',', expand=True).astype(int)
-            
-            tile_params.columns             = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']#= ['param1', 'param2', 'param3', 'param4', 'param5', 'param6', 'param7', 'param8', 'param9']
-
-
-            tile_params = tile_params.drop(['param8','param9'], axis=1)            
-            
-            tile_params['performance'] = data['performance']
-
-            tile_params.replace('N/A', np.nan, inplace=True)
-
-
-            if normalize:
-                scaler = MinMaxScaler()
-                tile_params['performance'] = scaler.fit_transform(tile_params[['performance']])
-            
-
-            if t1 not in df_dir:
-                df_dir[t1] = [tile_params]
-            else:
-                df_dir[t1].append(tile_params)
-
-    for k,v in df_dir.items():
-        df_dir[k] = pd.concat(df_dir[k], ignore_index=True)
-
-    return df_dir
 
 def orderByGemmType(input_file: str, normalize=True):
-
-    #tsv_files = glob.glob(f"{input_file}/*.debug")
-
-    #dfs = []
-
-    #fx = lambda x: x == 'True'
-
-    #for file in tsv_files:        
-    #    df = pd.read_csv(file, sep='\t')
-    #    if normalize:
-    #        scaler = MinMaxScaler()
-    #        df['TFlops'] = scaler.fit_transform(df[['TFlops']])
-    #    dfs.append(df)
-
-    #final_df = pd.concat(dfs, ignore_index=True)
 
     final_df = input_file
     
@@ -572,18 +503,6 @@ def orderByGemmType(input_file: str, normalize=True):
 
     perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
 
-    #perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
-
-    #perf_configs.columns = perf_config_cols
-
-    #perf_configs.drop(['param8', 'param9'], axis=1, inplace=True)
-
-    #final_df.drop(['PerfConfig'], axis=1, inplace=True)
-
-    #final_df = final_df.join(perf_configs)
-
-    #final_df = final_df.rename(columns={'TFlops': 'performance'})
-
     perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
 
     perf_configs.columns = perf_config_cols
@@ -597,64 +516,11 @@ def orderByGemmType(input_file: str, normalize=True):
     grouped = {dtype[0]: df.drop('DataType', axis=1) for dtype, df in perf_configs.groupby(['DataType'])}
 
     for k in grouped:
-        # group by the gemm
         group = {cols: df.drop(target_cols, axis=1) for cols, df in grouped[k].groupby(target_cols)}
         grouped[k] = group
         
-    #for k in ordered_by_gemm:
-    #    print(k)
     return grouped
     
-
-def orderByGemmType2(input_file: str, normalize=True):
-    """
-    return a dictionary keyed by datatype with values of an ordered dataframe
-    of the input_fileectory
-    """
-    df_dir = {}
-
-    for root, dirs, files in os.walk(input_file):
-        for file in files:
-            file_path = os.path.join(root, file)
-            root_name = os.path.basename(root)
-
-            #print(file_path)
-
-            parts = file.split('__')
-            prefix = parts[0]
-            header = parts[1].split('_')
-
-            # only keep f32_f32, f16_f16, i8_f32
-            t1 = prefix.split('-')[0].split('_')[0]
-
-            data = pd.read_csv(file_path,
-                               delim_whitespace=True,
-                               header=None,
-                               names=['perf_config', 'performance'],
-                               comment='#')
-
-            data['perf_config'] = data['perf_config'].str.split(':').str[1]
-            
-            tile_params = data['perf_config'].str.split(',', expand=True).astype(int)
-            
-            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']#= ['param1', 'param2', 'param3', 'param4', 'param5', 'param6', 'param7', 'param8', 'param9']
-
-
-            tile_params = tile_params.drop(['param8','param9'], axis=1)            
-            
-            tile_params['performance'] = data['performance']
-
-            tile_params.replace('N/A', np.nan, inplace=True)
-
-            if normalize:
-                scaler = MinMaxScaler()
-                tile_params['performance'] = scaler.fit_transform(tile_params[['performance']])
-
-            if t1 not in df_dir:
-                df_dir[t1] = {}
-            df_dir[t1][root_name] = tile_params
-
-    return df_dir
 
 def convertToConfig(type_df, filename, suffix=".qt", debug=False):
     """
@@ -678,7 +544,7 @@ def convertToConfig(type_df, filename, suffix=".qt", debug=False):
 Default tuner method
 """
 
-class defaultQuickTune(quickTunerMethod):
+class hardcodeQuickTune(quickTunerMethod):
     """
     Default quick tune method, uses preset values for the config file
     """
@@ -1007,7 +873,7 @@ class topGemmCluster(quickTunerMethod):
         self.config = data_dict
         return self.config
 
-class analyzeDataSelect(quickTunerMethod):
+class defaultQuickTune(quickTunerMethod):
     """ 
     take entire set and aggregate the repeats, averaging them out/ weighing them more heavily
     """
@@ -1049,14 +915,9 @@ class analyzeDataSelect(quickTunerMethod):
         group.drop(max_index, inplace=True)
         return perf_config
 
-    def __analyzeData(self, data_path, avrg_tfops_per_datatype):
+    def __analyzeData(self, combined_df, avrg_tfops_per_datatype):
         tsv_files = pd.DataFrame()
-        tsv_files = glob.glob(f"{data_path}/*.debug", recursive=True)
-        dfs = []
-        for file in tsv_files:
-            df = pd.read_csv(file, sep='\t')
-            dfs.append(df)
-        final_df = pd.concat(dfs, ignore_index=True)
+        final_df = combined_df
         unique_data_types = final_df['DataType'].unique()
         # Iterate through unique data type
         results = {}
@@ -1088,13 +949,8 @@ class analyzeDataSelect(quickTunerMethod):
                 results[data_type] = win_counts
         return results
 
-    def __averagePerformance(self, data_path):
-        tsv_files = glob.glob(f"{data_path}/*.debug")
-        dfs = []
-        for file in tsv_files:
-            df = pd.read_csv(file, sep='\t')
-            dfs.append(df)
-        final_df = pd.concat(dfs, ignore_index=True)
+    def __averagePerformance(self, combined_df):
+        final_df = combined_df
         unique_data_types = final_df['DataType'].unique()
         result = {}
         # Iterating through unique data types
@@ -1112,14 +968,13 @@ class analyzeDataSelect(quickTunerMethod):
                 not_nan_counts[perfconfig] = not_nan_count
                 mean_tflops[perfconfig] = group_df['TFlops'].mean()
             sorted_counts = sorted(not_nan_counts.items(), key=lambda x: x[1], reverse=True)
-            # Filtering configurations that can be applied on all problems
             top_perfconfigs = {perfconfig: mean_tflops[perfconfig] for perfconfig, count in sorted_counts if count == problems_count}
             result[data_type] = top_perfconfigs
         return result
 
     def getConfig(self, combined_df):
-        avrg_tfops_per_datatype = self.__averagePerformance(input_file)
-        counted_win = self.__analyzeData(input_file, avrg_tfops_per_datatype)
+        avrg_tfops_per_datatype = self.__averagePerformance(combined_df)
+        counted_win = self.__analyzeData(combined_df, avrg_tfops_per_datatype)
         self.__add_average_tflops(counted_win,avrg_tfops_per_datatype)
         sorted_data = {}
         for datatype, configs in counted_win.items():
@@ -1142,14 +997,12 @@ class fairSelect(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-
     def __get_top_90_percent(self, df):
         df_sorted = df.sort_values(by='performance', ascending=False)
-        #top_90_percent_count = int(0.9 * len(df_sorted))
         return df_sorted[df_sorted['performance'] >= 0.95]
 
     def __combine_datasets(self, dfs):
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']#, 'param8', 'param9']
+        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
         combined_df = pd.concat(dfs).sort_values(by='performance', ascending=False)
         combined_df = combined_df.drop_duplicates(subset=cols, keep='first')
         return combined_df
@@ -1174,7 +1027,7 @@ class fairSelect(quickTunerMethod):
         return feature_dict, count_dict, max_label_dict, df_dict
 
     def __balance_datasets(self, combined_df, original_dfs):
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']#, 'param8', 'param9']
+        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
         selected_features = set()
         balanced_dataset = []
 
