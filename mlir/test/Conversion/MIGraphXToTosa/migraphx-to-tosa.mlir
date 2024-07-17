@@ -22,12 +22,12 @@ module  {
 // CHECK-LABEL: @convNHWC
 // CHECK-SAME: ([[arg0:%.+]]: tensor<100xf32>, [[arg1:%.+]]: tensor<252xf32>) -> tensor<63xf32>
 func.func @convNHWC(%in: !migraphx.shaped<1x4x5x5xf32, 100x1x20x4>, %fil: !migraphx.shaped<7x4x3x3xf32, 36x1x12x4>) -> !migraphx.shaped<1x7x3x3xf32, 63x1x21x7> {
-  // CHECK: [[arg0Exp:%.+]] = tosa.reshape [[arg0]]
-  // CHECK-SAME: (tensor<100xf32>) -> tensor<1x5x5x4xf32>
-  // CHECK: [[arg0Tr1:%.+]] = tosa.transpose [[arg0Exp]]
   // CHECK: [[arg1Exp:%.+]] = tosa.reshape [[arg1]]
   // CHECK-SAME: (tensor<252xf32>) -> tensor<7x3x3x4xf32>
   // CHECK: [[arg1Tr1:%.+]] = tosa.transpose [[arg1Exp]]
+  // CHECK: [[arg0Exp:%.+]] = tosa.reshape [[arg0]]
+  // CHECK-SAME: (tensor<100xf32>) -> tensor<1x5x5x4xf32>
+  // CHECK: [[arg0Tr1:%.+]] = tosa.transpose [[arg0Exp]]
   // CHECK: [[arg0Tr2:%.+]] = tosa.transpose [[arg0Tr1]]
   // CHECK: [[arg1Tr2:%.+]] = tosa.transpose [[arg1Tr1]]
   // CHECK: [[conv:%.+]] = tosa.conv2d
@@ -61,10 +61,10 @@ func.func @transposed(%arg0: !migraphx.shaped<4x3xf32, 1x4>) -> !migraphx.shaped
 
 // CHECK-LABEL: @broadcast
 // CHECK-SAME: ([[arg0:%.+]]: tensor<4xf32>, [[arg1:%.+]]: tensor<12xf32>) -> tensor<12xf32>
+// CHECK: [[arg1Exp:%.+]] = tosa.reshape [[arg1]] {new_shape = array<i64: 4, 3>}
 // CHECK: [[arg0Exp:%.+]] = tosa.reshape [[arg0]] {new_shape = array<i64: 4, 1>}
 // CHECK: [[zero:%.+]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<4x3xf32>}>
 // CHECK: [[broadcast:%.+]] = tosa.add [[zero]], [[arg0Exp]]
-// CHECK: [[arg1Exp:%.+]] = tosa.reshape [[arg1]] {new_shape = array<i64: 4, 3>}
 // CHECK: [[op:%.+]] = tosa.sub [[broadcast]], [[arg1Exp]]
 // CHECK: [[opFlat:%.+]] = tosa.reshape [[op]] {new_shape = array<i64: 12>}
 // CHECK: return [[opFlat]]
@@ -75,9 +75,9 @@ func.func @broadcast(%arg0: !migraphx.shaped<4x3xf32, 1x0>, %arg1: !migraphx.sha
 
 // CHECK-LABEL: @sliced
 // CHECK-SAME: ([[arg0:%.+]]: tensor<20xf32>, [[arg1:%.+]]: tensor<12xf32>) -> tensor<12xf32>
+// CHECK: [[arg1Exp:%.+]] = tosa.reshape [[arg1]] {new_shape = array<i64: 4, 3>}
 // CHECK: [[arg0Exp:%.+]] = tosa.reshape [[arg0]] {new_shape = array<i64: 4, 5>}
 // CHECK: [[sliced:%.+]] = tosa.slice [[arg0Exp]] {size = array<i64: 4, 3>, start = array<i64: 0, 0>}
-// CHECK: [[arg1Exp:%.+]] = tosa.reshape [[arg1]] {new_shape = array<i64: 4, 3>}
 // CHECK: [[op:%.+]] = tosa.sub [[sliced]], [[arg1Exp]]
 // CHECK: [[opFlat:%.+]] = tosa.reshape [[op]] {new_shape = array<i64: 12>}
 // CHECK: return [[opFlat]]
@@ -88,13 +88,13 @@ func.func @sliced(%arg0: !migraphx.shaped<4x3xf32, 5x1>, %arg1: !migraphx.shaped
 
 // CHECK-LABEL: @everything
 // CHECK-SAME: ([[arg0:%.+]]: tensor<30xf32>, [[arg1:%.+]]: tensor<60xf32>) -> tensor<60xf32>
+// CHECK: [[arg1Exp:%.+]] = tosa.reshape [[arg1]] {new_shape = array<i64: 4, 3, 5>}
 // CHECK: [[arg0Exp:%.+]] = tosa.reshape [[arg0]] {new_shape = array<i64: 5, 6, 1>}
 // CHECK: [[perm:%.+]] = "tosa.const"() <{value = dense<[1, 2, 0]> : tensor<3xi64>}>
 // CHECK: [[transposed:%.+]] = tosa.transpose [[arg0Exp]], [[perm]]
 // CHECK: [[sliced:%.+]] = tosa.slice [[transposed]] {size = array<i64: 4, 1, 5>, start = array<i64: 0, 0, 0>}
 // CHECK: [[zero:%.+]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<4x3x5xf32>}>
 // CHECK: [[broadcast:%.+]] = tosa.add [[zero]], [[sliced]]
-// CHECK: [[arg1Exp:%.+]] = tosa.reshape [[arg1]] {new_shape = array<i64: 4, 3, 5>}
 // CHECK: [[op:%.+]] = tosa.sub [[broadcast]], [[arg1Exp]]
 // CHECK: [[opFlat:%.+]] = tosa.reshape [[op]] {new_shape = array<i64: 60>}
 // CHECK: return [[opFlat]]
