@@ -212,7 +212,7 @@ class quickTuner(object):
     """
     def __init__(self, pargs):
         self.methods = {}
-        self.input_dir = pargs.input_dir
+        self.input_dir = pargs.input_file
         self.__parseValidationArgs(pargs)
 
     def __parseValidationArgs(self, pargs):
@@ -229,7 +229,7 @@ class quickTuner(object):
 
         if pargs.validate == 'data':
             # init validator
-            self.validator = dataValidator(pargs.input_dir,**kwargs)
+            self.validator = dataValidator(pargs.input_file,**kwargs)
         else:
             self.validator = None               
         
