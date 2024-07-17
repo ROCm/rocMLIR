@@ -3,9 +3,16 @@
 """
 quickTuner script to generate quick tuner perf configs. Uses single input file from quickTunerPreproc.py
 as input.
+Needs the input to be a combined normalized dataframe (default from quickTunerPreproc.py)
 
+Usage: clusterConfigs.py [-h] --input-file INPUT_FILE [--method {default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} [{default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} ...]] [--save] [--debug]
 
+Example Usage:
 
+python3 quickTunerGen.py --input-file TESTFILE.out --method fairSelect --save --debug
+
+Will read TESTFILE.out then generate a quick tune list for each datatype in TESTFILE.out. Will
+both print these lists and save them to METHODNAME.DTYPE.qt.
 """
 
 import os
@@ -121,7 +128,7 @@ class quickTuner(object):
         """
         self.input_file = pargs.input_file
         self.combined_df = pd.read_csv(self.input_file, sep='\t')
-        self.__parseValidationArgs(pargs)
+        #self.__parseValidationArgs(pargs) uneeded
         self.__parseMethods(pargs)
 
     def __parseMethods(self, pargs):
@@ -155,6 +162,7 @@ class quickTuner(object):
             else:
                 raise ValueError(f"Argument {item} is not a valid key=value pair")
 
+        # leftovers from pargs.validate
         #if pargs.validate and pargs.validate == 'data':
         # init validator
         #    self.validator = dataValidator(pargs.input_file,**kwargs)
@@ -178,7 +186,7 @@ class quickTuner(object):
                 df = method.getConfig(self.combined_df.copy())
                 self.method_results[k] = df
 
-    """        
+    """        moved to quickTunerStat.py
     def validate(self):
         #Validate on either a dataset or by running rocmlir-tuning-gen
         if self.validator is None:
@@ -208,13 +216,23 @@ class quickTuner(object):
         print(self.output_df)
     """
     
-    def saveConfigs(self):
+    def saveConfigs(self, debug=False):
         """
         Iterate through methods and save to each file
         """
         for k in self.methods:
             method = self.methods[k]
             method.saveQt()
+
+    def printConfigs(self):
+        """
+        Print method's data
+        """
+        if not self.method_results:
+            raise ValueError("Method results not generated")
+        for k in self.method_results:
+            for dtype in self.method_results[k]:
+                print(f"dtype: {dtype}\n{self.method_results[k][dtype]}\n")
 
     def saveBest(self):
         """
@@ -257,7 +275,6 @@ def orderDict(type_dict: dict):
 
     for k,v in type_dict.items():
         df = type_dict[k]
-        #df = df.dropna(how='any')
 
         type_dict[k] = df.sort_values(by=['performance'], ascending=False, ignore_index=True)
         
@@ -312,6 +329,7 @@ def readDirCluster(input_file: str, clustered_dfs):
     Given an input directory and the cluster dataframe,
     read the cluster's by datatype into a dataframe, order
     the data and take some portion of the maxes
+    Change for combined_df
     """
     label_dict = {}
     for label, cluster_df in clustered_dfs.items():
@@ -325,13 +343,9 @@ def readDirCluster(input_file: str, clustered_dfs):
             transA = "true" if row['transA'] == 1 else 'false'
             transB = "true" if row['transB'] == 1 else 'false'
 
-            # glob for the files
-            #glob_str = f"*/*-{transA}_{transB}__g{g}_m{m}_n{n}_k{k}"
             dir_str = f"g{g}_m{m}_n{n}_k{k}"
-            #glob_path = os.path.join(input_file, glob_str)
             dir_path = os.path.join(input_file, dir_str)        
             
-            #for file in glob.glob(glob_path):
             for root, _, files in os.walk(dir_path):
                 for file in files:
 
@@ -406,65 +420,9 @@ def parseDir2(input_file: str, normalize=True):
     return group_df
 
 
-def parseDir2(input_file: str):
-    """
-    parse directory and make dataframe from the Gemm configs
-    """
+def orderByType(combined_df: str, normalize=False):
 
-    df_dir = {}
-
-    for root, dirs, files in os.walk(input_file):
-        for file in files:
-            file_path = os.path.join(root, file)
-            root_name = os.path.basename(root)
-
-            parts = file.split('__')
-            prefix = parts[0]
-            header = parts[1].split('_')
-
-            g, m, n, k = map(lambda x: int(x[1:]), header)
-
-            t1_t2, transAB = prefix.split('-')
-
-            t1, t2 = t1_t2.split('_')
-            transA, transB = transAB.split('_')
-
-            data = {}
-
-            data['g'] = g
-            data['m'] = m
-            data['n'] = n
-            data['k'] = k
-
-            data['transA'] = 1 if transA.lower()  == 'true' else 0
-            data['transB'] = 1 if transB.lower() == 'true' else 0
-
-            #print(data)
-            
-            if t1 not in df_dir:
-                df_dir[t1] = []                
-            df_dir[t1].append(data)
-
-    for k,v in df_dir.items():
-        return pd.DataFrame(df_dir[k])
-
-
-def orderByType(input_file: str, normalize=False):
-    df_dir = {}
-
-    # glob the files
-    tsv_files = glob.glob(f"{input_file}/*.debug")
-
-    dfs = []
-
-    for file in tsv_files:
-        df = pd.read_csv(file, sep='\t')
-        if normalize:
-            scaler = MinMaxScaler()
-            df['TFlops'] = scaler.fit_transform(df[['TFlops']])
-        dfs.append(df)
-
-    final_df = pd.concat(dfs, ignore_index=True)
+    final_df = combined_df
     unique_data_types = final_df['DataType'].unique()
 
     perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
@@ -487,9 +445,9 @@ def orderByType(input_file: str, normalize=False):
 
     return result
 
-def orderByGemmType(input_file: str, normalize=True):
+def orderByGemmType(combined_df: str, normalize=True):
 
-    final_df = input_file
+    final_df = combined_df
     
     trans_cols = ['TransA', 'TransB']
 
@@ -834,7 +792,7 @@ class topGemmCluster(quickTunerMethod):
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(gemm_df)
 
-        # Determine the optimal number of clusters using the Elbow Method
+        # determine the optimal number of clusters using the elbow method
         inertia = []
         for k in range(2, 11):
             kmeans = KMeans(n_clusters=k, random_state=0).fit(features_scaled)
@@ -1037,7 +995,6 @@ class fairSelect(quickTunerMethod):
             df = original_dfs[i]
 
             for _, row in df.iterrows():
-                #print(row)
                 feature_tuple = tuple(row[cols])
 
                 if feature_tuple not in selected_features:
@@ -1156,60 +1113,32 @@ def main(args=None):
                         default=["default","fairSelect"],
                         help='Select perfConfig gen selection method')
 
-    #parser.add_argument('-v', '--validate',
-    #                    choices=['data','tuner'],
-    #                    type=str,
-    #                    required=False,
-    #                    help="Specify whether validation should be used, 'data' uses provided data library to verify, 'tuner' uses tuner library"
-    #                   )
+    parser.add_argument('--save',
+                        action='store_true',
+                        default=False,
+                        help='Save configs to name.dtype.qt')
 
-    parser.add_argument('vargs',
-                        nargs=argparse.REMAINDER,
-                        help='Additional args for validator')
+    parser.add_argument('--debug',
+                        action='store_true',
+                        default=False,
+                        help='Print debug info, print config files to stdout')
+
                         
 
     pargs = parser.parse_args()
 
     tuner = quickTuner(pargs)
 
-    #tuner.addMethod(defaultQuickTune('defaultNew'))
-
-    #tuner.addMethod(analyzeDataSelect('DjordjeMethod'))
-    
-    #tuner.addMethod(topNSelection('topNSelectNew'))
-
-    #tuner.addMethod(topMode('topModeNew'))
-
-    #tuner.addMethod(takeNEach('takeNEachNew'))
-
-    #tuner.addMethod(topConfigCluster('confClusterNew'))
-
-    #tuner.addMethod(topGemmCluster('gemmClusterNew')) update parseDir
-
-    #tuner.addMethod(fairSelect('fairSelect')) 
-
     tuner.tune()
 
-    #tuner.saveBest()
-    tuner.saveConfigs()
+    if pargs.save:
+        tuner.saveConfigs()
+
+    if pargs.debug:
+        tuner.printConfigs()
+
     
         
 if __name__ == '__main__':
     main(sys.argv[1:])
 
-
-
-"""
-TO DO
-
-- break into three parts
-- #1: preprocessor.py, take *.debug files and generate one large input file
-- #2: method/tuner, take large file and run quickTuner.py as you did before with option to save output
-      to a file or in a .cpp readable output/initializer
-- #3: statistics, take the output from tuner and generate statistics from both data and through perf runner, do a compile loop
-
-eat lunch
-create preprocessor.py and push
-edit to accept large file, change args and change output options
-create script to compile and run the code 
-"""
