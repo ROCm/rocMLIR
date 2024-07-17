@@ -39,18 +39,21 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16}};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128, 256},
-      /*gemm1MPerBlock=*/{32, 64, 128, 256},
+      /*gemm0MPerBlock=*/{32, 64, 128},
+      /*gemm1MPerBlock=*/{32, 64, 128},
       /*gemm0NPerBlock=*/{32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64, 128, 256},
-      /*nPerWave=*/{32, 64, 128, 256},
+      /*mPerWave=*/{32, 64},
+      /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
   GemmFeatures features = attnOp.getFeatures();
+  int64_t numEUPerCU = rock::lookupArchInfo(attnOp.getArch()).numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
+  bool isWMMA = false;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
     validRangeAttnParams = validRangeAttnParamsMFMA;
   } else if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
+    isWMMA = true;
     validRangeAttnParams = validRangeAttnParamsWMMA;
   }
   OpBuilder b(attnOp.getContext());
@@ -61,6 +64,14 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
           for (uint32_t gemmMPerWave : validRangeAttnParams[4]) {
             for (uint32_t gemmMnPerXdlOrNPerWave : validRangeAttnParams[5]) {
               for (uint32_t gemmKPack : validRangeAttnParams[6]) {
+                if (isWMMA) {
+                  int64_t nPerWave = gemmMnPerXdlOrNPerWave;
+                  int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
+                                      (gemm0NPerBlock / nPerWave);
+                  if (rdnaWaves < numEUPerCU) {
+                    continue;
+                  }
+                }
                 if (gemm0MPerBlock >= gemmMPerWave &&
                     gemm1MPerBlock >= gemmMPerWave &&
                     gemm1MPerBlock >= gemm0MPerBlock &&
