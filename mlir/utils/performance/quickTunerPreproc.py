@@ -1,28 +1,48 @@
 #!/usr/bin/env python3
 
-import os
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['OMP_NUM_THREADS'] = '1'
-import sys
+"""
+quickTuner preprocessor script to combine .debug output files from tuningRunner.py or tuna-script.sh
 
-sys.path.append('../..')
+Usage: quickTunerPreprocess.py [-h] --input-dir INPUT_DIR --output OUTPUT [--op {gemm,conv}] [-d] [--file-ext FILE_EXT]
+
+Example Usage:
+
+python3 quickTunerPreprocess.py --input_dir /path/to/debug/files --ouput combined_data 
+
+
+Note:
+If using MITuna edit MITuna/tuna/rocmlir/rocmlir_worker.py, editing:
+
+
+    cmd = env_str + f" python3 ./bin/tuningRunner.py -q {special_args} \
+                     --config='{config_string}' --mlir-build-dir `pwd` \
+                     --output=- --tflops \
+                     --rocmlir_gen_flags='--device={self.gpu_id}' 2>/dev/null"
+
+
+to:
+    
+    import uuid
+
+    if not os.path.exists("./run"):
+      os.makedirs("./run")
+
+    unique_file_id = uuid.uuid4().hex
+
+    file_id = os.path.join("./run", unique_file_id)
+    
+    cmd = env_str + f" python3 ./bin/tuningRunner.py -q {special_args} \
+                     --config='{config_string}' --mlir-build-dir `pwd` \
+                     --output={file_id} --tflops --debug \
+                     --rocmlir_gen_flags='--device={self.gpu_id}' 2>/dev/null"
+
+"""
+
+import os
+import sys
 
 import argparse
 import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.cluster import MiniBatchKMeans
-from sklearn import metrics
-from sklearn.cluster import DBSCAN
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import silhouette_score
-from collections import defaultdict
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-import faulthandler
-import re
 import glob
 
 class qtPreprocessor(object):
