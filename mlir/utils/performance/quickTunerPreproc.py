@@ -40,10 +40,10 @@ to:
 
 import os
 import sys
-
 import argparse
 import pandas as pd
 import glob
+from sklearn.preprocessing import MinMaxScaler
 
 class qtPreprocessor(object):
     """
@@ -88,7 +88,7 @@ class qtPreprocessor(object):
         raise NotImplementedError()
         
     @staticmethod
-    def process(input_dir, output_name=None, op='gemm', file_ext="debug", debug=False):
+    def process(input_dir, output_name=None, op='gemm', file_ext="debug", debug=False, normalize=True):
         """
         staticmethod process() function that compiles output files into a single dataframe and saves to tsv file
         """
@@ -100,6 +100,9 @@ class qtPreprocessor(object):
         ct = 0
         for file in tsv_files:
             df = pd.read_csv(file, sep='\t')
+            if normalize:
+                scaler = MinMaxScaler()
+                df['TFlops'] = scaler.fit_transform(df[['TFlops']])
             dfs.append(df)
             ct += 1
         if not dfs:
@@ -151,6 +154,11 @@ def main(args=None):
                         default='debug',
                         type=str,
                         help='File extension')
+
+    parser.add_argument('--normalize',
+                        default=True,
+                        action='store_true',
+                        help='Normalize on a per-file basis, necessary for quickTunerGen to work')
     
     pargs = parser.parse_args()
 

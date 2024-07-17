@@ -93,11 +93,10 @@ class quickTunerMethod(object):
                         tup = tuple(row)
                         s = prefix+",".join(map(str,tup))
                         f.write(s)
-                        f.write("\n")
-                    
+                        f.write("\n")                    
                 
 
-    def getConfig(self, input_file):
+    def getConfig(self, combined_df):
         """
         produces a config that can be converted to .qt file using
         convertToConfig
@@ -112,7 +111,16 @@ class quickTuner(object):
     """
     def __init__(self, pargs):
         self.methods = {}
+        
+        """ 
+        maybe something like
+        if self.input_dir:
+            self.combined_df = qtPreprocessor.process(self.input_dir)
+        else:
+            self.combined_df = self.input_file
+        """
         self.input_file = pargs.input_file
+        self.combined_df = pd.read_csv(self.input_file, sep='\t')
         self.__parseValidationArgs(pargs)
         self.__parseMethods(pargs)
 
@@ -121,7 +129,7 @@ class quickTuner(object):
         parse each method in pargs.method
         """
         gen_methods = pargs.method
-        for method in gen_methods:
+        for method in gen_methods:            
             if method == 'default':
                 self.addMethod(defaultQuickTune(method))
             elif method == 'topNSelect':
@@ -133,8 +141,7 @@ class quickTuner(object):
             elif method == 'fairSelect':
                 self.addMethod(fairSelect(method))
             else:
-                raise ValueError(f"Unknown method: {method}")                
-            
+                raise ValueError(f"Unknown method: {method}")                            
 
     def __parseValidationArgs(self, pargs):
         """
@@ -168,7 +175,7 @@ class quickTuner(object):
         else:
             for k in self.methods:
                 method = self.methods[k]
-                df = method.getConfig(self.input_file)
+                df = method.getConfig(self.combined_df.copy())
                 self.method_results[k] = df
 
     """        
@@ -353,6 +360,24 @@ def readDirCluster(input_file: str, clustered_dfs):
 
 def parseDir(input_file: str, normalize=True):
 
+    final_df = input_file
+
+    trans_cols = ['TransA', 'TransB']
+
+    param_cols = [ 'G', 'M', 'N','K']
+
+    final_df = final_df.astype({entry: bool for entry in trans_cols})
+
+    final_df = final_df.astype({entry: int for entry in param_cols})
+        
+    target_cols = trans_cols + param_cols
+
+    group_df = {dtype: df for dtype, df in final_df[target_cols].groupby('DataType')}
+
+    return group_df
+
+def parseDir2(input_file: str, normalize=True):
+
     df_dir = {}
 
     tsv_files = glob.glob(f"{input_file}/*.debug")
@@ -518,32 +543,23 @@ def orderByType2(input_file: str, normalize=False):
 
 def orderByGemmType(input_file: str, normalize=True):
 
-    def col2str(col):
-        TransA = 't' if col[0] == 'True' else 'f'
-        TransB = 't' if col[1] == 'True' else 'f'
-        G = col[2]
-        M = col[3]
-        K = col[4]
-        N = col[5]
-        return f""
-        
-    df_dir = {}
+    #tsv_files = glob.glob(f"{input_file}/*.debug")
 
-    tsv_files = glob.glob(f"{input_file}/*.debug")
+    #dfs = []
 
-    dfs = []
+    #fx = lambda x: x == 'True'
 
-    fx = lambda x: x == 'True'
+    #for file in tsv_files:        
+    #    df = pd.read_csv(file, sep='\t')
+    #    if normalize:
+    #        scaler = MinMaxScaler()
+    #        df['TFlops'] = scaler.fit_transform(df[['TFlops']])
+    #    dfs.append(df)
 
-    for file in tsv_files:        
-        df = pd.read_csv(file, sep='\t')
-        if normalize:
-            scaler = MinMaxScaler()
-            df['TFlops'] = scaler.fit_transform(df[['TFlops']])
-        dfs.append(df)
+    #final_df = pd.concat(dfs, ignore_index=True)
 
-    final_df = pd.concat(dfs, ignore_index=True)
-
+    final_df = input_file
+    
     trans_cols = ['TransA', 'TransB']
 
     param_cols = [ 'G', 'M', 'N','K']
@@ -722,7 +738,7 @@ class topNSelection(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_file):
+    def getConfig(self, combined_df):
         type_dict = orderByType(input_file, normalize=self.normalize)
 
         type_dict = orderDict(type_dict)
@@ -785,7 +801,7 @@ class takeNEach(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_file):
+    def getConfig(self, combined_df):
         """
         take top performers from N dataframes
         """
@@ -832,7 +848,7 @@ class topConfigCluster(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_file):
+    def getConfig(self, combined_df):
         N=self.N
         n_clusters = N//2
         type_dict = orderByType(input_file, normalize=self.normalize)
@@ -911,7 +927,7 @@ class topGemmCluster(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_file):        
+    def getConfig(self, combined_df):        
         N = self.N
         def calculateProportions(input_list, N=40):
             # Count the occurrences of each unique value
@@ -1101,7 +1117,7 @@ class analyzeDataSelect(quickTunerMethod):
             result[data_type] = top_perfconfigs
         return result
 
-    def getConfig(self, input_file):
+    def getConfig(self, combined_df):
         avrg_tfops_per_datatype = self.__averagePerformance(input_file)
         counted_win = self.__analyzeData(input_file, avrg_tfops_per_datatype)
         self.__add_average_tflops(counted_win,avrg_tfops_per_datatype)
@@ -1247,10 +1263,10 @@ class fairSelect(quickTunerMethod):
             
         return pd.DataFrame(final_dataset, columns=cols)
 
-    def getConfig(self, input_file):
+    def getConfig(self, combined_df):
         config_dict = {}
     
-        type_gemm_dict = orderByGemmType(input_file, normalize=self.normalize)
+        type_gemm_dict = orderByGemmType(combined_df, normalize=self.normalize)
 
         type_gemm_dict = orderGemmDict(type_gemm_dict)
 
