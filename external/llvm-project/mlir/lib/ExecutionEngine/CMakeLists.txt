@@ -384,6 +384,9 @@ if(LLVM_ENABLE_PIC)
       intrinsics_gen
     )
 
+    set_property(TARGET obj.MLIRRocmExecutionEngineUtils
+      APPEND PROPERTY COMPILE_DEFINITIONS "__HIP_PLATFORM_AMD__=1")
+
     if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
       target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
       "-Wno-c++98-compat-extra-semi")
