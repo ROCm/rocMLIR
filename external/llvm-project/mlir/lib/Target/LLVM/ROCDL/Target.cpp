@@ -108,10 +108,6 @@ SerializeGPUModuleBase::SerializeGPUModuleBase(
     for (Attribute attr : files.getValue())
       if (auto file = dyn_cast<StringAttr>(attr))
         fileList.push_back(file.str());
-
-  // By default add all libraries if the toolkit path is not empty.
-  if (!getToolkitPath().empty())
-    deviceLibs = AMDGCNLibraries::All;
 }
 
 void SerializeGPUModuleBase::init() {
@@ -149,15 +145,10 @@ LogicalResult SerializeGPUModuleBase::appendStandardLibs(AMDGCNLibraries libs) {
 
   // Fail if the path is invalid.
   if (!llvm::sys::fs::is_directory(pathRef)) {
-    getOperation().emitRemark() << "ROCm amdgcn bitcode path: " << pathRef
-                                << " does not exist or is not a directory";
+    getOperation().emitError() << "ROCm amdgcn bitcode path: " << pathRef
+                               << " does not exist or is not a directory";
     return failure();
   }
-
-  // Get the ISA version.
-  StringRef isaVersion =
-      llvm::AMDGPU::getArchNameAMDGCN(llvm::AMDGPU::parseArchAMDGCN(chip));
-  isaVersion.consume_front("gfx");
 
   // Helper function for adding a library.
   auto addLib = [&](const Twine &lib) -> bool {
@@ -225,6 +216,8 @@ void SerializeGPUModuleBase::handleModulePreLink(llvm::Module &module) {
           deviceLibs |= AMDGCNLibraries::Ockl;
         if (funcName.starts_with("__ocml_"))
           deviceLibs |= AMDGCNLibraries::Ocml;
+        if (funcName == "__atomic_work_item_fence")
+          deviceLibs |= AMDGCNLibraries::Hip;
       }
     }
   }
@@ -270,15 +263,14 @@ void SerializeGPUModuleBase::addControlVariables(
   // Add ocml or ockl related control variables.
   if (any(libs & (AMDGCNLibraries::Ocml | AMDGCNLibraries::Ockl))) {
     addControlVariable("__oclc_wavefrontsize64", wave64, 8);
-    StringRef chipSet = this->chip;
-    if (chipSet.starts_with("gfx"))
-      chipSet = chipSet.substr(3);
-    uint32_t minor =
-        llvm::APInt(32, chipSet.substr(chipSet.size() - 2), 16).getZExtValue();
-    uint32_t major = llvm::APInt(32, chipSet.substr(0, chipSet.size() - 2), 10)
-                         .getZExtValue();
-    uint32_t isaNumber = minor + 1000 * major;
-    addControlVariable("__oclc_ISA_version", isaNumber, 32);
+
+    // Get the ISA version.
+    llvm::AMDGPU::IsaVersion isaVersion = llvm::AMDGPU::getIsaVersion(chip);
+    // Add the ISA control variable.
+    addControlVariable("__oclc_ISA_version",
+                       isaVersion.Minor + 100 * isaVersion.Stepping +
+                           1000 * isaVersion.Major,
+                       32);
     int abi = 500;
     abiVer.getAsInteger(0, abi);
     addControlVariable("__oclc_ABI_version", abi, 32);
@@ -523,5 +515,5 @@ ROCDLTargetAttrImpl::createObject(Attribute attribute, Operation *module,
   return builder.getAttr<gpu::ObjectAttr>(
       attribute, format,
       builder.getStringAttr(StringRef(object.data(), object.size())),
-      properties, nullptr);
+      properties);
 }

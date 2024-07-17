@@ -93,7 +93,7 @@ using namespace llvm::sys;
 using namespace clang;
 using namespace clang::driver;
 using namespace clang::driver::options;
-using namespace TimeStatistics;
+using namespace COMGR::TimeStatistics;
 
 namespace COMGR {
 
@@ -428,9 +428,6 @@ static bool executeAssemblerImpl(AssemblerInvocation &Opts,
   }
 
   MOFI->initMCObjectFileInfo(Ctx, PIC);
-  if (Opts.SaveTemporaryLabels) {
-    Ctx.setAllowTemporaryLabels(false);
-  }
   if (Opts.GenDwarfForAssembly) {
     Ctx.setGenDwarfForAssembly(true);
   }
@@ -668,7 +665,8 @@ AMDGPUCompiler::executeInProcessDriver(ArrayRef<const char *> Args) {
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
   ProcessWarningOptions(Diags, *DiagOpts, /*ReportDiags=*/false);
 
-  Driver TheDriver((Twine(env::getLLVMPath()) + "/bin/clang").str(), "", Diags);
+  Driver TheDriver((Twine(env::getLLVMPath()) + "/bin/clang").str(),
+                   llvm::sys::getDefaultTargetTriple(), Diags);
   TheDriver.setTitle("AMDGPU Code Object Manager");
   TheDriver.setCheckInputsExist(false);
 
@@ -1003,7 +1001,7 @@ amd_comgr_status_t AMDGPUCompiler::addIncludeFlags() {
 
 amd_comgr_status_t
 AMDGPUCompiler::addTargetIdentifierFlags(llvm::StringRef IdentStr,
-                                         bool SrcToBC = false) {
+                                         bool CompilingSrc= false) {
   TargetIdentifier Ident;
   if (auto Status = parseTargetIdentifier(IdentStr, Ident)) {
     return Status;
@@ -1015,7 +1013,7 @@ AMDGPUCompiler::addTargetIdentifierFlags(llvm::StringRef IdentStr,
     GPUArch += ":" + join(Ident.Features, ":");
   }
 
-  if (SrcToBC && getLanguage() == AMD_COMGR_LANGUAGE_HIP) {
+  if (CompilingSrc && getLanguage() == AMD_COMGR_LANGUAGE_HIP) {
     OffloadArch = (Twine("--offload-arch=") + GPUArch).str();
     Args.push_back(OffloadArch.c_str());
   } else {
@@ -1032,6 +1030,9 @@ amd_comgr_status_t AMDGPUCompiler::addCompilationFlags() {
   HIPIncludePath = (Twine(env::getHIPPath()) + "/include").str();
   // HIP headers depend on hsa.h which is in ROCM_DIR/include.
   ROCMIncludePath = (Twine(env::getROCMPath()) + "/include").str();
+
+  // Default to O3 for all contexts
+  Args.push_back("-O3");
 
   Args.push_back("-x");
 
@@ -1051,10 +1052,8 @@ amd_comgr_status_t AMDGPUCompiler::addCompilationFlags() {
     break;
   case AMD_COMGR_LANGUAGE_HIP:
     Args.push_back("hip");
-    Args.push_back("-std=c++11");
-    Args.push_back("-target");
-    Args.push_back("x86_64-unknown-linux-gnu");
-    Args.push_back("--cuda-device-only");
+    Args.push_back("-nogpuinc");
+    Args.push_back("--offload-device-only");
     Args.push_back("-isystem");
     Args.push_back(ROCMIncludePath.c_str());
     Args.push_back("-isystem");
@@ -1068,8 +1067,6 @@ amd_comgr_status_t AMDGPUCompiler::addCompilationFlags() {
 
 amd_comgr_status_t AMDGPUCompiler::addDeviceLibraries() {
 
-  Args.push_back("-Xclang");
-  Args.push_back("-mlink-builtin-bitcode-postopt");
   NoGpuLib = false;
 
   SmallString<256> ClangBinaryPath(env::getLLVMPath());
@@ -1115,7 +1112,7 @@ amd_comgr_status_t AMDGPUCompiler::preprocessToSource() {
   }
 
   if (ActionInfo->IsaName) {
-    if (auto Status = addTargetIdentifierFlags(ActionInfo->IsaName)) {
+    if (auto Status = addTargetIdentifierFlags(ActionInfo->IsaName, true)) {
       return Status;
     }
   }
@@ -1163,6 +1160,13 @@ amd_comgr_status_t AMDGPUCompiler::compileToBitcode(bool WithDeviceLibs) {
     if (auto Status = addDeviceLibraries()) {
       return Status;
     }
+
+    // Currently linking postopt is only needed for OpenCL. If this becomes
+    // necessary for HIP (for example if HIP adopts the same AMDGPUSimplifyLibs
+    // strategy that potentially introduces undefined device-library symbols),
+    // we will need also apply this option in compileToRelocatable().
+    Args.push_back("-Xclang");
+    Args.push_back("-mlink-builtin-bitcode-postopt");
   }
 
   return processFiles(AMD_COMGR_DATA_KIND_BC, ".bc");

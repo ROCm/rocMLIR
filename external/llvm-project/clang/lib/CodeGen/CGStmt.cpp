@@ -493,18 +493,76 @@ void CodeGenFunction::EmitXteamRedSum(const ForStmt *FStmt,
 bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
   if (CGM.getCurrentXteamRedStmt() == nullptr)
     return false;
-  if (!isa<BinaryOperator>(S))
+  if (!isa<BinaryOperator>(S) && !isa<CallExpr>(S))
     return false;
 
-  const BinaryOperator *RedBO = cast<BinaryOperator>(S);
+  auto getLocalRedVarPointer =
+      [this](const Expr *E,
+             const CodeGenModule::XteamRedVarMap &RVM) -> llvm::Value * {
+    if (!isa<DeclRefExpr>(E))
+      return nullptr;
+    const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
+    if (!isa<VarDecl>(ValDecl))
+      return nullptr;
+    const VarDecl *VD = cast<VarDecl>(ValDecl);
+    if (RVM.find(VD) == RVM.end())
+      return nullptr;
+    return RVM.find(VD)->second.RedVarAddr.emitRawPointer(*this);
+  };
+
   const CodeGenModule::XteamRedVarMap &RedVarMap =
       CGM.getXteamRedVarMap(CGM.getCurrentXteamRedStmt());
 
+  if (isa<CallExpr>(S)) {
+    const CallExpr *CE = cast<CallExpr>(S);
+    assert(CE && "Unexpected null call expression");
+
+    // First check if the call references any reduction variable. Otherwise,
+    // let the caller handle it.
+    bool FoundRedVar = false;
+    for (unsigned ArgIndex = 0; ArgIndex < CE->getNumArgs(); ++ArgIndex)
+      if (CGM.hasXteamRedVar(CE->getArg(ArgIndex), RedVarMap)) {
+        FoundRedVar = true;
+        break;
+      }
+    if (!FoundRedVar)
+      return false; // Let the caller handle the call expression.
+
+    // Generate the call with the reduction variable reference replaced by a
+    // reference to the corresponding local variable.
+    CallArgList CallArgs;
+    for (unsigned ArgIndex = 0; ArgIndex < CE->getNumArgs(); ++ArgIndex) {
+      const Expr *Arg = CE->getArg(ArgIndex);
+      llvm::Value *LocalRedVar = getLocalRedVarPointer(Arg, RedVarMap);
+      if (LocalRedVar != nullptr) {
+        // Add any required cast for the reduction variable.
+        llvm::Value *LRV = Builder.CreatePointerBitCastOrAddrSpaceCast(
+            LocalRedVar, CGM.getTypes().ConvertTypeForMem(
+                             getContext().getPointerType(Arg->getType())));
+        CallArgs.add(RValue::get(LRV),
+                     getContext().getPointerType(Arg->getType()));
+      } else {
+        assert(hasScalarEvaluationKind(Arg->getType()) &&
+               "Expected scalar type in call arg");
+        CallArgs.add(RValue::get(EmitScalarExpr(Arg)), Arg->getType());
+      }
+    }
+    const CGFunctionInfo &FI =
+        CGM.getTypes().arrangeBuiltinFunctionCall(CE->getType(), CallArgs);
+    // The earlier analysis ensures there is no use of return value.
+    EmitCall(FI, EmitCallee(CE->getCallee()), ReturnValueSlot(), CallArgs);
+    return true;
+  } // End of call expression handling.
+
+  const BinaryOperator *RedBO = cast<BinaryOperator>(S);
   // Is a reduction variable the lhs?
   const VarDecl *RedVarDecl =
       CGM.getXteamRedVarDecl(RedBO->getLHS()->IgnoreImpCasts(), RedVarMap);
-  if (RedVarDecl == nullptr)
+  if (RedVarDecl == nullptr) {
+    // The analysis made sure that the statement did not access the reduction
+    // variable, so there is nothing to do.
     return false;
+  }
 
   // For now, we handle only sum reduction
   assert(
@@ -517,7 +575,7 @@ bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
   if (OpcRedBO == BO_AddAssign) {
     RedRHSExpr = RedBO->getRHS()->IgnoreImpCasts();
   } else {
-    const Expr *L1RhsExpr = RedBO->getRHS();
+    const Expr *L1RhsExpr = RedBO->getRHS()->IgnoreImpCasts();
     assert(isa<BinaryOperator>(L1RhsExpr) &&
            "Expected rhs to be a binary operator");
     const BinaryOperator *L2BO = cast<BinaryOperator>(L1RhsExpr);
@@ -915,7 +973,8 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     CGM.ErrorUnsupported(S, "OpenMP dispatch directive");
     break;
   case Stmt::OMPScopeDirectiveClass:
-    llvm_unreachable("scope not supported with FE outlining");
+    CGM.ErrorUnsupported(S, "scope with FE outlining");
+    break;
   case Stmt::OMPMaskedDirectiveClass:
     EmitOMPMaskedDirective(cast<OMPMaskedDirective>(*S));
     break;
@@ -942,6 +1001,9 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     break;
   case Stmt::OpenACCComputeConstructClass:
     EmitOpenACCComputeConstruct(cast<OpenACCComputeConstruct>(*S));
+    break;
+  case Stmt::OpenACCLoopConstructClass:
+    EmitOpenACCLoopConstruct(cast<OpenACCLoopConstruct>(*S));
     break;
   }
 }
@@ -2069,9 +2131,15 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
     Builder.CreateStore(Result.getScalarVal(), ReturnValue);
   } else {
     switch (getEvaluationKind(RV->getType())) {
-    case TEK_Scalar:
-      Builder.CreateStore(EmitScalarExpr(RV), ReturnValue);
+    case TEK_Scalar: {
+      llvm::Value *Ret = EmitScalarExpr(RV);
+      if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::Indirect)
+        EmitStoreOfScalar(Ret, MakeAddrLValue(ReturnValue, RV->getType()),
+                          /*isInit*/ true);
+      else
+        Builder.CreateStore(Ret, ReturnValue);
       break;
+    }
     case TEK_Complex:
       EmitComplexExprIntoLValue(RV, MakeAddrLValue(ReturnValue, RV->getType()),
                                 /*isInit*/ true);

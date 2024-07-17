@@ -16,6 +16,7 @@
 #include "mlir/Dialect/GPU/IR/CompilationInterfaces.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Target/LLVM/ModuleToObject.h"
 
 namespace mlir {

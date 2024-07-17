@@ -29,6 +29,7 @@
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/CodeGen/MachinePassManager.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/CodeGenTypes/MachineValueType.h"
@@ -241,6 +242,7 @@ class SelectionDAG {
   const TargetLibraryInfo *LibInfo = nullptr;
   const FunctionVarLocs *FnVarLocs = nullptr;
   MachineFunction *MF;
+  MachineFunctionAnalysisManager *MFAM = nullptr;
   Pass *SDAGISelPass = nullptr;
   LLVMContext *Context;
   CodeGenOptLevel OptLevel;
@@ -470,6 +472,15 @@ public:
             UniformityInfo *UA, ProfileSummaryInfo *PSIin,
             BlockFrequencyInfo *BFIin, FunctionVarLocs const *FnVarLocs);
 
+  void init(MachineFunction &NewMF, OptimizationRemarkEmitter &NewORE,
+            MachineFunctionAnalysisManager &AM,
+            const TargetLibraryInfo *LibraryInfo, UniformityInfo *UA,
+            ProfileSummaryInfo *PSIin, BlockFrequencyInfo *BFIin,
+            FunctionVarLocs const *FnVarLocs) {
+    init(NewMF, NewORE, nullptr, LibraryInfo, UA, PSIin, BFIin, FnVarLocs);
+    MFAM = &AM;
+  }
+
   void setFunctionLoweringInfo(FunctionLoweringInfo * FuncInfo) {
     FLI = FuncInfo;
   }
@@ -480,6 +491,7 @@ public:
 
   MachineFunction &getMachineFunction() const { return *MF; }
   const Pass *getPass() const { return SDAGISelPass; }
+  MachineFunctionAnalysisManager *getMFAM() { return MFAM; }
 
   CodeGenOptLevel getOptLevel() const { return OptLevel; }
   const DataLayout &getDataLayout() const { return MF->getDataLayout(); }
@@ -679,10 +691,8 @@ public:
                       bool isTarget = false, bool isOpaque = false);
   SDValue getIntPtrConstant(uint64_t Val, const SDLoc &DL,
                             bool isTarget = false);
-  SDValue getShiftAmountConstant(uint64_t Val, EVT VT, const SDLoc &DL,
-                                 bool LegalTypes = true);
-  SDValue getShiftAmountConstant(const APInt &Val, EVT VT, const SDLoc &DL,
-                                 bool LegalTypes = true);
+  SDValue getShiftAmountConstant(uint64_t Val, EVT VT, const SDLoc &DL);
+  SDValue getShiftAmountConstant(const APInt &Val, EVT VT, const SDLoc &DL);
   SDValue getVectorIdxConstant(uint64_t Val, const SDLoc &DL,
                                bool isTarget = false);
 
@@ -1909,7 +1919,8 @@ public:
                            const SDNode *N2);
 
   SDValue FoldConstantArithmetic(unsigned Opcode, const SDLoc &DL, EVT VT,
-                                 ArrayRef<SDValue> Ops);
+                                 ArrayRef<SDValue> Ops,
+                                 SDNodeFlags Flags = SDNodeFlags());
 
   /// Fold floating-point operations when all operands are constants and/or
   /// undefined.

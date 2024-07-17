@@ -483,7 +483,7 @@ public:
 
 class MCCFIInstruction {
 public:
-  enum OpType {
+  enum OpType : uint8_t {
     OpSameValue,
     OpRememberState,
     OpRestoreState,
@@ -501,9 +501,11 @@ public:
     OpWindowSave,
     OpNegateRAState,
     OpGnuArgsSize,
+    OpLabel,
     OpLLVMRegisterPair,
     OpLLVMVectorRegisters,
     OpLLVMVectorOffset,
+    OpLLVMVectorRegisterMask,
   };
 
   /// Some extra fields used when Operation is OpLLVMRegisterPair.
@@ -530,15 +532,33 @@ public:
     unsigned RegisterSizeInBits;
   };
 
-private:
-  OpType Operation;
-  MCSymbol *Label;
-  unsigned Register;
-  union {
-    int Offset;
-    unsigned Register2;
+  /// Some extra fields used when Operation is OpLLVMVectorRegisterMask.
+  struct VectorRegisterMaskExtraFields {
+    unsigned SpillRegister;
+    unsigned SpillRegisterLaneSizeInBits;
+    unsigned MaskRegister;
+    unsigned MaskRegisterSizeInBits;
   };
-  unsigned AddressSpace = ~0u;
+
+private:
+  MCSymbol *Label;
+  union {
+    struct {
+      unsigned Register;
+      int Offset;
+    } RI;
+    struct {
+      unsigned Register;
+      int Offset;
+      unsigned AddressSpace;
+    } RIA;
+    struct {
+      unsigned Register;
+      unsigned Register2;
+    } RR;
+    MCSymbol *CfiLabel;
+  } U;
+  OpType Operation;
   SMLoc Loc;
   std::vector<char> Values;
   std::string Comment;
@@ -547,33 +567,42 @@ private:
   // Operation-specific fields to this variant. Leaving them as-is for now to
   // avoid a diff with upstream.
   std::variant<std::monostate, RegisterPairExtraFields,
-               VectorRegistersExtraFields, VectorOffsetExtraFields>
+               VectorRegistersExtraFields, VectorOffsetExtraFields,
+               VectorRegisterMaskExtraFields>
       ExtraFields;
 
   MCCFIInstruction(OpType Op, MCSymbol *L, unsigned R, int O, SMLoc Loc,
                    StringRef V = "", StringRef Comment = "")
-      : Operation(Op), Label(L), Register(R), Offset(O), Loc(Loc),
-        Values(V.begin(), V.end()), Comment(Comment) {
+      : Label(L), Operation(Op), Loc(Loc), Values(V.begin(), V.end()),
+        Comment(Comment) {
     assert(Op != OpRegister && Op != OpLLVMDefAspaceCfa);
+    U.RI = {R, O};
   }
-
   MCCFIInstruction(OpType Op, MCSymbol *L, unsigned R1, unsigned R2, SMLoc Loc)
-      : Operation(Op), Label(L), Register(R1), Register2(R2), Loc(Loc) {
+      : Label(L), Operation(Op), Loc(Loc) {
     assert(Op == OpRegister);
+    U.RR = {R1, R2};
   }
-
   MCCFIInstruction(OpType Op, MCSymbol *L, unsigned R, int O, unsigned AS,
                    SMLoc Loc)
-      : Operation(Op), Label(L), Register(R), Offset(O), AddressSpace(AS),
-        Loc(Loc) {
+      : Label(L), Operation(Op), Loc(Loc) {
     assert(Op == OpLLVMDefAspaceCfa);
+    U.RIA = {R, O, AS};
   }
 
   template <class ExtraFieldsTy>
   MCCFIInstruction(OpType Op, MCSymbol *L, unsigned R, int O,
                    ExtraFieldsTy &&ExtraFields, SMLoc Loc)
-      : Operation(Op), Label(L), Register(R), Offset(O),
-        ExtraFields(std::forward<ExtraFieldsTy>(ExtraFields)) {}
+      : Label(L), Operation(Op), Loc(Loc),
+        ExtraFields(std::forward<ExtraFieldsTy>(ExtraFields)) {
+    U.RI = {R, O};
+  }
+
+  MCCFIInstruction(OpType Op, MCSymbol *L, MCSymbol *CfiLabel, SMLoc Loc)
+      : Label(L), Operation(Op), Loc(Loc) {
+    assert(Op == OpLabel);
+    U.CfiLabel = CfiLabel;
+  }
 
 public:
   /// .cfi_def_cfa defines a rule for computing CFA as: take address from
@@ -695,6 +724,11 @@ public:
     return MCCFIInstruction(OpGnuArgsSize, L, 0, Size, Loc);
   }
 
+  static MCCFIInstruction createLabel(MCSymbol *L, MCSymbol *CfiLabel,
+                                      SMLoc Loc) {
+    return MCCFIInstruction(OpLabel, L, CfiLabel, Loc);
+  }
+
   /// .cfi_llvm_register_pair Previous value of Register is saved in R1:R2.
   static MCCFIInstruction
   createLLVMRegisterPair(MCSymbol *L, unsigned Register, unsigned R1,
@@ -728,6 +762,22 @@ public:
                             Loc);
   }
 
+  /// .cfi_llvm_vector_register_mask Previous value of Register is saved in
+  /// SpillRegister, predicated on the value of MaskRegister.
+  static MCCFIInstruction createLLVMVectorRegisterMask(
+      MCSymbol *L, unsigned Register, unsigned SpillRegister,
+      unsigned SpillRegisterLaneSizeInBits, unsigned MaskRegister,
+      unsigned MaskRegisterSizeInBits, SMLoc Loc = {}) {
+    VectorRegisterMaskExtraFields Extra{
+        SpillRegister,
+        SpillRegisterLaneSizeInBits,
+        MaskRegister,
+        MaskRegisterSizeInBits,
+    };
+    return MCCFIInstruction(OpLLVMVectorRegisterMask, L, Register, 0,
+                            std::move(Extra), Loc);
+  }
+
   template <class ExtraFieldsTy> ExtraFieldsTy &getExtraFields() {
     return std::get<ExtraFieldsTy>(ExtraFields);
   }
@@ -740,32 +790,42 @@ public:
   MCSymbol *getLabel() const { return Label; }
 
   unsigned getRegister() const {
+    if (Operation == OpRegister)
+      return U.RR.Register;
+    if (Operation == OpLLVMDefAspaceCfa)
+      return U.RIA.Register;
     assert(Operation == OpDefCfa || Operation == OpOffset ||
            Operation == OpRestore || Operation == OpUndefined ||
            Operation == OpSameValue || Operation == OpDefCfaRegister ||
-           Operation == OpRelOffset || Operation == OpRegister ||
-           Operation == OpLLVMDefAspaceCfa ||
-           Operation == OpLLVMVectorRegisters ||
-           Operation == OpLLVMRegisterPair || Operation == OpLLVMVectorOffset);
-    return Register;
+           Operation == OpRelOffset || Operation == OpLLVMVectorRegisters ||
+           Operation == OpLLVMRegisterPair || Operation == OpLLVMVectorOffset ||
+           Operation == OpLLVMVectorRegisterMask);
+    return U.RI.Register;
   }
 
   unsigned getRegister2() const {
     assert(Operation == OpRegister);
-    return Register2;
+    return U.RR.Register2;
   }
 
   unsigned getAddressSpace() const {
     assert(Operation == OpLLVMDefAspaceCfa);
-    return AddressSpace;
+    return U.RIA.AddressSpace;
   }
 
   int getOffset() const {
+    if (Operation == OpLLVMDefAspaceCfa)
+      return U.RIA.Offset;
     assert(Operation == OpDefCfa || Operation == OpOffset ||
            Operation == OpRelOffset || Operation == OpDefCfaOffset ||
            Operation == OpAdjustCfaOffset || Operation == OpGnuArgsSize ||
-           Operation == OpLLVMDefAspaceCfa || Operation == OpLLVMVectorOffset);
-    return Offset;
+           Operation == OpLLVMVectorOffset);
+    return U.RI.Offset;
+  }
+
+  MCSymbol *getCfiLabel() const {
+    assert(Operation == OpLabel);
+    return U.CfiLabel;
   }
 
   StringRef getValues() const {

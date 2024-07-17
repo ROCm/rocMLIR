@@ -47,8 +47,7 @@ def GPUTargetAttrInterface : AttrInterface<"TargetAttrInterface"> {
         meant to be used for passing additional options that are not in the
         attribute.
       }], "::mlir::Attribute", "createObject",
-        (ins "::mlir::Operation*":$module,
-             "const ::llvm::SmallVector<char, 0>&":$object,
+        (ins "const ::llvm::SmallVector<char, 0>&":$object,
              "const ::mlir::gpu::TargetOptions&":$options)>
   ];
 }
@@ -114,7 +113,7 @@ def OffloadingLLVMTranslationAttrInterface :
         The first argument has to be a GPU binary operation.
         If the function fails at any point, it must return `failure`.
       }],
-      "::mlir::LogicalResult", "embedBinary",
+      "::llvm::LogicalResult", "embedBinary",
       (ins "::mlir::Operation*":$binaryOp,
            "::llvm::IRBuilderBase&":$hostBuilder,
            "::mlir::LLVM::ModuleTranslation&":$hostModuleTranslation)
@@ -131,7 +130,7 @@ def OffloadingLLVMTranslationAttrInterface :
         respectively. If the function fails at any point, it must return
         `failure`.
       }],
-      "::mlir::LogicalResult", "launchKernel",
+      "::llvm::LogicalResult", "launchKernel",
       (ins "::mlir::Operation*":$launchFunc, "::mlir::Operation*":$binaryOp,
            "::llvm::IRBuilderBase&":$hostBuilder,
            "::mlir::LLVM::ModuleTranslation&":$hostModuleTranslation)
