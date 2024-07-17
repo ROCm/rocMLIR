@@ -120,8 +120,6 @@ createTargetCodeGenInfo(CodeGenModule &CGM) {
   default:
     return createDefaultTargetCodeGenInfo(CGM);
 
-  case llvm::Triple::le32:
-    return createPNaClTargetCodeGenInfo(CGM);
   case llvm::Triple::m68k:
     return createM68kTargetCodeGenInfo(CGM);
   case llvm::Triple::mips:
@@ -727,6 +725,11 @@ void CodeGenModule::checkAliases() {
           cast<llvm::GlobalAlias>(Alias)->setAliasee(Aliasee);
       }
     }
+    // ifunc resolvers are usually implemented to run before sanitizer
+    // initialization. Disable instrumentation to prevent the ordering issue.
+    if (IsIFunc)
+      cast<llvm::Function>(Aliasee)->addFnAttr(
+          llvm::Attribute::DisableSanitizerInstrumentation);
   }
   if (!Error)
     return;
@@ -911,7 +914,8 @@ void CodeGenModule::Release() {
   if (Context.getTargetInfo().getTriple().isWasm())
     EmitMainVoidAlias();
 
-  if (getTriple().isAMDGPU()) {
+  if (getTriple().isAMDGPU() ||
+      (getTriple().isSPIRV() && getTriple().getVendor() == llvm::Triple::AMD)) {
     // Emit amdhsa_code_object_version module flag, which is code object version
     // times 100.
     if (getTarget().getTargetOpts().CodeObjectVersion !=
@@ -1046,12 +1050,13 @@ void CodeGenModule::Release() {
     // We support a single version in the linked module. The LLVM
     // parser will drop debug info with a different version number
     // (and warn about it, too).
-    uint32_t DebugMetadataVersion =
-      CodeGenOpts.HeterogeneousDwarf ?
-        llvm::DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF :
-        llvm::DEBUG_METADATA_VERSION;
-    getModule().addModuleFlag(llvm::Module::Warning, "Debug Info Version",
-                              DebugMetadataVersion);
+    if (CodeGenOpts.HeterogeneousDwarf) {
+      getModule().addModuleFlag(llvm::Module::Override, "Debug Info Version",
+                                llvm::DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF);
+    } else {
+      getModule().addModuleFlag(llvm::Module::Warning, "Debug Info Version",
+                                llvm::DEBUG_METADATA_VERSION);
+    }
   }
 
   // We need to record the widths of enums and wchar_t, so that we can generate
@@ -1337,6 +1342,9 @@ void CodeGenModule::Release() {
   case CodeGenOptions::FramePointerKind::None:
     // 0 ("none") is the default.
     break;
+  case CodeGenOptions::FramePointerKind::Reserved:
+    getModule().setFramePointer(llvm::FramePointerKind::Reserved);
+    break;
   case CodeGenOptions::FramePointerKind::NonLeaf:
     getModule().setFramePointer(llvm::FramePointerKind::NonLeaf);
     break;
@@ -1399,22 +1407,45 @@ void CodeGenModule::Release() {
   // that might affect the DLL storage class or the visibility, and
   // before anything that might act on these.
   setVisibilityFromDLLStorageClass(LangOpts, getModule());
+
+  // Check the tail call symbols are truly undefined.
+  if (getTriple().isPPC() && !MustTailCallUndefinedGlobals.empty()) {
+    for (auto &I : MustTailCallUndefinedGlobals) {
+      if (!I.first->isDefined())
+        getDiags().Report(I.second, diag::err_ppc_impossible_musttail) << 2;
+      else {
+        StringRef MangledName = getMangledName(GlobalDecl(I.first));
+        llvm::GlobalValue *Entry = GetGlobalValue(MangledName);
+        if (!Entry || Entry->isWeakForLinker() ||
+            Entry->isDeclarationForLinker())
+          getDiags().Report(I.second, diag::err_ppc_impossible_musttail) << 2;
+      }
+    }
+  }
 }
 
 void CodeGenModule::EmitOpenCLMetadata() {
   // SPIR v2.0 s2.13 - The OpenCL version used by the module is stored in the
   // opencl.ocl.version named metadata node.
-  // C++ for OpenCL has a distinct mapping for versions compatibile with OpenCL.
-  auto Version = LangOpts.getOpenCLCompatibleVersion();
-  llvm::Metadata *OCLVerElts[] = {
-      llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-          Int32Ty, Version / 100)),
-      llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-          Int32Ty, (Version % 100) / 10))};
-  llvm::NamedMDNode *OCLVerMD =
-      TheModule.getOrInsertNamedMetadata("opencl.ocl.version");
-  llvm::LLVMContext &Ctx = TheModule.getContext();
-  OCLVerMD->addOperand(llvm::MDNode::get(Ctx, OCLVerElts));
+  // C++ for OpenCL has a distinct mapping for versions compatible with OpenCL.
+  auto CLVersion = LangOpts.getOpenCLCompatibleVersion();
+
+  auto EmitVersion = [this](StringRef MDName, int Version) {
+    llvm::Metadata *OCLVerElts[] = {
+        llvm::ConstantAsMetadata::get(
+            llvm::ConstantInt::get(Int32Ty, Version / 100)),
+        llvm::ConstantAsMetadata::get(
+            llvm::ConstantInt::get(Int32Ty, (Version % 100) / 10))};
+    llvm::NamedMDNode *OCLVerMD = TheModule.getOrInsertNamedMetadata(MDName);
+    llvm::LLVMContext &Ctx = TheModule.getContext();
+    OCLVerMD->addOperand(llvm::MDNode::get(Ctx, OCLVerElts));
+  };
+
+  EmitVersion("opencl.ocl.version", CLVersion);
+  if (LangOpts.OpenCLCPlusPlus) {
+    // In addition to the OpenCL compatible version, emit the C++ version.
+    EmitVersion("opencl.cxx.version", LangOpts.OpenCLCPlusPlusVersion);
+  }
 }
 
 void CodeGenModule::EmitBackendOptionsMetadata(
@@ -1862,18 +1893,24 @@ static std::string getMangledNameImpl(CodeGenModule &CGM, GlobalDecl GD,
         break;
       case MultiVersionKind::Target: {
         auto *Attr = FD->getAttr<TargetAttr>();
+        assert(Attr && "Expected TargetAttr to be present "
+                       "for attribute mangling");
         const ABIInfo &Info = CGM.getTargetCodeGenInfo().getABIInfo();
         Info.appendAttributeMangling(Attr, Out);
         break;
       }
       case MultiVersionKind::TargetVersion: {
         auto *Attr = FD->getAttr<TargetVersionAttr>();
+        assert(Attr && "Expected TargetVersionAttr to be present "
+                       "for attribute mangling");
         const ABIInfo &Info = CGM.getTargetCodeGenInfo().getABIInfo();
         Info.appendAttributeMangling(Attr, Out);
         break;
       }
       case MultiVersionKind::TargetClones: {
         auto *Attr = FD->getAttr<TargetClonesAttr>();
+        assert(Attr && "Expected TargetClonesAttr to be present "
+                       "for attribute mangling");
         unsigned Index = GD.getMultiVersionIndex();
         const ABIInfo &Info = CGM.getTargetCodeGenInfo().getABIInfo();
         Info.appendAttributeMangling(Attr, Index, Out);
@@ -2935,14 +2972,15 @@ static void emitUsed(CodeGenModule &CGM, StringRef Name,
   SmallVector<llvm::Constant*, 8> UsedArray;
   UsedArray.resize(List.size());
   for (unsigned i = 0, e = List.size(); i != e; ++i) {
-    UsedArray[i] =
-        llvm::ConstantExpr::getPointerBitCastOrAddrSpaceCast(
-            cast<llvm::Constant>(&*List[i]), CGM.Int8PtrTy);
+    UsedArray[i] = llvm::ConstantExpr::getPointerBitCastOrAddrSpaceCast(
+        cast<llvm::Constant>(&*List[i]),
+        llvm::PointerType::getUnqual(CGM.getLLVMContext()));
   }
 
   if (UsedArray.empty())
     return;
-  llvm::ArrayType *ATy = llvm::ArrayType::get(CGM.Int8PtrTy, UsedArray.size());
+  llvm::ArrayType *ATy = llvm::ArrayType::get(
+      llvm::PointerType::getUnqual(CGM.getLLVMContext()), UsedArray.size());
 
   auto *GV = new llvm::GlobalVariable(
       CGM.getModule(), ATy, false, llvm::GlobalValue::AppendingLinkage,
@@ -3678,6 +3716,19 @@ template <typename AttrT> static bool hasImplicitAttr(const ValueDecl *D) {
   return D->isImplicit();
 }
 
+bool CodeGenModule::shouldEmitCUDAGlobalVar(const VarDecl *Global) const {
+  assert(LangOpts.CUDA && "Should not be called by non-CUDA languages");
+  // We need to emit host-side 'shadows' for all global
+  // device-side variables because the CUDA runtime needs their
+  // size and host-side address in order to provide access to
+  // their device-side incarnations.
+  return !LangOpts.CUDAIsDevice || Global->hasAttr<CUDADeviceAttr>() ||
+         Global->hasAttr<CUDAConstantAttr>() ||
+         Global->hasAttr<CUDASharedAttr>() ||
+         Global->getType()->isCUDADeviceBuiltinSurfaceType() ||
+         Global->getType()->isCUDADeviceBuiltinTextureType();
+}
+
 void CodeGenModule::EmitGlobal(GlobalDecl GD) {
   const auto *Global = cast<ValueDecl>(GD.getDecl());
 
@@ -3702,36 +3753,27 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
   // Non-constexpr non-lambda implicit host device functions are not emitted
   // unless they are used on device side.
   if (LangOpts.CUDA) {
-    if (LangOpts.CUDAIsDevice) {
+    assert((isa<FunctionDecl>(Global) || isa<VarDecl>(Global)) &&
+           "Expected Variable or Function");
+    if (const auto *VD = dyn_cast<VarDecl>(Global)) {
+      if (!shouldEmitCUDAGlobalVar(VD))
+        return;
+    } else if (LangOpts.CUDAIsDevice) {
       const auto *FD = dyn_cast<FunctionDecl>(Global);
       if ((!Global->hasAttr<CUDADeviceAttr>() ||
-           (LangOpts.OffloadImplicitHostDeviceTemplates && FD &&
+           (LangOpts.OffloadImplicitHostDeviceTemplates &&
             hasImplicitAttr<CUDAHostAttr>(FD) &&
             hasImplicitAttr<CUDADeviceAttr>(FD) && !FD->isConstexpr() &&
             !isLambdaCallOperator(FD) &&
             !getContext().CUDAImplicitHostDeviceFunUsedByDevice.count(FD))) &&
           !Global->hasAttr<CUDAGlobalAttr>() &&
-          !Global->hasAttr<CUDAConstantAttr>() &&
-          !Global->hasAttr<CUDASharedAttr>() &&
-          !Global->getType()->isCUDADeviceBuiltinSurfaceType() &&
-          !Global->getType()->isCUDADeviceBuiltinTextureType() &&
           !(LangOpts.HIPStdPar && isa<FunctionDecl>(Global) &&
             !Global->hasAttr<CUDAHostAttr>()))
         return;
-    } else {
-      // We need to emit host-side 'shadows' for all global
-      // device-side variables because the CUDA runtime needs their
-      // size and host-side address in order to provide access to
-      // their device-side incarnations.
-
-      // So device-only functions are the only things we skip.
-      if (isa<FunctionDecl>(Global) && !Global->hasAttr<CUDAHostAttr>() &&
-          Global->hasAttr<CUDADeviceAttr>())
-        return;
-
-      assert((isa<FunctionDecl>(Global) || isa<VarDecl>(Global)) &&
-             "Expected Variable or Function");
-    }
+      // Device-only functions are the only things we skip.
+    } else if (!Global->hasAttr<CUDAHostAttr>() &&
+               Global->hasAttr<CUDADeviceAttr>())
+      return;
   }
 
   if (LangOpts.OpenMP) {
@@ -4259,8 +4301,8 @@ void CodeGenModule::emitMultiVersionFunctions() {
     llvm::Constant *ResolverConstant = GetOrCreateMultiVersionResolver(GD);
     if (auto *IFunc = dyn_cast<llvm::GlobalIFunc>(ResolverConstant)) {
       ResolverConstant = IFunc->getResolver();
-      if (FD->isTargetClonesMultiVersion() ||
-          FD->isTargetVersionMultiVersion()) {
+      if (FD->isTargetClonesMultiVersion() &&
+          !getTarget().getTriple().isAArch64()) {
         std::string MangledName = getMangledNameImpl(
             *this, GD, FD, /*OmitMultiVersionMangling=*/true);
         if (!GetGlobalValue(MangledName + ".ifunc")) {
@@ -4512,6 +4554,19 @@ llvm::Constant *CodeGenModule::GetOrCreateMultiVersionResolver(GlobalDecl GD) {
   return Resolver;
 }
 
+bool CodeGenModule::shouldDropDLLAttribute(const Decl *D,
+                                           const llvm::GlobalValue *GV) const {
+  auto SC = GV->getDLLStorageClass();
+  if (SC == llvm::GlobalValue::DefaultStorageClass)
+    return false;
+  const Decl *MRD = D->getMostRecentDecl();
+  return (((SC == llvm::GlobalValue::DLLImportStorageClass &&
+            !MRD->hasAttr<DLLImportAttr>()) ||
+           (SC == llvm::GlobalValue::DLLExportStorageClass &&
+            !MRD->hasAttr<DLLExportAttr>())) &&
+          !shouldMapVisibilityToDLLExport(cast<NamedDecl>(MRD)));
+}
+
 /// GetOrCreateLLVMFunction - If the specified mangled name is not in the
 /// module, create and return an llvm Function with the specified type. If there
 /// is something in the module with the specified name, return it potentially
@@ -4564,8 +4619,7 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
     }
 
     // Handle dropped DLL attributes.
-    if (D && !D->hasAttr<DLLImportAttr>() && !D->hasAttr<DLLExportAttr>() &&
-        !shouldMapVisibilityToDLLExport(cast_or_null<NamedDecl>(D))) {
+    if (D && shouldDropDLLAttribute(D, Entry)) {
       Entry->setDLLStorageClass(llvm::GlobalValue::DefaultStorageClass);
       setDSOLocal(Entry);
     }
@@ -4859,8 +4913,7 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName, llvm::Type *Ty,
     }
 
     // Handle dropped DLL attributes.
-    if (D && !D->hasAttr<DLLImportAttr>() && !D->hasAttr<DLLExportAttr>() &&
-        !shouldMapVisibilityToDLLExport(D))
+    if (D && shouldDropDLLAttribute(D, Entry))
       Entry->setDLLStorageClass(llvm::GlobalValue::DefaultStorageClass);
 
     if (LangOpts.OpenMP && !LangOpts.OpenMPSimd && D)
@@ -5165,8 +5218,11 @@ void CodeGenModule::EmitTentativeDefinition(const VarDecl *D) {
   EmitGlobalVarDefinition(D);
 }
 
-void CodeGenModule::EmitExternalDeclaration(const VarDecl *D) {
-  EmitExternalVarDeclaration(D);
+void CodeGenModule::EmitExternalDeclaration(const DeclaratorDecl *D) {
+  if (auto const *V = dyn_cast<const VarDecl>(D))
+    EmitExternalVarDeclaration(V);
+  if (auto const *FD = dyn_cast<const FunctionDecl>(D))
+    EmitExternalFunctionDeclaration(FD);
 }
 
 CharUnits CodeGenModule::GetTargetTypeStoreSize(llvm::Type *Ty) const {
@@ -5602,6 +5658,18 @@ void CodeGenModule::EmitExternalVarDeclaration(const VarDecl *D) {
     }
 }
 
+void CodeGenModule::EmitExternalFunctionDeclaration(const FunctionDecl *FD) {
+  if (CGDebugInfo *DI = getModuleDebugInfo())
+    if (getCodeGenOpts().hasReducedDebugInfo()) {
+      auto *Ty = getTypes().ConvertType(FD->getType());
+      StringRef MangledName = getMangledName(FD);
+      auto *Fn = dyn_cast<llvm::Function>(
+          GetOrCreateLLVMFunction(MangledName, Ty, FD, /* ForVTable */ false));
+      if (!Fn->getSubprogram())
+        DI->EmitFunctionDecl(FD, FD->getLocation(), FD->getType(), Fn);
+    }
+}
+
 static bool isVarDeclStrongDefinition(const ASTContext &Context,
                                       CodeGenModule &CGM, const VarDecl *D,
                                       bool NoCommon) {
@@ -5881,7 +5949,8 @@ static void ReplaceUsesOfNonProtoTypeWithRealFunction(llvm::GlobalValue *Old,
 
 void CodeGenModule::HandleCXXStaticMemberVarInstantiation(VarDecl *VD) {
   auto DK = VD->isThisDeclarationADefinition();
-  if (DK == VarDecl::Definition && VD->hasAttr<DLLImportAttr>())
+  if ((DK == VarDecl::Definition && VD->hasAttr<DLLImportAttr>()) ||
+      (LangOpts.CUDA && !shouldEmitCUDAGlobalVar(VD)))
     return;
 
   TemplateSpecializationKind TSK = VD->getTemplateSpecializationKind();
@@ -6053,11 +6122,14 @@ void CodeGenModule::emitIFuncDefinition(GlobalDecl GD) {
 
   Aliases.push_back(GD);
 
-  llvm::Type *DeclTy = getTypes().ConvertTypeForMem(D->getType());
-  llvm::Type *ResolverTy = llvm::GlobalIFunc::getResolverFunctionType(DeclTy);
+  // The resolver might not be visited yet. Specify a dummy non-function type to
+  // indicate IsIncompleteFunction. Either the type is ignored (if the resolver
+  // was emitted) or the whole function will be replaced (if the resolver has
+  // not been emitted).
   llvm::Constant *Resolver =
-      GetOrCreateLLVMFunction(IFA->getResolver(), ResolverTy, {},
+      GetOrCreateLLVMFunction(IFA->getResolver(), VoidTy, {},
                               /*ForVTable=*/false);
+  llvm::Type *DeclTy = getTypes().ConvertTypeForMem(D->getType());
   llvm::GlobalIFunc *GIF =
       llvm::GlobalIFunc::create(DeclTy, 0, llvm::Function::ExternalLinkage,
                                 "", Resolver, &getModule());
@@ -6081,9 +6153,6 @@ void CodeGenModule::emitIFuncDefinition(GlobalDecl GD) {
     Entry->eraseFromParent();
   } else
     GIF->setName(MangledName);
-  if (auto *F = dyn_cast<llvm::Function>(Resolver)) {
-    F->addFnAttr(llvm::Attribute::DisableSanitizerInstrumentation);
-  }
   SetCommonAttributes(GD, GIF);
 }
 
@@ -7115,6 +7184,9 @@ void CodeGenModule::AddDeferredUnusedCoverageMapping(Decl *D) {
     SourceManager &SM = getContext().getSourceManager();
     if (LimitedCoverage && SM.getMainFileID() != SM.getFileID(D->getBeginLoc()))
       break;
+    if (!llvm::coverage::SystemHeadersCoverage &&
+        SM.isInSystemHeader(D->getBeginLoc()))
+      break;
     DeferredEmptyCoverageMappingDecls.try_emplace(D, true);
     break;
   }
@@ -7873,12 +7945,15 @@ private:
 /// The visitor will reject any assignment statement if it finds a reduction
 /// variable as the lhs of an assignment statement but not of the following
 /// form: red_var += <expr> red_var = red_var + <expr> red_var = <expr> +
-/// red_var
+/// red_var.
+/// If a reference to a reduction variable is passed to a function
+/// at a top statement level of the kernel, XteamReduction can handle it as
+/// well.
 class XteamRedExprChecker final : public ConstStmtVisitor<XteamRedExprChecker> {
 public:
   XteamRedExprChecker(CodeGenModule &CGM,
                       const CodeGenModule::XteamRedVarMap &RVM)
-      : CGM(CGM), RedMap(RVM), IsSupported(true) {}
+      : CGM(CGM), RedMap(RVM), IsAtTopLevel(true), IsSupported(true) {}
   XteamRedExprChecker() = delete;
 
   bool isSupported() const { return IsSupported; }
@@ -7888,19 +7963,21 @@ public:
       return;
 
     if (isa<BinaryOperator>(S)) {
-      const BinaryOperator *BinOpExpr = cast<BinaryOperator>(S);
-      // Even though we filtered out everything except the sum reduction
-      // operator, we need to make sure the reduction assignment uses
-      // either += or a pattern Codegen can handle. For + reduction op,
+      // Binary operator handling does not use IsAtTopLevel, so reset it
+      // right away.
+      if (IsAtTopLevel)
+        IsAtTopLevel = false;
+      // Ensure that the reduction assignment uses a pattern Codegen
+      // can handle. For sum-reduction,
       // Codegen currently handles red-var += <expr>,
       // red-var = red-var + <expr> and red-var = <expr> + red-var.
       // We punt on anything more complex.
-
+      const BinaryOperator *BinOpExpr = cast<BinaryOperator>(S);
       const Expr *LHS = BinOpExpr->getLHS()->IgnoreImpCasts();
       auto BinOpExprOp = BinOpExpr->getOpcode();
       // Get the reduction variable, if any, from the LHS.
       const VarDecl *RedVarDecl = CGM.getXteamRedVarDecl(LHS, RedMap);
-      if (RedVarDecl != nullptr) {
+      if (RedVarDecl != nullptr) { // LHS accesses a reduction variable.
         if (BinOpExprOp == BO_Assign || BinOpExprOp == BO_AddAssign) {
           const Expr *RHS = BinOpExpr->getRHS()->IgnoreImpCasts();
           // If operator +=, reject if RHS accesses any reduction variable.
@@ -7924,7 +8001,8 @@ public:
                   IsSupported = false;
                 if (!IsSupported)
                   return;
-              } else { // Not an add binary operator.
+              } else { // Not an add binary operator in the RHS for an
+                       // assignment statement.
                 IsSupported = false;
                 return;
               }
@@ -7938,19 +8016,54 @@ public:
           return;
         }
       } else { // LHS of binary operator does not access any reduction variable.
-        // Ensure that RHS does not access any reduction variable either.
+        // Ensure that RHS does not access any reduction variable either. Be
+        // paranoid, validate the LHS as well.
         ValidateChildren(S);
         if (!IsSupported)
           return;
       }
-    } else if (isa<DeclRefExpr>(S)) {
+    } // End of binary operator handling.
+    // Allow a call at the top level with a reduction variable passed by
+    // reference.
+    else if (IsAtTopLevel && isa<CallExpr>(S)) {
+      IsAtTopLevel = false;
+      for (auto Child : S->children())
+        if (Child) {
+          // If it is not a variable reference, recurse. If it is a
+          // variable reference, it will be appropriately handled
+          // during codegen, i.e. replaced with XteamReduction
+          // variable, if required.
+          if (!isa<DeclRefExpr>(Child))
+            Visit(Child);
+          if (!IsSupported)
+            return;
+        }
+      // Ensure every arg has scalar eval kind.
+      const CallExpr *CE = cast<CallExpr>(S);
+      if (CE == nullptr) {
+        IsSupported = false;
+        return;
+      }
+      CodeGenFunction CGF(CGM);
+      for (unsigned ArgIndex = 0; ArgIndex < CE->getNumArgs(); ++ArgIndex) {
+        const Expr *Arg = CE->getArg(ArgIndex);
+        if (!Arg || !CGF.hasScalarEvaluationKind(Arg->getType())) {
+          IsSupported = false;
+          return;
+        }
+      }
+    } // End of call expression handling.
+    else if (isa<DeclRefExpr>(S)) {
+      IsAtTopLevel = false;
       // Not a binary operator, so not supported at this point. So ensure no
       // reduction variable is accessed.
       if (CGM.hasXteamRedVar(cast<DeclRefExpr>(S), RedMap)) {
         IsSupported = false;
         return;
       }
-    } else {
+    } // End of DeclRefExpr handling.
+    else {
+      IsAtTopLevel = false;
       // Recursively check the children.
       ValidateChildren(S);
       if (!IsSupported)
@@ -7970,6 +8083,10 @@ private:
   CodeGenModule &CGM;
   /// Map of reduction variables for this directive.
   const CodeGenModule::XteamRedVarMap &RedMap;
+  /// Indicates whether the current analyzed statement is at the top level
+  /// statement list in the kernel. Set to true when the visitor is called first
+  /// and reset to false before visiting any children.
+  bool IsAtTopLevel;
   /// Set to false if codegen does not support the reduction expression.
   bool IsSupported;
 };
@@ -8453,10 +8570,13 @@ CodeGenModule::getXteamRedForStmtStatus(const OMPExecutableDirective &D,
   // the directive
   const ForStmt *FStmt = getSingleForStmt(OMPStmt);
   assert(FStmt != nullptr && "Unexpected missing For Stmt");
-  XteamRedExprChecker Chk(*this, RVM);
-  Chk.Visit(FStmt);
-  if (!Chk.isSupported())
-    return std::make_pair(NxUnsupportedRedExpr, HasNestedGenericCall);
+  for (auto Child : FStmt->children())
+    if (Child) {
+      XteamRedExprChecker Chk(*this, RVM);
+      Chk.Visit(Child);
+      if (!Chk.isSupported())
+        return std::make_pair(NxUnsupportedRedExpr, HasNestedGenericCall);
+    }
   return std::make_pair(NxSuccess, HasNestedGenericCall);
 }
 
@@ -8857,8 +8977,7 @@ CodeGenModule::checkAndSetNoLoopKernel(const OMPExecutableDirective &D) {
 CodeGenModule::NoLoopXteamErr
 CodeGenModule::checkAndSetXteamRedKernel(const OMPExecutableDirective &D) {
   NoLoopXteamErr NxStatus = NxSuccess;
-  if (!getLangOpts().OpenMPTargetIgnoreEnvVars ||
-      !getLangOpts().OpenMPTargetXteamReduction)
+  if (!getLangOpts().OpenMPTargetXteamReduction)
     return NxOptionDisabled;
 
   OptKernelNestDirectives NestDirs;

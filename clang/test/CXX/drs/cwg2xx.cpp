@@ -41,7 +41,7 @@ namespace cwg202 { // cwg202: 3.1
   template struct X<f>;
 }
 
-// FIXME (export) cwg204: no
+// cwg204: sup 820
 
 namespace cwg206 { // cwg206: yes
   struct S; // #cwg206-S
@@ -561,9 +561,9 @@ namespace cwg244 { // cwg244: 11
     B_ptr->B_alias::~B();
     B_ptr->B_alias::~B_alias();
     B_ptr->cwg244::~B();
-    // expected-error@-1 {{qualified member access refers to a member in namespace 'cwg244'}}
+    // expected-error@-1 {{no member named '~B' in namespace 'cwg244'}}
     B_ptr->cwg244::~B_alias();
-    // expected-error@-1 {{qualified member access refers to a member in namespace 'cwg244'}}
+    // expected-error@-1 {{no member named '~B' in namespace 'cwg244'}}
   }
 
   template<typename T, typename U>
@@ -759,7 +759,7 @@ namespace cwg254 { // cwg254: 2.9
     typedef typename T::type type; // ok even if this is a typedef-name, because
                                    // it's not an elaborated-type-specifier
     typedef struct T::type foo;
-    // expected-error@-1 {{typedef 'type' cannot be referenced with a struct specifier}}
+    // expected-error@-1 {{typedef 'type' cannot be referenced with the 'struct' specifier}}
     //   expected-note@#cwg254-instantiation {{in instantiation of template class 'cwg254::A<cwg254::C>' requested here}}
     //   expected-note@#cwg254-C {{declared here}}
   };
@@ -836,7 +836,7 @@ namespace cwg258 { // cwg258: 2.8
 
 namespace cwg259 { // cwg259: 4
   template<typename T> struct A {};
-  template struct A<int>; // #cwg259-A-int 
+  template struct A<int>; // #cwg259-A-int
   template struct A<int>;
   // expected-error@-1 {{duplicate explicit instantiation of 'A<int>'}}
   //   expected-note@#cwg259-A-int {{previous explicit instantiation is here}}
@@ -997,7 +997,7 @@ namespace cwg275 { // cwg275: no
     // expected-error@-1 {{no function template matches function template specialization 'f'}}
   }
 
-  template <class T> void g(T) {} // #cwg275-g 
+  template <class T> void g(T) {} // #cwg275-g
 
   template <> void N::f(char) {}
   template <> void f(int) {}
@@ -1164,7 +1164,7 @@ namespace cwg285 { // cwg285: yes
 namespace cwg286 { // cwg286: 2.8
   template<class T> struct A {
     class C {
-      template<class T2> struct B {}; // #cwg286-B 
+      template<class T2> struct B {}; // #cwg286-B
     };
   };
 
@@ -1264,10 +1264,10 @@ namespace cwg298 { // cwg298: 3.1
 
   struct A a;
   struct B b;
-  // expected-error@-1 {{typedef 'B' cannot be referenced with a struct specifier}}
+  // expected-error@-1 {{typedef 'B' cannot be referenced with the 'struct' specifier}}
   //   expected-note@#cwg298-B {{declared here}}
   struct C c;
-  // expected-error@-1 {{typedef 'C' cannot be referenced with a struct specifier}}
+  // expected-error@-1 {{typedef 'C' cannot be referenced with the 'struct' specifier}}
   //   expected-note@#cwg298-C {{declared here}}
 
   B::B() {}

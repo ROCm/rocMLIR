@@ -6,7 +6,8 @@ declare extern_weak void @foo(...)
 
 define void @bar() {
 entry:
-  br i1 icmp ne (void (...)* @foo, void (...)* null), label %if.then, label %if.end
+  %cmp = icmp ne ptr @foo, null
+  br i1 %cmp, label %if.then, label %if.end
 
 if.then:
   tail call void (...) @foo( )
@@ -29,9 +30,9 @@ if.end:
 ; WIN64: jmpq *.refptr.foo
 
 
-declare extern_weak i32 @X(i8*)
+declare extern_weak i32 @X(ptr)
 
-@Y = global i32 (i8*)* @X               ; <i32 (i8*)**> [#uses=0]
+@Y = global ptr @X               ; <ptr> [#uses=0]
 
 ; DARWIN-LABEL: _Y:
 ; DARWIN: .long _X
