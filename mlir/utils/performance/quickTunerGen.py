@@ -33,106 +33,6 @@ import faulthandler
 import re
 import glob
 
-"""
-
-To do:
-- convert to base class with derived quickTuner methods
-- plug in runner
-
-"""
-
-"""
-Validator Base Class
-"""
-class perfConfigValidator(object):
-    """
-    base class for validators, implement validate() method
-    """
-    def __init__(self, name=None):
-        self.name = name
-
-    def collectGemmConfigs(self, gemm_config_file, comment='#'):
-        """
-        collect gemm config files given a gemm_config_file
-        """
-        gemm_list = []
-        with open(gemm_config_file, 'r') as f:
-            lines = f.readlines()
-
-        for line in lines:
-            if comment is not None:
-                line = line.split(comment)[0]
-
-            line = line.strip()
-            if line:
-                gemm_list.append(line)
-
-        return gemm_list
-
-
-    def __typeQtMap(self, qt_dict):
-        raise NotImplementedError()
-    
-    def validate(self, results):
-        """
-        return a dictionary of dictionaries
-        """
-        raise NotImplementedError()
-
-    def getBest(self):
-        """
-        get the best
-        """
-        raise NotImplementedError()
-
-class dataValidator(perfConfigValidator):
-    """
-    uses already provided data to validate the configs generated
-    """
-    def __init__(self, input_dir, gemm_config_file):
-        super().__init__()
-        self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
-        self.validation_data = orderByGemmType(input_dir, True)        
-
-
-    def __gemmConfigToKey(self, gemm_config):
-        """
-        Convert gemm line to code
-        """
-        pattern = r'-transA (\S+) -transB (\S+) -g (\d+) -m (\d+) -n (\d+) -k (\d+)'
-
-        match = re.search(pattern, gemm_config)
-
-        if match:
-            tup = match.groups()
-            transA = True if tup[0].lower() == 'true' else False
-            transB = True if tup[1].lower() == 'true' else False
-            return (transA, transB) + tuple([int(x) for x in tup[2:]])
-            g = match.group(3)
-            m = match.group(4)
-            n = match.group(5)
-            k = match.group(6)
-            file_name = f"g{g}_m{m}_n{n}_k{k}"
-        else:
-            print("Could not parse gemmConfig", file=sys.stderr)
-            exit(1)
-        
-        return file_name
-
-
-    def validate(self, results, dtype):
-        all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
-        for gemm in self.gemm_configs:
-            gemm = self.__gemmConfigToKey(gemm)
-            data_subset = self.validation_data[dtype][gemm]
-            results = results[list(columns)]
-            merged_df = pd.merge(results, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
-            all_data.append(merged_df)
-        return all_data
-            
-    
-
 class quickTunerMethod(object):
     """
     base class for creating quick tuner methods, implement the getConfig() method.
@@ -197,7 +97,7 @@ class quickTunerMethod(object):
                     
                 
 
-    def getConfig(self, input_dir):
+    def getConfig(self, input_file):
         """
         produces a config that can be converted to .qt file using
         convertToConfig
@@ -212,8 +112,29 @@ class quickTuner(object):
     """
     def __init__(self, pargs):
         self.methods = {}
-        self.input_dir = pargs.input_file
+        self.input_file = pargs.input_file
         self.__parseValidationArgs(pargs)
+        self.__parseMethods(pargs)
+
+    def __parseMethods(self, pargs):
+        """
+        parse each method in pargs.method
+        """
+        gen_methods = pargs.method
+        for method in gen_methods:
+            if method == 'default':
+                self.addMethod(defaultQuickTune(method))
+            elif method == 'topNSelect':
+                self.addMethod(topNSelection(method))
+            elif method == 'topMode':
+                self.addMethod(topMode(method))
+            elif method == 'takeNEach':      
+                self.addMethod(takeNEach(method))
+            elif method == 'fairSelect':
+                self.addMethod(fairSelect(method))
+            else:
+                raise ValueError(f"Unknown method: {method}")                
+            
 
     def __parseValidationArgs(self, pargs):
         """
@@ -227,15 +148,12 @@ class quickTuner(object):
             else:
                 raise ValueError(f"Argument {item} is not a valid key=value pair")
 
-        if pargs.validate == 'data':
-            # init validator
-            self.validator = dataValidator(pargs.input_file,**kwargs)
-        else:
-            self.validator = None               
+        #if pargs.validate and pargs.validate == 'data':
+        # init validator
+        #    self.validator = dataValidator(pargs.input_file,**kwargs)
+        #else:
+        #    self.validator = None               
         
-    def updateInputDir(self, input_dir):
-        self.input_dir = input_dir
-
     def addMethod(self, method: quickTunerMethod):
         """
         Adds method to method dict
@@ -250,14 +168,12 @@ class quickTuner(object):
         else:
             for k in self.methods:
                 method = self.methods[k]
-                df = method.getConfig(self.input_dir)
+                df = method.getConfig(self.input_file)
                 self.method_results[k] = df
 
+    """        
     def validate(self):
-        """
-        Validate on either a dataset or by running rocmlir-tuning-gen
-        
-        """
+        #Validate on either a dataset or by running rocmlir-tuning-gen
         if self.validator is None:
             print("validator not set", file=sys.stderr)
             return
@@ -283,7 +199,7 @@ class quickTuner(object):
             
         self.output_df = pd.DataFrame(output_dict)
         print(self.output_df)
-        
+    """
     
     def saveConfigs(self):
         """
@@ -384,7 +300,7 @@ def printConfigDict(df):
         print(f"k:{k}\nv\n:{v}")
 
 
-def readDirCluster(input_dir: str, clustered_dfs):
+def readDirCluster(input_file: str, clustered_dfs):
     """
     Given an input directory and the cluster dataframe,
     read the cluster's by datatype into a dataframe, order
@@ -405,8 +321,8 @@ def readDirCluster(input_dir: str, clustered_dfs):
             # glob for the files
             #glob_str = f"*/*-{transA}_{transB}__g{g}_m{m}_n{n}_k{k}"
             dir_str = f"g{g}_m{m}_n{n}_k{k}"
-            #glob_path = os.path.join(input_dir, glob_str)
-            dir_path = os.path.join(input_dir, dir_str)        
+            #glob_path = os.path.join(input_file, glob_str)
+            dir_path = os.path.join(input_file, dir_str)        
             
             #for file in glob.glob(glob_path):
             for root, _, files in os.walk(dir_path):
@@ -435,11 +351,11 @@ def readDirCluster(input_dir: str, clustered_dfs):
     return label_dict
 
 
-def parseDir(input_dir: str, normalize=True):
+def parseDir(input_file: str, normalize=True):
 
     df_dir = {}
 
-    tsv_files = glob.glob(f"{input_dir}/*.debug")
+    tsv_files = glob.glob(f"{input_file}/*.debug")
 
     for file in tsv_files:
         df = pd.read_csv(file, sep='\t')
@@ -465,14 +381,14 @@ def parseDir(input_dir: str, normalize=True):
     return group_df
 
 
-def parseDir2(input_dir: str):
+def parseDir2(input_file: str):
     """
     parse directory and make dataframe from the Gemm configs
     """
 
     df_dir = {}
 
-    for root, dirs, files in os.walk(input_dir):
+    for root, dirs, files in os.walk(input_file):
         for file in files:
             file_path = os.path.join(root, file)
             root_name = os.path.basename(root)
@@ -508,11 +424,11 @@ def parseDir2(input_dir: str):
         return pd.DataFrame(df_dir[k])
 
 
-def orderByType(input_dir: str, normalize=False):
+def orderByType(input_file: str, normalize=False):
     df_dir = {}
 
     # glob the files
-    tsv_files = glob.glob(f"{input_dir}/*.debug")
+    tsv_files = glob.glob(f"{input_file}/*.debug")
 
     dfs = []
 
@@ -547,14 +463,14 @@ def orderByType(input_dir: str, normalize=False):
     return result
         
 
-def orderByType2(input_dir: str, normalize=False):
+def orderByType2(input_file: str, normalize=False):
     """
     return a dictionary keyed by datatype with values of an ordered dataframe
-    of the input_directory
+    of the input_fileectory
     """
     df_dir = {}
 
-    for root, dirs, files in os.walk(input_dir):
+    for root, dirs, files in os.walk(input_file):
         for file in files:
             file_path = os.path.join(root, file)
             root_name = os.path.basename(root)
@@ -600,7 +516,7 @@ def orderByType2(input_dir: str, normalize=False):
 
     return df_dir
 
-def orderByGemmType(input_dir: str, normalize=True):
+def orderByGemmType(input_file: str, normalize=True):
 
     def col2str(col):
         TransA = 't' if col[0] == 'True' else 'f'
@@ -613,7 +529,7 @@ def orderByGemmType(input_dir: str, normalize=True):
         
     df_dir = {}
 
-    tsv_files = glob.glob(f"{input_dir}/*.debug")
+    tsv_files = glob.glob(f"{input_file}/*.debug")
 
     dfs = []
 
@@ -674,14 +590,14 @@ def orderByGemmType(input_dir: str, normalize=True):
     return grouped
     
 
-def orderByGemmType2(input_dir: str, normalize=True):
+def orderByGemmType2(input_file: str, normalize=True):
     """
     return a dictionary keyed by datatype with values of an ordered dataframe
-    of the input_directory
+    of the input_fileectory
     """
     df_dir = {}
 
-    for root, dirs, files in os.walk(input_dir):
+    for root, dirs, files in os.walk(input_file):
         for file in files:
             file_path = os.path.join(root, file)
             root_name = os.path.basename(root)
@@ -785,7 +701,7 @@ class defaultQuickTune(quickTunerMethod):
 
         self.config = { 'f32': self.default_f32, 'f16': self.default_f16, 'i8': self.default_i8 }
 
-    def getConfig(self, input_dir):
+    def getConfig(self, input_file):
         """
         returns the already made config
         """
@@ -806,8 +722,8 @@ class topNSelection(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_dir):
-        type_dict = orderByType(input_dir, normalize=self.normalize)
+    def getConfig(self, input_file):
+        type_dict = orderByType(input_file, normalize=self.normalize)
 
         type_dict = orderDict(type_dict)
 
@@ -831,10 +747,10 @@ class topMode(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_dir):
+    def getConfig(self, input_file):
         config_dict = {}
     
-        type_gemm_dict = orderByGemmType(input_dir, normalize=self.normalize)
+        type_gemm_dict = orderByGemmType(input_file, normalize=self.normalize)
 
         type_gemm_dict = orderGemmDict(type_gemm_dict)
 
@@ -869,13 +785,13 @@ class takeNEach(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_dir):
+    def getConfig(self, input_file):
         """
         take top performers from N dataframes
         """
         config_dict = {}
     
-        type_gemm_dict = orderByGemmType(input_dir, normalize=self.normalize)
+        type_gemm_dict = orderByGemmType(input_file, normalize=self.normalize)
 
         type_gemm_dict = orderGemmDict(type_gemm_dict)
 
@@ -916,10 +832,10 @@ class topConfigCluster(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_dir):
+    def getConfig(self, input_file):
         N=self.N
         n_clusters = N//2
-        type_dict = orderByType(input_dir, normalize=self.normalize)
+        type_dict = orderByType(input_file, normalize=self.normalize)
 
         type_dict = orderDict(type_dict)
 
@@ -995,7 +911,7 @@ class topGemmCluster(quickTunerMethod):
         super().__init__(name)
         self.normalize = normalize
 
-    def getConfig(self, input_dir):        
+    def getConfig(self, input_file):        
         N = self.N
         def calculateProportions(input_list, N=40):
             # Count the occurrences of each unique value
@@ -1031,7 +947,7 @@ class topGemmCluster(quickTunerMethod):
 
             return proportions
 
-        gemm_df = parseDir(input_dir)
+        gemm_df = parseDir(input_file)
 
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(gemm_df)
@@ -1058,7 +974,7 @@ class topGemmCluster(quickTunerMethod):
         clustered_dfs = {label: gemm_df[gemm_df['cluster'] == label] for label in gemm_df['cluster'].unique()}
 
         # iterate through the clustered dataframes
-        label_dict = readDirCluster(input_dir, clustered_dfs)
+        label_dict = readDirCluster(input_file, clustered_dfs)
         data_dict = {}
         for label, type_dict in label_dict.items():
             #print(f"cluster: {label}")
@@ -1185,9 +1101,9 @@ class analyzeDataSelect(quickTunerMethod):
             result[data_type] = top_perfconfigs
         return result
 
-    def getConfig(self, input_dir):
-        avrg_tfops_per_datatype = self.__averagePerformance(input_dir)
-        counted_win = self.__analyzeData(input_dir, avrg_tfops_per_datatype)
+    def getConfig(self, input_file):
+        avrg_tfops_per_datatype = self.__averagePerformance(input_file)
+        counted_win = self.__analyzeData(input_file, avrg_tfops_per_datatype)
         self.__add_average_tflops(counted_win,avrg_tfops_per_datatype)
         sorted_data = {}
         for datatype, configs in counted_win.items():
@@ -1331,10 +1247,10 @@ class fairSelect(quickTunerMethod):
             
         return pd.DataFrame(final_dataset, columns=cols)
 
-    def getConfig(self, input_dir):
+    def getConfig(self, input_file):
         config_dict = {}
     
-        type_gemm_dict = orderByGemmType(input_dir, normalize=self.normalize)
+        type_gemm_dict = orderByGemmType(input_file, normalize=self.normalize)
 
         type_gemm_dict = orderGemmDict(type_gemm_dict)
 
@@ -1365,11 +1281,6 @@ def main(args=None):
                         required=True,
                         type=str)
 
-    parser.add_argument('--normalize',
-                        action='store_true',
-                        default=False,
-                        help='Normalize input data')
-
     parser.add_argument('--method',
                         nargs='+',
                         choices=["default","topNSelect","topMode","takeNEach","fairSelect","hardcoded"],
@@ -1392,21 +1303,21 @@ def main(args=None):
 
     tuner = quickTuner(pargs)
 
-    tuner.addMethod(defaultQuickTune('defaultNew'))
+    #tuner.addMethod(defaultQuickTune('defaultNew'))
 
-    tuner.addMethod(analyzeDataSelect('DjordjeMethod'))
+    #tuner.addMethod(analyzeDataSelect('DjordjeMethod'))
     
-    tuner.addMethod(topNSelection('topNSelectNew'))
+    #tuner.addMethod(topNSelection('topNSelectNew'))
 
-    tuner.addMethod(topMode('topModeNew'))
+    #tuner.addMethod(topMode('topModeNew'))
 
-    tuner.addMethod(takeNEach('takeNEachNew'))
+    #tuner.addMethod(takeNEach('takeNEachNew'))
 
     #tuner.addMethod(topConfigCluster('confClusterNew'))
 
     #tuner.addMethod(topGemmCluster('gemmClusterNew')) update parseDir
 
-    tuner.addMethod(fairSelect('fairSelect')) 
+    #tuner.addMethod(fairSelect('fairSelect')) 
 
     tuner.tune()
 
