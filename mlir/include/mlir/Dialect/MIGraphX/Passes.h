@@ -19,11 +19,10 @@
 
 namespace mlir {
 namespace migraphx {
-
 #define GEN_PASS_DECL_MIGRAPHXTRANSFORMPASS
+#define GEN_PASS_DECL_MIGRAPHXIREEGEN
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/MIGraphX/Passes.h.inc"
-
 } // namespace migraphx
 } // namespace mlir
 

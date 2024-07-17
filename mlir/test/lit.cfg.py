@@ -38,7 +38,7 @@ config.substitutions.append(('%arch', config.arch))
 config.substitutions.append(('%pv', config.populate_validation))
 
 llvm_config.with_system_environment(
-    ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
+    ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP', 'IREE_BIN'])
 
 ##############
 # FIXME: adding a path to the environment isn't appearing to work as

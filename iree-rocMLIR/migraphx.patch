@@ -1,0 +1,411 @@
+commit 355e1ade56fc6f4cf2e7646d8c00414aa0de9e5e
+Author: Fabian Mora <fmora.dev@gmail.com>
+Date:   Mon Jul 8 18:13:42 2024 +0000
+
+    [GPU] Add support for multi-dim kernels and dyn shared memory
+
+diff --git a/src/targets/gpu/code_object_op.cpp b/src/targets/gpu/code_object_op.cpp
+index 3f640e59d..b3845232c 100644
+--- a/src/targets/gpu/code_object_op.cpp
++++ b/src/targets/gpu/code_object_op.cpp
+@@ -31,6 +31,59 @@ namespace gpu {
+ 
+ MIGRAPHX_REGISTER_OP(code_object_op);
+ 
++code_object_op::code_object_op(value::binary&& co,
++                               std::string sn,
++                               std::size_t global,
++                               std::size_t local,
++                               std::vector<shape> ei,
++                               shape o,
++                               std::int64_t oa,
++                               kernel ker)
++    : code_object(std::move(co)),
++      symbol_name(sn),
++      global_x(global),
++      global_y(1),
++      global_z(1),
++      local_x(local),
++      local_y(1),
++      local_z(1),
++      ldsSize(0),
++      expected_inputs(ei),
++      output(o),
++      output_arg(oa),
++      k(ker)
++{
++}
++
++code_object_op::code_object_op(value::binary&& co,
++                               std::string sn,
++                               std::size_t gx,
++                               std::size_t gy,
++                               std::size_t gz,
++                               std::size_t lx,
++                               std::size_t ly,
++                               std::size_t lz,
++                               std::size_t ls,
++                               std::vector<shape> ei,
++                               shape o,
++                               std::int64_t oa,
++                               kernel ker)
++    : code_object(std::move(co)),
++      symbol_name(sn),
++      global_x(gx),
++      global_y(gy),
++      global_z(gz),
++      local_x(lx),
++      local_y(ly),
++      local_z(lz),
++      ldsSize(ls),
++      expected_inputs(ei),
++      output(o),
++      output_arg(oa),
++      k(ker)
++{
++}
++
+ shape code_object_op::compute_shape(std::vector<shape> inputs) const
+ {
+     std::transform(inputs.begin(), inputs.end(), inputs.begin(), [](const shape& s) {
+@@ -53,7 +106,17 @@ code_object_op::compute(context& ctx, const shape&, const std::vector<argument>&
+     std::transform(
+         fargs.begin(), fargs.end(), kargs.begin(), [](const argument& a) { return a.data(); });
+     auto [start, stop] = ctx.get_perf_events();
+-    k.launch(ctx.get_stream().get(), global, local, std::move(kargs), start, stop);
++    k.launch(ctx.get_stream().get(),
++             global_x,
++             global_y,
++             global_z,
++             local_x,
++             local_y,
++             local_z,
++             ldsSize,
++             std::move(kargs),
++             start,
++             stop);
+     return args[get_output_arg(args.size())];
+ }
+ void code_object_op::finalize(context&, const shape&, const std::vector<shape>&)
+diff --git a/src/targets/gpu/include/migraphx/gpu/code_object_op.hpp b/src/targets/gpu/include/migraphx/gpu/code_object_op.hpp
+index cdedd9cfb..90c46f66c 100644
+--- a/src/targets/gpu/include/migraphx/gpu/code_object_op.hpp
++++ b/src/targets/gpu/include/migraphx/gpu/code_object_op.hpp
+@@ -38,10 +38,37 @@ struct context;
+ 
+ struct code_object_op
+ {
++    code_object_op() = default;
++    code_object_op(value::binary&& code_object,
++                   std::string symbol_name,
++                   std::size_t global,
++                   std::size_t local,
++                   std::vector<shape> expected_inputs,
++                   shape output,
++                   std::int64_t output_arg = -1,
++                   kernel k                = {});
++    code_object_op(value::binary&& code_object,
++                   std::string symbol_name,
++                   std::size_t global_x,
++                   std::size_t global_y,
++                   std::size_t global_z,
++                   std::size_t local_x,
++                   std::size_t local_y,
++                   std::size_t local_z,
++                   std::size_t ldsSize,
++                   std::vector<shape> expected_inputs,
++                   shape output,
++                   std::int64_t output_arg = -1,
++                   kernel k                = {});
+     value::binary code_object{};
+     std::string symbol_name = "";
+-    std::size_t global      = 0;
+-    std::size_t local       = 0;
++    std::size_t global_x    = 0;
++    std::size_t global_y    = 1;
++    std::size_t global_z    = 1;
++    std::size_t local_x     = 0;
++    std::size_t local_y     = 1;
++    std::size_t local_z     = 1;
++    std::size_t ldsSize     = 0;
+     std::vector<shape> expected_inputs{};
+     shape output{};
+     std::int64_t output_arg = -1;
+@@ -52,8 +79,8 @@ struct code_object_op
+     {
+         return pack(f(self.code_object, "code_object"),
+                     f(self.symbol_name, "symbol_name"),
+-                    f(self.global, "global"),
+-                    f(self.local, "local"),
++                    f(self.global_x, "global"),
++                    f(self.local_x, "local"),
+                     f(self.expected_inputs, "expected_inputs"),
+                     f(self.output, "output"));
+     }
+@@ -81,8 +108,9 @@ struct code_object_op
+         os << op.name() << "[";
+         os << "code_object=" << op.code_object.size() << ",";
+         os << "symbol_name=" << op.symbol_name << ",";
+-        os << "global=" << op.global << ",";
+-        os << "local=" << op.local << ",";
++        os << "global=[" << op.global_x << "," << op.global_y << "," << op.global_z << "],";
++        os << "local=[" << op.local_x << "," << op.local_y << "," << op.local_z << "],";
++        os << "ldsSize=" << op.ldsSize << ",";
+         os << "]";
+         return os;
+     }
+diff --git a/src/targets/gpu/include/migraphx/gpu/kernel.hpp b/src/targets/gpu/include/migraphx/gpu/kernel.hpp
+index 63accdea4..6312fa7ba 100644
+--- a/src/targets/gpu/include/migraphx/gpu/kernel.hpp
++++ b/src/targets/gpu/include/migraphx/gpu/kernel.hpp
+@@ -48,24 +48,68 @@ struct MIGRAPHX_GPU_EXPORT kernel
+     }
+ 
+     void launch(hipStream_t stream,
+-                std::size_t global,
+-                std::size_t local,
++                std::size_t global_x,
++                std::size_t global_y,
++                std::size_t global_z,
++                std::size_t local_x,
++                std::size_t local_y,
++                std::size_t local_z,
++                std::size_t lds_size,
+                 const std::vector<kernel_argument>& args,
+                 hipEvent_t start = nullptr,
+                 hipEvent_t stop  = nullptr) const;
+ 
+     void launch(hipStream_t stream,
+-                std::size_t global,
+-                std::size_t local,
++                std::size_t global_x,
++                std::size_t global_y,
++                std::size_t global_z,
++                std::size_t local_x,
++                std::size_t local_y,
++                std::size_t local_z,
++                std::size_t lds_size,
+                 std::vector<void*> args,
+                 hipEvent_t start = nullptr,
+                 hipEvent_t stop  = nullptr) const;
+ 
++    template <class... Ts>
++    auto launch(hipStream_t stream,
++                std::size_t global_x,
++                std::size_t global_y,
++                std::size_t global_z,
++                std::size_t local_x,
++                std::size_t local_y,
++                std::size_t local_z,
++                std::size_t lds_size,
++                Ts... zs) const
++    {
++        return [=](auto&&... xs) {
++            launch(stream,
++                   global_x,
++                   global_y,
++                   global_z,
++                   local_x,
++                   local_y,
++                   local_z,
++                   lds_size,
++                   std::vector<kernel_argument>{xs...},
++                   zs...);
++        };
++    }
++
+     template <class... Ts>
+     auto launch(hipStream_t stream, std::size_t global, std::size_t local, Ts... zs) const
+     {
+         return [=](auto&&... xs) {
+-            launch(stream, global, local, std::vector<kernel_argument>{xs...}, zs...);
++            launch(stream,
++                   global,
++                   1ul,
++                   1ul,
++                   local,
++                   1ul,
++                   1ul,
++                   0ul,
++                   std::vector<kernel_argument>{xs...},
++                   zs...);
+         };
+     }
+ 
+diff --git a/src/targets/gpu/kernel.cpp b/src/targets/gpu/kernel.cpp
+index f43c0979d..f8c7ac865 100644
+--- a/src/targets/gpu/kernel.cpp
++++ b/src/targets/gpu/kernel.cpp
+@@ -81,15 +81,24 @@ kernel::kernel(const char* image, const std::string& name) : impl(std::make_shar
+ 
+ void launch_kernel(hipFunction_t fun,
+                    hipStream_t stream,
+-                   std::size_t global,
+-                   std::size_t local,
++                   std::size_t global_x,
++                   std::size_t global_y,
++                   std::size_t global_z,
++                   std::size_t local_x,
++                   std::size_t local_y,
++                   std::size_t local_z,
++                   std::size_t lds_size,
+                    void* kernargs,
+                    std::size_t size,
+                    hipEvent_t start,
+                    hipEvent_t stop)
+ {
+-    assert(global > 0);
+-    assert(local > 0);
++    assert(global_x > 0);
++    assert(global_y > 0);
++    assert(global_z > 0);
++    assert(local_x > 0);
++    assert(local_y > 0);
++    assert(local_z > 0);
+     void* config[] = {
+ // HIP_LAUNCH_PARAM_* are macros that do horrible things
+ #ifdef MIGRAPHX_USE_CLANG_TIDY
+@@ -104,13 +113,13 @@ void launch_kernel(hipFunction_t fun,
+     };
+ 
+     auto status = hipExtModuleLaunchKernel(fun,
+-                                           global,
+-                                           1,
+-                                           1,
+-                                           local,
+-                                           1,
+-                                           1,
+-                                           0,
++                                           global_x,
++                                           global_y,
++                                           global_z,
++                                           local_x,
++                                           local_y,
++                                           local_z,
++                                           lds_size,
+                                            stream,
+                                            nullptr,
+                                            reinterpret_cast<void**>(&config),
+@@ -127,8 +136,13 @@ void launch_kernel(hipFunction_t fun,
+ }
+ 
+ void kernel::launch(hipStream_t stream,
+-                    std::size_t global,
+-                    std::size_t local,
++                    std::size_t global_x,
++                    std::size_t global_y,
++                    std::size_t global_z,
++                    std::size_t local_x,
++                    std::size_t local_y,
++                    std::size_t local_z,
++                    std::size_t lds_size,
+                     std::vector<void*> args,
+                     hipEvent_t start,
+                     hipEvent_t stop) const
+@@ -137,12 +151,29 @@ void kernel::launch(hipStream_t stream,
+     void* kernargs   = args.data();
+     std::size_t size = args.size() * sizeof(void*);
+ 
+-    launch_kernel(impl->fun, stream, global, local, kernargs, size, start, stop);
++    launch_kernel(impl->fun,
++                  stream,
++                  global_x,
++                  global_y,
++                  global_z,
++                  local_x,
++                  local_y,
++                  local_z,
++                  lds_size,
++                  kernargs,
++                  size,
++                  start,
++                  stop);
+ }
+ 
+ void kernel::launch(hipStream_t stream,
+-                    std::size_t global,
+-                    std::size_t local,
++                    std::size_t global_x,
++                    std::size_t global_y,
++                    std::size_t global_z,
++                    std::size_t local_x,
++                    std::size_t local_y,
++                    std::size_t local_z,
++                    std::size_t lds_size,
+                     const std::vector<kernel_argument>& args,
+                     hipEvent_t start,
+                     hipEvent_t stop) const
+@@ -151,7 +182,19 @@ void kernel::launch(hipStream_t stream,
+     std::vector<char> kernargs = pack_args(args);
+     std::size_t size           = kernargs.size();
+ 
+-    launch_kernel(impl->fun, stream, global, local, kernargs.data(), size, start, stop);
++    launch_kernel(impl->fun,
++                  stream,
++                  global_x,
++                  global_y,
++                  global_z,
++                  local_x,
++                  local_y,
++                  local_z,
++                  lds_size,
++                  kernargs.data(),
++                  size,
++                  start,
++                  stop);
+ }
+ 
+ } // namespace gpu
+diff --git a/src/targets/gpu/mlir.cpp b/src/targets/gpu/mlir.cpp
+index 94badfe5b..9037e5569 100644
+--- a/src/targets/gpu/mlir.cpp
++++ b/src/targets/gpu/mlir.cpp
+@@ -720,7 +720,7 @@ struct mlir_program
+     void run_high_level_pipeline()
+     {
+         mlir_pass_manager pm_front{mlirPassManagerCreate(ctx.get())};
+-        mlirMIGraphXAddHighLevelPipeline(pm_front.get());
++        mlirMIGraphXAddHighLevelPipelineWithArch(pm_front.get(), target_arch.c_str());
+         logger.clear();
+         if(mlirLogicalResultIsFailure(
+                mlirPassManagerRunOnOp(pm_front.get(), mlirModuleGetOperation(mmodule.get()))))
+@@ -773,7 +773,7 @@ struct mlir_program
+         code_object_op op{};
+         op.symbol_name                = sym_name;
+         op.code_object                = get_binary();
+-        std::tie(op.global, op.local) = get_launch_params();
++        set_launch_params(op);
+         return op;
+     }
+ 
+@@ -784,14 +784,24 @@ struct mlir_program
+         num_cu             = device.get_cu_count();
+     }
+ 
+-    std::pair<std::size_t, std::size_t> get_launch_params() const
++    void set_launch_params(code_object_op& op) const
+     {
+-        uint32_t attrs[2];
++        uint32_t attrs[7] = {0};
+         // returns block and grid sizes
+-        mlirGetKernelAttrs(mmodule.get(), attrs);
+-        std::size_t local  = attrs[0];
+-        std::size_t global = local * attrs[1];
+-        return {global, local};
++        const char* ker_name = nullptr;
++        size_t ker_name_size = 0;
++        mlirGetKernelAttrs(mmodule.get(), attrs, &ker_name, &ker_name_size);
++        if(ker_name && ker_name_size > 0)
++        {
++            op.symbol_name = std::string(ker_name, ker_name_size);
++        }
++        op.local_x  = attrs[0];
++        op.local_y  = attrs[1];
++        op.local_z  = attrs[2];
++        op.global_x = attrs[0] * attrs[3];
++        op.global_y = attrs[1] * attrs[4];
++        op.global_z = attrs[2] * attrs[5];
++        op.ldsSize  = attrs[6];
+     }
+ 
+     value::binary get_binary() const

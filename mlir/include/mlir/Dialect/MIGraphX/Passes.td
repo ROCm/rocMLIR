@@ -16,4 +16,17 @@ def MIGraphXTransformPass : Pass<"migraphx-transform", "func::FuncOp"> {
   let dependentDialects = ["migraphx::MIGraphXDialect"];
 }
 
+def MIGraphXIREEGen : Pass<"migraphx-iree-gen", "::mlir::ModuleOp"> {
+  let summary = "Use IREE as the kernel generator";
+  let dependentDialects = ["mlir::gpu::GPUDialect", "mlir::ROCDL::ROCDLDialect"];
+  let options = [
+    Option<"arch", "arch", "std::string",
+           /*default=*/"\"gfx908\"",
+           "Target arch.">,
+    Option<"features", "features", "std::string",
+           /*default=*/"\"+sramecc,-xnack\"",
+           "Target features.">
+  ];
+}
+
 #endif // MLIR_DIALECT_MIGRAPHX_PASSES

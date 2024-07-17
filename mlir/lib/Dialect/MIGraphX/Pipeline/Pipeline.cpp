@@ -44,6 +44,19 @@ void migraphx::addHighLevelPipeline(PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(migraphx::createMIGraphXTransformPass());
   pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
   pm.addNestedPass<func::FuncOp>(createMIGraphXToTosaPass());
+  pm.addPass(createMIGraphXIREEGen());
+}
+
+void migraphx::addHighLevelPipeline(PassManager &pm, StringRef arch,
+                                    StringRef features) {
+  // passes for MIXR to TOSA
+  pm.addNestedPass<func::FuncOp>(migraphx::createMIGraphXTransformPass());
+  pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+  pm.addNestedPass<func::FuncOp>(createMIGraphXToTosaPass());
+  MIGraphXIREEGenOptions opts;
+  opts.arch = arch.str();
+  opts.features = features.str();
+  pm.addPass(createMIGraphXIREEGen(opts));
 }
 
 void migraphx::addBackendPipeline(PassManager &pm) {

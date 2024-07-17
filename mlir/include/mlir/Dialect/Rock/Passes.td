@@ -127,4 +127,12 @@ def RockCheckResidencyPass : Pass<"rock-check-residency"> {
   let dependentDialects = ["LLVM::LLVMDialect"];
 }
 
+def RockIREEMergePass : Pass<"rock-iree-merge", "::mlir::ModuleOp"> {
+  let summary = "Try to merge an IREE binary into rock";
+  let dependentDialects = [
+    "::mlir::LLVM::LLVMDialect",
+    "::mlir::arith::ArithDialect"
+  ];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

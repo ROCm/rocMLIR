@@ -90,23 +90,55 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
 }
 
 // Returns block_size and grid_size as uint32_t[2]
-MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
+MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs,
+                                           const char **symName,
+                                           size_t *synNameLen) {
   auto mod = unwrap(module);
   size_t count = 0;
   mod.walk([&](mlir::gpu::BinaryOp binary) {
     mlir::gpu::KernelTableAttr metadata =
         mlir::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]).getKernels();
     for (auto [name, kernel] : metadata) {
-      auto block = kernel.getAttr<mlir::IntegerAttr>("block_size");
-      auto grid = kernel.getAttr<mlir::IntegerAttr>("grid_size");
-      if (!block || !grid)
+      auto block = kernel.getAttr<mlir::DenseI64ArrayAttr>("block_size");
+      auto grid = kernel.getAttr<mlir::DenseI64ArrayAttr>("grid_size");
+      auto lds = kernel.getAttr<mlir::IntegerAttr>("lds_size");
+      if (block && grid && lds) {
+        attrs[0] = block[0];
+        attrs[1] = block[1];
+        attrs[2] = block[2];
+        attrs[3] = grid[0];
+        attrs[4] = grid[1];
+        attrs[5] = grid[2];
+        attrs[6] = lds.getValue().getSExtValue();
+        if (symName && synNameLen && count == 0) {
+          llvm::StringRef sym = name.strref();
+          *symName = sym.data();
+          *synNameLen = name.size();
+        }
+        ++count;
         continue;
-      attrs[0] = block.getInt();
-      attrs[1] = grid.getInt();
-      ++count;
+      }
+      auto block_int = kernel.getAttr<mlir::IntegerAttr>("block_size");
+      auto grid_int = kernel.getAttr<mlir::IntegerAttr>("grid_size");
+      if (block_int && grid_int) {
+        attrs[0] = block_int.getInt();
+        attrs[1] = 1;
+        attrs[2] = 1;
+        attrs[3] = grid_int.getInt();
+        attrs[4] = 1;
+        attrs[5] = 1;
+        attrs[6] = 0;
+        ++count;
+        continue;
+      }
     }
   });
   assert(count == 1 && "invalid number of kernels");
+}
+
+// Returns block_size and grid_size as uint32_t[7]
+MLIR_CAPI_EXPORTED void mlirGetKernelAttrsExt(MlirModule module,
+                                              uint32_t *attrs, char **symName) {
 }
 
 // Returns the size of compiled binary if called with null ptr
@@ -140,6 +172,28 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
     llvm::errs() << "Failed to apply command-line options.\n";
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
+  mlir::rock::buildBufferizePipeline(*passMan);
+}
+
+MLIR_CAPI_EXPORTED
+void mlirMIGraphXAddHighLevelPipelineWithArch(MlirPassManager pm,
+                                              const char *arch) {
+  auto passMan = unwrap(pm);
+  if (failed(applyPassManagerCLOptions(*passMan)))
+    llvm::errs() << "Failed to apply command-line options.\n";
+  passMan->setNesting(mlir::PassManager::Nesting::Implicit);
+  llvm::StringRef archStr(arch);
+  mlir::RocmDeviceName devName;
+  bool validArch = true;
+  if (archStr.empty() || mlir::failed(devName.parse(archStr))) {
+    llvm::errs() << "Invalid architecture: " << archStr << "\n";
+    validArch = false;
+  }
+  if (validArch)
+    mlir::migraphx::addHighLevelPipeline(*passMan, devName.getChip(),
+                                         devName.getFeaturesForBackend());
+  else
+    mlir::migraphx::addHighLevelPipeline(*passMan);
   mlir::rock::buildBufferizePipeline(*passMan);
 }
 

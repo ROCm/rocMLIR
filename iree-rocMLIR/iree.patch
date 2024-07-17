@@ -1,0 +1,115 @@
+commit 232e0233cd17a03fc4a4dda91c195c1f4cb2a717
+Author: Fabian Mora <fmora.dev@gmail.com>
+Date:   Tue Jun 25 19:24:40 2024 +0000
+
+    Export IREE binaries to JSON
+
+diff --git a/compiler/plugins/target/ROCM/ROCMTarget.cpp b/compiler/plugins/target/ROCM/ROCMTarget.cpp
+index 5f97a97b6..603a59d79 100644
+--- a/compiler/plugins/target/ROCM/ROCMTarget.cpp
++++ b/compiler/plugins/target/ROCM/ROCMTarget.cpp
+@@ -35,6 +35,7 @@
+ #include "llvm/Passes/PassBuilder.h"
+ #include "llvm/Passes/StandardInstrumentations.h"
+ #include "llvm/Support/CommandLine.h"
++#include "llvm/Support/JSON.h"
+ #include "llvm/Support/TargetSelect.h"
+ #include "llvm/Target/TargetMachine.h"
+ #include "llvm/Transforms/Utils/Cloning.h"
+@@ -331,6 +332,12 @@ public:
+     mpm.run(module, mam);
+   }
+ 
++  /// Serialize the executable to a JSON instead of flat buffer
++  static std::string
++  exportJSON(llvm::MutableArrayRef<IREE::HAL::ExecutableExportOp> exportOps,
++             llvm::MutableArrayRef<std::array<int32_t, 3>> workgroupSizes,
++             StringRef hsa);
++
+   LogicalResult serializeExecutable(const SerializationOptions &serOptions,
+                                     IREE::HAL::ExecutableVariantOp variantOp,
+                                     OpBuilder &executableBuilder) override {
+@@ -569,6 +576,9 @@ public:
+     if (!serOptions.dumpBinariesPath.empty()) {
+       dumpDataToPath(serOptions.dumpBinariesPath, serOptions.dumpBaseName,
+                      variantOp.getName(), ".hsaco", targetHSACO);
++      auto jsonStr = exportJSON(exportOps, workgroupSizes, targetHSACO);
++      dumpDataToPath(serOptions.dumpBinariesPath, serOptions.dumpBaseName,
++                     variantOp.getName(), ".json", jsonStr);
+     }
+ 
+     iree_compiler::FlatbufferBuilder builder;
+@@ -731,3 +741,73 @@ extern "C" bool iree_register_compiler_plugin_hal_target_rocm(
+ }
+ 
+ IREE_DEFINE_COMPILER_OPTION_FLAGS(mlir::iree_compiler::IREE::HAL::ROCmOptions);
++
++std::string mlir::iree_compiler::IREE::HAL::ROCMTargetBackend::exportJSON(
++    llvm::MutableArrayRef<IREE::HAL::ExecutableExportOp> exportOps,
++    llvm::MutableArrayRef<std::array<int32_t, 3>> workgroupSizes,
++    StringRef hsa) {
++  // Top dictionary.
++  llvm::json::Object binaryMap;
++  // List of kernel symbol names in the binary.
++  SmallVector<llvm::json::Value> kernels;
++  assert(exportOps.size() == workgroupSizes.size());
++  // Traverse each of the ExportOps
++  for (auto [op, wgSz] : llvm::zip(exportOps, workgroupSizes)) {
++    // Dictionary with kernel information.
++    llvm::json::Object kernelMap;
++    // Insert the symbol name.
++    kernels.push_back(llvm::json::Value(op.getSymName()));
++    kernelMap["sym_name"] = llvm::json::Value(op.getSymName());
++    // Insert the static workgroup sizes.
++    kernelMap["workgroup_sizes"] = llvm::json::Array(wgSz);
++    // Insert the amount of shared memory required.
++    uint32_t workgroupLocalMemory = 0;
++    if (std::optional<APInt> workgroupLocalMemoryAttr =
++            op.getWorkgroupLocalMemory()) {
++      workgroupLocalMemory = workgroupLocalMemoryAttr->getSExtValue();
++    }
++    kernelMap["workgroup_memory"] = llvm::json::Value(workgroupLocalMemory);
++    // Try to get the grid dimensions. This requires folding the returned values
++    // in the `WorkgroupCount` region of the `ExportOp`. Fail if any of the
++    // values is not a constant.
++    SmallVector<int64_t, 3> blockDims;
++    mlir::Block *block = op.getWorkgroupCountBody();
++    if (block) {
++      // Get the terminator.
++      if (auto ret = llvm::dyn_cast_or_null<IREE::HAL::ReturnOp>(
++              block->getTerminator())) {
++        // Traverse each of the grid dimensions and try to fold the value.
++        for (auto in : ret.getOperands()) {
++          auto inOp = in.getDefiningOp();
++          SmallVector<OpFoldResult> foldRes;
++          if (!isa<IndexType>(in.getType()) || !inOp ||
++              !mlir::m_Constant().match(inOp) || failed(inOp->fold(foldRes)) ||
++              foldRes.size() != 1) {
++            blockDims.clear();
++            break;
++          }
++          // Check that the folded value is an `IntegerAttr`
++          auto attr =
++              dyn_cast_or_null<IntegerAttr>(foldRes[0].dyn_cast<Attribute>());
++          if (!attr) {
++            blockDims.clear();
++            break;
++          }
++          blockDims.push_back(attr.getValue().getSExtValue());
++        }
++      }
++    }
++    kernelMap["workgroup_count"] = llvm::json::Array(blockDims);
++    // Insert the kernel dictionary into the top dictionary.
++    binaryMap[op.getSymName()] = llvm::json::Value(std::move(kernelMap));
++  }
++  // Insert the ELF to the top dictionary.
++  binaryMap["$elf"] = llvm::json::Value(llvm::toHex(hsa));
++  // Insert the kernel names table.
++  binaryMap["$kernels"] = llvm::json::Array(kernels);
++  // Serialize to JSON.
++  std::string serializedJson;
++  llvm::raw_string_ostream os(serializedJson);
++  os << llvm::json::Value(std::move(binaryMap));
++  return serializedJson;
++}

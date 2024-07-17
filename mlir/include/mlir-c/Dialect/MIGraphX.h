@@ -48,8 +48,12 @@ MLIR_CAPI_EXPORTED MlirType rocmlirMIXRShapedTypeAsTensor(MlirType type);
 MLIR_CAPI_EXPORTED void mlirGetKernelInfo(MlirModule module, int *size,
                                           void *data);
 
-// Returns block_size and grid_size as uint32_t[2]
-MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs);
+// Returns block_size, grid_size and dynamic shared memory as uint32_t[7]. It
+// also returns the kernel name and size of the string, the pointer returned in
+// symName is valid as long the MLIR context is alive.
+MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs,
+                                           const char **symName,
+                                           size_t *synNameLen);
 
 // Returns the size of compiled binary if called with null ptr
 // and return the compiled binary when buffer is provided
@@ -62,6 +66,8 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 /// Architecture and num_cu information should be set on the kernel function
 /// being compiled.
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
+MLIR_CAPI_EXPORTED void
+mlirMIGraphXAddHighLevelPipelineWithArch(MlirPassManager pm, const char *arch);
 
 /// Adds the pipeline that checks if the kernel with a given tuning
 /// configuration will actually compile to the pass manager. If this pipeline

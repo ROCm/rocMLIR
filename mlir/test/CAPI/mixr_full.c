@@ -297,7 +297,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   uint32_t attrs[2];
   // returns block and grid sizes
-  mlirGetKernelAttrs(module, attrs);
+  mlirGetKernelAttrs(module, attrs, NULL, NULL);
   printf("block size : %d, grid size : %d\n", attrs[0], attrs[1]);
 
   // returns binary size
