@@ -280,41 +280,6 @@ struct ThreadwiseWriteAllRewritePattern
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
-    // Get current workitem ID.
-    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
-
-    // Allocate LDS for output.
-    auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getWorkgroupAddressSpace());
-    auto ldsMemRefOutputType =
-        MemRefType::get({ldsRequiredBytes}, b.getI8Type(), AffineMap{},
-                        workgroupMemoryAddressSpace);
-    auto ldsBufferOutput = b.create<GpuAllocOp>(loc, ldsMemRefOutputType);
-    auto typedBuffer = viewBufferAs(b, ldsBufferOutput, destType);
-
-    // Convert from raw -> mPerBlock, nPerBlock
-    TopDownTMBuilder mnToRaw(b, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
-    mnToRaw.unmerge("flatten", 0, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
-    auto mnToRawAttr = mnToRaw.get();
-
-    SmallVector<Attribute> transformMNToRawAttrs;
-    transformMNToRawAttrs.push_back(mnToRawAttr);
-    ArrayAttr transformMNToRaw = b.getArrayAttr(transformMNToRawAttrs);
-
-    auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
-
-    // LDS barrier.
-    // This barrier is needed because we reuse A and B buffers
-    b.create<LDSBarrierOp>(loc);
-
-    // Store C results to LDS.
-    b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
-                                   /*extraViews=*/idToLDS,
-                                   /*extraIndices=*/ValueRange{tid},
-                                   op.getFeatures(), StoreMethod::Set,
-                                   /*forceUnroll=*/forceUnroll,
-                                   /*useIndexDiffs=*/useIndexDiffs);
-
     // Decide register vectorization.
     constexpr int64_t dimensionM = 1;
     constexpr int64_t dimensionN = 2;
@@ -335,11 +300,60 @@ struct ThreadwiseWriteAllRewritePattern
       dim = dimensionN;
     }
 
+    // Get current workitem ID.
+    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+
+    // Allocate LDS for output.
+    auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getWorkgroupAddressSpace());
+    auto ldsMemRefOutputType =
+        MemRefType::get({ldsRequiredBytes}, b.getI8Type(), AffineMap{},
+                        workgroupMemoryAddressSpace);
+    auto ldsBufferOutput = b.create<GpuAllocOp>(loc, ldsMemRefOutputType);
+    auto typedBuffer = viewBufferAs(b, ldsBufferOutput, destType);
+
+    // Convert from raw -> mPerBlock, nPerBlock
+    TopDownTMBuilder mnToRaw(b, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
+    if (dim == dimensionN) {
+      mnToRaw.unmerge("flatten", 0, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
+    } else {
+      mnToRaw.unmerge("flatten", 0, {"gemmN", "gemmM"}, {nPerBlock, mPerBlock});
+    }
+    auto mnToRawAttr = mnToRaw.get();
+
+    SmallVector<Attribute> transformMNToRawAttrs;
+    transformMNToRawAttrs.push_back(mnToRawAttr);
+    ArrayAttr transformMNToRaw = b.getArrayAttr(transformMNToRawAttrs);
+
+    auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
+
+    // LDS barrier.
+    // This barrier is needed because we reuse A and B buffers
+    b.create<LDSBarrierOp>(loc);
+
+    // Store C results to LDS.
+    b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
+                                   /*extraViews=*/idToLDS,
+                                   /*extraIndices=*/ValueRange{tid},
+                                   op.getFeatures(), StoreMethod::Set,
+                                   /*forceUnroll=*/forceUnroll,
+                                   /*useIndexDiffs=*/useIndexDiffs);
+
     // Load from LDS to registers.
     int64_t elementsWrittenPerThread = 128 / destType.getIntOrFloatBitWidth();
     elementsWrittenPerThread =
         math_util::gcd(dataPerThread, elementsWrittenPerThread);
     int64_t iter = dataPerThread / elementsWrittenPerThread;
+    LLVM_DEBUG(llvm::dbgs()
+               << "blockSize: " << blockSize
+               << " dataPerThread: " << dataPerThread
+               << " elementsWrittenPerThread: " << elementsWrittenPerThread
+               << " iter: " << iter << "\n");
+    if (dim == dimensionM) {
+      LLVM_DEBUG(llvm::dbgs() << "dim = M\n");
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "dim = N\n");
+    }
     Value finalC =
         gpuAlloc(b, loc, dataPerThread, destType, AddressSpace::Private);
 
@@ -357,27 +371,9 @@ struct ThreadwiseWriteAllRewritePattern
                            {iter, blockSize, elementsWrittenPerThread});
     auto tidIterFlattenAttr = tidIterFlatten.get();
 
-    auto flattenToLDS =
-        TopDownTMBuilder::below(tidIterFlatten, tidIterFlattenAttr);
-    if (dim == dimensionN) {
-      flattenToLDS.merge({"gemmM", "gemmN"}, {0, 1}, "flattenBlock",
-                         {mPerBlock, nPerBlock});
-    } else {
-      flattenToLDS.merge({"gemmN", "gemmM"}, {0, 1}, "flattenBlock",
-                         {nPerBlock, mPerBlock});
-    }
-    auto flattenToLDSAttr = flattenToLDS.get();
-
-    auto flattenAgain = TopDownTMBuilder::below(flattenToLDS, flattenToLDSAttr);
-    flattenAgain.unmerge("flatten", 0, {"gemmM", "gemmN"},
-                         {mPerBlock, nPerBlock});
-    auto flattenAgainAttr = flattenAgain.get();
-
     SmallVector<Attribute> transformAttrs;
     transformAttrs.push_back(tidIterMergeAttr);
     transformAttrs.push_back(tidIterFlattenAttr);
-    transformAttrs.push_back(flattenToLDSAttr);
-    transformAttrs.push_back(flattenAgainAttr);
 
     ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
     auto ldsBufferForLoad = transform(b, typedBuffer, ldsRead);
