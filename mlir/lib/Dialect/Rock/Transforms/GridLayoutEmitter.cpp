@@ -35,9 +35,47 @@ using namespace mlir::rock;
 using namespace mlir::arith;
 using namespace mlir::rock::layout;
 
+static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
+                                       Value bid, int64_t gridSize,
+                                       int64_t numChipletsPerGroup) {
+  Value numChipletsVal =
+      b.createOrFold<ConstantIndexOp>(loc, numChipletsPerGroup);
+  int64_t wgsPerChiplet = (gridSize) / numChipletsPerGroup;
+  Value wgsPerChipletVal = b.createOrFold<ConstantIndexOp>(loc, wgsPerChiplet);
+  Value logicalChipletId = b.create<RemUIOp>(loc, bid, numChipletsVal);
+  Value wgIdPerLogicalChiplet = b.create<DivUIOp>(loc, bid, numChipletsVal);
+  Value rearrangedBid = b.create<AddIOp>(
+      loc, wgIdPerLogicalChiplet,
+      b.create<MulIOp>(loc, logicalChipletId, wgsPerChipletVal));
+  int64_t lastNumChipletMultiple =
+      (gridSize - 1) - (gridSize % numChipletsPerGroup);
+  Value lastNumChipletMultipleVal =
+      b.createOrFold<ConstantIndexOp>(loc, lastNumChipletMultiple);
+  Value isBidLargerThanlastNumChipletMultiple = b.create<arith::CmpIOp>(
+      loc, arith::CmpIPredicate::sgt, bid, lastNumChipletMultipleVal);
+  bid = b.create<arith::SelectOp>(loc, isBidLargerThanlastNumChipletMultiple,
+                                  bid, rearrangedBid);
+  return bid;
+}
+
 GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
                                                     Location loc, Value bid,
-                                                    GridLayoutInfo info) {
+                                                    GridLayoutInfo info,
+                                                    StringRef arch) {
+  // Currently the firmware will launch workgroups
+  // in a round-robin fashion to each chiplet. However
+  // we would want a group (>=1) of chiplets to perform
+  // a spatially local tile.
+  // Therefore, adjust bid to make every consecutive #groups of chiplets
+  // be slowest changing in the grid.
+  int64_t numChiplets = rock::lookupArchInfo(arch).maxNumXCC;
+  if (numChiplets > 1) {
+    // It was emphircally found that two chiplets as a group
+    // computing a spatial mxn tile has better locality throughout.
+    int64_t numChipletsPerGroup = std::ceil(numChiplets / 2);
+    int64_t gridSize = info.gBlocks * info.mBlocks * info.nBlocks;
+    bid = rearrangeWorkgroupsForXCC(loc, b, bid, gridSize, numChipletsPerGroup);
+  }
 
   // Heurisitc to compute groupSize
   // This also covers the cases where the output width is larger
@@ -53,10 +91,10 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
 
   // Compute g_block first and the bid in the actual group g_block
-  Value gridSize =
+  Value mnBlocks =
       b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
-  Value g_block = b.create<DivUIOp>(loc, bid, gridSize);
-  bid = b.create<RemUIOp>(loc, bid, gridSize);
+  Value g_block = b.create<DivUIOp>(loc, bid, mnBlocks);
+  bid = b.create<RemUIOp>(loc, bid, mnBlocks);
 
   // Group together the workgroups in g_block
   Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
@@ -88,7 +126,23 @@ GridCoordinates rock::layout::makeGxMxNGridLayout(PatternRewriter &b,
 
 GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
                                                 Location loc, Value bid,
-                                                Value mIter, int64_t nBlocks) {
+                                                Value mIter, int64_t nBlocks,
+                                                int64_t gridSize,
+                                                StringRef arch) {
+  // Currently the firmware will launch workgroups
+  // in a round-robin fashion to each chiplet. However
+  // we would want a group (>=1) of chiplets to perform
+  // a spatially local tile.
+  // Therefore, adjust bid to make every consecutive #groups of chiplets
+  // be slowest changing in the grid.
+  int64_t numChiplets = rock::lookupArchInfo(arch).maxNumXCC;
+  if (numChiplets > 1) {
+    // It was emphircally found that two chiplets as a group
+    // computing a spatial mxn tile has better locality throughout.
+    int64_t numChipletsPerGroup = std::ceil(numChiplets / 2);
+    bid = rearrangeWorkgroupsForXCC(loc, b, bid, gridSize, numChipletsPerGroup);
+  }
+
   Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
   Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1NBlockCountVal);
   Value nBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1NBlockCountVal);

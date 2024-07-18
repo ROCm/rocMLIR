@@ -529,8 +529,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     // Compute grid coordinates
+    FailureOr<mlir::StringAttr> maybeArch = getArch(op);
+    if (failed(maybeArch)) {
+      return op.emitError("arch needs to be set.");
+    }
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid,
+        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType},
+        maybeArch->getValue());
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
         /*extraIndices=*/
@@ -1969,8 +1975,8 @@ struct GridwiseAttentionAccelRewritePattern
       Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
-      auto gridCoordsGemm0LoadQ =
-          layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm0NBlocks);
+      auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
+          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch);
       if (doBypassLDSForQ) {
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
             loc, inQ, /*kiter=*/zero, gridCoordsGemm0LoadQ,
@@ -2018,8 +2024,8 @@ struct GridwiseAttentionAccelRewritePattern
             loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      layout::GridCoordinates gridCoordsGemm0 =
-          layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks);
+      layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
+          rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch);
       affine::AffineForOp kLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
@@ -2274,7 +2280,7 @@ struct GridwiseAttentionAccelRewritePattern
           }
 #endif
           auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks);
+              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks, gridSize, arch);
 
           LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
               loc, inV,
@@ -2444,8 +2450,8 @@ struct GridwiseAttentionAccelRewritePattern
         prependUpperViews(rewriter, rewriter.getArrayAttr({flatToMiterMap}),
                           gemm1OutSubTileViews.gridSubTile);
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
-    auto gridCoordsGemm1 =
-        layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks);
+    auto gridCoordsGemm1 = layout::makeGxNGridLayout(
+        rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch);
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, attentionOutAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
@@ -2585,7 +2591,8 @@ struct GridwiseGemmAccelRewritePattern
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid,
+        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType}, arch);
 
     Value storeBufferA =
         gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);

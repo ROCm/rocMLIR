@@ -26,17 +26,20 @@ struct AmdArchInfo {
   int64_t numEUPerCU;
   int64_t minNumCU;
   bool hasFp8ConversionInstrs;
+  int64_t maxNumXCC;
 
   constexpr AmdArchInfo(GemmFeatures defaultFeatures, int64_t waveSize,
                         int64_t maxWavesPerEU, int64_t totalSGPRPerEU,
                         int64_t totalVGPRPerEU, int64_t sharedMemPerCU,
                         int64_t sharedMemPerWG, int64_t numEUPerCU,
-                        int64_t minNumCU, bool hasFp8ConversionInstrs)
+                        int64_t minNumCU, bool hasFp8ConversionInstrs,
+                        int64_t maxNumXCC)
       : defaultFeatures(defaultFeatures), waveSize(waveSize),
         maxWavesPerEU(maxWavesPerEU), totalSGPRPerEU(totalSGPRPerEU),
         totalVGPRPerEU(totalVGPRPerEU), totalSharedMemPerCU(sharedMemPerCU),
         maxSharedMemPerWG(sharedMemPerWG), numEUPerCU(numEUPerCU),
-        minNumCU(minNumCU), hasFp8ConversionInstrs(hasFp8ConversionInstrs) {}
+        minNumCU(minNumCU), hasFp8ConversionInstrs(hasFp8ConversionInstrs),
+        maxNumXCC(maxNumXCC) {}
 
   /// Get the default features for the pari <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);
