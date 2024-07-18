@@ -5,14 +5,13 @@ quickTuner script to generate quick tuner perf configs. Uses single input file f
 as input.
 Needs the input to be a combined normalized dataframe (default from quickTunerPreproc.py)
 
-Usage: clusterConfigs.py [-h] --input-file INPUT_FILE [--method {default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} [{default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} ...]] [--save] [--debug] [--num NUM]
+Usage: clusterConfigs.py [-h] --input-file INPUT_FILE [--method {default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} [{default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} ...]] [--save] [--debug] [--num NUM] [--perfconfig--format]
 
 Example Usage:
 
 python3 quickTunerGen.py --input-file TESTFILE.out --method fairSelect --save --debug --num 20
 
-Will read TESTFILE.out then generate a quick tune list of length 20 for each datatype in TESTFILE.out. Will
-both print these lists and save them to METHODNAME.DTYPE.qt.
+Will read TESTFILE.out then generate a quick tune list of length 20 for each datatype in TESTFILE.out. Will print these lists and save them to METHODNAME.DTYPE.qt.
 """
 
 import os
@@ -51,7 +50,14 @@ class quickTunerMethod(object):
             self.name = self.__class__.__name__
         else:
             self.name = name
-            
+
+    def __perfconfig_formatter(self, df, prefix="v2:"):
+        """
+        Add prefix to first column and remove header
+        """
+        df.iloc[:, 0] = prefix + df.iloc[:, 0].astype(str)
+        return df
+        
 
     def setN(self, N):
         """
@@ -59,7 +65,7 @@ class quickTunerMethod(object):
         """
         self.N = N
 
-    def saveQt(self, name=None, debug=False, suffix=".qt"):
+    def saveQt(self, name=None, directory=None, debug=False, suffix=".qt", pf_format=False):
         """
         Function to convert a type dictionary config to a .qt file
         Converts the list of quickTuning sets into a group of files
@@ -72,10 +78,17 @@ class quickTunerMethod(object):
             printConfigDict(type_df)
         for t in type_df:
             fname = name + "." + t + suffix
+            if directory:
+                fname = os.path.join(directory, fname)
             df = type_df[t]
             if 'performance' in df.columns:
                 df = df.drop(labels=['performance'], axis=1)
-            df = df.to_csv(fname, index=False)
+            df =  df.astype(int)
+            header = True
+            if pf_format:
+                df = self.__perfconfig_formatter(df)
+                header = False
+            df = df.to_csv(fname, index=False, header=header)
 
     def savePerfConfig(self, name=None,  dtype=None, prefix="v2:"):
         """
@@ -119,6 +132,7 @@ class quickTuner(object):
     def __init__(self, pargs):
         self.methods = {}
         self.N = pargs.num
+        self.directory = pargs.directory
         """ 
         maybe something like
         if self.input_dir:
@@ -216,13 +230,13 @@ class quickTuner(object):
         print(self.output_df)
     """
     
-    def saveConfigs(self, debug=False):
+    def saveConfigs(self, debug=False, pf_format=False):
         """
         Iterate through methods and save to each file
         """
         for k in self.methods:
             method = self.methods[k]
-            method.saveQt()
+            method.saveQt(pf_format=pf_format, directory=self.directory)
 
     def printConfigs(self):
         """
@@ -232,7 +246,10 @@ class quickTuner(object):
             raise ValueError("Method results not generated")
         for k in self.method_results:
             for dtype in self.method_results[k]:
-                print(f"dtype: {dtype}\n{self.method_results[k][dtype]}\n")
+                df = self.method_results[k][dtype]
+                df = df.astype(int)
+                print(f"dtype: {dtype}\n{df}\n")
+
 
     def saveBest(self):
         """
@@ -311,7 +328,7 @@ def parseData(file):
     tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
     
     
-    tile_params = tile_params.drop(['param8','param9'], axis=1)            
+    #tile_params = tile_params.drop(['param8','param9'], axis=1)            
             
     tile_params['performance'] = data['performance']
 
@@ -1124,7 +1141,14 @@ def main(args=None):
                         default=40,
                         help='Number of perf configs to include')
 
-                        
+    parser.add_argument('--perfconfig-format',
+                        action='store_true',
+                        default=False,
+                        help='Save file in correct csv perfconfig format')
+
+    parser.add_argument('--directory',
+                        type=str,
+                        help='Directory to store results to')
 
     pargs = parser.parse_args()
 
@@ -1133,7 +1157,7 @@ def main(args=None):
     tuner.tune()
 
     if pargs.save:
-        tuner.saveConfigs()
+        tuner.saveConfigs(pf_format=pargs.perfconfig_format)
 
     if pargs.debug:
         tuner.printConfigs()
