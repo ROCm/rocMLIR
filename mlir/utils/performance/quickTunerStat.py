@@ -69,7 +69,7 @@ class perfConfigValidator(object):
                 
             tile_params = tile_params.drop(['param8','param9'], axis=1)
 
-            tile_params['performance'] = df['TFlops']
+            tile_params['performance'] = df['NormalizedTFlops']
 
             tile_params.replace('N/A', np.nan, inplace=True)
 
