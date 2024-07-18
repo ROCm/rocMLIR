@@ -341,14 +341,6 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
 LogicalResult
 PopulateParamsAccel::couldBePerformant(OpBuilder &b, const PopulateParamsInfo &info,
                                        const InitParamsAccel &params) {
-  //int64_t mRepeats = ;
-  //int64_t nRepeats = ;e
-  // look ABBEgg
-  // OpBuilder b
-  // info.gemmAType, info.gemmBtype
-  // info.arch
-  // tuningParams = op.getParams()
-  // 
   return specificCouldBePerformant(b, info, params);
 }
 
@@ -707,8 +699,6 @@ LogicalResult
 PopulateParamsXDL::specificCouldBePerformant(OpBuilder &b,
 					     const PopulateParamsInfo &info,
 					     const InitParamsAccel &params) {
-  // Implement this if needed.
-  /*
   Attribute params0 = getGemmParamsAttr(b, params);
   RockAccelTuningParamAttrInterface accelParams0;
   if (auto xdlopsParams0 = dyn_cast<XdlopsGemmParamsAttr>(params0)) {
@@ -718,23 +708,20 @@ PopulateParamsXDL::specificCouldBePerformant(OpBuilder &b,
     accelParams0 = cast<RockAccelTuningParamAttrInterface>(params0);
   }
   auto accelEmitterPtr = accel::AccelEmitter::select(
-						     info.gemmFeatures, info.gemmAType, info.gemmBType, info.arch.StringRef(), accelParams0);
+						     info.gemmFeatures, info.gemmAType, info.gemmBType, StringRef(info.arch), accelParams0);
 
   if (!accelEmitterPtr)
     return failure();
 
-  rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+  rock::accel::AccelEmitterParams accelParams = accelEmitterPtr->getParams();
 
-  int64_t numOutputVectorElements = params.numOutputVectorElements();
+  int64_t numOutputVectorElements = accelParams.numOutputVectorElements();
 
   // would be best to have register count be a part of arch, is not necessarily totalVGPRPerEu
   if(numOutputVectorElements > 256) {
     return failure();
   }
        
-     check output size
-    int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
-   */
   
   return success();
 }
