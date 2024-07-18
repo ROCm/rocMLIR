@@ -103,6 +103,7 @@ class qtPreprocessor(object):
             if normalize:
                 scaler = MinMaxScaler()
                 df['TFlops'] = scaler.fit_transform(df[['TFlops']])
+                df = df.rename(columns={'TFlops':'NormalizedTFLops'})
             dfs.append(df)
             ct += 1
         if not dfs:
