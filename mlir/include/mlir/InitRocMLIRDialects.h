@@ -18,6 +18,7 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/InitRocMLIRTarget.h"
 
 // MLIR includes
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
@@ -121,6 +122,9 @@ inline void registerRocMLIRDialects(DialectRegistry &registry) {
 
   // Register auxiliary Upstream dialects
   registerUpstreamDialects(registry);
+
+  // Register the target serialization interface
+  registerRocTarget(registry);
 }
 
 } // namespace mlir

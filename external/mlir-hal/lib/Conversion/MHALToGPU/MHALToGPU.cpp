@@ -172,7 +172,6 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     if (!kernelPkg.has_value())
       return rw.notifyMatchFailure(op, "no gpu target");
 
-    auto arch = kernelPkg->getTarget();
     auto targetObj = kernelPkg->getObject();
     auto binary = targetObj.getBinary();
     auto launchDims = kernelPkg->getLaunchDims();
@@ -184,46 +183,20 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     auto func = *getCalledFunc(op);
     Location floc = func.getLoc();
 
-    // 2. create dummy gpu.module for reference from gpu.launch_func
-    //    - with gpu.binary, arch attributes
-    //    - and gpu.func (referenced by gpu.launch_func
-    //    gpu.module @<func_name>_module attributes {arch = "gfx908", gpu.binary
-    //        = "\7FELF\..."} {
-    //      gpu.func @<func_name> (...) attributes {block_size = 256 : i32,
-    //          grid_size = 900 : i32, gpu.kernel}
+    // 2. re-materialize gpu.binary @<func_name>_module [#gpu.object<...>]
 
     FunctionOpInterface funcIF(func);
     auto funcName = funcIF.getName();
-    auto gpuModuleName = funcName + "_module";
+    auto binaryName = funcName + "_module";
 
-    auto gpuModule = module.lookupSymbol<gpu::GPUModuleOp>(gpuModuleName.str());
-    if (!gpuModule) {
+    auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName.str());
+    if (!binaryOp) {
       OpBuilder b(ctx);
-      gpuModule = b.create<gpu::GPUModuleOp>(floc, gpuModuleName.str());
-      gpuModule->setAttr("arch", b.getStringAttr(arch));
-      gpuModule->setAttr("gpu.binary", b.getStringAttr(binary));
+      binaryOp = b.create<gpu::BinaryOp>(floc, binaryName.str(), nullptr,
+                                         ArrayRef<Attribute>({binary}));
 
       SymbolTable symbolTable(module);
-      symbolTable.insert(gpuModule);
-    }
-
-    auto gpuFunc = gpuModule.lookupSymbol<gpu::GPUFuncOp>(funcName);
-    if (!gpuFunc) {
-      OpBuilder b(gpuModule.getContext());
-      gpuFunc =
-          b.create<gpu::GPUFuncOp>(floc, funcName, func.getFunctionType());
-      gpuFunc->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-      gpuFunc->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-      gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
-                       b.getUnitAttr());
-
-      SymbolTable symbolTable(gpuModule);
-      symbolTable.insert(gpuFunc);
-
-      // Must have a return
-      auto block = &gpuFunc.front();
-      b.setInsertionPoint(block, block->begin());
-      b.create<gpu::ReturnOp>(floc, ValueRange{});
+      symbolTable.insert(binaryOp);
     }
 
     // 3. create substitute gpu.launch_func
@@ -281,9 +254,12 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
     // Make gpu.launch_func
     auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
-        loc, gpuFunc, gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
+        loc,
+        SymbolRefAttr::get(getContext(), binaryName.str(),
+                           {FlatSymbolRefAttr::get(getContext(), funcName)}),
+        gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
         gpu::KernelDim3{blockSizeIdx, oneIdx, oneIdx}, dynamicSharedMemorySize,
-        gpuOperands, tokenType, asyncDeps);
+        gpuOperands, tokenType, ValueRange(asyncDeps));
     Value token = gpuLaunchOp->getResult(0);
 
     // Insert gpu.memcpy for results
