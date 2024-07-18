@@ -2113,3 +2113,10 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
       convertDimNamesToIndices(transformAttrs, removeDimNamesSet);
   return removeUpperDims(b, transformAttrs, removeIndicesSet);
 }
+
+
+ArrayAttr mlir::rock::getArrayAttr(OpBuilder &b, ArrayRef<TransformMapAttr> transforms){
+  SmallVector<Attribute> attrVec;
+  llvm::transform(transforms, std::back_inserter(attrVec), [](TransformMapAttr tmAttr){return cast<Attribute>(tmAttr);});
+  return b.getArrayAttr(attrVec);
+}

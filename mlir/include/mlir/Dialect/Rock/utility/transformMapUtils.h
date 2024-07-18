@@ -252,6 +252,8 @@ FailureOr<ArrayAttr> removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
 FailureOr<ArrayAttr>
 removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
                 const SetVector<StringRef> &removeDimNamesSet);
+
+ArrayAttr getArrayAttr(OpBuilder &b, ArrayRef<TransformMapAttr> transforms);
 } // end namespace rock
 } // end namespace mlir
 #endif
