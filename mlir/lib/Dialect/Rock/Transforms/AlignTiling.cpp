@@ -935,18 +935,26 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   return success();
 }
 
-LogicalResult
-MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
-                                      LinalgAlignRewriter &b) const {
+template <typename WriteOp>
+static LogicalResult rewriteMemCpy(memref::CopyOp copy,LinalgAlignRewriter &b, function_ref<void(WriteOp , Value)> destUpdateFunc) {
   auto src = copy.getSource();
   auto target = copy.getTarget();
   Location loc = copy.getLoc();
 
+  // See if the copy source is transformed.
+  // If so we need to reverse them on the destination.
+  auto [rawSrc, transformsOnCpySrc, isBig] =
+  untransform(b, src);
+  std::ignore = isBig;
+
+
   Operation *gemmStoreOp = nullptr;
   SmallVector<TransformMapAttr> views;
-  if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
-    if (auto twop = dyn_cast_if_present<ThreadwiseWriteAllOp>(
-            traceToWriter(src, views))) {
+  LLVM_DEBUG(llvm::dbgs() << "copy source = " << rawSrc << "\n");
+  if (auto allocOp = rawSrc.getDefiningOp<memref::AllocOp>()) {
+    auto writer = traceToWriter(rawSrc, views);
+    LLVM_DEBUG(llvm::dbgs() << "writer of copy source = " << *writer << "\n");
+    if (auto twop = dyn_cast_if_present<WriteOp>(writer)) {
       // We check the input leading to GEMM store has the current memref
       // copy, that is being rewritten, as the unique reader. This is because if
       // it is the unique reader, the previous memref does not need to be
@@ -954,34 +962,53 @@ MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
       // memref copy.
       bool isUniqueReader;
       LogicalResult checkResult =
-          checkUniqueReader(src.getDefiningOp(), copy, isUniqueReader);
+          checkUniqueReader(rawSrc.getDefiningOp(), copy, isUniqueReader);
       if (checkResult.failed()) {
         return checkResult;
       }
       if (!isUniqueReader) {
         gemmStoreOp =
-            static_cast<ThreadwiseWriteAllOp>(b.clone(*twop.getOperation()));
+            static_cast<WriteOp>(b.clone(*twop.getOperation()));
       } else {
         gemmStoreOp = twop;
       }
     }
   }
-
   if (gemmStoreOp) {
-    if (ThreadwiseWriteAllOp twWriteAllOp =
-            dyn_cast<ThreadwiseWriteAllOp>(gemmStoreOp)) {
-      b.moveAfterIfNeeded(twWriteAllOp, copy);
+    if (WriteOp writeOp =
+            dyn_cast<WriteOp>(gemmStoreOp)) {
+      b.moveAfterIfNeeded(writeOp, copy);
 
       // 1. replace memref.copy with rock.threadwise_write_all
-      target = cast<TypedValue<BaseMemRefType>>(
-          applyViewsOnDest(b, loc, target, views));
-      twWriteAllOp.getDestMutable().assign(target);
-
+      ArrayAttr viewsOnDest = getArrayAttr(b, views);
+      ArrayAttr targetToAllocaMaps =
+          invertTransforms(b, loc, transformsOnCpySrc);
+      viewsOnDest = prependUpperViews(b, viewsOnDest, targetToAllocaMaps);
+      Value targetViewed = transform(b, target, viewsOnDest);
+      destUpdateFunc(writeOp, targetViewed);
       b.eraseOp(copy);
       return success();
     }
   }
+  return failure();
+}
 
+LogicalResult
+MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
+                                      LinalgAlignRewriter &b) const {
+  LogicalResult updateWriteAllOp = rewriteMemCpy<ThreadwiseWriteAllOp>(copy, b, [](ThreadwiseWriteAllOp writeOp, Value newDest){
+    writeOp.getDestMutable().assign(newDest);
+  }); 
+  if(succeeded(updateWriteAllOp)){
+    return success();
+  }
+  LogicalResult updateReduceOp = rewriteMemCpy<ReduceOp>(copy, b, [](ReduceOp writeOp, Value newDest){
+    writeOp.getOutMutable().assign(newDest);
+  }); 
+  if(succeeded(updateReduceOp)){
+    return success();
+  }
+  LLVM_DEBUG(llvm::dbgs() << "memCpy did not trace back to a WriteAll or Reduce op");                                
   return failure();
 }
 
