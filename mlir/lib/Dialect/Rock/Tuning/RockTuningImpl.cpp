@@ -272,7 +272,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                               b, info, gemmParams)) &&
                           (kind == TuningParamSetKind::Exhaustive ||
                            succeeded(
-                               tuningInfo.couldBePerformant(info, gemmParams))))
+				     tuningInfo.couldBePerformant(b, info, gemmParams))))
                         newSpace->tuningRange.push_back(
                             cast<RockTuningParamAttrInterface>(
                                 tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -309,7 +309,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                                  gemmParams)) &&
                         (kind == TuningParamSetKind::Exhaustive ||
                          succeeded(
-                             tuningInfo.couldBePerformant(info, gemmParams))))
+                             tuningInfo.couldBePerformant(b, info, gemmParams))))
                       newSpace->tuningRange.push_back(
                           cast<RockTuningParamAttrInterface>(
                               tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -340,7 +340,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                                gemmParams)) &&
                       (kind == TuningParamSetKind::Exhaustive ||
                        succeeded(
-                           tuningInfo.couldBePerformant(info, gemmParams))))
+                           tuningInfo.couldBePerformant(b, info, gemmParams))))
                     newSpace->tuningRange.push_back(
                         cast<RockTuningParamAttrInterface>(
                             tuningInfo.getGemmParamsAttr(b, gemmParams)));

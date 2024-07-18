@@ -269,7 +269,8 @@ public:
   // Succced if `params` should be included in a "full" tuning space that
   // excludes those known to not yeild good performance on the problem described
   // in `info`. This function uses hardcoded heuristics.
-  virtual LogicalResult couldBePerformant(const PopulateParamsInfo &info,
+  virtual LogicalResult couldBePerformant(OpBuilder &b,
+					  const PopulateParamsInfo &info,
                                           const InitParamType &params) = 0;
 
   // Convert the provided InitParamType into an MLIR `Attribute`.
@@ -316,7 +317,8 @@ public:
                                     const PopulateParamsInfo &info,
                                     const InitParamsNonAccel &params) override;
 
-  LogicalResult couldBePerformant(const PopulateParamsInfo &info,
+  LogicalResult couldBePerformant(OpBuilder &b,
+				  const PopulateParamsInfo &info,
                                   const InitParamsNonAccel &params) override;
 
   int64_t calculatePaddingAmount(const InitParamsNonAccel &params,
@@ -357,7 +359,8 @@ public:
                                     const PopulateParamsInfo &info,
                                     const InitParamsAccel &params) override;
 
-  LogicalResult couldBePerformant(const PopulateParamsInfo &info,
+  LogicalResult couldBePerformant(OpBuilder &b,
+				  const PopulateParamsInfo &info,
                                   const InitParamsAccel &params) override;
 
   virtual LogicalResult
@@ -376,9 +379,10 @@ protected:
   /// The actual implementation of couldBePerformant(), which shouldn't exist
   /// once we merge gridwise_gemm and gridwise_gemm_accel and thus flatten
   /// out the class heirachy in this file.
-  virtual LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
-                                                  Type dataTypeA,
-                                                  Type dataTypeB) = 0;
+  virtual LogicalResult specificCouldBePerformant(OpBuilder &b,
+						  const PopulateParamsInfo &info,
+						  const InitParamsAccel &params) = 0;
+
 };
 
 //
@@ -413,9 +417,9 @@ public:
                        bool enableDPerWaveFiltering = true) override;
 
 protected:
-  LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
-                                          Type dataTypeA,
-                                          Type dataTypeB) override;
+  LogicalResult specificCouldBePerformant(OpBuilder &b,
+					  const PopulateParamsInfo &info,
+					  const InitParamsAccel &params) override;
 };
 
 //
@@ -448,9 +452,9 @@ public:
                        bool enableDPerWaveFiltering = true) override;
 
 protected:
-  LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
-                                          Type dataTypeA,
-                                          Type dataTypeB) override;
+  LogicalResult specificCouldBePerformant(OpBuilder &b,
+					  const PopulateParamsInfo &info,
+					  const InitParamsAccel &params) override;
 };
 
 } // namespace rock
