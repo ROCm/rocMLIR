@@ -222,7 +222,7 @@ class dataValidator(perfConfigValidator):
                 self.output_df = pd.DataFrame(output_dict)
                 print(self.output_df)
                 """
-
+        self.output_dict = output_dict
         return output_dict
         
 
@@ -248,8 +248,24 @@ class dataValidator(perfConfigValidator):
             all_data.append(merged_df)
 
         return all_data
-        
+
+    def rank(self, threshold=0.9):
+        rank_dict = {}
+        for dtype in self.output_dict:
+            if dtype not in rank_dict:
+                rank_dict[dtype] = {}
+            for method in self.output_dict[dtype]:
+                gemm_data = self.output_dict[dtype][method]
+                ct = 0
+                for df in gemm_data:
+                    if (df['performance'].dropna() <= threshold).all():
+                        ct += 1
+                    rank_dict[dtype][method] = ct
                     
+        self.output_df = pd.DataFrame(rank_dict)
+        print(self.output_df)
+
+            
 
 
 def main(args=None):
@@ -293,7 +309,10 @@ def main(args=None):
                         type=str,
                         help='Method for testing the produced files')
     
-
+    parser.add_argument('--rank',
+                        action='store_true',
+                        default=False,
+                        help='Rank results')
 
     pargs = parser.parse_args()
 
@@ -314,6 +333,8 @@ def main(args=None):
             raise ValueError(f"Not a valid method: {method}")                                   
 
         verifier.validateDir(pargs.input_dir)
+        if pargs.rank:
+            verifier.rank()
     elif pargs.qt_file:
         verifier = dataValidator(pargs.gemm_configs, pargs.data)
         verifier.validateFile(pargs.qt_file)
