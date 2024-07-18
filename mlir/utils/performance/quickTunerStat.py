@@ -265,7 +265,157 @@ class dataValidator(perfConfigValidator):
         self.output_df = pd.DataFrame(rank_dict)
         print(self.output_df)
 
-            
+class tunerValidator(perfConfigValidator):
+    """
+    MAIN TO DO:
+    - get rocmlir running
+    - capture output and save to dictionary like DATA is saved
+    - do this for all files
+    - rank results
+    - quickTunerGen.py create a cpp readable file
+    """
+
+    
+    @dataclass(frozen=True)
+    class Options:
+        debug: bool
+        tuningSpaceKind: str
+        quiet: bool
+        arch: str
+        numCU: int
+        rocmlir_gen_flags: str
+        verifyMode: str
+        tflops: bool
+        compact_print: bool
+
+    def __init__(self,
+                 cpp_file='/share/rocMLIR/mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp',
+                 rocm_build_script='/share/scripts/build-rocm'):
+        self.cpp_file = cpp_file
+        self.rocm_build_script = rocm_build_script
+
+    def updateCppFile(self, file, dtype):
+        """
+        Update cpp file
+        """
+        data = []
+        with open(file, 'r') as f:
+            header = f.readline().strip()
+            if not header[0].isalpha():
+                values = header.strip().split(',')
+                data.append(values)
+            for line in f:
+                values = line.strip().split(',')
+                data.append(values)
+
+            if dtype == 'f32':            
+                cpp_array = "PopulateParamsXDL::initParameters[PopulateParamsXDL::nInitParameters] = {\n"
+                arr_str = r'PopulateParamsXDL::initParameters\[PopulateParamsXDL::nInitParameters\] = \{.*?\};'
+            elif dtype == 'f16':
+                cpp_array = "PopulateParamsXDL::initParametersFp16[PopulateParamsXDL::nInitParametersFp16] = {\n"
+                arr_str = r'PopulateParamsXDL::initParametersFp16\[PopulateParamsXDL::nInitParametersFp16\] = \{.*?\};'
+            elif dtype == 'i8':
+                cpp_array = "PopulateParamsXDL::initParametersForward8Bit[PopulateParamsXDL::nInitParametersForward8Bit] = {\n"
+                arr_str =  r'PopulateParamsXDL::initParametersForward8Bit\[PopulateParamsXDL::nInitParametersForward8Bit\] = \{.*?\};'
+            else:
+                print(f"Unrecognized dtype: {dtype}", file=sys.stderr)
+            cpp_array += "  // M/block N/block K/block M/wave N/wave kPack splitKFactor forceUnroll bCopyMore\n"
+
+            for row in data:
+                print(row)
+                cpp_array += f"  {{{row[0]}, {row[1]}, {row[2]}, {row[3]}, {row[4]}, {row[5]}, 1, true, true}},\n"
+
+            cpp_array = cpp_array.rstrip(',\n') + "\n};"
+        
+            cpp_filename = self.cpp_file
+
+            with open(cpp_filename, 'r') as file:
+                cpp_content = file.read()
+
+            cpp_content = re.sub(arr_str,
+                                 cpp_array,
+                                 cpp_content,
+                                 flags=re.DOTALL
+            )
+
+            with open(cpp_filename, 'w') as file:
+                file.write(cpp_content)
+
+    def buildRocm(self):
+        """
+        builds the rocm code base, compiling the code along the way
+        """
+        result = subprocess.run(self.build_rocm_script, shell=True, capture_output=True, text=True)
+    
+        if result.returncode != 0:
+            print(result.stdout)
+            print("Compilation error", file=sys.stderr)
+            print(result.stderr)
+            exit(1)
+
+
+    def runTuning(self):
+        """
+        run rocmlir-tuning-driver on the specified gemm_configs
+        returns a list of dataframes representing all perfConfig data collected per gemm config
+        """
+        configs_path, mlir_build_dir, confClass, options = tuning_params
+       paths = perfRunner.create_paths(configs_path, mlir_build_dir)
+       datatypes, outputMap = perfRunner.parseDataTypes(dtype)
+       print(dtype)
+       print(datatypes, outputMap)
+       configs = perfRunner.getGemmConfigurations(paths.configuration_file_path, datatypes, outputMap)
+
+       allData = []
+
+       for testVector in configs: # gemm config we iterate through
+           # get data for each gemm, using the pre-set config, aggregate values and take best
+           commandLine = testVector.split(sep=' ')
+           config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
+           config.MLIR_N_REPEATS=1
+           testVector = config.toCommandLine()
+           print("Tuning:", testVector, file=sys.stderr)
+           commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
+           print(commandLineOptions)
+
+           # Note, we don't need the -ph, this goes to the tuning driver
+           kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
+           print(kernelGenCommand)
+           kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+           tuningLoop = subprocess.Popen(
+               [paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
+               stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+           )
+
+           kernelGen.stdout.close()
+
+           #kernelGen stderr
+           #kernelGen_stderr = kernelGen.stderr.read()
+           #kernelGen.stderr.close()
+           #print(f"kernelGen.stderr: {kernelGen_stderr}")
+
+           #tuningloop stderr
+           """
+           tuningLoop.stdout.close()
+           tuningLoop_stderr = tuningLoop.stderr.read()
+           tuningLoop.stderr.close()
+           print(f"tuningLoop.stderr: {tuningLoop_stderr}")
+           """
+
+           # build save file for data
+           new_name = configToStr(testVector)
+           new_file = os.path.join(path, new_name)
+           print(new_file)
+
+           config_data = getConfigData(tuningLoop.stdout, config, allData, options, new_file)
+           allData.append(config_data)
+
+           #return allData
+       print("returning allData")
+       return allData    
+
+
+
 
 
 def main(args=None):
