@@ -65,7 +65,7 @@ class perfConfigValidator(object):
             
             tile_params = df['PerfConfig'].str.split(',', expand=True).astype(int)
             
-            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']#= ['param1', 'param2', 'param3', 'param4', 'param5', 'param6', 'param7', 'param8', 'param9']
+            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
                 
             tile_params = tile_params.drop(['param8','param9'], axis=1)
 
@@ -97,42 +97,71 @@ class perfConfigValidator(object):
             gemm_df = {gemm: expandPerfConfigs(group) for gemm, group in sub_df.groupby(cols)}
 
             for gemm in gemm_df:
-                print(gemm)
                 gemm_tup = tuple(gemm)
             
                 if dtype not in df_dir:
                     df_dir[dtype] = {}
-                    df_dir[dtype][gemm_tup] = gemm_df[gemm]
-                else:
-                    df_dir[dtype][gemm_tup] = gemm_df[gemm]
-
+                df_dir[dtype][gemm_tup] = gemm_df[gemm]
+                
+        self.validation_data = df_dir
         return df_dir            
 
+    def readPerfConfig(self, file):
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        try:
+            df = pd.read_csv(file_path)
+            if df.columns[0].startswith('v:'):
+                raise ValueError("Detected prefix, not a header.")
+            return df
+        except ValueError:
+            df = pd.read_csv(file_path, header=None)
+            df[0] = df[0].apply(lambda x: x.split(':')[1] if isinstance(x, str) and ':' in x else x)
+            df.columns = columns
+            return df
 
-    def __typeQtMap(self, qt_dict):
-        raise NotImplementedError()
-    
-    def validate(self, results):
-        """
-        return a dictionary of dictionaries
-        """
-        raise NotImplementedError()
+        def validateFile(self, input_file, dtype=None):
+            """
+            Method to validate a perf config file for given type
+            """
+            raise NotImplementedError()
 
-    def getBest(self):
-        """
-        get the best
-        """
-        raise NotImplementedError()
+        def validateDir(self, input_dir):
+            """
+            Method to validate a set of .qt files
+            """
+            raise NotImplementedError()
+            
 
 class dataValidator(perfConfigValidator):
     """
     uses already provided data to validate the configs generated
     """
-    def __init__(self, input_dir, gemm_config_file):
+    def __init__(self, gemm_config_file, preproc_file):
         super().__init__()
         self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
-        self.validation_data = orderByGemmType(input_dir, True)        
+        self.gemm_keys = [self.__gemmConfigToKey(gemm) for gemm in self.gemm_configs]
+        self.preproc_file = preproc_file
+        self.validation_data = super().orderByGemmType(self.preproc_file)
 
+    def __typeQtMap(self, input_dir):
+        """
+        creates a dictionary keyed by qt type with values being
+        list of matching qt files
+        """        
+        qt_files = glob.glob(os.path.join(input_dir, "*.qt"))
+        file_dict = {}
+
+        for file in qt_files:
+            file_split = os.path.basename(file).split('.')
+            file_type = file_split[1]
+            method = file_split[0]
+            
+            if method not in file_dict:
+                file_dict[method] = {}
+            file_dict[method][file_type] = pd.read_csv(file)
+            
+
+        return file_dict
 
     def __gemmConfigToKey(self, gemm_config):
         """
@@ -147,216 +176,80 @@ class dataValidator(perfConfigValidator):
             transA = True if tup[0].lower() == 'true' else False
             transB = True if tup[1].lower() == 'true' else False
             return (transA, transB) + tuple([int(x) for x in tup[2:]])
-            g = match.group(3)
-            m = match.group(4)
-            n = match.group(5)
-            k = match.group(6)
-            file_name = f"g{g}_m{m}_n{n}_k{k}"
         else:
             print("Could not parse gemmConfig", file=sys.stderr)
             exit(1)
         
         return file_name
 
-
-    def validate(self, results, dtype):
+    def compare(self, results, dtype):
         all_data = []
         columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
-        for gemm in self.gemm_configs:
+        for gemm in self.gemm_keys:
             gemm = self.__gemmConfigToKey(gemm)
             data_subset = self.validation_data[dtype][gemm]
             results = results[list(columns)]
             merged_df = pd.merge(results, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
             all_data.append(merged_df)
-        return all_data
-            
-    
 
-class quickTunerMethod(object):
-    """
-    base class for creating quick tuner methods, implement the getConfig() method.
-    """
-    def __init__(self, name=None):
-        self.N = 40
-        self.config = None
-        if name is None:
-            self.name = self.__class__.__name__
-        else:
-            self.name = name
-            
-
-    def setN(self, N):
+    def validateDir(self, input_dir):
         """
-        To set the current N count (number of configs)
+        process whole directory
         """
-        self.N = N
-
-    def saveQt(self, name=None, debug=False, suffix=".qt"):
-        """
-        Function to convert a type dictionary config to a .qt file
-        Converts the list of quickTuning sets into a group of files
-        """
-        type_df = self.config
-        if name is None:
-            name = self.name
-        if debug:
-            print(filename + suffix)
-            printConfigDict(type_df)
-        for t in type_df:
-            fname = name + "." + t + suffix
-            df = type_df[t]
-            if 'performance' in df.columns:
-                df = df.drop(labels=['performance'], axis=1)
-            df = df.to_csv(fname, index=False)
-
-    def savePerfConfig(self, name=None,  dtype=None, prefix="v2:"):
-        """
-        """
+        quick_tune_data = self.__typeQtMap(input_dir)
         
-        type_df = self.config
-        if name is None:
-            name = self.name
-
-        if dtype:
-            with open(name, 'w') as f:
-                for _, row in type_df[dtype].iterrows():
-                    tup = tuple(row)
-                    s = prefix+",".join(map(str,tup))
-                    f.write(s)
-                    f.write("\n")
-                
-        else:
-            for t in type_df:
-                with open(f"{name}_{dtype}", 'w') as f:
-                    for _, row in type_df[t].iterrows():
-                        tup = tuple(row)
-                        s = prefix+",".join(map(str,tup))
-                        f.write(s)
-                        f.write("\n")
-                    
-                
-
-    def getConfig(self, input_dir):
-        """
-        produces a config that can be converted to .qt file using
-        convertToConfig
-        """
-        raise NotImplementedError()
-
-
-class quickTuner(object):
-    """
-    quickTuner class to run quick tuning methods from, requires user to instantiate quickTuner object
-    then register quickTunerMethod child classes, finally run tune()
-    """
-    def __init__(self, pargs):
-        self.methods = {}
-        self.input_dir = pargs.input_dir
-        self.__parseValidationArgs(pargs)
-
-    def __parseValidationArgs(self, pargs):
-        """
-        parses pargs.validate string for validator
-        """
-        kwargs = {}
-        for item in pargs.vargs:
-            if '=' in item:
-                k, v = item.split('=', 1)
-                kwargs[k] = v
-            else:
-                raise ValueError(f"Argument {item} is not a valid key=value pair")
-
-        if pargs.validate == 'data':
-            # init validator
-            self.validator = dataValidator(pargs.input_dir,**kwargs)
-        else:
-            self.validator = None               
-        
-    def updateInputDir(self, input_dir):
-        self.input_dir = input_dir
-
-    def addMethod(self, method: quickTunerMethod):
-        """
-        Adds method to method dict
-        """
-        self.methods[method.name] = method
-
-    def tune(self):
-        self.method_results = {}
-        if not self.methods:
-            print("No methods are registered, use quickTuner.addMethod(method: quickTunerMethod), to add a method", file=sys.stderr)
-            exit(1)
-        else:
-            for k in self.methods:
-                method = self.methods[k]
-                df = method.getConfig(self.input_dir)
-                self.method_results[k] = df
-
-    def validate(self):
-        """
-        Validate on either a dataset or by running rocmlir-tuning-gen
-        
-        """
-        if self.validator is None:
-            print("validator not set", file=sys.stderr)
-            return
         output_dict = {}
-        for method in self.method_results:
-            # df will be of the form: {type1: [data], type2: [data], ..., typeN: [data]}
-            for dtype in self.method_results[method]:
+        for method in quick_tune_data:
+            print(f"method {method}")
+            for dtype in quick_tune_data[method]:
+                print(f"dtype {dtype}")
                 if dtype not in output_dict:
                     output_dict[dtype] = {}
-                gemm_data = self.validator.validate(self.method_results[method][dtype], dtype)
-
-                
-                for df in gemm_data: # for every gemm config we get data back
-                    ct = 0
-                    max_values = []
-                    threshold = 0.92
-                    for df in gemm_data:
-                        if (df['performance'].dropna() <= threshold).all():
-                            #print(f"{name} does not meet threshold (>0.8): {df}")
-                            ct += 1
-                            #max_values.append(df[column].max())
-                    output_dict[dtype][method] = ct
+                print(f"quick_tune_data {quick_tune_data[method][dtype]}")
+                gemm_data = self.validate(quick_tune_data[method][dtype], dtype)
+                output_dict[dtype][method] = gemm_data
+                """
+                ct = 0
+                max_values = []
+                threshold = 0.92
+                for df in gemm_data:
+                if (df['performance'].dropna() <= threshold).all():
+                #print(f"{name} does not meet threshold (>0.8): {df}")
+                    ct += 1
+                    #max_values.append(df[column].max())
+                output_dict[dtype][method] = ct
             
-        self.output_df = pd.DataFrame(output_dict)
-        print(self.output_df)
+                self.output_df = pd.DataFrame(output_dict)
+                print(self.output_df)
+                """
+
+        return output_dict
         
+
+    def validateFile(self, input_file, dtype=None):
+        """
+        process single file, if type passed in then we read perf config file
+        """
+        if not dtype:
+            dtype = os.path.basename(input_file).split('.')[1]
+            
+        df = super().readPerfConfig(input_file)
+        return self.validate(df, dtype)        
     
-    def saveConfigs(self):
-        """
-        Iterate through methods and save to each file
-        """
-        for k in self.methods:
-            method = self.methods[k]
-            method.saveQt()
+    def validate(self, file_data, dtype):
+        # to validate file we need data already read,
 
-    def saveBest(self):
-        """
-        Save the best method
-        """
-        df = self.output_df
+        all_data = []
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        for gemm in self.gemm_keys:
+            data_subset = self.validation_data[dtype][gemm]
+            file_data = file_data[columns]
+            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
+            all_data.append(merged_df)
+
+        return all_data
         
-        min_values = df.min()
-        best_methods = df.idxmin()
-
-        method_counts = best_methods.value_counts()
-        
-        max_count = method_counts.max()
-        majority_methods = method_counts[method_counts == max_count].index
-
-        result_methods = {}
-        for col in df.columns:
-            candidates = df.loc[majority_methods, col]
-            result_methods[col] = candidates.idxmin()
-            
-        # Create a list of tuples with index and corresponding method
-        output = [(index, method) for index, method in result_methods.items()]
-
-        for entry in output:
-            dtype, method = entry
-            self.methods[method].savePerfConfig(f"quick_tuning_{dtype}", dtype)                                            
+                    
 
 
 def main(args=None):
@@ -366,26 +259,69 @@ def main(args=None):
     parser = argparse.ArgumentParser(prog='quickTunerStat.py',
                                      description='Generated statistics and verify quick tuning configs')
 
-    parser.add_argument('-i', '--input-files',
-                        nargs='+',
-                        help='List of config files generated by quickTuner')
+    parser.add_argument('--input-dir',
+                        type=str,
+                        help='Directory of config files generated by quickTuner')
+
+
+    parser.add_argument('--qt-file',
+                        type=str,
+                        help='methodname_type.qt file')
+
+    parser.add_argument('--perfconfig-file',
+                        type=str,
+                        help='Perf config formatted file')
+
+    parser.add_argument('--dtype',
+                        choices=['f32', 'f16', 'i8'],
+                        type=str,
+                        help='Datatype to be used with perfconfig file (required when --perfconfig-file is specified')
 
     parser.add_argument('--gemm-configs',
                         type=str,
+                        required=True,
                         help='File path for gemm-configs')
 
     parser.add_argument('--data',
                         type=str,
+                        required=True,
                         help='File path for datafile from quickTunerPreproc.py')
-                     
+
+    parser.add_argument('--method',
+                        choices=['data', 'tuner'],
+                        default='data',
+                        type=str,
+                        help='Method for testing the produced files')
+    
+
 
     pargs = parser.parse_args()
 
-    V = perfConfigValidator()
+    
 
-    V.orderByGemmType(pargs.data)
+    # if single file
+    if pargs.input_dir:
+        if pargs.method == 'data':
+            verifier = dataValidator(pargs.gemm_configs,
+                                     pargs.data)
+        elif method == 'tuner':
+            #method_list.append(tunerValidator(pargs.input_dir,
+            #                                 pargs.gemm_configs,
+            #                                 pargs.data))
+            raise NotImplementedError()
 
+        else:
+            raise ValueError(f"Not a valid method: {method}")                                   
 
+        verifier.validateDir(pargs.input_dir)
+    elif pargs.qt_file:
+        verifier = dataValidator(pargs.gemm_configs, pargs.data)
+        verifier.validateFile(pargs.qt_file)
+    elif pargs.perf_config_file:
+        if not pargs.type:
+            raise Exception(f"type not passed with perf config formatted file: {pargs.perf_config_file}")
+        verifier = dataValidator(pargs.gemm_configs, pargs.data)
+        verifier.validateFile(pargs.qt_file, pargs.dtype)
     
         
 if __name__ == '__main__':
