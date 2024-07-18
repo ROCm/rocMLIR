@@ -936,17 +936,17 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 }
 
 template <typename WriteOp>
-static LogicalResult rewriteMemCpy(memref::CopyOp copy,LinalgAlignRewriter &b, function_ref<void(WriteOp , Value)> destUpdateFunc) {
+static LogicalResult
+rewriteMemCpy(memref::CopyOp copy, LinalgAlignRewriter &b,
+              function_ref<void(WriteOp, Value)> destUpdateFunc) {
   auto src = copy.getSource();
   auto target = copy.getTarget();
   Location loc = copy.getLoc();
 
   // See if the copy source is transformed.
   // If so we need to reverse them on the destination.
-  auto [rawSrc, transformsOnCpySrc, isBig] =
-  untransform(b, src);
+  auto [rawSrc, transformsOnCpySrc, isBig] = untransform(b, src);
   std::ignore = isBig;
-
 
   Operation *gemmStoreOp = nullptr;
   SmallVector<TransformMapAttr> views;
@@ -967,16 +967,14 @@ static LogicalResult rewriteMemCpy(memref::CopyOp copy,LinalgAlignRewriter &b, f
         return checkResult;
       }
       if (!isUniqueReader) {
-        gemmStoreOp =
-            static_cast<WriteOp>(b.clone(*twop.getOperation()));
+        gemmStoreOp = static_cast<WriteOp>(b.clone(*twop.getOperation()));
       } else {
         gemmStoreOp = twop;
       }
     }
   }
   if (gemmStoreOp) {
-    if (WriteOp writeOp =
-            dyn_cast<WriteOp>(gemmStoreOp)) {
+    if (WriteOp writeOp = dyn_cast<WriteOp>(gemmStoreOp)) {
       b.moveAfterIfNeeded(writeOp, copy);
 
       // 1. replace memref.copy with rock.threadwise_write_all
@@ -996,19 +994,22 @@ static LogicalResult rewriteMemCpy(memref::CopyOp copy,LinalgAlignRewriter &b, f
 LogicalResult
 MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
                                       LinalgAlignRewriter &b) const {
-  LogicalResult updateWriteAllOp = rewriteMemCpy<ThreadwiseWriteAllOp>(copy, b, [](ThreadwiseWriteAllOp writeOp, Value newDest){
-    writeOp.getDestMutable().assign(newDest);
-  }); 
-  if(succeeded(updateWriteAllOp)){
+  LogicalResult updateWriteAllOp = rewriteMemCpy<ThreadwiseWriteAllOp>(
+      copy, b, [](ThreadwiseWriteAllOp writeOp, Value newDest) {
+        writeOp.getDestMutable().assign(newDest);
+      });
+  if (succeeded(updateWriteAllOp)) {
     return success();
   }
-  LogicalResult updateReduceOp = rewriteMemCpy<ReduceOp>(copy, b, [](ReduceOp writeOp, Value newDest){
-    writeOp.getOutMutable().assign(newDest);
-  }); 
-  if(succeeded(updateReduceOp)){
+  LogicalResult updateReduceOp =
+      rewriteMemCpy<ReduceOp>(copy, b, [](ReduceOp writeOp, Value newDest) {
+        writeOp.getOutMutable().assign(newDest);
+      });
+  if (succeeded(updateReduceOp)) {
     return success();
   }
-  LLVM_DEBUG(llvm::dbgs() << "memCpy did not trace back to a WriteAll or Reduce op");                                
+  LLVM_DEBUG(
+      llvm::dbgs() << "memCpy did not trace back to a WriteAll or Reduce op");
   return failure();
 }
 
