@@ -727,7 +727,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                    ValueRange{gridCoords.g_block,
                                               gridCoords.m_block,
                                               gridCoords.n_block, tid},
-                                   op.getFeatures(), StoreMethod::Set,
+                                   op.getFeatures(), op.getStoreMethod(),
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
 
@@ -2806,23 +2806,24 @@ struct GridwiseGemmAccelRewritePattern
     // Matrix C write out logic.
     Value convertedC = gpuAlloc(b, loc, numOutputVectorElements, destType,
                                 AddressSpace::Private);
-    accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,
-                                            forceUnroll);
 
     ArrayAttr idToMatrixCMaps =
         accelEmitterPtr
             ->computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths,
-                                    maybeVecDimInfoA->inDPerThread,
-                                    maybeVecDimInfoB->inDPerThread,
-                                    ldsLayoutConfigA.doSwapThreadIterSubDims,
-                                    ldsLayoutConfigB.doSwapThreadIterSubDims)
+                                      maybeVecDimInfoA->inDPerThread,
+                                      maybeVecDimInfoB->inDPerThread,
+                                      ldsLayoutConfigA.doSwapThreadIterSubDims,
+                                      ldsLayoutConfigB.doSwapThreadIterSubDims)
             .gridSubTile;
+
+    accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,
+                                             forceUnroll);
 
     b.create<ThreadwiseWriteAllOp>(
         loc, convertedC, op.getC(), idToMatrixCMaps,
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
-                tid},
+                   tid},
         op.getFeatures(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
     b.eraseOp(op);
     return success();
