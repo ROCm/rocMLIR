@@ -966,13 +966,14 @@ class fairSelect(quickTunerMethod):
     """ 
     take entire set and aggregate the repeats, averaging them out/ weighing them more heavily
     """
-    def __init__(self, name=None, N=40, normalize=True):
+    def __init__(self, name=None, N=40, normalize=True, threshold=0.95):
         super().__init__(name, N)
         self.normalize = normalize
+        self.threshold # top 95 percent for efficiency
 
     def __get_top_90_percent(self, df):
         df_sorted = df.sort_values(by='performance', ascending=False)
-        return df_sorted[df_sorted['performance'] >= 0.95]
+        return df_sorted[df_sorted['performance'] >= self.threshold]
 
     def __combine_datasets(self, dfs):
         cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
