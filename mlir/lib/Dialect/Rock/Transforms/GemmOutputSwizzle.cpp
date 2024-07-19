@@ -197,11 +197,29 @@ void reuseDeadLDS(func::FuncOp &func) {
               rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
 
           auto newView = rewriter.create<memref::ViewOp>(
-              loc, view.getType(), ldsByteBuffer, byteOffset,
-              view.getDynamicSizes());
+              loc, view.getType(), ldsByteBuffer, byteOffset, ValueRange{});
           rewriter.replaceAllUsesWith(view->getResults(),
                                       newView->getResults());
           rewriter.eraseOp(view);
+          ++numViews;
+        } else if (auto subView = dyn_cast<memref::SubViewOp>(owner)) {
+          // this is needed for attention, subView use GpuAllocOp
+          Value byteOffset =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
+
+          auto newViewType =
+              MemRefType::get({numElements}, rewriter.getI8Type(), AffineMap{},
+                              workgroupMemoryAddressSpace);
+          auto newView = rewriter.create<memref::ViewOp>(
+              loc, newViewType, ldsByteBuffer, byteOffset, ValueRange{});
+
+          auto newSubView = rewriter.create<memref::SubViewOp>(
+              loc, subView.getType(), newView, subView.getMixedOffsets(),
+              subView.getMixedSizes(), subView.getMixedStrides());
+
+          rewriter.replaceAllUsesWith(subView->getResults(),
+                                      newSubView->getResults());
+          rewriter.eraseOp(subView);
           ++numViews;
         } else {
           llvm_unreachable("All uses should be views");
@@ -296,6 +314,7 @@ struct ThreadwiseWriteAllRewritePattern
     constexpr int64_t dimensionM = 1;
     constexpr int64_t dimensionN = 2;
     int64_t dataPerThread = (nPerBlock * mPerBlock) / blockSize;
+
     VectorizationResult mVectorRes =
         getMaxVectorization(matC, dimensionM, /*inputDimLen=*/
                             dataPerThread, matC.getDefiningOp());
