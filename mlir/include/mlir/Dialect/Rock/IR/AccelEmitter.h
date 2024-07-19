@@ -32,6 +32,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/Attributes.h"
 
 #include <memory>
 
@@ -208,14 +209,14 @@ private:
   /// Initialize the emitter parameters for mfma
   AccelEmitterParams
   initAccelEmitterParams(MfmaInsnGroup mfmaGroup,
-                         RockAccelTuningParamAttrInterface tuningParams);
+                         RockAccelTuningParamAttrInterface tuningParams,
+                         StringRef arch);
 
   MfmaInsnGroup mfmaGroup;
 };
 
 // Accel emitter implementation for wmma
 struct WmmaEmitter : public AccelEmitter {
-
   WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
               RockAccelTuningParamAttrInterface tuningParams);
 
@@ -249,10 +250,13 @@ private:
   /// Initialize the emitter parameters for wmma
   AccelEmitterParams
   initAccelEmitterParams(WmmaInsn wmmaInsn,
-                         RockAccelTuningParamAttrInterface tuningParams);
+                         RockAccelTuningParamAttrInterface tuningParams,
+                         StringRef arch);
 
   // Specifc wmma parameters
   WmmaInsn wmmaInsn;
+
+  bool isGfx11;
 };
 } // namespace accel
 } // namespace rock

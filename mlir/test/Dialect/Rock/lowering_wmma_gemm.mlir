@@ -28,6 +28,33 @@ func.func @rock_accel_gemm_wmma(%matrixA : memref<1x4xvector<16xf16>, 5>,
   return
 }
 
+// CHECK: rock_accel_gemm_wmma_gfx12
+func.func @rock_accel_gemm_wmma_gfx12(%matrixA : memref<1x4xvector<8xf16>, 5>,
+                                      %matrixB : memref<1x4xvector<8xf16>, 5>,
+                                      %matrixC : memref<1x1xvector<8xf32>, 5>) {
+  %c0 = arith.constant 0 : index
+  // CHECK: rock.transforming_for
+  // CHECK-SAME  bounds [1, 1, 1]
+  // CHECK: %[[a:.*]] = memref.load {{.*}} : memref<1x4xvector<8xf16>, 5>
+  // CHECK: %[[b:.*]] = memref.load {{.*}} : memref<1x4xvector<8xf16>, 5>
+  // CHECK: %[[c:.*]] = memref.load {{.*}} : memref<1x1xvector<8xf32>, 5>
+  // CHECK: amdgpu.wmma %[[a]] * %[[b]] + %[[c]]
+  // CHECK: memref.store {{.*}}, {{.*}} : memref<1x1xvector<8xf32>, 5>
+  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
+    arch = "amdgcn-amd-amdhsa:gfx1200",
+    params = #rock.wmma_gemm_params<
+       mPerBlock = 16,
+       nPerBlock = 16,
+       kpackPerBlock = 4,
+       mPerWave = 16,
+       nPerWave = 16,
+       kpack = 8,
+       splitKFactor = 3,
+       forceUnroll = true>
+     } : memref<1x1xvector<8xf32>, 5> += memref<1x4xvector<8xf16>, 5> * memref<1x4xvector<8xf16>, 5>
+  return
+}
+
 // CHECK: rock_accel_gemm_wmma_repeats
 func.func @rock_accel_gemm_wmma_repeats(%matrixA : memref<1x4xvector<16xf16>, 5>,
                                         %matrixB : memref<1x4xvector<16xf16>, 5>,
