@@ -266,6 +266,9 @@ struct ThreadwiseWriteAllRewritePattern
     int64_t G = cShape[0];
     int64_t M = cShape[1];
     int64_t N = cShape[2];
+    LLVM_DEBUG(llvm::dbgs() << "G: " << G << " N: " << N << " M: " << M
+                            << " nPerBlock: " << nPerBlock
+                            << " mPerBlock: " << mPerBlock << "\n");
     FailureOr<IntegerAttr> maybeBlockSize = getBlockSize(op);
     if (failed(maybeBlockSize)) {
       return failure();
@@ -327,10 +330,6 @@ struct ThreadwiseWriteAllRewritePattern
 
     auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
 
-    // LDS barrier.
-    // This barrier is needed because we reuse A and B buffers
-    b.create<LDSBarrierOp>(loc);
-
     // Store C results to LDS.
     b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
                                    /*extraViews=*/idToLDS,
@@ -349,11 +348,18 @@ struct ThreadwiseWriteAllRewritePattern
                << " dataPerThread: " << dataPerThread
                << " elementsWrittenPerThread: " << elementsWrittenPerThread
                << " iter: " << iter << "\n");
+    float row;
     if (dim == dimensionM) {
       LLVM_DEBUG(llvm::dbgs() << "dim = M\n");
+      row = mPerBlock;
     } else {
+      row = nPerBlock;
       LLVM_DEBUG(llvm::dbgs() << "dim = N\n");
     }
+    float rowsPerWave = (elementsWrittenPerThread * 64) / row;
+    LLVM_DEBUG(llvm::dbgs()
+               << "row: " << row << " rowsPerWave: " << rowsPerWave << "\n");
+
     Value finalC =
         gpuAlloc(b, loc, dataPerThread, destType, AddressSpace::Private);
 
