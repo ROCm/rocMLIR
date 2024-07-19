@@ -390,6 +390,8 @@ if(LLVM_ENABLE_PIC)
     if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
       target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
       "-Wno-c++98-compat-extra-semi")
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-c++98-compat-extra-semi")
     endif()
     if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
       target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
