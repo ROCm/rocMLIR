@@ -94,6 +94,20 @@ bool hasGlobalMemoryAddressSpace(MemRefType type) {
          !hasPrivateMemoryAddressSpace(type);
 }
 
+int64_t getLDSTotalSize(func::FuncOp &func) {
+  int64_t totalSize = 0;
+  func.walk([&](GpuAllocOp gpuAlloc) {
+    auto type = gpuAlloc.getOutput().getType();
+    auto memSpaceValue =
+        dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
+            .getValue();
+    if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+      totalSize += type.getNumElements() * getByteWidth(type.getElementType());
+    }
+  });
+  return totalSize;
+}
+
 static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
   // Check for arch limitations exceeded
   FailureOr<StringAttr> maybeArch = getArch(op);
@@ -257,9 +271,6 @@ struct ThreadwiseWriteAllRewritePattern
     }
     std::tie(mPerBlock, nPerBlock, idToLDS) = maybeTuple.value();
 
-    // TODO: decide if we want to skip this pass
-    // if writes are already coalesced and 128b
-
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> cShape;
     cShape = op.getDest().getType().getShape();
@@ -340,6 +351,9 @@ struct ThreadwiseWriteAllRewritePattern
 
     // Load from LDS to registers.
     int64_t elementsWrittenPerThread = 128 / destType.getIntOrFloatBitWidth();
+    LLVM_DEBUG(llvm::dbgs()
+               << "elementsWrittenPerThread: " << elementsWrittenPerThread
+               << " dataPerThread: " << dataPerThread << "\n");
     elementsWrittenPerThread =
         math_util::gcd(dataPerThread, elementsWrittenPerThread);
     int64_t iter = dataPerThread / elementsWrittenPerThread;
@@ -458,14 +472,16 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
   if (!func->hasAttr("kernel"))
     return;
 
+  // Get total LDS memory allocated
+  int64_t ldsAllocated = getLDSTotalSize(func);
+
   SmallVector<ThreadwiseWriteAllOp> writes;
   func.walk([&](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
-    // keep ThreadwiseWriteAllOp that save to global memory
-    if (hasGlobalMemoryAddressSpace(destMemRefType)) {
-      // Compute LDS size
 
+    // process ThreadwiseWriteAllOp that save to global memory
+    if (hasGlobalMemoryAddressSpace(destMemRefType)) {
       int64_t mPerBlock, nPerBlock;
       ArrayAttr idToLDS;
       FailureOr<std::tuple<int64_t, int64_t, ArrayAttr>> maybeTuple =
@@ -474,13 +490,28 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
         signalPassFailure();
       }
       std::tie(mPerBlock, nPerBlock, idToLDS) = maybeTuple.value();
+      // not a convolution/gemm
+      if (getLowerShape(idToLDS).size() != 2) {
+        return;
+      }
+
       Type destType = threadwiseWriteAll.getDest().getType().getElementType();
       int64_t ldsRequiredBytes = mPerBlock * nPerBlock * getByteWidth(destType);
 
+      // not enough LDS memory
       if (failed(checkLDSSize(threadwiseWriteAll, ldsRequiredBytes))) {
         LLVM_DEBUG(llvm::dbgs()
                    << "GemmOutputSwizzle requires too much LDS memory: "
                    << ldsRequiredBytes << " bytes, skipping pass\n");
+        return;
+      }
+      // heuristic: if we need more LDS, skip this pass
+      if (ldsRequiredBytes > ldsAllocated) {
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << "GemmOutputSwizzle requires more LDS memory, current usage: "
+            << ldsAllocated << " bytes, required: " << ldsRequiredBytes
+            << " bytes, skipping pass\n");
         return;
       }
       writes.push_back(threadwiseWriteAll);
