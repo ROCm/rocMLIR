@@ -199,7 +199,6 @@ void reuseDeadLDS(func::FuncOp &func) {
           auto newView = rewriter.create<memref::ViewOp>(
               loc, view.getType(), ldsByteBuffer, byteOffset,
               view.getDynamicSizes());
-          // rewriter.replaceAllOpUsesWith(view, newView);
           rewriter.replaceAllUsesWith(view->getResults(),
                                       newView->getResults());
           rewriter.eraseOp(view);
@@ -235,6 +234,10 @@ getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
   dimensionsToRemove.insert("g_block");
   dimensionsToRemove.insert("m_block");
   dimensionsToRemove.insert("n_block");
+  // for attention:
+  dimensionsToRemove.insert("gblock");
+  dimensionsToRemove.insert("mblock");
+  dimensionsToRemove.insert("nblock");
   FailureOr<ArrayAttr> maybeIdToLDS =
       removeUpperDims(b, srcTransform, dimensionsToRemove);
   if (failed(maybeIdToLDS)) {
@@ -285,14 +288,9 @@ struct ThreadwiseWriteAllRewritePattern
       return failure();
     }
     int64_t blockSize = maybeBlockSize.value().getValue().getSExtValue();
-    int64_t mBlocks = M / mPerBlock;
-    int64_t nBlocks = N / nPerBlock;
     bool useIndexDiffs = true;
     bool forceUnroll = true;
     int64_t ldsRequiredBytes = mPerBlock * nPerBlock * getByteWidth(destType);
-
-    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
     // Decide register vectorization.
     constexpr int64_t dimensionM = 1;
@@ -341,6 +339,10 @@ struct ThreadwiseWriteAllRewritePattern
 
     auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
 
+    // LDS barrier.
+    // This barrier is needed because we reuse A and B buffers
+    b.create<LDSBarrierOp>(loc);
+
     // Store C results to LDS.
     b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
                                    /*extraViews=*/idToLDS,
@@ -351,9 +353,6 @@ struct ThreadwiseWriteAllRewritePattern
 
     // Load from LDS to registers.
     int64_t elementsWrittenPerThread = 128 / destType.getIntOrFloatBitWidth();
-    LLVM_DEBUG(llvm::dbgs()
-               << "elementsWrittenPerThread: " << elementsWrittenPerThread
-               << " dataPerThread: " << dataPerThread << "\n");
     elementsWrittenPerThread =
         math_util::gcd(dataPerThread, elementsWrittenPerThread);
     int64_t iter = dataPerThread / elementsWrittenPerThread;
@@ -405,13 +404,38 @@ struct ThreadwiseWriteAllRewritePattern
                                    b.getArrayAttr({}), ValueRange{tid},
                                    forceUnroll, useIndexDiffs);
 
+    SmallVector<int64_t, 5> bidGridLengths;
+    SmallVector<StringRef, 5> bidGridOrder;
+    int64_t mBlocks = M / mPerBlock;
+    int64_t nBlocks = N / nPerBlock;
+    bool attention = op.getExtraIndices().size() == 3;
+    LLVM_DEBUG(llvm::dbgs() << "attention: " << attention << "\n");
+    if (attention) {
+      // attention
+      dataPerThread = dataPerThread * mBlocks;
+      mBlocks = 1;
+      bidGridLengths = {G, nBlocks, blockSize, dataPerThread};
+      bidGridOrder = {"g_block", "n_block", "tid", "iter"};
+    } else {
+      bidGridLengths = {G, mBlocks, nBlocks, blockSize, dataPerThread};
+      bidGridOrder = {"g_block", "m_block", "n_block", "tid", "iter"};
+    }
+
     // Save to memory
     // Create views as gridwise sub-tile of C
-    TopDownTMBuilder tidIterMergeMem(
-        b, {"g_block", "m_block", "n_block", "tid", "iter"},
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
-         dataPerThread},
-        loc);
+    TopDownTMBuilder createMblock(b, bidGridOrder, bidGridLengths, loc);
+    if (attention) {
+      createMblock.passThrough({"g_block", "n_block", "tid"}, {0, 2, 3},
+                               {"g_block", "n_block", "tid"});
+      createMblock.merge({"m_block", "iter"}, {1, 4}, "iter",
+                         {mBlocks, dataPerThread / mBlocks});
+    } else {
+      createMblock.passThrough(bidGridOrder, {0, 1, 2, 3, 4}, bidGridOrder);
+    }
+    auto createMblockAttr = createMblock.get();
+
+    TopDownTMBuilder tidIterMergeMem =
+        TopDownTMBuilder::below(createMblock, createMblockAttr);
     tidIterMergeMem.passThrough({"g_block", "m_block", "n_block", "tid"});
     tidIterMergeMem.merge({"iter", "numElements"}, {4, 5}, "iter",
                           {iter, elementsWrittenPerThread});
@@ -439,15 +463,13 @@ struct ThreadwiseWriteAllRewritePattern
     auto toMatrixC =
         TopDownTMBuilder::below(flattenToBlockCoord, flattenToBlockCoordAttr);
     toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
-    toMatrixC.unmerge("gemmM", 1, {"m_block", "block_m"},
-                      {bidGridLengths[1], mPerBlock});
-    toMatrixC.unmerge("gemmN", 2, {"n_block", "block_n"},
-                      {bidGridLengths[2], nPerBlock});
+    toMatrixC.unmerge("gemmM", 1, {"m_block", "block_m"}, {mBlocks, mPerBlock});
+    toMatrixC.unmerge("gemmN", 2, {"n_block", "block_n"}, {nBlocks, nPerBlock});
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
     SmallVector<Attribute> transformAttrsStore{
-        tidIterMergeMemAttr, tidIterFlattenMemAttr, flattenToBlockCoordAttr,
-        toMatrixCAttr};
+        createMblockAttr, tidIterMergeMemAttr, tidIterFlattenMemAttr,
+        flattenToBlockCoordAttr, toMatrixCAttr};
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrsStore);
 
     b.create<ThreadwiseWriteAllOp>(loc, finalC, matC, idToMatrixCMaps,
@@ -490,10 +512,6 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
         signalPassFailure();
       }
       std::tie(mPerBlock, nPerBlock, idToLDS) = maybeTuple.value();
-      // not a convolution/gemm
-      if (getLowerShape(idToLDS).size() != 2) {
-        return;
-      }
 
       Type destType = threadwiseWriteAll.getDest().getType().getElementType();
       int64_t ldsRequiredBytes = mPerBlock * nPerBlock * getByteWidth(destType);
