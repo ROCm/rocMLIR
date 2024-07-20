@@ -969,7 +969,7 @@ class fairSelect(quickTunerMethod):
     def __init__(self, name=None, N=40, normalize=True, threshold=0.95):
         super().__init__(name, N)
         self.normalize = normalize
-        self.threshold # top 95 percent for efficiency
+        self.threshold = threshold # top 95 percent for efficiency
 
     def __get_top_90_percent(self, df):
         df_sorted = df.sort_values(by='performance', ascending=False)
