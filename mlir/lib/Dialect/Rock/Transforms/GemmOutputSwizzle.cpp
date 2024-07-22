@@ -66,8 +66,9 @@ struct RockGemmOutputSwizzlePass
           RockGemmOutputSwizzlePass> {
   void runOnOperation() override;
 };
+} // end anonymous namespace
 
-bool hasPrivateMemoryAddressSpace(MemRefType type) {
+static bool hasPrivateMemoryAddressSpace(MemRefType type) {
   Attribute memorySpace = type.getMemorySpace();
   if (!memorySpace)
     return false;
@@ -78,7 +79,7 @@ bool hasPrivateMemoryAddressSpace(MemRefType type) {
   return false;
 }
 
-bool hasWorkgroupMemoryAddressSpace(MemRefType type) {
+static bool hasWorkgroupMemoryAddressSpace(MemRefType type) {
   Attribute memorySpace = type.getMemorySpace();
   if (!memorySpace)
     return false;
@@ -89,15 +90,15 @@ bool hasWorkgroupMemoryAddressSpace(MemRefType type) {
   return false;
 }
 
-bool hasGlobalMemoryAddressSpace(MemRefType type) {
+static bool hasGlobalMemoryAddressSpace(MemRefType type) {
   return !hasWorkgroupMemoryAddressSpace(type) &&
          !hasPrivateMemoryAddressSpace(type);
 }
 
-int64_t getLDSTotalSize(func::FuncOp &func) {
+static int64_t getLDSTotalSize(func::FuncOp &func) {
   int64_t totalSize = 0;
   func.walk([&](GpuAllocOp gpuAlloc) {
-    auto type = gpuAlloc.getOutput().getType();
+    mlir::MemRefType type = gpuAlloc.getOutput().getType();
     auto memSpaceValue =
         dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
             .getValue();
@@ -120,12 +121,12 @@ static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
 }
 
 // Function to create the schedule of the current set of stages
-void reuseDeadLDS(func::FuncOp &func) {
+static void reuseDeadLDS(func::FuncOp &func) {
   // Retrieve all GpuAlloc operations targeting LDS and
   // calculate the total memory space required for all operations
   // except the last one. Additionally, compute the memory space
   // required by the last GpuAlloc operation.
-  SmallVector<GpuAllocOp> allocs;
+  SmallVector<std::tuple<GpuAllocOp, int64_t>> allocs;
   int64_t totalSize = 0;
   int64_t lastSize = 0;
   func.walk([&](GpuAllocOp gpuAlloc) {
@@ -134,9 +135,9 @@ void reuseDeadLDS(func::FuncOp &func) {
         dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
             .getValue();
     if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+      allocs.push_back({gpuAlloc, totalSize});
       lastSize = type.getNumElements() * getByteWidth(type.getElementType());
       totalSize += lastSize;
-      allocs.push_back(gpuAlloc);
     }
   });
   // There should be at least two LDS allocations
@@ -163,14 +164,15 @@ void reuseDeadLDS(func::FuncOp &func) {
       MemRefType::get({requiredMemory}, rewriter.getI8Type(), AffineMap{},
                       workgroupMemoryAddressSpace);
 
-  rewriter.setInsertionPoint(allocs[0]);
-  Location loc = allocs[0]->getLoc();
+  rewriter.setInsertionPoint(std::get<0>(allocs[0]));
+  Location loc = std::get<0>(allocs[0])->getLoc();
   auto ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
 
   // Rewrite all GpuAllocs as SubViewOp
-  int64_t offset = 0;
-  size_t i = 0;
-  for (GpuAllocOp alloc : allocs) {
+  for (auto [i, allocTuple] : llvm::enumerate(allocs)) {
+    GpuAllocOp alloc;
+    int64_t offset;
+    std::tie(alloc, offset) = allocTuple;
     auto bufferType = alloc.getOutput().getType();
     auto numElements = bufferType.getNumElements();
     auto elementBytes = getByteWidth(bufferType.getElementType());
@@ -181,70 +183,24 @@ void reuseDeadLDS(func::FuncOp &func) {
     rewriter.setInsertionPointAfter(alloc);
     Location loc = alloc->getLoc();
 
+    // last GpuAllocOp reuses LDS memory
     if (i == allocs.size() - 1) {
       offset = 0;
     }
     LLVM_DEBUG(llvm::dbgs() << "offset: " << offset
                             << " numElements: " << numElements << "\n");
+    Value byteOffset =
+        rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
 
-    bool replaceWithSubView = offset == 0;
-    if (!replaceWithSubView) {
-      size_t numViews = 0;
-      for (OpOperand &use : alloc->getUses()) {
-        Operation *owner = use.getOwner();
-        if (auto view = dyn_cast<memref::ViewOp>(owner)) {
-          Value byteOffset =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
-
-          auto newView = rewriter.create<memref::ViewOp>(
-              loc, view.getType(), ldsByteBuffer, byteOffset, ValueRange{});
-          rewriter.replaceAllUsesWith(view->getResults(),
-                                      newView->getResults());
-          rewriter.eraseOp(view);
-          ++numViews;
-        } else if (auto subView = dyn_cast<memref::SubViewOp>(owner)) {
-          // this is needed for attention, subView use GpuAllocOp
-          Value byteOffset =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
-
-          auto newViewType =
-              MemRefType::get({numElements}, rewriter.getI8Type(), AffineMap{},
-                              workgroupMemoryAddressSpace);
-          auto newView = rewriter.create<memref::ViewOp>(
-              loc, newViewType, ldsByteBuffer, byteOffset, ValueRange{});
-
-          auto newSubView = rewriter.create<memref::SubViewOp>(
-              loc, subView.getType(), newView, subView.getMixedOffsets(),
-              subView.getMixedSizes(), subView.getMixedStrides());
-
-          rewriter.replaceAllUsesWith(subView->getResults(),
-                                      newSubView->getResults());
-          rewriter.eraseOp(subView);
-          ++numViews;
-        } else {
-          llvm_unreachable("All uses should be views");
-        }
-      }
-      if (numViews > 0) {
-        rewriter.eraseOp(alloc);
-      } else {
-        replaceWithSubView = true;
-      }
-    }
-
-    if (replaceWithSubView) {
-      auto subView = rewriter.create<memref::SubViewOp>(
-          loc, ldsByteBuffer, ArrayRef<int64_t>{offset},
-          ArrayRef<int64_t>{numElements}, ArrayRef<int64_t>{1});
-      rewriter.replaceOp(alloc, subView);
-    }
-
-    offset += numElements;
-    i++;
+    auto newViewType =
+        MemRefType::get({numElements}, rewriter.getI8Type(), AffineMap{},
+                        workgroupMemoryAddressSpace);
+    rewriter.replaceOpWithNewOp<memref::ViewOp>(
+        alloc, newViewType, ldsByteBuffer, byteOffset, ValueRange{});
   }
 }
 
-static FailureOr<std::tuple<int64_t, int64_t, ArrayAttr>>
+static std::optional<std::tuple<int64_t, int64_t, ArrayAttr>>
 getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
 
   ArrayAttr srcTransform = op.getExtraViewsAttr();
@@ -259,7 +215,7 @@ getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
   FailureOr<ArrayAttr> maybeIdToLDS =
       removeUpperDims(b, srcTransform, dimensionsToRemove);
   if (failed(maybeIdToLDS)) {
-    return failure();
+    return std::nullopt;
   }
   ArrayAttr idToLDS = maybeIdToLDS.value();
 
@@ -285,12 +241,12 @@ struct ThreadwiseWriteAllRewritePattern
     // Convert from reg -> memory transform to reg -> block
     int64_t mPerBlock, nPerBlock;
     ArrayAttr idToLDS;
-    FailureOr<std::tuple<int64_t, int64_t, ArrayAttr>> maybeTuple =
+    std::optional<std::tuple<int64_t, int64_t, ArrayAttr>> maybeBlockInfo =
         getIdToLDS(op, b);
-    if (failed(maybeTuple)) {
+    if (!maybeBlockInfo.has_value()) {
       return failure();
     }
-    std::tie(mPerBlock, nPerBlock, idToLDS) = maybeTuple.value();
+    std::tie(mPerBlock, nPerBlock, idToLDS) = maybeBlockInfo.value();
 
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> cShape;
@@ -323,13 +279,7 @@ struct ThreadwiseWriteAllRewritePattern
         getMaxVectorization(matC, dimensionN, /*inputDimLen=*/
                             dataPerThread, matC.getDefiningOp());
     int64_t nVectorLen = nVectorRes.max;
-
-    int64_t dim;
-    if (mVectorLen > nVectorLen) {
-      dim = dimensionM;
-    } else {
-      dim = dimensionN;
-    }
+    int64_t dim = (mVectorLen > nVectorLen) ? dimensionM : dimensionN;
 
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
@@ -380,25 +330,18 @@ struct ThreadwiseWriteAllRewritePattern
                << " dataPerThread: " << dataPerThread
                << " elementsWrittenPerThread: " << elementsWrittenPerThread
                << " iter: " << iter << "\n");
-    float row;
     if (dim == dimensionM) {
       LLVM_DEBUG(llvm::dbgs() << "dim = M\n");
-      row = mPerBlock;
     } else {
-      row = nPerBlock;
       LLVM_DEBUG(llvm::dbgs() << "dim = N\n");
     }
-    float rowsPerWave = (elementsWrittenPerThread * 64) / row;
-    LLVM_DEBUG(llvm::dbgs()
-               << "row: " << row << " rowsPerWave: " << rowsPerWave << "\n");
 
     Value finalC =
         gpuAlloc(b, loc, dataPerThread, destType, AddressSpace::Private);
 
     TopDownTMBuilder tidIterMerge(b, {"tid", "iter"},
                                   {blockSize, dataPerThread});
-    SmallVector<StringRef, 5> throughDims{"tid"};
-    tidIterMerge.passThrough(throughDims);
+    tidIterMerge.passThrough(ArrayRef<StringRef>{"tid"});
     tidIterMerge.merge({"iter", "numElements"}, {1, 2}, "iter",
                        {iter, elementsWrittenPerThread});
     auto tidIterMergeAttr = tidIterMerge.get();
@@ -491,18 +434,14 @@ struct ThreadwiseWriteAllRewritePattern
         flattenToBlockCoordAttr, toMatrixCAttr};
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrsStore);
 
-    b.create<ThreadwiseWriteAllOp>(loc, finalC, matC, idToMatrixCMaps,
-                                   /*extraIndices=*/
-                                   op.getExtraIndices(), op.getFeatures(),
-                                   op.getStoreMethod(), forceUnroll,
-                                   useIndexDiffs);
-
-    b.eraseOp(op);
+    b.replaceOpWithNewOp<ThreadwiseWriteAllOp>(
+        op, finalC, matC, idToMatrixCMaps,
+        /*extraIndices=*/
+        op.getExtraIndices(), op.getFeatures(), op.getStoreMethod(),
+        forceUnroll, useIndexDiffs);
     return success();
   }
 };
-
-} // end anonymous namespace
 
 void RockGemmOutputSwizzlePass::runOnOperation() {
   func::FuncOp func = getOperation();
@@ -525,12 +464,12 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
     if (hasGlobalMemoryAddressSpace(destMemRefType)) {
       int64_t mPerBlock, nPerBlock;
       ArrayAttr idToLDS;
-      FailureOr<std::tuple<int64_t, int64_t, ArrayAttr>> maybeTuple =
+      std::optional<std::tuple<int64_t, int64_t, ArrayAttr>> maybeBlockInfo =
           getIdToLDS(threadwiseWriteAll, rewriter);
-      if (failed(maybeTuple)) {
+      if (!maybeBlockInfo.has_value()) {
         signalPassFailure();
       }
-      std::tie(mPerBlock, nPerBlock, idToLDS) = maybeTuple.value();
+      std::tie(mPerBlock, nPerBlock, idToLDS) = maybeBlockInfo.value();
 
       Type destType = threadwiseWriteAll.getDest().getType().getElementType();
       int64_t ldsRequiredBytes = mPerBlock * nPerBlock * getByteWidth(destType);
@@ -551,7 +490,33 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
             << " bytes, skipping pass\n");
         return;
       }
-      writes.push_back(threadwiseWriteAll);
+
+      // heuristic: check vectorization of iter in the original map
+      ArrayAttr srcTransform = threadwiseWriteAll.getExtraViews();
+      Value matC = threadwiseWriteAll.getDest();
+      Value destView = transform(rewriter, matC, srcTransform);
+      auto destViewType = cast<MemRefType>(destView.getType());
+      auto destElemType = destViewType.getElementType();
+      if (auto elemVecType = dyn_cast<VectorType>(destElemType)) {
+        LLVM_DEBUG(llvm::dbgs() << "ThreadwiseWriteAllOp saves a vector type"
+                                << ", skipping swizzle\n");
+      } else {
+        size_t extraIdxCount = threadwiseWriteAll.getExtraIndices().size();
+        VectorizationResult vectorRes =
+            getMaxVectorization(destView, extraIdxCount);
+        int64_t vectorLenBits =
+            vectorRes.max * destElemType.getIntOrFloatBitWidth();
+        if (vectorLenBits == 128) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Vectorization of 'iter' is " << vectorLenBits
+                     << " bits, skipping swizzle\n");
+        } else {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Vectorization of 'iter' is " << vectorLenBits
+                     << " bits, performing swizzle\n");
+          writes.push_back(threadwiseWriteAll);
+        }
+      }
     }
   });
   if (writes.size() > 1) {

@@ -9,7 +9,6 @@
 #ifndef ROCK_UTILITY_LOWERINGUTILS_H
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -21,6 +20,10 @@
 namespace mlir {
 class Operation;
 class Type;
+
+namespace gpu {
+enum class AddressSpace : uint32_t;
+}
 
 namespace rock {
 struct ConvolutionDims;
