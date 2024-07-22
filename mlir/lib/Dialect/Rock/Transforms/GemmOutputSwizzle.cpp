@@ -79,19 +79,8 @@ static bool hasPrivateMemoryAddressSpace(MemRefType type) {
   return false;
 }
 
-static bool hasWorkgroupMemoryAddressSpace(MemRefType type) {
-  Attribute memorySpace = type.getMemorySpace();
-  if (!memorySpace)
-    return false;
-  if (auto gpuAttr = llvm::dyn_cast<gpu::AddressSpaceAttr>(memorySpace)) {
-
-    return gpuAttr.getValue() == AddressSpace::Workgroup;
-  }
-  return false;
-}
-
 static bool hasGlobalMemoryAddressSpace(MemRefType type) {
-  return !hasWorkgroupMemoryAddressSpace(type) &&
+  return !gpu::GPUDialect::hasWorkgroupMemoryAddressSpace(type) &&
          !hasPrivateMemoryAddressSpace(type);
 }
 
@@ -455,7 +444,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
   // Get total LDS memory allocated
   int64_t ldsAllocated = getLDSTotalSize(func);
 
-  SmallVector<ThreadwiseWriteAllOp> writes;
+  SmallVector<Operation *, 4> writes;
   func.walk([&](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
@@ -532,10 +521,8 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
 
     GreedyRewriteConfig config;
     config.strictMode = GreedyRewriteStrictness::ExistingOps;
-    for (Operation *op : writes) {
-      if (failed(applyOpPatternsAndFold(op, std::move(patterns), config))) {
-        signalPassFailure();
-      }
+    if (failed(applyOpPatternsAndFold(writes, std::move(patterns), config))) {
+      signalPassFailure();
     }
 
     // Reuse LDS, we assume the last GpuAllocOp can reuse previous
