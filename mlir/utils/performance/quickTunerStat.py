@@ -178,12 +178,14 @@ class dataValidator(perfConfigValidator):
     """
     uses already provided data to validate the configs generated
     """
-    def __init__(self, gemm_config_file, preproc_file):
+    def __init__(self, gemm_config_file, preproc_file, debug=False):
         super().__init__()
         self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
         self.gemm_keys = [super(dataValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
         self.preproc_file = preproc_file
         self.validation_data = super().orderByGemmType(self.preproc_file)
+
+        self.debug = debug
 
     def __typeQtMap(self, input_dir):
         """
@@ -219,17 +221,20 @@ class dataValidator(perfConfigValidator):
         """
         process whole directory
         """
-        quick_tune_data = self.__typeQtMap(input_dir)
+        self.quick_tune_data = self.__typeQtMap(input_dir)
         
         output_dict = {}
-        for method in quick_tune_data:
-            print(f"method {method}")
-            for dtype in quick_tune_data[method]:
-                print(f"dtype {dtype}")
+        for method in self.quick_tune_data:
+            if self.debug:
+                print(f"method {method}")
+            for dtype in self.quick_tune_data[method]:
+                if self.debug:
+                    print(f"dtype {dtype}")
                 if dtype not in output_dict:
                     output_dict[dtype] = {}
-                print(f"quick_tune_data {quick_tune_data[method][dtype]}")
-                gemm_data = self.validate(quick_tune_data[method][dtype], dtype)
+                if self.debug:
+                    print(f"quick_tune_data {self.quick_tune_data[method][dtype]}")
+                gemm_data = self.validate(self.quick_tune_data[method][dtype], dtype)
                 output_dict[dtype][method] = gemm_data
         self.output_dict = output_dict
         return output_dict
@@ -272,7 +277,30 @@ class dataValidator(perfConfigValidator):
                     rank_dict[dtype][method] = ct
                     
         self.output_df = pd.DataFrame(rank_dict)
-        print(self.output_df)
+        df = self.output_df
+        
+        min_values = df.min()
+        best_methods = df.idxmin()
+
+        method_counts = best_methods.value_counts()
+        
+        max_count = method_counts.max()
+        majority_methods = method_counts[method_counts == max_count].index
+
+        result_methods = {}
+        for col in df.columns:
+            candidates = df.loc[majority_methods, col]
+            result_methods[col] = candidates.idxmin()
+            
+        # Create a list of tuples with index and corresponding method
+        output = [(index, method) for index, method in result_methods.items()]        
+
+        for entry in output:
+            dtype, method = entry
+            self.quick_tune_data[method][dtype].to_csv(f"quick_tuning_{dtype}", index=False)
+
+        if self.debug:
+            print(self.output_df)
 
 class tunerValidator(perfConfigValidator):
     """
@@ -296,7 +324,8 @@ class tunerValidator(perfConfigValidator):
     def __init__(self,
                  gemm_config_file,
                  rocmlir_path,
-                 rocm_build_script='/share/scripts/build-rocm'):
+                 rocm_build_script='/share/scripts/build-rocm',
+                 debug=False):
         """
         initializer
         """
@@ -336,6 +365,8 @@ class tunerValidator(perfConfigValidator):
                       compact_print=False)
 
         self.confClass = perfRunner.GemmConfiguration
+
+        self.debug = debug
 
 
     def __del__(self):
@@ -406,10 +437,12 @@ class tunerValidator(perfConfigValidator):
         """
         
         datatypes, outputMap = perfRunner.parseDataTypes(dtype)
-        print(dtype)
-        print(datatypes, outputMap)
+        if self.debug:
+            print(dtype)
+            print(datatypes, outputMap)
         configs = perfRunner.getGemmConfigurations(self.paths.configuration_file_path, datatypes, outputMap)
-        print(configs)
+        if self.debug:
+            print(configs)
 
         allData = []
 
@@ -457,8 +490,6 @@ class tunerValidator(perfConfigValidator):
                 config.setPerfConfig(perfConfig)
                 entry = config.tableEntry(nanoSeconds)
                 theseTFlops = entry['TFlops']
-                print("ENCOUNTERED NAN RESULT")
-                #exit(1)
             else:
                 nanoSeconds = float(time)
 
@@ -488,19 +519,20 @@ class tunerValidator(perfConfigValidator):
         """
         process whole directory, adopt for running tuning on said space
         """
+        # currently disabled
+        pass
         try:
-            quick_tune_data = self.__typeQtMap(input_dir)
+            self.quick_tune_data = self.__typeQtMap(input_dir)
         
             output_dict = {}
-            for method in quick_tune_data:
+            for method in self.quick_tune_data:
                 print(f"method {method}")
-                for dtype in quick_tune_data[method]:
-                    pass
-                    # updateCppFile
+                for dtype in self.quick_tune_data[method]: 
+                    df = super().readPerfConfig(input_file)
 
-                    # buildRocm()
+                    self.updateCppFile(df, dtype)
 
-                    # run tuning
+                    self.runTuning([dtype])
 
             self.output_dict
 
@@ -602,20 +634,28 @@ def main(args=None):
     parser.add_argument('--rocmlir',
                         type=str,
                         help='Path to rocmlir script')
+
+    parser.add_argument('--debug',
+                        action='store_true',
+                        default=False,
+                        help='Print debug info')
     
     pargs = parser.parse_args()
 
-    print(pargs)
+    if pargs.debug:        
+        print(pargs)
 
     if pargs.method == 'data':
         verifier = dataValidator(pargs.gemm_configs,
-                                     pargs.data)
+                                 pargs.data,
+                                 debug=pargs.debug)
     elif pargs.method == 'tuner':
         raise NotImplementedError()
         if not pargs.rocmlir:
             raise ValueError(f"rocmlir path not set, please specifiy using --romclir")
         verifier = tunerValidator(pargs.gemm_configs,
-                                  pargs.rocmlir)
+                                  pargs.rocmlir,
+                                  debug=pargs.debug)
     else:
         raise ValueError(f"Not a valid method: {method}")
 
