@@ -8,8 +8,8 @@
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -752,7 +752,7 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
 }
 
 TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
-                                           Type type) {
+                                                Type type) {
   Location loc = buffer.getLoc();
   Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   auto bufferType = cast<MemRefType>(buffer.getType());
@@ -767,8 +767,9 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   return TypedValue<MemRefType>(view.getResult());
 }
 
-Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
-               gpu::AddressSpace memoryAddressSpace) {
+Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
+                           Type elementType,
+                           gpu::AddressSpace memoryAddressSpace) {
   auto memoryAddressSpaceAttr =
       b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
 

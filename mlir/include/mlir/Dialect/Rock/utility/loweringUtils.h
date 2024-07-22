@@ -9,6 +9,7 @@
 #ifndef ROCK_UTILITY_LOWERINGUTILS_H
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -16,7 +17,6 @@
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 
 namespace mlir {
 class Operation;
@@ -192,8 +192,7 @@ ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
 
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.
-TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
-                                           Type type);
+TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer, Type type);
 
 // helper to allocate memory on the GPU
 Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
