@@ -92,6 +92,8 @@ class quickTunerMethod(object):
 
     def savePerfConfig(self, name=None,  dtype=None, prefix="v2:"):
         """
+        Saves perf configuration in the 'standard' format that can be read
+        and accepted into other scripts or as an arg in rocmlir-gen
         """
         
         type_df = self.config
@@ -176,13 +178,6 @@ class quickTuner(object):
             else:
                 raise ValueError(f"Argument {item} is not a valid key=value pair")
 
-        # leftovers from pargs.validate
-        #if pargs.validate and pargs.validate == 'data':
-        # init validator
-        #    self.validator = dataValidator(pargs.input_file,**kwargs)
-        #else:
-        #    self.validator = None               
-        
     def addMethod(self, method: quickTunerMethod):
         """
         Adds method to method dict
@@ -190,6 +185,10 @@ class quickTuner(object):
         self.methods[method.name] = method
 
     def tune(self):
+        """
+        tuner function that actually does the work of calling each registered
+        quickTunerMethod class's getConfig method to generated perf configs
+        """
         self.method_results = {}
         if not self.methods:
             print("No methods are registered, use quickTuner.addMethod(method: quickTunerMethod), to add a method", file=sys.stderr)
@@ -199,36 +198,6 @@ class quickTuner(object):
                 method = self.methods[k]
                 df = method.getConfig(self.combined_df.copy())
                 self.method_results[k] = df
-
-    """        moved to quickTunerStat.py
-    def validate(self):
-        #Validate on either a dataset or by running rocmlir-tuning-gen
-        if self.validator is None:
-            print("validator not set", file=sys.stderr)
-            return
-        output_dict = {}
-        for method in self.method_results:
-            # df will be of the form: {type1: [data], type2: [data], ..., typeN: [data]}
-            for dtype in self.method_results[method]:
-                if dtype not in output_dict:
-                    output_dict[dtype] = {}
-                gemm_data = self.validator.validate(self.method_results[method][dtype], dtype)
-
-                
-                for df in gemm_data: # for every gemm config we get data back
-                    ct = 0
-                    max_values = []
-                    threshold = 0.92
-                    for df in gemm_data:
-                        if (df['performance'].dropna() <= threshold).all():
-                            #print(f"{name} does not meet threshold (>0.8): {df}")
-                            ct += 1
-                            #max_values.append(df[column].max())
-                    output_dict[dtype][method] = ct
-            
-        self.output_df = pd.DataFrame(output_dict)
-        print(self.output_df)
-    """
     
     def saveConfigs(self, debug=False, pf_format=False):
         """
@@ -248,38 +217,7 @@ class quickTuner(object):
             for dtype in self.method_results[k]:
                 df = self.method_results[k][dtype]
                 df = df.astype(int)
-                print(f"dtype: {dtype}\n{df}\n")
-
-
-    def saveBest(self):
-        """
-        Save the best method
-        """
-        df = self.output_df
-        
-        min_values = df.min()
-        best_methods = df.idxmin()
-
-        method_counts = best_methods.value_counts()
-        
-        max_count = method_counts.max()
-        majority_methods = method_counts[method_counts == max_count].index
-
-        result_methods = {}
-        for col in df.columns:
-            candidates = df.loc[majority_methods, col]
-            result_methods[col] = candidates.idxmin()
-            
-        # Create a list of tuples with index and corresponding method
-        output = [(index, method) for index, method in result_methods.items()]
-
-        for entry in output:
-            dtype, method = entry
-            self.methods[method].savePerfConfig(f"quick_tuning_{dtype}", dtype)
-            
-            
-
-            
+                print(f"dtype: {dtype}\n{df}\n")            
             
 """
 Common methods
@@ -289,7 +227,6 @@ def orderDict(type_dict: dict):
     """
     order dictionary, removing nan along the way
     """
-
     for k,v in type_dict.items():
         df = type_dict[k]
 
@@ -519,7 +456,9 @@ Hardcoded tuner method
 
 class hardcodeQuickTune(quickTunerMethod):
     """
-    Default quick tune method, uses preset values for the config file
+    Default quick tune method, uses preset values for the config 
+    file as of 07/22/24 these are the values that are coded into
+    GridwiseGemmParams.cpp
     """
     def __init__(self, name=None):
         super().__init__(name)
@@ -563,9 +502,7 @@ class hardcodeQuickTune(quickTunerMethod):
         return self.config
 
 """
-
-Place derived quickTunerMethod classes below here:
-
+Place child quickTunerMethod classes below here:
 """
     
 class topNSelection(quickTunerMethod):
@@ -596,8 +533,10 @@ class topNSelection(quickTunerMethod):
 
 class topMode(quickTunerMethod):
     """
-    get most common of all gemms
+    Count occurrences of each perf config, take top most common
+    perf configs
     """
+    
     def __init__(self, name=None, N=40, normalize=True):
         super().__init__(name, N)
         self.normalize = normalize
@@ -636,14 +575,15 @@ class topMode(quickTunerMethod):
 
     
 class takeNEach(quickTunerMethod):
+    """
+    take top performers from N dataframes
+    """
+    
     def __init__(self, name=None, N=40, normalize=True):
         super().__init__(name, N)
         self.normalize = normalize
 
     def getConfig(self, combined_df):
-        """
-        take top performers from N dataframes
-        """
         config_dict = {}
     
         type_gemm_dict = orderByGemmType(input_file, normalize=self.normalize)
@@ -680,9 +620,12 @@ class takeNEach(quickTunerMethod):
 
 class topConfigCluster(quickTunerMethod):
     """
-    Cluster each run, take sample from total
+    Cluster each run, take sample from total,
+    can be improved via new distance metric
+    for Kmeans clustering, alternatively
+    try with DBSCAN again
     """
-
+    
     def __init__(self, name=None, N=40, normalize=True):
         super().__init__(name, N)
         self.normalize = normalize
@@ -724,12 +667,6 @@ class topConfigCluster(quickTunerMethod):
                     silhouette_scores.append((n_clusters, silhouette_avg))
                 df['cluster'] = mb_kmeans.fit_predict(features_scaled[features])
             
-                #kmeans = KMeans(n_clusters=n_clusters)
-                #df['clusters'] = kmeans.fit_predict(features_scaled[features])
-                #
-                #representative_set = df.groupby('cluster').apply(lambda x: x.sample(2))
-                #print(representative_set)
-
                 # get optimal clusters
                 optimal_n = max(silhouette_scores, key=lambda x: x[1])[0]
                 
@@ -740,12 +677,6 @@ class topConfigCluster(quickTunerMethod):
                 proportion = int(N // optimal_n)
                 representative_set = df.groupby('cluster').apply(lambda x: x.nlargest(proportion, 'performance')).reset_index(drop=True)
             
-                # Sort each group by 'performance' in descending order and take the top 2 rows
-                #representative_set = df.groupby('cluster').apply(lambda x: x.nlargest(2, 'performance')).reset_index(drop=True)
-                #print(representative_set)
-            
-                #representative_set = representative_set.drop(['cluster'], axis=1)
-
                 result_dict[k] = representative_set.drop(['cluster'], axis=1)
             except Exception as e:
                 print(f"Error processing type {k}: {e}", file=sys.stderr)
@@ -964,8 +895,24 @@ class defaultQuickTune(quickTunerMethod):
 
 class fairSelect(quickTunerMethod):
     """ 
-    take entire set and aggregate the repeats, averaging them out/ weighing them more heavily
+    take entire set and aggregate the repeats, averaging them out/ weighing them more heavily.
+    Breakdown of steps:
+    1) for type and each gemm
+    2) get the top 90% of each list, found by using min-max scalar
+    3) sort the features by count (occurrences) and performance
+    4) iterate over sorted feature and for each feature:
+           check if it has been added to the final dataset
+           if not find the dataframes that contain this feature
+           if none have been used add the feature to the final
+           dataset, mark feature as added, mark df as used.
+           if all dataframe have been used, break
+    5) if any dataframes have not been represented yet, add top
+       performeres from each dataframe until all are represented
+    6) fill any remaining performers until required size is met
+       or
+       cut down spacce (df.head(N)) 
     """
+    
     def __init__(self, name=None, N=40, normalize=True, threshold=0.95):
         super().__init__(name, N)
         self.normalize = normalize
@@ -1162,9 +1109,7 @@ def main(args=None):
 
     if pargs.debug:
         tuner.printConfigs()
-
-    
-        
+            
 if __name__ == '__main__':
     main(sys.argv[1:])
 
