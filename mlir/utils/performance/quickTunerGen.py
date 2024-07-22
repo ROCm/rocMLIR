@@ -450,7 +450,7 @@ def orderByType(combined_df: str, normalize=False):
 
     perf_configs.drop(['param8', 'param9'], axis=1, inplace=True)
 
-    perf_configs['performance'] = final_df['TFlops']
+    perf_configs['performance'] = final_df['NormalizedTFlops']
 
     perf_configs['DataType'] = final_df['DataType']
 
@@ -484,7 +484,7 @@ def orderByGemmType(combined_df: str, normalize=True):
 
     perf_configs.drop(['param8', 'param9'], axis=1, inplace=True)
 
-    perf_configs['performance'] = final_df['TFlops']
+    perf_configs['performance'] = final_df['NormalizedTFlops']
 
     perf_configs = perf_configs.join(final_df[target_cols + ['DataType']])
 
@@ -882,7 +882,7 @@ class defaultQuickTune(quickTunerMethod):
 
     # get the perf config with the maximum tflops
     def __get_max_tflops_perfconfig(self, group):
-        max_index = group['TFlops'].idxmax()
+        max_index = group['NormalizedTFlops'].idxmax()
         max_row = group.loc[max_index]
         perf_config = max_row['PerfConfig']
         group.drop(max_index, inplace=True)
@@ -937,9 +937,9 @@ class defaultQuickTune(quickTunerMethod):
             for perfconfig, group_df in fgroups:
                 if problems_count < len(group_df):
                     problems_count = len(group_df)
-                not_nan_count = pd.notna(group_df['TFlops']).sum()
+                not_nan_count = pd.notna(group_df['NormalizedTFlops']).sum()
                 not_nan_counts[perfconfig] = not_nan_count
-                mean_tflops[perfconfig] = group_df['TFlops'].mean()
+                mean_tflops[perfconfig] = group_df['NormalizedTFlops'].mean()
             sorted_counts = sorted(not_nan_counts.items(), key=lambda x: x[1], reverse=True)
             top_perfconfigs = {perfconfig: mean_tflops[perfconfig] for perfconfig, count in sorted_counts if count == problems_count}
             result[data_type] = top_perfconfigs
