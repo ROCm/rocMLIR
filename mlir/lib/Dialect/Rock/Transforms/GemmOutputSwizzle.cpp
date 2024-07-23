@@ -540,7 +540,6 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
     patterns.add<ThreadwiseWriteAllRewritePattern>(&getContext());
 
     GreedyRewriteConfig config;
-    config.strictMode = GreedyRewriteStrictness::ExistingOps;
     if (failed(applyOpPatternsAndFold(writes, std::move(patterns), config))) {
       signalPassFailure();
       return;
