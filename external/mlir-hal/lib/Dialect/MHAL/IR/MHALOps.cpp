@@ -11,8 +11,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "mlir/Interfaces/FunctionImplementation.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/FunctionImplementation.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -181,7 +181,7 @@ LogicalResult AwaitOp::verify() {
   Type argType = getOperand().getType();
 
   // Awaiting on a token does not have any results.
-  if (argType.isa<TokenType>() && !getResultTypes().empty())
+  if (isa<TokenType>(argType) && !getResultTypes().empty())
     return emitOpError("awaiting on a token must have empty result");
 
   return success();

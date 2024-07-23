@@ -48,14 +48,17 @@ void MHALPrefillPass::insertPrefillOps(OpBuilder &builder,
                                        gpu::LaunchFuncOp &launchOp) {
   auto func = cast<func::FuncOp>(launchOp->getParentOp());
   auto module = cast<ModuleOp>(func->getParentOp());
-  auto kernel = launchOp.getKernel();
-  auto *callee = module.lookupSymbol(kernel);
-  assert(callee != nullptr && "expect to find the function defenition");
-  auto llvmFunc = cast<LLVM::LLVMFuncOp>(callee);
-  auto gpuModule = cast<gpu::GPUModuleOp>(llvmFunc->getParentOp());
-
+  auto binaryName = launchOp.getKernelModuleName();
+  auto binary = module.lookupSymbol<gpu::BinaryOp>(binaryName);
+  assert(binary != nullptr && "expect to find the function defenition");
+  auto objects = binary.getObjects().getValue();
+  assert(objects.size() == 1 && "expected a single object");
   SmallVector<mhal::PrefillAttr, 4> prefillAttrs;
-  if (auto moduleAttr = gpuModule->getAttr(llvmFunc.getSymName())) {
+  auto object = cast<gpu::ObjectAttr>(objects[0]);
+  DictionaryAttr objectProps = object.getProperties();
+  if (!objectProps)
+    return;
+  if (auto moduleAttr = objectProps.get(launchOp.getKernelName())) {
     if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
       for (auto attr : arrayAttr) {
         if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
@@ -72,7 +75,7 @@ void MHALPrefillPass::insertPrefillOps(OpBuilder &builder,
     assert(argIdx < kernelOperands.size() &&
            "provided arg index is out of bounds");
     auto arg = kernelOperands[argIdx];
-    auto type = arg.getType().cast<MemRefType>();
+    auto type = cast<MemRefType>(arg.getType());
     auto elementType = type.getElementType();
     builder.setInsertionPoint(launchOp->getBlock(),
                               --Block::iterator(launchOp));

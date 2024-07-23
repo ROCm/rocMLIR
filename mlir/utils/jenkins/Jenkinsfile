@@ -88,10 +88,10 @@ void preMergeCheck(String codepath) {
         fi
         '''
         if (params.ignoreExternalLinting == true) {
-            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --ignore-external'
+            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=${params.rocMLIRTargetBranch} --ignore-external"
         }
         else {
-            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=${params.rocMLIRTargetBranch}"
         }
     } else {
         echo "Static Test step skipped"
@@ -183,7 +183,7 @@ String getLabelFromCodepath(String codepath) {
         // and server nodes (gfx1030)
         label = 'mlir && ( gfx1030w || gfx1030 )'
     } else if (codepath == "vanilla"){
-        label = 'mlir && gfx906'
+        label = 'mlir'
     } else if (codepath == "navi3x") {
         label = 'mlir && ( gfx1100 || gfx1101 )'
     } else {
@@ -397,6 +397,8 @@ pipeline {
                description: 'The MIGraphX branch/commit to verify against.')
         string(name: 'CKBranch', defaultValue: 'develop',
             description: 'The Composable Kernel branch to be used with the job')
+        string(name: 'rocMLIRTargetBranch', defaultValue: 'origin/develop',
+            description: 'The target branch the PR is intended to merge with')
 
 
         // Each below control whether to run a individual stage from parallel run
@@ -668,7 +670,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 agent {
@@ -790,7 +792,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
                     }
                 }
                 when {

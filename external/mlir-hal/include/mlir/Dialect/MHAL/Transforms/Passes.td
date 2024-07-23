@@ -46,4 +46,8 @@ def MHALPrefillPass : Pass<"mhal-prefill", "func::FuncOp"> {
   let dependentDialects = ["mhal::MHALDialect"];
 }
 
+def MHALDropBinaryMetadataPass : Pass<"mhal-drop-binary-metadata", "ModuleOp"> {
+  let summary = "drops all metadata stored in GPU binaries";
+}
+
 #endif // MLIR_DIALECT_MHAL_PASSES

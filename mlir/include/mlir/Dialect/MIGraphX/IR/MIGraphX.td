@@ -244,7 +244,7 @@ def MIGraphX_AsLogicalShapeOp : MIGraphX_Op<"mlir.as.logical.shape">,
     OpBuilder<(ins "::mlir::Value":$in),
     [{
       $_state.addOperands({in});
-      $_state.addTypes(in.getType().cast<MIXRShapedType>().asTensor());
+      $_state.addTypes(cast<MIXRShapedType>(in.getType()).asTensor());
     }]>
   ];
   let assemblyFormat = [{

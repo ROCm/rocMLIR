@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRMHALTransforms
   Bufferize.cpp
   BufferizableOpInterfaceImpl.cpp
+  DropMetadata.cpp
   InferGraph.cpp
   PackageTargets.cpp
   SelectTargets.cpp
@@ -26,4 +27,3 @@ add_mlir_dialect_library(MLIRMHALTransforms
   MLIRSupport
   MLIRTransformUtils
 )
-

@@ -87,7 +87,7 @@ func.func @self_attention_with_reshapes(%arg0: tensor<1x12x384x64xf32>, %arg1: t
   %collapsed = tensor.collapse_shape %arg0 [[0, 1], [2], [3]] : tensor<1x12x384x64xf32> into tensor<12x384x64xf32>
   %collapsed_0 = tensor.collapse_shape %arg1 [[0, 1], [2], [3]] : tensor<1x12x64x384xf32> into tensor<12x64x384xf32>
   %0 = "tosa.matmul"(%collapsed, %collapsed_0) : (tensor<12x384x64xf32>, tensor<12x64x384xf32>) -> tensor<12x384x384xf32>
-  %expanded = tensor.expand_shape %0 [[0, 1], [2], [3]] : tensor<12x384x384xf32> into tensor<1x12x384x384xf32>
+  %expanded = tensor.expand_shape %0 [[0, 1], [2], [3]] output_shape [1, 12, 384, 384] : tensor<12x384x384xf32> into tensor<1x12x384x384xf32>
   %1 = "tosa.reduce_max"(%expanded) <{axis = 3 : i32}> : (tensor<1x12x384x384xf32>) -> tensor<1x12x384x1xf32>
   %2 = "tosa.sub"(%expanded, %1) : (tensor<1x12x384x384xf32>, tensor<1x12x384x1xf32>) -> tensor<1x12x384x384xf32>
   %3 = "tosa.exp"(%2) : (tensor<1x12x384x384xf32>) -> tensor<1x12x384x384xf32>
@@ -97,7 +97,7 @@ func.func @self_attention_with_reshapes(%arg0: tensor<1x12x384x64xf32>, %arg1: t
   %collapsed_1 = tensor.collapse_shape %6 [[0, 1], [2], [3]] : tensor<1x12x384x384xf32> into tensor<12x384x384xf32>
   %collapsed_2 = tensor.collapse_shape %arg2 [[0, 1], [2], [3]] : tensor<1x12x384x64xf32> into tensor<12x384x64xf32>
   %7 = "tosa.matmul"(%collapsed_1, %collapsed_2) : (tensor<12x384x384xf32>, tensor<12x384x64xf32>) -> tensor<12x384x64xf32>
-  %expanded_3 = tensor.expand_shape %7 [[0, 1], [2], [3]] : tensor<12x384x64xf32> into tensor<1x12x384x64xf32>
+  %expanded_3 = tensor.expand_shape %7 [[0, 1], [2], [3]] output_shape [1, 12, 384, 64] : tensor<12x384x64xf32> into tensor<1x12x384x64xf32>
   return %expanded_3 : tensor<1x12x384x64xf32>
 }
 
@@ -108,7 +108,7 @@ func.func @self_attention_with_4d_scale(%arg0: tensor<1x12x256x256xf32> , %arg1:
   %collapsed = tensor.collapse_shape %arg2 [[0, 1], [2], [3]] : tensor<1x12x256x256xf32> into tensor<12x256x256xf32>
   %collapsed_0 = tensor.collapse_shape %0 [[0, 1], [2], [3]] : tensor<1x12x256x256xf32> into tensor<12x256x256xf32>
   %1 = "tosa.matmul"(%collapsed, %collapsed_0) : (tensor<12x256x256xf32>, tensor<12x256x256xf32>) -> tensor<12x256x256xf32>
-  %expanded = tensor.expand_shape %1 [[0, 1], [2], [3]] : tensor<12x256x256xf32> into tensor<1x12x256x256xf32>
+  %expanded = tensor.expand_shape %1 [[0, 1], [2], [3]] output_shape [1, 12, 256, 256] : tensor<12x256x256xf32> into tensor<1x12x256x256xf32>
   %2 = "tosa.mul"(%expanded, %arg1) <{shift = 0 : i8}> : (tensor<1x12x256x256xf32>, tensor<1x12x256x256xf32>) -> tensor<1x12x256x256xf32>
   %3 = "tosa.reduce_max"(%2) <{axis = 3 : i32}> : (tensor<1x12x256x256xf32>) -> tensor<1x12x256x1xf32>
   %4 = "tosa.sub"(%2, %3) : (tensor<1x12x256x256xf32>, tensor<1x12x256x1xf32>) -> tensor<1x12x256x256xf32>
@@ -119,7 +119,7 @@ func.func @self_attention_with_4d_scale(%arg0: tensor<1x12x256x256xf32> , %arg1:
   %collapsed_1 = tensor.collapse_shape %8 [[0, 1], [2], [3]] : tensor<1x12x256x256xf32> into tensor<12x256x256xf32>
   %collapsed_2 = tensor.collapse_shape %arg0 [[0, 1], [2], [3]] : tensor<1x12x256x256xf32> into tensor<12x256x256xf32>
   %9 = "tosa.matmul"(%collapsed_1, %collapsed_2) : (tensor<12x256x256xf32>, tensor<12x256x256xf32>) -> tensor<12x256x256xf32>
-  %expanded_3 = tensor.expand_shape %9 [[0, 1], [2], [3]] : tensor<12x256x256xf32> into tensor<1x12x256x256xf32>
+  %expanded_3 = tensor.expand_shape %9 [[0, 1], [2], [3]] output_shape [1, 12, 256, 256] : tensor<12x256x256xf32> into tensor<1x12x256x256xf32>
   return %expanded_3 : tensor<1x12x256x256xf32>
 }
 

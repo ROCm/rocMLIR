@@ -91,9 +91,7 @@ namespace {
 template <typename MemrefTypedValue>
 AddressSpace getAddressSpace(MemrefTypedValue val) {
   if (val.getType().getMemorySpace()) {
-    return val.getType()
-        .getMemorySpace()
-        .template cast<gpu::AddressSpaceAttr>()
+    return cast<gpu::AddressSpaceAttr>(val.getType().getMemorySpace())
         .getValue();
   }
   return gpu::AddressSpace::Global;
@@ -622,9 +620,9 @@ void RockPipeline::runOnOperation() {
     SmallVector<rock::StageOp> stages;
 
     // Get the initiation interval (II)
-    int64_t ii = forOp->removeAttr(rockPipelineAttrName)
-                     .dyn_cast<rock::PipelineAttr>()
-                     .getInitiationInterval();
+    int64_t ii =
+        dyn_cast<rock::PipelineAttr>(forOp->removeAttr(rockPipelineAttrName))
+            .getInitiationInterval();
 
     forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
 

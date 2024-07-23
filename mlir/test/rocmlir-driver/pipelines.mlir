@@ -48,9 +48,10 @@
 // BINARY-NEXT:convert-gpu-to-rocdl{chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
 // BINARY-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
 // BINARY-NEXT:cse,
-// BINARY-NEXT:rock-prepare-llvm),
-// BINARY-NEXT:gpu-to-hsaco{chip=gfx90a dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= suppress-diagnostic=false triple=amdgcn-amd-amdhsa},
-// BINARY-NEXT:rock-check-residency),
+// BINARY-NEXT:rock-prepare-llvm)),
+// BINARY-NEXT:rocdl-attach-target{O=3 abi=500 chip=gfx90a correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
+// BINARY-NEXT:gpu-module-to-binary{format=fatbin  opts= toolkit=},
+// BINARY-NEXT:rock-check-residency,
 // BINARY-NEXT:emulate-fp8-ext-trunc)
 
 // BINARY_MI300:Kernel pipeline:
@@ -65,9 +66,10 @@
 // BINARY_MI300-NEXT:convert-gpu-to-rocdl{chipset=gfx940 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
 // BINARY_MI300-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
 // BINARY_MI300-NEXT:cse,
-// BINARY_MI300-NEXT:rock-prepare-llvm),
-// BINARY_MI300-NEXT:gpu-to-hsaco{chip=gfx940 dump-ptx=false features= gpu-binary-annotation=gpu.binary opt-level=3 rocm-path= suppress-diagnostic=false triple=amdgcn-amd-amdhsa},
-// BINARY_MI300-NEXT:rock-check-residency),
+// BINARY_MI300-NEXT:rock-prepare-llvm)),
+// BINARY_MI300-NEXT:rocdl-attach-target{O=3 abi=500 chip=gfx940 correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
+// BINARY_MI300-NEXT:gpu-module-to-binary{format=fatbin  opts= toolkit=},
+// BINARY_MI300-NEXT:rock-check-residency,
 // BINARY_MI300-NEXT:emulate-fp8-ext-trunc)
 
 // PARTITION:Partitioner pipeline:
@@ -105,9 +107,10 @@
 // HIGHLEVEL-NEXT:rock-view-to-transform,
 // HIGHLEVEL-NEXT:rock-fold-broadcast,
 // HIGHLEVEL-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
+// HIGHLEVEL-NEXT:empty-tensor-to-alloc-tensor,
 // HIGHLEVEL-NEXT:cse),
 // HIGHLEVEL-NEXT:convert-tensor-to-linalg,
 // HIGHLEVEL-NEXT:func.func(empty-tensor-to-alloc-tensor,
 // HIGHLEVEL-NEXT:linalg-fold-unit-extent-dims{use-rank-reducing-slices=false}),
 // HIGHLEVEL-NEXT:one-shot-bufferize{allow-return-allocs-from-loops=false allow-unknown-ops=false analysis-fuzzer-seed=0 analysis-heuristic=bottom-up bufferize-function-boundaries=false copy-before-write=false  dump-alias-sets=false function-boundary-type-conversion=infer-layout-map must-infer-memory-space=false  print-conflicts=false test-analysis-only=false unknown-type-conversion=fully-dynamic-layout-map},
-// HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false})
+// HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false hoist-static-allocs=false})

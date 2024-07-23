@@ -53,21 +53,21 @@ struct ExpectedOpNames {
 static void
 extractExpectedResults(func::FuncOp func,
                        DenseMap<StringRef, ExpectedOpNames> &expectedResults) {
-  auto attrs = func->getAttr("expected").cast<ArrayAttr>();
+  auto attrs = cast<ArrayAttr>(func->getAttr("expected"));
   for (auto attr : attrs) {
     ExpectedOpNames item;
-    auto dictAttr = attr.cast<DictionaryAttr>();
-    auto allocName = dictAttr.get("alloc_name").cast<StringAttr>().getValue();
+    auto dictAttr = cast<DictionaryAttr>(attr);
+    auto allocName = cast<StringAttr>(dictAttr.get("alloc_name")).getValue();
 
-    auto writerListAttr = dictAttr.get("writers").cast<ArrayAttr>();
+    auto writerListAttr = cast<ArrayAttr>(dictAttr.get("writers"));
     for (auto writerAttr : writerListAttr) {
-      auto writerName = writerAttr.cast<StringAttr>().getValue();
+      auto writerName = cast<StringAttr>(writerAttr).getValue();
       item.writers.insert(writerName);
     }
 
-    auto readerListAttr = dictAttr.get("readers").cast<ArrayAttr>();
+    auto readerListAttr = cast<ArrayAttr>(dictAttr.get("readers"));
     for (auto readerAttr : readerListAttr) {
-      auto readerName = readerAttr.cast<StringAttr>().getValue();
+      auto readerName = cast<StringAttr>(readerAttr).getValue();
       item.readers.insert(readerName);
     }
 
@@ -83,7 +83,7 @@ static LogicalResult analyse(func::FuncOp func) {
       BufferDependencyAnalysis(func.getOperation());
 
   auto result = func.walk([&](memref::AllocOp allocOp) -> WalkResult {
-    auto allocName = allocOp->getAttr("name").cast<StringAttr>().getValue();
+    auto allocName = cast<StringAttr>(allocOp->getAttr("name")).getValue();
 
     if (!expectedResults.contains(allocName)) {
       return WalkResult::interrupt();

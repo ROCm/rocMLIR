@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Transforms/Passes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -41,7 +42,6 @@ namespace mhal {
 using namespace mlir;
 
 namespace {
-
 struct MHALPackageTargetsPass
     : public mhal::impl::MHALPackageTargetsPassBase<MHALPackageTargetsPass> {
 
@@ -55,36 +55,30 @@ struct MHALPackageTargetsPass
 
     mod->walk([&](ModuleOp kernelMod) {
       if (kernelMod->hasAttr("mhal.module")) {
-        SmallVector<gpu::GPUModuleOp, 8> gpuMods;
-        kernelMod->walk([&](gpu::GPUModuleOp gpuMod) {
-          auto binaryAttr = gpuMod->getAttrOfType<StringAttr>(
-              gpu::getDefaultGpuBinaryAnnotation());
-          if (!binaryAttr) {
-            gpuMod.emitOpError() << "missing gpu.binary attribute";
-            return;
-          }
-
-          gpuMods.push_back(gpuMod);
-
+        SmallVector<gpu::BinaryOp, 8> binaries;
+        kernelMod->walk([&](gpu::BinaryOp binary) {
+          auto object = cast<gpu::ObjectAttr>(binary.getObjects()[0]);
+          binaries.push_back(binary);
+          gpu::KernelTableAttr metadata = object.getKernels();
+          assert(metadata && "expected a valid metadata attribute");
           // apply target spec to original func
-          gpuMod.walk([&](LLVM::LLVMFuncOp func) {
-            if (auto attr =
-                    func->getAttrOfType<SymbolRefAttr>("original_func")) {
+          for (auto [name, kernel] : metadata) {
+            if (auto attr = kernel.getAttr<SymbolRefAttr>("original_func")) {
               if (auto kernelFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
                 auto archName =
                     kernelMod->getAttrOfType<StringAttr>("mhal.arch")
                         .getValue();
                 auto funcName = attr.getLeafReference().getValue();
                 uint32_t gridSize =
-                    func->getAttrOfType<IntegerAttr>("grid_size").getInt();
+                    kernel.getAttr<IntegerAttr>("grid_size").getInt();
                 uint32_t blockSize =
-                    func->getAttrOfType<IntegerAttr>("block_size").getInt();
+                    kernel.getAttr<IntegerAttr>("block_size").getInt();
 
                 DictionaryAttr objAttrs;
 
                 auto xobj = mhal::TargetObjectAttr::get(
                     b.getContext(), mhal::TargetObjectType::ELF, archName,
-                    objAttrs, binaryAttr);
+                    objAttrs, object);
 
                 DictionaryAttr pkgAttrs;
                 // = b.getDictionaryAttr({
@@ -97,12 +91,12 @@ struct MHALPackageTargetsPass
                 kernelImpls[kernelFunc].push_back(xpkg);
               }
             }
-          });
+          }
         });
 
         // clean processed gpu.modules
-        for (auto gpuMod : gpuMods) {
-          gpuMod.erase();
+        for (auto binary : binaries) {
+          binary.erase();
         }
 
         // remove __kernel_*
