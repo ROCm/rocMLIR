@@ -27,15 +27,12 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -110,7 +107,7 @@ static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
 }
 
 // Function to create the schedule of the current set of stages
-static void reuseDeadLDS(func::FuncOp &func) {
+static LogicalResult reuseDeadLDS(func::FuncOp &func) {
   // Retrieve all GpuAlloc operations targeting LDS and
   // calculate the total memory space required for all operations
   // except the last one. Additionally, compute the memory space
@@ -131,7 +128,9 @@ static void reuseDeadLDS(func::FuncOp &func) {
   });
   // There should be at least two LDS allocations
   if (allocs.size() < 2) {
-    return;
+    LLVM_DEBUG(llvm::dbgs() << "Expected at least two GpuAllocOp, found "
+                            << allocs.size() << "\n");
+    return failure();
   }
   LLVM_DEBUG(llvm::dbgs() << "number of GpuAllocOp ops to rewrite: "
                           << allocs.size() << "\n");
@@ -141,8 +140,7 @@ static void reuseDeadLDS(func::FuncOp &func) {
   // LDS allocations because they are no longer needed
 
   // New allocation
-  MLIRContext *ctx = func->getContext();
-  IRRewriter rewriter(ctx);
+  IRRewriter rewriter(func->getContext());
   int64_t requiredMemory = std::max(deadSize, lastSize);
   LLVM_DEBUG(llvm::dbgs() << "deadSize: " << deadSize
                           << " lastSize: " << lastSize
@@ -166,8 +164,15 @@ static void reuseDeadLDS(func::FuncOp &func) {
     auto numElements = bufferType.getNumElements();
     auto elementBytes = getByteWidth(bufferType.getElementType());
     auto rank = bufferType.getRank();
-    assert(elementBytes == 1 && "All GpuAllocOp should allocate bytes");
-    assert(rank == 1 && "Rank should be one");
+    if (elementBytes != 1) {
+      LLVM_DEBUG(llvm::dbgs() << "GpuAllocOp allocates a type of "
+                              << elementBytes << " bytes, expected 1 byte\n");
+      return failure();
+    }
+    if (rank != 1) {
+      LLVM_DEBUG(llvm::dbgs() << "Rank should be one, it's " << rank << "\n");
+      return failure();
+    }
 
     rewriter.setInsertionPointAfter(alloc);
     Location loc = alloc->getLoc();
@@ -187,11 +192,11 @@ static void reuseDeadLDS(func::FuncOp &func) {
     rewriter.replaceOpWithNewOp<memref::ViewOp>(
         alloc, newViewType, ldsByteBuffer, byteOffset, ValueRange{});
   }
+  return success();
 }
 
 static std::optional<std::tuple<int64_t, int64_t, ArrayAttr>>
 getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
-
   ArrayAttr srcTransform = op.getExtraViewsAttr();
   SetVector<StringRef> dimensionsToRemove;
   dimensionsToRemove.insert("g_block");
@@ -204,12 +209,18 @@ getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
   FailureOr<ArrayAttr> maybeIdToLDS =
       removeUpperDims(b, srcTransform, dimensionsToRemove);
   if (failed(maybeIdToLDS)) {
+    LLVM_DEBUG(llvm::dbgs() << "getIdToLDS failed\n");
     return std::nullopt;
   }
   ArrayAttr idToLDS = maybeIdToLDS.value();
 
-  int64_t mPerBlock = getLowerShape(idToLDS)[0];
-  int64_t nPerBlock = getLowerShape(idToLDS)[1];
+  ArrayRef<int64_t> shape = getLowerShape(idToLDS);
+  if (shape.size() != 2) {
+    LLVM_DEBUG(llvm::dbgs() << "getIdToLDS failed\n");
+    return std::nullopt;
+  }
+  int64_t mPerBlock = shape[0];
+  int64_t nPerBlock = shape[1];
 
   return std::make_tuple(mPerBlock, nPerBlock, idToLDS);
 }
@@ -240,6 +251,9 @@ struct ThreadwiseWriteAllRewritePattern
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> cShape;
     cShape = op.getDest().getType().getShape();
+    if (cShape.size() != 3) {
+      return failure();
+    }
     int64_t G = cShape[0];
     int64_t M = cShape[1];
     int64_t N = cShape[2];
@@ -259,6 +273,9 @@ struct ThreadwiseWriteAllRewritePattern
     constexpr int64_t dimensionM = 1;
     constexpr int64_t dimensionN = 2;
     int64_t dataPerThread = (nPerBlock * mPerBlock) / blockSize;
+    if ((nPerBlock * mPerBlock) % blockSize != 0) {
+      return failure();
+    }
 
     VectorizationResult mVectorRes =
         getMaxVectorization(matC, dimensionM, /*inputDimLen=*/
@@ -359,9 +376,12 @@ struct ThreadwiseWriteAllRewritePattern
     SmallVector<StringRef, 5> bidGridOrder;
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
-    bool attention = op.getExtraIndices().size() == 3;
-    LLVM_DEBUG(llvm::dbgs() << "attention: " << attention << "\n");
-    if (attention) {
+    if (M % mPerBlock != 0 || N % nPerBlock != 0) {
+      return failure();
+    }
+    bool isAttention = op.getExtraIndices().size() == 3;
+    LLVM_DEBUG(llvm::dbgs() << "isAttention: " << isAttention << "\n");
+    if (isAttention) {
       // attention
       dataPerThread = dataPerThread * mBlocks;
       mBlocks = 1;
@@ -375,7 +395,7 @@ struct ThreadwiseWriteAllRewritePattern
     // Save to memory
     // Create views as gridwise sub-tile of C
     TopDownTMBuilder createMblock(b, bidGridOrder, bidGridLengths, loc);
-    if (attention) {
+    if (isAttention) {
       createMblock.passThrough({"g_block", "n_block", "tid"}, {0, 2, 3},
                                {"g_block", "n_block", "tid"});
       createMblock.merge({"m_block", "iter"}, {1, 4}, "iter",
@@ -434,8 +454,7 @@ struct ThreadwiseWriteAllRewritePattern
 
 void RockGemmOutputSwizzlePass::runOnOperation() {
   func::FuncOp func = getOperation();
-  MLIRContext *ctx = func->getContext();
-  IRRewriter rewriter(ctx);
+  IRRewriter rewriter(func->getContext());
 
   // Only run this pass on GPU kernel functions.
   if (!func->hasAttr("kernel"))
@@ -445,7 +464,8 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
   int64_t ldsAllocated = getLDSTotalSize(func);
 
   SmallVector<Operation *, 4> writes;
-  func.walk([&](ThreadwiseWriteAllOp threadwiseWriteAll) {
+  func.walk([&writes, &rewriter,
+             ldsAllocated](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
 
@@ -456,7 +476,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
       std::optional<std::tuple<int64_t, int64_t, ArrayAttr>> maybeBlockInfo =
           getIdToLDS(threadwiseWriteAll, rewriter);
       if (!maybeBlockInfo.has_value()) {
-        signalPassFailure();
+        return;
       }
       std::tie(mPerBlock, nPerBlock, idToLDS) = maybeBlockInfo.value();
 
@@ -523,12 +543,16 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
     config.strictMode = GreedyRewriteStrictness::ExistingOps;
     if (failed(applyOpPatternsAndFold(writes, std::move(patterns), config))) {
       signalPassFailure();
+      return;
     }
 
     // Reuse LDS, we assume the last GpuAllocOp can reuse previous
     // LDS allocations because they are no longer needed
     // Note: this is a temporary trick that will be solved here:
     // https://github.com/ROCm/rocMLIR-internal/issues/1487
-    reuseDeadLDS(func);
+    if (failed(reuseDeadLDS(func))) {
+      signalPassFailure();
+      return;
+    }
   }
 }
