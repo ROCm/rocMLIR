@@ -21,45 +21,45 @@ static constexpr AmdArchInfo
             /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
             /*totalVGPRPerEU*/ 256, /*totalSharedMemPerCU*/ 65536,
             /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
-            /*hasFp8ConversionInstrs=*/false),
+            /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     cdna50Info(GemmFeatures::dot, /*waveSize=*/64, /*maxWavesPerEU*/ 8,
                /*totalSGPRPerEU*/ 512, /*totalVGPRPerEU*/ 256,
                /*totalSharedMemPerCU*/ 65536, /*maxSharedMemPerWG*/ 65536,
                /*numEUPerCU=*/4, /*minNumCU=*/10,
-               /*hasFp8ConversionInstrs=*/false),
+               /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
              /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 512,
              /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/120,
-             /*hasFp8ConversionInstrs=*/false),
+             /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     cdna2Info(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
               /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/104,
-              /*hasFp8ConversionInstrs=*/false),
+              /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add,
               /*waveSize=*/64, /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/228,
-              /*hasFp8ConversionInstrs=*/true),
+              /*hasFp8ConversionInstrs=*/true, /*maxNumXCC=*/8),
     // amdgpu target builds all RDNA in WGP Mode
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
                   /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
                   /*totalVGPRPerEU*/ 1024, /*totalSharedMemPerCU*/ 131072,
                   /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4,
                   /*minNumCU=*/36,
-                  /*hasFp8ConversionInstrs=*/false),
+                  /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
              /*totalVGPRPerEU*/ 1024, /*totalSharedMemPerCU*/ 131072,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/36,
-             /*hasFp8ConversionInstrs=*/false),
+             /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32, /*maxWavesPerEU*/ 20, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/48,
-              /*hasFp8ConversionInstrs=*/false);
+              /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
@@ -91,6 +91,10 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         .Default(rdnaNoDotInfo);
   }
   if (major == "gfx11") {
+    // We know these chips have common features per backend
+    return gfx11Info;
+  }
+  if (major == "gfx12") {
     // We know these chips have common features per backend
     return gfx11Info;
   }

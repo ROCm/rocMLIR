@@ -26,10 +26,11 @@ static Type getRetType(Type inputType) {
 }
 
 bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
-  if (kPerBlock * kpack < inputLen) {
+  int64_t inputVectorLen = argTypeA.getNumElements();
+  if (kPerBlock * kpack < inputVectorLen) {
     LLVM_DEBUG(llvm::dbgs()
                << "kPerBlock*kpack needs to be a multiple of inputLen "
-               << inputLen << "\n");
+               << inputVectorLen << "\n");
     return false;
   }
   return true;
@@ -37,7 +38,8 @@ bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
 
 FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
                                      mlir::Type elementTypeB, int64_t waveSize,
-                                     int64_t mPerWave, int64_t nPerWave) {
+                                     StringRef arch, int64_t mPerWave,
+                                     int64_t nPerWave) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Wmma group selection:\n"
                           << "elementTypeA: " << elementTypeA << "\n"
                           << "elementTypeB: " << elementTypeB << "\n"
@@ -50,21 +52,30 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   if (waveSize != 32)
     return failure();
 
-  int64_t inputLen = 16;
-  int64_t outLen = 8;
+  // Length of the input vectors that need to be passed to the WMMA
+  int64_t inputVectorLen = 8;
+  // Length of the ouput vector that needs to be passed to the WMMA
+  int64_t outputVectorLen = 8;
+  // Number of rows/cols a given wmma instruction computes
+  int64_t dPerAccel = 16;
+
   int64_t outStride = 2;
+  if (arch.contains("gfx11")) {
+    inputVectorLen = 16;
+  }
 
-  if (mPerWave % inputLen != 0)
+  if (mPerWave % inputVectorLen != 0)
     return failure();
-  if (nPerWave % inputLen != 0)
+  if (nPerWave % inputVectorLen != 0)
     return failure();
 
-  int64_t mRepeats = mPerWave / inputLen;
-  int64_t nRepeats = nPerWave / inputLen;
+  int64_t mRepeats = mPerWave / dPerAccel;
+  int64_t nRepeats = nPerWave / dPerAccel;
 
-  VectorType argTypeA = VectorType::get({inputLen}, elementTypeA);
-  VectorType argTypeB = VectorType::get({inputLen}, elementTypeB);
-  VectorType retType = VectorType::get({outLen}, getRetType(elementTypeA));
+  VectorType argTypeA = VectorType::get({inputVectorLen}, elementTypeA);
+  VectorType argTypeB = VectorType::get({inputVectorLen}, elementTypeB);
+  VectorType retType =
+      VectorType::get({outputVectorLen}, getRetType(elementTypeA));
 
   StringRef insn;
   if (elementTypeA.isF16()) {
@@ -77,6 +88,6 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
     return failure();
   }
 
-  return WmmaInsn{insn,     inputLen, outLen,   outStride, mRepeats,
-                  nRepeats, argTypeA, argTypeB, retType};
+  return WmmaInsn{insn,     dPerAccel, outStride, mRepeats,
+                  nRepeats, argTypeA,  argTypeB,  retType};
 }

@@ -16,15 +16,21 @@ using namespace mlir;
 using namespace llvm;
 
 SmallVector<mlir::mhal::PrefillAttr>
-mlir::mhal::getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func) {
+mlir::mhal::getStoredPrefillAttributes(gpu::BinaryOp binary) {
   SmallVector<mhal::PrefillAttr> storedAttrs;
-  auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
-  if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
-    if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
-      for (auto attr : arrayAttr) {
-        if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
-          storedAttrs.push_back(prefillAttr);
-        }
+  auto object = mlir::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+  DictionaryAttr properties = object.getProperties();
+  gpu::KernelTableAttr kernels = object.getKernels();
+  // Fail if there are no object properties.
+  if (!properties || properties.empty() || !kernels || kernels.size() == 0)
+    return storedAttrs;
+  ArrayRef<NamedAttribute> kernelList = kernels.getKernelTable().getValue();
+  assert(kernelList.size() == 1 &&
+         "binaries with multiple kernels are not supported");
+  if (auto arrayAttr = properties.getAs<ArrayAttr>(kernelList[0].getName())) {
+    for (auto attr : arrayAttr) {
+      if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
+        storedAttrs.push_back(prefillAttr);
       }
     }
   }

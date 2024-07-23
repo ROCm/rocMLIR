@@ -11,6 +11,7 @@
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/CAPI/Wrap.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MHAL/Utility/Utils.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -168,13 +169,11 @@ size_t mlirGetNumPrefillArgs(MlirModule module) {
   auto mod = unwrap(module);
   assert(mod.getRegion().getBlocks().size() == 1 &&
          "expected a single block/function in a module");
-
-  std::optional<LLVM::LLVMFuncOp> func = std::nullopt;
-  mod.walk([&](LLVM::LLVMFuncOp op) { func = op; });
-
-  if (!func.has_value())
+  std::optional<gpu::BinaryOp> binary = std::nullopt;
+  mod.walk([&](gpu::BinaryOp op) { binary = op; });
+  if (!binary.has_value())
     return 0;
-  auto attrs = mhal::getStoredPrefillAttributes(func.value());
+  auto attrs = mhal::getStoredPrefillAttributes(binary.value());
   return attrs.size();
 }
 
@@ -185,12 +184,11 @@ void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
   assert(mod.getRegion().getBlocks().size() == 1 &&
          "expected a single block/function in a module");
 
-  std::optional<LLVM::LLVMFuncOp> func = std::nullopt;
-  mod.walk([&](LLVM::LLVMFuncOp op) { func = op; });
-
-  if (!func.has_value())
+  std::optional<gpu::BinaryOp> binary = std::nullopt;
+  mod.walk([&](gpu::BinaryOp op) { binary = op; });
+  if (!binary.has_value())
     return;
-  auto attrs = mhal::getStoredPrefillAttributes(func.value());
+  auto attrs = mhal::getStoredPrefillAttributes(binary.value());
 
   assert(attrs.size() >= length && "length cannot exceed the attr size");
   for (size_t i = 0; i < length; ++i) {
