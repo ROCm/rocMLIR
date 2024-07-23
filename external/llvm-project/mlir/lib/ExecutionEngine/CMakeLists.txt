@@ -384,32 +384,32 @@ if(LLVM_ENABLE_PIC)
       intrinsics_gen
     )
 
-    set_property(TARGET obj.MLIRRocmExecutionEngineUtils
-      APPEND PROPERTY COMPILE_DEFINITIONS "__HIP_PLATFORM_AMD__=1")
-
     if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-c++98-compat-extra-semi")
       target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
       "-Wno-c++98-compat-extra-semi")
     endif()
     if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
         "-Wno-return-type-c-linkage")
     endif()
     if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
         "-Wno-nested-anon-types")
     endif()
     if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-      target_compile_options(MLIRRocmExecutionEngineUtils PRIVATE
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
        "-Wno-gnu-anonymous-struct")
     endif()
 
     target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
       MLIRExecutionEngineUtils
     )
+    # We do need both of these.  One is for linking, to get the HIP
+    # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
     target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
+      hip::host hip::amdhip64
+    )
+    target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
       hip::host hip::amdhip64
     )
   endif()

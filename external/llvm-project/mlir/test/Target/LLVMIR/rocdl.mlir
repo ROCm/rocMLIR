@@ -2,17 +2,17 @@
 
 llvm.func @rocdl_special_regs() -> i32 {
   // CHECK-LABEL: rocdl_special_regs
-  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.x()
+  // CHECK: call i32 @llvm.amdgcn.workitem.id.x()
   %1 = rocdl.workitem.id.x : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.y()
+  // CHECK: call i32 @llvm.amdgcn.workitem.id.y()
   %2 = rocdl.workitem.id.y : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.z()
+  // CHECK: call i32 @llvm.amdgcn.workitem.id.z()
   %3 = rocdl.workitem.id.z : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.x()
+  // CHECK: call i32 @llvm.amdgcn.workgroup.id.x()
   %4 = rocdl.workgroup.id.x : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.y()
+  // CHECK: call i32 @llvm.amdgcn.workgroup.id.y()
   %5 = rocdl.workgroup.id.y : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.z()
+  // CHECK: call i32 @llvm.amdgcn.workgroup.id.z()
   %6 = rocdl.workgroup.id.z : i32
   // CHECK: call i64 @__ockl_get_local_size(i32 0)
   %7 = rocdl.workgroup.dim.x : i64
@@ -27,7 +27,7 @@ llvm.func @rocdl_special_regs() -> i32 {
   // CHECK: call i64 @__ockl_get_num_groups(i32 2)
   %12 = rocdl.grid.dim.z : i64
 
-  // CHECK: call noundef range(i32 0, 64) i32 @llvm.amdgcn.workitem.id.x()
+  // CHECK: call range(i32 0, 64) i32 @llvm.amdgcn.workitem.id.x()
   %13 = rocdl.workitem.id.x {range = array<i32: 0, 64>} : i32
 
   llvm.return %1 : i32
