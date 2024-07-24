@@ -2,17 +2,17 @@
 
 llvm.func @rocdl_special_regs() -> i32 {
   // CHECK-LABEL: rocdl_special_regs
-  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.x()
+  // CHECK: call i32 @llvm.amdgcn.workitem.id.x()
   %1 = rocdl.workitem.id.x : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.y()
+  // CHECK: call i32 @llvm.amdgcn.workitem.id.y()
   %2 = rocdl.workitem.id.y : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.z()
+  // CHECK: call i32 @llvm.amdgcn.workitem.id.z()
   %3 = rocdl.workitem.id.z : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.x()
+  // CHECK: call i32 @llvm.amdgcn.workgroup.id.x()
   %4 = rocdl.workgroup.id.x : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.y()
+  // CHECK: call i32 @llvm.amdgcn.workgroup.id.y()
   %5 = rocdl.workgroup.id.y : i32
-  // CHECK: call noundef i32 @llvm.amdgcn.workgroup.id.z()
+  // CHECK: call i32 @llvm.amdgcn.workgroup.id.z()
   %6 = rocdl.workgroup.id.z : i32
   // CHECK: call i64 @__ockl_get_local_size(i32 0)
   %7 = rocdl.workgroup.dim.x : i64
@@ -27,8 +27,7 @@ llvm.func @rocdl_special_regs() -> i32 {
   // CHECK: call i64 @__ockl_get_num_groups(i32 2)
   %12 = rocdl.grid.dim.z : i64
 
-  // CHECK: call noundef i32 @llvm.amdgcn.workitem.id.x(),
-  // CHECK-SAME: !range ![[$RANGE:[0-9]+]]
+  // CHECK: call range(i32 0, 64) i32 @llvm.amdgcn.workitem.id.x()
   %13 = rocdl.workitem.id.x {range = array<i32: 0, 64>} : i32
 
   llvm.return %1 : i32
@@ -527,5 +526,4 @@ llvm.func @rocdl_16bit_packed_floats(%sourceA: f32, %sourceB: f32) -> vector<2xf
 // CHECK-DAG: attributes #[[$KERNEL_WORKGROUP_ATTRS]] = { "amdgpu-flat-work-group-size"="1,1024"
 // CHECK-DAG: attributes #[[$KNOWN_BLOCK_SIZE_ATTRS]] = { "amdgpu-flat-work-group-size"="128,128"
 // CHECK-DAG: attributes #[[$KERNEL_NO_UNIFORM_WORK_GROUPS_ATTRS]] = { "amdgpu-flat-work-group-size"="1,256" "uniform-work-group-size"="false" }
-// CHECK-DAG: ![[$RANGE]] = !{i32 0, i32 64}
 // CHECK-DAG: ![[$REQD_WORK_GROUP_SIZE]] = !{i32 16, i32 4, i32 2}

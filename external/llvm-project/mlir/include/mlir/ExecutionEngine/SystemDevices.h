@@ -37,7 +37,7 @@ struct SystemDevice {
   uint32_t count = 1;
   llvm::StringMap<llvm::SmallString<8>> properties = {};
 
-  LogicalResult parse(StringRef arch);
+  LogicalResult parse(llvm::StringRef arch);
   bool isCompatible(const SystemDevice &that) const;
   std::string getArch() const;
   void dump() const;

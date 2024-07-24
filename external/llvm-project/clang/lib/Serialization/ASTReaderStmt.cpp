@@ -785,6 +785,12 @@ void ASTStmtReader::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E) {
   E->setRParenLoc(readSourceLocation());
 }
 
+static StringRef saveStrToCtx(const std::string &S, ASTContext &Ctx) {
+  char *Buf = new (Ctx) char[S.size()];
+  std::copy(S.begin(), S.end(), Buf);
+  return StringRef(Buf, S.size());
+}
+
 static ConstraintSatisfaction
 readConstraintSatisfaction(ASTRecordReader &Record) {
   ConstraintSatisfaction Satisfaction;
@@ -793,16 +799,17 @@ readConstraintSatisfaction(ASTRecordReader &Record) {
   if (!Satisfaction.IsSatisfied) {
     unsigned NumDetailRecords = Record.readInt();
     for (unsigned i = 0; i != NumDetailRecords; ++i) {
-      Expr *ConstraintExpr = Record.readExpr();
       if (/* IsDiagnostic */Record.readInt()) {
         SourceLocation DiagLocation = Record.readSourceLocation();
-        std::string DiagMessage = Record.readString();
+        StringRef DiagMessage =
+            saveStrToCtx(Record.readString(), Record.getContext());
+
         Satisfaction.Details.emplace_back(
-            ConstraintExpr, new (Record.getContext())
-                                ConstraintSatisfaction::SubstitutionDiagnostic{
-                                    DiagLocation, DiagMessage});
+            new (Record.getContext())
+                ConstraintSatisfaction::SubstitutionDiagnostic(DiagLocation,
+                                                               DiagMessage));
       } else
-        Satisfaction.Details.emplace_back(ConstraintExpr, Record.readExpr());
+        Satisfaction.Details.emplace_back(Record.readExpr());
     }
   }
   return Satisfaction;
@@ -821,9 +828,13 @@ void ASTStmtReader::VisitConceptSpecializationExpr(
 
 static concepts::Requirement::SubstitutionDiagnostic *
 readSubstitutionDiagnostic(ASTRecordReader &Record) {
-  std::string SubstitutedEntity = Record.readString();
+  StringRef SubstitutedEntity =
+      saveStrToCtx(Record.readString(), Record.getContext());
+
   SourceLocation DiagLoc = Record.readSourceLocation();
-  std::string DiagMessage = Record.readString();
+  StringRef DiagMessage =
+      saveStrToCtx(Record.readString(), Record.getContext());
+
   return new (Record.getContext())
       concepts::Requirement::SubstitutionDiagnostic{SubstitutedEntity, DiagLoc,
                                                     DiagMessage};
@@ -1321,6 +1332,16 @@ void ASTStmtReader::VisitSourceLocExpr(SourceLocExpr *E) {
   E->BuiltinLoc = readSourceLocation();
   E->RParenLoc = readSourceLocation();
   E->SourceLocExprBits.Kind = Record.readInt();
+}
+
+void ASTStmtReader::VisitEmbedExpr(EmbedExpr *E) {
+  VisitExpr(E);
+  E->EmbedKeywordLoc = readSourceLocation();
+  EmbedDataStorage *Data = new (Record.getContext()) EmbedDataStorage;
+  Data->BinaryData = cast<StringLiteral>(Record.readSubStmt());
+  E->Data = Data;
+  E->Begin = Record.readInt();
+  E->NumOfElements = Record.readInt();
 }
 
 void ASTStmtReader::VisitAddrLabelExpr(AddrLabelExpr *E) {
@@ -2810,6 +2831,12 @@ void ASTStmtReader::VisitOpenACCAssociatedStmtConstruct(
 void ASTStmtReader::VisitOpenACCComputeConstruct(OpenACCComputeConstruct *S) {
   VisitStmt(S);
   VisitOpenACCAssociatedStmtConstruct(S);
+  S->findAndSetChildLoops();
+}
+
+void ASTStmtReader::VisitOpenACCLoopConstruct(OpenACCLoopConstruct *S) {
+  VisitStmt(S);
+  VisitOpenACCAssociatedStmtConstruct(S);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3225,6 +3252,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case EXPR_SOURCE_LOC:
       S = new (Context) SourceLocExpr(Empty);
+      break;
+
+    case EXPR_BUILTIN_PP_EMBED:
+      S = new (Context) EmbedExpr(Empty);
       break;
 
     case EXPR_ADDR_LABEL:
@@ -4233,6 +4264,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     case STMT_OPENACC_COMPUTE_CONSTRUCT: {
       unsigned NumClauses = Record[ASTStmtReader::NumStmtFields];
       S = OpenACCComputeConstruct::CreateEmpty(Context, NumClauses);
+      break;
+    }
+    case STMT_OPENACC_LOOP_CONSTRUCT: {
+      unsigned NumClauses = Record[ASTStmtReader::NumStmtFields];
+      S = OpenACCLoopConstruct::CreateEmpty(Context, NumClauses);
       break;
     }
     case EXPR_REQUIRES:

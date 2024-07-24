@@ -103,13 +103,9 @@ class ROCDL_SpecialRegisterOp<string mnemonic,
     list<Trait> traits = []> :
   ROCDL_Op<mnemonic, !listconcat(traits, [Pure])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
-  string llvmBuilder = "llvm::Value *theRes = createIntrinsicCallWithRange(builder,"
+  string llvmBuilder = "$res = createIntrinsicCallWithRange(builder,"
     # "llvm::Intrinsic::amdgcn_" # !subst(".","_", mnemonic)
-    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));"
-    // TEMPORARY WORKAROUND FOR TESTING UNTIL LLVM #92801 or equivalent
-    // LANDS.
-    # "::llvm::cast<::llvm::CallInst>(theRes)->addRetAttr(::llvm::Attribute::NoUndef);"
-    # "$res = theRes;";
+    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));";
   let assemblyFormat = "attr-dict `:` type($res)";
 }
 

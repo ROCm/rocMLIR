@@ -23,7 +23,7 @@ static constexpr const char kGcnDefaultTriple[] = "amdgcn-amd-amdhsa";
 
 // This function converts the arch name to target features:
 // sramecc+:xnack- to +sramecc,-xnack
-static LogicalResult parseTargetFeatures(ArrayRef<StringRef> tokens,
+static LogicalResult parseTargetFeatures(llvm::ArrayRef<llvm::StringRef> tokens,
                                          llvm::StringMap<bool> &features) {
   // Convert each feature and append to feature result
   for (auto &token : tokens) {
@@ -38,23 +38,23 @@ static LogicalResult parseTargetFeatures(ArrayRef<StringRef> tokens,
 }
 
 static void sortFeatures(const llvm::StringMap<bool> &features,
-                         SmallVectorImpl<std::pair<StringRef, bool>> &out) {
+                         llvm::SmallVectorImpl<std::pair<llvm::StringRef, bool>> &out) {
   for (const llvm::StringMapEntry<bool> &feature : features) {
     out.emplace_back(feature.getKey(), feature.getValue());
   }
   std::sort(out.begin(), out.end());
 }
 
-LogicalResult RocmDeviceName::parse(StringRef devName) {
+LogicalResult RocmDeviceName::parse(llvm::StringRef devName) {
   triple = kGcnDefaultTriple;
 
   // tokenize on :
-  SmallVector<StringRef, 8> tokens;
+  llvm::SmallVector<llvm::StringRef, 8> tokens;
   devName.split(tokens, ':');
 
   // check for triple
   if (tokens.size() > 1) {
-    SmallVector<StringRef, 8> tripleTokens;
+    llvm::SmallVector<llvm::StringRef, 8> tripleTokens;
     tokens.front().split(tripleTokens, '-');
     if (tripleTokens.size() == 3 && tripleTokens[0] == "amdgcn") {
       triple = tokens.front();
@@ -81,7 +81,7 @@ std::string RocmDeviceName::getFeaturesForBackend() const {
   // We don't sort these earlier to prevent the references into the map keys
   // from moving out from under us. They need to be sorted to ensure we have
   // the arch name in canonical form.
-  SmallVector<std::pair<StringRef, bool>, 2> sortedFeatures;
+  llvm::SmallVector<std::pair<llvm::StringRef, bool>, 2> sortedFeatures;
   sortFeatures(features, sortedFeatures);
   llvm::interleave(
       sortedFeatures, stream,
@@ -92,10 +92,10 @@ std::string RocmDeviceName::getFeaturesForBackend() const {
   return result;
 }
 
-void RocmDeviceName::getFullName(SmallVectorImpl<char> &out) const {
-  (Twine(triple) + ":" + Twine(chip)).toVector(out);
+void RocmDeviceName::getFullName(llvm::SmallVectorImpl<char> &out) const {
+  (llvm::Twine(triple) + ":" + llvm::Twine(chip)).toVector(out);
   llvm::raw_svector_ostream outStream(out);
-  SmallVector<std::pair<StringRef, bool>, 2> sortedFeatures;
+  llvm::SmallVector<std::pair<llvm::StringRef, bool>, 2> sortedFeatures;
   sortFeatures(features, sortedFeatures);
   for (const auto &pair : sortedFeatures) {
     outStream << ':' << pair.first << (pair.second ? "+" : "-");

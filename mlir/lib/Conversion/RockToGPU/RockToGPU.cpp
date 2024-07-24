@@ -201,14 +201,12 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     if (auto attr = theFunc->getAttr("block_size")) {
       gpuFunc->setAttr("block_size", attr);
       blockSize = cast<IntegerAttr>(attr).getInt();
-      gpuFunc->setAttr(gpu::GPUFuncOp::getKnownBlockSizeAttrName(),
-                       b.getDenseI32ArrayAttr({blockSize, 1, 1}));
+      gpuFunc.setKnownBlockSizeAttr(b.getDenseI32ArrayAttr({blockSize, 1, 1}));
     }
     if (auto attr = theFunc->getAttr("grid_size")) {
       gpuFunc->setAttr("grid_size", attr);
       gridSize = cast<IntegerAttr>(attr).getInt();
-      gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
-                       b.getDenseI32ArrayAttr({gridSize, 1, 1}));
+      gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
     }
     if (auto isReverse = rock::getReverseGrid(theFunc).value_or(nullptr)) {
       gpuFunc->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), isReverse);

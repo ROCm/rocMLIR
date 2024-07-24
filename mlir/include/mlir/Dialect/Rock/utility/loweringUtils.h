@@ -18,7 +18,6 @@
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
-struct LogicalResult;
 class Operation;
 class Type;
 

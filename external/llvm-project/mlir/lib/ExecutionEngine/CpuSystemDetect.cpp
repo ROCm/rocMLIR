@@ -33,11 +33,7 @@ CpuSystemDetect::CpuSystemDetect() {
   // collect all CPU
   llvm::SmallString<32> targetTriple(llvm::sys::getProcessTriple());
   llvm::SmallString<8> cpu(llvm::sys::getHostCPUName());
-  llvm::StringMap<bool> features;
-  if (!llvm::sys::getHostCPUFeatures(features)) {
-    // System detect can't fail but we somehow missed the features;
-    features.clear();
-  }
+  llvm::StringMap<bool> features(llvm::sys::getHostCPUFeatures());
   uint32_t count = llvm::get_physical_cores();
 
   // cleanup

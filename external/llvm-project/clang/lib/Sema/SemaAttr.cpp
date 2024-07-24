@@ -837,7 +837,7 @@ void Sema::ActOnPragmaUnused(const Token &IdTok, Scope *curScope,
 
   IdentifierInfo *Name = IdTok.getIdentifierInfo();
   LookupResult Lookup(*this, Name, IdTok.getLocation(), LookupOrdinaryName);
-  LookupParsedName(Lookup, curScope, nullptr, true);
+  LookupName(Lookup, curScope, /*AllowBuiltinCreation=*/true);
 
   if (Lookup.empty()) {
     Diag(PragmaLoc, diag::warn_pragma_unused_undeclared_var)
@@ -1231,7 +1231,6 @@ void Sema::AddPushedVisibilityAttribute(Decl *D) {
   D->addAttr(VisibilityAttr::CreateImplicit(Context, type, loc));
 }
 
-/// FreeVisContext - Deallocate and null out VisContext.
 void Sema::FreeVisContext() {
   delete static_cast<VisStack*>(VisContext);
   VisContext = nullptr;

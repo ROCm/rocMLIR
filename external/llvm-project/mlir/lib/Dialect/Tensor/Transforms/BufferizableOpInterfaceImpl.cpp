@@ -998,6 +998,13 @@ struct ParallelInsertSliceOpInterface
     rewriter.eraseOp(op);
     return success();
   }
+
+  /// tensor.parallel_insert_slice op has implicit inplace behavior. We
+  /// shouldn't create copy to resolve conflict.
+  LogicalResult resolveConflicts(Operation *op, RewriterBase &rewriter,
+                                 const AnalysisState &state) const {
+    return success();
+  }
 };
 
 /// Bufferization of tensor.splat. Bufferizes to a new allocation that is filled

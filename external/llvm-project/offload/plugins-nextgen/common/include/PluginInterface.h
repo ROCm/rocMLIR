@@ -19,6 +19,7 @@
 #include <shared_mutex>
 #include <vector>
 
+#include "Shared/APITypes.h"
 #include "Shared/Debug.h"
 #include "Shared/Environment.h"
 #include "Shared/EnvironmentVar.h"
@@ -266,7 +267,7 @@ struct GenericKernelTy {
                AsyncInfoWrapperTy &AsyncInfoWrapper) const;
   virtual Error launchImpl(GenericDeviceTy &GenericDevice, uint32_t NumThreads,
                            uint64_t NumBlocks, KernelArgsTy &KernelArgs,
-                           void *Args,
+                           KernelLaunchParamsTy LaunchParams,
                            AsyncInfoWrapperTy &AsyncInfoWrapper) const = 0;
 
   /// Get the kernel name.
@@ -342,11 +343,12 @@ protected:
 
 private:
   /// Prepare the arguments before launching the kernel.
-  void *prepareArgs(GenericDeviceTy &GenericDevice, void **ArgPtrs,
-                    ptrdiff_t *ArgOffsets, uint32_t &NumArgs,
-                    llvm::SmallVectorImpl<void *> &Args,
-                    llvm::SmallVectorImpl<void *> &Ptrs,
-                    KernelLaunchEnvironmentTy *KernelLaunchEnvironment) const;
+  KernelLaunchParamsTy
+  prepareArgs(GenericDeviceTy &GenericDevice, void **ArgPtrs,
+              ptrdiff_t *ArgOffsets, uint32_t &NumArgs,
+              llvm::SmallVectorImpl<void *> &Args,
+              llvm::SmallVectorImpl<void *> &Ptrs,
+              KernelLaunchEnvironmentTy *KernelLaunchEnvironment) const;
 
   /// Lower number of threads if tripcount is low.
   virtual std::pair<bool, uint32_t>
@@ -803,7 +805,8 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
 
   // Switch memory region to coarse grain mode
   Error setCoarseGrainMemory(void *ptr, int64_t size);
-  virtual Error setCoarseGrainMemoryImpl(void *ptr, int64_t size) {
+  virtual Error setCoarseGrainMemoryImpl(void *ptr, int64_t size,
+                                         bool set_attr = true) {
     return Error::success();
   }
 
@@ -917,6 +920,20 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
     return std::move(MB);
   }
 
+  /// The minimum number of threads we use for a low-trip count combined loop.
+  /// Instead of using more threads we increase the outer (block/team)
+  /// parallelism.
+  /// @see OMPX_MinThreadsForLowTripCount
+  virtual uint32_t getMinThreadsForLowTripCountLoop() {
+    return OMPX_MinThreadsForLowTripCount;
+  }
+
+  /// Whether or not to reuse blocks for high trip count loops.
+  /// @see OMPX_ReuseBlocksForHighTripCount
+  bool getReuseBlocksForHighTripCount() {
+    return OMPX_ReuseBlocksForHighTripCount;
+  }
+
   /// Get the total amount of hardware parallelism supported by the target
   /// device. This is the total amount of warps or wavefronts that can be
   /// resident on the device simultaneously.
@@ -996,6 +1013,15 @@ private:
   UInt32Envar OMPX_SharedMemorySize;
   UInt64Envar OMPX_TargetStackSize;
   UInt64Envar OMPX_TargetHeapSize;
+
+  /// Environment flag to set the minimum number of threads we use for a
+  /// low-trip count combined loop. Instead of using more threads we increase
+  /// the outer (block/team) parallelism.
+  UInt32Envar OMPX_MinThreadsForLowTripCount =
+      UInt32Envar("LIBOMPTARGET_MIN_THREADS_FOR_LOW_TRIP_COUNT", 32);
+
+  BoolEnvar OMPX_ReuseBlocksForHighTripCount =
+      BoolEnvar("LIBOMPTARGET_REUSE_BLOCKS_FOR_HIGH_TRIP_COUNT", true);
 
 protected:
   /// Environment variables defined by the LLVM OpenMP implementation
@@ -1105,11 +1131,11 @@ struct GenericPluginTy {
   /// Returns true if the system supports managed memory (SVN in AMD GPUs).
   virtual bool IsSystemSupportingManagedMemory() { return false; }
 
-  /// Get the plugin-specific device identifier offset.
-  int32_t getDeviceIdStartIndex() const { return DeviceIdStartIndex; }
-
-  /// Set the plugin-specific device identifier offset.
-  void setDeviceIdStartIndex(int32_t Offset) { DeviceIdStartIndex = Offset; }
+  /// Get the plugin-specific device identifier.
+  int32_t getUserId(int32_t DeviceId) const {
+    assert(UserDeviceIds.contains(DeviceId) && "No user-id registered");
+    return UserDeviceIds.at(DeviceId);
+  }
 
   /// Get the ELF code to recognize the binary image of this plugin.
   virtual uint16_t getMagicElfBits() const = 0;
@@ -1171,7 +1197,8 @@ struct GenericPluginTy {
   /// Indicate if an image is compatible with the plugin devices. Notice that
   /// this function may be called before actually initializing the devices. So
   /// we could not move this function into GenericDeviceTy.
-  virtual Expected<bool> isELFCompatible(StringRef Image) const = 0;
+  virtual Expected<bool> isELFCompatible(uint32_t DeviceID,
+                                         StringRef Image) const = 0;
 
   /// Method allows to check why the method isImageCompatibelCheck returned
   /// 'false' for a specific target image. The method is called from inside
@@ -1190,11 +1217,18 @@ protected:
 public:
   // TODO: This plugin interface needs to be cleaned up.
 
-  /// Returns true if the plugin has been initialized.
+  /// Returns non-zero if the plugin runtime has been initialized.
   int32_t is_initialized() const;
 
-  /// Returns non-zero if the provided \p Image can be executed by the runtime.
-  int32_t is_valid_binary(__tgt_device_image *Image, bool Initialized = true);
+  /// Returns non-zero if the \p Image is compatible with the plugin. This
+  /// function does not require the plugin to be initialized before use.
+  int32_t is_plugin_compatible(__tgt_device_image *Image);
+
+  /// Returns non-zero if the \p Image is compatible with the device.
+  int32_t is_device_compatible(int32_t DeviceId, __tgt_device_image *Image);
+
+  /// Returns non-zero if the plugin device has been initialized.
+  int32_t is_device_initialized(int32_t DeviceId) const;
 
   /// Checks if the image is not supported.
   void check_invalid_image(__tgt_device_image *InvalidImage);
@@ -1329,7 +1363,7 @@ public:
   int set_coarse_grain_mem_region(int32_t DeviceId, void *ptr, int64_t size);
 
   /// Sets the offset into the devices for use by OMPT.
-  int32_t set_device_offset(int32_t DeviceIdOffset);
+  int32_t set_device_identifier(int32_t UserId, int32_t DeviceId);
 
   /// Populates the device page table.
   int prepopulate_page_table(int32_t DeviceId, void *ptr, int64_t size);
@@ -1337,6 +1371,10 @@ public:
   /// Gets the coarse grained memory region.
   int32_t query_coarse_grain_mem_region(int32_t DeviceId, const void *ptr,
                                         int64_t size);
+
+  /// Set coarse_grain memory for omp_register_coarse_grain_mem
+  void set_coarse_grain_mem(int32_t DeviceId, const void *ptr, int64_t size,
+                            bool set_attr);
 
   /// Look up a global symbol in the given binary.
   int32_t get_global(__tgt_device_binary Binary, uint64_t Size,
@@ -1365,10 +1403,8 @@ private:
   /// Number of devices available for the plugin.
   int32_t NumDevices = 0;
 
-  /// Index offset, which when added to a DeviceId, will yield a unique
-  /// user-observable device identifier. This is especially important when
-  /// DeviceIds of multiple plugins / RTLs need to be distinguishable.
-  int32_t DeviceIdStartIndex = 0;
+  /// Map of plugin device identifiers to the user device identifier.
+  llvm::DenseMap<int32_t, int32_t> UserDeviceIds;
 
   /// Array of pointers to the devices. Initially, they are all set to nullptr.
   /// Once a device is initialized, the pointer is stored in the position given

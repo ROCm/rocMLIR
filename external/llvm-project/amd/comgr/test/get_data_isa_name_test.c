@@ -106,6 +106,7 @@ static isa_features_t IsaFeatures[] = {
   {"amdgcn-amd-amdhsa--gfx1103",         false,     false,     none,       false,     none,       false},
   {"amdgcn-amd-amdhsa--gfx1150",         false,     false,     none,       false,     none,       false},
   {"amdgcn-amd-amdhsa--gfx1151",         false,     false,     none,       false,     none,       false},
+  {"amdgcn-amd-amdhsa--gfx1152",         false,     false,     none,       false,     none,       false},
   {"amdgcn-amd-amdhsa--gfx1200",         false,     false,     none,       false,     none,       false},
   {"amdgcn-amd-amdhsa--gfx1201",         false,     false,     none,       false,     none,       false},
 
@@ -113,6 +114,7 @@ static isa_features_t IsaFeatures[] = {
   {"amdgcn-amd-amdhsa--gfx10-1-generic", false,     false,     none,       true,      none,       true},
   {"amdgcn-amd-amdhsa--gfx10-3-generic", false,     false,     none,       false,     none,       true},
   {"amdgcn-amd-amdhsa--gfx11-generic",   false,     false,     none,       false,     none,       true},
+  {"amdgcn-amd-amdhsa--gfx12-generic",   false,     false,     none,       false,     none,       true},
     // clang-format on
 };
 

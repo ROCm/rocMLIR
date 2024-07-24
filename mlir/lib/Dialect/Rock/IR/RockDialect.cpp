@@ -37,7 +37,6 @@
 #include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Support/MathExtras.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -731,27 +730,27 @@ GemmSize ConvBwdWeightOp::getGemmSize() {
 
 void ConvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), getOutput(),
+  effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
 
-  effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
                        transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
                        transform::TransformMappingResource::get());
 }
 
 void ConvBwdDataOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
                        transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), getInput(),
+  effects.emplace_back(MemoryEffects::Write::get(), &getInputMutable(),
                        transform::TransformMappingResource::get());
 
-  effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
                        transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
 }
 
@@ -759,20 +758,21 @@ void ConvBwdWeightOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   const bool hasWorkspace = getWorkspace() != nullptr;
   if (hasWorkspace) {
-    effects.emplace_back(MemoryEffects::Read::get(), getWorkspace(),
+    OpOperand *wsm = &getWorkspaceMutable()[0];
+    effects.emplace_back(MemoryEffects::Read::get(), wsm,
                          transform::TransformMappingResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), getWorkspace(),
+    effects.emplace_back(MemoryEffects::Write::get(), wsm,
                          transform::TransformMappingResource::get());
   } else {
-    effects.emplace_back(MemoryEffects::Read::get(), getFilter(),
+    effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
                          transform::TransformMappingResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), getFilter(),
+    effects.emplace_back(MemoryEffects::Write::get(), &getFilterMutable(),
                          transform::TransformMappingResource::get());
   }
-  effects.emplace_back(MemoryEffects::Read::get(), getInput(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
                        transform::TransformMappingResource::get());
 
-  effects.emplace_back(MemoryEffects::Read::get(), getOutput(),
+  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
 }
 
