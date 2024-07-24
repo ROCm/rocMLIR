@@ -166,6 +166,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
     funcPm.addPass(rock::createRockGemmOutputSwizzlePass());
+    funcPm.addPass(createCanonicalizerPass());
 
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce

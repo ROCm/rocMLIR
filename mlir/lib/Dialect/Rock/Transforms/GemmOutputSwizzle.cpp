@@ -499,7 +499,6 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
             << " bytes, skipping pass\n");
         return;
       }
-
       // heuristic: check vectorization of iter in the original map
       ArrayAttr srcTransform = threadwiseWriteAll.getExtraViews();
       Value matC = threadwiseWriteAll.getDest();
@@ -540,9 +539,9 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
     patterns.add<ThreadwiseWriteAllRewritePattern>(&getContext());
 
     GreedyRewriteConfig config;
+    config.strictMode = GreedyRewriteStrictness::ExistingOps;
     if (failed(applyOpPatternsAndFold(writes, std::move(patterns), config))) {
-      signalPassFailure();
-      return;
+      return signalPassFailure();
     }
 
     // Reuse LDS, we assume the last GpuAllocOp can reuse previous
@@ -550,8 +549,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
     // Note: this is a temporary trick that will be solved here:
     // https://github.com/ROCm/rocMLIR-internal/issues/1487
     if (failed(reuseDeadLDS(func))) {
-      signalPassFailure();
-      return;
+      return signalPassFailure();
     }
   }
 }

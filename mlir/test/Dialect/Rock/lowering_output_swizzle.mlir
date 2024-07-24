@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --rock-gemm-output-swizzle %s | FileCheck %s
+// RUN: rocmlir-opt --canonicalize --rock-gemm-output-swizzle %s | FileCheck %s
 
 #wg = #gpu.address_space<workgroup>
 #priv = #gpu.address_space<private>
@@ -6,6 +6,7 @@
 // CHECK-LABEL: func.func @rock_gemm_output_swizzle
 func.func @rock_gemm_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   %registers = rock.alloc() : memref<32xf16, #priv>
+  %registers2 = rock.alloc() : memref<32xf16, #priv>
   %blockid = rock.workgroup_id : index
   %threadid = rock.workitem_id : index
 
@@ -24,11 +25,30 @@ func.func @rock_gemm_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attribut
   %24 = arith.remui %17, %c352 : index
   %25 = arith.divui %24, %21 : index
 
-  // CHECK: rock.alloc() : memref<24576xi8, #gpu.address_space<workgroup>>
-  // CHECK: memref.view
-  // CHECK: memref.view
-  %28 = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
-  %29 = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[ALLOC:.*]] = rock.alloc() : memref<32768xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
+  // CHECK: memref.view %[[ALLOC]][%[[OFFSET]]][] : memref<32768xi8, #gpu.address_space<workgroup>> to memref<16384xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[OFFSET2:.*]] = arith.constant 16384 : index
+  // CHECK: memref.view %[[ALLOC]][%[[OFFSET2]]][] : memref<32768xi8, #gpu.address_space<workgroup>> to memref<16384xi8, #gpu.address_space<workgroup>>
+  %28 = rock.alloc() : memref<16384xi8, #wg>
+  %29 = rock.alloc() : memref<16384xi8, #wg>
+  
+  %c0 = arith.constant 0 : index
+  %view_29 = memref.view %29[%c0][] : memref<16384xi8, #wg> to memref<8192xf16, #wg>
+  %view_29_2 = rock.transform %view_29 by <affine_map<(d0, d1, d2) -> ((d1 * 256 + d0) * 8 + d2)> by [<Unmerge{4, 256, 8} ["iter", "tid", "numElements"] at [1, 0, 2] -> ["flattenBlock"] at [0]>] bounds = [256, 4, 8] -> [8192]> : memref<8192xf16, #gpu.address_space<workgroup>> to memref<256x4x8xf16, #gpu.address_space<workgroup>>
+  %view_29_3 = rock.transform %view_29_2 by <affine_map<(d0, d1) -> (d0, d1 floordiv 8, d1 mod 8)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{4, 8} ["iter"] at [1] -> ["iter", "numElements"] at [1, 2]>] bounds = [256, 32] -> [256, 4, 8]> : memref<256x4x8xf16, #gpu.address_space<workgroup>> to memref<256x32xf16, #gpu.address_space<workgroup>>
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%view_29_3) [%threadid] -> %registers : memref<256x32xf16, #wg> -> memref<32xf16, #priv>
+  
+  %view_28 = memref.view %28[%c0][] : memref<16384xi8, #wg> to memref<8192xf16, #wg>
+  %view_28_2 = rock.transform %view_28 by <affine_map<(d0, d1, d2) -> ((d1 * 256 + d0) * 8 + d2)> by [<Unmerge{4, 256, 8} ["iter", "tid", "numElements"] at [1, 0, 2] -> ["flattenBlock"] at [0]>] bounds = [256, 4, 8] -> [8192]> : memref<8192xf16, #gpu.address_space<workgroup>> to memref<256x4x8xf16, #gpu.address_space<workgroup>>
+  %view_28_3 = rock.transform %view_28_2 by <affine_map<(d0, d1) -> (d0, d1 floordiv 8, d1 mod 8)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{4, 8} ["iter"] at [1] -> ["iter", "numElements"] at [1, 2]>] bounds = [256, 32] -> [256, 4, 8]> : memref<256x4x8xf16, #gpu.address_space<workgroup>> to memref<256x32xf16, #gpu.address_space<workgroup>>
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%view_28_3) [%threadid] -> %registers2 : memref<256x32xf16, #wg> -> memref<32xf16, #priv>
+  
+  // add registers
+  %load = rock.in_bounds_load %registers[%c0] : memref<32xf16, #priv>, index -> vector<32xf16>
+  %load2 = rock.in_bounds_load %registers2[%c0] : memref<32xf16, #priv>, index -> vector<32xf16>
+  %add = arith.addf %load, %load2 : vector<32xf16>
+  rock.in_bounds_store %add -> %registers[%c0] : vector<32xf16> -> memref<32xf16, #priv>, index
 
   // CHECK: rock.lds_barrier
   // CHECK: rock.threadwise_write_all
