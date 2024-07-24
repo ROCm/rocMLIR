@@ -13,16 +13,16 @@
 
 namespace mlir {
 
-namespace LLVM {
-class LLVMFuncOp;
+namespace gpu {
+class BinaryOp;
 }
 
 namespace mhal {
 
 class PrefillAttr;
 
-// Return `mhal::PrefillAttr` attributes for a given function
-SmallVector<PrefillAttr> getStoredPrefillAttributes(LLVM::LLVMFuncOp func);
+// Return `mhal::PrefillAttr` attributes for a given binary
+SmallVector<PrefillAttr> getStoredPrefillAttributes(gpu::BinaryOp binary);
 
 } // namespace mhal
 } // end namespace mlir
