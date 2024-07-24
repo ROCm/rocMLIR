@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --canonicalize --rock-gemm-output-swizzle %s | FileCheck %s
+// RUN: rocmlir-opt --rock-gemm-output-swizzle %s | FileCheck %s
 
 #wg = #gpu.address_space<workgroup>
 #priv = #gpu.address_space<private>

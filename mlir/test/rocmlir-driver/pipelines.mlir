@@ -25,7 +25,6 @@
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
 // GPU-NEXT:rock-gemm-output-swizzle,
-// GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=true test-convergence=false top-down=true},
 // GPU-NEXT:rock-lower-reduce,
 // GPU-NEXT:rock-threadwise-gemm-lowering,
 // GPU-NEXT:rock-analyze-memory-use,

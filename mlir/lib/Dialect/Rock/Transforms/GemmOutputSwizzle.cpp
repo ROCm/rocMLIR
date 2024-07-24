@@ -473,6 +473,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
     if (hasGlobalMemoryAddressSpace(destMemRefType)) {
       int64_t mPerBlock, nPerBlock;
       ArrayAttr idToLDS;
+      rewriter.setInsertionPoint(threadwiseWriteAll);
       std::optional<std::tuple<int64_t, int64_t, ArrayAttr>> maybeBlockInfo =
           getIdToLDS(threadwiseWriteAll, rewriter);
       if (!maybeBlockInfo.has_value()) {
