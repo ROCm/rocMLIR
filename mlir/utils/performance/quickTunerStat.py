@@ -46,15 +46,12 @@ class PerfConfigValidator():
         gemm_list = []
         with open(gemm_config_file, 'r') as f:
             lines = f.readlines()
-
         for line in lines:
             if comment is not None:
                 line = line.split(comment)[0]
-
             line = line.strip()
             if line:
                 gemm_list.append(line)
-
         return gemm_list
 
     def gemmConfigToKey(self, gemm_config):
@@ -62,9 +59,7 @@ class PerfConfigValidator():
         Convert gemm line to code
         """
         pattern = r'-transA (\S+) -transB (\S+) -g (\d+) -m (\d+) -n (\d+) -k (\d+)'
-
         match = re.search(pattern, gemm_config)
-
         if match:
             tup = match.groups()
             transA = True if tup[0].lower() == 'true' else False
@@ -73,9 +68,7 @@ class PerfConfigValidator():
         else:
             print("Could not parse gemmConfig", file=sys.stderr)
             exit(1)
-        
         return file_name
-
 
     def orderByGemmType(self, input_file=True, normalize=True):
         """
@@ -83,47 +76,29 @@ class PerfConfigValidator():
         """
         def expandPerfConfigs(df):
             df['PerfConfig'] = df['PerfConfig'].str.split(':').str[1]
-            
-            tile_params = df['PerfConfig'].str.split(',', expand=True).astype(int)
-            
-            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
-                
+            tile_params = df['PerfConfig'].str.split(',', expand=True).astype(int)            
+            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']                
             tile_params = tile_params.drop(['param8','param9'], axis=1)
-
             tile_params['performance'] = df['NormalizedTFlops']
-
             tile_params.replace('N/A', np.nan, inplace=True)
-
             return tile_params
         
         df = pd.read_csv(input_file, sep='\t')
-
         df_dir = {}
-
         trans_cols = ['TransA', 'TransB']
-
         param_cols = [ 'G', 'M', 'N','K']
-
         df = df.astype({entry: bool for entry in trans_cols})
-
-        df = df.astype({entry: int for entry in param_cols})
-        
+        df = df.astype({entry: int for entry in param_cols})      
         cols = trans_cols + param_cols
-
         type_dict = {dtype: group for dtype, group in df.groupby('DataType')}
-
         for dtype in type_dict:
             sub_df = type_dict[dtype]
-            
             gemm_df = {gemm: expandPerfConfigs(group) for gemm, group in sub_df.groupby(cols)}
-
             for gemm in gemm_df:
-                gemm_tup = tuple(gemm)
-            
+                gemm_tup = tuple(gemm)            
                 if dtype not in df_dir:
                     df_dir[dtype] = {}
                 df_dir[dtype][gemm_tup] = gemm_df[gemm]
-                
         self.validation_data = df_dir
         return df_dir            
 
@@ -163,7 +138,6 @@ class DataValidator(PerfConfigValidator):
         self.gemm_keys = [super(DataValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
         self.preproc_file = preproc_file
         self.validation_data = super().orderByGemmType(self.preproc_file)
-
         self.debug = debug
 
     def __typeQtMap(self, input_dir):
@@ -183,7 +157,6 @@ class DataValidator(PerfConfigValidator):
                 file_dict[method] = {}
             file_dict[method][file_type] = pd.read_csv(file)
             
-
         return file_dict
 
     def compare(self, results, dtype):
@@ -218,14 +191,12 @@ class DataValidator(PerfConfigValidator):
         self.output_dict = output_dict
         return output_dict
         
-
     def validateFile(self, input_file, dtype=None):
         """
         process single file, if type passed in then we read perf config file
         """
         if not dtype:
             dtype = os.path.basename(input_file).split('.')[1]
-            
         df = super().readPerfConfig(input_file)
         return self.validate(df, dtype)        
     
@@ -239,7 +210,6 @@ class DataValidator(PerfConfigValidator):
             file_data = file_data[columns]
             merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
             all_data.append(merged_df)
-
         return all_data
 
     def rank(self, threshold=0.9):
@@ -254,33 +224,26 @@ class DataValidator(PerfConfigValidator):
                     if (df['performance'].dropna() <= threshold).all():
                         ct += 1
                     rank_dict[dtype][method] = ct
-                    
         self.output_df = pd.DataFrame(rank_dict)
         df = self.output_df
-        
         min_values = df.min()
         best_methods = df.idxmin()
-
         method_counts = best_methods.value_counts()
-        
         max_count = method_counts.max()
         majority_methods = method_counts[method_counts == max_count].index
-
         result_methods = {}
         for col in df.columns:
             candidates = df.loc[majority_methods, col]
             result_methods[col] = candidates.idxmin()
-            
         # Create a list of tuples with index and corresponding method
         output = [(index, method) for index, method in result_methods.items()]        
-
         for entry in output:
             dtype, method = entry
             self.quick_tune_data[method][dtype].to_csv(f"quick_tuning_{dtype}", index=False)
-
         if self.debug:
             print(self.output_df)
-
+            
+            
 class TunerValidator(PerfConfigValidator):
     """
     This uses perfRunner functions to run the rocmlir-tuning-driver
@@ -305,28 +268,20 @@ class TunerValidator(PerfConfigValidator):
                  rocmlir_path,
                  rocm_build_script='/share/scripts/build-rocm',
                  debug=False):
-        """
-        initializer
-        """
         self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
         print(self.gemm_configs)
         self.gemm_keys = [super(TunerValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
         self.gridwise_gemm_params='rocMLIR/mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
-        
         self.cpp_file = os.path.join(os.path.dirname(rocmlir_path), self.gridwise_gemm_params)
         self.rocm_build_script = rocm_build_script
         self.backup = self.cpp_file + ".bu"
-        # create backup
-        shutil.copy(self.cpp_file, self.backup)
-
+        shutil.copy(self.cpp_file, self.backup) # create backup
         self.archNames = perfRunner.getArch()
         self.arch = ','.join(self.archNames)
         self.numCU = perfRunner.getNumCU(perfRunner.getChip())
         self.root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
         self.default_conv_configs = self.root_dir + '/mlir/utils/jenkins/performance/conv-configs'
-        
         self.rocmlir_gen_flags = ''
-
         self.opType = Operation.fromName('gemm')
         self.configs_path = gemm_config_file
         self.mlir_build_dir = perfRunner.find_mlir_build_dir()
@@ -342,22 +297,16 @@ class TunerValidator(PerfConfigValidator):
                       verifyMode="gpu",
                       tflops=True,
                       compact_print=False)
-
+        
         self.confClass = perfRunner.GemmConfiguration
-
         self.debug = debug
-
-
-    def __del__(self):
-        # copy back original file
-        pass
 
     def __restore_file(self):
         shutil.copy(self.backup, self.cpp_file)
 
     def updateCppFile(self, df, dtype):
         """
-        Update cpp file
+        Update cpp file with data from dataframe
         """
         cpp_array = ""
         arr_str = ""
@@ -373,28 +322,21 @@ class TunerValidator(PerfConfigValidator):
         else:
             print(f"Unrecognized dtype: {dtype}", file=sys.stderr)
             return
-
         cpp_array += "  // M/block N/block K/block M/wave N/wave kPack splitKFactor forceUnroll bCopyMore\n"
-
         for _, row in df.iterrows():
             cpp_array += f"  {{{row['M/block']}, {row['N/block']}, {row['K/block']}, {row['M/wave']}, {row['N/wave']}, {row['kPack']}, 1, true, true}},\n"
 
         cpp_array = cpp_array.rstrip(',\n') + "\n};"
-
         cpp_filename = self.cpp_file
-
         with open(cpp_filename, 'r') as file:
             cpp_content = file.read()
-
         cpp_content = re.sub(arr_str,
                              cpp_array,
                              cpp_content,
                              flags=re.DOTALL
         )
-
         with open(cpp_filename, 'w') as file:
             file.write(cpp_content)
-
 
     def buildRocm(self):
         """
@@ -408,13 +350,11 @@ class TunerValidator(PerfConfigValidator):
             print(result.stderr)
             exit(1)
 
-
     def runTuning(self, dtype):
         """
         run rocmlir-tuning-driver on the specified gemm_configs
         returns a list of dataframes representing all perfConfig data collected per gemm config
-        """
-        
+        """        
         datatypes, outputMap = perfRunner.parseDataTypes(dtype)
         if self.debug:
             print(dtype)
@@ -434,7 +374,6 @@ class TunerValidator(PerfConfigValidator):
             print("Tuning:", testVector, file=sys.stderr)
             commandLineOptions = config.generateMlirDriverCommandLine(self.options.rocmlir_gen_flags)
             print(commandLineOptions)
-
             # Note, we don't need the -ph, this goes to the tuning driver
             kernelGenCommand = self.paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
             print(kernelGenCommand)
@@ -443,9 +382,7 @@ class TunerValidator(PerfConfigValidator):
                 [self.paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={self.options.tuningSpaceKind}"],
                 stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
-
             kernelGen.stdout.close()
-            
             config_data = self.getConfigData(tuningLoop.stdout, config, allData, self.options)
         return allData    
 
@@ -461,9 +398,7 @@ class TunerValidator(PerfConfigValidator):
         for i, result in enumerate(tuning_loop):
             result = result.decode('utf-8')
             result = result.strip()
-
             perfConfig, time = result.split('\t')
-
             if time == "N/A":
                 nanoSeconds = np.nan
                 config.setPerfConfig(perfConfig)
@@ -471,58 +406,43 @@ class TunerValidator(PerfConfigValidator):
                 theseTFlops = entry['TFlops']
             else:
                 nanoSeconds = float(time)
-
             config.setPerfConfig(perfConfig)
             entry = config.tableEntry(nanoSeconds)
             tflops = entry['TFlops']
-
             values = perfConfig.split(':')[-1].split(',')
             values = values[:-2]
             values.append(tflops)
             data.append({col: val for col, val in zip(columns, values)})
-
-        # order the dataframe
         df = pd.DataFrame.from_dict(data)
         print(df)
         if df.empty:
             return pd.DataFrame(columns=columns)
         df = df.sort_values(by=['performance'], ascending=False)
-
-        # normalize, allows us to see max perf
         scaler = MinMaxScaler()
         df['performance'] = scaler.fit_transform(df[['performance']])
         return df
 
-
-    def validateDir(self, input_dir):
+    def validateDir(self, input_dir): # currently disabled
         """
         process whole directory, adopt for running tuning on said space
         """
-        # currently disabled
         pass
         try:
-            self.quick_tune_data = self.__typeQtMap(input_dir)
-        
+            self.quick_tune_data = self.__typeQtMap(input_dir)        
             output_dict = {}
             for method in self.quick_tune_data:
                 print(f"method {method}")
                 for dtype in self.quick_tune_data[method]: 
                     df = super().readPerfConfig(input_file)
-
                     self.updateCppFile(df, dtype)
-
                     self.runTuning([dtype])
-
             self.output_dict
-
         except Exception as e:
             print(f"Error occured: {e}", file=sys.stderr)
-
         finally:
             self.output_dict = output_dict
             self.__restore_file()
             return output_dict
-
         
     def validateFile(self, input_file, dtype=None):
         """
@@ -531,28 +451,15 @@ class TunerValidator(PerfConfigValidator):
         try:
             if not dtype:
                 dtype = os.path.basename(input_file).split('.')[1]
-
-            # read the input file
             df = super().readPerfConfig(input_file)
-            # using self.validation_data, check the data out
-            # need to actually run a loop of the rocmlir-tuning-driver
             self.updateCppFile(df, dtype)
-            
-            #self.buildRocm()
-
-            # run the script and get data now
             self.runTuning([dtype])
-
         except Exception as e:
             print(f"Error occured: {e}", file=sys.stderr)
-
         finally:
             self.__restore_file()
-            #return self.validate(df, dtype)        
     
     def validate(self, file_data, dtype):
-        # to validate file we need data already read,
-
         all_data = []
         columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
         for gemm in self.gemm_keys:
@@ -560,7 +467,6 @@ class TunerValidator(PerfConfigValidator):
             file_data = file_data[columns]
             merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
             all_data.append(merged_df)
-
         return all_data
 
 
