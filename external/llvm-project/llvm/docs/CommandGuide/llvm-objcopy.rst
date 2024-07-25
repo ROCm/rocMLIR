@@ -299,6 +299,10 @@ them.
  Allow :program:`llvm-objcopy` to remove sections even if it would leave invalid
  section references. Any invalid sh_link fields will be set to zero.
 
+.. option:: --change-section-lma \*{+-}<val>
+
+ Shift LMA of non-zero-sized segments by ``<val>``.
+
 .. option:: --change-start <incr>, --adjust-start
 
  Add ``<incr>`` to the program's start address. Can be specified multiple
@@ -366,12 +370,12 @@ them.
 
 .. option:: --keep-global-symbol <symbol>, -G
 
- Make all symbols local in the output, except for symbols with the name
+ Mark all symbols local in the output, except for symbols with the name
  ``<symbol>``. Can be specified multiple times to ignore multiple symbols.
 
 .. option:: --keep-global-symbols <filename>
 
- Make all symbols local in the output, except for symbols named in the file
+ Mark all symbols local in the output, except for symbols named in the file
  ``<filename>``. In the file, each line represents a single symbol, with leading
  and trailing whitespace ignored, as is anything following a '#'. Can be
  specified multiple times to read names from multiple files.
@@ -395,7 +399,7 @@ them.
 
 .. option:: --localize-hidden
 
- Make all symbols with hidden or internal visibility local in the output.
+ Mark all symbols with hidden or internal visibility local in the output.
 
 .. option:: --localize-symbol <symbol>, -L
 

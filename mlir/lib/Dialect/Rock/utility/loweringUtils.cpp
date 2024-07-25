@@ -218,7 +218,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
 
-  MemRefType matrixType = globalBuffer.getType().cast<MemRefType>();
+  MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   int64_t kGlobal = matrixShape[1];
   int64_t dGlobal = matrixShape[2];
@@ -303,7 +303,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
 
-  MemRefType matrixType = globalBuffer.getType().cast<MemRefType>();
+  MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   int64_t kGlobal = matrixShape[1];
   int64_t dGlobal = matrixShape[2];
@@ -394,7 +394,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
                                   bool doTranspose, StringRef firstDim,
                                   StringRef secondDim) {
-  auto matrixType = matrix.getType().cast<MemRefType>();
+  auto matrixType = cast<MemRefType>(matrix.getType());
   bool addGroup = matrixType.getShape().size() != 3;
   if (!addGroup && !doTranspose)
     return matrix;
@@ -422,7 +422,7 @@ Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
                             StringRef secondDim, int64_t secondDimPad) {
   if (firstDimPad == 0 && secondDimPad == 0)
     return matrix;
-  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> shape = cast<MemRefType>(matrix.getType()).getShape();
   BottomUpTMBuilder padder(b, {"gemmG", firstDim, secondDim}, shape, loc);
   padder.passThrough("gemmG");
   if (firstDimPad == 0) {
@@ -521,7 +521,7 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
 
 Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
                                         Value buffer, Value sliceIdx) {
-  MemRefType bufType = buffer.getType().cast<MemRefType>();
+  MemRefType bufType = cast<MemRefType>(buffer.getType());
   ArrayRef<int64_t> originalShape = bufType.getShape().slice(1);
   int64_t mbMemRefTypeRank = bufType.getRank();
   IntegerAttr zero = rewriter.getIndexAttr(0);
@@ -744,20 +744,4 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
   for (int i = 0, e = srcTp.getRank(); i < e; i++)
     reassociation.push_back(i);
   return reassociation;
-}
-
-SmallVector<mhal::PrefillAttr>
-mlir::rock::getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func) {
-  SmallVector<mhal::PrefillAttr> storedAttrs;
-  auto gpuModule = cast<gpu::GPUModuleOp>(func->getParentOp());
-  if (auto moduleAttr = gpuModule->getAttr(func.getSymName())) {
-    if (auto arrayAttr = dyn_cast<ArrayAttr>(moduleAttr)) {
-      for (auto attr : arrayAttr) {
-        if (auto prefillAttr = dyn_cast<mhal::PrefillAttr>(attr)) {
-          storedAttrs.push_back(prefillAttr);
-        }
-      }
-    }
-  }
-  return storedAttrs;
 }

@@ -35,12 +35,13 @@ def get_diff(base_commit) -> Tuple[bool, str]:
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
   )
-  is_diff_run_succesful = diff_run.returncode == 0
+  is_diff_run_succesful = diff_run.returncode <= 1
   diff = diff_run.stdout.decode()
   print(diff)
   return is_diff_run_succesful, diff
 
 def check_external_file(filename: str) -> bool:
+  print(filename)
   regex = f'^external/'
   return re.search(regex, filename)
 

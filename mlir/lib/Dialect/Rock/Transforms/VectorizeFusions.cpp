@@ -46,9 +46,7 @@ using mlir::gpu::AddressSpace;
 template <typename MemrefTypedValue>
 static AddressSpace getAddressSpace(MemrefTypedValue val) {
   if (val.getType().getMemorySpace()) {
-    return val.getType()
-        .getMemorySpace()
-        .template cast<gpu::AddressSpaceAttr>()
+    return cast<gpu::AddressSpaceAttr>(val.getType().getMemorySpace())
         .getValue();
   }
   return gpu::AddressSpace::Global;

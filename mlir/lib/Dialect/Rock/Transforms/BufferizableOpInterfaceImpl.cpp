@@ -198,9 +198,9 @@ struct TensorUntransformCastOpInterface
 
     Value buffer = std::get<0>(rock::untransform(rewriter, *transformedArg));
     ArrayRef<int64_t> bufferShape =
-        buffer.getType().cast<ShapedType>().getShape();
+        cast<ShapedType>(buffer.getType()).getShape();
     ArrayRef<int64_t> resultShape =
-        castOp.getUntransformed().getType().cast<ShapedType>().getShape();
+        cast<ShapedType>(castOp.getUntransformed().getType()).getShape();
     if (bufferShape != resultShape)
       return op->emitOpError("buffer shape not equal to result shape");
     replaceOpWithBufferizedValues(rewriter, op, buffer);

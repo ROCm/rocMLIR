@@ -148,7 +148,7 @@ public:
   void notifyOperationErased(Operation *op) override;
   void notifyOperationReplaced(Operation *op, ValueRange replacement) override;
   void notifyBlockInserted(mlir::Block *block, mlir::Region *previous,
-                                   mlir::Region::iterator previousIt) override;
+                           mlir::Region::iterator previousIt) override;
   using PatternRewriter::notifyMatchFailure;
   void
   notifyMatchFailure(Location loc,
@@ -357,7 +357,8 @@ void LinalgAlignRewriter::notifyOperationModified(Operation *op) {
   logOpActivity(prefix, op);
 }
 
-void LinalgAlignRewriter::notifyOperationInserted(Operation *op, InsertPoint previous) {
+void LinalgAlignRewriter::notifyOperationInserted(Operation *op,
+                                                  InsertPoint previous) {
   assert(!previous.isSet() && "expected newly created op");
   constexpr llvm::StringLiteral prefix("** Insert  : '");
   logOpActivity(prefix, op);
@@ -375,8 +376,9 @@ void LinalgAlignRewriter::notifyOperationReplaced(Operation *op,
   std::ignore = replacement;
 }
 
-void LinalgAlignRewriter::notifyBlockInserted(mlir::Block *block, mlir::Region *previous,
-                                  mlir::Region::iterator previousIt) {
+void LinalgAlignRewriter::notifyBlockInserted(
+    mlir::Block *block, mlir::Region *previous,
+    mlir::Region::iterator previousIt) {
   std::ignore = block;
 }
 
@@ -608,7 +610,8 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   // 1. create a second allocation of the same type to hold loaded elements
   // where the laGeneric is located.
   b.setInsertionPoint(laGeneric);
-  MemRefType::Builder mrb(tile.getType().cast<MemRefType>());
+  auto mrbBuilder = cast<MemRefType>(tile.getType());
+  MemRefType::Builder mrb(mrbBuilder);
   Value alloc = makeRegs(b, mrb, loc, src.getType());
 
   // 1.1. Find out if the source is a scalar so we don't unroll a memset()
@@ -747,14 +750,14 @@ static void reconfigureLAGeneric(LinalgAlignRewriter &b,
   SmallVector<AffineMap, 5> lgAMaps;
 
   for (Value newInput : newInputs) {
-    auto inpRank = newInput.getType().cast<ShapedType>().getRank();
+    auto inpRank = cast<ShapedType>(newInput.getType()).getRank();
     lgAMaps.push_back(b.getMultiDimIdentityMap(inpRank));
   }
 
   laGeneric.getInputsMutable().assign(newInputs);
   laGeneric.getOutputsMutable().assign(newOutput);
 
-  auto regRank = newOutput.getType().cast<ShapedType>().getRank();
+  auto regRank = cast<ShapedType>(newOutput.getType()).getRank();
 
   lgAMaps.push_back(b.getMultiDimIdentityMap(regRank));
   laGeneric.setIndexingMapsAttr(b.getAffineMapArrayAttr(lgAMaps));
@@ -883,8 +886,8 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     b.eraseOp(tileReadOp);
     return success();
   }
-  auto outType = out.getType().cast<ShapedType>();
-  auto inpType = laGenericArgLeadingToTile.getType().cast<ShapedType>();
+  auto outType = cast<ShapedType>(out.getType());
+  auto inpType = cast<ShapedType>(laGenericArgLeadingToTile.getType());
   if (outType.getShape() != inpType.getShape()) {
     return laGeneric.emitError("input and output types must match");
   }
@@ -902,7 +905,7 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   }
 
   Value gemmOutRegs = gemmStoreOp.getSource();
-  auto gemmOutType = gemmOutRegs.getType().cast<MemRefType>();
+  auto gemmOutType = cast<MemRefType>(gemmOutRegs.getType());
 
   // 3.1. Make an allocation that matches the tile but has the type of the
   // linalg.generic output.

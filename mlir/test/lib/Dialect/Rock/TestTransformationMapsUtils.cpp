@@ -50,9 +50,9 @@ namespace {
 struct ByIndices {
   static SetVector<int64_t> getTests(Operation *testHandleOp) {
     SetVector<int64_t> removeIndices;
-    auto arrayAttr = testHandleOp->getAttr("indices_to_drop").cast<ArrayAttr>();
+    auto arrayAttr = cast<ArrayAttr>(testHandleOp->getAttr("indices_to_drop"));
     for (auto &attr : arrayAttr) {
-      removeIndices.insert(attr.cast<IntegerAttr>().getInt());
+      removeIndices.insert(cast<IntegerAttr>(attr).getInt());
     }
     return removeIndices;
   }
@@ -61,9 +61,9 @@ struct ByIndices {
 struct ByNames {
   static SetVector<StringRef> getTests(Operation *testHandleOp) {
     SetVector<StringRef> removeIndices;
-    auto arrayAttr = testHandleOp->getAttr("names_to_drop").cast<ArrayAttr>();
+    auto arrayAttr = cast<ArrayAttr>(testHandleOp->getAttr("names_to_drop"));
     for (auto &attr : arrayAttr) {
-      removeIndices.insert(attr.cast<StringAttr>().getValue());
+      removeIndices.insert(cast<StringAttr>(attr).getValue());
     }
     return removeIndices;
   }
@@ -141,11 +141,11 @@ struct RemoveDimTestPattern : public OpRewritePattern<func::FuncOp> {
 
     // construct a new function signature and remove the old function body
     Attribute attr = *(std::prev(newTrMapAttrs.end()));
-    auto firstTrMap = attr.cast<rock::TransformMapAttr>();
+    auto firstTrMap = cast<rock::TransformMapAttr>(attr);
     DenseI64ArrayAttr firstLowerBounds = firstTrMap.getLowerBounds();
 
     Type inputType = func.getArgument(0).getType();
-    Type inputElementType = inputType.cast<MemRefType>().getElementType();
+    Type inputElementType = cast<MemRefType>(inputType).getElementType();
 
     auto newInputType =
         MemRefType::get(firstLowerBounds.asArrayRef(), inputElementType);
@@ -163,7 +163,7 @@ struct RemoveDimTestPattern : public OpRewritePattern<func::FuncOp> {
     Value input = newEntryBlock->getArgument(0);
     for (auto trMapAttr : llvm::reverse(newTrMapAttrs)) {
       auto trOp = b.create<rock::TransformOp>(
-          loc, input, trMapAttr.cast<TransformMapAttr>());
+          loc, input, cast<TransformMapAttr>(trMapAttr));
       input = trOp.getOutput();
     }
     b.create<func::ReturnOp>(loc);

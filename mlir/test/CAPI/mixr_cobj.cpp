@@ -205,7 +205,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     auto args = f.getArguments();
     for (auto arg : args) {
       argIdx += 3; // 3 per memref : allocated ptr, aligned ptr, offset
-      auto sType = arg.getType().template cast<mlir::ShapedType>();
+      auto sType = mlir::cast<mlir::ShapedType>(arg.getType());
       long long rank = sType.getRank();
       printf("rank:%lld, dim:", rank);
       for (int64_t i = 0; i < rank; ++i)
@@ -242,8 +242,8 @@ static bool constructAndTraverseIr(MlirContext ctx) {
         llvmFunc->getAttrOfType<mlir::IntegerAttr>("block_size").getInt();
     size_t grid_size =
         llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
-    auto funcType =
-        llvmFunc.getFunctionType().dyn_cast<mlir::LLVM::LLVMFunctionType>();
+    auto funcType = mlir::dyn_cast<mlir::LLVM::LLVMFunctionType>(
+        llvmFunc.getFunctionType());
     uint32_t numOperands = funcType.getNumParams();
     printf("kernel params : %u\n", numOperands);
     printf("block_size : %zu\n", block_size);
@@ -254,27 +254,21 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // CHECK: grid_size : 56
 
   size_t size;
-  module.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      size = hsacoAttr.getValue().size();
-      // printf("Binary size : %d\n", size);
-    }
+  module.walk([&](mlir::gpu::BinaryOp binary) {
+    auto object = llvm::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+    size = object.getObject().getValue().size();
+    // printf("Binary size : %d\n", size);
   });
 
   std::vector<char> buffer(size);
-  module.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      std::string hsaco = hsacoAttr.getValue().str();
-      std::copy(hsaco.begin(), hsaco.end(), buffer.data());
-      /*std::cout << "hsaco = ";
-      for(auto o: buffer)
-        std::cout << o;
-      std::cout << std::endl;*/
-    }
+  module.walk([&](mlir::gpu::BinaryOp binary) {
+    auto object = llvm::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+    llvm::StringRef hsaco = object.getObject().getValue();
+    std::copy(hsaco.begin(), hsaco.end(), buffer.data());
+    /*std::cout << "hsaco = ";
+    for(auto o: buffer)
+      std::cout << o;
+    std::cout << std::endl;*/
   });
 
   mlirModuleDestroy(moduleOp1);

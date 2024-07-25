@@ -32,11 +32,11 @@
 ; CHECK-LABEL: entry
 ; CHECK:  %cmp = icmp eq i32 %foo.0., 4, !dbg !14
 ; CHECK:  %add = add nsw i32 %foo.0.4, 2, !dbg !16
-; CHECK-NOT: @llvm.dbg.value(metadata i32 %add
+; CHECK-NOT: #dbg_value(i32 %add
 ; CHECK:  %sub = add nsw i32 %foo.0.4, -2, !dbg !16
-; CHECK-NOT: @llvm.dbg.value(metadata i32 %sub
+; CHECK-NOT: #dbg_value(i32 %sub
 ; CHECK:  %result.0 = select i1 %cmp, i32 %add, i32 %sub
-; CHECK:  call void @llvm.dbg.value(metadata i32 %result.0, metadata !12, metadata !DIExpression()), !dbg !13
+; CHECK:  #dbg_value(i32 %result.0, !12, !DIExpression(), !13
 
 ; ModuleID = 'pr38763.cpp'
 source_filename = "pr38763.cpp"
@@ -47,10 +47,9 @@ target triple = "x86_64-pc-linux-gnu"
 define dso_local i32 @main() local_unnamed_addr #0 !dbg !7 {
 entry:
   %foo = alloca i32, align 4
-  %foo.0..sroa_cast = bitcast i32* %foo to i8*
-  store volatile i32 4, i32* %foo, align 4
-  %foo.0. = load volatile i32, i32* %foo, align 4
-  %foo.0.4 = load volatile i32, i32* %foo, align 4
+  store volatile i32 4, ptr %foo, align 4
+  %foo.0. = load volatile i32, ptr %foo, align 4
+  %foo.0.4 = load volatile i32, ptr %foo, align 4
   call void @llvm.dbg.value(metadata i32 0, metadata !16, metadata !DIExpression()), !dbg !27
   %cmp = icmp eq i32 %foo.0., 4, !dbg !28
   br i1 %cmp, label %if.then, label %if.else, !dbg !30

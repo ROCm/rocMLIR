@@ -50,7 +50,7 @@ getEquivalentFuncArgIdx(FuncOp funcOp, const FuncAnalysisState &state,
 
 /// Return the FuncOp called by `callOp`.
 static FuncOp getCalledFunction(CallOpInterface callOp) {
-  SymbolRefAttr sym = callOp.getCallableForCallee().dyn_cast<SymbolRefAttr>();
+  SymbolRefAttr sym = dyn_cast<SymbolRefAttr>(callOp.getCallableForCallee());
   if (!sym)
     return nullptr;
   return dyn_cast_or_null<FuncOp>(
@@ -90,8 +90,8 @@ struct LaunchOpInterface
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
     mhal::LaunchOp launchOp = cast<mhal::LaunchOp>(op);
-    auto opOperandIdx = opOperand.getOperandNumber()
-      - launchOp.getDependencies().size();
+    auto opOperandIdx =
+        opOperand.getOperandNumber() - launchOp.getDependencies().size();
     mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
@@ -108,11 +108,10 @@ struct LaunchOpInterface
                                const AnalysisState &state) const {
     // operands are always inputs
     return false;
-
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
-                                            const AnalysisState &state) const {
+                                      const AnalysisState &state) const {
     // results never alias with operands
     AliasingValueList result;
     return result;
@@ -131,7 +130,7 @@ struct LaunchOpInterface
 
     // Result types of the bufferized CallOp.
     SmallVector<Type> resultTypes;
-    
+
     // Operands of the bufferized CallOp.
     SmallVector<Value> newOperands(numOperands, Value());
 
@@ -140,10 +139,10 @@ struct LaunchOpInterface
     for (const auto &it : llvm::enumerate(callOp->getResults())) {
       auto returnVal = it.value();
       Type returnType = returnVal.getType();
-      if (returnType.isa<TensorType>()) {
+      if (isa<TensorType>(returnType)) {
         assert(returnType == callResultTypes[funcResultIdx++]);
         FailureOr<BaseMemRefType> memrefType =
-          bufferization::getBufferType(returnVal, options);
+            bufferization::getBufferType(returnVal, options);
         if (failed(memrefType))
           return failure();
         resultTypes.push_back(*memrefType);
@@ -161,11 +160,11 @@ struct LaunchOpInterface
       unsigned idx = opOperand.getOperandNumber();
       Value tensorOperand = opOperand.get();
       // Non-tensor operands are just copied.
-      if (tensorOperand.getType().isa<mhal::TokenType>()) {
+      if (isa<mhal::TokenType>(tensorOperand.getType())) {
         newOperands[idx] = tensorOperand;
         continue;
       }
-      if (!tensorOperand.getType().isa<TensorType>()) {
+      if (!isa<TensorType>(tensorOperand.getType())) {
         newOperands[idx] = tensorOperand;
         if (tensorOperand == callOperands[funcOperandIdx])
           funcOperandIdx++;

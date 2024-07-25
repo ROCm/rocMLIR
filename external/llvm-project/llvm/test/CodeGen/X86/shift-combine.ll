@@ -20,8 +20,8 @@ define dso_local i32 @test_lshr_and(i32 %x) {
 ; X64-NEXT:    retq
   %tmp2 = lshr i32 %x, 2
   %tmp3 = and i32 %tmp2, 3
-  %tmp4 = getelementptr [4 x i32], [4 x i32]* @array, i32 0, i32 %tmp3
-  %tmp5 = load i32, i32* %tmp4, align 4
+  %tmp4 = getelementptr [4 x i32], ptr @array, i32 0, i32 %tmp3
+  %tmp5 = load i32, ptr %tmp4, align 4
   ret i32 %tmp5
 }
 
@@ -43,8 +43,8 @@ define dso_local ptr @test_exact1(i32 %a, i32 %b, ptr %x)  {
 ; X64-NEXT:    retq
   %sub = sub i32 %b, %a
   %shr = ashr exact i32 %sub, 3
-  %gep = getelementptr inbounds i32, i32* %x, i32 %shr
-  ret i32* %gep
+  %gep = getelementptr inbounds i32, ptr %x, i32 %shr
+  ret ptr %gep
 }
 
 define dso_local ptr @test_exact2(i32 %a, i32 %b, ptr %x)  {
@@ -65,8 +65,8 @@ define dso_local ptr @test_exact2(i32 %a, i32 %b, ptr %x)  {
 ; X64-NEXT:    retq
   %sub = sub i32 %b, %a
   %shr = ashr exact i32 %sub, 3
-  %gep = getelementptr inbounds i32, i32* %x, i32 %shr
-  ret i32* %gep
+  %gep = getelementptr inbounds i32, ptr %x, i32 %shr
+  ret ptr %gep
 }
 
 define dso_local ptr @test_exact3(i32 %a, i32 %b, ptr %x)  {
@@ -86,8 +86,8 @@ define dso_local ptr @test_exact3(i32 %a, i32 %b, ptr %x)  {
 ; X64-NEXT:    retq
   %sub = sub i32 %b, %a
   %shr = ashr exact i32 %sub, 2
-  %gep = getelementptr inbounds i32, i32* %x, i32 %shr
-  ret i32* %gep
+  %gep = getelementptr inbounds i32, ptr %x, i32 %shr
+  ret ptr %gep
 }
 
 define dso_local ptr @test_exact4(i32 %a, i32 %b, ptr %x)  {
@@ -108,8 +108,8 @@ define dso_local ptr @test_exact4(i32 %a, i32 %b, ptr %x)  {
 ; X64-NEXT:    retq
   %sub = sub i32 %b, %a
   %shr = lshr exact i32 %sub, 3
-  %gep = getelementptr inbounds i32, i32* %x, i32 %shr
-  ret i32* %gep
+  %gep = getelementptr inbounds i32, ptr %x, i32 %shr
+  ret ptr %gep
 }
 
 define dso_local ptr @test_exact5(i32 %a, i32 %b, ptr %x)  {
@@ -130,8 +130,8 @@ define dso_local ptr @test_exact5(i32 %a, i32 %b, ptr %x)  {
 ; X64-NEXT:    retq
   %sub = sub i32 %b, %a
   %shr = lshr exact i32 %sub, 3
-  %gep = getelementptr inbounds i32, i32* %x, i32 %shr
-  ret i32* %gep
+  %gep = getelementptr inbounds i32, ptr %x, i32 %shr
+  ret ptr %gep
 }
 
 define dso_local ptr @test_exact6(i32 %a, i32 %b, ptr %x)  {
@@ -150,8 +150,8 @@ define dso_local ptr @test_exact6(i32 %a, i32 %b, ptr %x)  {
 ; X64-NEXT:    retq
   %sub = sub i32 %b, %a
   %shr = lshr exact i32 %sub, 2
-  %gep = getelementptr inbounds i32, i32* %x, i32 %shr
-  ret i32* %gep
+  %gep = getelementptr inbounds i32, ptr %x, i32 %shr
+  ret ptr %gep
 }
 
 ; PR42644 - https://bugs.llvm.org/show_bug.cgi?id=42644
@@ -324,7 +324,7 @@ define dso_local i32 @ashr_add_shl_i32_i8_extra_use1(i32 %r, ptr %p) nounwind {
 ; X64-NEXT:    retq
   %conv = shl i32 %r, 24
   %sext = add i32 %conv, 33554432
-  store i32 %sext, i32* %p
+  store i32 %sext, ptr %p
   %conv1 = ashr i32 %sext, 24
   ret i32 %conv1
 }
@@ -349,7 +349,7 @@ define dso_local i32 @ashr_add_shl_i32_i8_extra_use2(i32 %r, ptr %p) nounwind {
 ; X64-NEXT:    sarl $24, %eax
 ; X64-NEXT:    retq
   %conv = shl i32 %r, 24
-  store i32 %conv, i32* %p
+  store i32 %conv, ptr %p
   %sext = add i32 %conv, 33554432
   %conv1 = ashr i32 %sext, 24
   ret i32 %conv1
@@ -378,9 +378,9 @@ define dso_local i32 @ashr_add_shl_i32_i8_extra_use3(i32 %r, ptr %p1, ptr %p2) n
 ; X64-NEXT:    sarl $24, %eax
 ; X64-NEXT:    retq
   %conv = shl i32 %r, 24
-  store i32 %conv, i32* %p1
+  store i32 %conv, ptr %p1
   %sext = add i32 %conv, 33554432
-  store i32 %sext, i32* %p2
+  store i32 %sext, ptr %p2
   %conv1 = ashr i32 %sext, 24
   ret i32 %conv1
 }
@@ -404,8 +404,8 @@ define dso_local void @PR42880(i32 %t0) {
 ; X64-NEXT:  # %bb.2: # %if
 ; X64-NEXT:  .LBB16_1: # %then
   %sub = add nsw i32 %t0, -1
-  %add.ptr.i94 = getelementptr inbounds %"class.QPainterPath", %"class.QPainterPath"* null, i32 %sub
-  %x = ptrtoint %"class.QPainterPath"* %add.ptr.i94 to i32
+  %add.ptr.i94 = getelementptr inbounds %"class.QPainterPath", ptr null, i32 %sub
+  %x = ptrtoint ptr %add.ptr.i94 to i32
   %sub2 = sub i32 %x, 0
   %div = sdiv exact i32 %sub2, 24
   br i1 undef, label %if, label %then
@@ -444,12 +444,10 @@ define i64 @ashr_add_neg_shl_i32(i64 %r) nounwind {
 define i64 @ashr_add_neg_shl_i8(i64 %r) nounwind {
 ; X86-LABEL: ashr_add_neg_shl_i8:
 ; X86:       # %bb.0:
-; X86-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; X86-NEXT:    shll $24, %eax
-; X86-NEXT:    movl $33554432, %edx # imm = 0x2000000
-; X86-NEXT:    subl %eax, %edx
-; X86-NEXT:    movl %edx, %eax
-; X86-NEXT:    sarl $24, %eax
+; X86-NEXT:    movb $2, %al
+; X86-NEXT:    subb {{[0-9]+}}(%esp), %al
+; X86-NEXT:    movsbl %al, %eax
+; X86-NEXT:    movl %eax, %edx
 ; X86-NEXT:    sarl $31, %edx
 ; X86-NEXT:    retl
 ;
@@ -786,4 +784,39 @@ define <4 x i32> @or_tree_with_mismatching_shifts_vec_i32(<4 x i32> %a, <4 x i32
   %or.cd = or <4 x i32> %c.shifted, %d
   %r = or <4 x i32> %or.ab, %or.cd
   ret <4 x i32> %r
+}
+
+; Reproducer for a DAGCombiner::combineShiftOfShiftedLogic bug. DAGCombiner
+; need to check that the sum of the shift amounts fits in i8, which is the
+; legal type used to described X86 shift amounts. Verify that we do not try to
+; create a shift with 130+160 as shift amount, and verify that the stored
+; value do not depend on %a1.
+define void @combineShiftOfShiftedLogic(i128 %a1, i32 %a2, ptr %p) {
+; X86-LABEL: combineShiftOfShiftedLogic:
+; X86:       # %bb.0:
+; X86-NEXT:    movl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    movl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    movl %eax, 20(%ecx)
+; X86-NEXT:    movl $0, 16(%ecx)
+; X86-NEXT:    movl $0, 12(%ecx)
+; X86-NEXT:    movl $0, 8(%ecx)
+; X86-NEXT:    movl $0, 4(%ecx)
+; X86-NEXT:    movl $0, (%ecx)
+; X86-NEXT:    retl
+;
+; X64-LABEL: combineShiftOfShiftedLogic:
+; X64:       # %bb.0:
+; X64-NEXT:    # kill: def $edx killed $edx def $rdx
+; X64-NEXT:    shlq $32, %rdx
+; X64-NEXT:    movq %rdx, 16(%rcx)
+; X64-NEXT:    movq $0, 8(%rcx)
+; X64-NEXT:    movq $0, (%rcx)
+; X64-NEXT:    retq
+  %zext1 = zext i128 %a1 to i192
+  %zext2 = zext i32 %a2 to i192
+  %shl = shl i192 %zext1, 130
+  %or = or i192 %shl, %zext2
+  %res = shl i192 %or, 160
+  store i192 %res, ptr %p, align 8
+  ret void
 }

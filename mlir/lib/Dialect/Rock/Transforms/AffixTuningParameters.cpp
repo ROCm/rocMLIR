@@ -1,5 +1,4 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
@@ -72,8 +71,8 @@ void AffixTuningParameters::runOnOperation() {
       OpBuilder b(op.getContext());
       auto func = llvm::cast<func::FuncOp>(op->getParentOp());
       auto c = op.getC();
-      auto attrName = mhal::PrefillAttr::getMnemonic();
-      auto elementType = c.getType().cast<MemRefType>().getElementType();
+      auto attrName = rock::PrefillAttr::getMnemonic();
+      auto elementType = cast<MemRefType>(c.getType()).getElementType();
       Attribute zero;
       if (llvm::isa<FloatType>(elementType)) {
         zero = b.getFloatAttr(elementType, 0.0);
@@ -91,7 +90,7 @@ template <typename T>
 void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
   OpBuilder b(&getContext());
 
-  int64_t numElements = arg.getType().cast<ShapedType>().getNumElements();
+  int64_t numElements = cast<ShapedType>(arg.getType()).getNumElements();
   uint32_t blockSize = kUtilityKernelBlockSize;
   int64_t elemsPerThread = kUtilityKernelElemsPerThread;
   uint32_t gridSize =
@@ -172,10 +171,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
     RockAccelTuningParamAttrInterface gemmParams;
     Attribute gemmParamsAttr =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
-    if (auto xdlopsParams = gemmParamsAttr.dyn_cast<XdlopsGemmParamsAttr>()) {
+    if (auto xdlopsParams = dyn_cast<XdlopsGemmParamsAttr>(gemmParamsAttr)) {
       gemmParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
     } else {
-      gemmParams = gemmParamsAttr.cast<RockAccelTuningParamAttrInterface>();
+      gemmParams = cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
     }
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
@@ -207,11 +206,11 @@ static RockAccelTuningParamAttrInterface
 deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
                         AttnPerfConfigAttr attnPerfConfig) {
   auto gemm0TuningParams =
-      op.getParams0().value().cast<RockAccelTuningParamAttrInterface>();
+      cast<RockAccelTuningParamAttrInterface>(op.getParams0().value());
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
   int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
   if (auto gemm0XdlDerivedParams =
-          op.getParams0().value().dyn_cast<XdlopsGemmDerivedParamsAttr>()) {
+          dyn_cast<XdlopsGemmDerivedParamsAttr>(op.getParams0().value())) {
     gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
     return XdlopsGemmDerivedParamsAttr::get(
         builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
@@ -234,10 +233,9 @@ deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   OpBuilder builder(op.getContext());
-  Type elemTypeQ =
-      op.getQueries().getType().cast<MemRefType>().getElementType();
-  Type elemTypeK = op.getKeys().getType().cast<MemRefType>().getElementType();
-  Type elemTypeV = op.getValues().getType().cast<MemRefType>().getElementType();
+  Type elemTypeQ = cast<MemRefType>(op.getQueries().getType()).getElementType();
+  Type elemTypeK = cast<MemRefType>(op.getKeys().getType()).getElementType();
+  Type elemTypeV = cast<MemRefType>(op.getValues().getType()).getElementType();
   bool isAccel = rock::isAccel(op.getFeatures());
   if (!isAccel) {
     op.emitError("Currently, attention op is only supported on GPUs "

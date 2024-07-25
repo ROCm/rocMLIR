@@ -616,10 +616,9 @@ struct IndexDiffUpdateRewritePattern
           assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
 
           for (uint32_t iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
-            lowerDiffModified.push_back(
-                b.create<ConstantIndexOp>(loc, lowerDiffModifiedAttr[iter]
-                                                   .template cast<IntegerAttr>()
-                                                   .getInt()));
+            lowerDiffModified.push_back(b.create<ConstantIndexOp>(
+                loc,
+                mlir::cast<IntegerAttr>(lowerDiffModifiedAttr[iter]).getInt()));
           }
           assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
         } else {
@@ -832,8 +831,8 @@ struct ExtractSliceRewritePattern : public OpRewritePattern<ExtractSliceOp> {
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     Value base = op.getCoord();
-    if (auto destType = op.getResult().getType().dyn_cast<VectorType>()) {
-      if (destType == op.getVector().getType().cast<VectorType>()) {
+    if (auto destType = dyn_cast<VectorType>(op.getResult().getType())) {
+      if (destType == cast<VectorType>(op.getVector().getType())) {
         // Extracting something the same size as the vector is a noop since
         // the index must be 0 for the op to be defined. This is here in case
         // the canonicalizer didn't catch this or didn't run.
@@ -866,8 +865,8 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     Value base = op.getCoord();
-    if (auto srcType = op.getSource().getType().dyn_cast<VectorType>()) {
-      if (srcType == op.getDest().getType().cast<VectorType>()) {
+    if (auto srcType = dyn_cast<VectorType>(op.getSource().getType())) {
+      if (srcType == cast<VectorType>(op.getDest().getType())) {
         // Inserting a slice of the same size as the destination is a noop
         // since the index must be 0 for the op to be defined. This is here in
         // case the canonicalizer didn't run or didn't catch the problem.
@@ -899,7 +898,7 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
 /// of dynamic shapes.
 static Value computeMemRefNumElements(OpBuilder &b, Location loc,
                                       Value memref) {
-  auto type = memref.getType().cast<MemRefType>();
+  auto type = cast<MemRefType>(memref.getType());
   if (type.hasStaticShape())
     return b.createOrFold<ConstantIndexOp>(loc, type.getNumElements());
   Value result = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
@@ -951,7 +950,7 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
                                  Value dest, ArrayRef<Value> coords,
                                  bool useBufferOobChecks) {
 
-  assert(dest.getType().isa<ShapedType>() && "Data needs to have a shape!");
+  assert(isa<ShapedType>(dest.getType()) && "Data needs to have a shape!");
   ArrayRef<int64_t> shape = cast<ShapedType>(dest.getType()).getShape();
   assert(coords.size() == shape.size() &&
          "Shape and coordinates should have the same size!");
@@ -1072,8 +1071,18 @@ static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
   auto oneDType = MemRefType::get({1}, type.getElementType(), nullptr,
                                   type.getMemorySpace());
   ArrayAttr expansions = b.getArrayAttr({});
+  SmallVector<ReassociationIndices, 4> reassociation;
+  for (Attribute attr : expansions) {
+    ArrayAttr arrayAttrElem = cast<ArrayAttr>(attr);
+    ReassociationIndices indices;
+    for (Attribute indexAttr : arrayAttrElem) {
+      indices.push_back(cast<IntegerAttr>(indexAttr).getInt());
+    }
+    reassociation.push_back(indices);
+  }
+  ArrayRef<ReassociationIndices> reassociationRef = reassociation;
   return b.createOrFold<memref::ExpandShapeOp>(memref.getLoc(), oneDType,
-                                               memref, expansions);
+                                               memref, reassociationRef);
 }
 
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
@@ -1399,7 +1408,7 @@ struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
 
   LogicalResult matchAndRewrite(InBoundsLoadOp op,
                                 PatternRewriter &b) const override {
-    if (auto destType = op.getResult().getType().dyn_cast<VectorType>()) {
+    if (auto destType = dyn_cast<VectorType>(op.getResult().getType())) {
       b.replaceOpWithNewOp<vector::TransferReadOp>(
           op, destType, op.getSource(), op.getCoords(),
           /*inbounds=*/ArrayRef<bool>(true));
@@ -1418,7 +1427,7 @@ struct InBoundsStoreRewritePattern : public OpRewritePattern<InBoundsStoreOp> {
 
   LogicalResult matchAndRewrite(InBoundsStoreOp op,
                                 PatternRewriter &b) const override {
-    if (auto srcType = op.getData().getType().dyn_cast<VectorType>()) {
+    if (auto srcType = dyn_cast<VectorType>(op.getData().getType())) {
       b.replaceOpWithNewOp<vector::TransferWriteOp>(
           op, op.getData(), op.getDest(), op.getCoords(),
           /*inbounds=*/ArrayRef<bool>(true));

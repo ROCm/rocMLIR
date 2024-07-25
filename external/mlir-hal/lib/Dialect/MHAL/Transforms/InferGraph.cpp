@@ -98,7 +98,7 @@ class MHALInferGraphPass
     SmallVector<Value, 4> tokens;
     for (auto operand : op.getOperands()) {
       // Disallow memrefs to avoid aliasing
-      if (operand.getType().isa<MemRefType>())
+      if (isa<MemRefType>(operand.getType()))
         return op.emitOpError("unsupported MemRefTypes");
 
       if (auto itoken = res2tokens.lookup(operand)) {

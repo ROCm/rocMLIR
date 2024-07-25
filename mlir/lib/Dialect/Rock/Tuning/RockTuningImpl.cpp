@@ -39,18 +39,21 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16}};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128, 256},
-      /*gemm1MPerBlock=*/{32, 64, 128, 256},
+      /*gemm0MPerBlock=*/{32, 64, 128},
+      /*gemm1MPerBlock=*/{32, 64, 128},
       /*gemm0NPerBlock=*/{32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64, 128, 256},
-      /*nPerWave=*/{32, 64, 128, 256},
+      /*mPerWave=*/{32, 64},
+      /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
   GemmFeatures features = attnOp.getFeatures();
+  int64_t numEUPerCU = rock::lookupArchInfo(attnOp.getArch()).numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
+  bool isWMMA = false;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
     validRangeAttnParams = validRangeAttnParamsMFMA;
   } else if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
+    isWMMA = true;
     validRangeAttnParams = validRangeAttnParamsWMMA;
   }
   OpBuilder b(attnOp.getContext());
@@ -61,6 +64,14 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
           for (uint32_t gemmMPerWave : validRangeAttnParams[4]) {
             for (uint32_t gemmMnPerXdlOrNPerWave : validRangeAttnParams[5]) {
               for (uint32_t gemmKPack : validRangeAttnParams[6]) {
+                if (isWMMA) {
+                  int64_t nPerWave = gemmMnPerXdlOrNPerWave;
+                  int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
+                                      (gemm0NPerBlock / nPerWave);
+                  if (rdnaWaves < numEUPerCU) {
+                    continue;
+                  }
+                }
                 if (gemm0MPerBlock >= gemmMPerWave &&
                     gemm1MPerBlock >= gemmMPerWave &&
                     gemm1MPerBlock >= gemm0MPerBlock &&
@@ -257,9 +268,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                splitKFactor, forceUnroll, true);
                     if (gemmMPerBlock >= gemmMPerWave &&
                         gemmNPerBlock >= gemmMnPerXdl) {
-                      if (kind == TuningParamSetKind::Exhaustive ||
-                          (succeeded(tuningInfo.paramsProbablyValid(
-                               b, info, gemmParams)) &&
+                      if (succeeded(tuningInfo.paramsProbablyValid(
+                              b, info, gemmParams)) &&
+                          (kind == TuningParamSetKind::Exhaustive ||
                            succeeded(
                                tuningInfo.couldBePerformant(info, gemmParams))))
                         newSpace->tuningRange.push_back(
@@ -390,7 +401,7 @@ void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
   OpBuilder b(attnOp.getContext());
   GemmFeatures currentFeatures = attnOp.getFeatures();
   Type elemType =
-      attnOp.getQueries().getType().cast<ShapedType>().getElementType();
+      cast<ShapedType>(attnOp.getQueries().getType()).getElementType();
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
                      int64_t>
@@ -660,24 +671,21 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     llvm::StringMap<unsigned> oLayoutMap;
 
     for (unsigned i = 0; i < size; ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
       StringRef fKey = filterAttr.getValue();
       if (fKey == "y")
         fKey = "0";
       if (fKey == "x")
         fKey = "1";
       fLayoutMap[fKey] = i;
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
       StringRef iKey = inputAttr.getValue();
       if (iKey == "hi")
         iKey = "0i";
       if (iKey == "wi")
         iKey = "1i";
       iLayoutMap[iKey] = i;
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
       StringRef oKey = outputAttr.getValue();
       if (oKey == "ho")
         oKey = "0o";
@@ -824,7 +832,7 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 
     // OUtput datatype
     auto outType = gemmIF.getOutArgument()->get().getType();
-    auto elemTypeC = outType.dyn_cast<mlir::MemRefType>().getElementType();
+    auto elemTypeC = dyn_cast<mlir::MemRefType>(outType).getElementType();
     problemOS << " -out_datatype ";
     if (elemTypeC.isFloat8E4M3FNUZ()) {
       problemOS << "fp8" << sep;

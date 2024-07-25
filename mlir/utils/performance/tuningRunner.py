@@ -96,11 +96,12 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
 
 def getWinningConfig(tuningOutput, config, allData, options: Options):
     maxTFlops = -np.inf
+    minNs = np.inf
     winningConfig = "None"
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
         if not options.quiet and not options.compact_print and i > 0 and i % 100 == 0:
-            print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
+            print(f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
         if options.debug:
             print(result, file=sys.stderr)
         # Time is in ns
@@ -116,9 +117,10 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         theseTFlops = entry['TFlops']
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
+            minNs = nanoSeconds
             winningConfig = perfConfig
             if options.compact_print and not options.quiet:
-                print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
+                print(f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
 
     return winningConfig, maxTFlops
 

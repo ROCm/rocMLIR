@@ -8,11 +8,10 @@ if(NOT ${LIBOMPTARGET_OMPT_SUPPORT})
   return()
 endif()
 
+option(LIBOMPTEST_USE_GOOGLETEST "If set to 'ON' build ompTest upon GoogleTest, otherwise 'standalone'." OFF)
+
 cmake_minimum_required(VERSION 3.22)
 project(omptest LANGUAGES CXX)
-
-# Use LLVM-bundled GoogleTest
-include(GoogleTest)
 
 set(OMPTEST_HEADERS
   ./include/AssertMacros.h
@@ -23,11 +22,10 @@ set(OMPTEST_HEADERS
   ./include/OmptAssertEvent.h
   ./include/OmptCallbackHandler.h
   ./include/OmptTester.h
-  ./include/OmptTesterGoogleTest.h
-  ./include/OmptTesterStandalone.h
+  ./include/OmptTesterGlobals.h
 )
 
-add_llvm_library(omptest
+add_library(omptest
   SHARED
 
   ${OMPTEST_HEADERS}
@@ -37,17 +35,26 @@ add_llvm_library(omptest
   ./src/OmptAssertEvent.cpp
   ./src/OmptCallbackHandler.cpp
   ./src/OmptTester.cpp
+)
 
-  ADDITIONAL_HEADER_DIRS
-  ${LIBOMPTARGET_INCLUDE_DIR}
-  ${LIBOMPTARGET_DEP_LIBFFI_INCLUDE_DIR}
-
-  LINK_LIBS
+if(NOT LIBOMPTEST_USE_GOOGLETEST)
+  # Add 'standalone' source files
+  target_sources(omptest
   PRIVATE
-  ${LIBOMPTARGET_DEP_LIBFFI_LIBRARIES}
-  ${OPENMP_PTHREAD_LIB}
+  ./include/OmptTesterStandalone.h
+  ./src/OmptTesterStandalone.cpp)
+else()
+  # Use LLVM-bundled GoogleTest
+  include(GoogleTest)
+  # Add GoogleTest-based header
+  target_sources(omptest PRIVATE ./include/OmptTesterGoogleTest.h)
+  # Add compile definition
+  add_definitions(-DLIBOFFLOAD_LIBOMPTEST_USE_GOOGLETEST)
+endif()
 
-  NO_INSTALL_RPATH
+target_include_directories(omptest
+  PRIVATE
+  ${LIBOMPTARGET_INCLUDE_DIR}
 )
 
 # Include local include directory, so we do not need relative paths
@@ -66,9 +73,11 @@ configure_file(
   ${omptest_BINARY_DIR}/cmake/omptest-config.cmake @ONLY)
 
 install(FILES ${omptest_BINARY_DIR}/cmake/omptest-config.cmake
-        DESTINATION lib/cmake/omptest)
+        DESTINATION "${OFFLOAD_INSTALL_LIBDIR}/cmake/omptest")
 
 # Install libomptest header files: Copy the whole include dir
 install(DIRECTORY ./include
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/omptest
+        DESTINATION "${OFFLOAD_INSTALL_LIBDIR}/omptest"
         FILES_MATCHING PATTERN "*.h")
+
+install(TARGETS omptest LIBRARY COMPONENT omptest DESTINATION "${OFFLOAD_INSTALL_LIBDIR}")

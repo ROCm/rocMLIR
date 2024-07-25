@@ -9,6 +9,108 @@ Revert :breaks hip catch tests.
 1de7e6c8cba2 [clang] move -Wcast-function-type under -Wextra (#77178)
 999d4f840777 Split -Wcast-function-type into a separate group (#86131)   
 
-Revert; breaks build of rccl and blas and rocSolver
-* f4bbcac2 [Clang] Allow the value of unroll count to be zero  in `#pragma GCC unroll` and `#pragma unroll` (#88666)
-Clang] Fix a crash introduced in PR#88666 (#89567)   
+---
+Revert: 8009bbe
+  Commit title:
+    Revert "Reapply "[Clang][Sema] Diagnose class member access expressions
+    naming non-existent members of the current instantiation prior to
+    instantiation in the absence of dependent base classes (#84050)"
+    (#90152)"
+
+  Reason for revert:
+    - Breaks composable kernels:
+
+      [2024-05-01T03:06:52.796Z] /jenkins/workspace/compiler-psdb-amd-staging/Libs/composable_kernel/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp:799:32: error: no member named 'a_origin' in 'BlockwiseGemmXdlops_v2<BlockSize, FloatAB, FloatAcc, ATileDesc, BTileDesc, AMmaTileDesc, BMmaTileDesc, MPerBlock, NPerBlock, KPerBlock, MPerXDL, NPerXDL, MRepeat, NRepeat, KPack, TransposeC, AMmaKStride, BMmaKStride>'
+      [2024-05-01T03:06:52.796Z]   799 |         : a_thread_copy_(other.a_origin), b_thread_copy_(other.b_origin)
+      [2024-05-01T03:06:52.796Z]       |                          ~~~~~ ^
+      [2024-05-01T03:06:52.796Z] /jenkins/workspace/compiler-psdb-amd-staging/Libs/composable_kernel/include/ck/tensor_operation/gpu/block/blockwise_gemm_xdlops.hpp:799:64: error: no member named 'b_origin' in 'BlockwiseGemmXdlops_v2<BlockSize, FloatAB, FloatAcc, ATileDesc, BTileDesc, AMmaTileDesc, BMmaTileDesc, MPerBlock, NPerBlock, KPerBlock, MPerXDL, NPerXDL, MRepeat, NRepeat, KPack, TransposeC, AMmaKStride, BMmaKStride>'
+      [2024-05-01T03:06:52.796Z]   799 |         : a_thread_copy_(other.a_origin), b_thread_copy_(other.b_origin)
+
+    - Breaks rocthrust:
+
+      [2024-05-01T03:18:40.779Z] /jenkins/workspace/compiler-psdb-amd-staging_2/Libs/rocThrust/thrust/../thrust/optional.h:2756:11: error: no member named 'construct' in 'optional<type-parameter-0-0 &>'
+      [2024-05-01T03:18:40.779Z]  2756 |     this->construct(std::forward<Args>(args)...);
+
+    fd87d765c045 [Clang][Sema] Don't build CXXDependentScopeMemberExprs for potent
+    acf5ad2a4ed9 [Clang][Sema] Diagnose current instantiation used as an incomplete
+
+  Contacts:
+    Sam, Konstantin
+---
+Revert: 41f9c78
+  Commit title:
+    Revert "[OpenACC] Fix test failure from fa67986d"
+
+  Reason for revert:
+    - Descendant of a previous revert (8009bbe)
+
+  Contacts:
+    Konstantin
+---
+
+Revert "Recommit "[InstCombine] Expand `foldSelectICmpAndOr` -> `foldSelectICmpAndBinOp` to work for more binops" (3rd Try)"
+
+    Backup fix for SWDEV-454675
+
+    This reverts commit 54ec8bcaf85e3a3341c97640331d58e24ac0d2cd.
+
+contact: Selehov
+
+---
+Revert: breaks ipBlender*
+0e73bbd3450c   [AMDGPU][PromoteAlloca] Don't stop when an alloca is too big to promote (#93466) 
+
+contact: Pierre
+
+---
+Revert: temaplate breaks ComposableKernel build
+f46d1463b835 [clang] require template arg list after template kw (#80801) 
+contact : RonL
+---
+Revert: Breaks check-clang test 'clang/test/Modules/pr60085.cppm'
+99873b35da7e [NFC] [AST] Introduce Decl::isInAnotherModuleUnit and Decl::shouldEmitInExternalSource
+contact : mhalk (Michael Halkenhaeuser)
+---
+Revert:  breaks composableKernel
+53d2f4d96783 [CUDA][HIP] warn incompatible redeclare (#77359)     
+contact : Ronl or Sam
+---
+Revert: breaks MIOpen 
+18ec885a2604 [RFC][AMDGPU] Remove old llvm.amdgcn.buffer.* and tbuffer intrinsics (#93801)     
+contact: Ron and Jay
+---
+Reverts: break componsableKernels
+9a88aa0e2b6d [Clang][Sema] Diagnose variable template explicit specializati
+contact: RonL
+
+---
+Reverts:
+7cfffe74 Unittests and usability for BitstreamWriter incremental flushing (#92983)
+993d2383e68b [ctx_prof] Remove `Buffer` field in PGOCtxProfWriter  
+1488fb415336 [PAC][AArch64] Lower ptrauth constants in code (#96879)  
+Contacts: RonL and Hulk
+---
+needs previous SEMA patches
+584e431a4b25 [Clang][Sema] Treat explicit specializations of static data member templates declared without '
+---
+reverts: breaks hipBlender*
+4eecf3c6 [SLP]Reorder buildvector/reduction vectorization and fuse
+3742c2a83cd6 [SLP]Use stored signedness after minbitwidth analysis.
+---
+Revert: breaking MIOpen test 2
+f8b1ca4992a2 [MCParser] .altmacro: Support argument expansion not preceded by
+812f9e81d2f7 [MCParser] .altmacro: ignore & after a token
+---
+Reverts: breaks hipBlender* tests in compilation step
+385118644cca [SLP]Remove operands upon marking instruction for deletion.
+---
+Revert: more Sema:
+9e1f1cfa59c4 [Clang][Sema] Handle class member access expressions with valid nested-name-specifiers that become invalid after lookup (#98167)
+RonL
+---
+Reverts: breaks clang-offload-wrapper test
+fb5a38bb4930 [llvm-objcopy] Add verification of added .note section format 
+---
+Reverts: depends upon older SLP reverts
+beccecaacde4 [SLP]Fix PR98838: do no replace condition of select-based logical op by poison.
+---

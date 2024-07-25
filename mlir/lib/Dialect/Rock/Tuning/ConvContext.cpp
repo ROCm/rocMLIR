@@ -22,7 +22,7 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
   assert(layoutAttr.size() == dim.size());
   size_t dimValSize = layoutAttr.size();
   for (size_t i = 0; i < dimValSize; ++i) {
-    auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+    auto key = cast<StringAttr>(layoutAttr.getValue()[i]).getValue();
 
     // +++pf: update old keys.
     if (key == "y")
@@ -90,15 +90,14 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
 
   populateDimIndexAndSize(
       filterLayoutAttr,
-      op->getOperand(0).getType().template cast<MemRefType>().getShape(),
+      cast<MemRefType>(op->getOperand(0).getType()).getShape(),
       dimIndexAndSize);
   populateDimIndexAndSize(
-      inputLayoutAttr,
-      op->getOperand(1).getType().template cast<MemRefType>().getShape(),
+      inputLayoutAttr, cast<MemRefType>(op->getOperand(1).getType()).getShape(),
       dimIndexAndSize);
   populateDimIndexAndSize(
       outputLayoutAttr,
-      op->getOperand(2).getType().template cast<MemRefType>().getShape(),
+      cast<MemRefType>(op->getOperand(2).getType()).getShape(),
       dimIndexAndSize);
 
   auto gemmIface = cast<RockGemmWrapperInterface>(op);

@@ -135,7 +135,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   LogicalResult getTransposeDims(Value v, SmallVector<int32_t> &perms) const {
     Operation *cval = v.getDefiningOp();
     if (isa<arith::ConstantOp>(cval) || isa<tosa::ConstOp>(cval)) {
-      auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
+      auto cattr = cast<DenseElementsAttr>(cval->getAttr("value"));
       auto vals = cattr.tryGetValues<int32_t>();
       if (succeeded(vals)) {
         perms.assign((*vals).begin(), (*vals).end());
@@ -162,7 +162,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
     Location loc = top.getLoc();
     Value inp = top.getOperand(0);
-    ShapedType inpType = inp.getType().template cast<ShapedType>();
+    ShapedType inpType = cast<ShapedType>(inp.getType());
     ArrayRef<int64_t> inpShape = inpType.getShape();
     assert(perms.size() == inpShape.size());
 

@@ -2,7 +2,7 @@
 ; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+amx-int8 -mattr=+avx512f -verify-machineinstrs | FileCheck %s
 ; RUN: llc < %s -mtriple=x86_64-unknown-unknown -mattr=+amx-int8 -mattr=+avx512f,+egpr --show-mc-encoding -verify-machineinstrs | FileCheck %s --check-prefix=EGPR
 
-define dso_local void @test1(i8 *%buf) nounwind {
+define dso_local void @test1(ptr%buf) nounwind {
 ; CHECK-LABEL: test1:
 ; CHECK:       # %bb.0: # %entry
 ; CHECK-NEXT:    pushq %rbp
@@ -44,12 +44,8 @@ define dso_local void @test1(i8 *%buf) nounwind {
 ; CHECK-NEXT:    tileloadd 3024(%rsp,%rax), %tmm3 # 1024-byte Folded Reload
 ; CHECK-NEXT:    tileloadd (%rbx,%r15), %tmm0
 ; CHECK-NEXT:    tileloadd (%rbx,%r15), %tmm1
-; CHECK-NEXT:    # implicit-def: $rax
-; CHECK-NEXT:    movq %rax, {{[-0-9]+}}(%r{{[sb]}}p) # 8-byte Spill
-; CHECK-NEXT:    movabsq $64, %rax
 ; CHECK-NEXT:    tilestored %tmm3, 1024(%rsp,%rax) # 1024-byte Folded Spill
 ; CHECK-NEXT:    tileloadd {{[-0-9]+}}(%r{{[sb]}}p), %tmm2 # 1024-byte Folded Reload
-; CHECK-NEXT:    movq {{[-0-9]+}}(%r{{[sb]}}p), %rax # 8-byte Reload
 ; CHECK-NEXT:    tdpbssd %tmm1, %tmm0, %tmm2
 ; CHECK-NEXT:    tilestored %tmm2, (%rbx,%r15)
 ; CHECK-NEXT:    incl %r14d
@@ -111,16 +107,10 @@ define dso_local void @test1(i8 *%buf) nounwind {
 ; EGPR-NEXT:    # EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7b,0x4b,0x9c,0x04,0xd0,0x0b,0x00,0x00]
 ; EGPR-NEXT:    tileloadd (%rbx,%r15), %tmm0 # EVEX TO VEX Compression encoding: [0xc4,0xa2,0x7b,0x4b,0x04,0x3b]
 ; EGPR-NEXT:    tileloadd (%rbx,%r15), %tmm1 # EVEX TO VEX Compression encoding: [0xc4,0xa2,0x7b,0x4b,0x0c,0x3b]
-; EGPR-NEXT:    # implicit-def: $rax
-; EGPR-NEXT:    movq %rax, {{[-0-9]+}}(%r{{[sb]}}p) # 8-byte Spill
-; EGPR-NEXT:    # encoding: [0x48,0x89,0x84,0x24,0xb8,0x03,0x00,0x00]
-; EGPR-NEXT:    movabsq $64, %rax # encoding: [0x48,0xb8,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
 ; EGPR-NEXT:    tilestored %tmm3, 1024(%rsp,%rax) # 1024-byte Folded Spill
 ; EGPR-NEXT:    # EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7a,0x4b,0x9c,0x04,0x00,0x04,0x00,0x00]
 ; EGPR-NEXT:    tileloadd {{[-0-9]+}}(%r{{[sb]}}p), %tmm2 # 1024-byte Folded Reload
 ; EGPR-NEXT:    # EVEX TO VEX Compression encoding: [0xc4,0xe2,0x7b,0x4b,0x94,0x24,0x00,0x04,0x00,0x00]
-; EGPR-NEXT:    movq {{[-0-9]+}}(%r{{[sb]}}p), %rax # 8-byte Reload
-; EGPR-NEXT:    # encoding: [0x48,0x8b,0x84,0x24,0xb8,0x03,0x00,0x00]
 ; EGPR-NEXT:    tdpbssd %tmm1, %tmm0, %tmm2 # encoding: [0xc4,0xe2,0x73,0x5e,0xd0]
 ; EGPR-NEXT:    tilestored %tmm2, (%rbx,%r15) # EVEX TO VEX Compression encoding: [0xc4,0xa2,0x7a,0x4b,0x14,0x3b]
 ; EGPR-NEXT:    incl %r14d # encoding: [0x41,0xff,0xc6]
@@ -138,7 +128,7 @@ define dso_local void @test1(i8 *%buf) nounwind {
 ; EGPR-NEXT:    vzeroupper # encoding: [0xc5,0xf8,0x77]
 ; EGPR-NEXT:    retq # encoding: [0xc3]
 entry:
-  %t1 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, i8* %buf, i64 64)
+  %t1 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, ptr %buf, i64 64)
   br i1 undef, label %loop.header, label %exit
 
 loop.header:
@@ -147,10 +137,10 @@ loop.header:
   br label %loop.body
 
 loop.body:
-  %t2 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, i8* %buf, i64 32)
-  %t3 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, i8* %buf, i64 32)
+  %t2 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, ptr %buf, i64 32)
+  %t3 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, ptr %buf, i64 32)
   %t4 = tail call x86_amx @llvm.x86.tdpbssd.internal(i16 8, i16 8, i16 8, x86_amx %t1, x86_amx %t2, x86_amx %t3)
-  tail call void @llvm.x86.tilestored64.internal(i16 8, i16 8, i8* %buf, i64 32, x86_amx %t4)
+  tail call void @llvm.x86.tilestored64.internal(i16 8, i16 8, ptr %buf, i64 32, x86_amx %t4)
   br label %loop.latch
 
 loop.latch:
@@ -162,7 +152,7 @@ exit:
   ret void
 }
 
-define dso_local void @test2(i8 *%buf) nounwind {
+define dso_local void @test2(ptr%buf) nounwind {
 ; CHECK-LABEL: test2:
 ; CHECK:       # %bb.0: # %entry
 ; CHECK-NEXT:    pushq %rbp
@@ -277,10 +267,10 @@ loop.header:
   br label %loop.body
 
 loop.body:
-  %t2 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, i8* %buf, i64 32)
-  %t3 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, i8* %buf, i64 32)
+  %t2 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, ptr %buf, i64 32)
+  %t3 = tail call x86_amx @llvm.x86.tileloadd64.internal(i16 8, i16 8, ptr %buf, i64 32)
   %t4 = tail call x86_amx @llvm.x86.tdpbssd.internal(i16 8, i16 8, i16 8, x86_amx %t1, x86_amx %t2, x86_amx %t3)
-  tail call void @llvm.x86.tilestored64.internal(i16 8, i16 8, i8* %buf, i64 32, x86_amx %t4)
+  tail call void @llvm.x86.tilestored64.internal(i16 8, i16 8, ptr %buf, i64 32, x86_amx %t4)
   br label %loop.latch
 
 loop.latch:
@@ -294,6 +284,6 @@ exit:
 
 declare dso_local void @foo()
 declare x86_amx @llvm.x86.tilezero.internal(i16, i16)
-declare x86_amx @llvm.x86.tileloadd64.internal(i16, i16, i8*, i64)
+declare x86_amx @llvm.x86.tileloadd64.internal(i16, i16, ptr, i64)
 declare x86_amx @llvm.x86.tdpbssd.internal(i16, i16, i16, x86_amx, x86_amx, x86_amx)
-declare void @llvm.x86.tilestored64.internal(i16, i16, i8*, i64, x86_amx)
+declare void @llvm.x86.tilestored64.internal(i16, i16, ptr, i64, x86_amx)

@@ -19,6 +19,14 @@ extern "C" {
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(GPU, gpu);
 
+//===-------------------------------------------------------------------===//
+// AsyncTokenType
+//===-------------------------------------------------------------------===//
+
+MLIR_CAPI_EXPORTED bool mlirTypeIsAGPUAsyncTokenType(MlirType type);
+
+MLIR_CAPI_EXPORTED MlirType mlirGPUAsyncTokenTypeGet(MlirContext ctx);
+
 //===---------------------------------------------------------------------===//
 // ObjectAttr
 //===---------------------------------------------------------------------===//
@@ -27,7 +35,8 @@ MLIR_CAPI_EXPORTED bool mlirAttributeIsAGPUObjectAttr(MlirAttribute attr);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 mlirGPUObjectAttrGet(MlirContext mlirCtx, MlirAttribute target, uint32_t format,
-                     MlirStringRef objectStrRef, MlirAttribute mlirObjectProps);
+                     MlirStringRef objectStrRef, MlirAttribute mlirObjectProps,
+                     MlirAttribute mlirKernelsAttr);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 mlirGPUObjectAttrGetTarget(MlirAttribute mlirObjectAttr);
@@ -43,6 +52,12 @@ mlirGPUObjectAttrHasProperties(MlirAttribute mlirObjectAttr);
 
 MLIR_CAPI_EXPORTED MlirAttribute
 mlirGPUObjectAttrGetProperties(MlirAttribute mlirObjectAttr);
+
+MLIR_CAPI_EXPORTED bool
+mlirGPUObjectAttrHasKernels(MlirAttribute mlirObjectAttr);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+mlirGPUObjectAttrGetKernels(MlirAttribute mlirObjectAttr);
 
 #ifdef __cplusplus
 }

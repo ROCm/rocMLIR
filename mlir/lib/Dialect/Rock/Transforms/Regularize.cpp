@@ -165,7 +165,7 @@ void AnnotateGenericOp(Operation *op, MLIRContext *ctx) {
 
       if (isa<BlockArgument>(inp)) {
         auto arg = dyn_cast<BlockArgument>(inp);
-        auto shape = inp.getType().cast<ShapedType>();
+        auto shape = cast<ShapedType>(inp.getType());
         int64_t argSize = shape.getNumElements();
         if (inputIdx == 0 || argSize > majorTensorSize ||
             (argSize == majorTensorSize && argIdx > arg.getArgNumber())) {
@@ -191,7 +191,9 @@ struct PushTransformsUpRewritePattern
   using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
 
   /////////////////////////////////////////////////////////////////////
-  static bool isFusorOp(Operation *useOp) {
+  static bool isFusorOp(Operation *useOp, Value viewedBuffer) {
+    if (auto reduceOp = dyn_cast<rock::ReduceOp>(useOp))
+      return reduceOp.getOut() == viewedBuffer;
     return isa<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
                rock::GridwiseAttentionAccelOp, rock::ThreadwiseWriteAllOp>(
         useOp);
@@ -222,6 +224,8 @@ struct PushTransformsUpRewritePattern
       return rgop.getC() == result;
     } else if (auto rgop = dyn_cast<rock::GridwiseAttentionAccelOp>(forwOp)) {
       return rgop.getOut() == result;
+    } else if (auto reduceOp = dyn_cast<rock::ReduceOp>(forwOp)) {
+      return reduceOp.getOut() == result;
     } else if (auto rgop = dyn_cast<rock::ThreadwiseWriteAllOp>(forwOp)) {
       return rgop.getDest() == result;
     }
@@ -247,7 +251,7 @@ struct PushTransformsUpRewritePattern
         result = top.getResult();
         useOp = (*result.getUses().begin()).getOwner();
       }
-      if (isFusorOp(useOp)) {
+      if (isFusorOp(useOp, result)) {
         fusor = useOp;
       } else if (auto lgop = dyn_cast<linalg::GenericOp>(useOp)) {
         if (!fusor && llvm::is_contained(lgop.getOutputs(), result))
@@ -302,7 +306,7 @@ struct PushTransformsUpRewritePattern
           }
 
           // create new buffer (substitue in fusee)
-          MemRefType nbufferType = readInp.getType().cast<MemRefType>();
+          MemRefType nbufferType = cast<MemRefType>(readInp.getType());
           Value nbuffer =
               rw.create<memref::AllocOp>(loc, nbufferType).getResult();
           // update fusee with new buffer input

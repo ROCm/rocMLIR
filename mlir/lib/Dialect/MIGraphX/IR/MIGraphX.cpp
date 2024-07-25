@@ -19,10 +19,10 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
-#include "mlir/Support/MathExtras.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXDialect.cpp.inc"
@@ -58,7 +58,7 @@ void MIGraphXDialect::initialize() {
 Operation *MIGraphXDialect::materializeConstant(OpBuilder &builder,
                                                 Attribute value, Type type,
                                                 Location loc) {
-  if (!type.isa<MIXRShapedType>())
+  if (!isa<MIXRShapedType>(type))
     return nullptr;
   ElementsAttr elemsValue = dyn_cast<ElementsAttr>(value);
   if (!elemsValue)

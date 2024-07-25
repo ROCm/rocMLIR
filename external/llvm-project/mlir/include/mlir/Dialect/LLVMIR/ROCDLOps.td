@@ -89,11 +89,11 @@ class ROCDL_IntrPure1Op<string mnemonic> :
 
 class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
   list<int> overloadedOperands, list<Trait> traits, int numResults,
-  int requiresAccessGroup = 0, int requiresAliasAnalysis = 0> :
+  int requiresAccessGroup = 0, int requiresAliasAnalysis = 0, list<int> immArgPositions = []> :
   LLVM_IntrOpBase<ROCDL_Dialect,  mnemonic,
     "amdgcn_" # !subst(".", "_", mnemonic), overloadedResults,
     overloadedOperands, traits, numResults, requiresAccessGroup,
-    requiresAliasAnalysis>;
+    requiresAliasAnalysis, 0, immArgPositions>;
 
 //===----------------------------------------------------------------------===//
 // ROCDL special register op definitions
@@ -103,13 +103,9 @@ class ROCDL_SpecialRegisterOp<string mnemonic,
     list<Trait> traits = []> :
   ROCDL_Op<mnemonic, !listconcat(traits, [Pure])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
-  string llvmBuilder = "llvm::Value *theRes = createIntrinsicCallWithRange(builder,"
+  string llvmBuilder = "$res = createIntrinsicCallWithRange(builder,"
     # "llvm::Intrinsic::amdgcn_" # !subst(".","_", mnemonic)
-    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));"
-    // TEMPORARY WORKAROUND FOR TESTING UNTIL LLVM #92801 or equivalent
-    // LANDS.
-    # "::llvm::cast<::llvm::CallInst>(theRes)->addRetAttr(::llvm::Attribute::NoUndef);"
-    # "$res = theRes;";
+    # ", op->getAttrOfType<::mlir::DenseI32ArrayAttr>(\"range\"));";
   let assemblyFormat = "attr-dict `:` type($res)";
 }
 
@@ -245,6 +241,26 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
                         llvmContext.getOrInsertSyncScopeID("workgroup"));
   }];
   let assemblyFormat = "attr-dict";
+}
+
+def ROCDL_BarrierSignalOp : ROCDL_IntrOp<"s.barrier.signal", [], [], [], 0, 0, 0, [0]>,
+  Arguments<(ins I32Attr:$id)> {
+  let results = (outs);
+  let assemblyFormat = "$id attr-dict";
+}
+
+def ROCDL_BarrierWaitOp : ROCDL_IntrOp<"s.barrier.wait", [], [], [], 0>,
+  Arguments<(ins I16Attr:$id)> {
+  let results = (outs);
+  let assemblyFormat = "$id attr-dict";
+  string llvmBuilder =
+    "createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier_wait,builder.getInt16(op.getId()));";
+}
+
+def ROCDL_WaitDscntOp: ROCDL_IntrOp<"s.wait.dscnt", [], [], [], 0, 0, 0, [0]>,
+  Arguments<(ins I16Attr:$id)> {
+  let results = (outs);
+  let assemblyFormat = "$id attr-dict";
 }
 
 def ROCDL_SetPrioOp : ROCDL_IntrOp<"s.setprio", [], [], [], 0>,
@@ -469,43 +485,6 @@ def ROCDL_CvtPkRtz:
   let assemblyFormat = [{
     attr-dict $srcA `,` $srcB `:` type($res)
   }];
-}
-
-/// LEGACY BUFFER OPERATIONS. DO NOT USE IN NEW CODE. KEPT FOR IR COMPATIBILITY.
-//===---------------------------------------------------------------------===//
-// Vector buffer load/store intrinsics
-
-def ROCDL_MubufLoadOp :
-  ROCDL_Op<"buffer.load">,
-  Results<(outs LLVM_Type:$res)>,
-  Arguments<(ins LLVM_Type:$rsrc,
-                 LLVM_Type:$vindex,
-                 LLVM_Type:$offset,
-                 LLVM_Type:$glc,
-                 LLVM_Type:$slc)>{
-  string llvmBuilder = [{
-      $res = createIntrinsicCall(builder,
-          llvm::Intrinsic::amdgcn_buffer_load, {$rsrc, $vindex, $offset, $glc,
-          $slc}, {$_resultType});
-  }];
-  let hasCustomAssemblyFormat = 1;
-}
-
-def ROCDL_MubufStoreOp :
-  ROCDL_Op<"buffer.store">,
-  Arguments<(ins LLVM_Type:$vdata,
-                 LLVM_Type:$rsrc,
-                 LLVM_Type:$vindex,
-                 LLVM_Type:$offset,
-                 LLVM_Type:$glc,
-                 LLVM_Type:$slc)>{
-  string llvmBuilder = [{
-    auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
-    createIntrinsicCall(builder,
-          llvm::Intrinsic::amdgcn_buffer_store, {$vdata, $rsrc, $vindex,
-          $offset, $glc, $slc}, {vdataType});
-  }];
-  let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//

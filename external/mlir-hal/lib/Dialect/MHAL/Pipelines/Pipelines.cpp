@@ -150,6 +150,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   GpuToLLVMConversionPassOptions opts;
   opts.kernelBarePtrCallConv = options.barePtrMemrefs;
   pm.addPass(createGpuToLLVMConversionPass(opts));
+  pm.addPass(createMHALDropBinaryMetadataPass());
 
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createReconcileUnrealizedCastsPass());

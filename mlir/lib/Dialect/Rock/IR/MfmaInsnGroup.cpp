@@ -428,7 +428,7 @@ Type MfmaInsn::getArgTypeFor(Type elementType) {
 VectorType MfmaInsn::getRetType(Type elementType) {
   Builder b(elementType.getContext());
   Type vectorElem;
-  if (elementType.isa<IntegerType>())
+  if (isa<IntegerType>(elementType))
     vectorElem = b.getI32Type();
   else
     vectorElem = b.getF32Type();

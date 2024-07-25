@@ -30,6 +30,8 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   DEPENDS
   MLIRRockOpsIncGen
   MLIRRockPassIncGen
+  MLIRConversionPassIncGen
+  RocMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
   MLIRAffineTransforms

@@ -52,3 +52,16 @@ func.func @reverse_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) features =  mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx940", blockSize = 256 : i32, gridSize = 900 : i32, numCU = 228 : i32, params = #xdlops_gemm_params2} : memref<1x32x128xf32>, memref<1x32x256xf32>, memref<1x128x256xf32>
   return 
 }
+
+// CHECK: @chiplet_grid
+func.func @chiplet_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32} {
+  // CHECK: %[[BID:.+]] = rock.workgroup_id
+  // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c4 : index
+  // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c4 : index
+  // CHECK-DAG: %[[CHIPLET_GRP_ID_LSHIFT:.+]] = arith.muli %[[CHIPLET_GRP_ID]], %c2 : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[CHIPLET_BID]], %[[CHIPLET_GRP_ID_LSHIFT]] : index
+  // CHECK-DAG: %[[IS_TAIL_BID:.+]] = arith.cmpi sgt, %[[BID]], %c7 : index
+  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_TAIL_BID]], %[[BID]], %[[MAYBE_NEW_BID]] : index
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) features =  mfma|dot|atomic_add {arch = "amdgcn-amd-amdhsa:gfx942", blockSize = 256 : i32, gridSize = 900 : i32, numCU = 228 : i32, params = #xdlops_gemm_params2} : memref<1x32x128xf32>, memref<1x32x256xf32>, memref<1x128x256xf32>
+  return
+}

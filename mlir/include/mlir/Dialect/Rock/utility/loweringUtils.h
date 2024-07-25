@@ -10,7 +10,6 @@
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -19,7 +18,6 @@
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
-struct LogicalResult;
 class Operation;
 class Type;
 
@@ -187,10 +185,6 @@ AffineMap getIdxReversalMap(OpBuilder &b);
 
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
-
-// Return `mhal::PrefillAttr` attributes for a given function
-SmallVector<mhal::PrefillAttr>
-getStoredPrefillAttributes(mlir::LLVM::LLVMFuncOp func);
 
 } // end namespace rock
 } // end namespace mlir

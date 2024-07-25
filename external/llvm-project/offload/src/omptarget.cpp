@@ -22,6 +22,7 @@
 #include "private.h"
 #include "rtl.h"
 
+#include "Shared/APITypes.h"
 #include "Shared/Profile.h"
 
 #include "OpenMP/Mapping.h"
@@ -319,7 +320,7 @@ void handleTargetOutcome(bool Success, ident_t *Loc) {
         FAILURE_MESSAGE("Consult https://openmp.llvm.org/design/Runtimes.html "
                         "for debugging options.\n");
 
-      if (!PM->getNumUsedPlugins())
+      if (!PM->getNumActivePlugins())
         FAILURE_MESSAGE(
             "No images found compatible with the installed hardware. ");
 
@@ -443,7 +444,9 @@ void targetFreeExplicit(void *DevicePtr, int DeviceNum, int Kind,
   if (!DeviceOrErr)
     FATAL_MESSAGE(DeviceNum, "%s", toString(DeviceOrErr.takeError()).c_str());
 
-  DeviceOrErr->deleteData(DevicePtr, Kind);
+  if (DeviceOrErr->deleteData(DevicePtr, Kind) == OFFLOAD_FAIL)
+    FATAL_MESSAGE(DeviceNum, "%s", "Failed to deallocate device ptr");
+
   DP("omp_target_free deallocated device ptr\n");
 }
 
@@ -1667,9 +1670,14 @@ int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
     InterfaceRAII TargetSubmitRAII(
         RegionInterface.getCallbacks<ompt_callback_target_submit>(), NumTeams);
     // ToDo: mhalk Do we need a check for TracingActive here?
-    InterfaceRAII TargetSubmitTraceRAII(
+
+    // Calls "begin" for the OMPT trace record and let the plugin
+    // enqueue the stop operation for after the kernel is done. The stop
+    // operation completes the trace record entry with the information from
+    // within the plugin, eg., kernel timing info.
+    TracerInterfaceRAII TargetTraceRAII(
         RegionInterface.getTraceGenerators<ompt_callback_target_submit>(),
-        DeviceId, NumTeams);
+        AsyncInfo, DeviceId, NumTeams);
 #endif
 
     Ret = Device.launchKernel(TgtEntryPtr, TgtArgs.data(), TgtOffsets.data(),
@@ -1747,7 +1755,7 @@ int target_replay(ident_t *Loc, DeviceTy &Device, void *HostPtr,
                                   TARGET_ALLOC_DEFAULT);
   Device.submitData(TgtPtr, DeviceMemory, DeviceMemorySize, AsyncInfo);
 
-  KernelArgsTy KernelArgs = {0};
+  KernelArgsTy KernelArgs{};
   KernelArgs.Version = OMP_KERNEL_ARG_VERSION;
   KernelArgs.NumArgs = NumArgs;
   KernelArgs.Tripcount = LoopTripCount;

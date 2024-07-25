@@ -154,12 +154,12 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   };
 
   for (unsigned i = 0; i < size; ++i) {
-    auto filterAttr = update_old_name(
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>());
-    auto inputAttr = update_old_name(
-        inputLayoutAttr.getValue()[i].template cast<StringAttr>());
-    auto outputAttr = update_old_name(
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>());
+    auto filterAttr =
+        update_old_name(cast<StringAttr>(filterLayoutAttr.getValue()[i]));
+    auto inputAttr =
+        update_old_name(cast<StringAttr>(inputLayoutAttr.getValue()[i]));
+    auto outputAttr =
+        update_old_name(cast<StringAttr>(outputLayoutAttr.getValue()[i]));
 
     filterNames.push_back(filterAttr.getValue());
     inputNames.push_back(inputAttr.getValue());
@@ -231,7 +231,7 @@ LogicalResult createElementwiseLoop(
 
   SmallVector<Value, 2> collapsedBufs;
   for (Value memref : memrefs) {
-    if (!memref.getType().isa<MemRefType>()) {
+    if (!isa<MemRefType>(memref.getType())) {
       // TODO: determine if we can relax this if we push bufferization down
       return kernelOp.emitOpError(
           "arguments to utility kernels must be memrefs");
@@ -245,9 +245,9 @@ LogicalResult createElementwiseLoop(
     collapsedBufs.push_back(collapsed);
   }
   int64_t collapsedLen =
-      collapsedBufs[0].getType().cast<MemRefType>().getShape()[0];
+      cast<MemRefType>(collapsedBufs[0].getType()).getShape()[0];
   for (Value c : collapsedBufs)
-    if (c.getType().cast<MemRefType>().getNumElements() != collapsedLen)
+    if (cast<MemRefType>(c.getType()).getNumElements() != collapsedLen)
       return kernelOp.emitOpError(
           "utility kernel arguments have different lengths");
 
@@ -318,12 +318,12 @@ struct ZeroInitKernelRewritePattern final
     Value initOp;
     auto initValueAttr = op.getInitValueAttr();
     if (initValueAttr) {
-      if (auto floatInitValueAttr = initValueAttr.value().cast<FloatAttr>()) {
+      if (auto floatInitValueAttr = cast<FloatAttr>(initValueAttr.value())) {
         auto initValue = floatInitValueAttr.getValue().convertToFloat();
         initOp =
             createConstantFloatOp(b, loc, storeType, elementType, initValue);
       } else if (auto intInitValueAttr =
-                     initValueAttr.value().cast<IntegerAttr>()) {
+                     cast<IntegerAttr>(initValueAttr.value())) {
         auto initValue = intInitValueAttr.getValue().getSExtValue();
         initOp = createConstantIntOp(b, loc, storeType, elementType, initValue);
       } else {
@@ -478,7 +478,7 @@ LogicalResult makeToLayoutLikeFromLayoutAlong(
   BottomUpTMBuilder relayout(b, oldToLayoutRefs, toShape, op.getLoc());
   llvm::StringMap<uint32_t> newToLayoutIdxs;
   for (auto pair : llvm::enumerate(newToLayout)) {
-    StringRef value = pair.value().cast<StringAttr>().getValue();
+    StringRef value = cast<StringAttr>(pair.value()).getValue();
     newToLayoutIdxs.insert({value, pair.index()});
   }
   BottomUpTMTopDimsWrapper relayoutWrapped(relayout,

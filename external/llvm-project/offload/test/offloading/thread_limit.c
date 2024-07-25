@@ -5,12 +5,7 @@
 
 // UNSUPPORTED: nvptx64-nvidia-cuda
 // UNSUPPORTED: nvptx64-nvidia-cuda-LTO
-// UNSUPPORTED: aarch64-unknown-linux-gnu
-// UNSUPPORTED: aarch64-unknown-linux-gnu-LTO
-// UNSUPPORTED: x86_64-pc-linux-gnu
-// UNSUPPORTED: x86_64-pc-linux-gnu-LTO
-// UNSUPPORTED: s390x-ibm-linux-gnu
-// UNSUPPORTED: s390x-ibm-linux-gnu-LTO
+// REQUIRES: gpu
 
 // clang-format on
 int main() {
@@ -18,16 +13,15 @@ int main() {
   int th = 12;
   int te = n / th;
 
-// DEFAULT: 12 (MaxFlatWorkGroupSize: 
+// DEFAULT: 12 (MaxFlatWorkGroupSize:
 #pragma omp target
 #pragma omp teams loop num_teams(te), thread_limit(th)
   for (int i = 0; i < n; i++) {
   }
 
 // DEFAULT: 13 (MaxFlatWorkGroupSize:
-#pragma omp target
-#pragma omp teams distribute parallel for simd num_teams(te),                  \
-    thread_limit(th + 1) simdlen(64)
+  #pragma omp target
+  #pragma omp teams distribute parallel for simd num_teams(te), thread_limit(th+1) simdlen(64)
   for(int i = 0; i < n; i++) {
   }
 

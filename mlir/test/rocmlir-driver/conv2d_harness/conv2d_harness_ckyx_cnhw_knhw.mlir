@@ -7,7 +7,7 @@ func.func private @rock_conv_gck01_gcn01_gkn01_0(%filter : memref<9216xf32>, %in
 // HARNESS: module
 // HARNESS: func.func @rock_conv_gck01_gcn01_gkn01_0([[FILTER_MEMREF:%.*]]: memref<9216xf32>, [[INPUT_MEMREF:%.*]]: memref<1048576xf32>, [[OUTPUT_MEMREF:%.*]]: memref<14745600xf32>)
 // LOWERING: module
-// LOWERING: llvm.mlir.global internal constant @rock_conv_gck01_gcn01_gkn01_0_module_gpubin_cst
+// LOWERING: gpu.binary @rock_conv_gck01_gcn01_gkn01_0_module
 
 func.func @main() {
   // memref.allocate CPU memory.

@@ -67,7 +67,7 @@ static Value createThreadViewMaps(Value redInput, int64_t blockSize,
                                   int64_t gridSize, Location loc,
                                   PatternRewriter &rewriter) {
   int64_t totalThreads = gridSize * blockSize;
-  ShapedType inpShape = redInput.getType().cast<ShapedType>();
+  ShapedType inpShape = cast<ShapedType>(redInput.getType());
   int64_t elementCount = inpShape.getNumElements();
   int64_t dataPerThread = (elementCount + (totalThreads - 1)) / totalThreads;
 
