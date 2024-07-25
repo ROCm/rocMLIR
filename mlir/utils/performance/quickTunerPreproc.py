@@ -45,7 +45,7 @@ import pandas as pd
 import glob
 from sklearn.preprocessing import MinMaxScaler
 
-class qtPreprocessor(object):
+class qtPreprocessor():
     """
     class to process *.debug files into a single script
     """
@@ -97,29 +97,28 @@ class qtPreprocessor(object):
         print(os.path.join(input_dir, f"*.{file_ext}"))
 
         dfs = []
-        ct = 0
         for file in tsv_files:
-            df = pd.read_csv(file, sep='\t')
+            df = pd.read_csv(file, sep='\t', index_col=None)
+            df = df[df.columns[1:]]
             if normalize:
                 scaler = MinMaxScaler()
                 df['NormalizedTFlops'] = scaler.fit_transform(df[['TFlops']])
             dfs.append(df)
-            ct += 1
         if not dfs:
             return None
         new_df = pd.concat(dfs, ignore_index=True)
 
         if output_name:
-            new_df.to_csv(output_name, sep='\t')
+            new_df.to_csv(output_name, sep='\t', index=False)
             if debug:
                 print(f"Saved to {output_name}")
                               
         if debug:            
             # here output some stats about files
             if op == 'gemm':
-                qtPreprocessor.__get_stats_gemm(new_df, ct)
+                qtPreprocessor.__get_stats_gemm(new_df, len(tsv_files))
             elif op == 'conv':
-                qtPreprocessor.__get_stats_conv(new_df, ct)
+                qtPreprocessor.__get_stats_conv(new_df, len(tsv_files))
 
         return new_df
             
