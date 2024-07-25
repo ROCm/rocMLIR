@@ -27,16 +27,16 @@ namespace mlir {
 struct BufferDependencyAnalysis {
   BufferDependencyAnalysis(Operation *op);
 
-  std::optional<llvm::SmallVector<Operation *>>
+  std::optional<llvm::SmallVector<OpOperand *>>
   getReaders(memref::AllocOp allocOp);
-  std::optional<llvm::SmallVector<Operation *>>
+  std::optional<llvm::SmallVector<OpOperand *>>
   getWriters(memref::AllocOp allocOp);
 
-  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> &
+  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> &
   getReadersTable() {
     return readersTable;
   }
-  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> &
+  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> &
   getWritersTable() {
     return writersTable;
   }
@@ -44,10 +44,14 @@ struct BufferDependencyAnalysis {
   // Returns the operation this analysis was constructed from.
   Operation *getOperation() const { return op; }
 
+  // Compute the analysis on `op`, overwriting existing analysis if necessary.
+  // This is to be used after updating the graph.
+  void analyze(memref::AllocOp allocOp);
+
 private:
   Operation *op;
-  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> readersTable;
-  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> writersTable;
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> readersTable;
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> writersTable;
 };
 } // namespace mlir
 
