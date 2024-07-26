@@ -76,7 +76,7 @@ String dockerImageCIMIGraphX() {
 
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
-    if ( (params.nightly == false) && (codepath == "mfma") ) {
+    if ( !params.nightly && (codepath == "mfma") ) {
         echo "Performing Static Test (preMergeCheck)"
         sh '''
         if [ ! -f ./build/compile_commands.json ];  then
@@ -100,7 +100,7 @@ void preMergeCheck(String codepath) {
 
 void preMergeCheckPackage(String codepath) {
     // Only do static check on mfma codepath during PR CI
-    if ( (params.nightly == false) && (codepath == "mfma") ) {
+    if ( !params.nightly && (codepath == "mfma") ) {
         echo "Checking if the fat library target list is accurate"
         dir('build') {
             sh '../mlir/utils/jenkins/static-checks/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
@@ -258,7 +258,7 @@ void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
 void check_RockE2ETests_Navi3x(boolean fixed) {
 
     // Run PR CI tests; Skip Static Test on Novi3x
-    if ( params.nightly == false ) {
+    if ( !params.nightly ) {
         buildProject('check-mlir check-rocmlir', """
                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
@@ -316,7 +316,7 @@ void parameterSweep(String CONFIG, String codepath) {
 
 boolean shouldRunFromCodepath(String codepath) {
     // Run vanilla on public CI
-    if ((codepath == "vanilla") && (params.canXdlops == false)) {
+    if ((codepath == "vanilla") && !params.canXdlops) {
         return true
     }
     // Run mfma on private CI
@@ -324,12 +324,12 @@ boolean shouldRunFromCodepath(String codepath) {
         return true
     }
     // Run navi21 on private nightly or weekly CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21") &&
+    if (params.canXdlops && !params.disableNavi21 && (codepath == "navi21") &&
         (params.nightly || params.weekly)) {
         return true
     }
     // Run navi3x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
+    if (params.canXdlops && !params.disableNavi3x && (codepath == "navi3x")) {
         return true
     }
     return false
@@ -337,10 +337,11 @@ boolean shouldRunFromCodepath(String codepath) {
 
 boolean shouldRunFromChip(String chip) {
     switch (chip) {
-        case "gfx906":
+        default:
             return shouldRunFromCodepath("vanilla")
         case "gfx908":
         case "gfx90a":
+            return shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla")
         case "gfx942":
             return shouldRunFromCodepath("mfma")
         case "gfx1030":
@@ -354,10 +355,14 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        unstash name: "MLIR-PerfDB-gfx908"
-        unstash name: "MLIR-PerfDB-gfx90a"
-        if (!params.disableNavi21)
-            unstash name: "MLIR-PerfDB-gfx1030"
+        if (params.canXdlops) {
+            unstash name: "MLIR-PerfDB-gfx908"
+            unstash name: "MLIR-PerfDB-gfx90a"
+            if (!params.disableNavi21)
+                unstash name: "MLIR-PerfDB-gfx1030"
+        } else {
+            unstash name: "MLIR-PerfDB-vanilla"
+        }
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
     archiveArtifacts artifacts: 'build/perfDB/**',\
@@ -375,8 +380,8 @@ boolean shouldRunBuildAndTest(String codepath) {
     if (params.codepath == codepath && params.canXdlops) {
         if (params.codepath == "mfma") return true
         if (params.codepath == "vanilla") return true
-        if (params.codepath == "navi21" && params.disableNavi21 == false) return true
-        if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
+        if (params.codepath == "navi21" && !params.disableNavi21) return true
+        if (params.codepath == "navi3x" && !params.disableNavi3x) return true
         return false
     }
 }
@@ -386,11 +391,11 @@ pipeline {
     agent none
     parameters {
         // Below should be set statically by Jenkins job
-        booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
+        booleanParam(name: 'nightly', defaultValue: params.nightly,
                      description: 'Run extra nightly-only tests')
-        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops,
                      description: 'Can this CI instance use xdlops (no for public server)')
-        booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
+        booleanParam(name: 'weekly', defaultValue: params.weekly,
                      description: 'Run weekly-only jobs')
         // Temporary change to MIGraphX branch because of upstream merge.
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
@@ -755,7 +760,11 @@ pipeline {
                         steps {
                             // Save user database for nightly jobs
                             dir ('build') {
-                                stash name: "MLIR-PerfDB-${ARCH}", includes: "*.tsv"
+                                if (params.canXdlops) {
+                                    stash name: "MLIR-PerfDB-${ARCH}", includes: "*.tsv"
+                                } else {
+                                    stash name: "MLIR-PerfDB-vanilla", includes: "*.tsv"
+                                }
                             }
                         }
                     }
@@ -772,6 +781,10 @@ pipeline {
                 beforeAgent true;
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.staticLib;
+                anyOf {
+                    equals expected: "default", actual: params.weeklyTasks;
+                    equals expected: "Tuning", actual: params.weeklyTasks;
+               }
             }
             agent { label 'build-only' }
             options {
