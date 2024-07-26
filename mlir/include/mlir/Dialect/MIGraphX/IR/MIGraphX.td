@@ -518,6 +518,21 @@ def MIGraphX_ReduceMeanOp :
   }];
 }
 
+def MIGraphX_ReduceSumOp :
+    MIGraphX_Op<"reduce_sum">,
+    Arguments<(ins AnyMIXRShaped:$input,
+                   I64ArrayAttr:$axes
+                   )>,
+	Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Get the sum of the values in given axis";
+  let description = [{
+    The `migraphx.reduce_sum` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
 //--------- Execution layer Ops
 def MIGraphX_CodeObjOp :
     MIGraphX_Op<"code_object">,
