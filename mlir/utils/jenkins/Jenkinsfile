@@ -760,13 +760,7 @@ pipeline {
                         steps {
                             // Save user database for nightly jobs
                             dir ('build') {
-                                steps {
-                                    if (params.canXdlops) {
-                                        stash name: "MLIR-PerfDB-${ARCH}", includes: "*.tsv"
-                                    } else {
-                                        stash name: "MLIR-PerfDB-vanilla", includes: "*.tsv"
-                                    }
-                                }
+                                stash name: "MLIR-PerfDB-${params.canXdlops ? ARCH : 'vanilla'}", includes: "*.tsv"
                             }
                         }
                     }
