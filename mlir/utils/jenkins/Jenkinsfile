@@ -339,9 +339,10 @@ boolean shouldRunFromChip(String chip) {
     switch (chip) {
         default:
             return shouldRunFromCodepath("vanilla")
-        case "gfx908":
         case "gfx90a":
+            // Special case because all our "vanilla" hosts are gfx90a.
             return shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla")
+        case "gfx908":
         case "gfx942":
             return shouldRunFromCodepath("mfma")
         case "gfx1030":
