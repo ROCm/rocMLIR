@@ -205,13 +205,13 @@ def Rock_ReduceOp :
 }
 
 def Rock_AttentionOp :
-  Rock_Op<"attention">,
+  Rock_Op<"attention", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
   Arguments<(ins
-    Arg<TensorOrMemRefOf<[F32, F16, I8]>, "queries", [MemRead]>:$queries,
-    Arg<TensorOrMemRefOf<[F32, F16, I8]>, "keys", [MemRead]>:$keys,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "values", [MemRead]>:$values,
+    TensorOrMemRefOf<[F32, F16, I8]>:$queries,
+    TensorOrMemRefOf<[F32, F16, I8]>:$keys,
+    TensorOrMemRefOf<[F32, F16]>:$values,
     Variadic<TensorOrMemRefOf<[F32, F16, I8]>>:$preSoftmaxElemWiseInputs,
-    Arg<TensorOrMemRefOf<[F32, F16]>, "output", [MemRead, MemWrite]>:$out,
+    TensorOrMemRefOf<[F32, F16]>:$out,
     UnitAttr:$qTransposed,
     UnitAttr:$kTransposed,
     UnitAttr:$vTransposed,
@@ -386,9 +386,9 @@ def Rock_TensorUntransformCastOp :
 
 def Rock_GridwiseGemmOp :
     Rock_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
-                   MemRefRankOf<GemmInputTypes, [3]>:$b,
-                   MemRefRankOf<GemmAccumulatorTypes, [3]>:$c,
+    Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
+                   Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
+                   Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$numCU,
@@ -407,9 +407,9 @@ def Rock_GridwiseGemmOp :
 // gridwise_gemm_accel
 def Rock_GridwiseGemmAccelOp :
     Rock_Op<"gridwise_gemm_accel">,
-    Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$a,
-                   MemRefRankOf<GemmInputTypes, [3]>:$b,
-                   MemRefRankOf<GemmAccumulatorTypes, [3]>:$c,
+    Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
+                   Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
+                   Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
                    StrAttr:$arch,
                    I32Attr:$numCU,
                    Rock_GemmFeaturesAttr:$features,
@@ -429,7 +429,7 @@ def Rock_GridwiseGemmAccelOp :
 
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel">,
+    Rock_Op<"gridwise_attention_accel", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
     Arguments<(ins MemRefRankOf<[F32, F16, I8], [3]>:$queries,
                    MemRefRankOf<[F32, F16, I8], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
