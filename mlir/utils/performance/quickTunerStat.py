@@ -274,7 +274,7 @@ class TunerValidator(PerfConfigValidator):
         self.gridwise_gemm_params='rocMLIR/mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
         self.cpp_file = os.path.join(os.path.dirname(rocmlir_path), self.gridwise_gemm_params)
         self.rocm_build_script = rocm_build_script
-        self.backup = self.cpp_file + ".bu"
+        self.backup = self.cpp_file + "~"
         shutil.copy(self.cpp_file, self.backup) # create backup
         self.archNames = perfRunner.getArch()
         self.arch = ','.join(self.archNames)
