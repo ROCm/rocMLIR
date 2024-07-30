@@ -262,11 +262,8 @@ def parseData(file):
                 
     tile_params = data['perf_config'].str.split(',', expand=True).astype(int)
             
-    tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
+    tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
     
-    
-    #tile_params = tile_params.drop(['param8','param9'], axis=1)            
-            
     tile_params['performance'] = data['performance']
 
     tile_params.replace('N/A', np.nan, inplace=True)    
@@ -379,13 +376,11 @@ def orderByType(combined_df: str, normalize=False):
     final_df = combined_df
     unique_data_types = final_df['DataType'].unique()
 
-    perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
+    perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
 
     perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
 
     perf_configs.columns = perf_config_cols
-
-    perf_configs.drop(['param8', 'param9'], axis=1, inplace=True)
 
     perf_configs['performance'] = final_df['NormalizedTFlops']
 
@@ -413,13 +408,11 @@ def orderByGemmType(combined_df: str, normalize=True):
         
     target_cols = trans_cols + param_cols
 
-    perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
+    perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
 
     perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
 
     perf_configs.columns = perf_config_cols
-
-    perf_configs.drop(['param8', 'param9'], axis=1, inplace=True)
 
     perf_configs['performance'] = final_df['NormalizedTFlops']
 
@@ -447,7 +440,6 @@ def convertToConfig(type_df, filename, suffix=".qt", debug=False):
         df = type_df[t]
         if 'performance' in df.columns:
             df = df.drop(labels=['performance'], axis=1)
-        df['forceUnroll'] = 1
         df = df.to_csv(fname, index=False)
 
 """
@@ -469,7 +461,9 @@ class hardcodeQuickTune(quickTunerMethod):
             "M/wave": [128, 128, 64, 128, 32, 64, 32, 32, 32, 128, 128, 32, 64, 64, 64, 32, 32, 32, 16, 32, 16, 32, 16, 64, 32, 16, 16, 16, 32, 16, 32, 32, 16, 16, 16, 16, 16, 16, 16, 16],
             "N/wave": [32, 32, 16, 32, 32, 16, 32, 16, 32, 32, 16, 16, 16, 32, 16, 16, 32, 32, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16],
             "kPack": [4, 1, 4, 4, 8, 1, 4, 1, 4, 4, 4, 8, 4, 1, 4, 4, 8, 4, 4, 4, 8, 4, 8, 8, 8, 4, 4, 8, 1, 4, 4, 4, 8, 4, 8, 8, 4, 8, 4, 8],
-            "forceUnroll": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            "splitK": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            "forceUnroll": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True],
+            "bCopyMore": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
         })
 
         
@@ -480,7 +474,9 @@ class hardcodeQuickTune(quickTunerMethod):
             "M/wave": [64, 64, 128, 64, 32, 32, 128, 128, 64, 64, 32, 128, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32, 32, 32, 16, 32, 32, 32, 32, 16, 32, 32, 32, 32, 16, 16, 16, 16, 16, 16],
             "N/wave": [32, 32, 32, 32, 32, 16, 32, 16, 32, 16, 32, 16, 32, 32, 16, 32, 16, 16, 32, 16, 32, 32, 32, 16, 16, 32, 32, 32, 16, 16, 32, 32, 16, 32, 16, 16, 16, 16, 16, 16],
             "kPack": [4, 8, 8, 4, 8, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 4, 4, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 4, 8, 4, 4, 8, 8, 8, 8, 8, 4],
-            "forceUnroll": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            "splitK": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            "forceUnroll": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True],
+            "bCopyMore": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
         })
 
         self.default_i8 = pd.DataFrame({
@@ -490,7 +486,9 @@ class hardcodeQuickTune(quickTunerMethod):
             "M/wave": [128, 64, 128, 64, 32, 64, 32, 32, 32, 64, 32, 64, 32, 32, 32, 32, 32, 32, 32, 32, 16, 32, 16, 32, 32, 16, 32, 32, 32, 16, 32, 16, 32, 16, 16, 16, 16, 16, 16, 16],
             "N/wave": [16, 32, 16, 16, 16, 32, 32, 16, 16, 32, 16, 16, 16, 16, 32, 32, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 32, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16],
             "kPack": [4, 8, 8, 8, 16, 4, 16, 16, 16, 4, 4, 8, 16, 8, 4, 16, 16, 16, 8, 4, 16, 4, 16, 16, 8, 16, 4, 8, 4, 4, 4, 16, 8, 4, 8, 8, 4, 16, 4, 4],
-            "forceUnroll": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            "splitK": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            "forceUnroll": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True],
+            "bCopyMore": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
         })
 
         self.config = { 'f32': self.default_f32, 'f16': self.default_f16, 'i8': self.default_i8 }
@@ -560,11 +558,11 @@ class topMode(quickTunerMethod):
 
             # now we have a list of the gemms in combined
             # remove any repetitions and order by appearance
-            grouped_df = df.groupby(['M/block','N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], as_index=False).agg({'performance': 'count'}).rename(columns={'performance': 'count'})
+            grouped_df = df.groupby(['M/block','N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], as_index=False).agg({'performance': 'count'}).rename(columns={'performance': 'count'})
 
-            result_df = pd.merge(df, grouped_df, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'])
+            result_df = pd.merge(df, grouped_df, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'])
 
-            final_df = result_df.loc[result_df.groupby(['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'])['performance'].idxmax()]
+            final_df = result_df.loc[result_df.groupby(['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'])['performance'].idxmax()]
 
             final_df = final_df.sort_values(by=['count', 'performance'], ascending=[False, False])
 
@@ -639,7 +637,7 @@ class topConfigCluster(quickTunerMethod):
 
         result_dict = {}
 
-        features = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        features = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
     
         # now we have normalized data
         for k,df in type_dict.items():
@@ -647,7 +645,7 @@ class topConfigCluster(quickTunerMethod):
                 # cluster each type
                 
 
-                features = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'performance']
+                features = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore', 'performance']
 
             
                 scaler = StandardScaler()
@@ -788,7 +786,7 @@ class defaultQuickTune(quickTunerMethod):
     def __data2df(self, data):
         def split_str(s):
             return s.split(':')[-1].split(',')
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']
+        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         df_dict = {}
         for k in data:
             for i,n in enumerate(split_str(k)):
@@ -923,7 +921,7 @@ class fairSelect(quickTunerMethod):
         return df_sorted[df_sorted['performance'] >= self.threshold]
 
     def __combine_datasets(self, dfs):
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         combined_df = pd.concat(dfs).sort_values(by='performance', ascending=False)
         combined_df = combined_df.drop_duplicates(subset=cols, keep='first')
         return combined_df
@@ -948,7 +946,7 @@ class fairSelect(quickTunerMethod):
         return feature_dict, count_dict, max_label_dict, df_dict
 
     def __balance_datasets(self, combined_df, original_dfs):
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         selected_features = set()
         balanced_dataset = []
 
@@ -979,7 +977,7 @@ class fairSelect(quickTunerMethod):
         return balanced_dataset_df
 
     def __build_final_df(self, top_dfs):
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         # aggregate common feature vectors
         feature_dict, count_dict, max_label_dict, df_dict = self.__aggregate_datasets(top_dfs)
         highest_perfs = self.__combine_datasets(top_dfs)
