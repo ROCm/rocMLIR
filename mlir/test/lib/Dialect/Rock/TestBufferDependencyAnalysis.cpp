@@ -94,8 +94,9 @@ static LogicalResult analyse(func::FuncOp func) {
     // test readers
     auto testReaders = analysis.getReaders(allocOp);
     if (testReaders.has_value()) {
-      for (auto *testReaderOp : testReaders.value()) {
-        auto testReaderOpName = testReaderOp->getName().getStringRef();
+      for (auto *testReaderOperand : testReaders.value()) {
+        auto testReaderOpName =
+            testReaderOperand->getOwner()->getName().getStringRef();
         if (!expectedOpNames.readers.contains(testReaderOpName)) {
           std::lock_guard<std::mutex> guard(mutex);
           llvm::errs() << "failed to find `" << testReaderOpName
@@ -108,8 +109,9 @@ static LogicalResult analyse(func::FuncOp func) {
     // test writers
     auto testWriters = analysis.getWriters(allocOp);
     if (testWriters.has_value()) {
-      for (auto *testWriterOp : testWriters.value()) {
-        auto testWriterOpName = testWriterOp->getName().getStringRef();
+      for (auto *testWriterOperand : testWriters.value()) {
+        auto testWriterOpName =
+            testWriterOperand->getOwner()->getName().getStringRef();
         if (!expectedOpNames.writers.contains(testWriterOpName)) {
           std::lock_guard<std::mutex> guard(mutex);
           llvm::errs() << "failed to find `" << testWriterOpName

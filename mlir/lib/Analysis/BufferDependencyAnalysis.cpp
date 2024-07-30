@@ -18,71 +18,76 @@
 
 using namespace mlir;
 
-struct UserWrapper {
-  Operation *parentAlias;
-  Operation *op;
-};
-
 // Recursively finds all users fir a given Operation. Note, this function
 // is a part of `BufferDependencyAnalysis` which is intended to be performed
-// after bufferization
-void findAllUsers(Operation *parent, llvm::SmallVector<UserWrapper> &users) {
-  for (auto *user : parent->getUsers()) {
-    if (auto viewOp = dyn_cast<ViewLikeOpInterface>(user)) {
-      findAllUsers(viewOp, users);
-    } else {
-      users.push_back({parent, user});
+// after bufferization.
+void findAllUsers(OpOperand *thisUser,
+                  llvm::SmallVectorImpl<OpOperand *> &users) {
+  if (auto viewOp = dyn_cast<ViewLikeOpInterface>(thisUser->getOwner())) {
+    for (OpOperand &user : viewOp->getUses()) {
+      findAllUsers(&user, users);
     }
+  } else {
+    users.push_back(thisUser);
+  }
+}
+
+void findAllUsers(Operation *root, llvm::SmallVectorImpl<OpOperand *> &users) {
+  for (OpOperand &user : root->getUses()) {
+    findAllUsers(&user, users);
   }
 }
 
 // Finds whether a given op reads or writes to the memory produced by the parent
 // operation
 enum EffectType { read, write, unknown };
-EffectType getMemoryEffectType(UserWrapper user) {
-  if (auto memoryEffect = dyn_cast<MemoryEffectOpInterface>(user.op)) {
-    int64_t index = -1;
-    for (auto it : llvm::enumerate(user.op->getOperands())) {
-      auto operand = it.value();
-      if (operand.getDefiningOp() == user.parentAlias) {
-        index = static_cast<int64_t>(it.index());
-        break;
-      }
+EffectType getMemoryEffectType(OpOperand *use) {
+  if (auto memoryEffect = dyn_cast<MemoryEffectOpInterface>(use->getOwner())) {
+    SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>, 4> effects;
+    memoryEffect.getEffects(effects);
+    bool hasWrite = false;
+    bool hasRead = false;
+    for (auto &effect : effects) {
+      if (effect.getEffectValue<OpOperand *>() != use)
+        continue;
+      hasWrite |= isa<MemoryEffects::Write>(effect.getEffect());
+      hasRead |= isa<MemoryEffects::Read>(effect.getEffect());
     }
-    if (index < 0)
-      return EffectType::unknown;
-    Value value = user.op->getOperand(index);
-    if (memoryEffect.getEffectOnValue<MemoryEffects::Write>(value)) {
+    if (hasWrite)
       return EffectType::write;
-    }
-    if (memoryEffect.getEffectOnValue<MemoryEffects::Read>(value)) {
+    if (hasRead)
       return EffectType::read;
-    }
   }
   return EffectType::unknown;
 }
 
 struct SearchResults {
-  llvm::SmallVector<Operation *> readers;
-  llvm::SmallVector<Operation *> writers;
+  llvm::SmallVector<OpOperand *> readers;
+  llvm::SmallVector<OpOperand *> writers;
 };
 
 // Finds all readers and writers to the memory produced by a given
 // `memref::AllocOp`
 SearchResults findReadersAndWriters(memref::AllocOp allocOp) {
-  llvm::SmallVector<UserWrapper> users;
+  llvm::SmallVector<OpOperand *> users;
   SearchResults results;
   findAllUsers(allocOp, users);
-  for (auto &user : users) {
+  for (OpOperand *user : users) {
     EffectType effectType = getMemoryEffectType(user);
     if (effectType == EffectType::read) {
-      results.readers.push_back(user.op);
+      results.readers.push_back(user);
     }
     if (effectType == EffectType::write) {
-      results.writers.push_back(user.op);
+      results.writers.push_back(user);
     }
   }
   return results;
+}
+
+void BufferDependencyAnalysis::analyze(memref::AllocOp allocOp) {
+  SearchResults searchResults = findReadersAndWriters(allocOp);
+  readersTable.insert(std::make_pair(allocOp, searchResults.readers));
+  writersTable.insert(std::make_pair(allocOp, searchResults.writers));
 }
 
 BufferDependencyAnalysis::BufferDependencyAnalysis(Operation *op) : op(op) {
@@ -97,14 +102,11 @@ BufferDependencyAnalysis::BufferDependencyAnalysis(Operation *op) : op(op) {
 
   // find readers and writers for each `memref::AllocOp` and record
   // the obtained results to the corresponding hash tables
-  for (auto &allocOp : allocOps) {
-    auto searchResults = findReadersAndWriters(allocOp);
-    readersTable.insert(std::make_pair(allocOp, searchResults.readers));
-    writersTable.insert(std::make_pair(allocOp, searchResults.writers));
-  }
+  for (auto &allocOp : allocOps)
+    analyze(allocOp);
 }
 
-std::optional<llvm::SmallVector<Operation *>>
+std::optional<llvm::SmallVector<OpOperand *>>
 BufferDependencyAnalysis::getReaders(memref::AllocOp allocOp) {
   if (readersTable.contains(allocOp)) {
     return readersTable[allocOp];
@@ -112,7 +114,7 @@ BufferDependencyAnalysis::getReaders(memref::AllocOp allocOp) {
   return std::nullopt;
 }
 
-std::optional<llvm::SmallVector<Operation *>>
+std::optional<llvm::SmallVector<OpOperand *>>
 BufferDependencyAnalysis::getWriters(memref::AllocOp allocOp) {
   if (writersTable.contains(allocOp)) {
     return writersTable[allocOp];
