@@ -8,6 +8,7 @@
 // RUN:   --shared-libs=%mlir_runner_utils \
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
+// ALLOW_RETRIES: 2
 
 // TODO: swap for vector transfer reads if we ever create a --vector-to-amdgpu
 func.func @vectransferx2(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>) {

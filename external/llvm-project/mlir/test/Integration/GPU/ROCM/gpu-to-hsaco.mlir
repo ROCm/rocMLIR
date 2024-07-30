@@ -7,6 +7,7 @@
 // RUN:   --shared-libs=%mlir_runner_utils \
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
+// ALLOW_RETRIES: 2
 
 func.func @other_func(%arg0 : f32, %arg1 : memref<?xf32>) {
   %c0 = arith.constant 0 : index

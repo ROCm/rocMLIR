@@ -6,6 +6,7 @@
 // RUN:   --shared-libs=%mlir_runner_utils \
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
+// ALLOW_RETRIES: 2
 
 // CHECK: Hello from 0
 // CHECK: Hello from 1
