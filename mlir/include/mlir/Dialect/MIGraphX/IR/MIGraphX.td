@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // Defines MLIR MIGraphX operations.
-// https://rocmsoftwareplatform.github.io/AMDMIGraphX/doc/html/dev/operators.html
+// https://rocm.docs.amd.com/projects/AMDMIGraphX/en/latest/dev/operators.html
 //
 //===----------------------------------------------------------------------===//
 
@@ -512,6 +512,21 @@ def MIGraphX_ReduceMeanOp :
   let summary = "Get the mean of the values in given axis";
   let description = [{
     The `migraphx.reduce_mean` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def MIGraphX_ReduceSumOp :
+    MIGraphX_Op<"reduce_sum">,
+    Arguments<(ins AnyMIXRShaped:$input,
+                   I64ArrayAttr:$axes
+                   )>,
+	Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Get the sum of the values in given axis";
+  let description = [{
+    The `migraphx.reduce_sum` op.
   }];
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)
