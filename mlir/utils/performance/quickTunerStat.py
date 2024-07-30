@@ -76,8 +76,8 @@ class PerfConfigValidator():
         def expandPerfConfigs(df):
             df['PerfConfig'] = df['PerfConfig'].str.split(':').str[1]
             tile_params = df['PerfConfig'].str.split(',', expand=True).astype(int)            
-            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll','param9']                
-            tile_params = tile_params.drop(['param9'], axis=1)
+            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll', 'bCopyMore']                
+            #tile_params = tile_params.drop(['param9'], axis=1)
             tile_params['performance'] = df['NormalizedTFlops']
             tile_params.replace('N/A', np.nan, inplace=True)
             return tile_params
@@ -102,7 +102,7 @@ class PerfConfigValidator():
         return df_dir            
 
     def readPerfConfig(self, file_path):
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll']
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         try:
             df = pd.read_csv(file_path)
             if df.columns[0].startswith('v:'):
@@ -113,6 +113,25 @@ class PerfConfigValidator():
             df[0] = df[0].apply(lambda x: x.split(':')[1] if isinstance(x, str) and ':' in x else x)
             df.columns = columns
             return df
+
+    def saveCpp(self, df, dtype):
+        cols = df.columns
+        if 'forceUnroll' in cols:
+            df['forceUnroll'] = df['forceUnroll'].astype(bool)
+        else:
+            df['forceUnroll'] = True
+        if 'bCopyMore' in cols:
+            df['bCopyMore'] = df['bCopyMore'].astype(bool)
+        else:
+            df['bCopyMore'] = True
+        cpp_array = "{\n"
+        with open(f"quick_tuning_{dtype}_cpp", 'w') as file:
+            for _, row in df.iterrows():
+                cpp_array += f"  {{{row['M/block']}, {row['N/block']}, {row['K/block']}, {row['M/wave']}, {row['N/wave']}, {row['kPack']}, {row['splitK']}, {row['forceUnroll']}, {row['bCopyMore']}}},\n"
+            cpp_array = cpp_array.rstrip(',') + "};"
+            file.write(cpp_array)
+            
+        
 
     def validateFile(self, input_file, dtype=None):
         """
@@ -160,12 +179,12 @@ class DataValidator(PerfConfigValidator):
 
     def compare(self, results, dtype):
         all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack','splitK', 'forceUnroll','bCopyMore']
         for gemm in self.gemm_keys:
             gemm = self.__gemmConfigToKey(gemm)
             data_subset = self.validation_data[dtype][gemm]
             results = results[list(columns)]
-            merged_df = pd.merge(results, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll'], how='left')
+            merged_df = pd.merge(results, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll','bCopyMore'], how='left')
             all_data.append(merged_df)
 
     def validateDir(self, input_dir):
@@ -203,11 +222,11 @@ class DataValidator(PerfConfigValidator):
         # to validate file we need data already read,
 
         all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll']
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         for gemm in self.gemm_keys:
             data_subset = self.validation_data[dtype][gemm]
             file_data = file_data[columns]
-            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll'], how='left')
+            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], how='left')
             all_data.append(merged_df)
         return all_data
 
@@ -238,9 +257,10 @@ class DataValidator(PerfConfigValidator):
         output = [(index, method) for index, method in result_methods.items()]        
         for entry in output:
             dtype, method = entry
-            self.quick_tune_data[method][dtype].to_csv(f"quick_tuning_{dtype}", index=False)
-        if self.debug:
-            print(self.output_df)
+            df = self.quick_tune_data[method][dtype]
+            df.to_csv(f"quick_tuning_{dtype}", index=False)
+            super().saveCpp(df, dtype)
+        print(self.output_df)
             
             
 class TunerValidator(PerfConfigValidator):
@@ -392,7 +412,7 @@ class TunerValidator(PerfConfigValidator):
         config is of the form: -t i8 -out_datatype i32 -transA false -transB false -g 64 -m 1024 -n 384 -k 1024
         perhaps we can parse this and use it to name?
         """
-        columns=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'performance']
+        columns=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll','bCopyMore', 'performance']
         data = []
         for i, result in enumerate(tuning_loop):
             result = result.decode('utf-8')
@@ -460,11 +480,11 @@ class TunerValidator(PerfConfigValidator):
     
     def validate(self, file_data, dtype):
         all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll']
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll', 'bCopyMore']
         for gemm in self.gemm_keys:
             data_subset = self.validation_data[dtype][gemm]
             file_data = file_data[columns]
-            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll'], how='left')
+            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], how='left')
             all_data.append(merged_df)
         return all_data
 
