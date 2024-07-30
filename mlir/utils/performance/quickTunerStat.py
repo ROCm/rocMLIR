@@ -11,9 +11,8 @@ Example usage:
 python3 quickTunerStat.py --qt-file method.type.qt --data combined_data --gemm-configs gemms --method data --rank 
 
 Will use the perf configs specified in method.type.qt (generated with quickTunerGen.py) and for each gemm in gemms, lookups the performance from comined_data (generated with quickTunerPreproc.py).
-
-
 """
+
 import os
 import sys
 import shutil
@@ -62,8 +61,8 @@ class PerfConfigValidator():
         match = re.search(pattern, gemm_config)
         if match:
             tup = match.groups()
-            transA = True if tup[0].lower() == 'true' else False
-            transB = True if tup[1].lower() == 'true' else False
+            transA = (tup[0].lower() in ['1','true']) 
+            transB = (tup[1].lower() in ['1','true'])
             return (transA, transB) + tuple([int(x) for x in tup[2:]])
         else:
             print("Could not parse gemmConfig", file=sys.stderr)
@@ -77,8 +76,8 @@ class PerfConfigValidator():
         def expandPerfConfigs(df):
             df['PerfConfig'] = df['PerfConfig'].str.split(':').str[1]
             tile_params = df['PerfConfig'].str.split(',', expand=True).astype(int)            
-            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'param8', 'param9']                
-            tile_params = tile_params.drop(['param8','param9'], axis=1)
+            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll','param9']                
+            tile_params = tile_params.drop(['param9'], axis=1)
             tile_params['performance'] = df['NormalizedTFlops']
             tile_params.replace('N/A', np.nan, inplace=True)
             return tile_params
@@ -103,7 +102,7 @@ class PerfConfigValidator():
         return df_dir            
 
     def readPerfConfig(self, file_path):
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll']
         try:
             df = pd.read_csv(file_path)
             if df.columns[0].startswith('v:'):
@@ -166,7 +165,7 @@ class DataValidator(PerfConfigValidator):
             gemm = self.__gemmConfigToKey(gemm)
             data_subset = self.validation_data[dtype][gemm]
             results = results[list(columns)]
-            merged_df = pd.merge(results, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
+            merged_df = pd.merge(results, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll'], how='left')
             all_data.append(merged_df)
 
     def validateDir(self, input_dir):
@@ -204,11 +203,11 @@ class DataValidator(PerfConfigValidator):
         # to validate file we need data already read,
 
         all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll']
         for gemm in self.gemm_keys:
             data_subset = self.validation_data[dtype][gemm]
             file_data = file_data[columns]
-            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
+            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll'], how='left')
             all_data.append(merged_df)
         return all_data
 
@@ -393,7 +392,7 @@ class TunerValidator(PerfConfigValidator):
         config is of the form: -t i8 -out_datatype i32 -transA false -transB false -g 64 -m 1024 -n 384 -k 1024
         perhaps we can parse this and use it to name?
         """
-        columns=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll', 'performance']
+        columns=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'performance']
         data = []
         for i, result in enumerate(tuning_loop):
             result = result.decode('utf-8')
@@ -461,11 +460,11 @@ class TunerValidator(PerfConfigValidator):
     
     def validate(self, file_data, dtype):
         all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll']
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll']
         for gemm in self.gemm_keys:
             data_subset = self.validation_data[dtype][gemm]
             file_data = file_data[columns]
-            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'forceUnroll'], how='left')
+            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll'], how='left')
             all_data.append(merged_df)
         return all_data
 
