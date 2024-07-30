@@ -76,7 +76,7 @@ class qtPreprocessor():
         print(f"Number of unique Gemms: {num_gemms}")
         for _,row in unique_gemms.iterrows():
             tup = tuple(row)
-            print(f"{tup[0]},{tup[1]},{tup[2]},{tup[3]},{tup[4]},{tup[5]}")
+            print(','.join(map(str, tup)))
         
 
     @staticmethod
