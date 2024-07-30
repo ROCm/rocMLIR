@@ -79,6 +79,7 @@ class PerfConfigValidator():
             tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll', 'bCopyMore']                
             #tile_params = tile_params.drop(['param9'], axis=1)
             tile_params['performance'] = df['NormalizedTFlops']
+            tile_params['TFlops'] = df['TFlops']
             tile_params.replace('N/A', np.nan, inplace=True)
             return tile_params
         
