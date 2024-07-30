@@ -37,10 +37,15 @@ class PerfConfigValidator():
     """
     def __init__(self, name=None):
         self.name = name
+        self.archNames = perfRunner.getArch()
+        self.arch = ','.join(self.archNames)
+        self.chip = perfRunner.GFX_CHIP_RE.search(self.arch).group(0)
+        self.numCU = perfRunner.getNumCU(self.chip)
 
     def collectGemmConfigs(self, gemm_config_file, comment='#'):
         """
         collect gemm config files given a gemm_config_file
+        convert to a perfRunner gemmConfiguration
         """
         gemm_list = []
         with open(gemm_config_file, 'r') as f:
@@ -48,26 +53,11 @@ class PerfConfigValidator():
         for line in lines:
             if comment is not None:
                 line = line.split(comment)[0]
-            line = line.strip()
+            line = perfRunner.GemmConfiguration.fromCommandLine(line.split(' '), self.arch, self.numCU)
+            
             if line:
                 gemm_list.append(line)
         return gemm_list
-
-    def gemmConfigToKey(self, gemm_config):
-        """
-        Convert gemm line to code
-        """
-        pattern = r'-transA (\S+) -transB (\S+) -g (\d+) -m (\d+) -n (\d+) -k (\d+)'
-        match = re.search(pattern, gemm_config)
-        if match:
-            tup = match.groups()
-            transA = (tup[0].lower() in ['1','true']) 
-            transB = (tup[1].lower() in ['1','true'])
-            return (transA, transB) + tuple([int(x) for x in tup[2:]])
-        else:
-            print("Could not parse gemmConfig", file=sys.stderr)
-            exit(1)
-        return file_name
 
     def orderByGemmType(self, input_file=True, normalize=True):
         """
@@ -153,8 +143,9 @@ class DataValidator(PerfConfigValidator):
     """
     def __init__(self, gemm_config_file, preproc_file, debug=False):
         super().__init__()
-        self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
-        self.gemm_keys = [super(DataValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
+        self.gemm_configs = super().collectGemmConfigs(gemm_config_file) # list of GemmConfiguratioin
+        self.gemm_keys = [(cfg.transA, cfg.transB, cfg.g, cfg.m, cfg.n, cfg.k) for cfg in self.gemm_configs]
+        #self.gemm_keys = [super(DataValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
         self.preproc_file = preproc_file
         self.validation_data = super().orderByGemmType(self.preproc_file)
         self.debug = debug
@@ -177,16 +168,6 @@ class DataValidator(PerfConfigValidator):
             file_dict[method][file_type] = pd.read_csv(file)
             
         return file_dict
-
-    def compare(self, results, dtype):
-        all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack','splitK', 'forceUnroll','bCopyMore']
-        for gemm in self.gemm_keys:
-            gemm = self.__gemmConfigToKey(gemm)
-            data_subset = self.validation_data[dtype][gemm]
-            results = results[list(columns)]
-            merged_df = pd.merge(results, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll','bCopyMore'], how='left')
-            all_data.append(merged_df)
 
     def validateDir(self, input_dir):
         """
@@ -295,8 +276,7 @@ class TunerValidator(PerfConfigValidator):
                  rocm_build_script='/share/scripts/build-rocm',
                  debug=False):
         self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
-        print(self.gemm_configs)
-        self.gemm_keys = [super(TunerValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
+        self.gemm_keys = [(cfg.transA, cfg.transB, cfg.g, cfg.m, cfg.n, cfg.k) for cfg in self.gemm_configs]
         self.gridwise_gemm_params='rocMLIR/mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
         self.cpp_file = os.path.join(os.path.dirname(rocmlir_path), self.gridwise_gemm_params)
         self.rocm_build_script = rocm_build_script
