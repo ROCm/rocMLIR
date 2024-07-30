@@ -200,10 +200,12 @@ class DataValidator(PerfConfigValidator):
             for dtype in self.quick_tune_data[method]:
                 if self.debug:
                     print(f"dtype {dtype}")
+                if dtype not in self.validation_data:
+                    continue
                 if dtype not in output_dict:
                     output_dict[dtype] = {}
                 if self.debug:
-                    print(f"quick_tune_data {self.quick_tune_data[method][dtype]}")
+                    print(f"quick_tune_data {self.quick_tune_data[method][dtype]}")    
                 gemm_data = self.validate(self.quick_tune_data[method][dtype], dtype)
                 output_dict[dtype][method] = gemm_data
         self.output_dict = output_dict
@@ -223,7 +225,11 @@ class DataValidator(PerfConfigValidator):
 
         all_data = []
         columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
+        #print(dtype)
+        #print(self.validation_data[dtype])
         for gemm in self.gemm_keys:
+            if gemm not in self.validation_data[dtype]:
+                continue
             data_subset = self.validation_data[dtype][gemm]
             file_data = file_data[columns]
             merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], how='left')
@@ -436,6 +442,8 @@ class TunerValidator(PerfConfigValidator):
         print(df)
         if df.empty:
             return pd.DataFrame(columns=columns)
+        # dont want this, instead we want OG data's values to comare
+        # with
         df = df.sort_values(by=['performance'], ascending=False)
         scaler = MinMaxScaler()
         df['performance'] = scaler.fit_transform(df[['performance']])
