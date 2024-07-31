@@ -109,3 +109,131 @@ The columns are labeled by data type and rows by method. This is the ranking of 
 
 Providing `--rank` will output files for each datatype of the form `quick_tuning_DATATYPE`. Which is the "winning" method's perf config. Running rank will also generate a file `quick_tuning_datatype_cpp` which is a C++ vector style initializer array of the data so the user can easily copy and paste into the appropriate file, the winning perf config.
 
+
+### Aside: Data Collection
+
+To make data collection for these models much easier I used the MITuna script for parallel tuning runs, with some slight modifications. The script is located in `rocMLIR/mlir/utils/tuna/tuna-script.sh`, but uses code from MITuna to run.
+
+#### MITuna needs to be cloned: 
+
+```
+# if rocmLIR not installed
+git clone https://github.com/rocm/rocMLIR
+
+# clone MITuna
+git clone https://github.com/rocm/MITuna
+
+# build rocMLIR if you havent already
+cd rocMLIR
+
+cmake -GNinja -Bbuild -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1 -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1 -DROCK_E2E_TEST_ENABLED=1 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1 -DMLIR_INCLUDE_INTEGRATION_TESTS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -Wno-dev -DLLVM_USE_LINKER=lld -DLLVM_LIT_ARGS='-sv' -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+cmake --build build --target check-mlir check-rocmlir ci-performance-scripts
+```
+
+#### Data
+
+Below is from rocMLIr/mlir/utils/performance/gemm-configs
+
+```
+# The immediately following configs are generated with the following command:
+# convertRocBlasToPerfRunner.py -c bert-configs-raw --output-file bert-configs
+-transA false -transB false -g 64 -m 1024 -n 384 -k 1024
+-transA false -transB false -g 64 -m 1024 -n 384 -k 4096
+-transA false -transB false -g 64 -m 2 -n 384 -k 1024
+-transA false -transB false -g 64 -m 3072 -n 384 -k 1024
+-transA false -transB false -g 64 -m 4096 -n 384 -k 1024
+-transA false -transB false -g 1024 -m 64 -n 384 -k 384
+-transA true -transB false -g 1024 -m 384 -n 384 -k 64
+```
+
+This will be the input data. In the case where datatype `-t` and output data type `out_datatype` are not provide the underlying `tuningRunner.py` script will run with the datatype configurations available on the system.
+
+#### Editing `MITuna` to save debug files
+
+By default the `tuna-script.sh` does not save the debug information that contains the tuning info from each run. To change this behavior we have to change the following line from `MITuna/tuna/rocmlir/rocmlir_worker`:
+
+```python
+cmd = env_str + f" python3 ./bin/tuningRunner.py -q {special_args} \
+      --config='{config_string}' --mlir-build-dir `pwd` \
+      --output=- --tflops \
+      --rocmlir_gen_flags='--device={self.gpu_id}' 2>/dev/null"
+```
+
+to
+
+```python
+# make sure to import uuid at top of file
+import uuid
+
+if not os.path.exists("./run"): # or whatever directory you want
+    os.makedirs("./run")
+
+unique_file_id = uuid.uuid4().hex
+
+file_id = os.path.join("./run", unique_file_id)
+    
+cmd = env_str + f" python3 ./bin/tuningRunner.py -q {special_args} \
+                 --config='{config_string}' --mlir-build-dir `pwd` \
+                 --output={file_id} --tflops --debug \
+                 --rocmlir_gen_flags='--device={self.gpu_id}' 2>/dev/null"
+```
+
+This generates a universally unique ID (UUID) so that `tuningRunner.py` will not have any collisions when it outputs the debug information (produced with `--debug` in `cmd` above) to the hex representation of the uuid specified with `--output`.
+
+This will result in a `uuid` file and `uuid.debug` where `uuid` is a 128 bit hex number.
+
+#### Running
+
+While in the
+```
+rocMLIR/build
+```
+directory, I run:
+```
+./mlir/utils/tuna/tuna-script.sh -o gemm -c ./mlir/utils/performance/gemm-configs -t /share/MITuna/ -r /share/rocMLIR/ -l 0.25
+```
+Where:
+
+- `-o` specifies the operation, `gemm` in this case
+- `-c` specifies the gemm configuration files mentioned above
+- `-t` specifies the path to the `MITuna` directory, change this for your run
+- `-r` specifies the path to the `rocMLIR` directory, change this for your run
+- `-l` specifies the load balancing. It is a number between 0 and 1.0 that specifies the GPUs to use. In a system with 8 GPUs the value above, 0.25, with use 2 GPUs to tune.
+
+See the script for more details, this is just what worked for my needs.
+
+This will produce some output like this along with other debug lines:
+```
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 64 -m 1024 -n 384 -k 1024
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 64 -m 1024 -n 384 -k 4096
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 64 -m 2 -n 384 -k 1024
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 64 -m 3072 -n 384 -k 1024
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 64 -m 4096 -n 384 -k 1024
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 1024 -m 64 -n 384 -k 384
+Parsing line -t f32 -out_datatype f32                        -transA true -transB false -g 1024 -m 384 -n 384 -k 64
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 1 -m 2304 -n 16384 -k 768
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 1 -m 2 -n 16384 -k 768
+Parsing line -t f32 -out_datatype f32                        -transA false -transB false -g 1 -m 3072 -n 16384 -k 768
+```
+
+And once done, `rocMLIR/build/run` (or whatever directory you specify for `rocmlir_worker.py`) will contain files like this:
+
+
+```
+4699b78c709145bc92079fcf9a253af5        
+4699b78c709145bc92079fcf9a253af5.debug  
+48fb8a0d119e41b7820e6f215643180e        
+48fb8a0d119e41b7820e6f215643180e.debug  
+4a0e280740a940cb87e315b964627d02        
+4a0e280740a940cb87e315b964627d02.debug  
+4aa2e488d4d84657bd8db0ce6a26701e        
+4aa2e488d4d84657bd8db0ce6a26701e.debug  
+4adcde0e23604bd3aba1311766885b63        
+4adcde0e23604bd3aba1311766885b63.debug  
+4b7823960f134ed98f9153668c62de8c        
+4b7823960f134ed98f9153668c62de8c.debug  
+4b887de050bb4e8e962448ed9949efb7
+```
+
+Which can be easily read using the `quickTunerPreproc.py` script.
