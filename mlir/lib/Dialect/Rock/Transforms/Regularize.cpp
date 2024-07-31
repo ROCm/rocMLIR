@@ -182,7 +182,63 @@ static void annotateGenericOp(linalg::GenericOp lgop) {
 ////  Classify buffer writes into input and output fusion chains
 ////////////////////////////////////////////////////////////////////////
 
+/// The overall goal of this pass is to make sore you can go from the operands
+/// of the fusion root (usually a GEMM or attention) to function arguments
+/// through any intervening fusable operations (generally linalg.generic
+/// operations or reductions) without needing to invert any transformations.
+/// This allows us to accurately (assuming the heuristic for multiple-output
+/// input fusions isn't meaningfully incorrect) analyze the memory layout of the
+/// underlying memory despite any intervening fusion code. This is important,
+/// especially in the case of input fusions, as we rely on those vectorization
+/// analyses in order to correctly select elements of our schedule, like whether
+/// to do a bank conflict avoidance swizzle.
+///
+/// To achaive this, we traverse the writeOperands starting from the output
+/// buffer of each "fusion root" (the C algument of GEMM, the output of
+/// attention, etc) and record all the buffer-writing operands on the way from
+/// that argument to a function result (such as the outputs of an intervening
+/// linalg.generic) and classify them as output fusion writes. That is, output
+/// fusion writes are all those that will be replaced by writes to a register
+/// buffer during fusion. We then classify all the buffer writes between
+/// funciton inputs and the read operands of a fusion root as input fusion
+/// writes, along with the writes needed to produce any elementwise arguments to
+/// operations in the output fusion path (ex. if the bias elements are
+/// constructed by a linalg.generic, the output operand of that generic is an
+/// input fusion write). Equivalently, input fusion writes are those that become
+/// reads into a register buffer after fusion.
+///
+/// Once we have done this, we regularize the function as follows:
+/// - If the operand that points at a buffer write is on the output path,
+/// all the readers of that buffer must refer to that buffer directly and not
+/// through transforms. If there are such transforms, we invert them and replace
+/// the buffer with one whose type is the one expected by the reading operation.
+/// Shoulld there be multiple such operations that disagree about what the type
+/// of that buffer should be, we copy the original output buffer so that the
+/// inversions can be performed independently.
+/// - Conversely, for operands on the input path, the operation that writes
+/// to the buffer has to refer to the bufffer directly, so any views on that
+/// writing operand are inverted and those inverses become part of the view
+/// stack for each operation reading the buffer. This lets us traverse from
+/// the writing operand to its input during a vectorization analysis without
+/// having to invert the maps on the output.
+
 namespace {
+/// Information needed while regularizing the view chains to allow vectorization
+/// and permit fusion.
+/// `worklist` is the set of memref.alloc ops that haven't been processed yet.
+/// When we do a non-trivial regularization, we always add the new buffer
+/// to the worklist to ensure that the regularization invariants are mantained.
+/// `inputFusionWrites` is the set of `OpOperand*`s that point at arguments
+/// of operations that write to a buffer where the underlying operation is on
+/// an input fusion chain.
+/// `outputFusionWrites` is similarly the set of operands indicating a
+/// potentially transformed buffer that's written during the main output fusion
+/// chain. These sets are needed to resolve the ambiguity abut how to regularize
+/// a `linalg.generic` - that is, can its `out` have a view on it or not? Note
+/// that this is mutable state because, in the case of conflicting
+/// transformations in an output fusion, we'll need to copy the intermediate
+/// buffer so we can invert the conflicting transformations onto the writes
+/// of each copy.
 struct TransformPushState {
   llvm::SmallVector<memref::AllocOp> worklist;
   llvm::SmallPtrSet<OpOperand *, 8> inputFusionWrites;
@@ -190,83 +246,95 @@ struct TransformPushState {
 };
 } // end namespace
 
-/// Given an operand that reads a buffer, collect the writer of thet buffer and,
-/// recursively, all the writers of the buffers that writer reads, and so on.
-/// This is meant to collect all the buffer writes involved in an input fusion.
-static void collectInputFusionWrites(OpOperand *reader,
-                                     const BufferDependencyAnalysis &bufferDeps,
-                                     TransformPushState &state) {
-  std::optional<memref::AllocOp> maybeBuffer = bufferDeps.getReadBuffer(reader);
+/// Given an operand that reads a buffer, collect the write operand that filled
+/// that buffer and then recurse to all the buffers that that writing operation
+/// depends on. This allows us to classify linalg.generic operations as
+/// belonging to input fusions.
+static void
+collectInputFusionWriteOperands(OpOperand *readOperand,
+                                const BufferDependencyAnalysis &bufferDeps,
+                                TransformPushState &state) {
+  std::optional<memref::AllocOp> maybeBuffer =
+      bufferDeps.getReadBuffer(readOperand);
   // This reads an argument or some such thing
   if (!maybeBuffer)
     return;
-  std::optional<SmallVector<OpOperand *>> writers =
+  std::optional<SmallVector<OpOperand *>> writeOperands =
       bufferDeps.getWriters(*maybeBuffer);
-  if (!writers)
+  if (!writeOperands)
     return;
-  for (OpOperand *writer : *writers) {
-    if (!state.inputFusionWrites.insert(writer).second) {
+  for (OpOperand *writeOperand : *writeOperands) {
+    if (!state.inputFusionWrites.insert(writeOperand).second) {
       continue; // No infinite recursion
     }
-    auto writeOp = dyn_cast<MemoryEffectOpInterface>(writer->getOwner());
+    auto writeOp = dyn_cast<MemoryEffectOpInterface>(writeOperand->getOwner());
     if (!writeOp)
       continue;
     SmallVector<MemoryEffects::EffectInstance> effects;
     writeOp.getEffects(effects);
     for (const auto &effect : effects) {
-      OpOperand *maybeRecursiveReader = effect.getEffectValue<OpOperand *>();
-      // Test against `writer` to guard against [MemRead, MemWrite]
-      if (maybeRecursiveReader && maybeRecursiveReader != writer &&
+      OpOperand *maybeRecursiveReadOperand =
+          effect.getEffectValue<OpOperand *>();
+      // Test against the write operand to guard against [MemRead, MemWrite]
+      if (maybeRecursiveReadOperand &&
+          maybeRecursiveReadOperand != writeOperand &&
           isa<MemoryEffects::Read>(effect.getEffect())) {
-        collectInputFusionWrites(maybeRecursiveReader, bufferDeps, state);
+        collectInputFusionWriteOperands(maybeRecursiveReadOperand, bufferDeps,
+                                        state);
       }
     }
   }
 }
 
-/// Given the operand that writes to a buffer, collect the writes of its reader,
-/// and the writes of that reader, and so on until you're no longer writing to a
-/// buffer. If any auxiliary inputs come from buffers themselves, collect
-/// their writes as input fusions, because, in a fusion context, those other
-/// writers will be tiled by a threadwise_read_into, not a threadwise_write_all.
+/// Given the operand that writes to a buffer, traverse all the operands that
+/// are reads from that buffer and examine their operations. Then, for each
+/// buffer that that reading operation accesses, if it is read, classify its
+/// producer as part of the input fusion process, while if the buffer is
+/// written, recurse to collect that write. This classifies the intermediate
+/// buffers for the output fusion chain as those that will be read from (their
+/// tile size will come from a threadwise_read_into) and those that will be
+/// written (their tile size will come from a threadwise_write_all).
 static void
-collectOutputFusionWrites(OpOperand *writer,
+collectOutputFusionWrites(OpOperand *writeOperand,
                           const BufferDependencyAnalysis &bufferDeps,
                           TransformPushState &state) {
+  // This is, broadly, a cached untransform() except that it fails when you hit
+  // a function argument, which is what we want here.
   std::optional<memref::AllocOp> maybeBuffer =
-      bufferDeps.getWrittenBuffer(writer);
+      bufferDeps.getWrittenBuffer(writeOperand);
   // This reads an argument or some such thing
   if (!maybeBuffer)
     return;
-  if (!state.outputFusionWrites.insert(writer).second)
+  if (!state.outputFusionWrites.insert(writeOperand).second)
     return; // Prevent recursion
-  std::optional<SmallVector<OpOperand *>> readers =
+  std::optional<SmallVector<OpOperand *>> readOperands =
       bufferDeps.getReaders(*maybeBuffer);
-  if (!readers)
+  if (!readOperands)
     return;
   SmallPtrSet<OpOperand *, 4> elementwiseArgs, onwardWrites;
-  for (OpOperand *reader : *readers) {
-    auto readOp = dyn_cast<MemoryEffectOpInterface>(reader->getOwner());
+  for (OpOperand *readOperand : *readOperands) {
+    auto readOp = dyn_cast<MemoryEffectOpInterface>(readOperand->getOwner());
     if (!readOp)
       continue;
     SmallVector<MemoryEffects::EffectInstance> effects;
     readOp.getEffects(effects);
     for (const auto &effect : effects) {
       OpOperand *operand = effect.getEffectValue<OpOperand *>();
-      if (!operand || operand == reader)
+      if (!operand || operand == readOperand)
         continue;
-      if (isa<MemoryEffects::Write>(effect.getEffect())) {
+      MemoryEffects::Effect *effectType = effect.getEffect();
+      if (isa<MemoryEffects::Write>(effectType)) {
         onwardWrites.insert(operand);
         elementwiseArgs.erase(operand);
       }
-      if (isa<MemoryEffects::Read>(effect.getEffect()) &&
+      if (isa<MemoryEffects::Read>(effectType) &&
           !onwardWrites.contains(operand)) {
         elementwiseArgs.insert(operand);
       }
     }
   }
   for (OpOperand *arg : elementwiseArgs)
-    collectInputFusionWrites(arg, bufferDeps, state);
+    collectInputFusionWriteOperands(arg, bufferDeps, state);
   for (OpOperand *localWrite : onwardWrites) {
     LLVM_DEBUG(llvm::dbgs() << "Traversing via onward writer: "
                             << *localWrite->getOwner() << "\n");
@@ -278,30 +346,9 @@ collectOutputFusionWrites(OpOperand *writer,
 ////  Push Transforms Over alloc to fusor
 ////////////////////////////////////////////////////////////////////////
 
-/// In the below, a fusor is the operation that will have some computation fused
-/// into it. This is usually a gemm (either its output or inputs) but can be,
-/// for example, another linalg.generic. The operation that will be fused into
-/// the fusor is the fusee.
-///
-/// A fusor writes to or reads from a memref.alloc() and a fusee does the
-/// opposite of what the fusor does. Before this pass runs, both the fusor and
-/// the fusee may access that intermediate buffer (which will be rewritten away
-/// by fusion) through some sequence of view operations.
-///
-/// After these rewrites, we have the following invariants, which make the
-/// fusion code itself (it's down in AlignTiling.cpp) much simpler and enables
-/// analysis of vectorization within the parts of the pipeline between this pass
-/// and AlignTiling (which can be important for key performance queries).
-///
-/// - The fusee always has a direct reference to the buffer
-///
-/// Furthermore, if multiple fusees have such a non-direct reference, the
-/// intermediate buffer will be duplicated so that each transform stack can be
-/// inverted in isolation.
-
 /// Invert the transform stack between `operand` and `oldAlloc`, replacing all
 /// users but that transform stack with a new allocation whose type is the type
-/// of the front of the transform stack. If the original transforms (and
+/// of `transformedUse`'s value. If the original transforms (and
 /// allocation) then have no other uses, erase them after doing this. This also
 /// updates worklists with the new allocation and reanalyzes the buffer
 /// dependencies.
@@ -391,19 +438,19 @@ static LogicalResult pushTransformsToInputFusionReaders(
 /// worst case, mem2reg will get through them, assuming we don't delete them.
 /// (An example of such multiple uses is returning both the gemm and the sum of
 /// each row within the gemm).
-static LogicalResult
-isolateMultipleTransformingReaders(memref::AllocOp allocOp, Operation *writer,
-                                   BufferDependencyAnalysis &bufferDeps,
-                                   ArrayRef<OpOperand *> readers,
-                                   TransformPushState &state, IRRewriter &rw) {
+static LogicalResult isolateMultipleTransformingReaders(
+    memref::AllocOp allocOp, Operation *writeOperand,
+    BufferDependencyAnalysis &bufferDeps, ArrayRef<OpOperand *> readOperands,
+    TransformPushState &state, IRRewriter &rw) {
   TypedValue<MemRefType> buffer = allocOp.getResult();
   Location loc = allocOp.getLoc();
 
   LLVM_DEBUG(llvm::dbgs() << "Fixing multiple transformed readers of "
                           << allocOp << "\n");
-  for (OpOperand *reader : llvm::make_early_inc_range(readers)) {
-    LLVM_DEBUG(llvm::dbgs() << "Reading op is " << *reader->getOwner() << "\n");
-    Value transformed = reader->get();
+  for (OpOperand *readOperand : llvm::make_early_inc_range(readOperands)) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Reading op is " << *readOperand->getOwner() << "\n");
+    Value transformed = readOperand->get();
     rw.setInsertionPointAfter(allocOp);
     // If there are partially-merged transform chains, isolate the transform
     // chain and update the reader.
@@ -411,7 +458,8 @@ isolateMultipleTransformingReaders(memref::AllocOp allocOp, Operation *writer,
     if (isolated != transformed) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Isolated " << transformed << " to " << isolated << "\n");
-      rw.modifyOpInPlace(reader->getOwner(), [&]() { reader->set(isolated); });
+      rw.modifyOpInPlace(readOperand->getOwner(),
+                         [&]() { readOperand->set(isolated); });
     }
 
     Value probablyBuffer;
@@ -419,7 +467,7 @@ isolateMultipleTransformingReaders(memref::AllocOp allocOp, Operation *writer,
     std::tie(probablyBuffer, std::ignore) = untransform(isolated, transforms);
     if (probablyBuffer != buffer)
       return allocOp.emitOpError("expected transformed reader ")
-             << *(reader->getOwner()) << " to trace value to " << buffer
+             << *(readOperand->getOwner()) << " to trace value to " << buffer
              << " but it reached " << probablyBuffer;
     auto newBuffer = rw.create<memref::AllocOp>(loc, buffer.getType());
     if (!transforms.empty()) {
@@ -428,10 +476,10 @@ isolateMultipleTransformingReaders(memref::AllocOp allocOp, Operation *writer,
         viewRoot.getInputMutable().set(newBuffer.getResult());
       });
     } else {
-      rw.modifyOpInPlace(reader->getOwner(),
-                         [&]() { reader->set(newBuffer.getResult()); });
+      rw.modifyOpInPlace(readOperand->getOwner(),
+                         [&]() { readOperand->set(newBuffer.getResult()); });
     }
-    rw.setInsertionPointAfter(writer);
+    rw.setInsertionPointAfter(writeOperand);
     auto copy = rw.create<memref::CopyOp>(loc, allocOp, newBuffer);
     state.worklist.push_back(newBuffer);
     state.outputFusionWrites.insert(&copy.getTargetMutable());
@@ -447,80 +495,76 @@ isolateMultipleTransformingReaders(memref::AllocOp allocOp, Operation *writer,
   return success();
 }
 
-/// Push transforms up from fusees to fusors.
+/// Entry point for the regularization rewrite that inverts transforms.
 ///
-/// This function handles the setup and the output fusion case. In this case,
-/// if any of the readers of an intermediate buffer take a transformed view of
-/// that buffer, we invert that view and put those inverse views on the writer
-/// so that we don't need to, for example, compute inverses during vectorization
-/// queries or -rock-align-tiling. After the inverses are computed, we swap in a
-/// new allocation whose type is the type that the reader/fusee expects.
-///
-/// When there are multiple competing transform chains to invert, we introduce
-/// copy operations that preserve the original buffer type so that we can invert
-/// each chain onto the write of the copy and then process that.
+/// This function dispatches to the input fusion case and the multiple
+/// transforming readers case, and then handles inverting the transforms on the
+/// operation argument corresponding to a read from an intermediate buffer onto
+/// tho operation that writes that buffer.
 static LogicalResult pushTransformsUp(memref::AllocOp allocOp,
                                       BufferDependencyAnalysis &bufferDeps,
                                       TransformPushState &state,
                                       IRRewriter &rw) {
-  auto maybeBufferWriters = bufferDeps.getWriters(allocOp);
-  auto maybeBufferReaders = bufferDeps.getReaders(allocOp);
-  if (!maybeBufferWriters)
+  auto maybeBufferWriterOperands = bufferDeps.getWriters(allocOp);
+  auto maybeBufferReaderOperands = bufferDeps.getReaders(allocOp);
+  if (!maybeBufferWriterOperands)
     return allocOp.emitOpError(
         "couldn't find an operation that writes this buffer");
-  if (!maybeBufferReaders)
+  if (!maybeBufferReaderOperands)
     return allocOp.emitError(
         "couldn't find an operation that reads this buffer");
-  SmallVector<OpOperand *> bufferWriters = std::move(*maybeBufferWriters);
-  SmallVector<OpOperand *> bufferReaders = std::move(*maybeBufferReaders);
-  if (bufferWriters.size() != 1) {
+  SmallVector<OpOperand *> writeOperands =
+      std::move(*maybeBufferWriterOperands);
+  SmallVector<OpOperand *> readOperands = std::move(*maybeBufferReaderOperands);
+  if (writeOperands.size() != 1) {
     allocOp->getParentOp()->dump();
     return allocOp.emitError(
                "expected one operation to write this buffer, but there are ")
-           << bufferWriters.size();
+           << writeOperands.size();
   }
 
-  OpOperand *writer = bufferWriters[0];
-  bool isInputFusion = state.inputFusionWrites.contains(writer);
+  OpOperand *writeOperand = writeOperands[0];
+  bool isInputFusion = state.inputFusionWrites.contains(writeOperand);
   if (isInputFusion)
-    return pushTransformsToInputFusionReaders(allocOp, bufferDeps, writer,
+    return pushTransformsToInputFusionReaders(allocOp, bufferDeps, writeOperand,
                                               state, rw);
-  if (!state.outputFusionWrites.contains(writer)) {
+  if (!state.outputFusionWrites.contains(writeOperand)) {
     return allocOp.emitOpError("couldn't find the writer of a buffer in the "
                                "set of analyzed fusable writes. See ")
-           << bufferWriters.front()->get();
+           << writeOperand->get();
   }
 
-  OpOperand *transformingReader = nullptr;
-  for (OpOperand *reader : bufferReaders) {
-    Value readArg = reader->get();
-    if (!readArg.getDefiningOp<rock::TransformOp>()) {
+  OpOperand *readOperandWithTransforms = nullptr;
+  for (OpOperand *readOperand : readOperands) {
+    Value maybeTransformedBuffer = readOperand->get();
+    if (!maybeTransformedBuffer.getDefiningOp<rock::TransformOp>()) {
       continue;
     }
-    if (transformingReader && transformingReader != reader)
+    if (readOperandWithTransforms && readOperandWithTransforms != readOperand)
       return isolateMultipleTransformingReaders(
-          allocOp, writer->getOwner(), bufferDeps, bufferReaders, state, rw);
-    transformingReader = reader;
+          allocOp, writeOperand->getOwner(), bufferDeps, readOperands, state,
+          rw);
+    readOperandWithTransforms = readOperand;
   }
   // It's the simple case, do nothing
-  if (!transformingReader)
+  if (!readOperandWithTransforms)
     return success();
 
-  if (transformingReader && bufferReaders.size() > 1) {
+  if (readOperandWithTransforms && readOperands.size() > 1) {
     LLVM_DEBUG(llvm::dbgs()
                << "Adding copies to partially intercept a transform stack\n");
     return isolateMultipleTransformingReaders(
-        allocOp, writer->getOwner(), bufferDeps, bufferReaders, state, rw);
+        allocOp, writeOperand->getOwner(), bufferDeps, readOperands, state, rw);
   }
 
   LLVM_DEBUG(llvm::dbgs() << "Processing output fusion read via "
-                          << transformingReader->get() << " (argument "
-                          << transformingReader->getOperandNumber() << " of "
-                          << *transformingReader->getOwner() << ") via "
-                          << allocOp << "\n");
+                          << readOperandWithTransforms->get() << " (argument "
+                          << readOperandWithTransforms->getOperandNumber()
+                          << " of " << *readOperandWithTransforms->getOwner()
+                          << ") via " << allocOp << "\n");
 
-  return regularizeTransformStack(allocOp, transformingReader, bufferDeps,
-                                  state, rw);
+  return regularizeTransformStack(allocOp, readOperandWithTransforms,
+                                  bufferDeps, state, rw);
 }
 
 LogicalResult findFusionRoots(func::FuncOp kernel,
@@ -528,43 +572,49 @@ LogicalResult findFusionRoots(func::FuncOp kernel,
                               TransformPushState &state) {
   bool foundFusionRoot = false;
   kernel.walk([&](Operation *op) {
-    llvm::TypeSwitch<Operation *>(op)
-        .Case(
-            [&](memref::AllocOp allocOp) { state.worklist.push_back(allocOp); })
-        .Case([&](GridwiseGemmOp gemmOp) {
-          foundFusionRoot = true;
-          collectOutputFusionWrites(&gemmOp.getCMutable(), bufferDeps, state);
-          collectInputFusionWrites(&gemmOp.getAMutable(), bufferDeps, state);
-          collectInputFusionWrites(&gemmOp.getBMutable(), bufferDeps, state);
-        })
-        .Case([&](GridwiseGemmAccelOp gemmOp) {
-          foundFusionRoot = true;
-          collectOutputFusionWrites(&gemmOp.getCMutable(), bufferDeps, state);
-          collectInputFusionWrites(&gemmOp.getAMutable(), bufferDeps, state);
-          collectInputFusionWrites(&gemmOp.getBMutable(), bufferDeps, state);
-        })
-        .Case([&](GridwiseAttentionAccelOp attenOp) {
-          foundFusionRoot = true;
-          collectOutputFusionWrites(&attenOp.getOutMutable(), bufferDeps,
-                                    state);
-          collectInputFusionWrites(&attenOp.getQueriesMutable(), bufferDeps,
-                                   state);
-          collectInputFusionWrites(&attenOp.getKeysMutable(), bufferDeps,
-                                   state);
-          collectInputFusionWrites(&attenOp.getValuesMutable(), bufferDeps,
-                                   state);
+    if (auto allocOp = dyn_cast<memref::AllocOp>(op)) {
+      state.worklist.push_back(allocOp);
+      return;
+    }
 
-          // The linalg.generic inside the attention's body will be expected to
-          // write out a global tensor as if it were an output fusion, so its
-          // write should be added to the set of output fusion writes lest we
-          // get complaints that there's an alloc that doesn't participatie in
-          // fusion.
-          for (auto lgop :
-               attenOp.getPreSoftmaxBody().getOps<linalg::GenericOp>()) {
-            collectOutputFusionWrites(&lgop.getOutputsMutable()[0], bufferDeps,
-                                      state);
-          }
-        });
+    if (op->hasTrait<OpTrait::rock::FusionRoot>()) {
+      foundFusionRoot = true;
+      auto effectsIface = cast<MemoryEffectOpInterface>(op);
+      SmallVector<MemoryEffects::EffectInstance> effects;
+      effectsIface.getEffects(effects);
+      SmallPtrSet<OpOperand *, 4> readOperands, writeOperands;
+      for (const auto &effect : effects) {
+        OpOperand *operand = effect.getEffectValue<OpOperand *>();
+        if (!operand)
+          continue;
+        MemoryEffects::Effect *effectType = effect.getEffect();
+        if (isa<MemoryEffects::Read>(effectType) &&
+            !writeOperands.contains(operand)) {
+          readOperands.insert(operand);
+        } else if (isa<MemoryEffects::Write>(effectType)) {
+          writeOperands.insert(operand);
+          readOperands.erase(operand);
+        }
+      }
+      for (OpOperand *writeOperand : writeOperands)
+        collectOutputFusionWrites(writeOperand, bufferDeps, state);
+      for (OpOperand *readOperand : readOperands)
+        collectInputFusionWriteOperands(readOperand, bufferDeps, state);
+    }
+
+    if (isa<AttentionOp, GridwiseAttentionAccelOp>(op)) {
+      // The linalg.generic inside the attention's body will be expected to
+      // write out a global tensor as if it were an output fusion, so its
+      // write should be added to the set of output fusion writes lest we
+      // get complaints that there's an alloc that doesn't participatie in
+      // fusion.
+      for (Region &attachedFunc : op->getRegions()) {
+        for (auto lgop : attachedFunc.getOps<linalg::GenericOp>()) {
+          collectOutputFusionWrites(&lgop.getOutputsMutable()[0], bufferDeps,
+                                    state);
+        }
+      }
+    }
   });
   // Make the traversal top-down just to be safe.
   std::reverse(state.worklist.begin(), state.worklist.end());

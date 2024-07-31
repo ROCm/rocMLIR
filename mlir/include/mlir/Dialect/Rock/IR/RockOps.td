@@ -63,7 +63,8 @@ class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayMinCount<n>]>
 class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockConvInterface>,
-                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>{
+                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                       RockFusionRoot]>{
     dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5,6]>:$filter,
                               TensorOrMemRefRankOf<inputTypes, [5,6]>:$input,
                               TensorOrMemRefRankOf<outputTypes, [5,6]>:$output,
@@ -133,7 +134,7 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 }
 
 def Rock_GemmOp :
-    Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
+    Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>, RockFusionRoot]>,
     Arguments<(ins Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
                        "matrix A", [MemRead]>:$a,
                    Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
@@ -205,7 +206,7 @@ def Rock_ReduceOp :
 }
 
 def Rock_AttentionOp :
-  Rock_Op<"attention", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+  Rock_Op<"attention", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, RockFusionRoot]>,
   Arguments<(ins
     TensorOrMemRefOf<[F32, F16, I8]>:$queries,
     TensorOrMemRefOf<[F32, F16, I8]>:$keys,
@@ -385,7 +386,7 @@ def Rock_TensorUntransformCastOp :
 }
 
 def Rock_GridwiseGemmOp :
-    Rock_Op<"gridwise_gemm">,
+    Rock_Op<"gridwise_gemm", [RockFusionRoot]>,
     Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
                    Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
                    Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
@@ -406,7 +407,7 @@ def Rock_GridwiseGemmOp :
 
 // gridwise_gemm_accel
 def Rock_GridwiseGemmAccelOp :
-    Rock_Op<"gridwise_gemm_accel">,
+    Rock_Op<"gridwise_gemm_accel", [RockFusionRoot]>,
     Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
                    Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
                    Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
@@ -429,7 +430,7 @@ def Rock_GridwiseGemmAccelOp :
 
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+    Rock_Op<"gridwise_attention_accel", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, RockFusionRoot]>,
     Arguments<(ins MemRefRankOf<[F32, F16, I8], [3]>:$queries,
                    MemRefRankOf<[F32, F16, I8], [3]>:$keys,
                    MemRefRankOf<[F32, F16], [3]>:$values,
