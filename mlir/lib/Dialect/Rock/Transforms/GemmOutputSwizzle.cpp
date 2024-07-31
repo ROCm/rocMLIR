@@ -260,11 +260,16 @@ struct ThreadwiseWriteAllRewritePattern
     LLVM_DEBUG(llvm::dbgs() << "G: " << G << " N: " << N << " M: " << M
                             << " nPerBlock: " << nPerBlock
                             << " mPerBlock: " << mPerBlock << "\n");
+    FailureOr<IntegerAttr> maybeGridSize = getGridSize(op);
+    if (failed(maybeGridSize)) {
+      return failure();
+    }
     FailureOr<IntegerAttr> maybeBlockSize = getBlockSize(op);
     if (failed(maybeBlockSize)) {
       return failure();
     }
     int64_t blockSize = maybeBlockSize.value().getValue().getSExtValue();
+    int64_t gridSize = maybeGridSize.value().getValue().getSExtValue();
     bool useIndexDiffs = true;
     bool forceUnroll = true;
     int64_t ldsRequiredBytes = mPerBlock * nPerBlock * getByteWidth(destType);
@@ -377,6 +382,9 @@ struct ThreadwiseWriteAllRewritePattern
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
     if (M % mPerBlock != 0 || N % nPerBlock != 0) {
+      return failure();
+    }
+    if ((mBlocks * nBlocks) != gridSize) {
       return failure();
     }
     bool isAttention = op.getExtraIndices().size() == 3;
@@ -515,6 +523,13 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
             getMaxVectorization(destView, extraIdxCount);
         int64_t vectorLenBits =
             vectorRes.max * destElemType.getIntOrFloatBitWidth();
+
+        // Ensure a 128-bit store where possible, even if the data is already
+        // somawhat vectorized from the matrix instruction. This is important
+        // because GCN-based chips only form clauses with 128-bit memory
+        // operations, and we may need to revisit this heuristic (as opposed to,
+        // say, checking for at least N elements in the vectorization output) on
+        // future hardware.
         if (vectorLenBits == 128) {
           LLVM_DEBUG(llvm::dbgs()
                      << "Vectorization of 'iter' is " << vectorLenBits

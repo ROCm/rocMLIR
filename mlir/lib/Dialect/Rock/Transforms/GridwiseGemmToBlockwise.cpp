@@ -700,17 +700,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
+    toMatrixC.passThrough({"g_block", "m_block", "n_block"});
     toMatrixC.unmerge(
-        "gemmM", 1,
-        {"m_block", "m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
-        {M / mPerBlock, gemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave,
-         mPerThread});
+        "gemmBlockM", 3, {"m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
+        {gemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave, mPerThread});
     toMatrixC.unmerge(
-        "gemmN", 2,
-        {"n_block", "n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
-        {N / nPerBlock, gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
-         nPerThread});
+        "gemmBlockN", 4, {"n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
+        {gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave, nPerThread});
 
     swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1],
