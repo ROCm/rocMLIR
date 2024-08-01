@@ -64,7 +64,9 @@ def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
     "func::FuncDialect",
     "tosa::TosaDialect",
     "arith::ArithDialect",
-    "mhal::MHALDialect"
+    "mhal::MHALDialect",
+    "tensor::TensorDialect",
+    "linalg::LinalgDialect"
   ];
 }
 

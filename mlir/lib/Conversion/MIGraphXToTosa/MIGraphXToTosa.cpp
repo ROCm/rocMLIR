@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -835,6 +836,15 @@ struct QuantizeLinearConverter final
                   ConversionPatternRewriter &rewriter) const final;
 };
 
+struct ConvertConverter final
+    : public OpConversionPattern<migraphx::ConvertOp> {
+  using OpConversionPattern<migraphx::ConvertOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+
 struct NegConverter final : public OpConversionPattern<migraphx::NegOp> {
   using OpConversionPattern<migraphx::NegOp>::OpConversionPattern;
 
@@ -968,6 +978,42 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   }
   rewriter.replaceOp(op, result);
 
+  return success();
+}
+
+LogicalResult
+ConvertConverter::matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+  if (!op.getZeroExtend()) {
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInA());
+    return success();
+  }
+  // tosa.cast defaults to signed, which is what we usually want, but sometimes
+  // (currently this only happens when there's int4->int8 unpacking) we want the
+  // unsigned/zzero-extending cast.
+  Location loc = op.getLoc();
+  MIXRShapedType shapedResultType = op.getOutput().getType();
+  Type outElemType = shapedResultType.getElementType();
+  Type outType = getTypeConverter()->convertType(shapedResultType);
+  Value empty = rewriter.create<tensor::EmptyOp>(loc, outType,
+                                                 /*dynamicSize=*/ValueRange{});
+  SmallVector<AffineMap> iterationMaps(
+      2, rewriter.getMultiDimIdentityMap(shapedResultType.getRank()));
+  SmallVector<utils::IteratorType> iteratorKinds(shapedResultType.getRank(),
+                                                 utils::IteratorType::parallel);
+  auto converter = rewriter.create<linalg::GenericOp>(
+      loc, outType, adaptor.getInA(), empty, iterationMaps, iteratorKinds,
+      [&](OpBuilder &b, Location loc, ValueRange inputs) {
+        Value result;
+        if (isa<FloatType>(outElemType))
+          result = b.create<arith::UIToFPOp>(loc, outElemType, inputs[0]);
+        else
+          result = b.create<arith::ExtUIOp>(loc, outElemType, inputs[0]);
+        b.create<linalg::YieldOp>(loc, result);
+      });
+  rewriter.replaceOp(op, converter);
   return success();
 }
 
@@ -1254,7 +1300,6 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
            TrivialConverter<PowOp, tosa::PowOp>, DivConverter, MulConverter,
            TrivialConverter<AbsOp, tosa::AbsOp>,
            TrivialConverter<CeilOp, tosa::CeilOp>,
-           TrivialConverter<ConvertOp, tosa::CastOp>,
            TrivialConverter<ErfOp, tosa::ErfOp>,
            TrivialConverter<ExpOp, tosa::ExpOp>,
            TrivialConverter<FloorOp, tosa::FloorOp>,
@@ -1263,9 +1308,9 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
            TrivialConverter<RsqrtOp, tosa::RsqrtOp>,
            TrivialConverter<SigmoidOp, tosa::SigmoidOp>,
            TrivialConverter<TanhOp, tosa::TanhOp>, DeQuantizeLinearConverter,
-           QuantizeLinearConverter, DeQuantizeLinearConverter, NegConverter,
-           ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-           WhereConverter>(typeConverter, patterns.getContext());
+           QuantizeLinearConverter, DeQuantizeLinearConverter, ConvertConverter,
+           NegConverter, ReluConverter, SoftmaxConverter, LiteralConverter,
+           ClipConverter, WhereConverter>(typeConverter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(

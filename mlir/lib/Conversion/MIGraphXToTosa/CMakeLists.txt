@@ -13,7 +13,10 @@ add_rocmlir_conversion_library(MLIRMIGraphXToTosa
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
+  MLIRArithDialect
   MLIRTosaDialect
+  MLIRTensorDialect
+  MLIRLinalgDialect
   MLIRMHAL
   MLIRTosaTransforms
   MLIRRockTransforms
