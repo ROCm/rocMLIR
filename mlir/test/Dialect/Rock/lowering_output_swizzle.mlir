@@ -1,10 +1,10 @@
-// RUN: rocmlir-opt --rock-gemm-output-swizzle %s | FileCheck %s
+// RUN: rocmlir-opt --rock-output-swizzle %s | FileCheck %s
 
 #wg = #gpu.address_space<workgroup>
 #priv = #gpu.address_space<private>
 
-// CHECK-LABEL: func.func @rock_gemm_output_swizzle
-func.func @rock_gemm_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+// CHECK-LABEL: func.func @rock_output_swizzle
+func.func @rock_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   %registers = rock.alloc() : memref<32xf16, #priv>
   %registers2 = rock.alloc() : memref<32xf16, #priv>
   %blockid = rock.workgroup_id : index

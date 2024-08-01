@@ -1635,10 +1635,10 @@ struct GridwiseAttentionAccelRewritePattern
                                      int64_t blockSize,
                                      int64_t numElements) const {
     TopDownTMBuilder viewBuilder(rewriter,
-                                 {"gblock", "nblock", "tid", "flatiter"},
+                                 {"g_block", "n_block", "tid", "flatiter"},
                                  {gBlocks, nBlocks, blockSize, numElements});
-    viewBuilder.passThrough({"gblock", "nblock", "tid"}, {0, 2, 3},
-                            {"gblock", "nblock", "tid"});
+    viewBuilder.passThrough({"g_block", "n_block", "tid"}, {0, 2, 3},
+                            {"g_block", "n_block", "tid"});
     viewBuilder.merge({"mIter", "iter"}, {1, 4}, "flatiter",
                       {mIterLen, numElements / mIterLen});
     return viewBuilder.get();

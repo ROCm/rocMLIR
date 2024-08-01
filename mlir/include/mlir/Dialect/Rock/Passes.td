@@ -127,7 +127,7 @@ def RockCheckResidencyPass : Pass<"rock-check-residency"> {
   let dependentDialects = ["LLVM::LLVMDialect"];
 }
 
-def RockGemmOutputSwizzlePass : Pass<"rock-gemm-output-swizzle", "::mlir::func::FuncOp"> {
+def RockOutputSwizzlePass : Pass<"rock-output-swizzle", "::mlir::func::FuncOp"> {
   let summary = "This pass changes ThreadwiseWriteAllOp to swizzle on LDS before writing to GPU memory";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }

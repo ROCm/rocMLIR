@@ -1,4 +1,4 @@
-//===- GemmOutputSwizzle - MLIR Rock ops lowering passes -----===//
+//===- OutputSwizzle - MLIR Rock ops lowering passes -----===//
 //
 // Copyright 2024 The MLIR Authors.
 //
@@ -45,12 +45,12 @@
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKGEMMOUTPUTSWIZZLEPASS
+#define GEN_PASS_DEF_ROCKOUTPUTSWIZZLEPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
 
-#define DEBUG_TYPE "rock-gemm-output-swizzle"
+#define DEBUG_TYPE "rock-output-swizzle"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -58,9 +58,8 @@ using namespace mlir::rock;
 using mlir::gpu::AddressSpace;
 
 namespace {
-struct RockGemmOutputSwizzlePass
-    : public rock::impl::RockGemmOutputSwizzlePassBase<
-          RockGemmOutputSwizzlePass> {
+struct RockOutputSwizzlePass
+    : public rock::impl::RockOutputSwizzlePassBase<RockOutputSwizzlePass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
@@ -155,7 +154,7 @@ static LogicalResult reuseDeadLDS(func::FuncOp &func) {
   Location loc = std::get<0>(allocs[0])->getLoc();
   auto ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
 
-  // Rewrite all GpuAllocs as SubViewOp
+  // Rewrite all GpuAllocs as ViewOp
   for (auto [i, allocTuple] : llvm::enumerate(allocs)) {
     GpuAllocOp alloc;
     int64_t offset;
@@ -202,10 +201,6 @@ getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
   dimensionsToRemove.insert("g_block");
   dimensionsToRemove.insert("m_block");
   dimensionsToRemove.insert("n_block");
-  // for attention:
-  dimensionsToRemove.insert("gblock");
-  dimensionsToRemove.insert("mblock");
-  dimensionsToRemove.insert("nblock");
   FailureOr<ArrayAttr> maybeIdToLDS =
       removeUpperDims(b, srcTransform, dimensionsToRemove);
   if (failed(maybeIdToLDS)) {
@@ -216,13 +211,14 @@ getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
 
   ArrayRef<int64_t> shape = getLowerShape(idToLDS);
   if (shape.size() != 2) {
-    LLVM_DEBUG(llvm::dbgs() << "getIdToLDS failed\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Currently, this pass works only for two dimensions\n");
     return std::nullopt;
   }
-  int64_t mPerBlock = shape[0];
-  int64_t nPerBlock = shape[1];
+  int64_t dim0PerBlock = shape[0];
+  int64_t dim1PerBlock = shape[1];
 
-  return std::make_tuple(mPerBlock, nPerBlock, idToLDS);
+  return std::make_tuple(dim0PerBlock, dim1PerBlock, idToLDS);
 }
 
 struct ThreadwiseWriteAllRewritePattern
@@ -239,14 +235,14 @@ struct ThreadwiseWriteAllRewritePattern
     Type destType = op.getDest().getType().getElementType();
 
     // Convert from reg -> memory transform to reg -> block
-    int64_t mPerBlock, nPerBlock;
+    int64_t dim0PerBlock, dim1PerBlock;
     ArrayAttr idToLDS;
     std::optional<std::tuple<int64_t, int64_t, ArrayAttr>> maybeBlockInfo =
         getIdToLDS(op, b);
     if (!maybeBlockInfo.has_value()) {
       return failure();
     }
-    std::tie(mPerBlock, nPerBlock, idToLDS) = maybeBlockInfo.value();
+    std::tie(dim0PerBlock, dim1PerBlock, idToLDS) = maybeBlockInfo.value();
 
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> cShape;
@@ -254,12 +250,8 @@ struct ThreadwiseWriteAllRewritePattern
     if (cShape.size() != 3) {
       return failure();
     }
-    int64_t G = cShape[0];
-    int64_t M = cShape[1];
-    int64_t N = cShape[2];
-    LLVM_DEBUG(llvm::dbgs() << "G: " << G << " N: " << N << " M: " << M
-                            << " nPerBlock: " << nPerBlock
-                            << " mPerBlock: " << mPerBlock << "\n");
+    LLVM_DEBUG(llvm::dbgs() << " dim1PerBlock: " << dim1PerBlock
+                            << " dim0PerBlock: " << dim0PerBlock << "\n");
     FailureOr<IntegerAttr> maybeGridSize = getGridSize(op);
     if (failed(maybeGridSize)) {
       return failure();
@@ -269,28 +261,29 @@ struct ThreadwiseWriteAllRewritePattern
       return failure();
     }
     int64_t blockSize = maybeBlockSize.value().getValue().getSExtValue();
-    int64_t gridSize = maybeGridSize.value().getValue().getSExtValue();
     bool useIndexDiffs = true;
     bool forceUnroll = true;
-    int64_t ldsRequiredBytes = mPerBlock * nPerBlock * getByteWidth(destType);
+    int64_t ldsRequiredBytes =
+        dim0PerBlock * dim1PerBlock * getByteWidth(destType);
 
     // Decide register vectorization.
     constexpr int64_t dimensionM = 1;
     constexpr int64_t dimensionN = 2;
-    int64_t dataPerThread = (nPerBlock * mPerBlock) / blockSize;
-    if ((nPerBlock * mPerBlock) % blockSize != 0) {
+    int64_t dataPerThread = (dim1PerBlock * dim0PerBlock) / blockSize;
+    if ((dim1PerBlock * dim0PerBlock) % blockSize != 0) {
       return failure();
     }
 
     VectorizationResult mVectorRes =
         getMaxVectorization(matC, dimensionM, /*inputDimLen=*/
-                            dataPerThread, matC.getDefiningOp());
+                            std::nullopt, matC.getDefiningOp());
     int64_t mVectorLen = mVectorRes.max;
     VectorizationResult nVectorRes =
         getMaxVectorization(matC, dimensionN, /*inputDimLen=*/
-                            dataPerThread, matC.getDefiningOp());
+                            std::nullopt, matC.getDefiningOp());
     int64_t nVectorLen = nVectorRes.max;
     int64_t dim = (mVectorLen > nVectorLen) ? dimensionM : dimensionN;
+    int64_t vectorLen = std::max(mVectorLen, nVectorLen);
 
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
@@ -304,12 +297,15 @@ struct ThreadwiseWriteAllRewritePattern
     auto ldsBufferOutput = b.create<GpuAllocOp>(loc, ldsMemRefOutputType);
     auto typedBuffer = viewBufferAs(b, ldsBufferOutput, destType);
 
-    // Convert from raw -> mPerBlock, nPerBlock
-    TopDownTMBuilder mnToRaw(b, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
+    // Convert from raw -> dim0PerBlock, dim1PerBlock
+    TopDownTMBuilder mnToRaw(b, {"gemmM", "gemmN"},
+                             {dim0PerBlock, dim1PerBlock});
     if (dim == dimensionN) {
-      mnToRaw.unmerge("flatten", 0, {"gemmM", "gemmN"}, {mPerBlock, nPerBlock});
+      mnToRaw.unmerge("flatten", 0, {"gemmM", "gemmN"},
+                      {dim0PerBlock, dim1PerBlock});
     } else {
-      mnToRaw.unmerge("flatten", 0, {"gemmN", "gemmM"}, {nPerBlock, mPerBlock});
+      mnToRaw.unmerge("flatten", 0, {"gemmN", "gemmM"},
+                      {dim1PerBlock, dim0PerBlock});
     }
     auto mnToRawAttr = mnToRaw.get();
 
@@ -332,9 +328,7 @@ struct ThreadwiseWriteAllRewritePattern
                                    /*useIndexDiffs=*/useIndexDiffs);
 
     // Load from LDS to registers.
-    int64_t elementsWrittenPerThread = 128 / destType.getIntOrFloatBitWidth();
-    elementsWrittenPerThread =
-        math_util::gcd(dataPerThread, elementsWrittenPerThread);
+    int64_t elementsWrittenPerThread = math_util::gcd(dataPerThread, vectorLen);
     int64_t iter = dataPerThread / elementsWrittenPerThread;
     LLVM_DEBUG(llvm::dbgs()
                << "blockSize: " << blockSize
@@ -379,76 +373,89 @@ struct ThreadwiseWriteAllRewritePattern
 
     SmallVector<int64_t, 5> bidGridLengths;
     SmallVector<StringRef, 5> bidGridOrder;
-    int64_t mBlocks = M / mPerBlock;
-    int64_t nBlocks = N / nPerBlock;
-    if (M % mPerBlock != 0 || N % nPerBlock != 0) {
+
+    llvm::SmallVector<uint32_t> passThrough, passThroughWOTid;
+    // drop last dimension (tid)
+    passThroughWOTid.reserve(op.getExtraIndices().size() - 1);
+    passThrough.reserve(op.getExtraIndices().size());
+    for (size_t dim = 0; dim < op.getExtraIndices().size() - 1; ++dim) {
+      passThroughWOTid.push_back(dim);
+      passThrough.push_back(dim);
+    }
+    passThrough.push_back(op.getExtraIndices().size() - 1);
+    uint32_t idx = op.getExtraIndices().size();
+    if (idx < 3) {
       return failure();
     }
-    if ((mBlocks * nBlocks) != gridSize) {
-      return failure();
-    }
-    bool isAttention = op.getExtraIndices().size() == 3;
+
+    bool isAttention = idx == 3;
     LLVM_DEBUG(llvm::dbgs() << "isAttention: " << isAttention << "\n");
-    if (isAttention) {
-      // attention
-      dataPerThread = dataPerThread * mBlocks;
-      mBlocks = 1;
-      bidGridLengths = {G, nBlocks, blockSize, dataPerThread};
-      bidGridOrder = {"g_block", "n_block", "tid", "iter"};
-    } else {
-      bidGridLengths = {G, mBlocks, nBlocks, blockSize, dataPerThread};
-      bidGridOrder = {"g_block", "m_block", "n_block", "tid", "iter"};
-    }
 
     // Save to memory
-    // Create views as gridwise sub-tile of C
-    TopDownTMBuilder createMblock(b, bidGridOrder, bidGridLengths, loc);
-    if (isAttention) {
-      createMblock.passThrough({"g_block", "n_block", "tid"}, {0, 2, 3},
-                               {"g_block", "n_block", "tid"});
-      createMblock.merge({"m_block", "iter"}, {1, 4}, "iter",
-                         {mBlocks, dataPerThread / mBlocks});
-    } else {
-      createMblock.passThrough(bidGridOrder, {0, 1, 2, 3, 4}, bidGridOrder);
+    ArrayAttr srcTransform = op.getExtraViewsAttr();
+    const auto upperTr = cast<TransformMapAttr>(srcTransform[0]);
+    ArrayRef<int64_t> startShape = upperTr.getUpperBounds().asArrayRef();
+    llvm::SmallVector<StringRef> startNames;
+    startNames.reserve(startShape.size());
+    for (auto tr : upperTr.getOps()) {
+      ArrayRef<StringRef> upperNames = tr.getUpperNames();
+      startNames.append(upperNames.begin(), upperNames.end());
     }
-    auto createMblockAttr = createMblock.get();
+    assert(startNames.size() == startShape.size());
 
-    TopDownTMBuilder tidIterMergeMem =
-        TopDownTMBuilder::below(createMblock, createMblockAttr);
-    tidIterMergeMem.passThrough({"g_block", "m_block", "n_block", "tid"});
-    tidIterMergeMem.merge({"iter", "numElements"}, {4, 5}, "iter",
+    // get dimension names
+    StringRef gDimName = startNames[0];
+    StringRef nDimName = startNames[startNames.size() - 3];
+    StringRef tidDimName = startNames[startNames.size() - 2];
+    StringRef itemDimName = startNames[startNames.size() - 1];
+
+    // get mBlocks and nBlocks
+    int64_t nBlocks = startShape[startShape.size() - 3];
+    // only valid for !isAttention
+    int64_t mBlocks = startShape[startShape.size() - 4];
+
+    TopDownTMBuilder tidIterMergeMem(b, startNames, startShape, loc);
+    tidIterMergeMem.passThrough(passThrough, passThrough);
+    tidIterMergeMem.merge({"iter", "numElements"}, {idx, idx + 1}, itemDimName,
                           {iter, elementsWrittenPerThread});
     auto tidIterMergeMemAttr = tidIterMergeMem.get();
 
     TopDownTMBuilder tidIterFlattenMem =
         TopDownTMBuilder::below(tidIterMergeMem, tidIterMergeMemAttr);
-    tidIterFlattenMem.passThrough({"g_block", "m_block", "n_block"});
-    tidIterFlattenMem.unmerge("flattenBlock", 3, {"iter", "tid", "numElements"},
+    tidIterFlattenMem.passThrough(passThroughWOTid, passThroughWOTid);
+    tidIterFlattenMem.unmerge("flattenBlock", idx - 1,
+                              {"iter", tidDimName, "numElements"},
                               {iter, blockSize, elementsWrittenPerThread});
     auto tidIterFlattenMemAttr = tidIterFlattenMem.get();
 
     auto flattenToBlockCoord =
         TopDownTMBuilder::below(tidIterFlattenMem, tidIterFlattenMemAttr);
-    flattenToBlockCoord.passThrough({"g_block", "m_block", "n_block"});
+    flattenToBlockCoord.passThrough(passThroughWOTid, passThroughWOTid);
     if (dim == dimensionN) {
-      flattenToBlockCoord.merge({"block_m", "block_n"}, {3, 4}, "flattenBlock",
-                                {mPerBlock, nPerBlock});
+      flattenToBlockCoord.merge({"block_m", "block_n"}, {idx - 1, idx},
+                                "flattenBlock", {dim0PerBlock, dim1PerBlock});
     } else {
-      flattenToBlockCoord.merge({"block_n", "block_m"}, {3, 4}, "flattenBlock",
-                                {nPerBlock, mPerBlock});
+      flattenToBlockCoord.merge({"block_n", "block_m"}, {idx - 1, idx},
+                                "flattenBlock", {dim1PerBlock, dim0PerBlock});
     }
     TransformMapAttr flattenToBlockCoordAttr = flattenToBlockCoord.get();
 
     auto toMatrixC =
         TopDownTMBuilder::below(flattenToBlockCoord, flattenToBlockCoordAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
-    toMatrixC.unmerge("gemmM", 1, {"m_block", "block_m"}, {mBlocks, mPerBlock});
-    toMatrixC.unmerge("gemmN", 2, {"n_block", "block_n"}, {nBlocks, nPerBlock});
+    toMatrixC.passThrough({"gemmG"}, {0}, {gDimName});
+    if (isAttention) {
+      toMatrixC.passThrough({"gemmM"}, {1}, {"block_m"});
+    } else {
+      toMatrixC.unmerge("gemmM", 1, {startNames[1], "block_m"},
+                        {mBlocks, dim0PerBlock});
+    }
+    toMatrixC.unmerge("gemmN", 2, {nDimName, "block_n"},
+                      {nBlocks, dim1PerBlock});
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
     SmallVector<Attribute> transformAttrsStore{
-        createMblockAttr, tidIterMergeMemAttr, tidIterFlattenMemAttr,
-        flattenToBlockCoordAttr, toMatrixCAttr};
+        tidIterMergeMemAttr, tidIterFlattenMemAttr, flattenToBlockCoordAttr,
+        toMatrixCAttr};
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrsStore);
 
     b.replaceOpWithNewOp<ThreadwiseWriteAllOp>(
@@ -460,7 +467,7 @@ struct ThreadwiseWriteAllRewritePattern
   }
 };
 
-void RockGemmOutputSwizzlePass::runOnOperation() {
+void RockOutputSwizzlePass::runOnOperation() {
   func::FuncOp func = getOperation();
   IRRewriter rewriter(func->getContext());
 
@@ -479,7 +486,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
 
     // process ThreadwiseWriteAllOp that save to global memory
     if (hasGlobalMemoryAddressSpace(destMemRefType)) {
-      int64_t mPerBlock, nPerBlock;
+      int64_t dim0PerBlock, dim1PerBlock;
       ArrayAttr idToLDS;
       rewriter.setInsertionPoint(threadwiseWriteAll);
       std::optional<std::tuple<int64_t, int64_t, ArrayAttr>> maybeBlockInfo =
@@ -487,25 +494,25 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
       if (!maybeBlockInfo.has_value()) {
         return;
       }
-      std::tie(mPerBlock, nPerBlock, idToLDS) = maybeBlockInfo.value();
+      std::tie(dim0PerBlock, dim1PerBlock, idToLDS) = maybeBlockInfo.value();
 
       Type destType = threadwiseWriteAll.getDest().getType().getElementType();
-      int64_t ldsRequiredBytes = mPerBlock * nPerBlock * getByteWidth(destType);
+      int64_t ldsRequiredBytes =
+          dim0PerBlock * dim1PerBlock * getByteWidth(destType);
 
       // not enough LDS memory
       if (failed(checkLDSSize(threadwiseWriteAll, ldsRequiredBytes))) {
         LLVM_DEBUG(llvm::dbgs()
-                   << "GemmOutputSwizzle requires too much LDS memory: "
+                   << "OutputSwizzle requires too much LDS memory: "
                    << ldsRequiredBytes << " bytes, skipping pass\n");
         return;
       }
       // heuristic: if we need more LDS, skip this pass
       if (ldsRequiredBytes > ldsAllocated) {
-        LLVM_DEBUG(
-            llvm::dbgs()
-            << "GemmOutputSwizzle requires more LDS memory, current usage: "
-            << ldsAllocated << " bytes, required: " << ldsRequiredBytes
-            << " bytes, skipping pass\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "OutputSwizzle requires more LDS memory, current usage: "
+                   << ldsAllocated << " bytes, required: " << ldsRequiredBytes
+                   << " bytes, skipping pass\n");
         return;
       }
       // heuristic: check vectorization of iter in the original map
@@ -554,6 +561,7 @@ void RockGemmOutputSwizzlePass::runOnOperation() {
     RewritePatternSet patterns(&getContext());
     patterns.add<ThreadwiseWriteAllRewritePattern>(&getContext());
 
+    // TODO: this pass works for one or two dimensions only at the block level
     GreedyRewriteConfig config;
     config.strictMode = GreedyRewriteStrictness::ExistingOps;
     if (failed(applyOpPatternsAndFold(writes, std::move(patterns), config))) {
