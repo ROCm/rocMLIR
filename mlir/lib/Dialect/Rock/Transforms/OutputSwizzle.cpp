@@ -80,8 +80,8 @@ static bool hasGlobalMemoryAddressSpace(MemRefType type) {
          !hasPrivateMemoryAddressSpace(type);
 }
 
-static int64_t getLDSTotalSize(func::FuncOp &func) {
-  int64_t totalSize = 0;
+static std::tuple<int64_t, int64_t> getLDSTotalSize(func::FuncOp &func) {
+  int64_t totalSize = 0, numLDSAllocs = 0;
   func.walk([&](GpuAllocOp gpuAlloc) {
     mlir::MemRefType type = gpuAlloc.getOutput().getType();
     auto memSpaceValue =
@@ -89,9 +89,10 @@ static int64_t getLDSTotalSize(func::FuncOp &func) {
             .getValue();
     if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
       totalSize += type.getNumElements() * getByteWidth(type.getElementType());
+      numLDSAllocs++;
     }
   });
-  return totalSize;
+  return std::make_tuple(totalSize, numLDSAllocs);
 }
 
 static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
@@ -248,6 +249,9 @@ struct ThreadwiseWriteAllRewritePattern
     ArrayRef<int64_t> cShape;
     cShape = op.getDest().getType().getShape();
     if (cShape.size() != 3) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << " getDest() number of dimensions is not 3, it's "
+                 << cShape.size() << "\n");
       return failure();
     }
     LLVM_DEBUG(llvm::dbgs() << " dim1PerBlock: " << dim1PerBlock
@@ -284,6 +288,32 @@ struct ThreadwiseWriteAllRewritePattern
     int64_t nVectorLen = nVectorRes.max;
     int64_t dim = (mVectorLen > nVectorLen) ? dimensionM : dimensionN;
     int64_t vectorLen = std::max(mVectorLen, nVectorLen);
+
+    // check vectorization of iter in the original map to decide if we run the
+    // pass
+    Value destView = transform(b, matC, op.getExtraViews());
+    auto destElemType = cast<MemRefType>(destView.getType()).getElementType();
+    if (auto elemVecType = dyn_cast<VectorType>(destElemType)) {
+      LLVM_DEBUG(llvm::dbgs() << "ThreadwiseWriteAllOp saves a vector type"
+                              << ", skipping swizzle\n");
+      return success();
+    }
+    size_t extraIdxCount = op.getExtraIndices().size();
+    VectorizationResult vectorRes =
+        getMaxVectorization(destView, extraIdxCount);
+    int64_t originalVectorLen = vectorRes.max;
+
+    if (vectorLen <= originalVectorLen) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Original vectorization of 'iter' is " << originalVectorLen
+                 << " bits, the output swizzle could achieve " << vectorLen
+                 << ", skipping swizzle\n");
+      return success();
+    }
+    LLVM_DEBUG(llvm::dbgs()
+               << "Original vectorization of 'iter' is " << originalVectorLen
+               << " bits, the output swizzle could achieve " << vectorLen
+               << ", performing swizzle\n");
 
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
@@ -476,7 +506,8 @@ void RockOutputSwizzlePass::runOnOperation() {
     return;
 
   // Get total LDS memory allocated
-  int64_t ldsAllocated = getLDSTotalSize(func);
+  int64_t ldsAllocated, numLDSAllocs;
+  std::tie(ldsAllocated, numLDSAllocs) = getLDSTotalSize(func);
 
   SmallVector<Operation *, 4> writes;
   func.walk([&writes, &rewriter,
@@ -515,39 +546,7 @@ void RockOutputSwizzlePass::runOnOperation() {
                    << " bytes, skipping pass\n");
         return;
       }
-      // heuristic: check vectorization of iter in the original map
-      ArrayAttr srcTransform = threadwiseWriteAll.getExtraViews();
-      Value matC = threadwiseWriteAll.getDest();
-      Value destView = transform(rewriter, matC, srcTransform);
-      auto destViewType = cast<MemRefType>(destView.getType());
-      auto destElemType = destViewType.getElementType();
-      if (auto elemVecType = dyn_cast<VectorType>(destElemType)) {
-        LLVM_DEBUG(llvm::dbgs() << "ThreadwiseWriteAllOp saves a vector type"
-                                << ", skipping swizzle\n");
-      } else {
-        size_t extraIdxCount = threadwiseWriteAll.getExtraIndices().size();
-        VectorizationResult vectorRes =
-            getMaxVectorization(destView, extraIdxCount);
-        int64_t vectorLenBits =
-            vectorRes.max * destElemType.getIntOrFloatBitWidth();
-
-        // Ensure a 128-bit store where possible, even if the data is already
-        // somawhat vectorized from the matrix instruction. This is important
-        // because GCN-based chips only form clauses with 128-bit memory
-        // operations, and we may need to revisit this heuristic (as opposed to,
-        // say, checking for at least N elements in the vectorization output) on
-        // future hardware.
-        if (vectorLenBits == 128) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "Vectorization of 'iter' is " << vectorLenBits
-                     << " bits, skipping swizzle\n");
-        } else {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "Vectorization of 'iter' is " << vectorLenBits
-                     << " bits, performing swizzle\n");
-          writes.push_back(threadwiseWriteAll);
-        }
-      }
+      writes.push_back(threadwiseWriteAll);
     }
   });
   if (writes.size() > 1) {
@@ -568,11 +567,13 @@ void RockOutputSwizzlePass::runOnOperation() {
       return signalPassFailure();
     }
 
+    int64_t ldsAllocatedAfter, numLDSAllocsAfter;
+    std::tie(ldsAllocatedAfter, numLDSAllocsAfter) = getLDSTotalSize(func);
     // Reuse LDS, we assume the last GpuAllocOp can reuse previous
     // LDS allocations because they are no longer needed
     // Note: this is a temporary trick that will be solved here:
     // https://github.com/ROCm/rocMLIR-internal/issues/1487
-    if (failed(reuseDeadLDS(func))) {
+    if (numLDSAllocsAfter > numLDSAllocs && failed(reuseDeadLDS(func))) {
       return signalPassFailure();
     }
   }
