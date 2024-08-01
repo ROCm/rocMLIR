@@ -254,7 +254,7 @@ struct ThreadwiseWriteAllRewritePattern
                  << cShape.size() << "\n");
       return failure();
     }
-    LLVM_DEBUG(llvm::dbgs() << " dim1PerBlock: " << dim1PerBlock
+    LLVM_DEBUG(llvm::dbgs() << "dim1PerBlock: " << dim1PerBlock
                             << " dim0PerBlock: " << dim0PerBlock << "\n");
     FailureOr<IntegerAttr> maybeGridSize = getGridSize(op);
     if (failed(maybeGridSize)) {
@@ -306,13 +306,13 @@ struct ThreadwiseWriteAllRewritePattern
     if (vectorLen <= originalVectorLen) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Original vectorization of 'iter' is " << originalVectorLen
-                 << " bits, the output swizzle could achieve " << vectorLen
+                 << ", the output swizzle could achieve " << vectorLen
                  << ", skipping swizzle\n");
       return success();
     }
     LLVM_DEBUG(llvm::dbgs()
                << "Original vectorization of 'iter' is " << originalVectorLen
-               << " bits, the output swizzle could achieve " << vectorLen
+               << ", the output swizzle could achieve " << vectorLen
                << ", performing swizzle\n");
 
     // Get current workitem ID.
