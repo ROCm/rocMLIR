@@ -1796,6 +1796,20 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   return success();
 }
 
+void GridwiseAttentionAccelOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  effects.emplace_back(read, &getQueriesMutable());
+  effects.emplace_back(read, &getKeysMutable());
+  effects.emplace_back(read, &getValuesMutable());
+  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
 //===----------------------------------------------------------------------===//
 // WorkgroupIdOp and WorkitemIdOp
 //===----------------------------------------------------------------------===//
@@ -2000,6 +2014,20 @@ LogicalResult AttentionOp::verify() {
     return emitError("reduction dimensions of second gemm do not match");
   }
   return success();
+}
+
+void AttentionOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  effects.emplace_back(read, &getQueriesMutable());
+  effects.emplace_back(read, &getKeysMutable());
+  effects.emplace_back(read, &getValuesMutable());
+  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
 }
 
 //===-----------------------------------------------------===//

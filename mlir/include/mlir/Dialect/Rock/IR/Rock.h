@@ -40,6 +40,15 @@ class PatternRewriter;
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 
+namespace mlir {
+namespace OpTrait {
+namespace rock {
+template <typename ConcreteType>
+class FusionRoot : public TraitBase<ConcreteType, FusionRoot> {};
+} // namespace rock
+} // namespace OpTrait
+} // namespace mlir
+
 // Following ifdef could be used to change
 // the attention operator to be a fused gemm-gemm
 // kernel for debugging purposes. This will also

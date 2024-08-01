@@ -86,8 +86,12 @@ SearchResults findReadersAndWriters(memref::AllocOp allocOp) {
 
 void BufferDependencyAnalysis::analyze(memref::AllocOp allocOp) {
   SearchResults searchResults = findReadersAndWriters(allocOp);
-  readersTable.insert(std::make_pair(allocOp, searchResults.readers));
-  writersTable.insert(std::make_pair(allocOp, searchResults.writers));
+  readersTable.insert_or_assign(allocOp, searchResults.readers);
+  writersTable.insert_or_assign(allocOp, searchResults.writers);
+  for (OpOperand *reader : searchResults.readers)
+    readerToBufferTable.insert(std::make_pair(reader, allocOp));
+  for (OpOperand *writer : searchResults.writers)
+    writerToBufferTable.insert(std::make_pair(writer, allocOp));
 }
 
 BufferDependencyAnalysis::BufferDependencyAnalysis(Operation *op) : op(op) {
@@ -107,17 +111,33 @@ BufferDependencyAnalysis::BufferDependencyAnalysis(Operation *op) : op(op) {
 }
 
 std::optional<llvm::SmallVector<OpOperand *>>
-BufferDependencyAnalysis::getReaders(memref::AllocOp allocOp) {
-  if (readersTable.contains(allocOp)) {
-    return readersTable[allocOp];
-  }
+BufferDependencyAnalysis::getReaders(memref::AllocOp allocOp) const {
+  auto entry = readersTable.find(allocOp);
+  if (entry != readersTable.end())
+    return entry->getSecond();
   return std::nullopt;
 }
 
 std::optional<llvm::SmallVector<OpOperand *>>
-BufferDependencyAnalysis::getWriters(memref::AllocOp allocOp) {
-  if (writersTable.contains(allocOp)) {
-    return writersTable[allocOp];
-  }
+BufferDependencyAnalysis::getWriters(memref::AllocOp allocOp) const {
+  auto entry = writersTable.find(allocOp);
+  if (entry != writersTable.end())
+    return entry->getSecond();
+  return std::nullopt;
+}
+
+std::optional<memref::AllocOp>
+BufferDependencyAnalysis::getReadBuffer(OpOperand *use) const {
+  auto entry = readerToBufferTable.find(use);
+  if (entry != readerToBufferTable.end())
+    return entry->getSecond();
+  return std::nullopt;
+}
+
+std::optional<memref::AllocOp>
+BufferDependencyAnalysis::getWrittenBuffer(OpOperand *use) const {
+  auto entry = writerToBufferTable.find(use);
+  if (entry != writerToBufferTable.end())
+    return entry->getSecond();
   return std::nullopt;
 }
