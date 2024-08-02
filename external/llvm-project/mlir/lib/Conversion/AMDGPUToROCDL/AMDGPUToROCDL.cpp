@@ -1051,9 +1051,10 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicUminOp>,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
-           AMDGPUDPPLowering, LDSBarrierOpLowering, SchedBarrierOpLowering, MFMAOpLowering,
-           WMMAOpLowering, ExtPackedFp8OpLowering, PackedTrunc2xFp8OpLowering,
-           PackedStochRoundFp8OpLowering>(converter, chipset);
+           AMDGPUDPPLowering, LDSBarrierOpLowering, SchedBarrierOpLowering,
+           MFMAOpLowering, WMMAOpLowering, ExtPackedFp8OpLowering,
+           PackedTrunc2xFp8OpLowering, PackedStochRoundFp8OpLowering>(converter,
+                                                                      chipset);
 }
 
 std::unique_ptr<Pass> mlir::createConvertAMDGPUToROCDLPass() {
