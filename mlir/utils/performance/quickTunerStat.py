@@ -206,9 +206,9 @@ class DataValidator(PerfConfigValidator):
         # to validate file we need data already read,
 
         all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
-        #print(dtype)
-        #print(self.validation_data[dtype])
+        # note that these are not the columns for attn or for f32 gemm/conv on Navi. Should be extended for the proper columns
+        # as a class member that is configured at initialization, self.op and then self.columns
+        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'] 
         for gemm in self.gemm_keys:
             if gemm not in self.validation_data[dtype]:
                 continue
@@ -254,8 +254,9 @@ class DataValidator(PerfConfigValidator):
 class TunerValidator(PerfConfigValidator):
     """
     This uses perfRunner functions to run the rocmlir-tuning-driver
-    and collect the resulting run data. It will edit the GridwiseGemmsParams.cpp
-    with the correct perfConfig, compile rocmlir-tuning-driver, and run it. 
+    and collect the resulting run data. 
+    It will:
+    1) edit the GridwiseGemmsParams.cpp with the correct perfConfig, compile rocmlir-tuning-driver, and run it. 
     Restoring the file when done.
     """
     @dataclass(frozen=True)
@@ -272,27 +273,24 @@ class TunerValidator(PerfConfigValidator):
 
     def __init__(self,
                  gemm_config_file,
-                 rocmlir_path,
-                 rocm_build_script='/share/scripts/build-rocm',
                  debug=False):
         self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
         self.gemm_keys = [(cfg.transA, cfg.transB, cfg.g, cfg.m, cfg.n, cfg.k) for cfg in self.gemm_configs]
-        self.gridwise_gemm_params='rocMLIR/mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
-        self.cpp_file = os.path.join(os.path.dirname(rocmlir_path), self.gridwise_gemm_params)
-        self.rocm_build_script = rocm_build_script
+        self.gridwise_gemm_params='/mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
         self.backup = self.cpp_file + "~"
         shutil.copy(self.cpp_file, self.backup) # create backup
         self.archNames = perfRunner.getArch()
         self.arch = ','.join(self.archNames)
         self.numCU = perfRunner.getNumCU(perfRunner.getChip())
         self.root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
+        self.cpp_file = os.path.join(self.root_dir, self.gridwise_gemm_params) # better
         self.default_conv_configs = self.root_dir + '/mlir/utils/jenkins/performance/conv-configs'
         self.rocmlir_gen_flags = ''
         self.opType = Operation.fromName('gemm')
         self.configs_path = gemm_config_file
         self.mlir_build_dir = perfRunner.find_mlir_build_dir()
         self.paths = perfRunner.create_paths(self.configs_path, self.mlir_build_dir)
-        
+
         if not self.paths.mlir_paths:
             raise RuntimeError("MLIR build dir was not found")
     
@@ -344,17 +342,47 @@ class TunerValidator(PerfConfigValidator):
         with open(cpp_filename, 'w') as file:
             file.write(cpp_content)
 
-    def buildRocm(self):
+    def buildRocMLIR(self):
         """
-        builds the rocm code base, compiling the code along the way
+        Builds the rocMLIR code base so that we can runing tuning with the newly
+        edited quick tuning list.
         """
-        result = subprocess.run(self.rocm_build_script, shell=True, capture_output=True, text=True)
+        def run_cmd(cmd):
+            subprocess.run(cmd, shell=True, capture_output=True, text=True)
     
-        if result.returncode != 0:
-            print(result.stdout)
-            print("Compilation error", file=sys.stderr)
-            print(result.stderr)
-            exit(1)
+            if result.returncode != 0:
+                print(result.stdout)
+                print("Compilation error", file=sys.stderr)
+                print(result.stderr)
+                exit(1)
+            return result.returncode        
+
+        cwd = os.getcwd()
+
+        if not os.path.samefile(cwd, self.mlir_build_dir):
+            change_path = True
+            os.chdir(self.mlir_build_dir)
+
+        try:
+            # cmake command
+            cmake_cmd = (
+                'cmake -G Ninja .. -DCMAKE_BUILD_TYPE=RelWithDebInfo '
+                '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ '
+                '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang '
+                '-DROCMLIR_ENABLE_BENCHMARKS="rocblas" '
+                '-DCMAKE_EXPORT_COMPILE_COMMANDS=1 '
+                '-DBUILD_FAT_LIBROCKCOMPILER=ON'
+            )
+
+            cmake_returncode = run_cmd(cmake_cmd)
+
+            #build command
+            ninja_cmd = 'ninja check-rocmlir-build-only'
+            ninja_returncode = run_cmd(ninja_cmd)
+
+        finally:
+            if change_path:
+                os.chdir(cwd)
 
     def runTuning(self, dtype):
         """
@@ -547,7 +575,6 @@ def main(args=None):
         if not pargs.rocmlir:
             raise ValueError(f"rocmlir path not set, please specifiy using --romclir")
         verifier = TunerValidator(pargs.gemm_configs,
-                                  pargs.rocmlir,
                                   debug=pargs.debug)
     else:
         raise ValueError(f"Not a valid method: {method}")
