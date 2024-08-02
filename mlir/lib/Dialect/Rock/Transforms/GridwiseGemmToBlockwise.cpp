@@ -127,11 +127,37 @@ bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyDPerThread,
   return {tiebreaker, kVectorLen};
 }
 
+static GemmDimension
+bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyPerThread, GemmDimension tiebreaker,
+                        int64_t kPerBlock, int64_t dPerBlock) {
+  // A future commit will account for the underlying buffer's vectorization
+  // here.
+  VectorizationResult kVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
+      math_util::gcd(copyPerThread, kPerBlock),
+      matrix.getDefiningOp());
+  int64_t kVectorLen = kVectorRes.max;
+  VectorizationResult dVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
+      math_util::gcd(copyPerThread, dPerBlock),
+      matrix.getDefiningOp());
+  int64_t dVectorLen = dVectorRes.max;
+
+  if (kVectorLen > dVectorLen) {
+    return GemmDimension::K;
+  }
+  if (dVectorLen > kVectorLen) {
+    return GemmDimension::MorN;
+  }
+
+  return tiebreaker;
+}
+
 /// Compute a thread copy layout, i.e., how many elements a single thread (or
 /// workitem) reads along K and M (independently on how we vectorize the reads)
 static FailureOr<std::pair<int64_t, int64_t>>
 computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
-                     int64_t dPerBlock, int64_t kpack, Location loc) {
+                     int64_t dPerBlock, int64_t kpack, Location loc, int64_t dRepeats, GemmDimension vecDim) {
 
   // By default, we try to maximize the LDS store vectorization. So we will try
   // to read as many elements as possible along the contiguous dimension in LDS
@@ -140,13 +166,14 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
   int64_t copyKPerThread = 0;
   int64_t copyDPerThread = 0;
 
-  if (kpack == 1) {
+  if(vecDim == GemmDimension::MorN){
+    copyKPerThread = math_util::gcd(maxVlen, math_util::gcd(kpack, copyPerThread / dRepeats));
+    copyDPerThread = copyPerThread / copyKPerThread;
+  }
+  else{
+    // vecDim == GemmDimension::K
     copyDPerThread = math_util::gcd(maxVlen, copyPerThread);
     copyKPerThread = copyPerThread / copyDPerThread;
-  } else {
-    copyKPerThread =
-        math_util::gcd(maxVlen, math_util::gcd(kpack, copyPerThread));
-    copyDPerThread = copyPerThread / copyKPerThread;
   }
 
   if (copyKPerThread == 0 || copyDPerThread == 0) {
@@ -274,21 +301,22 @@ static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
                                              Location loc, Value matrix,
                                              Type elemType, int64_t blockSize,
                                              int64_t kPerBlock,
-                                             int64_t dPerBlock, int64_t kpack) {
+                                             int64_t dPerBlock, int64_t kpack, int64_t dRepeats) {
   int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
+  GemmDimension vectorTiebreaker =
+      (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
+  GemmDimension vectorDim = bestGlobalVectorization(rewriter, matrix, copyPerThread,
+                              vectorTiebreaker, kPerBlock, dPerBlock);
   auto maybeCopyDPerThread = computeCopyPerThread(
-      elemType, copyPerThread, kPerBlock, dPerBlock, kpack, loc);
+      elemType, copyPerThread, kPerBlock, dPerBlock, kpack, loc, dRepeats, vectorDim);
   if (failed(maybeCopyDPerThread))
     return failure();
 
   int64_t copyKPerThread = (*maybeCopyDPerThread).first;
   int64_t copyDPerThread = (*maybeCopyDPerThread).second;
   // Find the best way of vectorizing the layout
-  GemmDimension vectorTiebreaker =
-      (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
   int64_t vectorLen;
-  GemmDimension vectorDim;
-  std::tie(vectorDim, vectorLen) =
+  std::tie(std::ignore, vectorLen) =
       bestGlobalVectorization(rewriter, matrix, copyDPerThread, copyKPerThread,
                               vectorTiebreaker, kPerBlock, dPerBlock);
   return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread,
@@ -479,13 +507,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     FailureOr<VectorDimInfo> maybeVecDimInfoA =
         getVectorDim(b, loc, op.getA(), elementTypeA, blockSize, kPerBlock,
-                     mPerBlock, kpack);
+                     mPerBlock, kpack, gemmMRepeat);
     if (failed(maybeVecDimInfoA)) {
       return failure();
     }
     FailureOr<VectorDimInfo> maybeVecDimInfoB =
         getVectorDim(b, loc, op.getB(), elementTypeB, blockSize, kPerBlock,
-                     nPerBlock, kpack);
+                     nPerBlock, kpack, gemmNRepeat);
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
@@ -827,7 +855,7 @@ struct GridwiseAttentionAccelRewritePattern
       uint32_t blockSize, uint32_t gridSize, ArrayRef<StringRef> bidGridOrder,
       ArrayRef<int64_t> bidGridLengths, bool forceUnroll,
       PatternRewriter &rewriter, const accel::AccelEmitter &accelEmitter,
-      LDSLayoutConfigDim ldsLayoutCfg) const {
+      LDSLayoutConfigDim ldsLayoutCfg, int64_t dRepeats) const {
 
     MemRefType destBufferType = cast<MemRefType>(destBuffer.getType());
     mlir::gpu::AddressSpace destBufferAddrSpace =
@@ -847,7 +875,7 @@ struct GridwiseAttentionAccelRewritePattern
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
     FailureOr<VectorDimInfo> maybeVectorDimInfo = getVectorDim(
-        rewriter, loc, in, elemType, blockSize, kPerBlock, dPerBlock, kpack);
+        rewriter, loc, in, elemType, blockSize, kPerBlock, dPerBlock, kpack, dRepeats);
     if (failed(maybeVectorDimInfo)) {
       return failure();
     }
@@ -1763,7 +1791,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm0NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoQ =
         getVectorDim(rewriter, loc, inQ, elemTypeQ, blockSize, gemm0KPerBlock,
-                     gemm0NPerBlock, gemm0kpack);
+                     gemm0NPerBlock, gemm0kpack, accelParamsGemm0.nRepeats);
     if (failed(maybeVectorDimInfoQ)) {
       return failure();
     }
@@ -1771,7 +1799,7 @@ struct GridwiseAttentionAccelRewritePattern
         elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value());
     FailureOr<VectorDimInfo> maybeVectorDimInfoK =
         getVectorDim(rewriter, loc, inK, elemTypeK, blockSize, gemm0KPerBlock,
-                     gemm0MPerBlock, gemm0kpack);
+                     gemm0MPerBlock, gemm0kpack, accelParamsGemm0.mRepeats);
     if (failed(maybeVectorDimInfoK)) {
       return failure();
     }
@@ -1907,7 +1935,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm1NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoV =
         getVectorDim(rewriter, loc, inV, elemTypeV, blockSize, gemm1KPerBlock,
-                     gemm1MPerBlock, gemm1kpack);
+                     gemm1MPerBlock, gemm1kpack, accelParamsGemm1.mRepeats);
     if (failed(maybeVectorDimInfoV)) {
       return failure();
     }
@@ -1983,7 +2011,7 @@ struct GridwiseAttentionAccelRewritePattern
             fromGlobalRegBufferQ, toLDSRegBufferQ, preAccelRegBuffersQ, "n",
             gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
             gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0.get(), ldsLayoutCfgNG0);
+            *accelEmitterPtrGemm0.get(), ldsLayoutCfgNG0, accelParamsGemm0.nRepeats);
         if (failed(statusLoadQTile)) {
           return failure();
         }
@@ -1993,7 +2021,7 @@ struct GridwiseAttentionAccelRewritePattern
             fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ, "n",
             gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
             gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0.get(), ldsLayoutCfgNG0);
+            *accelEmitterPtrGemm0.get(), ldsLayoutCfgNG0, accelParamsGemm0.nRepeats);
         if (failed(statusLoadQ)) {
           return failure();
         }
@@ -2050,7 +2078,7 @@ struct GridwiseAttentionAccelRewritePattern
               toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack,
               gemm0KpacksPerBlock, gemm0NPerBlock, blockSize, gridSize,
               bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-              *accelEmitterPtrGemm0.get(), ldsLayoutCfgNG0);
+              *accelEmitterPtrGemm0.get(), ldsLayoutCfgNG0, accelParamsGemm0.nRepeats);
           if (failed(statusLoadQ)) {
             return failure();
           }
@@ -2063,7 +2091,7 @@ struct GridwiseAttentionAccelRewritePattern
             toLDSRegBufferK, ldsByteBufferK, "m", gemm0kpack,
             gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
             bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0.get(), ldsLayoutCfgMG0);
+            *accelEmitterPtrGemm0.get(), ldsLayoutCfgMG0, accelParamsGemm0.mRepeats);
         if (failed(statusLoadKTile)) {
           return failure();
         }
@@ -2288,7 +2316,7 @@ struct GridwiseAttentionAccelRewritePattern
               toLDSRegBufferV, ldsByteBufferV, "m", gemm1kpack,
               gemm1KpacksPerBlock, gemm1MPerBlock, blockSize, gridSize,
               bidGridOrder, gemm1BidGridLengths, forceUnroll, rewriter,
-              *accelEmitterPtrGemm1.get(), ldsLayoutCfgMG1);
+              *accelEmitterPtrGemm1.get(), ldsLayoutCfgMG1, accelParamsGemm1.mRepeats);
           if (failed(statusLoadVTile)) {
             return failure();
           }
@@ -2524,16 +2552,33 @@ struct GridwiseGemmAccelRewritePattern
     int64_t bCopyKpacksPerThread =
         math_util::integer_divide_ceil(bCopyPerThread, kpack);
 
+    auto accelEmitterPtr = accel::AccelEmitter::select(
+    op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
+    if (!accelEmitterPtr)
+      return op.emitOpError("Unable to emit accelerator code.");
+
+    // Extract relevant accelerator parameters
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    int64_t nResultVectors = params.nResultVectors;
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t kBasePerThread = params.kBasePerThread;
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+    VectorType accVectorType = params.accVectorType;
+    int64_t numOutputVectorElements = params.numOutputVectorElements();
+    bool useIndexDiffs = true;
+
     // Get the vector copy layout for A and B
     FailureOr<VectorDimInfo> maybeVecDimInfoA =
         getVectorDim(b, loc, op.getA(), elementTypeA, blockSize, kPerBlock,
-                     mPerBlock, kpack);
+                     mPerBlock, kpack, mRepeats);
     if (failed(maybeVecDimInfoA)) {
       return failure();
     }
     FailureOr<VectorDimInfo> maybeVecDimInfoB =
         getVectorDim(b, loc, op.getB(), elementTypeB, blockSize, kPerBlock,
-                     nPerBlock, kpack);
+                     nPerBlock, kpack, nRepeats);
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
@@ -2557,23 +2602,6 @@ struct GridwiseGemmAccelRewritePattern
                << "bCopyKPerThread: " << maybeVecDimInfoB->inKPerThread << "\n"
                << "copyMPerThread: " << maybeVecDimInfoA->inDPerThread << "\n"
                << "copyNPerThread: " << maybeVecDimInfoB->inDPerThread << "\n");
-
-    auto accelEmitterPtr = accel::AccelEmitter::select(
-    op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
-    if (!accelEmitterPtr)
-      return op.emitOpError("Unable to emit accelerator code.");
-    
-    // Extract relevant accelerator parameters
-    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
-    int64_t nResultVectors = params.nResultVectors;
-    int64_t mRepeats = params.mRepeats;
-    int64_t nRepeats = params.nRepeats;
-    int64_t kBasePerThread = params.kBasePerThread;
-    Type argTypeA = params.argTypeA;
-    Type argTypeB = params.argTypeB;
-    VectorType accVectorType = params.accVectorType;
-    int64_t numOutputVectorElements = params.numOutputVectorElements();
-    bool useIndexDiffs = true;
 
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};

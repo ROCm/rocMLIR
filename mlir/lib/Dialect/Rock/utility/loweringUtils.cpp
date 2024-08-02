@@ -228,7 +228,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
   SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
   SmallString<8> dIterNameHigh = llvm::formatv("{0}_high", dIterName);
-  SmallString<8> dIterNameLow = llvm::formatv("{0}_high", dIterName);
+  SmallString<8> dIterNameLow = llvm::formatv("{0}_low", dIterName);
   SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
@@ -262,7 +262,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     toDSplit.merge({dIterNameHigh, dIterNameLow}, {7, 8}, dIterName,
                       {dSplit, dPerThread / dSplit});
     TransformMapAttr dSplitAttr = toDSplit.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, dSplitAttr);
+    auto toGlobalIdx = TopDownTMBuilder::below(toDSplit, dSplitAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
                         {kGlobal / kPerBlock, kThreads, kPerThread});
@@ -270,7 +270,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
                         {dGlobal / dPerBlock, dSplit, dThreads, dPerThread / dSplit});
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+    gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, dSplitAttr, toGlobalIdxAttr});
   }
   {
     TopDownTMBuilder blockwiseSplitId(b, {"tid", "iter"},
@@ -285,12 +285,12 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     toDSplit.merge({dIterNameHigh, dIterNameLow}, {3, 4}, dIterName,
                       {dSplit, dPerThread / dSplit});
     TransformMapAttr dSplitAttr = toDSplit.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, dSplitAttr);
+    auto toGlobalIdx = TopDownTMBuilder::below(toDSplit, dSplitAttr);
     toGlobalIdx.unmerge("k", 0, {"k_thread", "k_iter"}, {kThreads, kPerThread});
     toGlobalIdx.unmerge(dName, 1, {dIterNameHigh, dThreadName, dIterNameLow},
                         {dSplit, dThreads, dPerThread / dSplit});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+    gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, dSplitAttr, toGlobalIdxAttr});
   }
   {
     TopDownTMBuilder threadwiseSplitId(b, {"iter"}, {dataPerThread}, loc);
