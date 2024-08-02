@@ -2557,13 +2557,31 @@ struct GridwiseGemmAccelRewritePattern
                << "bCopyKPerThread: " << maybeVecDimInfoB->inKPerThread << "\n"
                << "copyMPerThread: " << maybeVecDimInfoA->inDPerThread << "\n"
                << "copyNPerThread: " << maybeVecDimInfoB->inDPerThread << "\n");
+
+    auto accelEmitterPtr = accel::AccelEmitter::select(
+    op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
+    if (!accelEmitterPtr)
+      return op.emitOpError("Unable to emit accelerator code.");
+    
+    // Extract relevant accelerator parameters
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    int64_t nResultVectors = params.nResultVectors;
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t kBasePerThread = params.kBasePerThread;
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+    VectorType accVectorType = params.accVectorType;
+    int64_t numOutputVectorElements = params.numOutputVectorElements();
+    bool useIndexDiffs = true;
+
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
         maybeVecDimInfoA->inDPerThread,
-        maybeVecDimInfoA->vectorDim == GemmDimension::K);
+        maybeVecDimInfoA->vectorDim == GemmDimension::K, mRepeats);
     if (failed(maybeABufferViews)) {
       return failure();
     }
@@ -2572,7 +2590,7 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
         maybeVecDimInfoB->inDPerThread,
-        maybeVecDimInfoB->vectorDim == GemmDimension::K);
+        maybeVecDimInfoB->vectorDim == GemmDimension::K, nRepeats);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -2647,24 +2665,6 @@ struct GridwiseGemmAccelRewritePattern
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
-
-    auto accelEmitterPtr = accel::AccelEmitter::select(
-        op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
-
-    if (!accelEmitterPtr)
-      return op.emitOpError("Unable to emit accelerator code.");
-
-    // Extract relevant accelerator parameters
-    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
-    int64_t nResultVectors = params.nResultVectors;
-    int64_t mRepeats = params.mRepeats;
-    int64_t nRepeats = params.nRepeats;
-    int64_t kBasePerThread = params.kBasePerThread;
-    Type argTypeA = params.argTypeA;
-    Type argTypeB = params.argTypeB;
-    VectorType accVectorType = params.accVectorType;
-    int64_t numOutputVectorElements = params.numOutputVectorElements();
-    bool useIndexDiffs = true;
 
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << M << "\n"

@@ -211,7 +211,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, bool isKContigousDim) {
+    int64_t dPerThread, bool isKContigousDim, int64_t dSplit) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -227,6 +227,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   int64_t dataPerThread = (kPerBlock * dPerBlock) / blockSize;
 
   SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
+  SmallString<8> dIterNameHigh = llvm::formatv("{0}_high", dIterName);
+  SmallString<8> dIterNameLow = llvm::formatv("{0}_high", dIterName);
   SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
@@ -250,14 +252,22 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     makeLoadRegsIterMerge(gridwiseSplitId, dIterName, dPerThread, kPerThread,
                           {6, 7}, isKContigousDim);
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+    auto toDSplit = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+    toDSplit.passThrough({"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
+    toDSplit.passThrough({"k_thread", dThreadName, "k_iter"}, {4, 5, 6}, {"k_thread", dThreadName, "k_iter"});
+    llvm::errs() << "dataPerThread = " << dataPerThread << "\n";
+    llvm::errs() << "dPerThread = " << dPerThread << "\n";
+    llvm::errs() << "kPerThread = " << kPerThread << "\n";
+    llvm::errs() << "dSplit = " << dSplit << "\n";
+    toDSplit.merge({dIterNameHigh, dIterNameLow}, {7, 8}, dIterName,
+                      {dSplit, dPerThread / dSplit});
+    TransformMapAttr dSplitAttr = toDSplit.get();
+    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, dSplitAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
                         {kGlobal / kPerBlock, kThreads, kPerThread});
-
-    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                        {dGlobal / dPerBlock, dThreads, dPerThread});
-
+    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterNameHigh, dThreadName, dIterNameLow},
+                        {dGlobal / dPerBlock, dSplit, dThreads, dPerThread / dSplit});
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
@@ -270,10 +280,15 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     makeLoadRegsIterMerge(blockwiseSplitId, dIterName, dPerThread, kPerThread,
                           {2, 3}, isKContigousDim);
     TransformMapAttr splitIdAttr = blockwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
+    auto toDSplit = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
+    toDSplit.passThrough({"k_thread", dThreadName, "k_iter"}, {0, 1, 2}, {"k_thread", dThreadName, "k_iter"});
+    toDSplit.merge({dIterNameHigh, dIterNameLow}, {3, 4}, dIterName,
+                      {dSplit, dPerThread / dSplit});
+    TransformMapAttr dSplitAttr = toDSplit.get();
+    auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, dSplitAttr);
     toGlobalIdx.unmerge("k", 0, {"k_thread", "k_iter"}, {kThreads, kPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
-                        {dThreads, dPerThread});
+    toGlobalIdx.unmerge(dName, 1, {dIterNameHigh, dThreadName, dIterNameLow},
+                        {dSplit, dThreads, dPerThread / dSplit});
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
