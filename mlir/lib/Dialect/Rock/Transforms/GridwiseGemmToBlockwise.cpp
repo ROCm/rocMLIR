@@ -74,23 +74,6 @@ struct RockGridwiseGemmToBlockwisePass
   void runOnOperation() override;
 };
 
-/// Construct a `memref.view` operation that interprets the buffer `buffer`,
-/// whose elements are bytes, as a buffer of `type`.
-static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
-                                           Type type) {
-  Location loc = buffer.getLoc();
-  Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  auto bufferType = cast<MemRefType>(buffer.getType());
-  int64_t byteWidth = getByteWidth(type);
-  int64_t numBytes = bufferType.getShape()[0];
-  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
-  int64_t length = numBytes / byteWidth;
-  auto newBufferType = bufferType.cloneWith({length}, type);
-  auto view =
-      b.create<memref::ViewOp>(loc, newBufferType, buffer, zeroByteOffset,
-                               /*dynamic dim sizes=*/ValueRange{});
-  return TypedValue<MemRefType>(view.getResult());
-}
 } // end anonymous namespace
 
 /// Given a copy layout <copyDPerThread, copyKPerThread>, come up with the best
@@ -238,19 +221,6 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
     return success(ldsBytes <= ldsSize);
   }
   return success();
-}
-
-Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
-               AddressSpace memoryAddressSpace) {
-  auto memoryAddressSpaceAttr =
-      b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
-
-  auto rawMemType =
-      MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
-                      AffineMap{}, memoryAddressSpaceAttr);
-  auto buffer = b.create<GpuAllocOp>(loc, rawMemType);
-
-  return viewBufferAs(b, buffer, elementType);
 }
 
 // Following structures holds knobs to tweak the
@@ -730,17 +700,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
+    toMatrixC.passThrough({"g_block", "m_block", "n_block"});
     toMatrixC.unmerge(
-        "gemmM", 1,
-        {"m_block", "m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
-        {M / mPerBlock, gemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave,
-         mPerThread});
+        "gemmBlockM", 3, {"m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
+        {gemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave, mPerThread});
     toMatrixC.unmerge(
-        "gemmN", 2,
-        {"n_block", "n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
-        {N / nPerBlock, gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
-         nPerThread});
+        "gemmBlockN", 4, {"n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
+        {gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave, nPerThread});
 
     swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1],
@@ -1669,10 +1635,10 @@ struct GridwiseAttentionAccelRewritePattern
                                      int64_t blockSize,
                                      int64_t numElements) const {
     TopDownTMBuilder viewBuilder(rewriter,
-                                 {"gblock", "nblock", "tid", "flatiter"},
+                                 {"g_block", "n_block", "tid", "flatiter"},
                                  {gBlocks, nBlocks, blockSize, numElements});
-    viewBuilder.passThrough({"gblock", "nblock", "tid"}, {0, 2, 3},
-                            {"gblock", "nblock", "tid"});
+    viewBuilder.passThrough({"g_block", "n_block", "tid"}, {0, 2, 3},
+                            {"g_block", "n_block", "tid"});
     viewBuilder.merge({"mIter", "iter"}, {1, 4}, "flatiter",
                       {mIterLen, numElements / mIterLen});
     return viewBuilder.get();

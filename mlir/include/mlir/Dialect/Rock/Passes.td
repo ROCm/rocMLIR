@@ -65,7 +65,7 @@ def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise"
 
 def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::mlir::func::FuncOp"> {
   let summary = "expand threadwise gemm to final implementation.";
-  let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect", "scf::SCFDialect"];
 }
 
 def RockAnalyzeMemoryUsePass : Pass<"rock-analyze-memory-use", "::mlir::func::FuncOp"> {
@@ -125,6 +125,11 @@ def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", "::mlir::LLVM::LLVMFuncOp"> 
 def RockCheckResidencyPass : Pass<"rock-check-residency"> {
   let summary = "For global_sync check for full kernel launch residency";
   let dependentDialects = ["LLVM::LLVMDialect"];
+}
+
+def RockOutputSwizzlePass : Pass<"rock-output-swizzle", "::mlir::func::FuncOp"> {
+  let summary = "This pass changes ThreadwiseWriteAllOp to swizzle on LDS before writing to GPU memory";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

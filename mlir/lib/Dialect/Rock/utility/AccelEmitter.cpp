@@ -299,7 +299,7 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   SmallVector<StringRef> dimNamesM;
   SmallVector<int64_t, 7> dimSizesM;
   std::tie(dimNamesM, dimSizesM) =
-      getDimNamesAndSize({mBlock, mi, waveM, blkRow, vecGroup, mTid, vecItem});
+      getDimNamesAndSize({mi, waveM, blkRow, vecGroup, mTid, vecItem});
 
   // N sub dims
   Dim nBlock{"n_block", nLen / nPerBlock};
@@ -310,7 +310,7 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   SmallVector<StringRef> dimNamesN;
   SmallVector<int64_t, 7> dimSizesN;
   std::tie(dimNamesN, dimSizesN) =
-      getDimNamesAndSize({nBlock, ni, waveN, blkCol, nTid});
+      getDimNamesAndSize({ni, waveN, blkCol, nTid});
 
   RegsAsMatrixSubTiles ret;
   {
@@ -350,9 +350,9 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
                             blocksInOutRegs);
     TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
     auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
-    toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
-    toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
+    toMatrixC.passThrough({"g_block", mBlock.name, nBlock.name});
+    toMatrixC.unmerge("gemmBlockM", 3, dimNamesM, dimSizesM);
+    toMatrixC.unmerge("gemmBlockN", 4, dimNamesN, dimSizesN);
 
     // Before returning the output view, if necessary, swap back the
     // threadid/iter dimensions on both the M/N axis.
@@ -399,10 +399,8 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
                             blocksInOutRegs);
     TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
     auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.unmerge("gemmM", 0, ArrayRef<StringRef>{dimNamesM}.slice(1),
-                      ArrayRef<int64_t>{dimSizesM}.slice(1));
-    toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
-                      ArrayRef<int64_t>{dimSizesN}.slice(1));
+    toMatrixC.unmerge("gemmBlockM", 0, dimNamesM, dimSizesM);
+    toMatrixC.unmerge("gemmBlockN", 1, dimNamesN, dimSizesN);
 
     // Before returning the output view, if necessary, swap back the
     // threadid/iter dimensions on both the M/N axis.
@@ -1411,10 +1409,12 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
+    toMatrixC.passThrough({"g_block", dimNamesM[0], dimNamesN[0]});
+    toMatrixC.unmerge("gemmBlockM", 3, ArrayRef<StringRef>{dimNamesM}.slice(1),
+                      ArrayRef<int64_t>{dimSizesM}.slice(1));
+    toMatrixC.unmerge("gemmBlockN", 4, ArrayRef<StringRef>{dimNamesN}.slice(1),
+                      ArrayRef<int64_t>{dimSizesN}.slice(1));
 
-    toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
-    toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
     mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
@@ -1440,16 +1440,16 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.unmerge("gemmM", 0, ArrayRef<StringRef>{dimNamesM}.slice(1),
+    toMatrixC.unmerge("gemmBlockM", 0, ArrayRef<StringRef>{dimNamesM}.slice(1),
                       ArrayRef<int64_t>{dimSizesM}.slice(1));
-    toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
+    toMatrixC.unmerge("gemmBlockN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
     mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         inMPerThread, inNPerThread, mPerBlock, nPerBlock,
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
-        /**isBlocwise=*/true, transformAttrs);
+        /**isBlockwise=*/true, transformAttrs);
     ret.blockSubTile = b.getArrayAttr(transformAttrs);
   }
 
