@@ -35,17 +35,28 @@ class PerfConfigValidator():
     """
     base class for validators, implement validate() method
     """
-    def __init__(self, name=None):
-        self.name = name
+    def __init__(self, datatypes):
         self.archNames = perfRunner.getArch()
         self.arch = ','.join(self.archNames)
         self.chip = perfRunner.GFX_CHIP_RE.search(self.arch).group(0)
         self.numCU = perfRunner.getNumCU(self.chip)
+        self.datatypes = datatypes
 
     def collectGemmConfigs(self, gemm_config_file, comment='#'):
         """
         collect gemm config files given a gemm_config_file
         convert to a perfRunner gemmConfiguration
+        """
+        # convert to configs list first:
+        #get datatypes
+        datatypes, outputMap = perfRunner.parseDataTypes(self.datatypes)
+        configs = perfRunner.getGemmConfigurations(gemm_config_file, datatypes, outputMap)
+
+        gemm_list = []
+        for testVector in configs:
+            commandLine = testVector.split(sep=' ')
+            config = perfRunner.GemmConfiguration.fromCommandLine(commandLine, self.arch, self.numCU)
+            gemm_list.append(config)
         """
         gemm_list = []
         with open(gemm_config_file, 'r') as f:
@@ -57,6 +68,7 @@ class PerfConfigValidator():
             
             if line:
                 gemm_list.append(line)
+        """
         return gemm_list
 
     def orderByGemmType(self, input_file=True, normalize=True):
@@ -141,9 +153,9 @@ class DataValidator(PerfConfigValidator):
     """
     uses already provided data to validate the configs generated
     """
-    def __init__(self, gemm_config_file, preproc_file, debug=False):
-        super().__init__()
-        self.gemm_configs = super().collectGemmConfigs(gemm_config_file) # list of GemmConfiguratioin
+    def __init__(self, config_file, preproc_file, datatypes, debug=False):
+        super().__init__(datatypes)
+        self.gemm_configs = super().collectGemmConfigs(config_file) # list of GemmConfiguratioin
         self.gemm_keys = [(cfg.transA, cfg.transB, cfg.g, cfg.m, cfg.n, cfg.k) for cfg in self.gemm_configs]
         #self.gemm_keys = [super(DataValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
         self.preproc_file = preproc_file
@@ -272,22 +284,29 @@ class TunerValidator(PerfConfigValidator):
         compact_print: bool
 
     def __init__(self,
-                 gemm_config_file,
+                 config_file,
+                 datatypes,
                  debug=False):
-        self.gemm_configs = super().collectGemmConfigs(gemm_config_file)
+        super().__init__(datatypes)
+        self.gemm_configs = super().collectGemmConfigs(config_file)
         self.gemm_keys = [(cfg.transA, cfg.transB, cfg.g, cfg.m, cfg.n, cfg.k) for cfg in self.gemm_configs]
-        self.gridwise_gemm_params='/mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
-        self.backup = self.cpp_file + "~"
-        shutil.copy(self.cpp_file, self.backup) # create backup
+        self.gridwise_gemm_params='mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
         self.archNames = perfRunner.getArch()
         self.arch = ','.join(self.archNames)
         self.numCU = perfRunner.getNumCU(perfRunner.getChip())
         self.root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
+        
         self.cpp_file = os.path.join(self.root_dir, self.gridwise_gemm_params) # better
+        print(self.root_dir)
+        print(self.gridwise_gemm_params)
+        print(self.cpp_file)
+        print(os.path.join(self.root_dir, self.gridwise_gemm_params)) # better
+        self.backup = self.cpp_file + "~"
+        shutil.copy(self.cpp_file, self.backup) # create backup
         self.default_conv_configs = self.root_dir + '/mlir/utils/jenkins/performance/conv-configs'
         self.rocmlir_gen_flags = ''
         self.opType = Operation.fromName('gemm')
-        self.configs_path = gemm_config_file
+        self.configs_path = config_file
         self.mlir_build_dir = perfRunner.find_mlir_build_dir()
         self.paths = perfRunner.create_paths(self.configs_path, self.mlir_build_dir)
 
@@ -462,10 +481,9 @@ class TunerValidator(PerfConfigValidator):
         """
         process whole directory, adopt for running tuning on said space
         """
-        pass
+        output_dict = {}
         try:
             self.quick_tune_data = self.__typeQtMap(input_dir)        
-            output_dict = {}
             for method in self.quick_tune_data:
                 print(f"method {method}")
                 for dtype in self.quick_tune_data[method]: 
@@ -538,7 +556,6 @@ def main(args=None):
 
     parser.add_argument('--data',
                         type=str,
-                        required=True,
                         help='File path for datafile from quickTunerPreproc.py')
 
     parser.add_argument('--method',
@@ -560,6 +577,12 @@ def main(args=None):
                         action='store_true',
                         default=False,
                         help='Print debug info')
+
+    parser.add_argument('--data-type',
+                        nargs='+',
+                        choices=["f32", "f16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_f32", "fp8_fp8"],
+                        default=["f32", "f16", "i8"],
+                        help='Force a set of datatypes')
     
     pargs = parser.parse_args()
 
@@ -567,14 +590,19 @@ def main(args=None):
         print(pargs)
 
     if pargs.method == 'data':
+        if not pargs.data:
+            print("quickTunerStat.py: error: the following arguments are required: --data",
+                  file=sys.stderr)
+            exit(1)
         verifier = DataValidator(pargs.gemm_configs,
                                  pargs.data,
+                                 pargs.data_type,
                                  debug=pargs.debug)
     elif pargs.method == 'tuner':
-        raise NotImplementedError()
-        if not pargs.rocmlir:
-            raise ValueError(f"rocmlir path not set, please specifiy using --romclir")
+        #if not pargs.rocmlir:
+        #    raise ValueError(f"rocmlir path not set, please specifiy using --romclir")
         verifier = TunerValidator(pargs.gemm_configs,
+                                  pargs.data_type,
                                   debug=pargs.debug)
     else:
         raise ValueError(f"Not a valid method: {method}")
