@@ -202,6 +202,8 @@ def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
     progressively move unpack up to function boundaries.
   }];
 
+  let assemblyFormat = [{ $in attr-dict `:` type($in) `->` type($out) }];
+
   let hasVerifier = 1;
 }
 
