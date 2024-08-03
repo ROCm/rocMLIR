@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from perfCommonUtils import Operation
 import perfRunner
 from sklearn.preprocessing import MinMaxScaler
+import traceback
 
 """
 Validator Base Class
@@ -367,19 +368,25 @@ class TunerValidator(PerfConfigValidator):
         edited quick tuning list.
         """
         def run_cmd(cmd):
-            subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            print(cmd)
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+            for line in result.stdout:
+                print(line)
     
             if result.returncode != 0:
                 print(result.stdout)
                 print("Compilation error", file=sys.stderr)
                 print(result.stderr)
                 exit(1)
+            print(result.stdout)
             return result.returncode        
 
         cwd = os.getcwd()
 
         if not os.path.samefile(cwd, self.mlir_build_dir):
             change_path = True
+            print(f"Changing to {self.mlir_build_dir}")
             os.chdir(self.mlir_build_dir)
 
         try:
@@ -393,6 +400,7 @@ class TunerValidator(PerfConfigValidator):
                 '-DBUILD_FAT_LIBROCKCOMPILER=ON'
             )
 
+            print("Running cmake_cmd")
             cmake_returncode = run_cmd(cmake_cmd)
 
             #build command
@@ -463,24 +471,25 @@ class TunerValidator(PerfConfigValidator):
             entry = config.tableEntry(nanoSeconds)
             tflops = entry['TFlops']
             values = perfConfig.split(':')[-1].split(',')
-            values = values[:-2]
             values.append(tflops)
             data.append({col: val for col, val in zip(columns, values)})
         df = pd.DataFrame.from_dict(data)
-        print(df)
         if df.empty:
             return pd.DataFrame(columns=columns)
         # dont want this, instead we want OG data's values to comare
         # with
+
+        # having issues with extracting performance values, grabbing bCopyMore
+        # probably values = values[:-1]
         df = df.sort_values(by=['performance'], ascending=False)
         scaler = MinMaxScaler()
-        df['performance'] = scaler.fit_transform(df[['performance']])
-        return df
+        df['performance'] = scaler.fit_transform(df[['performance']])        return df
 
     def validateDir(self, input_dir): # currently disabled
         """
         process whole directory, adopt for running tuning on said space
         """
+        # need to update
         output_dict = {}
         try:
             self.quick_tune_data = self.__typeQtMap(input_dir)        
@@ -507,7 +516,11 @@ class TunerValidator(PerfConfigValidator):
                 dtype = os.path.basename(input_file).split('.')[1]
             df = super().readPerfConfig(input_file)
             self.updateCppFile(df, dtype)
+            #self.buildRocMLIR()
+            print("running tuning")
             self.runTuning([dtype])
+            print("exiting")
+            exit(1)
         except Exception as e:
             print(f"Error occured: {e}", file=sys.stderr)
         finally:
