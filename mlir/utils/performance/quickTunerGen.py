@@ -33,11 +33,10 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import silhouette_score
 from collections import defaultdict
 import matplotlib.pyplot as plt
-import seaborn as sns
-
 import faulthandler
 import re
 import glob
+import traceback
 
 class quickTunerMethod(object):
     """
