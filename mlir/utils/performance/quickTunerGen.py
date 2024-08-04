@@ -442,63 +442,6 @@ def convertToConfig(type_df, filename, suffix=".qt", debug=False):
         df = df.to_csv(fname, index=False)
 
 """
-Hardcoded tuner method
-"""
-
-class hardcodeQuickTune(quickTunerMethod):
-    """
-    Default quick tune method, uses preset values for the config 
-    file as of 07/22/24 these are the values that are coded into
-    GridwiseGemmParams.cpp
-    """
-    def __init__(self, name=None):
-        super().__init__(name)
-        self.default_f32 = pd.DataFrame({
-            "M/block": [256, 256, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 32, 32, 32, 32, 32, 32, 32, 32, 16, 16, 16, 16],
-            "N/block": [256, 64, 128, 128, 128, 64, 64, 64, 64, 64, 32, 16, 256, 128, 128, 128, 128, 64, 64, 64, 64, 64, 64, 64, 32, 32, 32, 16, 128, 128, 64, 64, 32, 32, 16, 16, 32, 32, 16, 16],
-            "K/block": [2, 8, 8, 4, 2, 8, 8, 8, 4, 2, 4, 4, 8, 4, 4, 4, 2, 8, 8, 8, 8, 4, 4, 8, 4, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 4, 4, 8, 4, 8],
-            "M/wave": [128, 128, 64, 128, 32, 64, 32, 32, 32, 128, 128, 32, 64, 64, 64, 32, 32, 32, 16, 32, 16, 32, 16, 64, 32, 16, 16, 16, 32, 16, 32, 32, 16, 16, 16, 16, 16, 16, 16, 16],
-            "N/wave": [32, 32, 16, 32, 32, 16, 32, 16, 32, 32, 16, 16, 16, 32, 16, 16, 32, 32, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16],
-            "kPack": [4, 1, 4, 4, 8, 1, 4, 1, 4, 4, 4, 8, 4, 1, 4, 4, 8, 4, 4, 4, 8, 4, 8, 8, 8, 4, 4, 8, 1, 4, 4, 4, 8, 4, 8, 8, 4, 8, 4, 8],
-            "splitK": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            "forceUnroll": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True],
-            "bCopyMore": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
-        })
-
-        
-        self.default_f16 = pd.DataFrame({
-            "M/block": [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 32, 32, 32, 32, 32, 32, 16, 16, 16, 16],
-            "N/block": [256, 256, 128, 128, 128, 128, 128, 128, 128, 128, 128, 64, 64, 32, 128, 128, 128, 128, 128, 128, 128, 64, 64, 64, 64, 64, 64, 32, 32, 16, 128, 64, 64, 32, 32, 16, 128, 32, 64, 32],
-            "K/block": [8, 4, 8, 8, 8, 8, 4, 4, 4, 4, 4, 4, 4, 8, 4, 8, 8, 8, 8, 4, 4, 8, 8, 8, 8, 4, 2, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8],
-            "M/wave": [64, 64, 128, 64, 32, 32, 128, 128, 64, 64, 32, 128, 32, 32, 64, 32, 32, 32, 64, 32, 32, 32, 32, 32, 16, 32, 32, 32, 32, 16, 32, 32, 32, 32, 16, 16, 16, 16, 16, 16],
-            "N/wave": [32, 32, 32, 32, 32, 16, 32, 16, 32, 16, 32, 16, 32, 32, 16, 32, 16, 16, 32, 16, 32, 32, 32, 16, 16, 32, 32, 32, 16, 16, 32, 32, 16, 32, 16, 16, 16, 16, 16, 16],
-            "kPack": [4, 8, 8, 4, 8, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 8, 4, 4, 8, 8, 8, 8, 8, 8, 8, 4, 8, 8, 8, 4, 8, 4, 4, 8, 8, 8, 8, 8, 4],
-            "splitK": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            "forceUnroll": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True],
-            "bCopyMore": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
-        })
-
-        self.default_i8 = pd.DataFrame({
-            "M/block": [128, 128, 128, 128, 128, 128, 128, 128, 128, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 16, 16, 16, 16],
-            "N/block": [256, 128, 128, 128, 128, 64, 64, 64, 64, 128, 128, 128, 128, 128, 64, 64, 64, 64, 64, 64, 64, 32, 32, 32, 32, 16, 256, 256, 128, 64, 64, 64, 64, 32, 32, 16, 64, 32, 16, 16],
-            "K/block": [8, 16, 8, 8, 8, 32, 8, 8, 4, 32, 16, 8, 4, 8, 16, 8, 8, 4, 4, 16, 16, 16, 8, 8, 8, 8, 16, 4, 32, 32, 16, 8, 4, 32, 16, 16, 16, 16, 32, 16],
-            "M/wave": [128, 64, 128, 64, 32, 64, 32, 32, 32, 64, 32, 64, 32, 32, 32, 32, 32, 32, 32, 32, 16, 32, 16, 32, 32, 16, 32, 32, 32, 16, 32, 16, 32, 16, 16, 16, 16, 16, 16, 16],
-            "N/wave": [16, 32, 16, 16, 16, 32, 32, 16, 16, 32, 16, 16, 16, 16, 32, 32, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 32, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16],
-            "kPack": [4, 8, 8, 8, 16, 4, 16, 16, 16, 4, 4, 8, 16, 8, 4, 16, 16, 16, 8, 4, 16, 4, 16, 16, 8, 16, 4, 8, 4, 4, 4, 16, 8, 4, 8, 8, 4, 16, 4, 4],
-            "splitK": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            "forceUnroll": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True],
-            "bCopyMore": [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
-        })
-
-        self.config = { 'f32': self.default_f32, 'f16': self.default_f16, 'i8': self.default_i8 }
-
-    def getConfig(self, input_file):
-        """
-        returns the already made config
-        """
-        return self.config
-
-"""
 Place child quickTunerMethod classes below here:
 """
     
@@ -1067,7 +1010,7 @@ def main(args=None):
 
     parser.add_argument('--method',
                         nargs='+',
-                        choices=["default","topNSelect","topMode","takeNEach","fairSelect","hardcoded"],
+                        choices=["default","topNSelect","topMode","takeNEach","fairSelect"],
                         default=["default","fairSelect"],
                         help='Select perfConfig gen selection method')
 
