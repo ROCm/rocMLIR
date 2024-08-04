@@ -134,8 +134,24 @@ class PerfConfigValidator():
                 cpp_array += f"  {{{row['M/block']}, {row['N/block']}, {row['K/block']}, {row['M/wave']}, {row['N/wave']}, {row['kPack']}, {row['splitK']}, {row['forceUnroll']}, {row['bCopyMore']}}},\n"
             cpp_array = cpp_array.rstrip(',') + "};"
             file.write(cpp_array)
-            
         
+    def typeQtMap(self, input_dir):
+        """../../mlir/utils/performance/gemm-configs-small.test
+        creates a dictionary keyed by qt type with values being
+        list of matching qt files
+        """        
+        qt_files = glob.glob(os.path.join(input_dir, "*.qt"))
+        file_dict = {}
+
+        for file in qt_files:
+            file_split = os.path.basename(file).split('.')
+            file_type = file_split[1]
+            method = file_split[0]
+            if method not in file_dict:
+                file_dict[method] = {}
+            file_dict[method][file_type] = pd.read_csv(file)
+        return file_dict
+
 
     def validateFile(self, input_file, dtype=None):
         """
@@ -163,30 +179,11 @@ class DataValidator(PerfConfigValidator):
         self.validation_data = super().orderByGemmType(self.preproc_file)
         self.debug = debug
 
-    def __typeQtMap(self, input_dir):
-        """
-        creates a dictionary keyed by qt type with values being
-        list of matching qt files
-        """        
-        qt_files = glob.glob(os.path.join(input_dir, "*.qt"))
-        file_dict = {}
-
-        for file in qt_files:
-            file_split = os.path.basename(file).split('.')
-            file_type = file_split[1]
-            method = file_split[0]
-            
-            if method not in file_dict:
-                file_dict[method] = {}
-            file_dict[method][file_type] = pd.read_csv(file)
-            
-        return file_dict
-
     def validateDir(self, input_dir):
         """
         process whole directory
         """
-        self.quick_tune_data = self.__typeQtMap(input_dir)
+        self.quick_tune_data = super().typeQtMap(input_dir)
         
         output_dict = {}
         for method in self.quick_tune_data:
@@ -210,10 +207,20 @@ class DataValidator(PerfConfigValidator):
         """
         process single file, if type passed in then we read perf config file
         """
+        output_dict = {}
+        tuning_data = {}
+        basename = os.path.basename(input_file).split('.')
         if not dtype:
-            dtype = os.path.basename(input_file).split('.')[1]
+            dtype = basename[1]
+        method = basename[0]
+        output_dict[dtype] = {}
+        tuning_data[method] = {}
         df = super().readPerfConfig(input_file)
-        return self.validate(df, dtype)        
+        output_dict[dtype][method] = self.validate(df, dtype)
+        tuning_data[method][dtype] = pd.read_csv(input_file)
+        self.output_dict = output_dict
+        self.quick_tune_data = tuning_data
+
     
     def validate(self, file_data, dtype):
         # to validate file we need data already read,
@@ -298,10 +305,6 @@ class TunerValidator(PerfConfigValidator):
         self.root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
         
         self.cpp_file = os.path.join(self.root_dir, self.gridwise_gemm_params) # better
-        print(self.root_dir)
-        print(self.gridwise_gemm_params)
-        print(self.cpp_file)
-        print(os.path.join(self.root_dir, self.gridwise_gemm_params)) # better
         self.backup = self.cpp_file + "~"
         shutil.copy(self.cpp_file, self.backup) # create backup
         self.default_conv_configs = self.root_dir + '/mlir/utils/jenkins/performance/conv-configs'
@@ -368,25 +371,18 @@ class TunerValidator(PerfConfigValidator):
         edited quick tuning list.
         """
         def run_cmd(cmd):
-            print(cmd)
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-
-            for line in result.stdout:
-                print(line)
-    
             if result.returncode != 0:
                 print(result.stdout)
                 print("Compilation error", file=sys.stderr)
                 print(result.stderr)
                 exit(1)
-            print(result.stdout)
             return result.returncode        
 
         cwd = os.getcwd()
 
         if not os.path.samefile(cwd, self.mlir_build_dir):
             change_path = True
-            print(f"Changing to {self.mlir_build_dir}")
             os.chdir(self.mlir_build_dir)
 
         try:
@@ -400,7 +396,6 @@ class TunerValidator(PerfConfigValidator):
                 '-DBUILD_FAT_LIBROCKCOMPILER=ON'
             )
 
-            print("Running cmake_cmd")
             cmake_returncode = run_cmd(cmake_cmd)
 
             #build command
@@ -415,7 +410,7 @@ class TunerValidator(PerfConfigValidator):
         """
         run rocmlir-tuning-driver on the specified gemm_configs
         returns a list of dataframes representing all perfConfig data collected per gemm config
-        """        
+        """  
         datatypes, outputMap = perfRunner.parseDataTypes(dtype)
         if self.debug:
             print(dtype)
@@ -424,7 +419,7 @@ class TunerValidator(PerfConfigValidator):
         if self.debug:
             print(configs)
 
-        allData = []
+        all_data = []
 
         for testVector in configs: # gemm config we iterate through
             # get data for each gemm, using the pre-set config, aggregate values and take best
@@ -432,9 +427,7 @@ class TunerValidator(PerfConfigValidator):
             config = self.confClass.fromCommandLine(commandLine, self.options.arch, self.options.numCU)
             config.MLIR_N_REPEATS=1
             testVector = config.toCommandLine()
-            print("Tuning:", testVector, file=sys.stderr)
             commandLineOptions = config.generateMlirDriverCommandLine(self.options.rocmlir_gen_flags)
-            print(commandLineOptions)
             # Note, we don't need the -ph, this goes to the tuning driver
             kernelGenCommand = self.paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
             print(kernelGenCommand)
@@ -444,10 +437,11 @@ class TunerValidator(PerfConfigValidator):
                 stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             kernelGen.stdout.close()
-            config_data = self.getConfigData(tuningLoop.stdout, config, allData, self.options)
-        return allData    
+            config_data = self.getConfigData(tuningLoop.stdout, config, self.options)
+            all_data.append(config_data)
+        return all_data    
 
-    def getConfigData(self, tuning_loop, config, allData, options):
+    def getConfigData(self, tuning_loop, config, options):
         """
         Take tuning output, put in a dataframe, and order it as it comes out
         save the output to file named by the config data
@@ -483,58 +477,96 @@ class TunerValidator(PerfConfigValidator):
         # probably values = values[:-1]
         df = df.sort_values(by=['performance'], ascending=False)
         scaler = MinMaxScaler()
-        df['performance'] = scaler.fit_transform(df[['performance']])        return df
+        df['performance'] = scaler.fit_transform(df[['performance']])
+        return df
 
-    def validateDir(self, input_dir): # currently disabled
+    def validateDir(self, input_dir): 
         """
         process whole directory, adopt for running tuning on said space
         """
-        # need to update
+        # need to update        
         output_dict = {}
         try:
-            self.quick_tune_data = self.__typeQtMap(input_dir)        
+            self.quick_tune_data = super().typeQtMap(input_dir) #        self.__typeQtMap(input_dir)
             for method in self.quick_tune_data:
-                print(f"method {method}")
-                for dtype in self.quick_tune_data[method]: 
-                    df = super().readPerfConfig(input_file)
-                    self.updateCppFile(df, dtype)
-                    self.runTuning([dtype])
-            self.output_dict
+                if self.debug:
+                    print(f"method {method}")                    
+                for dtype in self.quick_tune_data[method]:
+                    if self.debug:
+                        print(f"dtype: {dtype}")
+                    if dtype not in output_dict:
+                        output_dict[dtype] = {}
+                    if self.debug:
+                        print(f"quick_tune_data {self.quick_tune_data[method][dtype]}")
+                    gemm_data = self.validate(self.quick_tune_data[method][dtype], dtype)
+                    output_dict[dtype][method] = gemm_data
         except Exception as e:
-            print(f"Error occured: {e}", file=sys.stderr)
+            print(traceback.format_exc())
         finally:
             self.output_dict = output_dict
             self.__restore_file()
-            return output_dict
+        return output_dict
         
     def validateFile(self, input_file, dtype=None):
         """
         process single file, if type passed in then we read perf config file
         """
+        output_dict = {}
+        tuning_data = {}
         try:
+            basename = os.path.basename(input_file).split('.')
             if not dtype:
-                dtype = os.path.basename(input_file).split('.')[1]
-            df = super().readPerfConfig(input_file)
-            self.updateCppFile(df, dtype)
-            #self.buildRocMLIR()
-            print("running tuning")
-            self.runTuning([dtype])
-            print("exiting")
-            exit(1)
+                dtype = basename[1]
+            method = basename[0]
+            output_dict[dtype] = {}
+            tuning_data[method] = {}
+            file_data = super().readPerfConfig(input_file)
+            output_dict[dtype][method] = self.validate(file_data, dtype)
+            tuning_data[method][dtype] = pd.read_csv(input_file)
         except Exception as e:
-            print(f"Error occured: {e}", file=sys.stderr)
+            print(traceback.format_exc())
         finally:
             self.__restore_file()
+        self.output_dict = output_dict
+        self.quick_tune_data = tuning_data
+        return output_dict
     
     def validate(self, file_data, dtype):
-        all_data = []
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll', 'bCopyMore']
-        for gemm in self.gemm_keys:
-            data_subset = self.validation_data[dtype][gemm]
-            file_data = file_data[columns]
-            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], how='left')
-            all_data.append(merged_df)
-        return all_data
+        self.updateCppFile(file_data, dtype)
+        self.buildRocMLIR()
+        return self.runTuning([dtype])
+
+    def rank(self, threshold=0.9):
+        rank_dict = {}
+        for dtype in self.output_dict:
+            if dtype not in rank_dict:
+                rank_dict[dtype] = {}
+            for method in self.output_dict[dtype]:
+                gemm_data = self.output_dict[dtype][method]
+                ct = 0
+                for df in gemm_data:
+                    if (df['performance'].dropna() <= threshold).all():
+                        ct += 1
+                    rank_dict[dtype][method] = ct
+        self.output_df = pd.DataFrame(rank_dict)
+        df = self.output_df
+        min_values = df.min()
+        best_methods = df.idxmin()
+        method_counts = best_methods.value_counts()
+        max_count = method_counts.max()
+        majority_methods = method_counts[method_counts == max_count].index
+        result_methods = {}
+        for col in df.columns:
+            candidates = df.loc[majority_methods, col]
+            result_methods[col] = candidates.idxmin()
+        # Create a list of tuples with index and corresponding method
+        output = [(index, method) for index, method in result_methods.items()]        
+        for entry in output:
+            dtype, method = entry
+            df = self.quick_tune_data[method][dtype]
+            df.to_csv(f"quick_tuning_{dtype}", index=False)
+            super().saveCpp(df, dtype)
+        print(self.output_df)
 
 
 def main(args=None):
@@ -627,7 +659,8 @@ def main(args=None):
 
     elif pargs.qt_file:
         verifier.validateFile(pargs.qt_file)
-
+        if pargs.rank:
+            verifier.rank()
                
 if __name__ == '__main__':
     main(sys.argv[1:])
