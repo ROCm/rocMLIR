@@ -48,10 +48,6 @@ void mlir::migraphx::populateMIGraphXToTosaDialectConversion(
       [=](Operation *op) -> std::optional<bool> {
         return typeConverter->isLegal(op);
       });
-  target.addDynamicallyLegalOp<linalg::GenericOp>(
-      [=](linalg::GenericOp op) { return typeConverter->isLegal(op); });
-  target.addLegalOp<tensor::EmptyOp, linalg::YieldOp, arith::UIToFPOp,
-                    arith::ExtUIOp>();
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaDialectConversion(

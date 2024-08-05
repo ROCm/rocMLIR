@@ -990,30 +990,9 @@ ConvertConverter::matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
         adaptor.getInA());
     return success();
   }
-  // tosa.cast defaults to signed, which is what we usually want, but sometimes
-  // (currently this only happens when there's int4->int8 unpacking) we want the
-  // unsigned/zzero-extending cast.
-  Location loc = op.getLoc();
-  MIXRShapedType shapedResultType = op.getOutput().getType();
-  Type outElemType = shapedResultType.getElementType();
-  Type outType = getTypeConverter()->convertType(shapedResultType);
-  Value empty = rewriter.create<tensor::EmptyOp>(loc, outType,
-                                                 /*dynamicSize=*/ValueRange{});
-  SmallVector<AffineMap> iterationMaps(
-      2, rewriter.getMultiDimIdentityMap(shapedResultType.getRank()));
-  SmallVector<utils::IteratorType> iteratorKinds(shapedResultType.getRank(),
-                                                 utils::IteratorType::parallel);
-  auto converter = rewriter.create<linalg::GenericOp>(
-      loc, outType, adaptor.getInA(), empty, iterationMaps, iteratorKinds,
-      [&](OpBuilder &b, Location loc, ValueRange inputs) {
-        Value result;
-        if (isa<FloatType>(outElemType))
-          result = b.create<arith::UIToFPOp>(loc, outElemType, inputs[0]);
-        else
-          result = b.create<arith::ExtUIOp>(loc, outElemType, inputs[0]);
-        b.create<linalg::YieldOp>(loc, result);
-      });
-  rewriter.replaceOp(op, converter);
+  rewriter.replaceOpWithNewOp<tosa::CustomOp>(
+      op, getTypeConverter()->convertType(op.getResult().getType()),
+      "unsigned_cast", "rocmlir", "", adaptor.getInA());
   return success();
 }
 
