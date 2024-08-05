@@ -233,4 +233,5 @@ MLIRRockTuning
 MLIRRockUtility
 MLIRTosaToRock
 RocmlirEmulateFp8ExtTrunc
+RocmlirTosaToLinalg
 )

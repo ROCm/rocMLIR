@@ -69,6 +69,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockViewToTransformPass());
   }
 
+  funcPm.addPass(createRocmlirTosaToLinalgPass());
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
   TosaToLinalgOptions tosaToLinalgOptions;

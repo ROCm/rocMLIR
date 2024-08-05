@@ -542,9 +542,8 @@ module {
   }
 
   // CHECK-LABEL: func.func @func_convert
-  // CHECK: tensor.empty
-  // CHECK: linalg.generic
-  // CHECK: arith.extui
+  // CHECK: tosa.custom
+  // CHECK-SAME: {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_cast"} : (tensor<16xi4>) -> tensor<16xi8>
   func.func @func_convert_int4_unsigned(%arg0: !migraphx.shaped<16xi4, 1>) -> !migraphx.shaped<16xi8, 1> {
     %0 = migraphx.convert zero_extend %arg0 : <16xi4, 1> to <16xi8, 1>
      return %0 : !migraphx.shaped<16xi8, 1>

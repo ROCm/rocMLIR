@@ -37,6 +37,23 @@ def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
 // TosaToRock
 //===----------------------------------------------------------------------===//
 
+def RocmlirTosaToLinalgPass : Pass<"rocmlir-tosa-to-linalg", ""> {
+  let summary = "Lower TOSA to Rock";
+  let description = [{
+    Pass that converts TOSA operations to bufferized Rock operations.
+  }];
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "linalg::LinalgDialect",
+    "tensor::TensorDialect",
+    "tosa::TosaDialect"
+  ];
+}
+
+//===----------------------------------------------------------------------===//
+// TosaToRock
+//===----------------------------------------------------------------------===//
+
 def TosaToRockPass : Pass<"tosa-to-rock", "::mlir::func::FuncOp"> {
   let summary = "Lower TOSA to Rock";
   let description = [{

@@ -95,7 +95,8 @@
 // HIGHLEVEL:Kernel pipeline:
 // HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
-// HIGHLEVEL-NEXT:rock-view-to-transform),
+// HIGHLEVEL-NEXT:rock-view-to-transform,
+// HIGHLEVEL-NEXT:rocmlir-tosa-to-linalg),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),
