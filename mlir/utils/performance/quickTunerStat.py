@@ -76,7 +76,8 @@ class PerfConfigValidator():
         """
         Creates a dictionary of dictionaries, key by dtype and then gemm, respectively
         """
-        def expandPerfConfigs(df):
+        """
+        def expandPerfConfigs(df): # unused delete later
             df['PerfConfig'] = df['PerfConfig'].str.split(':').str[1]
             tile_params = df['PerfConfig'].str.split(',', expand=True).astype(int)            
             tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll', 'bCopyMore']                
@@ -85,7 +86,7 @@ class PerfConfigValidator():
             tile_params['TFlops'] = df['TFlops']
             tile_params.replace('N/A', np.nan, inplace=True)
             return tile_params
-        
+        """
         df = pd.read_csv(input_file, sep='\t')
         df_dir = {}
         trans_cols = ['TransA', 'TransB']
@@ -93,17 +94,24 @@ class PerfConfigValidator():
         df = df.astype({entry: bool for entry in trans_cols})
         df = df.astype({entry: int for entry in param_cols})      
         cols = trans_cols + param_cols
+        df['performance'] = df['NormalizedTFlops']
         type_dict = {dtype: group for dtype, group in df.groupby('DataType')}
         for dtype in type_dict:
             sub_df = type_dict[dtype]
-            gemm_df = {gemm: expandPerfConfigs(group) for gemm, group in sub_df.groupby(cols)}
+            #gemm_df = {gemm: expandPerfConfigs(group) for gemm, group in sub_df.groupby(cols)}
+            gemm_df = {gemm: group[['PerfConfig', 'performance']] for gemm, group in sub_df.groupby(cols)}
             for gemm in gemm_df:
                 gemm_tup = tuple(gemm)            
                 if dtype not in df_dir:
                     df_dir[dtype] = {}
                 df_dir[dtype][gemm_tup] = gemm_df[gemm]
         self.validation_data = df_dir
-        return df_dir            
+        return df_dir
+
+    def readQTFile(self, file_path): # read file into a dataframe
+        with open(file_path, 'r') as file:
+            lines = [line.strip() for line in file]
+        return pd.DataFrame(lines, columns=['PerfConfig'])
 
     def readPerfConfig(self, file_path):
         columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
@@ -119,19 +127,13 @@ class PerfConfigValidator():
             return df
 
     def saveCpp(self, df, dtype):
-        cols = df.columns
-        if 'forceUnroll' in cols:
-            df['forceUnroll'] = df['forceUnroll'].astype(bool)
-        else:
-            df['forceUnroll'] = True
-        if 'bCopyMore' in cols:
-            df['bCopyMore'] = df['bCopyMore'].astype(bool)
-        else:
-            df['bCopyMore'] = True
         cpp_array = "{\n"
         with open(f"quick_tuning_{dtype}_cpp", 'w') as file:
             for _, row in df.iterrows():
-                cpp_array += f"  {{{row['M/block']}, {row['N/block']}, {row['K/block']}, {row['M/wave']}, {row['N/wave']}, {row['kPack']}, {row['splitK']}, {row['forceUnroll']}, {row['bCopyMore']}}},\n"
+                row = list(row)
+                entries = row[0].split(':')[1]
+                row = entries.split(',') + row[1:]
+                cpp_array += f"  {{{', '.join(row)}}},\n"
             cpp_array = cpp_array.rstrip(',') + "};"
             file.write(cpp_array)
         
@@ -139,7 +141,7 @@ class PerfConfigValidator():
         """../../mlir/utils/performance/gemm-configs-small.test
         creates a dictionary keyed by qt type with values being
         list of matching qt files
-        """        
+        """
         qt_files = glob.glob(os.path.join(input_dir, "*.qt"))
         file_dict = {}
 
@@ -149,9 +151,8 @@ class PerfConfigValidator():
             method = file_split[0]
             if method not in file_dict:
                 file_dict[method] = {}
-            file_dict[method][file_type] = pd.read_csv(file)
+            file_dict[method][file_type] = self.readQTFile(file)
         return file_dict
-
 
     def validateFile(self, input_file, dtype=None):
         """
@@ -215,9 +216,9 @@ class DataValidator(PerfConfigValidator):
         method = basename[0]
         output_dict[dtype] = {}
         tuning_data[method] = {}
-        df = super().readPerfConfig(input_file)
+        df = super().readQTFile(input_file)
         output_dict[dtype][method] = self.validate(df, dtype)
-        tuning_data[method][dtype] = pd.read_csv(input_file)
+        tuning_data[method][dtype] = df
         self.output_dict = output_dict
         self.quick_tune_data = tuning_data
 
@@ -228,13 +229,14 @@ class DataValidator(PerfConfigValidator):
         all_data = []
         # note that these are not the columns for attn or for f32 gemm/conv on Navi. Should be extended for the proper columns
         # as a class member that is configured at initialization, self.op and then self.columns
-        columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'] 
+        #columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'] 
         for gemm in self.gemm_keys:
             if gemm not in self.validation_data[dtype]:
                 continue
             data_subset = self.validation_data[dtype][gemm]
-            file_data = file_data[columns]
-            merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], how='left')
+            #file_data = file_data[columns]
+            #merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], how='left')
+            merged_df = pd.merge(file_data, data_subset, on=['PerfConfig'], how='left')
             all_data.append(merged_df)
         return all_data
 
@@ -529,6 +531,7 @@ class TunerValidator(PerfConfigValidator):
             self.__restore_file()
         self.output_dict = output_dict
         self.quick_tune_data = tuning_data
+        print(tuning_data)
         return output_dict
     
     def validate(self, file_data, dtype):
