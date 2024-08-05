@@ -801,8 +801,9 @@ class defaultQuickTune(quickTunerMethod):
             sorted_data[datatype] = sorted_configs
 
         df_dict = {}
+
         for datatype, value in sorted_data.items():
-            df_dict[datatype] = self.__data2df(value).head(self.N)
+            df_dict[datatype] = pd.DataFrame(value.keys())
             
         self.config = df_dict  
         return df_dict
