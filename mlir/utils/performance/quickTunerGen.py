@@ -18,9 +18,7 @@ import os
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['OMP_NUM_THREADS'] = '1'
 import sys
-
-sys.path.append('../..')
-
+import csv
 import argparse
 import pandas as pd
 import numpy as np
@@ -80,14 +78,9 @@ class quickTunerMethod(object):
             if directory:
                 fname = os.path.join(directory, fname)
             df = type_df[t]
-            if 'performance' in df.columns:
-                df = df.drop(labels=['performance'], axis=1)
-            #df =  df.astype(int)
-            header = True
-            if pf_format:
-                df = self.__perfconfig_formatter(df)
-                header = False
-            df = df.to_csv(fname, index=False)
+            with open(fname, 'w') as f:
+                row = df['PerfConfig']
+                f.write("\n".join(row))            
 
     def savePerfConfig(self, name=None,  dtype=None, prefix="v2:"):
         """
@@ -215,7 +208,6 @@ class quickTuner(object):
         for k in self.method_results:
             for dtype in self.method_results[k]:
                 df = self.method_results[k][dtype]
-                #df = df.astype(int)
                 print(f"dtype: {dtype}\n{df}\n")            
             
 """
@@ -258,7 +250,7 @@ def parseData(file):
                        comment='#')
     
     data['perf_config'] = data['perf_config'].str.split(':').str[1]
-                
+    
     tile_params = data['perf_config'].str.split(',', expand=True).astype(int)
             
     tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
@@ -345,21 +337,26 @@ def orderByType(combined_df: str, normalize=False):
     final_df = combined_df
     unique_data_types = final_df['DataType'].unique()
 
-    perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
+    #perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
 
-    perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
+    #perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
 
-    perf_configs.columns = perf_config_cols
+    #perf_configs.columns = perf_config_cols
 
-    perf_configs['performance'] = final_df['NormalizedTFlops']
+    #perf_configs['performance'] = final_df['NormalizedTFlops']
 
-    perf_configs['DataType'] = final_df['DataType']
+    final_df['performance'] = final_df['NormalizedTFlops']
+
+    #perf_configs['DataType'] = final_df['DataType']
 
     if normalize:
         scaler = MinMaxScaler()
-        perf_configs['performance'] = scaler.fit_transform(perf_configs[['performance']])    
+        #perf_configs['performance'] = scaler.fit_transform(perf_configs[['performance']])
+        final_df['performance'] = scaler.fit_transform(final_df[['performance']])    
     
-    result = {dtype: group.drop(['DataType'], axis=1) for dtype, group in perf_configs.groupby('DataType')}
+    #result = {dtype: group.drop(['DataType'], axis=1) for dtype, group in perf_configs.groupby('DataType')}
+
+    result = {dtype: group.drop(['DataType'], axis=1) for dtype, group in final_df.groupby('DataType')}
 
     return result
 
@@ -390,12 +387,10 @@ def orderByGemmType(combined_df: str, normalize=True):
     #perf_configs = perf_configs.join(final_df[target_cols + ['DataType']])
 
     grouped = {dtype[0]: df.drop('DataType', axis=1) for dtype, df in final_df.groupby(['DataType'])}
-    print(grouped.keys())
 
     for k in grouped:
         group = {cols: df.drop(target_cols, axis=1) for cols, df in grouped[k].groupby(target_cols)}
         grouped[k] = group
-        print(group.keys())
         
     return grouped
     
@@ -429,9 +424,9 @@ class topNSelection(quickTunerMethod):
         self.normalize = normalize
 
     def getConfig(self, combined_df):
-        type_dict = orderByType(input_file, normalize=self.normalize)
+        type_dict = orderByType(combined_df, normalize=self.normalize) # update this to not use columns
 
-        type_dict = orderDict(type_dict)
+        type_dict = orderDict(type_dict) # change this to not rely on columns
 
         config_dict = {}
 
@@ -439,8 +434,7 @@ class topNSelection(quickTunerMethod):
             num_segments = self.N // 2
             seg_size = len(v) // num_segments
             selected_configs = pd.concat([v.iloc[i * seg_size:(i+1) * seg_size].head(2) for i in range(num_segments)])
-
-            config_dict[k] = selected_configs
+            config_dict[k] = selected_configs[['PerfConfig', 'performance']]
 
         self.config = config_dict
         return self.config
@@ -474,11 +468,11 @@ class topMode(quickTunerMethod):
 
             # now we have a list of the gemms in combined
             # remove any repetitions and order by appearance
-            grouped_df = df.groupby(['M/block','N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], as_index=False).agg({'performance': 'count'}).rename(columns={'performance': 'count'})
+            grouped_df = df.groupby(['PerfConfig'], as_index=False).agg({'performance': 'count'}).rename(columns={'performance': 'count'})
 
-            result_df = pd.merge(df, grouped_df, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'])
+            result_df = pd.merge(df, grouped_df, on=['PerfConfig'])
 
-            final_df = result_df.loc[result_df.groupby(['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'])['performance'].idxmax()]
+            final_df = result_df.loc[result_df.groupby(['PerfConfig'])['performance'].idxmax()]
 
             final_df = final_df.sort_values(by=['count', 'performance'], ascending=[False, False])
 
@@ -500,7 +494,7 @@ class takeNEach(quickTunerMethod):
     def getConfig(self, combined_df):
         config_dict = {}
     
-        type_gemm_dict = orderByGemmType(input_file, normalize=self.normalize)
+        type_gemm_dict = orderByGemmType(combined_df, normalize=self.normalize)
 
         type_gemm_dict = orderGemmDict(type_gemm_dict)
 
@@ -532,7 +526,7 @@ class takeNEach(quickTunerMethod):
         return self.config
 
 
-class topConfigCluster(quickTunerMethod):
+class topConfigCluster(quickTunerMethod): #disabled
     """
     Cluster each run, take sample from total,
     can be improved via new distance metric
@@ -547,7 +541,7 @@ class topConfigCluster(quickTunerMethod):
     def getConfig(self, combined_df):
         N=self.N
         n_clusters = N//2
-        type_dict = orderByType(input_file, normalize=self.normalize)
+        type_dict = orderByType(combined_df, normalize=self.normalize)
 
         type_dict = orderDict(type_dict)
 
@@ -558,15 +552,11 @@ class topConfigCluster(quickTunerMethod):
         # now we have normalized data
         for k,df in type_dict.items():
             try:
-                # cluster each type
-                
-
                 features = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore', 'performance']
 
             
                 scaler = StandardScaler()
                 features_scaled = pd.DataFrame(scaler.fit_transform(df[features]), columns=features)
-
                 
                 features_scaled['performance'] = df['performance']
 
@@ -699,19 +689,6 @@ class defaultQuickTune(quickTunerMethod):
         self.normalize = normalize
         self.N
 
-    def __data2df(self, data):
-        def split_str(s):
-            return s.split(':')[-1].split(',')
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
-        df_dict = {}
-        for k in data:
-            for i,n in enumerate(split_str(k)):
-                col = cols[i]
-                if col not in df_dict:
-                    df_dict[col] = []
-                df_dict[col].append(int(n))
-        return pd.DataFrame(df_dict)
-
     def __get_value(self, data_dict, data_type, perfconfig):
         try:
             return data_dict[data_type][perfconfig]
@@ -803,7 +780,7 @@ class defaultQuickTune(quickTunerMethod):
         df_dict = {}
 
         for datatype, value in sorted_data.items():
-            df_dict[datatype] = pd.DataFrame(value.keys())
+            df_dict[datatype] = pd.DataFrame(value.keys(), columns=['PerfConfig'])
             
         self.config = df_dict  
         return df_dict
@@ -838,7 +815,6 @@ class fairSelect(quickTunerMethod):
         return df_sorted[df_sorted['performance'] >= self.threshold]
 
     def __combine_datasets(self, dfs):
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         combined_df = pd.concat(dfs).sort_values(by='performance', ascending=False)
         combined_df = combined_df.drop_duplicates(subset='PerfConfig', keep='first')
         return combined_df
@@ -853,12 +829,8 @@ class fairSelect(quickTunerMethod):
             df_id = id(df)
             df_dict[df_id] = df
             for _, row in df.iterrows():
-                print(row)
                 #feature_vector = tuple(row[:-1])  # get feature (all but performance)
                 feature_vector = row['PerfConfig']
-                print(feature_vector)
-                print(row['PerfConfig'])
-                #exit(1)
                 label = row['performance']
                 feature_dict[feature_vector].append(df_id)
                 count_dict[feature_vector] += 1
@@ -867,45 +839,10 @@ class fairSelect(quickTunerMethod):
 
         return feature_dict, count_dict, max_label_dict, df_dict
 
-    def __balance_datasets(self, combined_df, original_dfs):
-        cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
-        selected_features = set()
-        balanced_dataset = []
-
-        for i in range(len(original_dfs)):
-            if len(balanced_dataset) >= 40:
-                break
-            df = original_dfs[i]
-
-            for _, row in df.iterrows():
-                feature_tuple = tuple(row[cols])
-
-                if feature_tuple not in selected_features:
-                    selected_features.add(feature_tuple)
-                    balanced_dataset.append(feature_tuple)
-                    break
-
-        for _, row in combined_df.iterrows():
-            if len(balanced_dataset) >= 30:
-                break
-            feature_tuple = tuple(row[cols])
-
-            if feature_tuple not in selected_features:
-                selected_features.add(feature_tuple)
-                balanced_dataset.append(row)
-
-        balanced_dataset_df = pd.DataFrame(balanced_dataset, columns=cols)
-
-        return balanced_dataset_df
-
     def __build_final_df(self, top_dfs):
         #cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
         # aggregate common feature vectors
         feature_dict, count_dict, max_label_dict, df_dict = self.__aggregate_datasets(top_dfs)
-        #print(feature_dict)
-        #print(count_dict)
-        #print(max_label_dict)
-        #print(df_dict)
 
         highest_perfs = self.__combine_datasets(top_dfs)
 
@@ -956,7 +893,6 @@ class fairSelect(quickTunerMethod):
                     final_dataset.append(feature)
                     if len(final_dataset) >= self.N:
                         break
-            # add more high performers
         
         return pd.DataFrame(final_dataset).head(self.N) # though this should really not be set
 
@@ -965,16 +901,14 @@ class fairSelect(quickTunerMethod):
     
         type_gemm_dict = orderByGemmType(combined_df, normalize=self.normalize)
 
-        #type_gemm_dict = orderGemmDict(type_gemm_dict)
-
-        for dtype, dfs in type_gemm_dict.items():
-            
+        for dtype, dfs in type_gemm_dict.items():            
             top_90_percent = []
             for cfg in dfs:
                 df = dfs[cfg]
                 top_90_percent.append(self.__get_top_90_percent(df))
-
-            config_dict[dtype] = self.__build_final_df(top_90_percent)
+            df = self.__build_final_df(top_90_percent)
+            df.columns = ['PerfConfig']
+            config_dict[dtype] = df
         
         self.config = config_dict
         return config_dict
