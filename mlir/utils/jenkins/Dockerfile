@@ -1,10 +1,10 @@
 FROM ubuntu:20.04
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.1/
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.2/
 ARG ROCM_BUILD_NAME=focal
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-6.1
+ARG ROCM_PATH=/opt/rocm-6.2
 
 ENV DEBIAN_FRONTEND noninteractive
 
