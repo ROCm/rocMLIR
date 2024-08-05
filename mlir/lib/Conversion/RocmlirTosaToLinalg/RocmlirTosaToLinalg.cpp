@@ -75,8 +75,8 @@ LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
 }
 
 void mlir::rock::populateRocmlirTosaToLinalgTarget(ConversionTarget &target) {
-  target.addLegalOp<linalg::GenericOp, arith::ExtUIOp, arith::UIToFPOp,
-                    tensor::EmptyOp>();
+  target.addLegalOp<linalg::GenericOp, linalg::YieldOp, arith::ExtUIOp,
+                    arith::UIToFPOp, tensor::EmptyOp>();
   target.addDynamicallyLegalOp<tosa::CustomOp>(
       [](tosa::CustomOp op) { return op.getDomainName() != "rocmlir"; });
 }

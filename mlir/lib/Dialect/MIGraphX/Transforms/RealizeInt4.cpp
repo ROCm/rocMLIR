@@ -111,13 +111,15 @@ LogicalResult TransposeUnpackInterchange::matchAndRewrite(
   newPermutation.reserve(permutation.size() + 1);
   for (auto [to, from] :
        llvm::enumerate(permutation.getAsRange<IntegerAttr>())) {
-    if (to == postTransposeAxis)
+    if (to == postTransposeAxis) {
+      newPermutation.push_back(from);
       newPermutation.push_back(
           rewriter.getI64IntegerAttr(preTransposeAxis + 1));
-    else if (from.getUInt() <= preTransposeAxis)
+    } else if (static_cast<size_t>(from.getInt()) <= preTransposeAxis) {
       newPermutation.push_back(from);
-    else
+    } else {
       newPermutation.push_back(rewriter.getI64IntegerAttr(from.getInt() + 1));
+    }
   }
   Value unpacked = rewriter.create<UnpackOp>(op.getLoc(), preTrCorrectedType,
                                              trOp.getInput(), preTransposeAxis);
@@ -126,6 +128,7 @@ LogicalResult TransposeUnpackInterchange::matchAndRewrite(
       trOp.getLoc(), op.getOut().getType(), unpacked,
       rewriter.getArrayAttr(newPermutation));
   rewriter.replaceOp(op, transposed);
+  rewriter.eraseOp(trOp);
   return success();
 }
 
@@ -156,6 +159,7 @@ LogicalResult ReshapeUnpackInterchange::matchAndRewrite(
       reshapeOp.getLoc(), newShapeInt4, unpacked,
       rewriter.getI64ArrayAttr(newShapeInt4.getShape()));
   rewriter.replaceOp(op, reshaped);
+  rewriter.eraseOp(reshapeOp);
   return success();
 }
 
