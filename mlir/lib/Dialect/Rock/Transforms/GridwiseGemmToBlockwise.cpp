@@ -155,38 +155,42 @@ bestGlobalVectorization(OpBuilder &b, Value matrix, int64_t copyPerThread, GemmD
 
 /// Compute a thread copy layout, i.e., how many elements a single thread (or
 /// workitem) reads along K and M (independently on how we vectorize the reads)
-static FailureOr<std::pair<int64_t, int64_t>>
+static FailureOr<std::tuple<int64_t, int64_t, int64_t>>
 computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
                      int64_t dPerBlock, int64_t kpack, Location loc, int64_t dRepeats, GemmDimension vecDim) {
 
   // By default, we try to maximize the LDS store vectorization. So we will try
   // to read as many elements as possible along the contiguous dimension in LDS
   // and `copyPerThread/elements` in the other dimension
-  int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
-  int64_t copyKPerThread = 0;
-  int64_t copyDPerThread = 0;
+  // int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
+  // int64_t copyKPerThread = 0;
+  // int64_t copyDPerThread = dRepeats;
 
-  if(vecDim == GemmDimension::MorN){
-    copyKPerThread = math_util::gcd(maxVlen, math_util::gcd(kpack, copyPerThread / dRepeats));
-    copyDPerThread = copyPerThread / copyKPerThread;
-  }
-  else{
-    // vecDim == GemmDimension::K
-    copyDPerThread = math_util::gcd(maxVlen, copyPerThread);
-    copyKPerThread = copyPerThread / copyDPerThread;
-  }
+  // llvm::errs() << "dRepeats = " << dRepeats << "\n";
+  // if(vecDim == GemmDimension::K){
+  //   copyKPerThread = math_util::gcd(maxVlen, math_util::gcd(kpack, copyPerThread / dRepeats));
+  //   copyDPerThread = copyPerThread / copyKPerThread;
+  // }
+  // else{
+  //   // vecDim == GemmDimension::MorN
+  //   copyDPerThread = math_util::gcd(maxVlen, copyPerThread);
+  //   copyKPerThread = copyPerThread / copyDPerThread;
+  // }
 
-  if (copyKPerThread == 0 || copyDPerThread == 0) {
-    return emitError(loc) << "gemmA copy size too small,"
-                          << " copyKPerThread: " << copyKPerThread
-                          << " copyDPerThread: " << copyDPerThread << "\n";
-  }
-  if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
-    return mlir::emitError(loc)
-           << "gemmA per thread copy smaller than per"
-           << " block copy, incohereant tuning parameters\n";
-  }
-  return std::make_pair(copyKPerThread, copyDPerThread);
+  // if (copyKPerThread == 0 || copyDPerThread == 0) {
+  //   return emitError(loc) << "gemmA copy size too small,"
+  //                         << " copyKPerThread: " << copyKPerThread
+  //                         << " copyDPerThread: " << copyDPerThread << "\n";
+  // }
+  // if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
+  //   return mlir::emitError(loc)
+  //          << "gemmA per thread copy smaller than per"
+  //          << " block copy, incohereant tuning parameters\n";
+  // }
+  int64_t copyDPerThreadHigh = dRepeats;
+  int64_t copyDPerThreadLow = 1;
+  int64_t copyKPerThread = copyPerThread / dRepeats;
+  return std::make_tuple(copyKPerThread, copyDPerThreadHigh, copyDPerThreadLow);
 }
 
 /// Wraps the LDS buffer "buffer", which is <kOuter * d * kpack *
@@ -293,8 +297,13 @@ struct VectorDimInfo {
   GemmDimension vectorDim;
   int64_t vectorLen;
   int64_t inKPerThread;
-  int64_t inDPerThread;
+  int64_t inDPerThreadHigh;
+  int64_t inDPerThreadLow;
   GemmDimension vectorTiebreaker;
+
+  int64_t getDPerThread(){
+    return inDPerThreadHigh * inDPerThreadLow;
+  }
 };
 
 static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
@@ -311,15 +320,13 @@ static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
       elemType, copyPerThread, kPerBlock, dPerBlock, kpack, loc, dRepeats, vectorDim);
   if (failed(maybeCopyDPerThread))
     return failure();
-
-  int64_t copyKPerThread = (*maybeCopyDPerThread).first;
-  int64_t copyDPerThread = (*maybeCopyDPerThread).second;
+  auto [copyKPerThread, copyDPerThreadHigh, copyDPerThreadLow] = maybeCopyDPerThread.value();
   // Find the best way of vectorizing the layout
   int64_t vectorLen;
   std::tie(std::ignore, vectorLen) =
-      bestGlobalVectorization(rewriter, matrix, copyDPerThread, copyKPerThread,
+      bestGlobalVectorization(rewriter, matrix, copyDPerThreadHigh * copyDPerThreadLow, copyKPerThread,
                               vectorTiebreaker, kPerBlock, dPerBlock);
-  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread,
+  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThreadHigh, copyDPerThreadLow,
                        vectorTiebreaker};
 }
 
@@ -328,7 +335,7 @@ getLDSLayoutConfigDim(Type elementType, int64_t kpack,
                       const VectorDimInfo &vecDimInfo) {
   LDSLayoutConfigDim cfg;
   int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
-  int64_t copyDPerThread = vecDimInfo.inDPerThread;
+  int64_t copyDPerThread = vecDimInfo.inDPerThreadHigh * vecDimInfo.inDPerThreadLow;
   bool isKContigousDim = vecDimInfo.vectorDim == GemmDimension::K;
   // If kpack is less than the hardware max vector length, and we are
   // writing more contiguous kpack elements, there is a possibility to
@@ -340,6 +347,8 @@ getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   LLVM_DEBUG(llvm::dbgs() << "rotateWithK: " << cfg.doRotateWithK << "\n"
                           << "doSwapThreadIterSubDimsForM: "
                           << cfg.doSwapThreadIterSubDims << "\n");
+  cfg.doSwapThreadIterSubDims = false;
+  cfg.doRotateWithK = false;
   return cfg;
 }
 
@@ -531,7 +540,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-        maybeVecDimInfoA->inDPerThread,
+        maybeVecDimInfoA->inDPerThreadHigh,
+        maybeVecDimInfoA->inDPerThreadLow,
         maybeVecDimInfoA->vectorDim == GemmDimension::K);
     if (failed(maybeABufferViews)) {
       return failure();
@@ -540,7 +550,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-        maybeVecDimInfoB->inDPerThread,
+        maybeVecDimInfoB->inDPerThreadHigh,
+        maybeVecDimInfoB->inDPerThreadLow,
         maybeVecDimInfoB->vectorDim == GemmDimension::K);
     if (failed(maybeBBufferViews)) {
       return failure();
@@ -598,7 +609,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         getPackedRegsAsTileViews(
             b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-            maybeVecDimInfoA->inDPerThread, kpack,
+            maybeVecDimInfoA->inDPerThreadHigh, maybeVecDimInfoA->inDPerThreadLow, kpack,
             maybeVecDimInfoA->vectorDim == GemmDimension::K,
             ldsLayoutConfigA.doSwapThreadIterSubDims);
     if (failed(maybeALdsStoreViews)) {
@@ -620,7 +631,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         getPackedRegsAsTileViews(
             b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-            maybeVecDimInfoB->inDPerThread, kpack,
+            maybeVecDimInfoB->inDPerThreadHigh, maybeVecDimInfoB->inDPerThreadLow, kpack,
             maybeVecDimInfoB->vectorDim == GemmDimension::K,
             ldsLayoutConfigB.doSwapThreadIterSubDims);
     if (failed(maybeBLdsStoreViews)) {
@@ -636,7 +647,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
         b, loc, ldsByteBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
-        maybeVecDimInfoA->inKPerThread, maybeVecDimInfoA->inDPerThread,
+        maybeVecDimInfoA->inKPerThread, maybeVecDimInfoA->getDPerThread(),
         ldsLayoutConfigA.doRotateWithK);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
@@ -648,7 +659,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
         b, loc, ldsByteBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
-        maybeVecDimInfoB->inKPerThread, maybeVecDimInfoB->inDPerThread,
+        maybeVecDimInfoB->inKPerThread, maybeVecDimInfoB->getDPerThread(),
         ldsLayoutConfigB.doRotateWithK);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
@@ -707,8 +718,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // Emit blockwise GEMM.
       blockwiseGemmOp = b.create<BlockwiseGemmOp>(
           loc, ldsMatrixA, ldsMatrixB, registerMatrixCViewOp,
-          b.getI32IntegerAttr(maybeVecDimInfoA->inDPerThread),
-          b.getI32IntegerAttr(maybeVecDimInfoB->inDPerThread),
+          b.getI32IntegerAttr(maybeVecDimInfoA->getDPerThread()),
+          b.getI32IntegerAttr(maybeVecDimInfoB->getDPerThread()),
           ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr,
           ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr,
           op.getParamsAttr());
@@ -772,8 +783,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1],
-        /*nBlocks=*/bidGridLengths[2], maybeVecDimInfoA->inDPerThread,
-        maybeVecDimInfoB->inDPerThread, mPerBlock, nPerBlock,
+        /*nBlocks=*/bidGridLengths[2], maybeVecDimInfoA->getDPerThread(),
+        maybeVecDimInfoB->getDPerThread(), mPerBlock, nPerBlock,
         ldsLayoutConfigA.doSwapThreadIterSubDims,
         ldsLayoutConfigB.doSwapThreadIterSubDims,
         /*isBlockwise=*/false, transformAttrs);
@@ -885,13 +896,13 @@ struct GridwiseAttentionAccelRewritePattern
     if (!isDestBufferLDS) {
       maybeInBufferViews = accelEmitter.createAccelGemmOperandTransforms(
           rewriter, loc, kIters, bidGridLengths, blockSize,
-          maybeVectorDimInfo->inDPerThread, nonKDimName,
+          maybeVectorDimInfo->getDPerThread(), nonKDimName,
           vectorDim == GemmDimension::K, false);
     } else {
       maybeInBufferViews = getLoadRegsAsTileViews(
           rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths,
           blockSize, kPerBlock, dPerBlock, maybeVectorDimInfo->inKPerThread,
-          maybeVectorDimInfo->inDPerThread, vectorDim == GemmDimension::K);
+          maybeVectorDimInfo->inDPerThreadHigh, maybeVectorDimInfo->inDPerThreadLow, vectorDim == GemmDimension::K);
     }
     if (failed(maybeInBufferViews)) {
       return failure();
@@ -917,7 +928,7 @@ struct GridwiseAttentionAccelRewritePattern
           getPackedRegsAsTileViews(rewriter, loc, in, nonKDimName, bidGridOrder,
                                    bidGridLengths, blockSize, kPerBlock,
                                    dPerBlock, maybeVectorDimInfo->inKPerThread,
-                                   maybeVectorDimInfo->inDPerThread, kpack,
+                                   maybeVectorDimInfo->inDPerThreadHigh, maybeVectorDimInfo->inDPerThreadLow, kpack,
                                    vectorDim == GemmDimension::K,
                                    ldsLayoutCfg.doSwapThreadIterSubDims);
       if (failed(maybeLdsStoreViews)) {
@@ -927,7 +938,7 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, kpack, viewLoadBuffer, maybeLdsStoreViews.value(),
           toLDSRegBuffer, destBuffer, kpacksPerBlock, nonKDimName, kPerBlock,
           dPerBlock, maybeVectorDimInfo->inKPerThread,
-          maybeVectorDimInfo->inDPerThread, forceUnroll,
+          maybeVectorDimInfo->getDPerThread(), forceUnroll,
           ldsLayoutCfg.doRotateWithK);
       if (failed(storeGemmTileStatus)) {
         return failure();
@@ -1809,8 +1820,8 @@ struct GridwiseAttentionAccelRewritePattern
     if (doBypassLDSSecondGemm) {
       ldsLayoutCfgMG0.doSwapThreadIterSubDims = false;
     }
-    int64_t gemm0InMPerThread = maybeVectorDimInfoK->inDPerThread;
-    int64_t gemm0InNPerThread = maybeVectorDimInfoQ->inDPerThread;
+    int64_t gemm0InMPerThread = maybeVectorDimInfoK->getDPerThread();
+    int64_t gemm0InNPerThread = maybeVectorDimInfoQ->getDPerThread();
     RegsAsMatrixSubTiles gemm0OutSubTileViews =
         accelEmitterPtrGemm0->computeOutputTransforms(
             rewriter, loc, gemm0M, gemm0N, blockSize, gemm0BidGridLengths,
@@ -1941,7 +1952,7 @@ struct GridwiseAttentionAccelRewritePattern
     }
     LDSLayoutConfigDim ldsLayoutCfgMG1 = getLDSLayoutConfigDim(
         elemTypeV, gemm1kpack, maybeVectorDimInfoV.value());
-    int64_t gemm1InMPerThread = maybeVectorDimInfoV->inDPerThread;
+    int64_t gemm1InMPerThread = maybeVectorDimInfoV->getDPerThread();
     RegsAsMatrixSubTiles gemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
             rewriter, loc, gemm1M, gemm1N, blockSize, gemm1BidGridLengths,
@@ -2600,16 +2611,17 @@ struct GridwiseGemmAccelRewritePattern
                << "nPerBlock: " << nPerBlock << "\n"
                << "aCopyKPerThread: " << maybeVecDimInfoA->inKPerThread << "\n"
                << "bCopyKPerThread: " << maybeVecDimInfoB->inKPerThread << "\n"
-               << "copyMPerThread: " << maybeVecDimInfoA->inDPerThread << "\n"
-               << "copyNPerThread: " << maybeVecDimInfoB->inDPerThread << "\n");
+               << "copyMPerThread: " << maybeVecDimInfoA->getDPerThread() << "\n"
+               << "copyNPerThread: " << maybeVecDimInfoB->getDPerThread() << "\n");
 
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-        maybeVecDimInfoA->inDPerThread,
-        maybeVecDimInfoA->vectorDim == GemmDimension::K, mRepeats);
+        maybeVecDimInfoA->inDPerThreadHigh,
+        maybeVecDimInfoA->inDPerThreadLow,
+        maybeVecDimInfoA->vectorDim == GemmDimension::K);
     if (failed(maybeABufferViews)) {
       return failure();
     }
@@ -2617,8 +2629,9 @@ struct GridwiseGemmAccelRewritePattern
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-        maybeVecDimInfoB->inDPerThread,
-        maybeVecDimInfoB->vectorDim == GemmDimension::K, nRepeats);
+        maybeVecDimInfoB->inDPerThreadHigh,
+        maybeVecDimInfoB->inDPerThreadLow,
+        maybeVecDimInfoB->vectorDim == GemmDimension::K);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -2664,7 +2677,7 @@ struct GridwiseGemmAccelRewritePattern
         getPackedRegsAsTileViews(
             b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-            maybeVecDimInfoA->inDPerThread, kpack, isKContiguousDimA,
+            maybeVecDimInfoA->inDPerThreadHigh, maybeVecDimInfoA->inDPerThreadLow, kpack, isKContiguousDimA,
             ldsLayoutConfigA.doSwapThreadIterSubDims);
     if (failed(maybeALdsStoreViews)) {
       return failure();
@@ -2682,7 +2695,7 @@ struct GridwiseGemmAccelRewritePattern
         getPackedRegsAsTileViews(
             b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-            maybeVecDimInfoB->inDPerThread, kpack, isKContiguousDimB,
+            maybeVecDimInfoB->inDPerThreadHigh, maybeVecDimInfoB->inDPerThreadLow, kpack, isKContiguousDimB,
             ldsLayoutConfigB.doSwapThreadIterSubDims);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
@@ -2739,7 +2752,7 @@ struct GridwiseGemmAccelRewritePattern
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
         b, loc, ldsByteBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
-        maybeVecDimInfoA->inKPerThread, maybeVecDimInfoA->inDPerThread,
+        maybeVecDimInfoA->inKPerThread, maybeVecDimInfoB->getDPerThread(),
         ldsLayoutConfigA.doRotateWithK);
     if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
@@ -2751,7 +2764,7 @@ struct GridwiseGemmAccelRewritePattern
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
         b, loc, ldsByteBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
-        maybeVecDimInfoB->inKPerThread, maybeVecDimInfoB->inDPerThread,
+        maybeVecDimInfoB->inKPerThread, maybeVecDimInfoB->getDPerThread(),
         ldsLayoutConfigB.doRotateWithK);
     if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
@@ -2851,8 +2864,8 @@ struct GridwiseGemmAccelRewritePattern
         b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
         blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
             loc, ldsViewForGemmA, ldsViewForGemmB,
-            b.getI32IntegerAttr(maybeVecDimInfoA->inDPerThread),
-            b.getI32IntegerAttr(maybeVecDimInfoB->inDPerThread),
+            b.getI32IntegerAttr(maybeVecDimInfoA->getDPerThread()),
+            b.getI32IntegerAttr(maybeVecDimInfoB->getDPerThread()),
             (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
             arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getFeaturesAttr(),
@@ -2868,8 +2881,8 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr idToMatrixCMaps =
         accelEmitterPtr
             ->computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths,
-                                      maybeVecDimInfoA->inDPerThread,
-                                      maybeVecDimInfoB->inDPerThread,
+                                      maybeVecDimInfoA->getDPerThread(),
+                                      maybeVecDimInfoB->getDPerThread(),
                                       ldsLayoutConfigA.doSwapThreadIterSubDims,
                                       ldsLayoutConfigB.doSwapThreadIterSubDims)
             .gridSubTile;

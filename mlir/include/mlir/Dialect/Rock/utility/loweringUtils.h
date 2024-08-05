@@ -65,7 +65,7 @@ getLoadRegsAsTileViews(OpBuilder &b, Location loc, Value globalBuffer,
                        StringRef dName, ArrayRef<StringRef> bidGridOrder,
                        ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
                        int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-                       int64_t dPerThread, bool isKContigousDim, int64_t dSplit = 1);
+                       int64_t dPerThreadHigh, int64_t dPerThreadLow, bool isKContigousDim);
 
 // This function will create views of the register buffer of the loaded tile
 // but packed as kOuterPerThread, dPerThread and kPackPerThread for max
@@ -75,7 +75,7 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContigousDim,
+    int64_t dPerThreadHigh, int64_t dPerThreadLow, int64_t kpack, bool isKContigousDim,
     bool doSwapThreadIterSubDimsForD = false);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
