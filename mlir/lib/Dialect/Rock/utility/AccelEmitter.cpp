@@ -92,11 +92,12 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
 
 Value AccelEmitter::generateThreadwiseViewBufferA(PatternRewriter &b,
                                                   Location loc,
-                                                  Value rawBufferA) {
+                                                  Value rawBufferA, int64_t repeatsInReg) {
   TopDownTMBuilder bufferAikTransform(
-      b, {"i", "k"}, {1, accelEmitterParams.kBasePerThread}, loc);
-  bufferAikTransform.ignore("i");
-  bufferAikTransform.passThrough({"k"}, 0, {"k"});
+      b, {"i", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread}, loc);
+  // bufferAikTransform.ignore("i");
+  // bufferAikTransform.passThrough({"k"}, 0, {"k"});
+  bufferAikTransform.unmerge("flat", 0, {"i", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread});
   auto viewA = rock::transform(
       b, rawBufferA,
       b.getArrayAttr(SmallVector<Attribute>{bufferAikTransform.get()}));
@@ -105,11 +106,12 @@ Value AccelEmitter::generateThreadwiseViewBufferA(PatternRewriter &b,
 
 Value AccelEmitter::generateThreadwiseViewBufferB(PatternRewriter &b,
                                                   Location loc,
-                                                  Value rawBufferB) {
+                                                  Value rawBufferB, int64_t repeatsInReg) {
   TopDownTMBuilder bufferBjkTransform(
-      b, {"j", "k"}, {1, accelEmitterParams.kBasePerThread}, loc);
-  bufferBjkTransform.ignore("j");
-  bufferBjkTransform.passThrough({"k"}, 0, {"k"});
+      b, {"j", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread}, loc);
+  // bufferBjkTransform.ignore("j");
+  // bufferBjkTransform.passThrough({"k"}, 0, {"k"});
+  bufferBjkTransform.unmerge("flat", 0, {"j", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread});
   auto viewB = rock::transform(
       b, rawBufferB,
       b.getArrayAttr(SmallVector<Attribute>{bufferBjkTransform.get()}));
@@ -633,7 +635,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
     int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
-    bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
+    bool rotateDWithK, bool doSplitKAcrossThreadsFirst, bool padOtherWaveDim) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
@@ -729,17 +731,40 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
+    // Optional padding out otherWaveDim
+    TopDownTMBuilder toPadOtherWaveDim =
+    TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+    {
+      SmallVector<StringRef, 4> startNames;
+      toPadOtherWaveDim.getStartNames(startNames);
+      for (auto name : startNames){
+        if(name != otherWaveDim || !padOtherWaveDim){
+          toPadOtherWaveDim.passThrough(name);
+        }
+        else{
+          toPadOtherWaveDim.pad({otherWaveDim}, {0, toPadOtherWaveDim.startSize(otherWaveDim) - 1});
+        }
+      }
+    }
+    TransformMapAttr toPadOtherWaveDimAttr = toPadOtherWaveDim.get();
+    transformAttrs.push_back(toPadOtherWaveDimAttr);
     // Fourth coordinate transform
     TopDownTMBuilder toLDSRowCol =
-        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+        TopDownTMBuilder::below(toPadOtherWaveDim, toPadOtherWaveDimAttr);
     {
       toLDSRowCol.passThrough({"k_loop", "g_block"});
       toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
       toLDSRowCol.passThrough({"kpack"}, {3}, {"kpack"});
       if (isKReduction) {
         // d = blk_td + d_i * waveOffset
-        toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "blk_td"},
-                            {dRepeats, dWaves, inputSpanLen});
+        if(padOtherWaveDim){
+          toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, otherWaveDim, "blk_td"},
+                              {dRepeats, dWaves, 1, inputSpanLen});
+        }
+        else{
+          toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "blk_td"},
+                              {dRepeats, dWaves, inputSpanLen});
+        }
         if (doSplitKAcrossThreadsFirst) {
           // k = blk_id + (waveSize / inputSpanLen) * k_i
           toLDSRowCol.unmerge("k", 5, {"k_iter", "blk_id"},
@@ -751,12 +776,20 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         }
       } else {
         // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
-        toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "lane_id"},
-                            {dRepeats, dWaves, dPerAccel});
+        if(padOtherWaveDim){
+          toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, otherWaveDim, "lane_id"},
+                              {dRepeats, dWaves, 1, dPerAccel});
+        }
+        else{
+          toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "lane_id"},
+                              {dRepeats, dWaves, dPerAccel});
+        }
         // k = k_i
         toLDSRowCol.passThrough({"k"}, 5, {"k_iter"});
       }
-      toLDSRowCol.ignore(otherWaveDim);
+      if(!padOtherWaveDim){
+        toLDSRowCol.ignore(otherWaveDim);
+      }
     }
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
@@ -835,6 +868,23 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
+    // Optional padding out otherWaveDim
+    TopDownTMBuilder toPadOtherWaveDim =
+    TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+    {
+      SmallVector<StringRef, 4> startNames;
+      toPadOtherWaveDim.getStartNames(startNames);
+      for (auto name : startNames){
+        if(name != otherWaveDim || !padOtherWaveDim){
+          toPadOtherWaveDim.passThrough(name);
+        }
+        else{
+          toPadOtherWaveDim.pad({otherWaveDim}, {0, toPadOtherWaveDim.startSize(otherWaveDim) - 1});
+        }
+      }
+    }
+    TransformMapAttr toPadOtherWaveDimAttr = toPadOtherWaveDim.get();
+    transformAttrs.push_back(toPadOtherWaveDimAttr);
     // Fourth coordinate transform
     TopDownTMBuilder toLDSRowCol =
         TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
@@ -842,14 +892,26 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
       toLDSRowCol.passThrough({"kpack"}, {0}, {"kpack"});
       if (!isKReduction) {
         // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
-        toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "lane_id"},
-                            {dRepeats, dWaves, dPerAccel});
+        if(padOtherWaveDim){
+          toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, otherWaveDim, "lane_id"},
+                    {dRepeats, dWaves, 1, dPerAccel});
+        }
+        else{
+          toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "lane_id"},
+                              {dRepeats, dWaves, dPerAccel});
+        }
         // k = k_i
         toLDSRowCol.passThrough({"k"}, 2, {"k_iter"});
       } else {
         // d = blk_td + d_i * waveOffset
-        toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "blk_td"},
-                            {dRepeats, dWaves, inputSpanLen});
+        if(padOtherWaveDim){
+          toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, otherWaveDim, "blk_td"},
+                              {dRepeats, dWaves, 1, inputSpanLen});
+        }
+        else{
+          toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "blk_td"},
+                              {dRepeats, dWaves, inputSpanLen});
+        }
         if (doSplitKAcrossThreadsFirst) {
           // k = blk_id + (waveSize / inputSpanLen) * k_i
           toLDSRowCol.unmerge("k", 2, {"k_iter", "blk_id"},
@@ -860,7 +922,9 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
                               {waveSize / inputSpanLen, kpackPerThread});
         }
       }
-      toLDSRowCol.ignore(otherWaveDim);
+      if(!padOtherWaveDim){
+        toLDSRowCol.ignore(otherWaveDim);
+      }
     }
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
@@ -1063,7 +1127,7 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
     int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
-    bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
+    bool rotateDWithK, bool doSplitKAcrossThreadsFirst, bool padOtherWaveDim) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";

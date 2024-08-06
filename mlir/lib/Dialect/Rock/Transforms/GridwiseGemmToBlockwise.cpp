@@ -227,6 +227,46 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
   return transform(b, typedBuffer, asMatrix);
 }
 
+static LogicalResult storeGemmInputTile(
+      PatternRewriter &rewriter, Location loc, int64_t kpack, Value regBuffer,
+      RegsAsMatrixSubTiles toLDSViews, Value storeBuffer,
+      Value ldsTileByteBuffer, int64_t kpacksPerBlock, StringRef nonKDimName,
+      int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
+      int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK, bool skipStoreBuffer = false) {
+    Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
+    if(!skipStoreBuffer){
+      ArrayAttr storeBufferViews =
+          invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
+      Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews);
+      // The following is fine for software pipelining optimization as it could be
+      // considered "compute". In future, consider refactoring the following loop
+      // to be a single reg->reg op avoid verbose IR at this level.
+      rewriter.create<ThreadwiseCopyOp>(loc, regBuffer, ValueRange{},
+                                        viewStoreBuffer, ValueRange{}, false,
+                                        false);
+    }
+    else{
+      std::tie(storeBuffer, std::ignore, std::ignore) = untransform(rewriter, regBuffer);
+    }
+    Type ldsReadType = vectorTypeOrSelf(elemType, kpack);
+    FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
+        rewriter, loc, ldsTileByteBuffer, ldsReadType, kpacksPerBlock,
+        nonKDimName, dPerBlock, copyKPerThread, copyDPerThread, rotateDWithK);
+    if (failed(maybeWrappedLds)) {
+      return failure();
+    }
+    // This is KxD view of the flat LDS buffer
+    Value wrappedLds = std::move(*maybeWrappedLds);
+    // This will produce a (tid, iter) --> flat LDS view
+    wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockSubTile);
+    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+    rewriter.create<ThreadwiseWriteAllOp>(
+        loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
+        /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
+        forceUnroll, true);
+    return success();
+}
+
 static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
                                   int64_t bBufferBytes) {
   int64_t ldsBytes = aBufferBytes + bBufferBytes;
@@ -312,6 +352,8 @@ getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   LLVM_DEBUG(llvm::dbgs() << "rotateWithK: " << cfg.doRotateWithK << "\n"
                           << "doSwapThreadIterSubDimsForM: "
                           << cfg.doSwapThreadIterSubDims << "\n");
+  cfg.doRotateWithK = false;
+  cfg.doSwapThreadIterSubDims = false;
   return cfg;
 }
 
@@ -781,41 +823,6 @@ struct ElementwiseAddOp {
 struct GridwiseAttentionAccelRewritePattern
     : public OpRewritePattern<GridwiseAttentionAccelOp> {
   using OpRewritePattern<GridwiseAttentionAccelOp>::OpRewritePattern;
-
-  LogicalResult storeGemmInputTile(
-      PatternRewriter &rewriter, Location loc, int64_t kpack, Value regBuffer,
-      RegsAsMatrixSubTiles toLDSViews, Value storeBuffer,
-      Value ldsTileByteBuffer, int64_t kpacksPerBlock, StringRef nonKDimName,
-      int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
-      int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK) const {
-    Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
-    ArrayAttr storeBufferViews =
-        invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
-    Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews);
-    // The following is fine for software pipelining optimization as it could be
-    // considered "compute". In future, consider refactoring the following loop
-    // to be a single reg->reg op avoid verbose IR at this level.
-    rewriter.create<ThreadwiseCopyOp>(loc, regBuffer, ValueRange{},
-                                      viewStoreBuffer, ValueRange{}, false,
-                                      false);
-    Type ldsReadType = vectorTypeOrSelf(elemType, kpack);
-    FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
-        rewriter, loc, ldsTileByteBuffer, ldsReadType, kpacksPerBlock,
-        nonKDimName, dPerBlock, copyKPerThread, copyDPerThread, rotateDWithK);
-    if (failed(maybeWrappedLds)) {
-      return failure();
-    }
-    // This is KxD view of the flat LDS buffer
-    Value wrappedLds = std::move(*maybeWrappedLds);
-    // This will produce a (tid, iter) --> flat LDS view
-    wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockSubTile);
-    auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
-    rewriter.create<ThreadwiseWriteAllOp>(
-        loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
-        forceUnroll, true);
-    return success();
-  }
 
   // This function will process a tile of gemm input into LDS buffer
   // in a way it could be fed to blockwise_gemm_accel op
@@ -2516,14 +2523,6 @@ struct GridwiseGemmAccelRewritePattern
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
 
-    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
-    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
-
-    int64_t aCopyKpacksPerThread =
-        math_util::integer_divide_ceil(aCopyPerThread, kpack);
-    int64_t bCopyKpacksPerThread =
-        math_util::integer_divide_ceil(bCopyPerThread, kpack);
-
     // Get the vector copy layout for A and B
     FailureOr<VectorDimInfo> maybeVecDimInfoA =
         getVectorDim(b, loc, op.getA(), elementTypeA, blockSize, kPerBlock,
@@ -2537,113 +2536,7 @@ struct GridwiseGemmAccelRewritePattern
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
-    LLVM_DEBUG(llvm::dbgs()
-               << "gridSize: " << gridSize << "\n"
-               << "blockSize: " << blockSize << "\n"
-               << "aCopyPerThread: " << aCopyPerThread << "\n"
-               << "bCopyPerThread: " << bCopyPerThread << "\n"
-               << "aCopyKpacksPerThread: " << aCopyKpacksPerThread << "\n"
-               << "bCopyKpacksPerThread: " << bCopyKpacksPerThread << "\n"
-               << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
-               << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
-               << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n"
-               << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
-               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker
-               << "\n"
-               << "kPerBlock: " << kPerBlock << "\n"
-               << "mPerBlock: " << mPerBlock << "\n"
-               << "nPerBlock: " << nPerBlock << "\n"
-               << "aCopyKPerThread: " << maybeVecDimInfoA->inKPerThread << "\n"
-               << "bCopyKPerThread: " << maybeVecDimInfoB->inKPerThread << "\n"
-               << "copyMPerThread: " << maybeVecDimInfoA->inDPerThread << "\n"
-               << "copyNPerThread: " << maybeVecDimInfoB->inDPerThread << "\n");
-    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
-    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
-        kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-        maybeVecDimInfoA->inDPerThread,
-        maybeVecDimInfoA->vectorDim == GemmDimension::K);
-    if (failed(maybeABufferViews)) {
-      return failure();
-    }
-    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridSubTile);
-    FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
-        kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-        maybeVecDimInfoB->inDPerThread,
-        maybeVecDimInfoB->vectorDim == GemmDimension::K);
-    if (failed(maybeBBufferViews)) {
-      return failure();
-    }
-    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
 
-    // Get current workgroup ID.
-    auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-    // Get current workitem ID.
-    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
-
-    auto loadBufferA =
-        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
-    auto loadBufferB =
-        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
-
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    // Compute grid coordinates
-    auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid,
-        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType}, arch);
-
-    Value storeBufferA =
-        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
-    Value storeBufferB =
-        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
-
-    bool isKContiguousDimA = maybeVecDimInfoA->vectorDim == GemmDimension::K;
-    bool isKContiguousDimB = maybeVecDimInfoB->vectorDim == GemmDimension::K;
-    LDSLayoutConfigDim ldsLayoutConfigA =
-        getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value());
-    LDSLayoutConfigDim ldsLayoutConfigB =
-        getLDSLayoutConfigDim(elementTypeB, kpack, maybeVecDimInfoB.value());
-
-    // We invert the transforms that are iter --> K x D slice of the tensor
-    // so that we can view loadBuffer as a K x D tensor
-    ArrayAttr loadBufferAViews =
-        invertTransforms(b, loc, maybeABufferViews->threadSubTile);
-    Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
-    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
-    // vectorization Hence, creating the view w.r.t global that correspond to
-    // such re-arranged register buffer
-    FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
-        getPackedRegsAsTileViews(
-            b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
-            kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-            maybeVecDimInfoA->inDPerThread, kpack, isKContiguousDimA,
-            ldsLayoutConfigA.doSwapThreadIterSubDims);
-    if (failed(maybeALdsStoreViews)) {
-      return failure();
-    }
-    ArrayAttr storeBufferAViews =
-        invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
-    Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    ArrayAttr loadBufferBViews =
-        invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
-    Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
-    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
-    // vectorization Hence, creating the view w.r.t global that correspond to
-    // such re-arranged register buffer
-    FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
-        getPackedRegsAsTileViews(
-            b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
-            kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-            maybeVecDimInfoB->inDPerThread, kpack, isKContiguousDimB,
-            ldsLayoutConfigB.doSwapThreadIterSubDims);
-    if (failed(maybeBLdsStoreViews)) {
-      return failure();
-    }
-    ArrayAttr storeBufferBViews =
-        invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
-    Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
@@ -2684,6 +2577,135 @@ struct GridwiseGemmAccelRewritePattern
                << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
                << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n");
 
+    int64_t kIters = K / kPerBlock;
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
+
+    FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
+      b, loc, kIters, bidGridLengths, blockSize, maybeVecDimInfoA->inDPerThread, "m", maybeVecDimInfoA->vectorDim == GemmDimension::K, false, false);
+    if (failed(maybeABufferViews)) {
+      return failure();
+    }
+
+    FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
+      b, loc, kIters, bidGridLengths, blockSize, maybeVecDimInfoB->inDPerThread, "n", maybeVecDimInfoB->vectorDim == GemmDimension::K, false, false);
+    if (failed(maybeBBufferViews)) {
+      return failure();
+    }
+
+    int64_t inKPerThread = getLowerShape(maybeABufferViews->threadSubTile)[0];
+    int64_t inMPerThread = getLowerShape(maybeABufferViews->threadSubTile)[1];
+    int64_t inNPerThread = getLowerShape(maybeBBufferViews->threadSubTile)[1];
+    int64_t aCopyPerThread = inKPerThread * inMPerThread;
+    int64_t bCopyPerThread = inKPerThread * inNPerThread;
+
+    int64_t aCopyKpacksPerThread =
+        math_util::integer_divide_ceil(aCopyPerThread, kpack);
+    int64_t bCopyKpacksPerThread =
+        math_util::integer_divide_ceil(bCopyPerThread, kpack);
+
+    LLVM_DEBUG(llvm::dbgs()
+               << "gridSize: " << gridSize << "\n"
+               << "blockSize: " << blockSize << "\n"
+               << "aCopyPerThread: " << aCopyPerThread << "\n"
+               << "bCopyPerThread: " << bCopyPerThread << "\n"
+               << "aCopyKpacksPerThread: " << aCopyKpacksPerThread << "\n"
+               << "bCopyKpacksPerThread: " << bCopyKpacksPerThread << "\n"
+               << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
+               << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
+               << "bVectorDim: " << maybeVecDimInfoB->vectorDim << "\n"
+               << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
+               << "vectorTiebreaker: " << maybeVecDimInfoA->vectorTiebreaker
+               << "\n"
+               << "kPerBlock: " << kPerBlock << "\n"
+               << "mPerBlock: " << mPerBlock << "\n"
+               << "nPerBlock: " << nPerBlock << "\n"
+               << "aCopyKPerThread: " << maybeVecDimInfoA->inKPerThread << "\n"
+               << "bCopyKPerThread: " << maybeVecDimInfoB->inKPerThread << "\n"
+               << "copyMPerThread: " << maybeVecDimInfoA->inDPerThread << "\n"
+               << "copyNPerThread: " << maybeVecDimInfoB->inDPerThread << "\n");
+    
+    // FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
+    //     b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+    //     kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
+    //     maybeVecDimInfoA->inDPerThread,
+    //     maybeVecDimInfoA->vectorDim == GemmDimension::K);
+
+    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridSubTile);
+    // FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
+    //     b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+    //     kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
+    //     maybeVecDimInfoB->inDPerThread,
+    //     maybeVecDimInfoB->vectorDim == GemmDimension::K);
+    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
+
+    // Get current workgroup ID.
+    auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
+    // Get current workitem ID.
+    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+
+    auto loadBufferA =
+        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
+    auto loadBufferB =
+        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
+
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    // Compute grid coordinates
+    auto gridCoords = layout::makeGroupedGridLayout(
+        b, loc, bid,
+        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType}, arch);
+
+    Value storeBufferA =
+        gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
+    Value storeBufferB =
+        gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
+
+    bool isKContiguousDimA = maybeVecDimInfoA->vectorDim == GemmDimension::K;
+    bool isKContiguousDimB = maybeVecDimInfoB->vectorDim == GemmDimension::K;
+    LDSLayoutConfigDim ldsLayoutConfigA =
+        getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value());
+    LDSLayoutConfigDim ldsLayoutConfigB =
+        getLDSLayoutConfigDim(elementTypeB, kpack, maybeVecDimInfoB.value());
+
+    // We invert the transforms that are iter --> K x D slice of the tensor
+    // so that we can view loadBuffer as a K x D tensor
+    ArrayAttr loadBufferAViews =
+        invertTransforms(b, loc, maybeABufferViews->threadSubTile);
+    Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
+    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
+    // vectorization Hence, creating the view w.r.t global that correspond to
+    // such re-arranged register buffer
+    // FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
+    //     getPackedRegsAsTileViews(
+    //         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+    //         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
+    //         maybeVecDimInfoA->inDPerThread, kpack, isKContiguousDimA,
+    //         ldsLayoutConfigA.doSwapThreadIterSubDims);
+    // if (failed(maybeALdsStoreViews)) {
+    //   return failure();
+    // }
+    // ArrayAttr storeBufferAViews =
+    //     invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
+    // Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
+    ArrayAttr loadBufferBViews =
+        invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
+    Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
+    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
+    // vectorization Hence, creating the view w.r.t global that correspond to
+    // such re-arranged register buffer
+    // FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
+    //     getPackedRegsAsTileViews(
+    //         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+    //         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
+    //         maybeVecDimInfoB->inDPerThread, kpack, isKContiguousDimB,
+    //         ldsLayoutConfigB.doSwapThreadIterSubDims);
+    // if (failed(maybeBLdsStoreViews)) {
+    //   return failure();
+    // }
+    // ArrayAttr storeBufferBViews =
+    //     invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
+    // Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
+    
     // Alocate LDS and create subviews.
 
     // Compute required LDS sizes.
@@ -2709,38 +2731,41 @@ struct GridwiseGemmAccelRewritePattern
     auto ldsByteBufferB = b.create<GpuAllocOp>(loc, ldsMemRefBType);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
-    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
-        b, loc, ldsByteBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
-        maybeVecDimInfoA->inKPerThread, maybeVecDimInfoA->inDPerThread,
-        ldsLayoutConfigA.doRotateWithK);
-    if (failed(maybeWrappedLdsA))
-      return maybeWrappedLdsA;
-    // This is KxD view of the flat LDS buffer
-    Value wrappedLdsA = std::move(*maybeWrappedLdsA);
-    // This will produce a (tid, iter) --> flat LDS view
-    wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockSubTile);
+    // FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
+    //     b, loc, ldsByteBufferA, ldsReadTypeA, kpacksPerBlock, "m", mPerBlock,
+    //     maybeVecDimInfoA->inKPerThread, maybeVecDimInfoA->inDPerThread,
+    //     ldsLayoutConfigA.doRotateWithK);
+    // if (failed(maybeWrappedLdsA))
+    //   return maybeWrappedLdsA;
+    // // This is KxD view of the flat LDS buffer
+    // Value wrappedLdsA = std::move(*maybeWrappedLdsA);
+    // // This will produce a (tid, iter) --> flat LDS view
+    // wrappedLdsA = transform(b, wrappedLdsA, maybeALdsStoreViews->blockSubTile);
 
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
-    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
-        b, loc, ldsByteBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
-        maybeVecDimInfoB->inKPerThread, maybeVecDimInfoB->inDPerThread,
-        ldsLayoutConfigB.doRotateWithK);
-    if (failed(maybeWrappedLdsB))
-      return maybeWrappedLdsB;
-    // This is KxD view of the flat LDS buffer
-    Value wrappedLdsB = std::move(*maybeWrappedLdsB);
-    // This will produce a (tid, iter) --> flat LDS view
-    wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockSubTile);
+  
+    // FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
+    //     b, loc, ldsByteBufferB, ldsReadTypeB, kpacksPerBlock, "n", nPerBlock,
+    //     maybeVecDimInfoB->inKPerThread, maybeVecDimInfoB->inDPerThread,
+    //     ldsLayoutConfigB.doRotateWithK);
+    // if (failed(maybeWrappedLdsB))
+    //   return maybeWrappedLdsB;
+    // // This is KxD view of the flat LDS buffer
+    // Value wrappedLdsB = std::move(*maybeWrappedLdsB);
+    // // This will produce a (tid, iter) --> flat LDS view
+    // wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockSubTile);
 
     Value ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, ldsReadTypeA);
     Value ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);
     int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
 
     // Logic to setup buffers for blockwise_gemm_accel.
-    auto arrayA =
-        gpuAlloc(b, loc, kBasePerThread, argTypeA, AddressSpace::Private);
-    auto arrayB =
-        gpuAlloc(b, loc, kBasePerThread, argTypeB, AddressSpace::Private);
+    Value loadBufferAAlloc = cast<ViewLikeOpInterface>(loadBufferA.getDefiningOp()).getViewSource();
+    auto arrayA = viewBufferAs(b, loadBufferAAlloc, argTypeA);
+        // gpuAlloc(b, loc, kBasePerThread, argTypeA, AddressSpace::Private);
+    Value loadBufferBAlloc = cast<ViewLikeOpInterface>(loadBufferB.getDefiningOp()).getViewSource();
+    auto arrayB = viewBufferAs(b, loadBufferBAlloc, argTypeB);
+        // gpuAlloc(b, loc, kBasePerThread, argTypeB, AddressSpace::Private);
     auto regCAllocOp =
         gpuAlloc(b, loc, nOutputVectors, accVectorType, AddressSpace::Private);
 
@@ -2753,8 +2778,8 @@ struct GridwiseGemmAccelRewritePattern
     BlockwiseGemmAccelOp blockwiseGemmAccelOp;
 
     auto loopOp = b.create<scf::ForOp>(loc, zeroConstantOp, nIterations, step);
-    loopOp->setAttr(PipelineAttr::getMnemonic(),
-                    rock::PipelineAttr::get(b.getContext(), 2));
+    // loopOp->setAttr(PipelineAttr::getMnemonic(),
+    //                 rock::PipelineAttr::get(b.getContext(), 2));
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
@@ -2770,10 +2795,10 @@ struct GridwiseGemmAccelRewritePattern
         iv = b.createOrFold<affine::AffineApplyOp>(loc, reverseMap,
                                                    ValueRange{iv, nIterations});
       }
-      auto stage0 = b.create<StageOp>(loc, "GlobalRead");
-      {
-        PatternRewriter::InsertionGuard guard(b);
-        b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
+      // auto stage0 = b.create<StageOp>(loc, "GlobalRead");
+      // {
+      //   PatternRewriter::InsertionGuard guard(b);
+      //   b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
         b.create<ThreadwiseReadIntoOp>(
             loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
@@ -2786,51 +2811,103 @@ struct GridwiseGemmAccelRewritePattern
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
             true, true);
-        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferA, ValueRange{},
-                                   viewStoreBufferA, ValueRange{}, false,
-                                   false);
-        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferB, ValueRange{},
-                                   viewStoreBufferB, ValueRange{}, false,
-                                   false);
-        b.create<rock::YieldOp>(loc);
-      }
+        // b.create<ThreadwiseCopyOp>(loc, viewLoadBufferA, ValueRange{},
+        //                            viewStoreBufferA, ValueRange{}, false,
+        //                            false);
+        // b.create<ThreadwiseCopyOp>(loc, viewLoadBufferB, ValueRange{},
+        //                            viewStoreBufferB, ValueRange{}, false,
+        //                            false);
+        // b.create<rock::YieldOp>(loc);
+      // }
 
-      auto stage1 = b.create<StageOp>(loc, "LDSWrite");
-      {
-        PatternRewriter::InsertionGuard guard(b);
-        b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
+      // auto stage1 = b.create<StageOp>(loc, "LDSWrite");
+      // {
+      //   PatternRewriter::InsertionGuard guard(b);
+      //   b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
 
         // Emit blockwise stores
-        b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
-                                       /*extraViews=*/b.getArrayAttr({}),
-                                       /*extraIndices=*/ValueRange{tid},
-                                       op.getFeatures(), StoreMethod::Set,
-                                       /*forceUnroll=*/forceUnroll,
-                                       /*useIndexDiffs=*/true);
-        b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB,
-                                       /*extraViews=*/b.getArrayAttr({}),
-                                       /*extraIndices=*/ValueRange{tid},
-                                       op.getFeatures(), StoreMethod::Set,
-                                       /*forceUnroll=*/forceUnroll,
-                                       /*useIndexDiffs=*/true);
-        b.create<rock::YieldOp>(loc);
-      }
+        // LogicalResult storeALDSStatus = storeGemmInputTile(
+        //   b, loc, kpack, viewLoadBufferA,
+        //   maybeABufferViews.value(), nullptr, ldsByteBufferA,
+        //   kpacksPerBlock, "m", kPerBlock, mPerBlock, inKPerThread,
+        //   inMPerThread, forceUnroll, ldsLayoutConfigA.doRotateWithK, true
+        // );
+        // if(failed(storeALDSStatus)){
+        //   return op.emitError("storing to A to LDS failed");
+        // }
+        // LogicalResult storeBLDSStatus = storeGemmInputTile(
+        //   b, loc, kpack, viewLoadBufferB,
+        //   maybeBBufferViews.value(), nullptr, ldsByteBufferB,
+        //   kpacksPerBlock, "m", kPerBlock, nPerBlock, inKPerThread,
+        //   inNPerThread, forceUnroll, ldsLayoutConfigB.doRotateWithK, true
+        // );
+        // if(failed(storeBLDSStatus)){
+        //   return op.emitError("storing to B to LDS failed");
+        // }
+        // b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
+        //                                /*extraViews=*/b.getArrayAttr({}),
+        //                                /*extraIndices=*/ValueRange{tid},
+        //                                op.getFeatures(), StoreMethod::Set,
+        //                                /*forceUnroll=*/forceUnroll,
+        //                                /*useIndexDiffs=*/true);
+        // b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB,
+        //                                /*extraViews=*/b.getArrayAttr({}),
+        //                                /*extraIndices=*/ValueRange{tid},
+        //                                op.getFeatures(), StoreMethod::Set,
+        //                                /*forceUnroll=*/forceUnroll,
+        //                                /*useIndexDiffs=*/true);
+      //   b.create<rock::YieldOp>(loc);
+      // }
 
       // Emit blockwise GEMM.
-      auto stage2 = b.create<StageOp>(loc, "MMA");
-      {
-        PatternRewriter::InsertionGuard guard(b);
-        b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
-        blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
-            loc, ldsViewForGemmA, ldsViewForGemmB,
-            b.getI32IntegerAttr(maybeVecDimInfoA->inDPerThread),
-            b.getI32IntegerAttr(maybeVecDimInfoB->inDPerThread),
-            (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
-            (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
-            arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getFeaturesAttr(),
-            op.getBlockSizeAttr(), op.getParamsAttr());
-        b.create<rock::YieldOp>(loc);
-      }
+      // auto stage2 = b.create<StageOp>(loc, "MMA");
+      // {
+      //   PatternRewriter::InsertionGuard guard(b);
+      //   b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
+        affine::AffineForOp mLoop = b.create<affine::AffineForOp>(
+            loc, 0, mRepeats, 1);
+        {
+          PatternRewriter::InsertionGuard guard(b);
+          b.setInsertionPointToStart(mLoop.getBody());
+          Value mi = mLoop.getInductionVar();
+          auto nLoop = b.create<affine::AffineForOp>(
+              loc, 0, nRepeats);
+          {
+            OpBuilder::InsertionGuard guard(b);
+            b.setInsertionPointToStart(nLoop.getBody());
+            Value ni = mLoop.getInductionVar();
+            // regsC += regsA * regsB
+            auto kLoop = b.create<affine::AffineForOp>(
+                loc, 0, kBasePerThread);
+            {
+              OpBuilder::InsertionGuard guard(b);
+              b.setInsertionPointToStart(kLoop.getBody());
+              Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
+                  b, loc, arrayA, mRepeats);
+              Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
+                  b, loc, arrayB, nRepeats);
+              Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
+                  b, loc, regCAllocOp);
+              Value ki = kLoop.getInductionVar();
+              b.create<ThreadwiseAccelGemmOp>(
+                  loc, viewA, viewB, viewC, ValueRange{mi, ni, ki},
+                  op.getArchAttr(), op.getFeaturesAttr(), op.getParamsAttr());
+            }
+          }
+        }
+
+        // PatternRewriter::InsertionGuard guard(b);
+        // b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
+        // blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
+        //     loc, ldsViewForGemmA, ldsViewForGemmB,
+        //     b.getI32IntegerAttr(inMPerThread),
+        //     b.getI32IntegerAttr(inNPerThread),
+        //     (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
+        //     (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
+        //     arrayA, arrayB, regCAllocOp, op.getArchAttr(), op.getFeaturesAttr(),
+        //     op.getBlockSizeAttr(), op.getParamsAttr());
+        // b.create<rock::YieldOp>(loc);
+      // }
     }
 
     // Matrix C write out logic.
@@ -2840,8 +2917,8 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr idToMatrixCMaps =
         accelEmitterPtr
             ->computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths,
-                                      maybeVecDimInfoA->inDPerThread,
-                                      maybeVecDimInfoB->inDPerThread,
+                                      inMPerThread,
+                                      inNPerThread,
                                       ldsLayoutConfigA.doSwapThreadIterSubDims,
                                       ldsLayoutConfigB.doSwapThreadIterSubDims)
             .gridSubTile;

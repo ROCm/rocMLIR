@@ -116,7 +116,7 @@ struct AccelEmitter {
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
-      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const = 0;
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false, bool padOtherWaveDim = false) const = 0;
 
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
@@ -136,10 +136,10 @@ struct AccelEmitter {
 
   // A view: A buffer is [0, K] so we can ignore `i`
   Value generateThreadwiseViewBufferA(PatternRewriter &b, Location loc,
-                                      Value rawBufferA);
+                                      Value rawBufferA, int64_t repeatsInReg = 1);
   // B view: B buffer is [0, K] so we can ignore `j`
   Value generateThreadwiseViewBufferB(PatternRewriter &b, Location loc,
-                                      Value rawBufferB);
+                                      Value rawBufferB, int64_t repeatsInReg = 1);
   // C view: C buffer is [mRepeats,nRepeats] and we need to write in
   // [i,j]. So we "freeze" the `i` and `j` indices and provide the value
   // of `i` and `j` as extra indices.
@@ -187,7 +187,7 @@ struct MfmaEmitter : public AccelEmitter {
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
       bool rotateDWithK,
-      bool doSplitKAcrossThreadsFirst = false) const override;
+      bool doSplitKAcrossThreadsFirst = false, bool padOtherWaveDim = false) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
@@ -234,7 +234,7 @@ struct WmmaEmitter : public AccelEmitter {
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
       bool rotateDWithK,
-      bool doSplitKAcrossThreadsFirst = false) const override;
+      bool doSplitKAcrossThreadsFirst = false, bool padOtherWaveDim = false) const override;
 
   RegsAsMatrixSubTiles computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
