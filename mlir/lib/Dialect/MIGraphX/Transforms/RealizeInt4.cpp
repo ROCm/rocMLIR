@@ -65,10 +65,11 @@ static MIXRShapedType asInt4Tensor(const MIXRShapedType byteType,
                                    int64_t axis) {
   SmallVector<int64_t, 8> sizes(byteType.getShape());
   SmallVector<int64_t, 8> strides(byteType.getStrides());
-  sizes.insert(sizes.begin() + (axis + 1), 2);
-  for (int64_t &stride : strides)
-    stride *= 2;
-  strides.insert(strides.begin() + (axis + 1), 1);
+  sizes[axis] *= 2;
+  for (auto [index, stride] :
+       llvm::enumerate(MutableArrayRef<int64_t>(strides)))
+    if (static_cast<int64_t>(index) != axis)
+      stride *= 2;
   return MIXRShapedType::get(sizes, strides,
                              IntegerType::get(byteType.getContext(), 4));
 }
@@ -83,15 +84,10 @@ LogicalResult RewriteByteUnpackPattern::matchAndRewrite(
   int64_t axis = op.getAxis();
   MIXRShapedType packedByteType = op.getIn().getType();
   MIXRShapedType actualType = asInt4Tensor(packedByteType, axis);
-  Value correctedTensor =
+  Value reinterpreted =
       rewriter.create<UnpackOp>(loc, actualType, adaptor.getIn(), axis);
-  MIXRShapedType unpackedType =
-      actualType.cloneWith(std::nullopt, std::nullopt, rewriter.getI8Type());
-  Value unpacked =
-      rewriter.create<ConvertOp>(loc, unpackedType, correctedTensor,
-                                 /*zeroExtend=*/rewriter.getUnitAttr());
-  rewriter.replaceOpWithNewOp<ReshapeOp>(
-      op, outType, unpacked, rewriter.getI64ArrayAttr(outType.getShape()));
+  rewriter.replaceOpWithNewOp<ConvertOp>(op, outType, reinterpreted,
+                                         /*zeroExtend=*/rewriter.getUnitAttr());
   return success();
 }
 
@@ -100,33 +96,18 @@ LogicalResult TransposeUnpackInterchange::matchAndRewrite(
   auto trOp = adaptor.getIn().getDefiningOp<TransposeOp>();
   if (!trOp)
     return failure();
-  size_t postTransposeAxis = op.getAxis();
+  int64_t postTransposeAxis = op.getAxis();
   ArrayAttr permutation = trOp.getPermutation();
-  size_t preTransposeAxis =
+  int64_t preTransposeAxis =
       cast<IntegerAttr>(permutation[postTransposeAxis]).getInt();
 
-  MIXRShapedType preTrCorrectedType =
+  MIXRShapedType preTrReinterpretedType =
       asInt4Tensor(trOp.getInput().getType(), preTransposeAxis);
-  SmallVector<Attribute> newPermutation;
-  newPermutation.reserve(permutation.size() + 1);
-  for (auto [to, from] :
-       llvm::enumerate(permutation.getAsRange<IntegerAttr>())) {
-    if (to == postTransposeAxis) {
-      newPermutation.push_back(from);
-      newPermutation.push_back(
-          rewriter.getI64IntegerAttr(preTransposeAxis + 1));
-    } else if (static_cast<size_t>(from.getInt()) <= preTransposeAxis) {
-      newPermutation.push_back(from);
-    } else {
-      newPermutation.push_back(rewriter.getI64IntegerAttr(from.getInt() + 1));
-    }
-  }
-  Value unpacked = rewriter.create<UnpackOp>(op.getLoc(), preTrCorrectedType,
-                                             trOp.getInput(), preTransposeAxis);
+  Value reinterpreted = rewriter.create<UnpackOp>(
+      op.getLoc(), preTrReinterpretedType, trOp.getInput(), preTransposeAxis);
   // Not a replaceOpWithNewOp() because we're keeping a different op's location.
   Value transposed = rewriter.create<TransposeOp>(
-      trOp.getLoc(), op.getOut().getType(), unpacked,
-      rewriter.getArrayAttr(newPermutation));
+      trOp.getLoc(), op.getOut().getType(), reinterpreted, permutation);
   rewriter.replaceOp(op, transposed);
   rewriter.eraseOp(trOp);
   return success();
@@ -153,10 +134,10 @@ LogicalResult ReshapeUnpackInterchange::matchAndRewrite(
       lastUnitDim = idx;
   MIXRShapedType oldShapeInt4 = asInt4Tensor(oldShapeBytes, lastUnitDim);
   MIXRShapedType newShapeInt4 = op.getOut().getType();
-  Value unpacked = rewriter.create<UnpackOp>(op.getLoc(), oldShapeInt4,
-                                             reshapeOp.getInput());
+  Value reinterpreted = rewriter.create<UnpackOp>(op.getLoc(), oldShapeInt4,
+                                                  reshapeOp.getInput());
   Value reshaped = rewriter.create<ReshapeOp>(
-      reshapeOp.getLoc(), newShapeInt4, unpacked,
+      reshapeOp.getLoc(), newShapeInt4, reinterpreted,
       rewriter.getI64ArrayAttr(newShapeInt4.getShape()));
   rewriter.replaceOp(op, reshaped);
   rewriter.eraseOp(reshapeOp);
