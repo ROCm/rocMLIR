@@ -186,6 +186,8 @@ String getLabelFromCodepath(String codepath) {
         label = 'mlir'
     } else if (codepath == "navi3x") {
         label = 'mlir && gfx1101'
+    } else if (codepath == "navi4x") {
+        label = 'mlir && ( gfx1200 || gfx1201 )'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -212,6 +214,10 @@ String getLabelFromChip(String chip) {
             return "mlir && gfx1100"
         case "gfx1101":
             return "mlir && gfx1101"
+        case "gfx1200":
+            return "mlir && gfx1200"
+        case "gfx1201":
+            return "mlir && gfx1201"
     }
 }
 
@@ -294,6 +300,17 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
     }
 }
 
+void check_RockE2ETests_Navi4x(boolean fixed) {
+        sh '[ ! -d build ] || rm -rf build'
+        buildProject('check-mlir check-rock-e2e', """  
+             -DROCK_E2E_TEST_ENABLED=1  
+             -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}  
+             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}  
+             -DLLVM_LIT_ARGS='-v --time-tests -j 1'  
+             -DCMAKE_EXPORT_COMPILE_COMMANDS=1  
+        """) 
+} 
+
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
@@ -343,6 +360,11 @@ boolean shouldRunFromCodepath(String codepath) {
     if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
         return true
     }
+    // Run navi4x on private nightly CI only  
+    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x") &&  
+        params.nightly) {  
+        return true;  
+    }  
     return false
 }
 
@@ -363,6 +385,9 @@ boolean shouldRunFromChip(String chip) {
         case "gfx1100":
         case "gfx1101":
             return shouldRunFromCodepath("navi3x")
+        case "gfx1200":
+        case "gfx1201":
+            return shouldRunFromCodepath("navi4x")
     }
 }
 
@@ -384,7 +409,7 @@ void archivePerfDB() {
 }
 
 boolean shouldRunBuildAndTest(String codepath) {
-    // When default codepath is selected, we test mfma, navi21 and navi3x on
+    // When default codepath is selected, we test mfma, navi21, navi3x and navi4x on
     // private CI and vanilla on public CI
     if (params.codepath == "default" && shouldRunFromCodepath(codepath))
         return true
@@ -396,6 +421,7 @@ boolean shouldRunBuildAndTest(String codepath) {
         if (params.codepath == "vanilla") return true
         if (params.codepath == "navi21" && params.disableNavi21 == false) return true
         if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
+        if (params.codepath == "navi4x" && params.disableNavi4x == false) return true
         return false
     }
 }
@@ -441,7 +467,7 @@ pipeline {
 
         // choose the codepath for testing
         choice(name: 'codepath',
-               choices: ['default', 'mfma', 'navi21', 'navi3x', 'vanilla'],
+               choices: ['default', 'mfma', 'navi21', 'navi3x', 'navi4x', 'vanilla'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
         booleanParam(name: 'disableNavi21', defaultValue: true,
@@ -449,7 +475,9 @@ pipeline {
         // option to disable navi3x cells in case nodes are offline
         booleanParam(name: 'disableNavi3x', defaultValue: false,
                      description: 'Disable testing on Navi3x')
-
+        // option to disable navi4x cells in case nodes are offline
+        booleanParam(name: 'disableNavi4x', defaultValue: false,
+                     description: 'Disable testing on Navi4x')
         booleanParam(name: 'disable90a', defaultValue: false,
                      description: 'Disable testing on gfx90a')
         booleanParam(name: 'disable908', defaultValue: false,
@@ -491,7 +519,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'navi3x'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x'
                     }
                 }
                 agent {
@@ -529,6 +557,11 @@ pipeline {
                                         check_RockE2ETests_Navi3x(true)
                                     }
                                 }
+                                else if ( "${CODEPATH}" == 'navi4x' ) {  
+                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {  
+                                        check_RockE2ETests_Navi4x(true)  
+                                    }
+                                }  
                                 else {
                                     build_fixedE2ETests("${CODEPATH}")
                                     preMergeCheck("${CODEPATH}")
@@ -545,7 +578,10 @@ pipeline {
                             allOf {
                                 equals expected: true, actual: params.sharedLib;
                                 equals expected: true, actual: params.nightly
-                            }
+                                not {  
+                                    equals expected: 'navi4x', actual: "${CODEPATH}"  
+                                }
+                            } 
                         }
                         steps {
                             script {
