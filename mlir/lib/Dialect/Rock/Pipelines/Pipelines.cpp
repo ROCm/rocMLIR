@@ -210,8 +210,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
   gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
-  SmallVector<std::string, 3> unsupportedFloats = {"bf16", "f8E4M3FNUZ",
-                                                   "f8E5M2FNUZ"};
+  SmallVector<std::string, 5> unsupportedFloats = {
+      "bf16", "f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2"};
   floatEmuOpts.sourceTypeStrs = unsupportedFloats;
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));

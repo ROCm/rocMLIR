@@ -59,13 +59,18 @@ struct Fp8ExtToTableLookupPattern final : public OpConversionPattern<ExtFOp> {
 struct Fp8TruncToCallPattern final : public OpConversionPattern<TruncFOp> {
   FlatSymbolRefAttr f8E4M3FNUZFunc;
   FlatSymbolRefAttr f8E5M2FNUZFunc;
+  FlatSymbolRefAttr f8E4M3FNFunc; // OCP
+  FlatSymbolRefAttr f8E5M2Func;   // OCP
 
   // The functions are optional - if they aren't provided for a type (the null
   // attribute is sent in) the pattern will not apply.
   Fp8TruncToCallPattern(MLIRContext *ctx, FlatSymbolRefAttr f8E4M3FNUZFunc,
-                        FlatSymbolRefAttr f8E5M2FNUZFunc)
+                        FlatSymbolRefAttr f8E5M2FNUZFunc,
+                        FlatSymbolRefAttr f8E4M3FNFunc,
+                        FlatSymbolRefAttr f8E5M2Func)
       : OpConversionPattern<TruncFOp>::OpConversionPattern(ctx),
-        f8E4M3FNUZFunc(f8E4M3FNUZFunc), f8E5M2FNUZFunc(f8E5M2FNUZFunc) {}
+        f8E4M3FNUZFunc(f8E4M3FNUZFunc), f8E5M2FNUZFunc(f8E5M2FNUZFunc),
+        f8E4M3FNFunc(f8E4M3FNFunc), f8E5M2Func(f8E5M2Func) {}
 
   LogicalResult match(TruncFOp op) const override;
   void rewrite(TruncFOp op, OpAdaptor adaptor,
@@ -119,7 +124,18 @@ static Value getFloatValueTableFor(Type elementType, Operation *op,
   const auto &sem = type.getFloatSemantics();
   for (uint32_t i = 0; i < 256; ++i) {
     APFloat entry(sem, APInt(8, i));
-    tableElems.push_back(entry.convertToFloat());
+    float x = entry.convertToFloat();
+    uint32_t u = llvm::bit_cast<uint32_t>(x);
+    // Hack:  Navi4 uses 0x7f800001 for all three NaN, and that's not
+    // what APFloat will do.
+    if (type.isFloat8E5M2()) {
+      if (i == 0x7d || i == 0x7e || i == 0x7f)
+        u = 0x7f800001;
+      if (i == 0xfd || i == 0xfe || i == 0xff)
+        u = 0xff800001;
+      x = llvm::bit_cast<float>(u);
+    }
+    tableElems.push_back(x);
   }
   ElementsAttr tableElemsAttr = DenseElementsAttr::get<float>(
       RankedTensorType::get(256, rewriter.getF32Type()), tableElems);
@@ -365,13 +381,264 @@ static FlatSymbolRefAttr makeFp8TruncFunction(Location loc, FloatType outType,
   return symbolRef;
 }
 
+// Float8E5M2 and Float8E4M3FN
+static FlatSymbolRefAttr
+makeOCPFp8TruncFunction(Location loc, FloatType outType, Operation *module) {
+  ImplicitLocOpBuilder b(loc, loc.getContext());
+  SymbolTable symtab(module);
+
+  SmallString<32> funcName;
+  (Twine("_rocmlir_trunc_f32_to_") +
+   (TypeSwitch<FloatType, StringRef>(outType)
+        .Case<Float8E4M3FNType>(
+            [](auto ignored) -> StringRef { return "f8E4M3FN"; })
+        .Case<Float8E5M2Type>(
+            [](auto ignored) -> StringRef { return "f8E5M2"; })
+        .Default([](auto ignored) -> StringRef { return "unknownERROR"; })))
+      .toVector(funcName);
+  auto func = func::FuncOp::create(
+      loc, funcName, b.getFunctionType({b.getF32Type()}, {outType}));
+  StringAttr realFuncName = symtab.insert(func);
+  auto symbolRef = FlatSymbolRefAttr::get(realFuncName);
+  symtab.setSymbolVisibility(func, SymbolTable::Visibility::Private);
+
+  Block *entry = func.addEntryBlock();
+  b.setInsertionPointToStart(entry);
+  Value in = entry->getArgument(0);
+
+  Type i32 = b.getI32Type();
+  Type i8 = b.getI8Type();
+  Type i1 = b.getI1Type();
+  auto i32Const = [&](uint32_t value) -> Value {
+    return b.createOrFold<ConstantOp>(i32, b.getI32IntegerAttr(value));
+  };
+  auto i8Const = [&](uint32_t value) -> Value {
+    return b.createOrFold<ConstantOp>(i8, b.getI8IntegerAttr(value));
+  };
+  auto i1Const = [&](bool value) -> Value {
+    return b.createOrFold<ConstantOp>(i1, b.getBoolAttr(value));
+  };
+
+  // Mantissa width includes hidden bit so subtract.
+  uint32_t mBits = outType.getFPMantissaWidth() - 1;
+  uint32_t eBits = outType.getWidth() - 1 - mBits;
+  Value mWidth = i32Const(mBits);
+  Value eWidth = i32Const(eBits);
+
+  // Created here so we can branch to it, will be inserted last
+  Block *ret = new Block();
+  ret->addArgument(i8, loc);
+
+  Value bits = b.create<BitcastOp>(i32, in);
+  Value and22 = b.create<AndIOp>(bits, i32Const((1u << 23u) - 1));
+  Value shr23 = b.create<ShRUIOp>(bits, i32Const(23));
+  Value and24 = b.create<AndIOp>(shr23, i32Const(0xff));
+  Value shr25 = b.create<ShRUIOp>(bits, i32Const(24));
+  Value and26 = b.create<AndIOp>(shr25, i32Const(128));
+  Value shl27 = b.create<ShLIOp>(i32Const(1), eWidth);
+  Value add28 = b.create<AddIOp>(shl27, i32Const(-1));
+  Value shl29 = b.create<ShLIOp>(add28, mWidth);
+  Value add30 = b.create<AddIOp>(shl29, and26);
+  Value shl31 = b.create<ShLIOp>(i32Const(-1), mWidth);
+  Value xor32 = b.create<XOrIOp>(shl31, i32Const(-1));
+  Value add33 = b.create<AddIOp>(add30, xor32);
+  Value cmp34 = b.create<CmpIOp>(CmpIPredicate::eq, mWidth, i32Const(2));
+  Value infNanConst = i32Const(0x7f800000);
+  Value and35 = b.create<AndIOp>(bits, infNanConst);
+  Value cmp36 = b.create<CmpIOp>(CmpIPredicate::eq, and35, infNanConst);
+
+  Block *bb1 = func.addBlock();
+  Block *bb2 = func.addBlock();
+  Block *bb3 = func.addBlock();
+  Block *bb4 = func.addBlock();
+  b.create<cf::CondBranchOp>(cmp36, bb1, bb4);
+
+  b.setInsertionPointToStart(bb1);
+  Value cmp37 = b.create<CmpIOp>(CmpIPredicate::eq, mWidth, i32Const(3));
+  b.create<cf::CondBranchOp>(cmp37, bb2, bb3);
+
+  b.setInsertionPointToStart(bb2);
+  Value trunc38 = b.create<TruncIOp>(i8, add33);
+  b.create<cf::BranchOp>(ret, trunc38);
+
+  // This block is a later edit, thus the numbers don't fit with bb6, etc.
+  b.setInsertionPointToStart(bb3);
+  Value cmp39 = b.create<CmpIOp>(CmpIPredicate::eq, and22, i32Const(0));
+  Value select40 = b.create<SelectOp>(cmp39, add30, add33);
+  Value trunc41 = b.create<TruncIOp>(i8, select40);
+  b.create<cf::BranchOp>(ret, trunc41);
+
+  Block *bb5 = func.addBlock();
+  Block *bb6 = func.addBlock();
+  b.setInsertionPointToStart(bb4);
+  SmallVector<int32_t> caseLabels({0, static_cast<int>(2147483648)});
+  SmallVector<Block *> caseSuccessors({ret, bb5});
+  SmallVector<ValueRange> caseOperands({ValueRange{i8Const(0)}, ValueRange{}});
+  b.create<cf::SwitchOp>(loc, bits, bb6, ValueRange{}, caseLabels,
+                         caseSuccessors, caseOperands);
+
+  b.setInsertionPointToStart(bb5);
+  b.create<cf::BranchOp>(ret, i8Const(-128));
+
+  Block *bb7 = func.addBlock();
+  Block *bb8 = func.addBlock();
+  b.setInsertionPointToStart(bb6);
+  Value add41 = b.create<AddIOp>(eWidth, i32Const(-1));
+  Value shl42 = b.create<ShLIOp>(i32Const(-1), add41);
+  Value cmp43 = b.create<CmpIOp>(CmpIPredicate::eq, and24, i32Const(0));
+  Value cmp44 = b.create<CmpIOp>(CmpIPredicate::ne, and22, i32Const(0));
+  Value and45 = b.create<AndIOp>(cmp44, cmp43);
+  b.create<cf::CondBranchOp>(and45, bb7, bb8);
+
+  Block *bb9 = func.addBlock();
+  bb9->addArgument(i32, loc);
+  bb9->addArgument(i32, loc);
+  bb9->addArgument(i32, loc);
+  b.setInsertionPointToStart(bb7);
+  Value add46 = b.create<AddIOp>(shl42, i32Const(128));
+  b.create<cf::BranchOp>(bb9, ValueRange{i32Const(-126), add46, and22});
+
+  b.setInsertionPointToStart(bb8);
+  Value add47 = b.create<AddIOp>(shl42, i32Const(2));
+  Value add48 = b.create<AddIOp>(and24, i32Const(-127));
+  Value cmp49 = b.create<CmpIOp>(CmpIPredicate::sgt, add48, add47);
+  Value sub50 = b.create<SubIOp>(add47, add48);
+  Value or51 = b.create<OrIOp>(and22, i32Const(0x800000));
+  Value select52 = b.create<SelectOp>(cmp49, i32Const(0), sub50);
+  b.create<cf::BranchOp>(bb9, ValueRange{add48, select52, or51});
+
+  Block *bb10 = func.addBlock();
+  Block *bb11 = func.addBlock();
+  Block *bb12 = func.addBlock();
+  bb12->addArgument(i32, loc);
+  b.setInsertionPointToStart(bb9);
+  Value bb9arg0 = bb9->getArgument(0);
+  Value bb9arg1 = bb9->getArgument(1);
+  Value bb9arg2 = bb9->getArgument(2);
+  Value sub56 = b.create<SubIOp>(i32Const(23), mWidth);
+  Value add57 = b.create<AddIOp>(bb9arg1, sub56);
+  Value min58 = b.create<MinUIOp>(add57, i32Const(31));
+  Value shl59 = b.create<ShLIOp>(i32Const(-1), min58);
+  Value xor60 = b.create<XOrIOp>(shl59, i32Const(-1));
+  Value and61 = b.create<AndIOp>(bb9arg2, xor60);
+  Value add62 = b.create<AddIOp>(add57, i32Const(-1));
+  Value min63 = b.create<MinUIOp>(add62, i32Const(31));
+  Value shl64 = b.create<ShLIOp>(i32Const(1), min63);
+  Value cmp65 = b.create<CmpIOp>(CmpIPredicate::eq, and61, shl64);
+  Value cmp66 = b.create<CmpIOp>(CmpIPredicate::sgt, bb9arg1, i32Const(0));
+  b.create<cf::CondBranchOp>(cmp66, bb10, bb11);
+
+  b.setInsertionPointToStart(bb10);
+  Value min67 = b.create<MinUIOp>(bb9arg1, i32Const(31));
+  Value shr68 = b.create<ShRUIOp>(bb9arg2, min67);
+  b.create<cf::BranchOp>(bb12, ValueRange{shr68});
+
+  b.setInsertionPointToStart(bb11);
+  Value cmp69 = b.create<CmpIOp>(CmpIPredicate::eq, bb9arg1, i32Const(-1));
+  Value zext70 = b.create<ExtUIOp>(i32, cmp69);
+  Value shl71 = b.create<ShLIOp>(bb9arg2, zext70);
+  b.create<cf::BranchOp>(bb12, ValueRange{shl71});
+
+  Block *bb13 = func.addBlock();
+  Block *bb14 = func.addBlock();
+  Block *bb15 = func.addBlock();
+  bb15->addArgument(i32, loc);
+  bb15->addArgument(i32, loc);
+  b.setInsertionPointToStart(bb12);
+  Value bb12arg0 = bb12->getArgument(0);
+  Value shr73 = b.create<ShRUIOp>(bb12arg0, i32Const(23));
+  Value or74 = b.create<OrIOp>(shr73, i32Const(-2));
+  Value sub75 = b.create<SubIOp>(bb9arg0, shl42);
+  Value add76 = b.create<AddIOp>(sub75, bb9arg1);
+  Value add77 = b.create<AddIOp>(add76, or74);
+  Value shl78 = b.create<ShLIOp>(i32Const(1), sub56);
+  Value add79 = b.create<AddIOp>(shl78, i32Const(-1));
+  Value and80 = b.create<AndIOp>(bb12arg0, shl78);
+  Value cmp81 = b.create<CmpIOp>(CmpIPredicate::eq, and80, i32Const(0));
+  Value select82 = b.create<SelectOp>(cmp65, cmp81, i1Const(false));
+  Value sext83 = b.create<ExtSIOp>(i32, select82);
+  Value add84 = b.create<AddIOp>(bb12arg0, sext83);
+  Value stoch = i1Const(false); // Defaulted arguments.
+  Value rng = i32Const(0);
+  Value select85 = b.create<SelectOp>(stoch, rng, add84);
+  Value and86 = b.create<AndIOp>(select85, add79);
+  Value add87 = b.create<AddIOp>(and86, bb12arg0);
+  Value cmp88 = b.create<CmpIOp>(CmpIPredicate::ne, add77, i32Const(0));
+  Value and89 = b.create<AndIOp>(add87, i32Const(0x800000));
+  Value cmp90 = b.create<CmpIOp>(CmpIPredicate::eq, and89, i32Const(0));
+  Value select91 = b.create<SelectOp>(cmp88, i1Const(true), cmp90);
+  b.create<cf::CondBranchOp>(select91, bb13, bb15,
+                             ValueRange{i32Const(1), add87});
+
+  b.setInsertionPointToStart(bb13);
+  Value and92 = b.create<AndIOp>(add87, i32Const(0x1000000));
+  Value cmp93 = b.create<CmpIOp>(CmpIPredicate::eq, and92, i32Const(0));
+  b.create<cf::CondBranchOp>(cmp93, bb15, ValueRange{add77, add87}, bb14,
+                             ValueRange{});
+
+  b.setInsertionPointToStart(bb14);
+  Value shr94 = b.create<ShRUIOp>(add87, i32Const(1));
+  Value add95 = b.create<AddIOp>(add77, i32Const(1));
+  b.create<cf::BranchOp>(bb15, ValueRange{add95, shr94});
+
+  Block *bb16 = func.addBlock();
+  Block *bb17 = func.addBlock();
+  b.setInsertionPointToStart(bb15);
+  Value bb15arg0 = bb15->getArgument(0);
+  Value bb15arg1 = bb15->getArgument(1);
+  Value shr98 = b.create<ShRUIOp>(bb15arg1, sub56);
+  Value cmp99 = b.create<CmpIOp>(CmpIPredicate::eq, mWidth, i32Const(3));
+  Value select100 = b.create<SelectOp>(cmp99, i32Const(-1), i32Const(-2));
+  Value add101 = b.create<AddIOp>(select100, shl27);
+  Value cmp102 = b.create<CmpIOp>(CmpIPredicate::sgt, bb15arg0, add101);
+  b.create<cf::CondBranchOp>(cmp102, bb16, bb17);
+
+  Block *bb19 = func.addBlock();
+  bb19->addArgument(i32, loc);
+  b.setInsertionPointToStart(bb16);
+  Value select103 = b.create<SelectOp>(cmp34, add30, add33);
+  b.create<cf::BranchOp>(bb19, ValueRange{select103});
+
+  Block *bb18 = func.addBlock();
+  b.setInsertionPointToStart(bb17);
+  Value cmp104 = b.create<CmpIOp>(CmpIPredicate::eq, bb15arg0, i32Const(0));
+  Value cmp105 = b.create<CmpIOp>(CmpIPredicate::eq, shr98, i32Const(0));
+  Value select106 = b.create<SelectOp>(cmp104, cmp105, i1Const(false));
+  b.create<cf::CondBranchOp>(select106, bb19, ValueRange{and26}, bb18,
+                             ValueRange{});
+
+  b.setInsertionPointToStart(bb18);
+  Value and107 = b.create<AndIOp>(shr98, xor32);
+  Value shl108 = b.create<ShLIOp>(bb15arg0, mWidth);
+  Value or109 = b.create<OrIOp>(shl108, and107);
+  Value or110 = b.create<OrIOp>(or109, and26);
+  b.create<cf::BranchOp>(bb19, ValueRange{or110});
+
+  b.setInsertionPointToStart(bb19);
+  Value bb19arg0 = bb19->getArgument(0);
+  Value trunc112 = b.create<TruncIOp>(i8, bb19arg0);
+  b.create<cf::BranchOp>(ret, ValueRange{trunc112});
+
+  func.push_back(ret);
+  b.setInsertionPointToStart(ret);
+  Value retVal = ret->getArgument(0);
+  Value retOut = b.create<BitcastOp>(outType, retVal);
+  b.create<func::ReturnOp>(retOut);
+
+  return symbolRef;
+}
+
 LogicalResult Fp8TruncToCallPattern::match(TruncFOp op) const {
   if (failed(canBeConverted(op.getResult().getType())))
     return failure();
   Type resType = getElementTypeOrSelf(op.getOut().getType());
-  if (resType.isFloat8E4M3FN() && !f8E4M3FNUZFunc)
+  if (resType.isFloat8E4M3FNUZ() && !f8E4M3FNUZFunc)
     return failure();
   if (resType.isFloat8E5M2FNUZ() && !f8E5M2FNUZFunc)
+    return failure();
+  if (resType.isFloat8E4M3FN() && !f8E4M3FNFunc)
+    return failure();
+  if (resType.isFloat8E5M2() && !f8E5M2Func)
     return failure();
   return success();
 }
@@ -391,12 +658,15 @@ void Fp8TruncToCallPattern::rewrite(TruncFOp op, OpAdaptor adaptor,
   Type outType = op.getOut().getType();
   FloatType outElemType = cast<FloatType>(getElementTypeOrSelf(outType));
 
-  FlatSymbolRefAttr func = TypeSwitch<Type, FlatSymbolRefAttr>(outElemType)
-                               .Case<Float8E4M3FNUZType>(
-                                   [&](auto ignored) { return f8E4M3FNUZFunc; })
-                               .Case<Float8E5M2FNUZType>(
-                                   [&](auto ignored) { return f8E5M2FNUZFunc; })
-                               .Default([](auto ignored) { return nullptr; });
+  FlatSymbolRefAttr func =
+      TypeSwitch<Type, FlatSymbolRefAttr>(outElemType)
+          .Case<Float8E4M3FNUZType>(
+              [&](auto ignored) { return f8E4M3FNUZFunc; })
+          .Case<Float8E5M2FNUZType>(
+              [&](auto ignored) { return f8E5M2FNUZFunc; })
+          .Case<Float8E4M3FNType>([&](auto ignored) { return f8E4M3FNFunc; })
+          .Case<Float8E5M2Type>([&](auto ignored) { return f8E5M2Func; })
+          .Default([](auto ignored) { return nullptr; });
 
   auto oneToOut = [&](Value f32) -> Value {
     auto call = rewriter.create<func::CallOp>(loc, func, outElemType, f32);
@@ -431,12 +701,15 @@ void Fp8TruncToCallPattern::rewrite(TruncFOp op, OpAdaptor adaptor,
   return rewriter.replaceOp(op, rets);
 }
 
-void mlir::addEmulateFp8ExtTruncPatterns(
-    RewritePatternSet &patterns, FlatSymbolRefAttr f8E4M3FNUZTruncFunc,
-    FlatSymbolRefAttr f8E5M2FNUZTruncFunc) {
+void mlir::addEmulateFp8ExtTruncPatterns(RewritePatternSet &patterns,
+                                         FlatSymbolRefAttr f8E4M3FNUZTruncFunc,
+                                         FlatSymbolRefAttr f8E5M2FNUZTruncFunc,
+                                         FlatSymbolRefAttr f8E4M3FNTruncFunc,
+                                         FlatSymbolRefAttr f8E5M2TruncFunc) {
   patterns.add<Fp8ExtToTableLookupPattern>(patterns.getContext());
   patterns.add<Fp8TruncToCallPattern>(patterns.getContext(),
-                                      f8E4M3FNUZTruncFunc, f8E5M2FNUZTruncFunc);
+                                      f8E4M3FNUZTruncFunc, f8E5M2FNUZTruncFunc,
+                                      f8E4M3FNTruncFunc, f8E5M2TruncFunc);
 }
 
 void EmulateFp8ExtTruncPass::runOnOperation() {
@@ -460,13 +733,20 @@ void EmulateFp8ExtTruncPass::runOnOperation() {
 
   FlatSymbolRefAttr f8E4M3FNUZTruncFunc = nullptr;
   FlatSymbolRefAttr f8E5M2FNUZTruncFunc = nullptr;
-  SmallVector<Location> f8E4M3FNUZLocs, f8E5M2FNUZLocs;
+  FlatSymbolRefAttr f8E4M3FNTruncFunc = nullptr;
+  FlatSymbolRefAttr f8E5M2TruncFunc = nullptr;
+  SmallVector<Location> f8E4M3FNUZLocs, f8E5M2FNUZLocs, f8E4M3FNLocs,
+      f8E5M2Locs;
   op->walk([&](TruncFOp op) {
     Type outElemType = getElementTypeOrSelf(op.getOut().getType());
     if (outElemType.isFloat8E4M3FNUZ())
       f8E4M3FNUZLocs.push_back(op->getLoc());
     else if (outElemType.isFloat8E5M2FNUZ())
       f8E5M2FNUZLocs.push_back(op->getLoc());
+    else if (outElemType.isFloat8E4M3FN())
+      f8E4M3FNLocs.push_back(op->getLoc());
+    else if (outElemType.isFloat8E5M2())
+      f8E5M2Locs.push_back(op->getLoc());
   });
 
   if (!f8E4M3FNUZLocs.empty()) {
@@ -477,10 +757,19 @@ void EmulateFp8ExtTruncPass::runOnOperation() {
     f8E5M2FNUZTruncFunc = makeFp8TruncFunction(
         FusedLoc::get(ctx, f8E5M2FNUZLocs), Float8E5M2FNUZType::get(ctx), op);
   }
+  if (!f8E4M3FNLocs.empty()) {
+    f8E4M3FNTruncFunc = makeOCPFp8TruncFunction(
+        FusedLoc::get(ctx, f8E4M3FNLocs), Float8E4M3FNType::get(ctx), op);
+  }
+  if (!f8E5M2Locs.empty()) {
+    f8E5M2TruncFunc = makeOCPFp8TruncFunction(FusedLoc::get(ctx, f8E5M2Locs),
+                                              Float8E5M2Type::get(ctx), op);
+  }
 
   RewritePatternSet rewrites(ctx);
   addEmulateFp8ExtTruncPatterns(rewrites, f8E4M3FNUZTruncFunc,
-                                f8E5M2FNUZTruncFunc);
+                                f8E5M2FNUZTruncFunc, f8E4M3FNTruncFunc,
+                                f8E5M2TruncFunc);
   if (failed(applyPartialConversion(op, target, std::move(rewrites))))
     return signalPassFailure();
 }
