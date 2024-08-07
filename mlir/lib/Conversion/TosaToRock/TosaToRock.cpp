@@ -632,6 +632,12 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     Value tInput = top.getOperand(0);
     Value tOutput = top.getResult();
 
+    // if the input has uses (apart from this one), we can't do this
+    if (!tInput.hasOneUse()) {
+      return b.notifyMatchFailure(top, "abandoning attempt to fuse transpose "
+                                       "because the operation has other uses");
+    }
+
     if (tosa::Conv2DOp convOp = tInput.getDefiningOp<tosa::Conv2DOp>()) {
       // tosa.conv2d output is transpose
       permuteLayout(convOp, "output_layout", "nhwk", dims);
