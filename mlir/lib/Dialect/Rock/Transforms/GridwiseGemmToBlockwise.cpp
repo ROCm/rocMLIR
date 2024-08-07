@@ -2875,7 +2875,7 @@ struct GridwiseGemmAccelRewritePattern
           {
             OpBuilder::InsertionGuard guard(b);
             b.setInsertionPointToStart(nLoop.getBody());
-            Value ni = mLoop.getInductionVar();
+            Value ni = nLoop.getInductionVar();
             // regsC += regsA * regsB
             auto kLoop = b.create<affine::AffineForOp>(
                 loc, 0, kBasePerThread);
