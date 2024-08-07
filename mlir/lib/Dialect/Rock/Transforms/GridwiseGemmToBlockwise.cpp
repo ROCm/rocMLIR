@@ -2737,8 +2737,8 @@ struct GridwiseGemmAccelRewritePattern
         // to use latest producer.
         if (isReverseGrid) {
           AffineMap reverseMap = rock::getIdxReversalMap(b);
-          iv = b.createOrFold<affine::AffineApplyOp>(loc, reverseMap,
-                                                    ValueRange{iv, nIterations});
+          iv = b.createOrFold<affine::AffineApplyOp>(
+              loc, reverseMap, ValueRange{iv, nIterations});
         }
         b.create<ThreadwiseReadIntoOp>(
             loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
