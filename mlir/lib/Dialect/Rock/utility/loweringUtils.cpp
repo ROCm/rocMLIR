@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -456,33 +457,24 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
   {
     unsigned int idx = 0;
     if (!isBlockwise) {
-      splitAgain.passThrough("gemmG");
-      idx += 1;
-    }
-
-    if (!doSwapThreadIterSubDimsForM) {
-      splitAgain.passThrough({"gemmM"}, {idx}, {"gemmM"});
-      idx += 1;
-    } else if (isBlockwise) {
-      splitAgain.merge({"m_iter", "m_tid"}, {idx, idx + 1}, "gemmM",
-                       {copyMPerThread, mPerBlock / copyMPerThread});
-      idx += 2;
-    } else {
-      splitAgain.merge({"m_block", "m_iter", "m_tid"}, {idx, idx + 1, idx + 2},
-                       "gemmM",
-                       {mBlocks, copyMPerThread, mPerBlock / copyMPerThread});
+      splitAgain.passThrough({"g_block", "m_block", "n_block"});
       idx += 3;
     }
 
+    if (!doSwapThreadIterSubDimsForM) {
+      splitAgain.passThrough({"gemmBlockM"}, {idx}, {"gemmBlockM"});
+      idx += 1;
+    } else {
+      splitAgain.merge({"m_iter", "m_tid"}, {idx, idx + 1}, "gemmBlockM",
+                       {copyMPerThread, mPerBlock / copyMPerThread});
+      idx += 2;
+    }
+
     if (!doSwapThreadIterSubDimsForN)
-      splitAgain.passThrough({"gemmN"}, {idx}, {"gemmN"});
-    else if (isBlockwise)
-      splitAgain.merge({"n_iter", "n_tid"}, {idx, idx + 1}, "gemmN",
-                       {copyNPerThread, nPerBlock / copyNPerThread});
+      splitAgain.passThrough({"gemmBlockN"}, {idx}, {"gemmBlockN"});
     else
-      splitAgain.merge({"n_block", "n_iter", "n_tid"}, {idx, idx + 1, idx + 2},
-                       "gemmN",
-                       {nBlocks, copyNPerThread, nPerBlock / copyNPerThread});
+      splitAgain.merge({"n_iter", "n_tid"}, {idx, idx + 1}, "gemmBlockN",
+                       {copyNPerThread, nPerBlock / copyNPerThread});
   }
   TransformMapAttr splitAgainAttr = splitAgain.get();
   transformAttr.push_back(splitAgainAttr);
@@ -491,32 +483,41 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
   {
     unsigned int idx = 0;
     if (!isBlockwise) {
-      swapBack.passThrough("gemmG");
-      idx = 1;
+      swapBack.passThrough({"g_block", "m_block", "n_block"});
+      idx = 3;
     }
 
     if (!doSwapThreadIterSubDimsForM)
-      swapBack.passThrough({"gemmM"}, {idx}, {"gemmM"});
-    else if (isBlockwise)
-      swapBack.unmerge("gemmM", idx, {"m_tid", "m_iter"},
-                       {mPerBlock / copyMPerThread, copyMPerThread});
+      swapBack.passThrough({"gemmBlockM"}, {idx}, {"gemmBlockM"});
     else
-      swapBack.unmerge("gemmM", idx, {"m_block", "m_tid", "m_iter"},
-                       {mBlocks, mPerBlock / copyMPerThread, copyMPerThread});
+      swapBack.unmerge("gemmBlockM", idx, {"m_tid", "m_iter"},
+                       {mPerBlock / copyMPerThread, copyMPerThread});
+    idx += 1;
 
     if (!doSwapThreadIterSubDimsForN)
-      swapBack.passThrough({"gemmN"}, {idx + 1}, {"gemmN"});
-    else if (isBlockwise)
-      swapBack.unmerge("gemmN", idx + 1, {"n_tid", "n_iter"},
-                       {nPerBlock / copyNPerThread, copyNPerThread});
+      swapBack.passThrough({"gemmBlockN"}, {idx}, {"gemmBlockN"});
     else
-      swapBack.unmerge("gemmN", idx + 1, {"n_block", "n_tid", "n_iter"},
-                       {nBlocks, nPerBlock / copyNPerThread, copyNPerThread});
+      swapBack.unmerge("gemmBlockN", idx, {"n_tid", "n_iter"},
+                       {nPerBlock / copyNPerThread, copyNPerThread});
   }
   TransformMapAttr swapBackAttr = swapBack.get();
   transformAttr.push_back(swapBackAttr);
 
-  return swapBack;
+  auto finalUnmerge = TopDownTMBuilder::below(swapBack, swapBackAttr);
+  if (!isBlockwise) {
+    finalUnmerge.passThrough({"gemmG"}, {0}, {"g_block"});
+    finalUnmerge.unmerge("gemmM", 1, {"m_block", "gemmBlockM"},
+                         {mBlocks, mPerBlock});
+    finalUnmerge.unmerge("gemmN", 2, {"n_block", "gemmBlockN"},
+                         {nBlocks, nPerBlock});
+  } else {
+    finalUnmerge.passThrough({"gemmM"}, {0}, {"gemmBlockM"});
+    finalUnmerge.passThrough({"gemmN"}, {1}, {"gemmBlockN"});
+  }
+  TransformMapAttr finalUnmergeAttr = finalUnmerge.get();
+  transformAttr.push_back(finalUnmergeAttr);
+
+  return finalUnmerge;
 }
 
 Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
@@ -731,6 +732,10 @@ FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }
 
+FailureOr<IntegerAttr> mlir::rock::getBlockSize(Operation *op) {
+  return getAttrFromOpOrParents<IntegerAttr>(op, "block_size");
+}
+
 AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
   auto dimExpr = mlir::getAffineDimExpr(0, b.getContext());
   auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
@@ -744,4 +749,34 @@ mlir::rock::getReassociationForFlattening(ShapedType srcTp) {
   for (int i = 0, e = srcTp.getRank(); i < e; i++)
     reassociation.push_back(i);
   return reassociation;
+}
+
+TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
+                                                Type type) {
+  Location loc = buffer.getLoc();
+  Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  auto bufferType = cast<MemRefType>(buffer.getType());
+  int64_t byteWidth = getByteWidth(type);
+  int64_t numBytes = bufferType.getShape()[0];
+  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
+  int64_t length = numBytes / byteWidth;
+  auto newBufferType = bufferType.cloneWith({length}, type);
+  auto view =
+      b.create<memref::ViewOp>(loc, newBufferType, buffer, zeroByteOffset,
+                               /*dynamic dim sizes=*/ValueRange{});
+  return TypedValue<MemRefType>(view.getResult());
+}
+
+Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
+                           Type elementType,
+                           gpu::AddressSpace memoryAddressSpace) {
+  auto memoryAddressSpaceAttr =
+      b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
+
+  auto rawMemType =
+      MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
+                      AffineMap{}, memoryAddressSpaceAttr);
+  auto buffer = b.create<GpuAllocOp>(loc, rawMemType);
+
+  return viewBufferAs(b, buffer, elementType);
 }

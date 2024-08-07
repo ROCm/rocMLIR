@@ -165,6 +165,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
       funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
+    funcPm.addPass(rock::createRockOutputSwizzlePass());
+
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
@@ -175,7 +177,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --canonicalize --rock-threadwise-gemm-lowering
      *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
      *   --math-legalize-to-f32 --rock-buffer-load-merge
-     *   --rock-transform-to-memref --rock-loops-to-cf --convert-rock-to-gpu
+     *   --rock-transform-to-memref --rock-emulate-narrow-type
+     *   --rock-loops-to-cf --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
@@ -184,6 +187,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(math::createMathLegalizeToF32());
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
+    funcPm.addPass(rock::createRockEmulateNarrowTypePass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
   }

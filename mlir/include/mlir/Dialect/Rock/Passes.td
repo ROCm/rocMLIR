@@ -33,6 +33,30 @@ def RockAffixTuningParametersPass : Pass<"rock-affix-params", "::mlir::func::Fun
   ];
 }
 
+def RockEmulateNarrowTypePass : Pass<"rock-emulate-narrow-type", "::mlir::func::FuncOp"> {
+  let summary = "Emulate memrefs of 4-bit integers (or 2-bit, maybe)";
+  let description = [{
+    Coordinates the rewrite patterns present in upstream MLIR for supporting
+    i4 memrefs by rewriting them to i8 ones. Conveniently, we already have our
+    memrefs linearized when we call this pass so they won't need to linearize
+    anything.
+
+    This must be called after rock-sugar-to-loops as we won't be writing
+    patterns for dealing with transforming_for and its friends here.
+
+    This pass also lowers vector.transfer_read/vector.transfer_write to vector
+    load and store in order to enable these narrow type emulation patterns.
+  }];
+  // Type converter mentions these, make sure they're loaded
+  let dependentDialects = [
+    "::mlir::memref::MemRefDialect",
+    "::mlir::vector::VectorDialect",
+    "::mlir::func::FuncDialect",
+    // Some of the lowering patterns use this
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
 def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp"> {
   let summary = "convert gemm to gridwise gemm, adding padding";
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
@@ -65,7 +89,7 @@ def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise"
 
 def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::mlir::func::FuncOp"> {
   let summary = "expand threadwise gemm to final implementation.";
-  let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect", "scf::SCFDialect"];
 }
 
 def RockAnalyzeMemoryUsePass : Pass<"rock-analyze-memory-use", "::mlir::func::FuncOp"> {
@@ -125,6 +149,11 @@ def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", "::mlir::LLVM::LLVMFuncOp"> 
 def RockCheckResidencyPass : Pass<"rock-check-residency"> {
   let summary = "For global_sync check for full kernel launch residency";
   let dependentDialects = ["LLVM::LLVMDialect"];
+}
+
+def RockOutputSwizzlePass : Pass<"rock-output-swizzle", "::mlir::func::FuncOp"> {
+  let summary = "This pass changes ThreadwiseWriteAllOp to swizzle on LDS before writing to GPU memory";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES
