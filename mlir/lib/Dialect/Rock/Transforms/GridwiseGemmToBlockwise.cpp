@@ -2523,6 +2523,25 @@ struct GridwiseGemmAccelRewritePattern
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
 
+    auto accelEmitterPtr = accel::AccelEmitter::select(
+    op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
+
+    if (!accelEmitterPtr)
+      return op.emitOpError("Unable to emit accelerator code.");
+
+    // Extract relevant accelerator parameters
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    int64_t nResultVectors = params.nResultVectors;
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t kBasePerThread = params.kBasePerThread;
+    int64_t kpackPerThread = params.kpackPerThread;
+    Type argTypeA = params.argTypeA;
+    Type argTypeB = params.argTypeB;
+    VectorType accVectorType = params.accVectorType;
+    int64_t numOutputVectorElements = params.numOutputVectorElements();
+    bool useIndexDiffs = true;
+
     // Get the vector copy layout for A and B
     FailureOr<VectorDimInfo> maybeVecDimInfoA =
         getVectorDim(b, loc, op.getA(), elementTypeA, blockSize, kPerBlock,
@@ -2541,24 +2560,6 @@ struct GridwiseGemmAccelRewritePattern
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
-    auto accelEmitterPtr = accel::AccelEmitter::select(
-        op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
-
-    if (!accelEmitterPtr)
-      return op.emitOpError("Unable to emit accelerator code.");
-
-    // Extract relevant accelerator parameters
-    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
-    int64_t nResultVectors = params.nResultVectors;
-    int64_t mRepeats = params.mRepeats;
-    int64_t nRepeats = params.nRepeats;
-    int64_t kBasePerThread = params.kBasePerThread;
-    Type argTypeA = params.argTypeA;
-    Type argTypeB = params.argTypeB;
-    VectorType accVectorType = params.accVectorType;
-    int64_t numOutputVectorElements = params.numOutputVectorElements();
-    bool useIndexDiffs = true;
-
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << M << "\n"
                << "N: " << N << "\n"
@@ -2568,6 +2569,8 @@ struct GridwiseGemmAccelRewritePattern
                << "nPerBlock: " << nPerBlock << "\n"
                << "kPerBlock: " << kPerBlock << "\n"
                << "kpack: " << kpack << "\n"
+               << "kBasePerThread: " << kBasePerThread << "\n"
+               << "kpackPerThread: " << params.kpackPerThread << "\n"
                << "mBlocks = M / mPerBlock: " << mBlocks << "\n"
                << "nBlocks = N / nPerBlock: " << nBlocks << "\n"
                << "mPerWave: " << mPerWave << "\n"

@@ -641,6 +641,18 @@ int64_t MfmaEmitter::getRowGroupSize() const {
   return mfmaAttr.rowGroupSize;
 }
 
+static void mergeKpack(TopDownTMBuilder& tmBuilder, int64_t kVecIter, int64_t kVecLenD){
+  SmallVector<StringRef, 4> startNames;
+  tmBuilder.getStartNames(startNames);
+  unsigned lowDim = 0;
+  for (auto name : startNames){
+    if(name != "kvec_iter" && name != "kvec"){
+      tmBuilder.passThrough({name}, {lowDim++}, name);
+    }
+  }
+  tmBuilder.unmerge("kpack", lowDim, {"kvec_iter", "kvec"}, {kVecIter, kVecLenD});
+}
+
 RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
@@ -666,6 +678,17 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   bool isKReduction = mfmaAttr.isKReduction;
 
+  int64_t kVecLenA = 1;
+  if(auto kVecTypeA = dyn_cast<VectorType>(accelEmitterParams.argTypeA)){
+    kVecLenA = kVecTypeA.getNumElements();
+  }
+  int64_t kVecLenB = 1;
+  if(auto kVecTypeB = dyn_cast<VectorType>(accelEmitterParams.argTypeB)){
+    kVecLenB = kVecTypeB.getNumElements();
+  }
+  int64_t kVecLenD = (dName == "m" ? kVecLenA : kVecLenB);
+  int64_t kVecIter = kPack / kVecLenD;
+
   // Extract relevant derived parameters
   int64_t mWaves = mPerBlock / mPerWave;
   int64_t nWaves = nPerBlock / nPerWave;
@@ -689,18 +712,24 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     {
       splitIter.passThrough({"k_loop", "g_block", "m_block", "n_block", "tid"});
       if (isKContigousDim) {
-        splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {5, 6, 7}, "iter",
-                        {dRepeats, kpackPerThread, kPack});
+        splitIter.merge({"drepeat", "kpack_iter", "kvec_iter", "kvec"}, {5, 6, 7, 8}, "iter",
+                        {dRepeats, kpackPerThread, kVecIter, kVecLenD});
       } else {
-        splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {5, 6, 7}, "iter",
-                        {kpackPerThread, dRepeats, kPack});
+        splitIter.merge({"kpack_iter", "kvec_iter", "drepeat", "kvec"}, {5, 6, 7, 8}, "iter",
+                        {kpackPerThread, kVecIter, dRepeats, kVecLenD});
       }
-    }
+    }    
     TransformMapAttr splitIterAttr = splitIter.get();
     transformAttrs.push_back(splitIterAttr);
     // Second coordinate transform
-    TopDownTMBuilder splitTid =
+    TopDownTMBuilder toKpack =
         TopDownTMBuilder::below(splitIter, splitIterAttr);
+    mergeKpack(toKpack, kVecIter, kVecLenD);
+    TransformMapAttr toKpackAttr = toKpack.get();
+    transformAttrs.push_back(toKpackAttr);
+    // Third coordinate transform
+    TopDownTMBuilder splitTid =
+        TopDownTMBuilder::below(toKpack, toKpackAttr);
     {
       unsigned int dims = 0;
       splitTid.passThrough({"k_loop", "g_block"});
@@ -721,7 +750,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr splitTidAttr = splitTid.get();
     transformAttrs.push_back(splitTidAttr);
-    // Third coordinate transform
+    // Fourth coordinate transform
     TopDownTMBuilder splitWaveId =
         TopDownTMBuilder::below(splitTid, splitTidAttr);
     {
@@ -758,7 +787,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr toPadOtherWaveDimAttr = toPadOtherWaveDim.get();
     transformAttrs.push_back(toPadOtherWaveDimAttr);
-    // Fourth coordinate transform
+    // Fifth coordinate transform
     TopDownTMBuilder toLDSRowCol =
         TopDownTMBuilder::below(toPadOtherWaveDim, toPadOtherWaveDimAttr);
     {
@@ -803,7 +832,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
-    // Fifth coordinate transform
+    // Sixth coordinate transform
     {
       int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
       auto offset = rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride,
@@ -830,18 +859,24 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     {
       splitIter.passThrough("tid");
       if (isKContigousDim) {
-        splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {1, 2, 3}, "iter",
-                        {dRepeats, kpackPerThread, kPack});
+        splitIter.merge({"drepeat", "kpack_iter", "kvec_iter", "kvec"}, {1, 2, 3, 4}, "iter",
+                        {dRepeats, kpackPerThread, kVecIter, kVecLenD});
       } else {
-        splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {1, 2, 3}, "iter",
-                        {kpackPerThread, dRepeats, kPack});
+        splitIter.merge({"kpack_iter", "kvec_iter", "drepeat", "kvec"}, {1, 2, 3, 4}, "iter",
+                        {kpackPerThread, kVecIter, dRepeats, kVecLenD});
       }
     }
     TransformMapAttr splitIterAttr = splitIter.get();
     transformAttrs.push_back(splitIterAttr);
     // Second coordinate transform
-    TopDownTMBuilder splitTid =
+    TopDownTMBuilder toKpack =
         TopDownTMBuilder::below(splitIter, splitIterAttr);
+    mergeKpack(toKpack, kVecIter, kVecLenD);
+    TransformMapAttr toKpackAttr = toKpack.get();
+    transformAttrs.push_back(toKpackAttr);
+    // Third coordinate transform
+    TopDownTMBuilder splitTid =
+        TopDownTMBuilder::below(toKpack, toKpackAttr);
     {
       splitTid.passThrough({"kpack"}, {0}, {"kpack"});
       unsigned int dims = 0;
@@ -860,7 +895,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr splitTidAttr = splitTid.get();
     transformAttrs.push_back(splitTidAttr);
-    // Third coordinate transform
+    // Fourth coordinate transform
     TopDownTMBuilder splitWaveId =
         TopDownTMBuilder::below(splitTid, splitTidAttr);
     {
@@ -895,7 +930,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr toPadOtherWaveDimAttr = toPadOtherWaveDim.get();
     transformAttrs.push_back(toPadOtherWaveDimAttr);
-    // Fourth coordinate transform
+    // Fifth coordinate transform
     TopDownTMBuilder toLDSRowCol =
         TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
     {
@@ -938,7 +973,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
     }
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
-    // Fifth coordinate transform
+    // Sixth coordinate transform
     int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
     auto offset = rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride,
                            "d", dPerBlock, 0, "k", kPackPerBlock, {"kpack"},
@@ -957,21 +992,27 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
                                loc);
     {
       if (isKContigousDim) {
-        splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter",
-                        {dRepeats, kpackPerThread, kPack});
+        splitIter.merge({"drepeat", "kpack_iter", "kvec_iter", "kvec"}, {0, 1, 2, 3}, "iter",
+                        {dRepeats, kpackPerThread, kVecIter, kVecLenD});
       } else {
-        splitIter.merge({"k_iter", "d_iter", "kpack"}, {0, 1, 2}, "iter",
-                        {kpackPerThread, dRepeats, kPack});
+        splitIter.merge({"kpack_iter", "kvec_iter", "drepeat", "kvec"}, {0, 1, 2, 3}, "iter",
+                        {kpackPerThread, kVecIter, dRepeats, kVecLenD});
       }
     }
     TransformMapAttr splitIterAttr = splitIter.get();
     transformAttrs.push_back(splitIterAttr);
     // Second coordinate transform
-    TopDownTMBuilder transposeKD =
+    TopDownTMBuilder toKpack =
         TopDownTMBuilder::below(splitIter, splitIterAttr);
+    mergeKpack(toKpack, kVecIter, kVecLenD);
+    TransformMapAttr toKpackAttr = toKpack.get();
+    transformAttrs.push_back(toKpackAttr);
+    // Third coordinate transform
+    TopDownTMBuilder transposeKD =
+        TopDownTMBuilder::below(toKpack, toKpackAttr);
     {
-      transposeKD.unmerge("K", 0, {"k_iter", "kpack"}, {kpackPerThread, kPack});
-      transposeKD.passThrough({"D"}, {1}, {"d_iter"});
+      transposeKD.unmerge("K", 0, {"kpack_iter", "kpack"}, {kpackPerThread, kPack});
+      transposeKD.passThrough({"D"}, {1}, {"drepeat"});
     }
     TransformMapAttr transposeKDAttr = transposeKD.get();
     transformAttrs.push_back(transposeKDAttr);
