@@ -38,7 +38,7 @@ func.func private @mlir_dot_transpose_add(%arg0: tensor<20xf32>, %arg1: tensor<2
   %0 = "tosa.reshape"(%arg0) {new_shape = array<i64: 1, 5, 4>} : (tensor<20xf32>) -> tensor<1x5x4xf32>
   %1 = "tosa.reshape"(%arg2) {new_shape = array<i64: 1, 5, 5>} : (tensor<25xf32>) -> tensor<1x5x5xf32>
   %2 = "tosa.reshape"(%arg1) {new_shape = array<i64: 1, 4, 5>} : (tensor<20xf32>) -> tensor<1x4x5xf32>
-  %3 = tosa.matmul %2, %1 : (tensor<1x4x5xf32>, tensor<1x5x5xf32>) -> tensor<1x4x5xf32>
+  %3 = "tosa.matmul"(%2, %1) : (tensor<1x4x5xf32>, tensor<1x5x5xf32>) -> tensor<1x4x5xf32>
   %4 = "tosa.reshape"(%3) {new_shape = array<i64: 20>} : (tensor<1x4x5xf32>) -> tensor<20xf32>
   %5 = "tosa.const"() <{value = dense<[0, 2, 1]> : tensor<3xi64>}> : () -> tensor<3xi64>
   %6 = "tosa.transpose"(%3, %5) : (tensor<1x4x5xf32>, tensor<3xi64>) -> tensor<1x5x4xf32>
