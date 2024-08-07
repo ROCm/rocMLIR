@@ -7,26 +7,23 @@
 //
 //===----------------------------------------------------------------------===//
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 1024 -n 1024 -k 64   2>&1 |
-// FileCheck %s --check-prefix=M1024_N1024_K64
+// clang-format off
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 8192 -n 8192 -k 64   2>&1 |
-// FileCheck %s --check-prefix=M8192_N8192_K64
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 1024 -n 1024 -k 64   2>&1 | FileCheck %s --check-prefix=M1024_N1024_K64
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 64 -n 64 -k 1024   2>&1 |
-// FileCheck %s --check-prefix=M64_N64_K1024
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 8192 -n 8192 -k 64   2>&1 | FileCheck %s --check-prefix=M8192_N8192_K64
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -use-ew-op=false 2>&1
-// | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK1
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 64 -n 64 -k 1024   2>&1 | FileCheck %s --check-prefix=M64_N64_K1024
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=false 2>&1
-// | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK4
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -use-ew-op=false 2>&1 | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK1
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=true  2>&1
-// | FileCheck %s --check-prefix=F32_WITH_EW_SK4
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=false 2>&1 | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK4
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -use-ew-op=true  2>&1
-// | FileCheck %s --check-prefix=F32_WITH_EW_SK1
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=true  2>&1 | FileCheck %s --check-prefix=F32_WITH_EW_SK4
+
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -use-ew-op=true  2>&1 | FileCheck %s --check-prefix=F32_WITH_EW_SK1
+
+// clang-format on
 
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/BuiltinTypes.h"
