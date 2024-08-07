@@ -21,6 +21,7 @@ target_link_libraries(mlir-mixr-capi-test
   MLIRCAPIRegisterRocMLIR
 )
 
+# NOTE: This test is being archived and it might be fully removed in the future.
 # add_llvm_executable(mlir-tosa-miir-test
 #   EXCLUDE_FROM_ALL
 #   tosa_miir.cc
@@ -34,6 +35,7 @@ target_link_libraries(mlir-mixr-capi-test
 #   MLIRRockPipeline
 # )
 
+# NOTE: This test is being archived and it might be fully removed in the future.
 # add_llvm_executable(mlir-mixr-full-test
 #   EXCLUDE_FROM_ALL
 #   mixr_cobj.cc
