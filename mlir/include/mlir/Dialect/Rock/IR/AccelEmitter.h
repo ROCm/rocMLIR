@@ -136,10 +136,10 @@ struct AccelEmitter {
 
   // A view: A buffer is [0, K] so we can ignore `i`
   Value generateThreadwiseViewBufferA(PatternRewriter &b, Location loc,
-                                      Value rawBufferA, int64_t repeatsInReg = 1);
+                                      Value rawBufferA, int64_t repeatsInReg = 1, bool isKFasterChanging = false);
   // B view: B buffer is [0, K] so we can ignore `j`
   Value generateThreadwiseViewBufferB(PatternRewriter &b, Location loc,
-                                      Value rawBufferB, int64_t repeatsInReg = 1);
+                                      Value rawBufferB, int64_t repeatsInReg = 1, bool isKFasterChanging = false);
   // C view: C buffer is [mRepeats,nRepeats] and we need to write in
   // [i,j]. So we "freeze" the `i` and `j` indices and provide the value
   // of `i` and `j` as extra indices.

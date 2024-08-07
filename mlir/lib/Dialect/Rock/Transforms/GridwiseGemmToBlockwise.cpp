@@ -2580,15 +2580,17 @@ struct GridwiseGemmAccelRewritePattern
     int64_t kIters = K / kPerBlock;
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
+    bool isKContiguousDimA = maybeVecDimInfoA->vectorDim == GemmDimension::K;
+    bool isKContiguousDimB = maybeVecDimInfoB->vectorDim == GemmDimension::K;
 
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
-      b, loc, kIters, bidGridLengths, blockSize, maybeVecDimInfoA->inDPerThread, "m", maybeVecDimInfoA->vectorDim == GemmDimension::K, false, false);
+      b, loc, kIters, bidGridLengths, blockSize, maybeVecDimInfoA->inDPerThread, "m", isKContiguousDimA, false, false);
     if (failed(maybeABufferViews)) {
       return failure();
     }
 
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
-      b, loc, kIters, bidGridLengths, blockSize, maybeVecDimInfoB->inDPerThread, "n", maybeVecDimInfoB->vectorDim == GemmDimension::K, false, false);
+      b, loc, kIters, bidGridLengths, blockSize, maybeVecDimInfoB->inDPerThread, "n", isKContiguousDimB, false, false);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -2660,8 +2662,6 @@ struct GridwiseGemmAccelRewritePattern
     Value storeBufferB =
         gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
 
-    bool isKContiguousDimA = maybeVecDimInfoA->vectorDim == GemmDimension::K;
-    bool isKContiguousDimB = maybeVecDimInfoB->vectorDim == GemmDimension::K;
     LDSLayoutConfigDim ldsLayoutConfigA =
         getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value());
     LDSLayoutConfigDim ldsLayoutConfigB =
@@ -2883,9 +2883,9 @@ struct GridwiseGemmAccelRewritePattern
               OpBuilder::InsertionGuard guard(b);
               b.setInsertionPointToStart(kLoop.getBody());
               Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
-                  b, loc, arrayA, mRepeats);
+                  b, loc, arrayA, mRepeats, isKContiguousDimA);
               Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
-                  b, loc, arrayB, nRepeats);
+                  b, loc, arrayB, nRepeats, isKContiguousDimB);
               Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
                   b, loc, regCAllocOp);
               Value ki = kLoop.getInductionVar();

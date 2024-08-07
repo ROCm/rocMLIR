@@ -92,12 +92,17 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
 
 Value AccelEmitter::generateThreadwiseViewBufferA(PatternRewriter &b,
                                                   Location loc,
-                                                  Value rawBufferA, int64_t repeatsInReg) {
+                                                  Value rawBufferA, int64_t repeatsInReg, bool isKFasterChanging) {
   TopDownTMBuilder bufferAikTransform(
       b, {"i", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread}, loc);
   // bufferAikTransform.ignore("i");
   // bufferAikTransform.passThrough({"k"}, 0, {"k"});
-  bufferAikTransform.unmerge("flat", 0, {"i", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread});
+  if(isKFasterChanging){
+    bufferAikTransform.unmerge("flat", 0, {"i", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread});
+  }
+  else{
+    bufferAikTransform.unmerge("flat", 0, {"k", "i"}, {accelEmitterParams.kBasePerThread, repeatsInReg});
+  }
   auto viewA = rock::transform(
       b, rawBufferA,
       b.getArrayAttr(SmallVector<Attribute>{bufferAikTransform.get()}));
@@ -106,12 +111,17 @@ Value AccelEmitter::generateThreadwiseViewBufferA(PatternRewriter &b,
 
 Value AccelEmitter::generateThreadwiseViewBufferB(PatternRewriter &b,
                                                   Location loc,
-                                                  Value rawBufferB, int64_t repeatsInReg) {
+                                                  Value rawBufferB, int64_t repeatsInReg, bool isKFasterChanging) {
   TopDownTMBuilder bufferBjkTransform(
       b, {"j", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread}, loc);
   // bufferBjkTransform.ignore("j");
   // bufferBjkTransform.passThrough({"k"}, 0, {"k"});
-  bufferBjkTransform.unmerge("flat", 0, {"j", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread});
+  if(isKFasterChanging){
+    bufferBjkTransform.unmerge("flat", 0, {"j", "k"}, {repeatsInReg, accelEmitterParams.kBasePerThread});
+  }
+  else{
+    bufferBjkTransform.unmerge("flat", 0, {"k", "j"}, {accelEmitterParams.kBasePerThread, repeatsInReg});
+  }
   auto viewB = rock::transform(
       b, rawBufferB,
       b.getArrayAttr(SmallVector<Attribute>{bufferBjkTransform.get()}));
