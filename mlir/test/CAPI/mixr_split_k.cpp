@@ -22,13 +22,11 @@
 // RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=false 2>&1
 // | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK4
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4
-// -use-ew-op=true  2>&1 | FileCheck %s
-// --check-prefix=F32_WITH_EW_SK4
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=true  2>&1
+// | FileCheck %s --check-prefix=F32_WITH_EW_SK4
 
-// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1
-// -use-ew-op=true  2>&1 | FileCheck %s
-// --check-prefix=F32_WITH_EW_SK1
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -use-ew-op=true  2>&1
+// | FileCheck %s --check-prefix=F32_WITH_EW_SK1
 
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/BuiltinTypes.h"
