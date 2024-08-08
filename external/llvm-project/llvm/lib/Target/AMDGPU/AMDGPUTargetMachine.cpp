@@ -75,13 +75,13 @@ namespace {
 class SGPRRegisterRegAlloc : public RegisterRegAllocBase<SGPRRegisterRegAlloc> {
 public:
   SGPRRegisterRegAlloc(const char *N, const char *D, FunctionPassCtor C)
-    : RegisterRegAllocBase(N, D, C) {}
+      : RegisterRegAllocBase(N, D, C) {}
 };
 
 class VGPRRegisterRegAlloc : public RegisterRegAllocBase<VGPRRegisterRegAlloc> {
 public:
   VGPRRegisterRegAlloc(const char *N, const char *D, FunctionPassCtor C)
-    : RegisterRegAllocBase(N, D, C) {}
+      : RegisterRegAllocBase(N, D, C) {}
 };
 
 static bool onlyAllocateSGPRs(const TargetRegisterInfo &TRI,
@@ -94,7 +94,6 @@ static bool onlyAllocateVGPRs(const TargetRegisterInfo &TRI,
   return !static_cast<const SIRegisterInfo &>(TRI).isSGPRClass(&RC);
 }
 
-
 /// -{sgpr|vgpr}-regalloc=... command line option.
 static FunctionPass *useDefaultRegisterAllocator() { return nullptr; }
 
@@ -104,20 +103,21 @@ static llvm::once_flag InitializeDefaultSGPRRegisterAllocatorFlag;
 static llvm::once_flag InitializeDefaultVGPRRegisterAllocatorFlag;
 
 static SGPRRegisterRegAlloc
-defaultSGPRRegAlloc("default",
-                    "pick SGPR register allocator based on -O option",
-                    useDefaultRegisterAllocator);
+    defaultSGPRRegAlloc("default",
+                        "pick SGPR register allocator based on -O option",
+                        useDefaultRegisterAllocator);
 
 static cl::opt<SGPRRegisterRegAlloc::FunctionPassCtor, false,
                RegisterPassParser<SGPRRegisterRegAlloc>>
-SGPRRegAlloc("sgpr-regalloc", cl::Hidden, cl::init(&useDefaultRegisterAllocator),
-             cl::desc("Register allocator to use for SGPRs"));
+    SGPRRegAlloc("sgpr-regalloc", cl::Hidden,
+                 cl::init(&useDefaultRegisterAllocator),
+                 cl::desc("Register allocator to use for SGPRs"));
 
 static cl::opt<VGPRRegisterRegAlloc::FunctionPassCtor, false,
                RegisterPassParser<VGPRRegisterRegAlloc>>
-VGPRRegAlloc("vgpr-regalloc", cl::Hidden, cl::init(&useDefaultRegisterAllocator),
-             cl::desc("Register allocator to use for VGPRs"));
-
+    VGPRRegAlloc("vgpr-regalloc", cl::Hidden,
+                 cl::init(&useDefaultRegisterAllocator),
+                 cl::desc("Register allocator to use for VGPRs"));
 
 static void initializeDefaultSGPRRegisterAllocatorOnce() {
   RegisterRegAlloc::FunctionPassCtor Ctor = SGPRRegisterRegAlloc::getDefault();
@@ -161,33 +161,36 @@ static FunctionPass *createFastVGPRRegisterAllocator() {
   return createFastRegisterAllocator(onlyAllocateVGPRs, true);
 }
 
-static SGPRRegisterRegAlloc basicRegAllocSGPR(
-  "basic", "basic register allocator", createBasicSGPRRegisterAllocator);
-static SGPRRegisterRegAlloc greedyRegAllocSGPR(
-  "greedy", "greedy register allocator", createGreedySGPRRegisterAllocator);
+static SGPRRegisterRegAlloc basicRegAllocSGPR("basic",
+                                              "basic register allocator",
+                                              createBasicSGPRRegisterAllocator);
+static SGPRRegisterRegAlloc
+    greedyRegAllocSGPR("greedy", "greedy register allocator",
+                       createGreedySGPRRegisterAllocator);
 
-static SGPRRegisterRegAlloc fastRegAllocSGPR(
-  "fast", "fast register allocator", createFastSGPRRegisterAllocator);
+static SGPRRegisterRegAlloc fastRegAllocSGPR("fast", "fast register allocator",
+                                             createFastSGPRRegisterAllocator);
 
+static VGPRRegisterRegAlloc basicRegAllocVGPR("basic",
+                                              "basic register allocator",
+                                              createBasicVGPRRegisterAllocator);
+static VGPRRegisterRegAlloc
+    greedyRegAllocVGPR("greedy", "greedy register allocator",
+                       createGreedyVGPRRegisterAllocator);
 
-static VGPRRegisterRegAlloc basicRegAllocVGPR(
-  "basic", "basic register allocator", createBasicVGPRRegisterAllocator);
-static VGPRRegisterRegAlloc greedyRegAllocVGPR(
-  "greedy", "greedy register allocator", createGreedyVGPRRegisterAllocator);
-
-static VGPRRegisterRegAlloc fastRegAllocVGPR(
-  "fast", "fast register allocator", createFastVGPRRegisterAllocator);
-}
-
-static cl::opt<bool>
-EnableEarlyIfConversion("amdgpu-early-ifcvt", cl::Hidden,
-                        cl::desc("Run early if-conversion"),
-                        cl::init(false));
+static VGPRRegisterRegAlloc fastRegAllocVGPR("fast", "fast register allocator",
+                                             createFastVGPRRegisterAllocator);
+} // namespace
 
 static cl::opt<bool>
-OptExecMaskPreRA("amdgpu-opt-exec-mask-pre-ra", cl::Hidden,
-            cl::desc("Run pre-RA exec mask optimizations"),
-            cl::init(true));
+    EnableEarlyIfConversion("amdgpu-early-ifcvt", cl::Hidden,
+                            cl::desc("Run early if-conversion"),
+                            cl::init(false));
+
+static cl::opt<bool>
+    OptExecMaskPreRA("amdgpu-opt-exec-mask-pre-ra", cl::Hidden,
+                     cl::desc("Run pre-RA exec mask optimizations"),
+                     cl::init(true));
 
 static cl::opt<bool>
     LowerCtorDtor("amdgpu-lower-global-ctor-dtor",
@@ -195,32 +198,27 @@ static cl::opt<bool>
                   cl::init(true), cl::Hidden);
 
 // Option to disable vectorizer for tests.
-static cl::opt<bool> EnableLoadStoreVectorizer(
-  "amdgpu-load-store-vectorizer",
-  cl::desc("Enable load store vectorizer"),
-  cl::init(true),
-  cl::Hidden);
+static cl::opt<bool>
+    EnableLoadStoreVectorizer("amdgpu-load-store-vectorizer",
+                              cl::desc("Enable load store vectorizer"),
+                              cl::init(true), cl::Hidden);
 
 // Option to control global loads scalarization
-static cl::opt<bool> ScalarizeGlobal(
-  "amdgpu-scalarize-global-loads",
-  cl::desc("Enable global load scalarization"),
-  cl::init(true),
-  cl::Hidden);
+static cl::opt<bool>
+    ScalarizeGlobal("amdgpu-scalarize-global-loads",
+                    cl::desc("Enable global load scalarization"),
+                    cl::init(true), cl::Hidden);
 
 // Option to run internalize pass.
 static cl::opt<bool> InternalizeSymbols(
-  "amdgpu-internalize-symbols",
-  cl::desc("Enable elimination of non-kernel functions and unused globals"),
-  cl::init(false),
-  cl::Hidden);
+    "amdgpu-internalize-symbols",
+    cl::desc("Enable elimination of non-kernel functions and unused globals"),
+    cl::init(false), cl::Hidden);
 
 // Option to inline all early.
-static cl::opt<bool> EarlyInlineAll(
-  "amdgpu-early-inline-all",
-  cl::desc("Inline all functions early"),
-  cl::init(false),
-  cl::Hidden);
+static cl::opt<bool> EarlyInlineAll("amdgpu-early-inline-all",
+                                    cl::desc("Inline all functions early"),
+                                    cl::init(false), cl::Hidden);
 
 static cl::opt<bool> RemoveIncompatibleFunctions(
     "amdgpu-enable-remove-incompatible-functions", cl::Hidden,
@@ -228,27 +226,24 @@ static cl::opt<bool> RemoveIncompatibleFunctions(
              "use features not supported by the target GPU"),
     cl::init(true));
 
-static cl::opt<bool> EnableSDWAPeephole(
-  "amdgpu-sdwa-peephole",
-  cl::desc("Enable SDWA peepholer"),
-  cl::init(true));
+static cl::opt<bool> EnableSDWAPeephole("amdgpu-sdwa-peephole",
+                                        cl::desc("Enable SDWA peepholer"),
+                                        cl::init(true));
 
-static cl::opt<bool> EnableDPPCombine(
-  "amdgpu-dpp-combine",
-  cl::desc("Enable DPP combiner"),
-  cl::init(true));
+static cl::opt<bool> EnableDPPCombine("amdgpu-dpp-combine",
+                                      cl::desc("Enable DPP combiner"),
+                                      cl::init(true));
 
 // Enable address space based alias analysis
-static cl::opt<bool> EnableAMDGPUAliasAnalysis("enable-amdgpu-aa", cl::Hidden,
-  cl::desc("Enable AMDGPU Alias Analysis"),
-  cl::init(true));
+static cl::opt<bool>
+    EnableAMDGPUAliasAnalysis("enable-amdgpu-aa", cl::Hidden,
+                              cl::desc("Enable AMDGPU Alias Analysis"),
+                              cl::init(true));
 
 // Option to run late CFG structurizer
 static cl::opt<bool, true> LateCFGStructurize(
-  "amdgpu-late-structurize",
-  cl::desc("Enable late CFG structurization"),
-  cl::location(AMDGPUTargetMachine::EnableLateStructurizeCFG),
-  cl::Hidden);
+    "amdgpu-late-structurize", cl::desc("Enable late CFG structurization"),
+    cl::location(AMDGPUTargetMachine::EnableLateStructurizeCFG), cl::Hidden);
 
 // Disable structurizer-based control-flow lowering in order to test convergence
 // control tokens. This should eventually be replaced by the wave-transform.
@@ -258,23 +253,20 @@ static cl::opt<bool, true> DisableStructurizer(
     cl::location(AMDGPUTargetMachine::DisableStructurizer), cl::ReallyHidden);
 
 // Enable lib calls simplifications
-static cl::opt<bool> EnableLibCallSimplify(
-  "amdgpu-simplify-libcall",
-  cl::desc("Enable amdgpu library simplifications"),
-  cl::init(true),
-  cl::Hidden);
+static cl::opt<bool>
+    EnableLibCallSimplify("amdgpu-simplify-libcall",
+                          cl::desc("Enable amdgpu library simplifications"),
+                          cl::init(true), cl::Hidden);
 
 static cl::opt<bool> EnableLowerKernelArguments(
-  "amdgpu-ir-lower-kernel-arguments",
-  cl::desc("Lower kernel argument loads in IR pass"),
-  cl::init(true),
-  cl::Hidden);
+    "amdgpu-ir-lower-kernel-arguments",
+    cl::desc("Lower kernel argument loads in IR pass"), cl::init(true),
+    cl::Hidden);
 
 static cl::opt<bool> EnableRegReassign(
-  "amdgpu-reassign-regs",
-  cl::desc("Enable register reassign optimizations on gfx10+"),
-  cl::init(true),
-  cl::Hidden);
+    "amdgpu-reassign-regs",
+    cl::desc("Enable register reassign optimizations on gfx10+"),
+    cl::init(true), cl::Hidden);
 
 static cl::opt<bool> OptVGPRLiveRange(
     "amdgpu-opt-vgpr-liverange",
@@ -292,11 +284,10 @@ static cl::opt<ScanOptions> AMDGPUAtomicOptimizerStrategy(
         clEnumValN(ScanOptions::None, "None", "Disable atomic optimizer")));
 
 // Enable Mode register optimization
-static cl::opt<bool> EnableSIModeRegisterPass(
-  "amdgpu-mode-register",
-  cl::desc("Enable mode register pass"),
-  cl::init(true),
-  cl::Hidden);
+static cl::opt<bool>
+    EnableSIModeRegisterPass("amdgpu-mode-register",
+                             cl::desc("Enable mode register pass"),
+                             cl::init(true), cl::Hidden);
 
 // Enable GFX11.5+ s_singleuse_vdst insertion
 static cl::opt<bool>
@@ -318,19 +309,16 @@ static cl::opt<bool>
 
 // Option is used in lit tests to prevent deadcoding of patterns inspected.
 static cl::opt<bool>
-EnableDCEInRA("amdgpu-dce-in-ra",
-    cl::init(true), cl::Hidden,
-    cl::desc("Enable machine DCE inside regalloc"));
+    EnableDCEInRA("amdgpu-dce-in-ra", cl::init(true), cl::Hidden,
+                  cl::desc("Enable machine DCE inside regalloc"));
 
 static cl::opt<bool> EnableSetWavePriority("amdgpu-set-wave-priority",
                                            cl::desc("Adjust wave priority"),
                                            cl::init(false), cl::Hidden);
 
-static cl::opt<bool> EnableScalarIRPasses(
-  "amdgpu-scalar-ir-passes",
-  cl::desc("Enable scalar IR passes"),
-  cl::init(true),
-  cl::Hidden);
+static cl::opt<bool> EnableScalarIRPasses("amdgpu-scalar-ir-passes",
+                                          cl::desc("Enable scalar IR passes"),
+                                          cl::init(true), cl::Hidden);
 
 static cl::opt<bool> EnableStructurizerWorkarounds(
     "amdgpu-enable-structurizer-workarounds",
@@ -342,10 +330,10 @@ static cl::opt<bool, true> EnableLowerModuleLDS(
     cl::location(AMDGPUTargetMachine::EnableLowerModuleLDS), cl::init(true),
     cl::Hidden);
 
-static cl::opt<bool> EnablePreRAOptimizations(
-    "amdgpu-enable-pre-ra-optimizations",
-    cl::desc("Enable Pre-RA optimizations pass"), cl::init(true),
-    cl::Hidden);
+static cl::opt<bool>
+    EnablePreRAOptimizations("amdgpu-enable-pre-ra-optimizations",
+                             cl::desc("Enable Pre-RA optimizations pass"),
+                             cl::init(true), cl::Hidden);
 
 static cl::opt<bool> EnablePromoteKernelArguments(
     "amdgpu-enable-promote-kernel-arguments",
@@ -372,10 +360,10 @@ static cl::opt<bool> EnableRewritePartialRegUses(
     cl::desc("Enable rewrite partial reg uses pass"), cl::init(true),
     cl::Hidden);
 
-static cl::opt<bool> EnableHipStdPar(
-  "amdgpu-enable-hipstdpar",
-  cl::desc("Enable HIP Standard Parallelism Offload support"), cl::init(false),
-  cl::Hidden);
+static cl::opt<bool>
+    EnableHipStdPar("amdgpu-enable-hipstdpar",
+                    cl::desc("Enable HIP Standard Parallelism Offload support"),
+                    cl::init(false), cl::Hidden);
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   // Register the target
@@ -470,8 +458,8 @@ static ScheduleDAGInstrs *createSIMachineScheduler(MachineSchedContext *C) {
 static ScheduleDAGInstrs *
 createGCNMaxOccupancyMachineScheduler(MachineSchedContext *C) {
   const GCNSubtarget &ST = C->MF->getSubtarget<GCNSubtarget>();
-  ScheduleDAGMILive *DAG =
-    new GCNScheduleDAGMILive(C, std::make_unique<GCNMaxOccupancySchedStrategy>(C));
+  ScheduleDAGMILive *DAG = new GCNScheduleDAGMILive(
+      C, std::make_unique<GCNMaxOccupancySchedStrategy>(C));
   DAG->addMutation(createLoadClusterDAGMutation(DAG->TII, DAG->TRI));
   if (ST.shouldClusterStores())
     DAG->addMutation(createStoreClusterDAGMutation(DAG->TII, DAG->TRI));
@@ -492,8 +480,8 @@ createGCNMaxILPMachineScheduler(MachineSchedContext *C) {
 static ScheduleDAGInstrs *
 createIterativeGCNMaxOccupancyMachineScheduler(MachineSchedContext *C) {
   const GCNSubtarget &ST = C->MF->getSubtarget<GCNSubtarget>();
-  auto DAG = new GCNIterativeScheduler(C,
-    GCNIterativeScheduler::SCHEDULE_LEGACYMAXOCCUPANCY);
+  auto DAG = new GCNIterativeScheduler(
+      C, GCNIterativeScheduler::SCHEDULE_LEGACYMAXOCCUPANCY);
   DAG->addMutation(createLoadClusterDAGMutation(DAG->TII, DAG->TRI));
   if (ST.shouldClusterStores())
     DAG->addMutation(createStoreClusterDAGMutation(DAG->TII, DAG->TRI));
@@ -501,15 +489,14 @@ createIterativeGCNMaxOccupancyMachineScheduler(MachineSchedContext *C) {
 }
 
 static ScheduleDAGInstrs *createMinRegScheduler(MachineSchedContext *C) {
-  return new GCNIterativeScheduler(C,
-    GCNIterativeScheduler::SCHEDULE_MINREGFORCED);
+  return new GCNIterativeScheduler(
+      C, GCNIterativeScheduler::SCHEDULE_MINREGFORCED);
 }
 
 static ScheduleDAGInstrs *
 createIterativeILPMachineScheduler(MachineSchedContext *C) {
   const GCNSubtarget &ST = C->MF->getSubtarget<GCNSubtarget>();
-  auto DAG = new GCNIterativeScheduler(C,
-    GCNIterativeScheduler::SCHEDULE_ILP);
+  auto DAG = new GCNIterativeScheduler(C, GCNIterativeScheduler::SCHEDULE_ILP);
   DAG->addMutation(createLoadClusterDAGMutation(DAG->TII, DAG->TRI));
   if (ST.shouldClusterStores())
     DAG->addMutation(createStoreClusterDAGMutation(DAG->TII, DAG->TRI));
@@ -517,14 +504,13 @@ createIterativeILPMachineScheduler(MachineSchedContext *C) {
   return DAG;
 }
 
-static MachineSchedRegistry
-SISchedRegistry("si", "Run SI's custom scheduler",
-                createSIMachineScheduler);
+static MachineSchedRegistry SISchedRegistry("si", "Run SI's custom scheduler",
+                                            createSIMachineScheduler);
 
 static MachineSchedRegistry
-GCNMaxOccupancySchedRegistry("gcn-max-occupancy",
-                             "Run GCN scheduler to maximize occupancy",
-                             createGCNMaxOccupancyMachineScheduler);
+    GCNMaxOccupancySchedRegistry("gcn-max-occupancy",
+                                 "Run GCN scheduler to maximize occupancy",
+                                 createGCNMaxOccupancyMachineScheduler);
 
 static MachineSchedRegistry
     GCNMaxILPSchedRegistry("gcn-max-ilp", "Run GCN scheduler to maximize ilp",
@@ -936,7 +922,7 @@ namespace {
 class GCNPassConfig final : public AMDGPUPassConfig {
 public:
   GCNPassConfig(LLVMTargetMachine &TM, PassManagerBase &PM)
-    : AMDGPUPassConfig(TM, PM) {
+      : AMDGPUPassConfig(TM, PM) {
     // It is necessary to know the register usage of the entire call graph.  We
     // allow calls without EnableAMDGPUFunctionCalls if they are marked
     // noinline, so this is always required.
@@ -1099,7 +1085,7 @@ void AMDGPUPassConfig::addIRPasses() {
                                              AAResults &AAR) {
         if (auto *WrapperPass = P.getAnalysisIfAvailable<AMDGPUAAWrapperPass>())
           AAR.addAAResult(WrapperPass->getResult());
-        }));
+      }));
     }
 
     if (TM.getTargetTriple().getArch() == Triple::amdgcn) {
@@ -1214,6 +1200,34 @@ MachineFunctionInfo *R600TargetMachine::createMachineFunctionInfo(
 // GCN Pass Setup
 //===----------------------------------------------------------------------===//
 
+#include <cstdlib>
+#include <unordered_set>
+ScheduleDAGInstrs *
+GCNPassConfig::createMachineScheduler(MachineSchedContext *C) const {
+  const GCNSubtarget &ST = C->MF->getSubtarget<GCNSubtarget>();
+  if (ST.enableSIScheduler())
+    return createSIMachineScheduler(C);
+
+  bool EnableMaxIlpSched = false;
+  if (char *EnvVarStr = std::getenv("AMDGPU_MAX_ILP")) {
+    auto EnvVarValue = std::string(EnvVarStr);
+    std::transform(EnvVarValue.begin(), EnvVarValue.end(), EnvVarValue.begin(),
+                   ::tolower);
+    std::unordered_set<std::string> EnabledValues = {"1", "true", "on"};
+    if (EnabledValues.find(EnvVarValue) != EnabledValues.end())
+      EnableMaxIlpSched = true;
+  }
+  if (EnableMaxIlpSchedStrategy || EnableMaxIlpSched) {
+    // llvm::outs() << "max ILP scheduling is enabled\n";
+    return createGCNMaxILPMachineScheduler(C);
+  } else {
+    // llvm::outs() << "max ILP scheduling is disable\n";
+  }
+
+  return createGCNMaxOccupancyMachineScheduler(C);
+}
+
+/*
 ScheduleDAGInstrs *GCNPassConfig::createMachineScheduler(
   MachineSchedContext *C) const {
   const GCNSubtarget &ST = C->MF->getSubtarget<GCNSubtarget>();
@@ -1225,6 +1239,7 @@ ScheduleDAGInstrs *GCNPassConfig::createMachineScheduler(
 
   return createGCNMaxOccupancyMachineScheduler(C);
 }
+*/
 
 bool GCNPassConfig::addPreISel() {
   AMDGPUPassConfig::addPreISel();
@@ -1435,7 +1450,8 @@ FunctionPass *GCNPassConfig::createRegAllocPass(bool Optimized) {
 }
 
 static const char RegAllocOptNotSupportedMessage[] =
-  "-regalloc not supported with amdgcn. Use -sgpr-regalloc and -vgpr-regalloc";
+    "-regalloc not supported with amdgcn. Use -sgpr-regalloc and "
+    "-vgpr-regalloc";
 
 bool GCNPassConfig::addRegAssignAndRewriteFast() {
   if (!usingDefaultRegAlloc())
@@ -1692,8 +1708,8 @@ bool GCNTargetMachine::parseMachineFunctionInfo(
                              AMDGPU::SGPR_32RegClass,
                              MFI->ArgInfo.PrivateSegmentSize, 0, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->LDSKernelId,
-                             AMDGPU::SGPR_32RegClass,
-                             MFI->ArgInfo.LDSKernelId, 0, 1) ||
+                             AMDGPU::SGPR_32RegClass, MFI->ArgInfo.LDSKernelId,
+                             0, 1) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkGroupIDX,
                              AMDGPU::SGPR_32RegClass, MFI->ArgInfo.WorkGroupIDX,
                              0, 1) ||
@@ -1716,14 +1732,14 @@ bool GCNTargetMachine::parseMachineFunctionInfo(
                              AMDGPU::SReg_64RegClass,
                              MFI->ArgInfo.ImplicitBufferPtr, 2, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkItemIDX,
-                             AMDGPU::VGPR_32RegClass,
-                             MFI->ArgInfo.WorkItemIDX, 0, 0) ||
+                             AMDGPU::VGPR_32RegClass, MFI->ArgInfo.WorkItemIDX,
+                             0, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkItemIDY,
-                             AMDGPU::VGPR_32RegClass,
-                             MFI->ArgInfo.WorkItemIDY, 0, 0) ||
+                             AMDGPU::VGPR_32RegClass, MFI->ArgInfo.WorkItemIDY,
+                             0, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkItemIDZ,
-                             AMDGPU::VGPR_32RegClass,
-                             MFI->ArgInfo.WorkItemIDZ, 0, 0)))
+                             AMDGPU::VGPR_32RegClass, MFI->ArgInfo.WorkItemIDZ,
+                             0, 0)))
     return true;
 
   if (ST.hasIEEEMode())
