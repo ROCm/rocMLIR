@@ -26,13 +26,12 @@ func.func private @mlir_conv3d(%arg0: tensor<4x1x1x1x1xf32>, %arg1: tensor<2x5x5
   return %8 : tensor<2x2x2x2x4xf32>
 }
 
-
 // -----
 
 // CHECK-LABEL: mlir_dot_transpose_add
-// CHECK: %[[convRes:.*]] = rock.gemm %{{.*}} = %{{.*}} * %{{.*}} features =  none storeMethod =  set {arch = ""} : tensor<1x4x5xf32> = tensor<1x4x5xf32> * tensor<1x5x5xf32> -> tensor<1x4x5xf32>
-// CHECK-NEXT: %{{.*}} = tosa.reshape %[[convRes]]
-// CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[convRes]] by #{{.*}} : tensor<1x4x5xf32> to tensor<1x5x4xf32>
+// CHECK: %[[gemmRes:.*]] = rock.gemm %{{.*}} = %{{.*}} * %{{.*}} features =  none storeMethod =  set {arch = ""} : tensor<1x4x5xf32> = tensor<1x4x5xf32> * tensor<1x5x5xf32> -> tensor<1x4x5xf32>
+// CHECK-NEXT: %{{.*}} = tosa.reshape %[[gemmRes]]
+// CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[gemmRes]] by #{{.*}} : tensor<1x4x5xf32> to tensor<1x5x4xf32>
 
 func.func private @mlir_dot_transpose_add(%arg0: tensor<20xf32>, %arg1: tensor<20xf32>, %arg2: tensor<25xf32>) -> (tensor<20xf32>, tensor<20xf32>) attributes {kernel, arch = ""} {
   %0 = "tosa.reshape"(%arg0) {new_shape = array<i64: 1, 5, 4>} : (tensor<20xf32>) -> tensor<1x5x4xf32>
@@ -45,4 +44,24 @@ func.func private @mlir_dot_transpose_add(%arg0: tensor<20xf32>, %arg1: tensor<2
   %7 = "tosa.add"(%6, %0) : (tensor<1x5x4xf32>, tensor<1x5x4xf32>) -> tensor<1x5x4xf32>
   %8 = "tosa.reshape"(%7) {new_shape = array<i64: 20>} : (tensor<1x5x4xf32>) -> tensor<20xf32>
   return %4, %8 : tensor<20xf32>, tensor<20xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_conv_transpose_add
+// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features = {{none|xdlops}} {arch = {{.*}}, dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x128x8x3x3xf32>, tensor<128x8x32x1x32xf32>, tensor<128x128x30x1x30xf32> -> tensor<128x128x30x1x30xf32>
+// CHECK-NEXT: %[[castRes:.*]] = rock.tensor_untransform_cast %[[convRes]] aka %{{.*}} : tensor<128x128x30x1x30xf32> to tensor<128x128x30x30xf32>
+// CHECK-NEXT: %{{.*}} = tosa.reshape %[[castRes]]
+// CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[castRes]] by #{{.*}} : tensor<128x128x30x30xf32> to tensor<128x30x128x30xf32>
+
+func.func @mlir_conv_transpose_add(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor<128x8x3x3xf32>, %arg2: tensor<128x30x128x30xf32>) -> (tensor<14745600xf32>, tensor<14745600xf32>) attributes {kernel, arch = ""} {
+  %zero = arith.constant dense<0.0> : tensor<128xf32>
+  %0 = "tosa.conv2d"(%arg0, %arg1, %zero) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x8x32x32xf32>, tensor<128x8x3x3xf32>, tensor<128xf32>) -> tensor<128x128x30x30xf32>
+  %1 = "tosa.reshape"(%0) {new_shape = array<i64: 14745600>} : (tensor<128x128x30x30xf32>) -> tensor<14745600xf32>
+  %5 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi64>}> : () -> tensor<4xi64>
+  %6 = "tosa.transpose"(%0, %5) : (tensor<128x128x30x30xf32>, tensor<4xi64>) -> tensor<128x30x128x30xf32>
+  %7 = "tosa.add"(%6, %arg2) : (tensor<128x30x128x30xf32>, tensor<128x30x128x30xf32>) -> tensor<128x30x128x30xf32>
+  %8 = "tosa.reshape"(%7) {new_shape = array<i64: 14745600>} : (tensor<128x30x128x30xf32>) -> tensor<14745600xf32>
+
+  return %1, %8 : tensor<14745600xf32>, tensor<14745600xf32>
 }
