@@ -688,6 +688,10 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
   }
   int64_t kVecLenD = (dName == "m" ? kVecLenA : kVecLenB);
   int64_t kVecIter = kPack / kVecLenD;
+  if(kPack == 1){
+    kVecIter = 1;
+    kVecLenD = 1;
+  }
 
   // Extract relevant derived parameters
   int64_t mWaves = mPerBlock / mPerWave;
@@ -718,7 +722,7 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
         splitIter.merge({"kpack_iter", "kvec_iter", "drepeat", "kvec"}, {5, 6, 7, 8}, "iter",
                         {kpackPerThread, kVecIter, dRepeats, kVecLenD});
       }
-    }    
+    }
     TransformMapAttr splitIterAttr = splitIter.get();
     transformAttrs.push_back(splitIterAttr);
     // Second coordinate transform
