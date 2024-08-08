@@ -85,7 +85,25 @@ class qtPreprocessor():
         static helper method to get stats for a dataframe:
         (number of files processed, number of unique gemms, group by datatype)
         """
-        raise NotImplementedError()
+        print(f"Files processed: {ct}")
+
+        # num of dtypes
+        dtypes= {t[0]:df for t,df in df.groupby(['DataType'])}
+
+        print("Types found:")
+        for dt in dtypes:
+            print(f"\t{dt}")
+
+        # num unique gemms in file:
+        cols = ['N', 'C', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW']
+        unique_gemms = df[cols].drop_duplicates()
+        
+        num_gemms = len(unique_gemms)
+        print(f"Number of unique Gemms: {num_gemms}")
+        for _,row in unique_gemms.iterrows():
+            tup = tuple(row)
+            print(','.join(map(str, tup)))
+
         
     @staticmethod
     def process(input_dir, output_name=None, op='gemm', file_ext="debug", debug=False, normalize=True):
