@@ -40,10 +40,11 @@ class quickTunerMethod(object):
     """
     base class for creating quick tuner methods, implement the getConfig() method.
     """
-    def __init__(self, name=None, N=40):
+    def __init__(self, op, name=None, N=40):
         self.N = N
         self.config = None
-        if name is None:
+        self.op = op
+        if not name:
             self.name = self.__class__.__name__
         else:
             self.name = name
@@ -127,16 +128,9 @@ class quickTuner(object):
         self.methods = {}
         self.N = pargs.num
         self.directory = pargs.directory
-        """ 
-        maybe something like
-        if self.input_dir:
-            self.combined_df = qtPreprocessor.process(self.input_dir)
-        else:
-            self.combined_df = self.input_file
-        """
+        self.op = pargs.op
         self.input_file = pargs.input_file
         self.combined_df = pd.read_csv(self.input_file, sep='\t')
-        #self.__parseValidationArgs(pargs) uneeded
         self.__parseMethods(pargs)
 
     def __parseMethods(self, pargs):
@@ -146,15 +140,15 @@ class quickTuner(object):
         gen_methods = pargs.method
         for method in gen_methods:            
             if method == 'default':
-                self.addMethod(defaultQuickTune(method, self.N))
+                self.addMethod(defaultQuickTune(self.op, method, N=self.N))
             elif method == 'topNSelect':
-                self.addMethod(topNSelection(method, self.N))
+                self.addMethod(topNSelection(self.op, method, N=self.N))
             elif method == 'topMode':
-                self.addMethod(topMode(method, self.N))
+                self.addMethod(topMode(self.op, method, N=self.N))
             elif method == 'takeNEach':      
-                self.addMethod(takeNEach(method, self.N))
+                self.addMethod(takeNEach(self.op, method, N=self.N))
             elif method == 'fairSelect':
-                self.addMethod(fairSelect(method, self.N))
+                self.addMethod(fairSelect(self.op, method, N=self.N))
             else:
                 raise ValueError(f"Unknown method: {method}")                            
 
@@ -337,25 +331,12 @@ def orderByType(combined_df: str, normalize=False):
     final_df = combined_df
     unique_data_types = final_df['DataType'].unique()
 
-    #perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
-
-    #perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
-
-    #perf_configs.columns = perf_config_cols
-
-    #perf_configs['performance'] = final_df['NormalizedTFlops']
-
     final_df['performance'] = final_df['NormalizedTFlops']
-
-    #perf_configs['DataType'] = final_df['DataType']
 
     if normalize:
         scaler = MinMaxScaler()
-        #perf_configs['performance'] = scaler.fit_transform(perf_configs[['performance']])
         final_df['performance'] = scaler.fit_transform(final_df[['performance']])    
     
-    #result = {dtype: group.drop(['DataType'], axis=1) for dtype, group in perf_configs.groupby('DataType')}
-
     result = {dtype: group.drop(['DataType'], axis=1) for dtype, group in final_df.groupby('DataType')}
 
     return result
@@ -376,16 +357,6 @@ def orderByGemmType(combined_df: str, normalize=True):
 
     final_df['performance'] = final_df['NormalizedTFlops']
 
-    #perf_config_cols = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore']
-
-    #perf_configs = final_df['PerfConfig'].str.split(':').str[1].str.split(',', expand=True).astype(int)
-
-    #perf_configs.columns = perf_config_cols
-
-    #perf_configs['performance'] = final_df['NormalizedTFlops']
-
-    #perf_configs = perf_configs.join(final_df[target_cols + ['DataType']])
-
     grouped = {dtype[0]: df.drop('DataType', axis=1) for dtype, df in final_df.groupby(['DataType'])}
 
     for k in grouped:
@@ -393,6 +364,25 @@ def orderByGemmType(combined_df: str, normalize=True):
         grouped[k] = group
         
     return grouped
+
+def orderByConvType(combined_df: str, normalize=True):
+
+    final_df = combined_df
+
+    cols = ['N', 'C', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW']
+    
+    final_df = final_df.astype({entry: int for entry in cols})
+
+    final_df['performance'] = final_df['NormalizedTFlops']
+
+    grouped = {dtype[0]: df.drop('DataType', axis=1) for dtype, df in final_df.groupby(['DataType'])}
+
+    for k in grouped:
+        group = {cols: df.drop(target_cols, axis=1) for cols, df in grouped[k].groupby(cols)}
+        grouped[k] = group
+        
+    return grouped
+
     
 
 def convertToConfig(type_df, filename, suffix=".qt", debug=False):
@@ -419,8 +409,8 @@ class topNSelection(quickTunerMethod):
     splits data by type then splits into certain percentage evenly,
     taking the top performers from each group
     """
-    def __init__(self, name=None, N=40, normalize=True):
-        super().__init__(name, N)
+    def __init__(self, op, name=None, N=40, normalize=True):
+        super().__init__(op, name, N)
         self.normalize = normalize
 
     def getConfig(self, combined_df):
@@ -445,18 +435,22 @@ class topMode(quickTunerMethod):
     perf configs
     """
     
-    def __init__(self, name=None, N=40, normalize=True):
-        super().__init__(name, N)
+    def __init__(self, op, name=None, N=40, normalize=True):
+        super().__init__(op, name, N)
+        self.op = op
         self.normalize = normalize
 
     def getConfig(self, input_file):
         config_dict = {}
-    
-        type_gemm_dict = orderByGemmType(input_file, normalize=self.normalize)
 
-        type_gemm_dict = orderGemmDict(type_gemm_dict)
+        if self.op == 'gemm':
+            type_dict = orderByGemmType(input_file, normalize=self.normalize)
+        elif self.op == 'conv':
+            type_dict = orderByConvType(input_file, normalize=self.normalize)
 
-        for k, v in type_gemm_dict.items():
+        type_dict = orderGemmDict(type_dict)
+
+        for k, v in type_dict.items():
             combined = []
             for sub_key in v:
                 df = v[sub_key]
@@ -487,22 +481,30 @@ class takeNEach(quickTunerMethod):
     take top performers from N dataframes
     """
     
-    def __init__(self, name=None, N=40, normalize=True):
-        super().__init__(name, N)
+    def __init__(self, op, name=None, N=40, normalize=True):
+        super().__init__(op, name, N)
+        self.op = op
         self.normalize = normalize
 
     def getConfig(self, combined_df):
         config_dict = {}
-    
-        type_gemm_dict = orderByGemmType(combined_df, normalize=self.normalize)
 
-        type_gemm_dict = orderGemmDict(type_gemm_dict)
+
+        if self.op == 'gemm':
+            type_dict = orderByGemmType(combined_df, normalize=self.normalize)
+        elif self.op == 'conv':
+            type_dict = orderByConvType(combined_df, normalize=self.normalize)
+
+        type_dict = orderByGemmType(combined_df, normalize=self.normalize)
+        
+
+        type_dict = orderGemmDict(type_dict)
 
         # calculate size for amount to take
 
         N = self.N
     
-        for k, v in type_gemm_dict.items():
+        for k, v in type_dict.items():
             sub_dict_size = len(v)
             subset_size = N // sub_dict_size
             if subset_size == 0:
@@ -534,8 +536,8 @@ class topConfigCluster(quickTunerMethod): #disabled
     try with DBSCAN again
     """
     
-    def __init__(self, name=None, N=40, normalize=True):
-        super().__init__(name, N)
+    def __init__(self, op, name=None, N=40, normalize=True):
+        super().__init__(op, name, N)
         self.normalize = normalize
 
     def getConfig(self, combined_df):
@@ -597,8 +599,8 @@ class topGemmCluster(quickTunerMethod):
     would hopefully contribute to a similar perf config peformance.
     """
 
-    def __init__(self, name=None, N=40, normalize=True):
-        super().__init__(name, N)
+    def __init__(self, op, name=None, N=40, normalize=True):
+        super().__init__(op, name, N)
         self.normalize = normalize
 
     def getConfig(self, combined_df):        
@@ -684,8 +686,9 @@ class defaultQuickTune(quickTunerMethod):
     """ 
     take entire set and aggregate the repeats, averaging them out/ weighing them more heavily
     """
-    def __init__(self, name=None, N=40, normalize=True):
-        super().__init__(name, N)
+    def __init__(self, op, name=None, N=40, normalize=True):
+        super().__init__(op, name, N)
+        self.op = op
         self.normalize = normalize
         self.N
 
@@ -716,7 +719,7 @@ class defaultQuickTune(quickTunerMethod):
         unique_data_types = final_df['DataType'].unique()
         # iterate through unique data type
         results = {}
-        operations = ['gemm']
+        operations = [self.op]
         for data_type in unique_data_types:
             win_counts = {}
             for operation in operations:
@@ -805,8 +808,9 @@ class fairSelect(quickTunerMethod):
        cut down spacce (df.head(N)) 
     """
     
-    def __init__(self, name=None, N=40, normalize=True, threshold=0.95):
-        super().__init__(name, N)
+    def __init__(self, op, name=None, N=40, normalize=True, threshold=0.95):
+        super().__init__(op, name, N)
+        self.op = op
         self.normalize = normalize
         self.threshold = threshold # top 95 percent for efficiency
 
@@ -898,10 +902,13 @@ class fairSelect(quickTunerMethod):
 
     def getConfig(self, combined_df):
         config_dict = {}
-    
-        type_gemm_dict = orderByGemmType(combined_df, normalize=self.normalize)
 
-        for dtype, dfs in type_gemm_dict.items():            
+        if self.op == 'gemm':
+            type_dict = orderByGemmType(combined_df, normalize=self.normalize)
+        elif self.op == 'conv':
+            type_dict = orderByConvType(combined_df, normalize=self.normalize)
+
+        for dtype, dfs in type_dict.items():            
             top_90_percent = []
             for cfg in dfs:
                 df = dfs[cfg]
@@ -931,6 +938,12 @@ def main(args=None):
                         choices=["default","topNSelect","topMode","takeNEach","fairSelect"],
                         default=["default","fairSelect"],
                         help='Select perfConfig gen selection method')
+
+    parser.add_argument('--op', '--operation',
+                        type=str,
+                        choices=["gemm", "conv"],
+                        default="gemm",
+                        help='Operation (gemm or conv)')
 
     parser.add_argument('--save',
                         action='store_true',
