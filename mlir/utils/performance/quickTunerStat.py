@@ -36,56 +36,38 @@ class PerfConfigValidator():
     """
     base class for validators, implement validate() method
     """
-    def __init__(self, datatypes):
+    def __init__(self, datatypes, op):
         self.archNames = perfRunner.getArch()
         self.arch = ','.join(self.archNames)
         self.chip = perfRunner.GFX_CHIP_RE.search(self.arch).group(0)
         self.numCU = perfRunner.getNumCU(self.chip)
         self.datatypes = datatypes
+        self.op = op
 
-    def collectGemmConfigs(self, gemm_config_file, comment='#'):
+    def collectConfigs(self, config_file, comment='#'):
         """
-        collect gemm config files given a gemm_config_file
-        convert to a perfRunner gemmConfiguration
+        collect gemm config files given a config_file
+        convert to a perfRunner GemmConfiguration or ConvConfiguration
         """
-        # convert to configs list first:
-        #get datatypes
-        datatypes, outputMap = perfRunner.parseDataTypes(self.datatypes)
-        configs = perfRunner.getGemmConfigurations(gemm_config_file, datatypes, outputMap)
+        if self.op == 'conv':
+            configs = perfRunner.getConvConfigurations(config_file)
+        elif self.op == 'gemm':
+            datatypes, outputMap = perfRunner.parseDataTypes(self.datatypes)
+            configs = perfRunner.getGemmConfigurations(config_file, datatypes, outputMap)
 
         gemm_list = []
         for testVector in configs:
             commandLine = testVector.split(sep=' ')
-            config = perfRunner.GemmConfiguration.fromCommandLine(commandLine, self.arch, self.numCU)
+            if self.op == 'conv':
+                config = perfRunner.ConvConfiguration.fromCommandLine(commandLine, self.arch, self.numCU)
+            elif self.op == 'gemm':
+                config = perfRunner.GemmConfiguration.fromCommandLine(commandLine, self.arch, self.numCU)
             gemm_list.append(config)
-        """
-        gemm_list = []
-        with open(gemm_config_file, 'r') as f:
-            lines = f.readlines()
-        for line in lines:
-            if comment is not None:
-                line = line.split(comment)[0]
-            line = perfRunner.GemmConfiguration.fromCommandLine(line.split(' '), self.arch, self.numCU)
-            
-            if line:
-                gemm_list.append(line)
-        """
         return gemm_list
 
     def orderByGemmType(self, input_file=True, normalize=True):
         """
         Creates a dictionary of dictionaries, key by dtype and then gemm, respectively
-        """
-        """
-        def expandPerfConfigs(df): # unused delete later
-            df['PerfConfig'] = df['PerfConfig'].str.split(':').str[1]
-            tile_params = df['PerfConfig'].str.split(',', expand=True).astype(int)            
-            tile_params.columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK','forceUnroll', 'bCopyMore']                
-            #tile_params = tile_params.drop(['param9'], axis=1)
-            tile_params['performance'] = df['NormalizedTFlops']
-            tile_params['TFlops'] = df['TFlops']
-            tile_params.replace('N/A', np.nan, inplace=True)
-            return tile_params
         """
         df = pd.read_csv(input_file, sep='\t')
         df_dir = {}
@@ -98,7 +80,27 @@ class PerfConfigValidator():
         type_dict = {dtype: group for dtype, group in df.groupby('DataType')}
         for dtype in type_dict:
             sub_df = type_dict[dtype]
-            #gemm_df = {gemm: expandPerfConfigs(group) for gemm, group in sub_df.groupby(cols)}
+            gemm_df = {gemm: group[['PerfConfig', 'performance']] for gemm, group in sub_df.groupby(cols)}
+            for gemm in gemm_df:
+                gemm_tup = tuple(gemm)            
+                if dtype not in df_dir:
+                    df_dir[dtype] = {}
+                df_dir[dtype][gemm_tup] = gemm_df[gemm]
+        self.validation_data = df_dir
+        return df_dir
+
+    def orderByConvType(self, input_file=True, normalize=True):
+        """
+        Creates a dictionary of dictionaries, key by dtype and then conv, respectively
+        """
+        df = pd.read_csv(input_file, sep='\t')
+        df_dir = {}
+        cols = ['N', 'C', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW']
+        df = df.astype({entry: int for entry in cols})      
+        df['performance'] = df['NormalizedTFlops']
+        type_dict = {dtype: group for dtype, group in df.groupby('DataType')}
+        for dtype in type_dict:
+            sub_df = type_dict[dtype]
             gemm_df = {gemm: group[['PerfConfig', 'performance']] for gemm, group in sub_df.groupby(cols)}
             for gemm in gemm_df:
                 gemm_tup = tuple(gemm)            
@@ -171,13 +173,15 @@ class DataValidator(PerfConfigValidator):
     """
     uses already provided data to validate the configs generated
     """
-    def __init__(self, config_file, preproc_file, datatypes, debug=False):
-        super().__init__(datatypes)
-        self.gemm_configs = super().collectGemmConfigs(config_file) # list of GemmConfiguratioin
+    def __init__(self, config_file, preproc_file, datatypes, op='gemm', debug=False):
+        super().__init__(datatypes, op)
+        self.gemm_configs = super().collectConfigs(config_file) # list of GemmConfiguratioin
         self.gemm_keys = [(cfg.transA, cfg.transB, cfg.g, cfg.m, cfg.n, cfg.k) for cfg in self.gemm_configs]
-        #self.gemm_keys = [super(DataValidator, self).gemmConfigToKey(gemm) for gemm in self.gemm_configs]
         self.preproc_file = preproc_file
-        self.validation_data = super().orderByGemmType(self.preproc_file)
+        if op == 'gemm':
+            self.validation_data = super().orderByGemmType(self.preproc_file)
+        elif op == 'conv':
+            self.validation_data = super().orderByConvType(self.preproc_file)
         self.debug = debug
 
     def validateDir(self, input_dir):
@@ -227,15 +231,10 @@ class DataValidator(PerfConfigValidator):
         # to validate file we need data already read,
 
         all_data = []
-        # note that these are not the columns for attn or for f32 gemm/conv on Navi. Should be extended for the proper columns
-        # as a class member that is configured at initialization, self.op and then self.columns
-        #columns = ['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'] 
         for gemm in self.gemm_keys:
             if gemm not in self.validation_data[dtype]:
                 continue
             data_subset = self.validation_data[dtype][gemm]
-            #file_data = file_data[columns]
-            #merged_df = pd.merge(file_data, data_subset, on=['M/block', 'N/block', 'K/block', 'M/wave', 'N/wave', 'kPack', 'splitK', 'forceUnroll', 'bCopyMore'], how='left')
             merged_df = pd.merge(file_data, data_subset, on=['PerfConfig'], how='left')
             all_data.append(merged_df)
         return all_data
@@ -296,8 +295,9 @@ class TunerValidator(PerfConfigValidator):
     def __init__(self,
                  config_file,
                  datatypes,
+                 op='gemm',
                  debug=False):
-        super().__init__(datatypes)
+        super().__init__(datatypes, op)
         self.gemm_configs = super().collectGemmConfigs(config_file)
         self.gemm_keys = [(cfg.transA, cfg.transB, cfg.g, cfg.m, cfg.n, cfg.k) for cfg in self.gemm_configs]
         self.gridwise_gemm_params='mlir/lib/Dialect/Rock/Tuning/GridwiseGemmParams.cpp'
@@ -472,11 +472,6 @@ class TunerValidator(PerfConfigValidator):
         df = pd.DataFrame.from_dict(data)
         if df.empty:
             return pd.DataFrame(columns=columns)
-        # dont want this, instead we want OG data's values to comare
-        # with
-
-        # having issues with extracting performance values, grabbing bCopyMore
-        # probably values = values[:-1]
         df = df.sort_values(by=['performance'], ascending=False)
         scaler = MinMaxScaler()
         df['performance'] = scaler.fit_transform(df[['performance']])
@@ -489,7 +484,7 @@ class TunerValidator(PerfConfigValidator):
         # need to update        
         output_dict = {}
         try:
-            self.quick_tune_data = super().typeQtMap(input_dir) #        self.__typeQtMap(input_dir)
+            self.quick_tune_data = super().typeQtMap(input_dir) 
             for method in self.quick_tune_data:
                 if self.debug:
                     print(f"method {method}")                    
@@ -631,6 +626,12 @@ def main(args=None):
                         choices=["f32", "f16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_f32", "fp8_fp8"],
                         default=["f32", "f16", "i8"],
                         help='Force a set of datatypes')
+
+    parser.add_argument('--op', '--operation',
+                        type=str,
+                        default='gemm',
+                        choices=["gemm", "conv"],
+                        help='Set operation (gemm or conv)')
     
     pargs = parser.parse_args()
 
@@ -645,10 +646,9 @@ def main(args=None):
         verifier = DataValidator(pargs.gemm_configs,
                                  pargs.data,
                                  pargs.data_type,
+                                 op=pargs.op,
                                  debug=pargs.debug)
     elif pargs.method == 'tuner':
-        #if not pargs.rocmlir:
-        #    raise ValueError(f"rocmlir path not set, please specifiy using --romclir")
         verifier = TunerValidator(pargs.gemm_configs,
                                   pargs.data_type,
                                   debug=pargs.debug)
