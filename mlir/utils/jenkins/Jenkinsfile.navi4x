@@ -1,0 +1,163 @@
+void buildProject(String target, String cmakeOpts) {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        cmakeBuild generator: 'Ninja',\
+            buildDir: 'build',\
+            buildType: 'RelWithDebInfo',\
+            installation: 'InSearchPath',\
+            steps: [[args: target]],\
+            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+              ${cmakeOpts}"""
+    }
+}
+
+void showEnv() {
+    echo "$env.NODE_NAME"
+    sh 'cat /etc/os-release'
+    sh 'ulimit -a'
+    sh '/opt/rocm/bin/rocm-smi || true'
+    sh '/opt/rocm/bin/rocm_agent_enumerator'
+    sh 'id'
+    sh 'printenv'
+}
+
+String dockerArgs() {
+    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+}
+
+String dockerImage() {
+    // If this is being changed please change Dockerfile.migraphx-ci's base image as well
+    return 'rocm/mlir:rocm6.2-latest'
+}
+
+void setHeartbeat() {
+    script {
+        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
+    }
+}
+
+String getLabelFromCodepath() {  
+    return 'mlir && ( gfx1200 || gfx1201 )'
+}
+
+def rebootNode() {
+    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+}
+
+void check_RockE2EPRTests_Navi4x() {
+    // Run PR CI tests
+    buildProject('check-mlir check-rocmlir', """
+        -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
+        -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
+        -DROCK_E2E_TEST_ENABLED=0
+        -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+        -DLLVM_LIT_ARGS='-v --time-tests -j 1'
+    """)
+    echo "Static Test step skipped"
+    }
+
+void checkRocmlirOnNavi4x(String testSuite) {  
+    sh '[ ! -d build ] || rm -rf build'  
+    buildProject('check-rocmlir', """  
+             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0  
+             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0  
+             -DROCK_E2E_TEST_ENABLED=1  
+             -DROCK_E2E_TEST_SUITES=${testSuite}  
+             -DROCMLIR_DRIVER_RANDOM_DATA_SEED='none'  
+             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1  
+             -DLLVM_LIT_ARGS='-v --time-tests -j 1'   
+     """)  
+}  
+
+void runE2ETests_Navi4x() {  
+    // Run all E2E tests in multiple smaller batches to increase the chance of successful completion  
+    sh '[ ! -d build ] || rm -rf build'  
+    buildProject('check-mlir-build-only check-rocmlir', """  
+         -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0  
+         -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1  
+         -DROCK_E2E_TEST_ENABLED=1  
+         -DROCK_E2E_TEST_SUITES='part1'  
+         -DROCMLIR_DRIVER_RANDOM_DATA_SEED='none'  
+         -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1  
+         -DLLVM_LIT_ARGS='-v --time-tests -j 1'  
+    """)  
+    checkRocmlirOnNavi4x('part2')  
+    checkRocmlirOnNavi4x('part3')  
+    checkRocmlirOnNavi4x('part4')  
+    checkRocmlirOnNavi4x('part5')  
+}
+
+pipeline {
+    agent none
+    parameters {
+        booleanParam(name: 'runPRCITests', defaultValue: true,
+                     description: 'Run the PR CI tests')
+        booleanParam(name: 'runE2ETests', defaultValue: true,
+                     description: 'Run the E2E tests')
+    }
+    stages {
+        stage('Set System Property') {
+            steps {
+                script {
+                    setHeartbeat()
+                }
+            }
+        }
+        stage("Build and Test") {
+            agent {
+                docker {
+                    image dockerImage()
+                    args dockerArgs()
+                    label getLabelFromCodepath()
+                    alwaysPull true
+                }
+            }
+            environment {
+                PATH = "/opt/rocm/llvm/bin:$PATH"
+                HOME = "${WORKSPACE}"
+            }
+            stages {
+                stage('Environment') {
+                    steps {
+                        script {
+                            echo "Running tests for Navi4x"
+                            showEnv()
+                        }
+                    }
+                }
+                stage('Run PR CI tests') {
+                    when {
+                        expression { params.runPRCITests }
+                    }
+                    steps {
+                        script {
+                            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                                check_RockE2EPRTests_Navi4x()
+                            }
+                        }
+                    }
+                }
+                stage('Run nightly E2E tests') {
+                    when {
+                        expression { params.runE2ETests }
+                    }
+                    steps {
+                        script {
+                            runE2ETests_Navi4x()
+                        }
+                    }
+                }
+            }
+            post {
+                unsuccessful {
+                    echo "Build failed, rebooting node..."
+                    rebootNode()
+                }
+                always {
+                    echo "Cleaning workspace..."
+                    cleanWs()
+                }
+            }
+        }
+    }   
+}
