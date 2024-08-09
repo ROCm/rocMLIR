@@ -1081,8 +1081,7 @@ static void populateDefaults() {
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
   }
-  if (isConv && outputDepth.getNumOccurrences() == 0 &&
-      inputDepth.getNumOccurrences() > 0) {
+  if (isConv && outputDepth.getNumOccurrences() == 0) {
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
