@@ -1,4 +1,4 @@
-// RUN: // RUN: rocmlir-driver -kernel-pipeline=migraphx %s | rocmlir-gen -fut mlir_unpack_dequantizelinear_dot --arch %arch --clone-harness -  | FieCheck %s --check-prefix=HASINT4
+// RUN: rocmlir-driver -kernel-pipeline=migraphx %s | rocmlir-gen -fut mlir_unpack_dequantizelinear_dot --arch %arch --clone-harness -  | FileCheck %s --check-prefix=HASINT4
 // HASINT4: mhal.launch
 // HASINT4-SAME: tensor<64xi4>
 
