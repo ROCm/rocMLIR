@@ -264,30 +264,33 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
-    TopDownTMBuilder blockwiseSplitId(b, {"tid", "iter"},
-                                      {blockSize, dataPerThread}, loc);
-    makeLoadRegsTidMerge(blockwiseSplitId, dThreadName, dThreads, kThreads,
-                         {0, 1}, isKContigousDim);
-    makeLoadRegsIterMerge(blockwiseSplitId, dIterName, dPerThread, kPerThread,
-                          {2, 3}, isKContigousDim);
-    TransformMapAttr splitIdAttr = blockwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"k_thread", "k_iter"}, {kThreads, kPerThread});
-    toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
-                        {dThreads, dPerThread});
-    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert(bidGridOrder[0]);
+    dimensionsToRemove.insert(bidGridOrder[1]);
+    dimensionsToRemove.insert(bidGridOrder[2]);
+    FailureOr<ArrayAttr> maybeBlockSubTile =
+        removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
+
+    if (failed(maybeBlockSubTile)) {
+      return failure();
+    }
+    gpuViews.blockSubTile = maybeBlockSubTile.value();
   }
   {
-    TopDownTMBuilder threadwiseSplitId(b, {"iter"}, {dataPerThread}, loc);
-    makeLoadRegsIterMerge(threadwiseSplitId, dIterName, dPerThread, kPerThread,
-                          {0, 1}, isKContigousDim);
-    TransformMapAttr splitIdAttr = threadwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
-    toGlobalIdx.passThrough({"k"}, 0, {"k_iter"});
-    toGlobalIdx.passThrough({dName}, 1, {dIterName});
-    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.threadSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert(bidGridOrder[0]);
+    dimensionsToRemove.insert(bidGridOrder[1]);
+    dimensionsToRemove.insert(bidGridOrder[2]);
+    dimensionsToRemove.insert("tid");
+    FailureOr<ArrayAttr> maybeThreadSubTile =
+        removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
+
+    if (failed(maybeThreadSubTile)) {
+      return failure();
+    }
+    gpuViews.threadSubTile = maybeThreadSubTile.value();
   }
   return gpuViews;
 }
@@ -352,6 +355,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
+    // Note: we can't use removeUpperDims because of
+    // "doSwapThreadIterSubDimsForD". This is not done for gpuViews.gridSubTile
     TopDownTMBuilder blockwiseSplitId(b, {"tid", "iter"},
                                       {blockSize, dataPerThread}, loc);
     makeLoadRegsTidMerge(blockwiseSplitId, dThreadName, dThreads, kThreads,
@@ -377,17 +382,19 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
-    TopDownTMBuilder threadwiseSplitId(b, {"iter"}, {dataPerThread}, loc);
-    threadwiseSplitId.merge({"kouterPerThread", dIterName, "kpackPerThread"},
-                            {0, 1, 2}, "iter",
-                            {kOuterPerThread, dPerThread, kpackPerThread});
-    TransformMapAttr splitIdAttr = threadwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(threadwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0, {"kouterPerThread", "kpackPerThread"},
-                        {kOuterPerThread, kpackPerThread});
-    toGlobalIdx.passThrough({dName}, 1, {dIterName});
-    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.threadSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert(bidGridOrder[0]);
+    dimensionsToRemove.insert(bidGridOrder[1]);
+    dimensionsToRemove.insert(bidGridOrder[2]);
+    dimensionsToRemove.insert("tid");
+    FailureOr<ArrayAttr> maybeThreadSubTile =
+        removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
+
+    if (failed(maybeThreadSubTile)) {
+      return failure();
+    }
+    gpuViews.threadSubTile = maybeThreadSubTile.value();
   }
   return gpuViews;
 }

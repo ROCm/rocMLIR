@@ -1748,12 +1748,16 @@ struct GridwiseAttentionAccelRewritePattern
     }
     int64_t gemm0InMPerThread = maybeVectorDimInfoK->inDPerThread;
     int64_t gemm0InNPerThread = maybeVectorDimInfoQ->inDPerThread;
-    RegsAsMatrixSubTiles gemm0OutSubTileViews =
+    FailureOr<RegsAsMatrixSubTiles> maybeGemm0OutSubTileViews =
         accelEmitterPtrGemm0->computeOutputTransforms(
             rewriter, loc, gemm0M, gemm0N, blockSize, gemm0BidGridLengths,
             gemm0InMPerThread, gemm0InNPerThread,
             ldsLayoutCfgMG0.doSwapThreadIterSubDims,
             ldsLayoutCfgNG0.doSwapThreadIterSubDims);
+    if (failed(maybeGemm0OutSubTileViews)) {
+      return failure();
+    }
+    auto gemm0OutSubTileViews = maybeGemm0OutSubTileViews.value();
     RegsAsMatrixSubTiles gemm0OutSubTileViewsTr =
         transposeSubTileViews(rewriter, loc, gemm0OutSubTileViews);
     int64_t gemm0MPerThread =
@@ -1879,11 +1883,15 @@ struct GridwiseAttentionAccelRewritePattern
     LDSLayoutConfigDim ldsLayoutCfgMG1 = getLDSLayoutConfigDim(
         elemTypeV, gemm1kpack, maybeVectorDimInfoV.value());
     int64_t gemm1InMPerThread = maybeVectorDimInfoV->inDPerThread;
-    RegsAsMatrixSubTiles gemm1OutSubTileViews =
+    FailureOr<RegsAsMatrixSubTiles> maybeGemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
             rewriter, loc, gemm1M, gemm1N, blockSize, gemm1BidGridLengths,
             gemm1InMPerThread, gemm1InNPerThread,
             ldsLayoutCfgMG1.doSwapThreadIterSubDims);
+    if (failed(maybeGemm1OutSubTileViews)) {
+      return failure();
+    }
+    auto gemm1OutSubTileViews = maybeGemm1OutSubTileViews.value();
     RegsAsMatrixSubTiles gemm1OutSubTileViewsTr =
         transposeSubTileViews(rewriter, loc, gemm1OutSubTileViews);
     auto [fromGlobalRegBufferV, toLDSRegBufferV] = createRegBuffersForGemmIn(
@@ -2800,14 +2808,16 @@ struct GridwiseGemmAccelRewritePattern
     Value convertedC = gpuAlloc(b, loc, numOutputVectorElements, destType,
                                 AddressSpace::Private);
 
-    ArrayAttr idToMatrixCMaps =
-        accelEmitterPtr
-            ->computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths,
-                                      maybeVecDimInfoA->inDPerThread,
-                                      maybeVecDimInfoB->inDPerThread,
-                                      ldsLayoutConfigA.doSwapThreadIterSubDims,
-                                      ldsLayoutConfigB.doSwapThreadIterSubDims)
-            .gridSubTile;
+    FailureOr<RegsAsMatrixSubTiles> maybeIdToMatrixCMaps =
+        accelEmitterPtr->computeOutputTransforms(
+            b, loc, M, N, blockSize, bidGridLengths,
+            maybeVecDimInfoA->inDPerThread, maybeVecDimInfoB->inDPerThread,
+            ldsLayoutConfigA.doSwapThreadIterSubDims,
+            ldsLayoutConfigB.doSwapThreadIterSubDims);
+    if (failed(maybeIdToMatrixCMaps)) {
+      return failure();
+    }
+    ArrayAttr idToMatrixCMaps = maybeIdToMatrixCMaps.value().gridSubTile;
 
     accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,
                                              forceUnroll);
