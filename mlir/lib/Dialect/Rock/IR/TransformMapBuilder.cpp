@@ -295,7 +295,7 @@ void TransformMapBuilder::defineDim(StringRef name, uint32_t dim,
                     "fetching the attribute");
   bool nameInsertResult = endIndices.insert({name, dim}).second;
   assert(nameInsertResult &&
-         "Trying to redife a result name in a coordinate transformation");
+         "Trying to redefine a result name in a coordinate transform");
   SmallString<8> nameCopy = name;
   bool dimInsertResult = endNames.insert({dim, nameCopy}).second;
   assert(dimInsertResult &&

@@ -1081,8 +1081,7 @@ static void populateDefaults() {
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
   }
-  if (isConv && outputDepth.getNumOccurrences() == 0 &&
-      inputDepth.getNumOccurrences() > 0) {
+  if (isConv && outputDepth.getNumOccurrences() == 0) {
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
@@ -3612,14 +3611,20 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           outputLayout.getValue());
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (inputDepth < 1) inputDepth = 1;
         inDims.push_back(inputDepth);
+      }
       SmallVector<int64_t> outDims{outputHeight, outputWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (outputDepth < 1) outputDepth = 1;
         outDims.push_back(outputDepth);
+      }
       SmallVector<int64_t> filDims{filterHeight, filterWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (filterDepth < 1) filterDepth = 1;
         filDims.push_back(filterDepth);
+      }
 
       status =
           convGenerator.parseConvDims(batchSize, groupSize, inputChannel,

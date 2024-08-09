@@ -411,8 +411,8 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   auto outputType = cast<MemRefType>(op->getOperand(2).getType());
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
-  int64_t y, x, ho, wo, hi, wi, k, c, n, g;
-  y = x = ho = wo = hi = wi = k = c = n = g = 0;
+  int64_t y, x, z, ho, wo, dout, hi, wi, di, k, c, n, g;
+  y = x = z = ho = wo = dout = hi = wi = di = k = c = n = g = 0;
 
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
@@ -427,6 +427,8 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       x = filterShape[i];
     } else if (filterAttr.getValue() == "1") {
       x = filterShape[i];
+    } else if (filterAttr.getValue() == "2") {
+      z = filterShape[i];
     } else if (filterAttr.getValue() == "k") {
       k = filterShape[i];
     } else if (filterAttr.getValue() == "c") {
@@ -443,6 +445,8 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       hi = inputShape[i];
     } else if (inputAttr.getValue() == "1i") {
       wi = inputShape[i];
+    } else if (inputAttr.getValue() == "2i") {
+      di = inputShape[i];
     } else if (inputAttr.getValue() == "ni") {
       n = inputShape[i];
     }
@@ -455,10 +459,18 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       ho = outputShape[i];
     } else if (outputAttr.getValue() == "1o") {
       wo = outputShape[i];
+    } else if (outputAttr.getValue() == "2o") {
+      dout = outputShape[i];
     }
   }
 
-  return ConvolutionDims({y, x}, {ho, wo}, {hi, wi}, k, c, n, g);
+  SmallVector<int64_t> fil({y, x});
+  if (z > 0) fil.push_back(z);
+  SmallVector<int64_t> out({ho, wo});
+  if (dout > 0) out.push_back(dout);
+  SmallVector<int64_t> in({hi, wi});
+  if (di > 0) in.push_back(di);
+  return ConvolutionDims(fil, out, in, k, c, n, g);
 }
 
 ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
