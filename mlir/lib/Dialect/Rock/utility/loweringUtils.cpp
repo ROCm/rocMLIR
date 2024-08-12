@@ -348,38 +348,32 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     toGlobalIdx.unmerge(
         "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
         {kGlobal / kPerBlock, kThreads, kOuterPerThread, kpackPerThread});
-    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                        {dGlobal / dPerBlock, dThreads, dPerThread});
+    // if the matrix is KxD swap the iter/thread dimension. This is so that
+    // each thread writes in LDS contiguously, minimizing bank conflicts
+    if (!doSwapThreadIterSubDimsForD)
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                          {dGlobal / dPerBlock, dThreads, dPerThread});
+    else
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
+                          {dGlobal / dPerBlock, dPerThread, dThreads});
+
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
-    // Note: we can't use removeUpperDims because of
-    // "doSwapThreadIterSubDimsForD". This is not done for gpuViews.gridSubTile
-    TopDownTMBuilder blockwiseSplitId(b, {"tid", "iter"},
-                                      {blockSize, dataPerThread}, loc);
-    makeLoadRegsTidMerge(blockwiseSplitId, dThreadName, dThreads, kThreads,
-                         {0, 1}, isKContigousDim);
-    blockwiseSplitId.merge({"kouterPerThread", dIterName, "kpackPerThread"},
-                           {2, 3, 4}, "iter",
-                           {kOuterPerThread, dPerThread, kpackPerThread});
-    TransformMapAttr splitIdAttr = blockwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(blockwiseSplitId, splitIdAttr);
-    toGlobalIdx.unmerge("k", 0,
-                        {"k_thread", "kouterPerThread", "kpackPerThread"},
-                        {kThreads, kOuterPerThread, kpackPerThread});
-    // if the matrix is KxD swap the iter/thread dimension. This is so that
-    // each thread writes in LDS contiguously, minimizing bank conflicts
-    if (!doSwapThreadIterSubDimsForD)
-      toGlobalIdx.unmerge(dName, 1, {dThreadName, dIterName},
-                          {dThreads, dPerThread});
-    else
-      toGlobalIdx.unmerge(dName, 1, {dIterName, dThreadName},
-                          {dPerThread, dThreads});
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert(bidGridOrder[0]);
+    dimensionsToRemove.insert(bidGridOrder[1]);
+    dimensionsToRemove.insert(bidGridOrder[2]);
+    FailureOr<ArrayAttr> maybeBlockSubTile =
+        removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
 
-    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.blockSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+    if (failed(maybeBlockSubTile)) {
+      return failure();
+    }
+    gpuViews.blockSubTile = maybeBlockSubTile.value();
   }
   {
     SetVector<StringRef> dimensionsToRemove;

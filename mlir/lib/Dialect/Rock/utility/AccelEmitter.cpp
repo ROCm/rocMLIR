@@ -1051,9 +1051,8 @@ WmmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute thread sub tile transforms
   {
-    // we can't use removeUpperDims because when isKContigousDim
-    // is false it merges "iter" as {"k_iter", "kpack", "d_iter"}
-    // while gridSubTile views merge it as {"k_iter", "d_iter", "kpack"}
+    // TODO: we can't use "removeUpperDims" because of bug #1562
+    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
     SmallVector<Attribute> transformAttrs;
     // First coordinate transform
     TopDownTMBuilder splitIter(b, {"iter"}, {dRepeats * kpackPerThread * kPack},
@@ -1063,8 +1062,8 @@ WmmaEmitter::createAccelGemmOperandTransforms(
         splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter",
                         {dRepeats, kpackPerThread, kPack});
       } else {
-        splitIter.merge({"k_iter", "kpack", "d_iter"}, {0, 1, 2}, "iter",
-                        {kpackPerThread, kPack, dRepeats});
+        splitIter.merge({"k_iter", "d_iter", "kpack"}, {0, 1, 2}, "iter",
+                        {kpackPerThread, dRepeats, kPack});
       }
     }
     TransformMapAttr splitIterAttr = splitIter.get();
