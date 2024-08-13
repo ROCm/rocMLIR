@@ -477,6 +477,23 @@ def Rock_GpuAllocOp:
   }];
 }
 
+// Annotate lifetime of memory allocation on GPU memory hierachy.
+def Rock_GpuDeallocOp:
+    Rock_Op<"dealloc">,
+    Arguments<(ins Res<AnyMemRef, "", [MemAlloc]>:$buffer)> {
+  let summary = "Annotate lifetime of memory allocation on GPU";
+  let description = [{
+    The `rock.dealloc` op annotates lifetime of memory allocation memory on GPU.
+    - Address space 0 : global.
+    - Address space 3 : LDS.
+    - Address space 5 : private (VGPR).
+    All other values would be considered as allocation on global.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
+}
+
 // Select one among a set of multiple buffers
 def Rock_ExtractMultiBufferOp:
     Rock_Op<"extract_multibuffer", [Pure]>,

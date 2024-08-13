@@ -682,6 +682,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       }
     }
 
+    // the LDS allocated to load A and B matrices won't be used anymore
+    b.create<GpuDeallocOp>(loc, ldsByteBufferA);
+    b.create<GpuDeallocOp>(loc, ldsByteBufferB);
+
     SmallVector<Attribute> transformAttrs;
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
@@ -2812,6 +2816,10 @@ struct GridwiseGemmAccelRewritePattern
         b.create<rock::YieldOp>(loc);
       }
     }
+
+    // the LDS allocated to load A and B matrices won't be used anymore
+    b.create<GpuDeallocOp>(loc, ldsByteBufferA);
+    b.create<GpuDeallocOp>(loc, ldsByteBufferB);
 
     // Matrix C write out logic.
     Value convertedC = gpuAlloc(b, loc, numOutputVectorElements, destType,

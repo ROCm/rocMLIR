@@ -25,6 +25,7 @@
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
 // GPU-NEXT:rock-output-swizzle,
+// GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-lower-reduce,
 // GPU-NEXT:rock-threadwise-gemm-lowering,
 // GPU-NEXT:rock-analyze-memory-use,
