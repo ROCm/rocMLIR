@@ -184,9 +184,9 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
 
   // Note: hasDimensions() prints error messages
-  if (failed(hasDimensions(inDim, "ngc01", "input")) ||
-      failed(hasDimensions(filDim, "gkc01", "filter")) ||
-      failed(hasDimensions(outDim, "ngk01", "output"))) {
+  if (failed(hasDimensions(inDim, "ngc0", "input")) ||
+      failed(hasDimensions(filDim, "gkc0", "filter")) ||
+      failed(hasDimensions(outDim, "ngk0", "output"))) {
     return failure();
   }
 

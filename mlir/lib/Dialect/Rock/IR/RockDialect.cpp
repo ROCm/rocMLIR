@@ -568,6 +568,7 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
                           llvm::StringRef dim2) {
     auto layout = cast<ArrayAttr>(op->getAttr(tensor)).getValue();
+    if (layout.size() < 5) return false;
     auto pos1 = -1, pos2 = -1;
     for (unsigned int i = 0; i < layout.size(); ++i) {
       if (cast<StringAttr>(layout[i]).getValue() == dim1)
