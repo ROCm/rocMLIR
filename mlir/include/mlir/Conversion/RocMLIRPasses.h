@@ -14,7 +14,7 @@
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
-#include "mlir/Conversion/RocmlirTosaToLinalg/RocmlirTosaToLinalg.h"
+#include "mlir/Conversion/RocmlirCustomTosaToLinalg/RocmlirCustomTosaToLinalg.h"
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
 
 namespace mlir {

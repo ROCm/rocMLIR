@@ -37,7 +37,7 @@ def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
 // TosaToRock
 //===----------------------------------------------------------------------===//
 
-def RocmlirTosaToLinalgPass : Pass<"rocmlir-tosa-to-linalg", ""> {
+def RocmlirCustomTosaToLinalgPass : Pass<"rocmlir-custom-tosa-to-linalg", ""> {
   let summary = "Lower RocMLIR's custom TOSA ops to Linalg";
   let description = [{
     Pass that converts RocMLIR's custom TOSA operators to `linalg`.

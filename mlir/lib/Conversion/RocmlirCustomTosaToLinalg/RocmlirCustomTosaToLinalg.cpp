@@ -1,4 +1,4 @@
-//===- RocmlirTosaToLinalg.cpp - Lowering Rocmlir custom Tosa to Linalg --===//
+//===- RocmlirCustomTosaToLinalg.cpp - Lowering custom Tosa to Linalg --===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/RocmlirTosaToLinalg/RocmlirTosaToLinalg.h"
+#include "mlir/Conversion/RocmlirCustomTosaToLinalg/RocmlirCustomTosaToLinalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -21,15 +21,16 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir {
-#define GEN_PASS_DEF_ROCMLIRTOSATOLINALGPASS
+#define GEN_PASS_DEF_ROCMLIRCUSTOMTOSATOLINALGPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
 } // namespace mlir
 
 using namespace mlir;
 
 namespace {
-struct RocmlirLinalgToTosaPass
-    : public impl::RocmlirTosaToLinalgPassBase<RocmlirLinalgToTosaPass> {
+struct RocmlirCustomLinalgToTosaPass
+    : public impl::RocmlirCustomTosaToLinalgPassBase<
+          RocmlirCustomLinalgToTosaPass> {
   void runOnOperation() override;
 };
 
@@ -74,26 +75,27 @@ LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
   return success();
 }
 
-void mlir::rock::populateRocmlirTosaToLinalgTarget(ConversionTarget &target) {
+void mlir::rock::populateRocmlirCustomTosaToLinalgTarget(
+    ConversionTarget &target) {
   target.addLegalOp<linalg::GenericOp, linalg::YieldOp, arith::ExtUIOp,
                     arith::UIToFPOp, tensor::EmptyOp>();
   target.addDynamicallyLegalOp<tosa::CustomOp>(
       [](tosa::CustomOp op) { return op.getDomainName() != "rocmlir"; });
 }
 
-void mlir::rock::populateRocmlirTosaToLinalgConversionPatterns(
+void mlir::rock::populateRocmlirCustomTosaToLinalgConversionPatterns(
     RewritePatternSet &patterns) {
   patterns.add<UnsignedCastLoweringPattern>(patterns.getContext());
 }
 
-void RocmlirLinalgToTosaPass::runOnOperation() {
+void RocmlirCustomLinalgToTosaPass::runOnOperation() {
   Operation *op = getOperation();
 
   ConversionTarget target(getContext());
-  rock::populateRocmlirTosaToLinalgTarget(target);
+  rock::populateRocmlirCustomTosaToLinalgTarget(target);
 
   RewritePatternSet patterns(&getContext());
-  rock::populateRocmlirTosaToLinalgConversionPatterns(patterns);
+  rock::populateRocmlirCustomTosaToLinalgConversionPatterns(patterns);
 
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();

@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --rocmlir-tosa-to-linalg --split-input-file %s | FileCheck %s
+// RUN: rocmlir-opt --rocmlir-custom-tosa-to-linalg --split-input-file %s | FileCheck %s
 
 // CHECK-LABEL: @integers
 // CHECK-SAME: (%[[arg0:.+]]: tensor<8x8x2xi4>)

@@ -12,26 +12,27 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_CONVERSION_ROCMLIRTOSATOLINALG_ROCMLIRTOSATOLINALG_H
-#define MLIR_CONVERSION_ROCMLIRTOSATOLINALG_ROCMLIRTOSATOLINALG_H
+#ifndef MLIR_CONVERSION_ROCMLIRCUSTOMTOSATOLINALG_ROCMLIRCUSTOMTOSATOLINALG_H
+#define MLIR_CONVERSION_ROCMLIRCUSTOMTOSATOLINALG_ROCMLIRCUSTOMTOSATOLINALG_H
 
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
 class ConversionTarget;
 
-#define GEN_PASS_DECL_ROCMLIRTOSATOLINALGPASS
+#define GEN_PASS_DECL_ROCMLIRCUSTOMTOSATOLINALGPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
 
 namespace rock {
 /// Configure legality for converting the rocmlir domain Tosa custom ops to
 /// linalg.generic ops
-void populateRocmlirTosaToLinalgTarget(ConversionTarget &target);
+void populateRocmlirCustomTosaToLinalgTarget(ConversionTarget &target);
 
 /// Populates conversion passes from rocMLIR's Tosa custom ops to linalg.generic
 /// ops.
-void populateRocmlirTosaToLinalgConversionPatterns(RewritePatternSet &patterns);
+void populateRocmlirCustomTosaToLinalgConversionPatterns(
+    RewritePatternSet &patterns);
 } // namespace rock
 } // namespace mlir
 
-#endif // MLIR_CONVERSION_ROCMLIRTOSATOLINALG_ROCMLIRTOSATOLINALG_H
+#endif // MLIR_CONVERSION_ROCMLIRCUSTOMTOSATOLINALG_ROCMLIRCUSTOMTOSATOLINALG_H

@@ -1,6 +1,6 @@
 add_subdirectory(EmulateFp8ExtTrunc)
 add_subdirectory(GPUToMIGraphX)
 add_subdirectory(MIGraphXToTosa)
-add_subdirectory(RocmlirTosaToLinalg)
+add_subdirectory(RocmlirCustomTosaToLinalg)
 add_subdirectory(RockToGPU)
 add_subdirectory(TosaToRock)
