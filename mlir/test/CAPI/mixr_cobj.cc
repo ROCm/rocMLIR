@@ -6,6 +6,12 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+//
+// NOTE: This test was archived on 08/2024 due to test failures caused by lack
+// of maintainence. The reason for archival is that there are other tests
+// testing this functionality.
+//
+//===----------------------------------------------------------------------===//
 
 /* RUN: mlir-mixr-full-test 2>&1 | FileCheck %s
  *  */

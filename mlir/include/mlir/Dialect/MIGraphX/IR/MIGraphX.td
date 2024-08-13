@@ -297,7 +297,7 @@ class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> 
 }
 
 def MIGraphX_QuantConvolutionOp :
-    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, I8], [F32, I32]> {
+    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN, I8], [F32, I32]> {
   let summary = "quantized convolution forward";
   let description = [{
     The `migraphx.quant_convolution` op computes quantized convolution forward.
@@ -305,7 +305,8 @@ def MIGraphX_QuantConvolutionOp :
 }
 
 def MIGraphX_ConvolutionOp :
-    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ], [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ]> {
+    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN],
+                                       [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN]> {
   let summary = "convolution forward";
   let description = [{
     The `migraphx.convolution` op computes convolution forward.
@@ -473,7 +474,7 @@ class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> o
 }
 
 def MIGraphX_QuantDotOp :
-    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, I8], [F32, I32]>{
+    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, I8], [F32, I32]>{
   let summary = "Dot product of quantized tensors";
   let description = [{
     The `migraphx.quant_dot` op computes the dot product of two tensors.

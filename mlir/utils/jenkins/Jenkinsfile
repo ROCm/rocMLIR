@@ -1086,6 +1086,8 @@ pipeline {
                     HOME="${WORKSPACE}"
                     // Note the %m to avoid issues with threads and dynamic libraries.
                     LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
+                    LLVM_PROFDATA="/opt/rocm/llvm/bin/llvm-profdata"
+                    LLVM_COV="/opt/rocm/llvm/bin/llvm-cov"
                 }
                 stages {
                     stage ("body") {
@@ -1102,11 +1104,11 @@ pipeline {
                                         // Run tests.
                                         sh 'ninja check-rocmlir'
                                         // Profile processing.
-                                        sh 'llvm-profdata merge -sparse ./*.profraw -o ./coverage.profdata'
-                                        sh "llvm-cov report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
+                                        sh "${LLVM_PROFDATA} merge -sparse ./*.profraw -o ./coverage.profdata"
+                                        sh "${LLVM_COV} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
                                         sh "cat ./coverage_${CPATH}.report"
-                                        sh "llvm-cov export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
-                                        sh "llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
+                                        sh "${LLVM_COV} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
+                                        sh "${LLVM_COV} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
                                         // Upload to codecov.
                                         withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
                                             sh '''

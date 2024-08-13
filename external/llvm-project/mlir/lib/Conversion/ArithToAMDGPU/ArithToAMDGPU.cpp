@@ -27,6 +27,7 @@ namespace mlir {
 } // namespace mlir
 
 using namespace mlir;
+using namespace mlir::amdgpu;
 
 namespace {
 struct ArithToAMDGPUConversionPass final
@@ -46,8 +47,11 @@ struct ExtFOnFloat8RewritePattern final : OpRewritePattern<arith::ExtFOp> {
 
 struct TruncFToFloat8RewritePattern final : OpRewritePattern<arith::TruncFOp> {
   bool saturateFP8 = false;
-  TruncFToFloat8RewritePattern(MLIRContext *ctx, bool saturateFP8)
-      : OpRewritePattern::OpRewritePattern(ctx), saturateFP8(saturateFP8) {}
+  TruncFToFloat8RewritePattern(MLIRContext *ctx, bool saturateFP8,
+                               Chipset chipset)
+      : OpRewritePattern::OpRewritePattern(ctx), saturateFP8(saturateFP8),
+        chipset(chipset) {}
+  Chipset chipset;
 
   LogicalResult match(arith::TruncFOp op) const override;
   void rewrite(arith::TruncFOp op, PatternRewriter &rewriter) const override;
@@ -82,7 +86,8 @@ LogicalResult ExtFOnFloat8RewritePattern::match(arith::ExtFOp op) const {
       return failure();
     inType = inVecType.getElementType();
   }
-  return success(inType.isFloat8E5M2FNUZ() || inType.isFloat8E4M3FNUZ());
+  return success(inType.isFloat8E5M2FNUZ() || inType.isFloat8E4M3FNUZ() ||
+                 inType.isFloat8E5M2() || inType.isFloat8E4M3FN());
 }
 
 void ExtFOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
@@ -212,7 +217,11 @@ LogicalResult TruncFToFloat8RewritePattern::match(arith::TruncFOp op) const {
   if (inType && inType.getWidth() <= 8 && saturateFP8)
     // Conversion between 8-bit floats is not supported with truncation enabled.
     return failure();
-  return success(outType.isFloat8E5M2FNUZ() || outType.isFloat8E4M3FNUZ());
+
+  return success((((outType.isFloat8E5M2FNUZ() || outType.isFloat8E4M3FNUZ()) &&
+                   chipset.isGfx940()) ||
+                  ((outType.isFloat8E5M2() || outType.isFloat8E4M3FN()) &&
+                   chipset.hasOcpFp8())));
 }
 
 void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
@@ -349,12 +358,12 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
 
 void mlir::arith::populateArithToAMDGPUConversionPatterns(
     RewritePatternSet &patterns, bool convertFP8Arithmetic,
-    bool saturateFP8Truncf, bool allowPackedF16Rtz) {
+    bool saturateFP8Truncf, bool allowPackedF16Rtz, Chipset chipset) {
 
   if (convertFP8Arithmetic) {
     patterns.add<ExtFOnFloat8RewritePattern>(patterns.getContext());
     patterns.add<TruncFToFloat8RewritePattern>(patterns.getContext(),
-                                               saturateFP8Truncf);
+                                               saturateFP8Truncf, chipset);
   }
   if (allowPackedF16Rtz)
     patterns.add<TruncfToFloat16RewritePattern>(patterns.getContext());
@@ -373,7 +382,8 @@ void ArithToAMDGPUConversionPass::runOnOperation() {
   bool convertFP8Arithmetic =
       (*maybeChipset).majorVersion == 9 && (*maybeChipset).minorVersion >= 0x40;
   arith::populateArithToAMDGPUConversionPatterns(
-      patterns, convertFP8Arithmetic, saturateFP8Truncf, allowPackedF16Rtz);
+      patterns, convertFP8Arithmetic, saturateFP8Truncf, allowPackedF16Rtz,
+      *maybeChipset);
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     return signalPassFailure();
 }
