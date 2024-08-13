@@ -82,8 +82,9 @@ func.func @fp8_bf8_xdlops_ocp(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1
 // CHECK: #[[REV_MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0 - 1)>
 // CHECK: @reverse_grid
 func.func @reverse_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, reverse_grid} {
-  // CHECK: scf.for %[[KITER:.+]] = %c0 to %c8 step %c1 {
-    // CHECK: %[[REV_KITER:.+]] = affine.apply #[[REV_MAP]](%[[KITER]])[%c8]
+  // CHECK: scf.for %[[KITER:.+]] = %c0 to %c7 step %c1 {
+    // CHECK: %[[KITER_PLUS1:.+]] = arith.addi %[[KITER]], %c1
+    // CHECK: %[[REV_KITER:.+]] = affine.apply #[[REV_MAP]](%[[KITER_PLUS1]])[%c8]
     // CHECK: rock.threadwise_read_into
     // CHECK-SAME: [%[[REV_KITER:.+]],
     // CHECK: rock.threadwise_read_into
