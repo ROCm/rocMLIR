@@ -52,7 +52,7 @@ def get_agents(rocm_path):
             q = subprocess.run([rocm_path + "/bin/rocm_agent_enumerator"],
                                check=True, stdout=subprocess.PIPE)
             agents = set(x.decode("utf-8") for x in q.stdout.split())
-        return set(a for a in agents if a != b"gfx000")
+        return set(a for a in agents if a != "gfx000")
     else:
         p = subprocess.run([rocm_path + "/bin/amdgpu_arch.exe"],
                            check=True, stdout=subprocess.PIPE, shell=True)

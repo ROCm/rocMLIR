@@ -1,9 +1,9 @@
-// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch %s | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack- %s | FileCheck %s
 
 // CHECK: rock.conv({{.*}}) {{.*}} {{{.*}}, filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"]{{.*}}}
 
 module {
-  func.func @test(%arg0: tensor<1x512x1x1xf32>, %arg1: tensor<1x384x28x28xf32>, %arg2: tensor<512x384x1x1xf32>) -> tensor<1x512x28x28xf32> {
+  func.func @test(%arg0: tensor<1x512x1x1xf32>, %arg1: tensor<1x384x28x28xf32>, %arg2: tensor<512x384x1x1xf32>) -> tensor<1x512x28x28xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsagfx90a:sramecc+:xnack-"} {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
     %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x28x28xf32>, tensor<4xi64>) -> tensor<1x28x28x384xf32>
     %1 = "tosa.transpose"(%arg2, %cst) : (tensor<512x384x1x1xf32>, tensor<4xi64>) -> tensor<512x1x1x384xf32>

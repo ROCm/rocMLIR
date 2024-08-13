@@ -1,7 +1,7 @@
-// RUN: rocmlir-gen --arch %arch -p -ph -pr --apply-bufferization-pipeline=false | FileCheck %s --check-prefix=F32
-// RUN: rocmlir-gen --arch %arch -p -ph -pr -t f16 --apply-bufferization-pipeline=false | FileCheck %s --check-prefixes=F16,CHECK
-// RUN: rocmlir-gen --arch %arch -p -ph -pr -t bf16 --apply-bufferization-pipeline=false | FileCheck %s --check-prefixes=BF16,CHECK
-// RUN: rocmlir-gen --arch %arch -p -ph -pr -t i8 --apply-bufferization-pipeline=false | FileCheck %s --check-prefixes=I8
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -ph -pr --apply-bufferization-pipeline=false | FileCheck %s --check-prefix=F32
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -ph -pr -t f16 --apply-bufferization-pipeline=false | FileCheck %s --check-prefixes=F16,CHECK
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -ph -pr -t bf16 --apply-bufferization-pipeline=false | FileCheck %s --check-prefixes=BF16,CHECK
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -ph -pr -t i8 --apply-bufferization-pipeline=false | FileCheck %s --check-prefixes=I8
 
 // F32-NOT: func.func @_memcpy_
 // I8-NOT: func.func @_memcpy_
