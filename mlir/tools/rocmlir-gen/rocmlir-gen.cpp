@@ -3601,7 +3601,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       }
 
       convGenerator = rock::ConvGenerator(
-          arch, chip, triple, chipFeatures, perfConfig.getValue(),
+          arch, chip, disableSplitKForTuning, triple, chipFeatures,
+          perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
           reverse_grid, enabledFeatures,
