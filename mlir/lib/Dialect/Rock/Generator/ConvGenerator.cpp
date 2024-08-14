@@ -37,7 +37,8 @@ using namespace mlir::rock;
 #define DEBUG_TYPE "conv2d-gen"
 
 ConvGenerator::ConvGenerator(
-    const std::string &arch, const std::string &chip, const std::string &triple,
+    const std::string &arch, const std::string &chip,
+    bool disableSplitKForTuning, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig,
     std::optional<int> num_cu, bool reverseGrid, GemmFeatures features,
     const std::optional<ConvOpType> operation,
@@ -49,6 +50,7 @@ ConvGenerator::ConvGenerator(
     const std::string &kernelBaseName)
     : config{arch,
              chip,
+             disableSplitKForTuning,
              triple,
              chipFeatures,
              perfConfig,
@@ -841,6 +843,10 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
+  // TODO[split-K]: remove after integrating split-K into MIGraphX
+  if (!config.disableSplitKForTuning)
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
   if (config.reverseGrid) {
     func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());
