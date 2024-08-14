@@ -18,28 +18,12 @@
 // This pass re-uses LDS memory by using the lifetime annotations (rock.dealloc)
 //
 //===-----------------------------------------------------===//
-#include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/utility/math.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
-#include "mlir/Dialect/SCF/Transforms/Transforms.h"
-#include "mlir/Dialect/Utils/IndexingUtils.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Value.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir {
@@ -62,6 +46,9 @@ struct RockReuseLDSPass
 };
 } // end anonymous namespace
 
+// Function to round up size to the nearest multiple of 16 bytes
+static int64_t roundUpToMultipleOf16(int64_t size) { return (size + 15) & ~15; }
+
 static int64_t getWorkgroupMemorySize(MemRefType type) {
   auto memSpaceValue =
       dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace()).getValue();
@@ -83,44 +70,67 @@ static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
   return success();
 }
 
+static int64_t
+assignColors(GpuAllocOp alloc, llvm::SetVector<int64_t> &usedColors,
+             llvm::MapVector<int64_t, int64_t> &colorMemSize,
+             llvm::MapVector<GpuAllocOp, SetVector<int64_t>> &colorAssignment) {
+  const int64_t requiredSize =
+      getWorkgroupMemorySize(alloc.getOutput().getType());
+  assert(requiredSize > 0);
+  int64_t color = 0;
+  int64_t allocatedSize = 0;
+  int64_t maxColor = 0;
+
+  while (allocatedSize < requiredSize) {
+    if (usedColors.contains(color)) {
+      // found a used color, all the assigned colors must be consecutive
+      // let's start again
+      allocatedSize = 0;
+      colorAssignment[alloc].clear();
+      // Find the first available color
+      while (usedColors.contains(color)) {
+        color++;
+      }
+    }
+    maxColor = std::max(maxColor, color);
+    colorAssignment[alloc].insert(color);
+    bool existingColor = colorMemSize.contains(color);
+    // New color
+    if (!existingColor) {
+      // Make this aligned to 128 bits
+      colorMemSize[color] = roundUpToMultipleOf16(requiredSize - allocatedSize);
+    }
+    allocatedSize += colorMemSize[color];
+    color++;
+  }
+  return maxColor;
+}
+
 static std::tuple<int64_t, SmallVector<std::tuple<GpuAllocOp, int64_t, bool>>>
 graphColoring(
     SmallVector<GpuAllocOp> &gpuAllocs,
     llvm::MapVector<GpuAllocOp, SetVector<GpuAllocOp>> &interferenceGraph) {
-  llvm::MapVector<GpuAllocOp, int64_t> colorAssignment;
+  llvm::MapVector<GpuAllocOp, SetVector<int64_t>> colorAssignment;
+  llvm::MapVector<int64_t, int64_t> colorMemSize;
+  int64_t maxColor = 0;
 
   // Assign colors using greedy algorithm
-  for (const GpuAllocOp alloc : gpuAllocs) {
+  for (GpuAllocOp alloc : gpuAllocs) {
     llvm::SetVector<int64_t> usedColors;
     for (GpuAllocOp neighbor : interferenceGraph[alloc]) {
       if (colorAssignment.find(neighbor) != colorAssignment.end()) {
-        usedColors.insert(colorAssignment[neighbor]);
+        for (int64_t color : colorAssignment[neighbor]) {
+          usedColors.insert(color);
+        }
       }
     }
 
-    // Find the first available color
-    int64_t color = 0;
-    while (usedColors.contains(color)) {
-      color++;
-    }
-    colorAssignment[alloc] = color;
+    // Assign a set of colors
+    int64_t localMaxColor =
+        assignColors(alloc, usedColors, colorMemSize, colorAssignment);
+    maxColor = std::max(maxColor, localMaxColor);
   }
 
-  // Compute maximum memory needed per color
-  llvm::MapVector<int64_t, int64_t> colorMemSize;
-  int64_t maxColor = 0;
-  for (const auto &tuple : colorAssignment) {
-    GpuAllocOp alloc;
-    int64_t color;
-    std::tie(alloc, color) = tuple;
-    maxColor = std::max(maxColor, color);
-    int64_t allocSize = getWorkgroupMemorySize(alloc.getOutput().getType());
-    if (colorMemSize.find(color) == colorMemSize.end()) {
-      colorMemSize[color] = allocSize;
-    } else {
-      colorMemSize[color] = std::max(colorMemSize[color], allocSize);
-    }
-  }
   // Compute required memory and offsets per color
   SmallVector<int64_t> colorOffsets;
   int64_t offset = 0;
@@ -133,13 +143,18 @@ graphColoring(
   SmallVector<std::tuple<GpuAllocOp, int64_t, bool>> offsets;
   llvm::SetVector<int64_t> usedColors;
   for (const GpuAllocOp alloc : gpuAllocs) {
-    int64_t color = colorAssignment[alloc];
-    int64_t offset = colorOffsets[color];
+    // use the offset of the first color only
+    int64_t firstColor = colorAssignment[alloc][0];
+    int64_t offset = colorOffsets[firstColor];
 
     // if the color has been used, we are "reusing" memory,
     // we need a LDS barrier
-    bool useLDSBarrier = usedColors.contains(color);
-    usedColors.insert(color);
+    bool useLDSBarrier = false;
+    for (int64_t color : colorAssignment[alloc]) {
+      useLDSBarrier |= usedColors.contains(color);
+      usedColors.insert(color);
+    }
+
     offsets.push_back(std::tuple(alloc, offset, useLDSBarrier));
   }
 
