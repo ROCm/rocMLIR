@@ -114,8 +114,16 @@ graphColoring(
   llvm::MapVector<int64_t, int64_t> colorMemSize;
   int64_t maxColor = 0;
 
+  SmallVector<GpuAllocOp> sortedAllocs(gpuAllocs);
+
+  // Sort by alloc size
+  llvm::sort(sortedAllocs, [](GpuAllocOp &a, GpuAllocOp &b) {
+    auto aSize = getWorkgroupMemorySize(a.getOutput().getType());
+    auto bSize = getWorkgroupMemorySize(b.getOutput().getType());
+    return aSize < bSize;
+  });
   // Assign colors using greedy algorithm
-  for (GpuAllocOp alloc : gpuAllocs) {
+  for (GpuAllocOp alloc : sortedAllocs) {
     llvm::SetVector<int64_t> usedColors;
     for (GpuAllocOp neighbor : interferenceGraph[alloc]) {
       if (colorAssignment.find(neighbor) != colorAssignment.end()) {
