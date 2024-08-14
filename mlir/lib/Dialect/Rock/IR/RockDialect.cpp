@@ -520,10 +520,10 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
 static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
-  bool isGfx12 = arch.contains("gfx12");
+  bool isGfx11 = arch.contains("gfx11");
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
     if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
-      if (!isGfx12)
+      if (isGfx11)
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8 data types");
       if (!elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2())
