@@ -96,7 +96,9 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   }
   if (major == "gfx12") {
     // We know these chips have common features per backend
-    return gfx11Info;
+    AmdArchInfo gfx12Info(gfx11Info);
+    gfx12Info.hasFp8ConversionInstrs = true;
+    return gfx12Info;
   }
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
                << arch << "\n";
