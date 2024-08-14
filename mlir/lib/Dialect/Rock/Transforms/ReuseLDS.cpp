@@ -236,15 +236,10 @@ static LogicalResult reuseLDS(func::FuncOp &func,
       allocs.size() != interferenceGraph.size() || !currentAllocs.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "There should be an equal number of rock.alloc "
                                "and rock.dealloc (for LDS)\n");
-    LLVM_DEBUG(llvm::dbgs()
-               << "1: " << deallocs.size() << " != " << allocs.size() << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "2: " << allocs.size()
-                            << " != " << interferenceGraph.size() << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "3: " << currentAllocs.size() << "\n");
     return failure();
   }
 
-  // nothing to do if there is only one LDS allocation or none
+  // nothing to do if there is only one (or none) LDS allocation
   if (interferenceGraph.size() < 2) {
     LLVM_DEBUG(llvm::dbgs() << "Not enough LDS allocations, skipping pass\n");
     return success();
