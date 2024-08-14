@@ -11,6 +11,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -1240,66 +1241,43 @@ void MCGenDwarfLabelEntry::Make(MCSymbol *Symbol, MCStreamer *MCOS,
 }
 
 void MCCFIInstruction::replaceRegister(unsigned FromReg, unsigned ToReg) {
+  auto ReplaceReg = [=](unsigned &Reg) {
+    if (Reg == FromReg)
+      Reg = ToReg;
+  };
+
   // Replace registers in the shared fields.
-  switch (Operation) {
-  case OpRegister:
-  case OpLLVMVectorOffset:
-    if (Register2 == FromReg)
-      Register2 = ToReg;
-
-    [[fallthrough]];
-  case OpDefCfa:
-  case OpOffset:
-  case OpRestore:
-  case OpUndefined:
-  case OpSameValue:
-  case OpDefCfaRegister:
-  case OpRelOffset:
-  case OpLLVMDefAspaceCfa:
-  case OpLLVMVectorRegisters:
-  case OpLLVMRegisterPair:
-    if (Register == FromReg)
-      Register = ToReg;
-    break;
-
-  case OpRememberState:
-  case OpRestoreState:
-  case OpDefCfaOffset:
-  case OpAdjustCfaOffset:
-  case OpEscape:
-  case OpWindowSave:
-  case OpNegateRAState:
-  case OpGnuArgsSize:
-    // No registers are used for these operations.
-    break;
+  if (Operation == OpRegister) {
+    ReplaceReg(U.RR.Register);
+    ReplaceReg(U.RR.Register2);
+  } else if (Operation == OpLLVMDefAspaceCfa) {
+    ReplaceReg(U.RIA.Register);
+  } else if (Operation == OpDefCfa || Operation == OpOffset ||
+             Operation == OpRestore || Operation == OpUndefined ||
+             Operation == OpSameValue || Operation == OpDefCfaRegister ||
+             Operation == OpRelOffset || Operation == OpLLVMVectorRegisters ||
+             Operation == OpLLVMRegisterPair ||
+             Operation == OpLLVMVectorOffset ||
+             Operation == OpLLVMVectorRegisterMask) {
+    ReplaceReg(U.RI.Register);
   }
 
   // Replace registers in the "ExtraFields" structures.
-  switch (Operation) {
-  case OpLLVMRegisterPair: {
+  if (Operation == OpLLVMRegisterPair) {
     auto &Fields = getExtraFields<RegisterPairExtraFields>();
-    if (Fields.Reg1 == FromReg)
-      Fields.Reg1 = ToReg;
-    if (Fields.Reg2 == FromReg)
-      Fields.Reg2 = FromReg;
-    break;
-  }
-  case OpLLVMVectorRegisters: {
+    ReplaceReg(Fields.Reg1);
+    ReplaceReg(Fields.Reg2);
+  } else if (Operation == OpLLVMVectorRegisters) {
     auto &Fields = getExtraFields<VectorRegistersExtraFields>();
-    for (auto &VR : Fields.VectorRegisters) {
-      if (VR.Register == FromReg)
-        VR.Register = ToReg;
-    }
-    break;
-  }
-  case OpLLVMVectorOffset: {
+    for (auto &VR : Fields.VectorRegisters)
+      ReplaceReg(VR.Register);
+  } else if (Operation == OpLLVMVectorOffset) {
     auto &Fields = getExtraFields<VectorOffsetExtraFields>();
-    if (Fields.MaskRegister == FromReg)
-      Fields.MaskRegister = ToReg;
-    break;
-  }
-  default:
-    break;
+    ReplaceReg(Fields.MaskRegister);
+  } else if (Operation == OpLLVMVectorRegisterMask) {
+    auto &Fields = getExtraFields<VectorRegisterMaskExtraFields>();
+    ReplaceReg(Fields.SpillRegister);
+    ReplaceReg(Fields.MaskRegister);
   }
 }
 
@@ -1539,6 +1517,10 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     Streamer.emitBytes(Instr.getValues());
     return;
 
+  case MCCFIInstruction::OpLabel:
+    Streamer.emitLabel(Instr.getCfiLabel(), Instr.getLoc());
+    return;
+
   case MCCFIInstruction::OpLLVMRegisterPair: {
     // CFI for a register spilled to a pair of SGPRs is implemented as an
     // expression(E) rule where E is a composite location description with
@@ -1684,6 +1666,47 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     else
       OSBlock << uint8_t(dwarf::DW_OP_LLVM_select_bit_piece);
     encodeULEB128(Fields.RegisterSizeInBits, OSBlock);
+    encodeULEB128(Fields.MaskRegisterSizeInBits, OSBlock);
+
+    Streamer.emitInt8(dwarf::DW_CFA_expression);
+    Streamer.emitULEB128IntValue(Instr.getRegister());
+    Streamer.emitULEB128IntValue(Block.size());
+    Streamer.emitBinaryData(StringRef(&Block[0], Block.size()));
+    return;
+  }
+  case MCCFIInstruction::OpLLVMVectorRegisterMask: {
+    // CFI for a VGPR/AGPR partially spilled to another VGPR/AGPR dependent on
+    // an EXEC mask is implemented as an expression(E) rule where E is a
+    // location description.
+    //
+    // DW_CFA_expression: <GPR>,
+    //   (DW_OP_regx <GPR>)
+    //   (DW_OP_regx <Spill GPR>)
+    //   (DW_OP_LLVM_call_frame_entry_reg <Mask>)
+    //   (DW_OP_deref_size <MaskSize>)
+    //   (DW_OP_LLVM_select_bit_piece <GPR lane size> <MaskSize>)
+
+    const auto Fields =
+        Instr.getExtraFields<MCCFIInstruction::VectorRegisterMaskExtraFields>();
+
+    SmallString<20> Block;
+    raw_svector_ostream OSBlock(Block);
+    encodeDwarfRegisterLocation(Instr.getRegister(), OSBlock);
+    encodeDwarfRegisterLocation(Fields.SpillRegister, OSBlock);
+    if (EmitHeterogeneousDwarfAsUserOps)
+      OSBlock << uint8_t(dwarf::DW_OP_LLVM_user)
+              << uint8_t(dwarf::DW_OP_LLVM_USER_call_frame_entry_reg);
+    else
+      OSBlock << uint8_t(dwarf::DW_OP_LLVM_call_frame_entry_reg);
+    encodeULEB128(Fields.MaskRegister, OSBlock);
+    OSBlock << uint8_t(dwarf::DW_OP_deref_size)
+            << uint8_t(Fields.MaskRegisterSizeInBits / 8);
+    if (EmitHeterogeneousDwarfAsUserOps)
+      OSBlock << uint8_t(dwarf::DW_OP_LLVM_user)
+              << uint8_t(dwarf::DW_OP_LLVM_USER_select_bit_piece);
+    else
+      OSBlock << uint8_t(dwarf::DW_OP_LLVM_select_bit_piece);
+    encodeULEB128(Fields.SpillRegisterLaneSizeInBits, OSBlock);
     encodeULEB128(Fields.MaskRegisterSizeInBits, OSBlock);
 
     Streamer.emitInt8(dwarf::DW_CFA_expression);
@@ -2007,23 +2030,7 @@ void FrameEmitterImpl::EmitFDE(const MCSymbol &cieStart,
 namespace {
 
 struct CIEKey {
-  static const CIEKey getEmptyKey() {
-    return CIEKey(nullptr, 0, -1, false, false, static_cast<unsigned>(INT_MAX),
-                  false, false);
-  }
-
-  static const CIEKey getTombstoneKey() {
-    return CIEKey(nullptr, -1, 0, false, false, static_cast<unsigned>(INT_MAX),
-                  false, false);
-  }
-
-  CIEKey(const MCSymbol *Personality, unsigned PersonalityEncoding,
-         unsigned LSDAEncoding, bool IsSignalFrame, bool IsSimple,
-         unsigned RAReg, bool IsBKeyFrame, bool IsMTETaggedFrame)
-      : Personality(Personality), PersonalityEncoding(PersonalityEncoding),
-        LsdaEncoding(LSDAEncoding), IsSignalFrame(IsSignalFrame),
-        IsSimple(IsSimple), RAReg(RAReg), IsBKeyFrame(IsBKeyFrame),
-        IsMTETaggedFrame(IsMTETaggedFrame) {}
+  CIEKey() = default;
 
   explicit CIEKey(const MCDwarfFrameInfo &Frame)
       : Personality(Frame.Personality),
@@ -2049,43 +2056,27 @@ struct CIEKey {
                            Other.IsMTETaggedFrame);
   }
 
-  const MCSymbol *Personality;
-  unsigned PersonalityEncoding;
-  unsigned LsdaEncoding;
-  bool IsSignalFrame;
-  bool IsSimple;
-  unsigned RAReg;
-  bool IsBKeyFrame;
-  bool IsMTETaggedFrame;
+  bool operator==(const CIEKey &Other) const {
+    return Personality == Other.Personality &&
+           PersonalityEncoding == Other.PersonalityEncoding &&
+           LsdaEncoding == Other.LsdaEncoding &&
+           IsSignalFrame == Other.IsSignalFrame && IsSimple == Other.IsSimple &&
+           RAReg == Other.RAReg && IsBKeyFrame == Other.IsBKeyFrame &&
+           IsMTETaggedFrame == Other.IsMTETaggedFrame;
+  }
+  bool operator!=(const CIEKey &Other) const { return !(*this == Other); }
+
+  const MCSymbol *Personality = nullptr;
+  unsigned PersonalityEncoding = 0;
+  unsigned LsdaEncoding = -1;
+  bool IsSignalFrame = false;
+  bool IsSimple = false;
+  unsigned RAReg = static_cast<unsigned>(UINT_MAX);
+  bool IsBKeyFrame = false;
+  bool IsMTETaggedFrame = false;
 };
 
 } // end anonymous namespace
-
-namespace llvm {
-
-template <> struct DenseMapInfo<CIEKey> {
-  static CIEKey getEmptyKey() { return CIEKey::getEmptyKey(); }
-  static CIEKey getTombstoneKey() { return CIEKey::getTombstoneKey(); }
-
-  static unsigned getHashValue(const CIEKey &Key) {
-    return static_cast<unsigned>(
-        hash_combine(Key.Personality, Key.PersonalityEncoding, Key.LsdaEncoding,
-                     Key.IsSignalFrame, Key.IsSimple, Key.RAReg,
-                     Key.IsBKeyFrame, Key.IsMTETaggedFrame));
-  }
-
-  static bool isEqual(const CIEKey &LHS, const CIEKey &RHS) {
-    return LHS.Personality == RHS.Personality &&
-           LHS.PersonalityEncoding == RHS.PersonalityEncoding &&
-           LHS.LsdaEncoding == RHS.LsdaEncoding &&
-           LHS.IsSignalFrame == RHS.IsSignalFrame &&
-           LHS.IsSimple == RHS.IsSimple && LHS.RAReg == RHS.RAReg &&
-           LHS.IsBKeyFrame == RHS.IsBKeyFrame &&
-           LHS.IsMTETaggedFrame == RHS.IsMTETaggedFrame;
-  }
-};
-
-} // end namespace llvm
 
 void MCDwarfFrameEmitter::Emit(MCObjectStreamer &Streamer, MCAsmBackend *MAB,
                                bool IsEH) {
@@ -2128,9 +2119,6 @@ void MCDwarfFrameEmitter::Emit(MCObjectStreamer &Streamer, MCAsmBackend *MAB,
   MCSymbol *SectionStart = Context.createTempSymbol();
   Streamer.emitLabel(SectionStart);
 
-  DenseMap<CIEKey, const MCSymbol *> CIEStarts;
-
-  const MCSymbol *DummyDebugKey = nullptr;
   bool CanOmitDwarf = MOFI->getOmitDwarfIfHaveCompactUnwind();
   // Sort the FDEs by their corresponding CIE before we emit them.
   // This isn't technically necessary according to the DWARF standard,
@@ -2141,6 +2129,8 @@ void MCDwarfFrameEmitter::Emit(MCObjectStreamer &Streamer, MCAsmBackend *MAB,
                     [](const MCDwarfFrameInfo &X, const MCDwarfFrameInfo &Y) {
                       return CIEKey(X) < CIEKey(Y);
                     });
+  CIEKey LastKey;
+  const MCSymbol *LastCIEStart = nullptr;
   for (auto I = FrameArrayX.begin(), E = FrameArrayX.end(); I != E;) {
     const MCDwarfFrameInfo &Frame = *I;
     ++I;
@@ -2155,11 +2145,12 @@ void MCDwarfFrameEmitter::Emit(MCObjectStreamer &Streamer, MCAsmBackend *MAB,
       continue;
 
     CIEKey Key(Frame);
-    const MCSymbol *&CIEStart = IsEH ? CIEStarts[Key] : DummyDebugKey;
-    if (!CIEStart)
-      CIEStart = &Emitter.EmitCIE(Frame);
+    if (!LastCIEStart || (IsEH && Key != LastKey)) {
+      LastKey = Key;
+      LastCIEStart = &Emitter.EmitCIE(Frame);
+    }
 
-    Emitter.EmitFDE(*CIEStart, Frame, I == E, *SectionStart);
+    Emitter.EmitFDE(*LastCIEStart, Frame, I == E, *SectionStart);
   }
 }
 

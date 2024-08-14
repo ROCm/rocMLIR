@@ -728,6 +728,7 @@ Register SIFrameLowering::getEntryFunctionReservedScratchRsrcReg(
         (!GITPtrLoReg || !TRI->isSubRegisterEq(Reg, GITPtrLoReg))) {
       MRI.replaceRegWith(ScratchRsrcReg, Reg);
       MFI->setScratchRSrcReg(Reg);
+      MRI.reserveReg(Reg, TRI);
       return Reg;
     }
   }
@@ -864,22 +865,28 @@ void SIFrameLowering::emitEntryFunctionPrologue(MachineFunction &MF,
         break;
       }
     }
+
+    // FIXME: We can spill incoming arguments and restore at the end of the
+    // prolog.
+    if (!ScratchWaveOffsetReg)
+      report_fatal_error(
+          "could not find temporary scratch offset register in prolog");
   } else {
     ScratchWaveOffsetReg = PreloadedScratchWaveOffsetReg;
   }
   assert(ScratchWaveOffsetReg || !PreloadedScratchWaveOffsetReg);
+
+  if (hasFP(MF)) {
+    Register FPReg = MFI->getFrameOffsetReg();
+    assert(FPReg != AMDGPU::FP_REG);
+    BuildMI(MBB, I, DL, TII->get(AMDGPU::S_MOV_B32), FPReg).addImm(0);
+  }
 
   if (requiresStackPointerReference(MF)) {
     Register SPReg = MFI->getStackPtrOffsetReg();
     assert(SPReg != AMDGPU::SP_REG);
     BuildMI(MBB, I, DL, TII->get(AMDGPU::S_MOV_B32), SPReg)
         .addImm(FrameInfo.getStackSize() * getScratchScaleFactor(ST));
-  }
-
-  if (hasFP(MF)) {
-    Register FPReg = MFI->getFrameOffsetReg();
-    assert(FPReg != AMDGPU::FP_REG);
-    BuildMI(MBB, I, DL, TII->get(AMDGPU::S_MOV_B32), FPReg).addImm(0);
   }
 
   bool NeedsFlatScratchInit =
@@ -2181,15 +2188,20 @@ MachineInstr *SIFrameLowering::buildCFI(MachineBasicBlock &MBB,
       .setMIFlag(flag);
 }
 
-MachineInstr *SIFrameLowering::buildCFIForRegToRegSpill(
+MachineInstr *SIFrameLowering::buildCFIForVRegToVRegSpill(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
     const DebugLoc &DL, const Register Reg, const Register RegCopy) const {
   MachineFunction &MF = *MBB.getParent();
   const MCRegisterInfo &MCRI = *MF.getMMI().getContext().getRegisterInfo();
-  return buildCFI(
-      MBB, MBBI, DL,
-      MCCFIInstruction::createRegister(nullptr, MCRI.getDwarfRegNum(Reg, false),
-                                       MCRI.getDwarfRegNum(RegCopy, false)));
+  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
+
+  unsigned MaskReg = MCRI.getDwarfRegNum(
+      ST.isWave32() ? AMDGPU::EXEC_LO : AMDGPU::EXEC, false);
+  auto CFIInst = MCCFIInstruction::createLLVMVectorRegisterMask(
+      nullptr, MCRI.getDwarfRegNum(Reg, false),
+      MCRI.getDwarfRegNum(RegCopy, false), VGPRLaneBitSize, MaskReg,
+      ST.getWavefrontSize());
+  return buildCFI(MBB, MBBI, DL, std::move(CFIInst));
 }
 
 MachineInstr *SIFrameLowering::buildCFIForSGPRToVGPRSpill(

@@ -42,8 +42,7 @@ func.func @vector_trunc_long(%v: vector<9xf32>) -> vector<9xf16> {
   // CHECK: %[[packed3:.*]] = rocdl.cvt.pkrtz %[[elem6]], %[[elem7]] : vector<2xf16>
   // CHECK: %[[out3:.*]] = vector.insert_strided_slice %[[packed3]], %[[out2]] {offsets = [6], strides = [1]} : vector<2xf16> into vector<9xf16>
   // CHECK: %[[elem8:.*]] = vector.extractelement %[[value]]
-  // CHECK: %[[poison:.*]] = llvm.mlir.poison : f32
-  // CHECK: %[[packed4:.*]] = rocdl.cvt.pkrtz %[[elem8:.*]], %[[poison]] : vector<2xf16>
+  // CHECK: %[[packed4:.*]] = rocdl.cvt.pkrtz %[[elem8:.*]] : vector<2xf16>
   // CHECK: %[[slice:.*]] = vector.extract_strided_slice %[[packed4]] {offsets = [0], sizes = [1], strides = [1]} : vector<2xf16> to vector<1xf16>
   // CHECK: %[[out4:.*]] = vector.insert_strided_slice %[[slice]], %[[out3]] {offsets = [8], strides = [1]} : vector<1xf16> into vector<9xf16>
   // CHECK: return %[[out4]]

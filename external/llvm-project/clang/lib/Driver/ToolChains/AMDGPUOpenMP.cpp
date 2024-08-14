@@ -105,7 +105,7 @@ static void addOptLevelArg(const llvm::opt::ArgList &Args,
       OOpt = "3";
   }
   // To remove unreferenced internalized functions, add globaldce pass to O0
-  if (OOpt.equals("0") && !IsLlc)
+  if (OOpt == "0" && !IsLlc)
     CmdArgs.push_back(Args.MakeArgString("-passes=default<O0>,globaldce"));
   else
     CmdArgs.push_back(Args.MakeArgString("-O" + OOpt));
@@ -210,7 +210,8 @@ const char *amdgpu::dlr::getLinkCommandArgs(
     llvm::opt::ArgStringList &LastLinkArgs, const ToolChain &TC,
     const llvm::Triple &Triple, llvm::StringRef TargetID,
     llvm::StringRef OutputFilePrefix, const char *InputFileName,
-    const RocmInstallationDetector &RocmInstallation) {
+    const RocmInstallationDetector &RocmInstallation,
+    llvm::opt::ArgStringList &EnvironmentLibraryPaths) {
   LastLinkArgs.push_back(Args.MakeArgString(InputFileName));
 
   // Get the environment variable ROCM_LINK_ARGS and add to llvm-link.
@@ -263,8 +264,23 @@ const char *amdgpu::dlr::getLinkCommandArgs(
   if (LibSuffix != "lib" || llvm::sys::fs::exists(Path)) {
     BCLibs.push_back(Args.MakeArgString(Path));
   } else {
-    std::string RtDir = "/../runtimes/runtimes-bins/offload";
-    BCLibs.push_back(Args.MakeArgString(libpath + RtDir + LibDeviceName));
+    // Check if the device library can be found in
+    // one of the LIBRARY_PATH directories.
+    bool EnvOmpLibDeviceFound = false;
+    for (auto &EnvLibraryPath : EnvironmentLibraryPaths) {
+      std::string EnvOmpLibDevice = EnvLibraryPath + LibDeviceName;
+      if (llvm::sys::fs::exists(EnvOmpLibDevice)) {
+        EnvOmpLibDeviceFound = true;
+        BCLibs.push_back(EnvOmpLibDevice);
+        break;
+      }
+    }
+    // If LIBRARY_PATH doesn't point to the device library,
+    // then use the default one.
+    if (!EnvOmpLibDeviceFound) {
+      std::string RtDir = "/../runtimes/runtimes-bins/offload";
+      BCLibs.push_back(Args.MakeArgString(libpath + RtDir + LibDeviceName));
+    }
   }
 
   if (!AsanRTL.empty()) {
@@ -399,8 +415,6 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
     CC1Args.push_back(OneFeature.data());
   }
 
-  CC1Args.push_back("-fcuda-is-device");
-
   if (DriverArgs.hasFlag(options::OPT_fgpu_approx_transcendentals,
                          options::OPT_fno_gpu_approx_transcendentals, false))
     CC1Args.push_back("-fcuda-approx-transcendentals");
@@ -431,6 +445,10 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
     CC1Args.append({"-fvisibility", "hidden"});
     CC1Args.push_back("-fapply-global-visibility-to-externs");
   }
+
+  CC1Args.push_back("-fcuda-is-device");
+
+  CC1Args.push_back("-fcuda-is-device");
 
   if (DriverArgs.hasArg(options::OPT_nogpulib))
     return;
@@ -492,7 +510,7 @@ llvm::opt::DerivedArgList *AMDGPUOpenMPToolChain::TranslateArgs(
               llvm::formatv("{0}", llvm::fmt_consume(ArchsOrErr.takeError()));
           getDriver().Diag(diag::err_drv_undetermined_gpu_arch)
               << llvm::Triple::getArchTypeName(getArch()) << ErrMsg << "-march";
-          Arch = CudaArchToString(CudaArch::HIPDefault);
+          Arch = OffloadArchToString(OffloadArch::HIPDefault);
         } else {
           Arch = Args.MakeArgString(ArchsOrErr->front());
         }

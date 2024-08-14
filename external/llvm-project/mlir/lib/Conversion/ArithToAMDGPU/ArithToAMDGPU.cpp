@@ -19,7 +19,6 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir {
@@ -28,6 +27,7 @@ namespace mlir {
 } // namespace mlir
 
 using namespace mlir;
+using namespace mlir::amdgpu;
 
 namespace {
 struct ArithToAMDGPUConversionPass final
@@ -47,8 +47,11 @@ struct ExtFOnFloat8RewritePattern final : OpRewritePattern<arith::ExtFOp> {
 
 struct TruncFToFloat8RewritePattern final : OpRewritePattern<arith::TruncFOp> {
   bool saturateFP8 = false;
-  TruncFToFloat8RewritePattern(MLIRContext *ctx, bool saturateFP8)
-      : OpRewritePattern::OpRewritePattern(ctx), saturateFP8(saturateFP8) {}
+  TruncFToFloat8RewritePattern(MLIRContext *ctx, bool saturateFP8,
+                               Chipset chipset)
+      : OpRewritePattern::OpRewritePattern(ctx), saturateFP8(saturateFP8),
+        chipset(chipset) {}
+  Chipset chipset;
 
   LogicalResult match(arith::TruncFOp op) const override;
   void rewrite(arith::TruncFOp op, PatternRewriter &rewriter) const override;
@@ -81,12 +84,10 @@ LogicalResult ExtFOnFloat8RewritePattern::match(arith::ExtFOp op) const {
   if (auto inVecType = dyn_cast<VectorType>(inType)) {
     if (inVecType.isScalable())
       return failure();
-    if (inVecType.getShape().size() > 1)
-      // Multi-dimensional vectors are currently unsupported.
-      return failure();
     inType = inVecType.getElementType();
   }
-  return success(inType.isFloat8E5M2FNUZ() || inType.isFloat8E4M3FNUZ());
+  return success(inType.isFloat8E5M2FNUZ() || inType.isFloat8E4M3FNUZ() ||
+                 inType.isFloat8E5M2() || inType.isFloat8E4M3FN());
 }
 
 void ExtFOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
@@ -94,28 +95,38 @@ void ExtFOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
   Location loc = op.getLoc();
   Value in = op.getIn();
   Type outElemType = getElementTypeOrSelf(op.getOut().getType());
-  if (!isa<VectorType>(in.getType())) {
+  auto inType = dyn_cast<VectorType>(in.getType());
+  if (!inType) {
     Value asFloat = rewriter.create<amdgpu::ExtPackedFp8Op>(
         loc, rewriter.getF32Type(), in, 0);
     Value result = castF32To(outElemType, asFloat, loc, rewriter);
     return rewriter.replaceOp(op, result);
   }
-  VectorType inType = cast<VectorType>(in.getType());
   int64_t numElements = inType.getNumElements();
   Value zero = rewriter.create<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));
-  Value result =
-      rewriter.createOrFold<vector::SplatOp>(loc, op.getOut().getType(), zero);
   if (inType.getShape().empty()) {
     Value scalarIn =
         rewriter.create<vector::ExtractOp>(loc, in, ArrayRef<int64_t>{});
     // Recurse to send the 0-D vector case to the 1-D vector case
     Value scalarExt =
         rewriter.create<arith::ExtFOp>(loc, outElemType, scalarIn);
-    result = rewriter.create<vector::InsertOp>(loc, scalarExt, zero,
-                                               ArrayRef<int64_t>{});
+    Value result = rewriter.create<vector::InsertOp>(loc, scalarExt, zero,
+                                                     ArrayRef<int64_t>{});
     return rewriter.replaceOp(op, result);
   }
+
+  VectorType outType = cast<VectorType>(op.getOut().getType());
+  VectorType flatTy = VectorType::get(SmallVector<int64_t>{numElements},
+                                      outType.getElementType());
+  Value result = rewriter.createOrFold<vector::SplatOp>(loc, flatTy, zero);
+
+  if (inType.getRank() > 1) {
+    inType = VectorType::get(SmallVector<int64_t>{numElements},
+                             inType.getElementType());
+    in = rewriter.create<vector::ShapeCastOp>(loc, inType, in);
+  }
+
   for (int64_t i = 0; i < numElements; i += 4) {
     int64_t elemsThisOp = std::min(numElements, i + 4) - i;
     Value inSlice = rewriter.create<vector::ExtractStridedSliceOp>(
@@ -127,6 +138,11 @@ void ExtFOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
       result = rewriter.create<vector::InsertOp>(loc, asType, result, i + j);
     }
   }
+
+  if (inType.getRank() != outType.getRank()) {
+    result = rewriter.create<vector::ShapeCastOp>(loc, outType, result);
+  }
+
   rewriter.replaceOp(op, result);
 }
 
@@ -195,16 +211,17 @@ LogicalResult TruncFToFloat8RewritePattern::match(arith::TruncFOp op) const {
   if (auto outVecType = dyn_cast<VectorType>(outType)) {
     if (outVecType.isScalable())
       return failure();
-    if (outVecType.getShape().size() > 1)
-      // Multi-dimensional vectors are currently unsupported.
-      return failure();
     outType = outVecType.getElementType();
   }
   auto inType = dyn_cast<FloatType>(getElementTypeOrSelf(op.getIn().getType()));
   if (inType && inType.getWidth() <= 8 && saturateFP8)
     // Conversion between 8-bit floats is not supported with truncation enabled.
     return failure();
-  return success(outType.isFloat8E5M2FNUZ() || outType.isFloat8E4M3FNUZ());
+
+  return success((((outType.isFloat8E5M2FNUZ() || outType.isFloat8E4M3FNUZ()) &&
+                   chipset.isGfx940()) ||
+                  ((outType.isFloat8E5M2() || outType.isFloat8E4M3FN()) &&
+                   chipset.hasOcpFp8())));
 }
 
 void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
@@ -214,8 +231,9 @@ void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
   Type outElemType = getElementTypeOrSelf(op.getOut().getType());
   if (saturateFP8)
     in = clampInput(rewriter, loc, outElemType, in);
+  auto inVectorTy = dyn_cast<VectorType>(in.getType());
   VectorType truncResType = VectorType::get(4, outElemType);
-  if (!isa<VectorType>(in.getType())) {
+  if (!inVectorTy) {
     Value asFloat = castToF32(in, loc, rewriter);
     Value asF8s = rewriter.create<amdgpu::PackedTrunc2xFp8Op>(
         loc, truncResType, asFloat, /*sourceB=*/nullptr, 0,
@@ -227,16 +245,25 @@ void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
   int64_t numElements = outType.getNumElements();
   Value zero = rewriter.create<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));
-  Value result = rewriter.createOrFold<vector::SplatOp>(loc, outType, zero);
   if (outType.getShape().empty()) {
     Value scalarIn =
         rewriter.create<vector::ExtractOp>(loc, in, ArrayRef<int64_t>{});
     // Recurse to send the 0-D vector case to the 1-D vector case
     Value scalarTrunc =
         rewriter.create<arith::TruncFOp>(loc, outElemType, scalarIn);
-    result = rewriter.create<vector::InsertOp>(loc, scalarTrunc, zero,
-                                               ArrayRef<int64_t>{});
+    Value result = rewriter.create<vector::InsertOp>(loc, scalarTrunc, zero,
+                                                     ArrayRef<int64_t>{});
     return rewriter.replaceOp(op, result);
+  }
+
+  VectorType flatTy = VectorType::get(SmallVector<int64_t>{numElements},
+                                      outType.getElementType());
+  Value result = rewriter.createOrFold<vector::SplatOp>(loc, flatTy, zero);
+
+  if (inVectorTy.getRank() > 1) {
+    inVectorTy = VectorType::get(SmallVector<int64_t>{numElements},
+                                 inVectorTy.getElementType());
+    in = rewriter.create<vector::ShapeCastOp>(loc, inVectorTy, in);
   }
 
   for (int64_t i = 0; i < numElements; i += 4) {
@@ -259,13 +286,18 @@ void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
     result = rewriter.create<vector::InsertStridedSliceOp>(loc, thisResult,
                                                            result, i, 1);
   }
+
+  if (inVectorTy.getRank() != outType.getRank()) {
+    result = rewriter.create<vector::ShapeCastOp>(loc, outType, result);
+  }
+
   rewriter.replaceOp(op, result);
 }
 
 LogicalResult TruncfToFloat16RewritePattern::match(arith::TruncFOp op) const {
   Type outType = op.getOut().getType();
   Type inputType = getElementTypeOrSelf(op.getIn());
-  if (auto outVecType = outType.dyn_cast<VectorType>()) {
+  if (auto outVecType = dyn_cast<VectorType>(outType)) {
     if (outVecType.isScalable())
       return failure();
     if (outVecType.getShape().size() > 1)
@@ -284,7 +316,7 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
   VectorType truncResType = VectorType::get(2, outElemType);
 
   // Handle the case where input type is not a vector type
-  if (!in.getType().isa<VectorType>()) {
+  if (!isa<VectorType>(in.getType())) {
     auto sourceB = rewriter.create<LLVM::PoisonOp>(loc, rewriter.getF32Type());
     Value asF16s =
         rewriter.create<ROCDL::CvtPkRtz>(loc, truncResType, in, sourceB);
@@ -292,7 +324,7 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
         loc, asF16s, rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0));
     return rewriter.replaceOp(op, result);
   }
-  VectorType outType = op.getOut().getType().cast<VectorType>();
+  VectorType outType = cast<VectorType>(op.getOut().getType());
   int64_t numElements = outType.getNumElements();
   Value zero = rewriter.createOrFold<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));
@@ -326,12 +358,12 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
 
 void mlir::arith::populateArithToAMDGPUConversionPatterns(
     RewritePatternSet &patterns, bool convertFP8Arithmetic,
-    bool saturateFP8Truncf, bool allowPackedF16Rtz) {
+    bool saturateFP8Truncf, bool allowPackedF16Rtz, Chipset chipset) {
 
   if (convertFP8Arithmetic) {
     patterns.add<ExtFOnFloat8RewritePattern>(patterns.getContext());
     patterns.add<TruncFToFloat8RewritePattern>(patterns.getContext(),
-                                               saturateFP8Truncf);
+                                               saturateFP8Truncf, chipset);
   }
   if (allowPackedF16Rtz)
     patterns.add<TruncfToFloat16RewritePattern>(patterns.getContext());
@@ -350,7 +382,8 @@ void ArithToAMDGPUConversionPass::runOnOperation() {
   bool convertFP8Arithmetic =
       (*maybeChipset).majorVersion == 9 && (*maybeChipset).minorVersion >= 0x40;
   arith::populateArithToAMDGPUConversionPatterns(
-      patterns, convertFP8Arithmetic, saturateFP8Truncf, allowPackedF16Rtz);
+      patterns, convertFP8Arithmetic, saturateFP8Truncf, allowPackedF16Rtz,
+      *maybeChipset);
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     return signalPassFailure();
 }

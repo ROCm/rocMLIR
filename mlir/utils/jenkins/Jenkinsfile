@@ -67,11 +67,11 @@ String dockerArgs() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm6.0-latest'
+    return 'rocm/mlir:rocm6.2-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm6.0-latest'
+    return 'rocm/mlir-migraphx-ci:rocm6.2-latest'
 }
 
 void preMergeCheck(String codepath) {
@@ -88,10 +88,10 @@ void preMergeCheck(String codepath) {
         fi
         '''
         if (params.ignoreExternalLinting == true) {
-            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --ignore-external'
+            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=${params.rocMLIRTargetBranch} --ignore-external"
         }
         else {
-            sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=${params.rocMLIRTargetBranch}"
         }
     } else {
         echo "Static Test step skipped"
@@ -183,7 +183,7 @@ String getLabelFromCodepath(String codepath) {
         // and server nodes (gfx1030)
         label = 'mlir && ( gfx1030w || gfx1030 )'
     } else if (codepath == "vanilla"){
-        label = 'mlir && gfx906'
+        label = 'mlir'
     } else if (codepath == "navi3x") {
         label = 'mlir && ( gfx1100 || gfx1101 )'
     } else {
@@ -249,7 +249,7 @@ void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
              -DROCK_E2E_TEST_SUITES=${testSuite}
              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
-             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
+             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 4'
              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
      """)
 }
@@ -264,7 +264,7 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                  -DROCK_E2E_TEST_ENABLED=0
                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir'
+                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 4'
                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
          """)
          echo "Static Test step skipped"
@@ -279,7 +279,7 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
              -DROCK_E2E_TEST_SUITES='part1'
              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
-             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 8'
+             -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 4'
              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
         """)
         checkRocmlirOnNavi3x(fixed, 'part2')
@@ -337,10 +337,12 @@ boolean shouldRunFromCodepath(String codepath) {
 
 boolean shouldRunFromChip(String chip) {
     switch (chip) {
-        case "gfx906":
+        default:
             return shouldRunFromCodepath("vanilla")
-        case "gfx908":
         case "gfx90a":
+            // Special case because all our "vanilla" hosts are gfx90a.
+            return shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla")
+        case "gfx908":
         case "gfx942":
             return shouldRunFromCodepath("mfma")
         case "gfx1030":
@@ -354,10 +356,14 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
-        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
-        if (params.disableNavi21 == false)
-            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+        if (params.canXdlops) {
+            unstash name: "MLIR-PerfDB-gfx908"
+            unstash name: "MLIR-PerfDB-gfx90a"
+            if (!params.disableNavi21)
+                unstash name: "MLIR-PerfDB-gfx1030"
+        } else {
+            unstash name: "MLIR-PerfDB-vanilla"
+        }
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
     archiveArtifacts artifacts: 'build/perfDB/**',\
@@ -397,6 +403,8 @@ pipeline {
                description: 'The MIGraphX branch/commit to verify against.')
         string(name: 'CKBranch', defaultValue: 'develop',
             description: 'The Composable Kernel branch to be used with the job')
+        string(name: 'rocMLIRTargetBranch', defaultValue: 'origin/develop',
+            description: 'The target branch the PR is intended to merge with')
 
 
         // Each below control whether to run a individual stage from parallel run
@@ -494,13 +502,8 @@ pipeline {
                         steps {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x' ) {
-                                    try {
+                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                         check_RockE2ETests_Navi3x(true)
-                                    } catch (Exception e) {
-                                        if (params.nightly)
-                                            currentBuild.result = 'SUCCESS'
-                                        else
-                                            currentBuild.result = 'FAILURE'
                                     }
                                 }
                                 else {
@@ -524,10 +527,8 @@ pipeline {
                         steps {
                             script {
                                 if ( "${CODEPATH}" == 'navi3x') {
-                                    try {
+                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                         check_RockE2ETests_Navi3x(false)
-                                    } catch (Exception e) {
-                                        currentBuild.result = 'SUCCESS'
                                     }
                                 }
                                 else
@@ -675,7 +676,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 agent {
@@ -760,7 +761,7 @@ pipeline {
                         steps {
                             // Save user database for nightly jobs
                             dir ('build') {
-                                stash name: "MLIR-PerfDB-${ARCH}", includes: "*.tsv"
+                                stash name: "MLIR-PerfDB-${params.canXdlops ? ARCH : 'vanilla'}", includes: "*.tsv"
                             }
                         }
                     }
@@ -777,8 +778,12 @@ pipeline {
                 beforeAgent true;
                 equals expected: true, actual: params.weekly;
                 equals expected: true, actual: params.staticLib;
+                anyOf {
+                    equals expected: "default", actual: params.weeklyTasks;
+                    equals expected: "Tuning", actual: params.weeklyTasks;
+               }
             }
-            agent any
+            agent { label 'build-only' }
             options {
                 skipDefaultCheckout()
             }
@@ -797,7 +802,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
                     }
                 }
                 when {
@@ -1081,6 +1086,8 @@ pipeline {
                     HOME="${WORKSPACE}"
                     // Note the %m to avoid issues with threads and dynamic libraries.
                     LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
+                    LLVM_PROFDATA="/opt/rocm/llvm/bin/llvm-profdata"
+                    LLVM_COV="/opt/rocm/llvm/bin/llvm-cov"
                 }
                 stages {
                     stage ("body") {
@@ -1097,11 +1104,11 @@ pipeline {
                                         // Run tests.
                                         sh 'ninja check-rocmlir'
                                         // Profile processing.
-                                        sh '/opt/rocm/llvm/bin/llvm-profdata merge -sparse ./*.profraw -o ./coverage.profdata'
-                                        sh "/opt/rocm/llvm/bin/llvm-cov report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
+                                        sh "${LLVM_PROFDATA} merge -sparse ./*.profraw -o ./coverage.profdata"
+                                        sh "${LLVM_COV} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
                                         sh "cat ./coverage_${CPATH}.report"
-                                        sh "/opt/rocm/llvm/bin/llvm-cov export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
-                                        sh "/opt/rocm/llvm/bin/llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=/opt/rocm/llvm/bin/llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
+                                        sh "${LLVM_COV} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
+                                        sh "${LLVM_COV} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
                                         // Upload to codecov.
                                         withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
                                             sh '''

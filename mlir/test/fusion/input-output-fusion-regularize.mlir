@@ -10,7 +10,7 @@
 // CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<#map{{.*}} by [<PassThrough ["gemmG", "gemmM", "gemmK"] at [0, 1, 2] -> ["gemmG", "gemmM", "gemmK"] at [0, 1, 2]>] bounds = [1, 32, 32] -> [1, 32, 32]>
 #transform_map2 = #rock.transform_map<#map1 by [<PassThrough ["gemmG", "gemmM", "gemmK"] at [0, 1, 2] -> ["gemmG", "gemmM", "gemmK"] at [0, 1, 2]>] bounds = [1, 32, 32] -> [1, 32, 32]>
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
-  func.func @rock_gemm(%arg0: memref<1x32x16xf16>, %arg1: memref<1x16x32xf32>, %arg2: memref<1x32x32xf32>) attributes {block_size = 128 : i32, enable_splik_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
+  func.func @rock_gemm(%arg0: memref<1x32x16xf16>, %arg1: memref<1x16x32xf32>, %arg2: memref<1x32x32xf32>) attributes {block_size = 128 : i32, enable_splitk_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     // CHECK: %[[ALLOC:.*]] = memref.alloc() : memref<1x32x16xf32>
     // CHECK-NEXT: %[[TRAN:.*]] = rock.transform %[[ALLOC]] by #[[MAP]]
     %alloc = memref.alloc() : memref<1x16x32xf32>
@@ -27,7 +27,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
     // CHECK-NEXT: %[[ALLOC_0:.*]] = memref.alloc() : memref<1x32x32xf32>
     %gemmOut = memref.alloc() : memref<1x32x32xf32>
     // CHECK-NEXT: rock.gridwise_gemm %[[ALLOC_0]] = %[[IN]] * %{{.*}}
-    rock.gridwise_gemm %gemmOut = %1 * %arg1 features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
+    rock.gridwise_gemm %gemmOut = %1 * %arg1 storeMethod(set) features =  dot|atomic_add {gridSize = 1 : i32, numCU = 104 : i32, params = #general_gemm_params} : memref<1x32x32xf32> = memref<1x16x32xf32> * memref<1x16x32xf32>
     // CHECK-NEXT: %[[ALLOC_1:.*]] = memref.alloc() : memref<1x32x32xf32>
     // CHECK-NEXT: %[[OUTS:.*]] = rock.transform %alloc_1 by #[[MAP2]]
     %alloc_1 = memref.alloc() : memref<1x32x32xf32>

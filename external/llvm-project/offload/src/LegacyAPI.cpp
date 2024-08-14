@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "OmptCommonDefs.h"
 #include "OpenMP/OMPT/Interface.h"
 #include "omptarget.h"
 #include "private.h"
@@ -88,7 +89,8 @@ EXTERN int __tgt_target_mapper(ident_t *Loc, int64_t DeviceId, void *HostPtr,
   TIMESCOPE_WITH_IDENT(Loc);
   OMPT_IF_BUILT(ReturnAddressSetterRAII RA(__builtin_return_address(0)));
   KernelArgsTy KernelArgs{1,        ArgNum,   ArgsBase,   Args, ArgSizes,
-                          ArgTypes, ArgNames, ArgMappers, 0};
+                          ArgTypes, ArgNames, ArgMappers, 0,    {},
+                          {},       {},       0};
   return __tgt_target_kernel(Loc, DeviceId, -1, -1, HostPtr, &KernelArgs);
 }
 
@@ -132,7 +134,8 @@ EXTERN int __tgt_target_teams_mapper(ident_t *Loc, int64_t DeviceId,
   TIMESCOPE_WITH_IDENT(Loc);
   OMPT_IF_BUILT(ReturnAddressSetterRAII RA(__builtin_return_address(0)));
   KernelArgsTy KernelArgs{1,        ArgNum,   ArgsBase,   Args, ArgSizes,
-                          ArgTypes, ArgNames, ArgMappers, 0};
+                          ArgTypes, ArgNames, ArgMappers, 0,    {},
+                          {},       {},       0};
   return __tgt_target_kernel(Loc, DeviceId, NumTeams, ThreadLimit, HostPtr,
                              &KernelArgs);
 }

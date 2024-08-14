@@ -880,7 +880,7 @@ private:
     if (BB != Before.getParent())
       return false;
 
-    const DataLayout &DL = Array.getModule()->getDataLayout();
+    const DataLayout &DL = Array.getDataLayout();
     const unsigned int PointerSize = DL.getPointerSize();
 
     for (Instruction &I : *BB) {
@@ -1453,7 +1453,6 @@ private:
       };
       emitRemark<OptimizationRemark>(CI, "OMP160", Remark);
 
-      CGUpdater.removeCallSite(*CI);
       CI->eraseFromParent();
       Changed = true;
       ++NumOpenMPParallelRegionsDeleted;
@@ -1667,21 +1666,21 @@ private:
       BP->print(Printer);
       Printer << Separator;
     }
-    LLVM_DEBUG(dbgs() << "\t\toffload_baseptrs: " << Printer.str() << "\n");
+    LLVM_DEBUG(dbgs() << "\t\toffload_baseptrs: " << ValuesStr << "\n");
     ValuesStr.clear();
 
     for (auto *P : OAs[1].StoredValues) {
       P->print(Printer);
       Printer << Separator;
     }
-    LLVM_DEBUG(dbgs() << "\t\toffload_ptrs: " << Printer.str() << "\n");
+    LLVM_DEBUG(dbgs() << "\t\toffload_ptrs: " << ValuesStr << "\n");
     ValuesStr.clear();
 
     for (auto *S : OAs[2].StoredValues) {
       S->print(Printer);
       Printer << Separator;
     }
-    LLVM_DEBUG(dbgs() << "\t\toffload_sizes: " << Printer.str() << "\n");
+    LLVM_DEBUG(dbgs() << "\t\toffload_sizes: " << ValuesStr << "\n");
   }
 
   /// Returns the instruction where the "wait" counterpart \p RuntimeCall can be
@@ -1895,7 +1894,6 @@ private:
       else
         emitRemark<OptimizationRemark>(&F, "OMP170", Remark);
 
-      CGUpdater.removeCallSite(*CI);
       CI->replaceAllUsesWith(ReplVal);
       CI->eraseFromParent();
       ++NumOpenMPRuntimeCallsDeduplicated;
@@ -3797,12 +3795,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
         KernelInfo::getMayUseNestedParallelismFromKernelEnvironment(KernelEnvC);
     ConstantInt *AssumedMayUseNestedParallelismC = ConstantInt::get(
         MayUseNestedParallelismC->getIntegerType(), NestedParallelism);
-    // D142569 started calling setMayUseNestedParallelismOfKernelEnvironment,
-    // breaking nested parallelism tests. ifdef out for now.
-#if 0
     setMayUseNestedParallelismOfKernelEnvironment(
         AssumedMayUseNestedParallelismC);
-#endif
 
     if (!DisableOpenMPOptStateMachineRewrite) {
       ConstantInt *UseGenericStateMachineC =
@@ -4242,7 +4236,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
           ORA << "Value has potential side effects preventing SPMD-mode "
                  "execution";
           if (isa<CallBase>(NonCompatibleI)) {
-            ORA << ". Add `__attribute__((assume(\"ompx_spmd_amenable\")))` to "
+            ORA << ". Add `[[omp::assume(\"ompx_spmd_amenable\")]]` to "
                    "the called function to override";
           }
           return ORA << ".";
@@ -4411,7 +4405,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
           continue;
         auto Remark = [&](OptimizationRemarkAnalysis ORA) {
           return ORA << "Call may contain unknown parallel regions. Use "
-                     << "`__attribute__((assume(\"omp_no_parallelism\")))` to "
+                     << "`[[omp::assume(\"omp_no_parallelism\")]]` to "
                         "override.";
         };
         A.emitRemark<OptimizationRemarkAnalysis>(UnknownParallelRegionCB,
@@ -4697,13 +4691,8 @@ struct AAKernelInfoFunction : AAKernelInfo {
                 AA.KernelEnvC);
         ConstantInt *NewMayUseNestedParallelismC = ConstantInt::get(
             MayUseNestedParallelismC->getIntegerType(), AA.NestedParallelism);
-        // D142569 started calling
-        // setMayUseNestedParallelismOfKernelEnvironment, breaking nested
-        // parallelism tests. ifdef out for now.
-#if 0	
         AA.setMayUseNestedParallelismOfKernelEnvironment(
             NewMayUseNestedParallelismC);
-#endif
       }
     } RAII(*this);
 

@@ -20,7 +20,6 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -101,7 +100,7 @@ static Type deduceAccumulatorElementType(Type elementTypeA, Type elementTypeB,
   // fp8 (any combo) : f32.
   // i8: i32, since we have an i32 output
   auto type = getSmallestType(elementTypeA, elementTypeB);
-  if (type.isa<FloatType>() && type.getIntOrFloatBitWidth() < 32) {
+  if (isa<FloatType>(type) && type.getIntOrFloatBitWidth() < 32) {
     return builder.getF32Type();
   } else if (type.isInteger(8)) {
     return builder.getI32Type();
@@ -111,15 +110,15 @@ static Type deduceAccumulatorElementType(Type elementTypeA, Type elementTypeB,
 
 static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
                             Location loc) {
-  auto aElementType = a.getType().cast<MemRefType>().getElementType();
-  auto bElementType = b.getType().cast<MemRefType>().getElementType();
-  auto cElementType = c.getType().cast<MemRefType>().getElementType();
+  auto aElementType = cast<MemRefType>(a.getType()).getElementType();
+  auto bElementType = cast<MemRefType>(b.getType()).getElementType();
+  auto cElementType = cast<MemRefType>(c.getType()).getElementType();
 
   auto accumulatorElementType = deduceAccumulatorElementType(
       aElementType, bElementType, cElementType, builder);
 
   if (accumulatorElementType != cElementType) {
-    auto accumulatorShape = c.getType().cast<MemRefType>().getShape();
+    auto accumulatorShape = cast<MemRefType>(c.getType()).getShape();
     auto accumulatorType =
         MemRefType::get(accumulatorShape, accumulatorElementType);
     return builder.create<memref::AllocOp>(loc, accumulatorType);
@@ -132,7 +131,7 @@ LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
-  if (!adaptor.getA().getType().isa<MemRefType>())
+  if (!isa<MemRefType>(adaptor.getA().getType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
   Attribute params = op.getParams().value_or(nullptr);
@@ -142,9 +141,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   Value a = adaptor.getA(), b = adaptor.getB(), c = adaptor.getC();
 
-  MemRefType typeA = a.getType().cast<MemRefType>();
-  MemRefType typeB = b.getType().cast<MemRefType>();
-  MemRefType typeC = c.getType().cast<MemRefType>();
+  MemRefType typeA = cast<MemRefType>(a.getType());
+  MemRefType typeB = cast<MemRefType>(b.getType());
+  MemRefType typeC = cast<MemRefType>(c.getType());
   Type elemTypeA = typeA.getElementType();
   Type elemTypeB = typeB.getElementType();
   Type elemTypeC = typeC.getElementType();
@@ -154,7 +153,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   // Extend input types to the highest-precision type among the inputs
   if (elemTypeA != elemTypeB &&
       !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
-      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ())) {
+      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) &&
+      !(elemTypeA.isFloat8E5M2() && elemTypeB.isFloat8E4M3FN()) &&
+      !(elemTypeA.isFloat8E4M3FN() && elemTypeB.isFloat8E5M2())) {
     if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
       MemRefType newBType = MemRefType::get(bShape, elemTypeA);
       memref::AllocOp newB = rw.create<memref::AllocOp>(loc, newBType);
@@ -192,8 +193,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
   }
 
-  aShape = a.getType().cast<MemRefType>().getShape();
-  bShape = b.getType().cast<MemRefType>().getShape();
+  aShape = cast<MemRefType>(a.getType()).getShape();
+  bShape = cast<MemRefType>(b.getType()).getShape();
 
   // Note, matrix dimension correctness is handled in the verifier
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
@@ -230,11 +231,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     rw.create<GridwiseGemmAccelOp>(
         loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
         op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
-        params.cast<RockAccelTuningParamAttrInterface>());
+        cast<RockAccelTuningParamAttrInterface>(params));
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
-                              numCUAttr, gridSize,
-                              params.cast<GeneralGemmParamsAttr>());
+                              op.getStoreMethodAttr(), numCUAttr, gridSize,
+                              cast<GeneralGemmParamsAttr>(params));
   }
 
   if (accumulator != c) {
@@ -249,7 +250,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         [](OpBuilder &builder, Location loc, ValueRange elems) {
           Value accumulator = elems[0], c = elems[1];
           Type cType = c.getType();
-          if (cType.isa<IntegerType>()) {
+          if (isa<IntegerType>(cType)) {
             Value cElement =
                 builder.create<arith::TruncIOp>(loc, cType, accumulator);
             builder.create<linalg::YieldOp>(loc, cElement);
@@ -275,8 +276,8 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 
   // set the prefill attribute
   auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  auto attrName = mhal::PrefillAttr::getMnemonic();
-  auto elementType = c.getType().cast<MemRefType>().getElementType();
+  auto attrName = rock::PrefillAttr::getMnemonic();
+  auto elementType = cast<MemRefType>(c.getType()).getElementType();
   Attribute zero;
   if (llvm::isa<FloatType>(elementType)) {
     zero = builder.getFloatAttr(elementType, 0.0);
@@ -287,7 +288,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   }
   func.setArgAttrs(2, builder.getNamedAttr(attrName, zero));
 
-  const int64_t origK = a.getType().cast<MemRefType>().getShape()[1];
+  const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
   const int64_t kPad =
       splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
 
@@ -296,9 +297,9 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 
   // perform coordinate transformations
   Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr};
-  ArrayRef<int64_t> aShape = a.getType().cast<MemRefType>().getShape();
-  ArrayRef<int64_t> bShape = b.getType().cast<MemRefType>().getShape();
-  ArrayRef<int64_t> cShape = c.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
+  ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
+  ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
 
   const int64_t K = aShape[1];
 
@@ -398,8 +399,8 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   GemmFeatures features = op.getGemmFeatures();
   Attribute params = op.getParams().value();
 
-  const auto aShape = a.getType().cast<MemRefType>().getShape();
-  const auto bShape = b.getType().cast<MemRefType>().getShape();
+  const auto aShape = cast<MemRefType>(a.getType()).getShape();
+  const auto bShape = cast<MemRefType>(b.getType()).getShape();
 
   const int64_t G = aShape[0];
   const int64_t M = aShape[2];
@@ -409,11 +410,11 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   auto nPerBlock{0};
 
   if (isAccel(features)) {
-    auto tuningParams = params.cast<RockAccelTuningParamAttrInterface>();
+    auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   } else {
-    auto tuningParams = params.cast<GeneralGemmParamsAttr>();
+    auto tuningParams = cast<GeneralGemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   }
@@ -432,7 +433,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                                          ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
 
-  if (!adaptor.getQueries().getType().isa<MemRefType>())
+  if (!isa<MemRefType>(adaptor.getQueries().getType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
   bool isAccel = rock::isAccel(op.getFeatures());
@@ -445,13 +446,13 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                         "assigned by affix-tuing-params");
   }
   RockAccelTuningParamAttrInterface params0 =
-      op.getParams0Attr().cast<RockAccelTuningParamAttrInterface>();
+      cast<RockAccelTuningParamAttrInterface>(op.getParams0Attr());
   if (!op.getParams1().has_value()) {
     return op.emitError("gemm1 params is missing and it should've been "
                         "assigned by affix-tuing-params");
   }
   RockAccelTuningParamAttrInterface params1 =
-      op.getParams1Attr().cast<RockAccelTuningParamAttrInterface>();
+      cast<RockAccelTuningParamAttrInterface>(op.getParams1Attr());
 
   Value queries = adaptor.getQueries();
   Value keys = adaptor.getKeys();
@@ -470,10 +471,9 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
 
   // Note, matrix dimension correctness is handled in the verifier
   ArrayRef<int64_t> queriesShape =
-      queries.getType().cast<MemRefType>().getShape();
-  ArrayRef<int64_t> keysShape = keys.getType().cast<MemRefType>().getShape();
-  ArrayRef<int64_t> valuesShape =
-      values.getType().cast<MemRefType>().getShape();
+      cast<MemRefType>(queries.getType()).getShape();
+  ArrayRef<int64_t> keysShape = cast<MemRefType>(keys.getType()).getShape();
+  ArrayRef<int64_t> valuesShape = cast<MemRefType>(values.getType()).getShape();
   GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
                      /*k=*/queriesShape[1],
                      /*n=*/queriesShape[2]);
@@ -503,8 +503,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   }
 
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  IntegerAttr blockSizeAttr = func->getAttr("block_size").cast<IntegerAttr>();
-  IntegerAttr gridSizeAttr = func->getAttr("grid_size").cast<IntegerAttr>();
+  IntegerAttr blockSizeAttr = cast<IntegerAttr>(func->getAttr("block_size"));
+  IntegerAttr gridSizeAttr = cast<IntegerAttr>(func->getAttr("grid_size"));
   IntegerAttr prePadG0MAttr;
   if (gemm0ExtraPad.m) {
     prePadG0MAttr = rw.getIndexAttr(gemm0Size.m);
@@ -535,19 +535,16 @@ AttentionRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                                          Value keys, Value values) const {
 
   RockAccelTuningParamAttrInterface accelParams0 =
-      op.getParams0Attr().cast<RockAccelTuningParamAttrInterface>();
-
-  RockAccelTuningParamAttrInterface accelParams1 =
-      op.getParams1Attr().cast<RockAccelTuningParamAttrInterface>();
+      cast<RockAccelTuningParamAttrInterface>(op.getParams0Attr());
 
   SmallVector<int64_t, 3> queriesShape =
-      llvm::to_vector<3>(queries.getType().cast<MemRefType>().getShape());
+      llvm::to_vector<3>(cast<MemRefType>(queries.getType()).getShape());
 
   SmallVector<int64_t, 3> keysShape =
-      llvm::to_vector<3>(keys.getType().cast<MemRefType>().getShape());
+      llvm::to_vector<3>(cast<MemRefType>(keys.getType()).getShape());
 
   SmallVector<int64_t, 3> valuesShape =
-      llvm::to_vector<3>(values.getType().cast<MemRefType>().getShape());
+      llvm::to_vector<3>(cast<MemRefType>(values.getType()).getShape());
 
   GemmSize gemm0Size(/*g=*/queriesShape[0], /*m=*/keysShape[2],
                      /*k=*/queriesShape[1],

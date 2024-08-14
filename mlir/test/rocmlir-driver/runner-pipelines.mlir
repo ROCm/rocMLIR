@@ -22,6 +22,6 @@
 // RUNNER-SAME: async-runtime-ref-counting-opt),
 // RUNNER-SAME: symbol-dce,
 // RUNNER-SAME: convert-async-to-llvm,
-// RUNNER-SAME: gpu-to-llvm{gpu-binary-annotation=gpu.binary use-bare-pointers-for-host=false use-bare-pointers-for-kernels=true},
+// RUNNER-SAME: gpu-to-llvm{use-bare-pointers-for-host=false use-bare-pointers-for-kernels=true},
 // RUNNER-SAME: convert-func-to-llvm{index-bitwidth=0 use-bare-ptr-memref-call-conv=false},
 // RUNNER-SAME: reconcile-unrealized-casts){{$}}

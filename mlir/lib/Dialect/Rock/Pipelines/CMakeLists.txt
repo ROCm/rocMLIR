@@ -5,9 +5,10 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRAMDGPUTransforms
   MLIRGPUToROCDLTransforms
   MLIRArithToAMDGPU
+  MLIRComplexToLLVM
+  MLIRIndexToLLVM
   MLIRMathTransforms
   MLIRTensorToLinalg
-  MLIRTosaToArith
   MLIRTosaToRock
   MLIRTosaToArith
   MLIRTosaToLinalg
@@ -17,6 +18,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRRockOps
   MLIRRockTransforms
   MLIRRockUtility
+  MLIRUBToLLVM
   RocmlirEmulateFp8ExtTrunc
 
   # Upstream dialect libraries we need to load that we don't directly depend on

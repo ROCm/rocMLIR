@@ -471,6 +471,8 @@ enum {
   LLVMAttributeFunctionIndex = -1,
 };
 
+typedef unsigned LLVMAttributeIndex;
+
 /**
  * Tail call kind for LLVMSetTailCallKind and LLVMGetTailCallKind.
  *
@@ -484,8 +486,6 @@ typedef enum {
   LLVMTailCallKindMustTail = 2,
   LLVMTailCallKindNoTail = 3,
 } LLVMTailCallKind;
-
-typedef unsigned LLVMAttributeIndex;
 
 enum {
   LLVMFastMathAllowReassoc = (1 << 0),
@@ -509,6 +509,20 @@ enum {
  * See https://llvm.org/docs/LangRef.html#fast-math-flags
  */
 typedef unsigned LLVMFastMathFlags;
+
+enum {
+  LLVMGEPFlagInBounds = (1 << 0),
+  LLVMGEPFlagNUSW = (1 << 1),
+  LLVMGEPFlagNUW = (1 << 2),
+};
+
+/**
+ * Flags that constrain the allowed wrap semantics of a getelementptr
+ * instruction.
+ *
+ * See https://llvm.org/docs/LangRef.html#getelementptr-instruction
+ */
+typedef unsigned LLVMGEPNoWrapFlags;
 
 /**
  * @}
@@ -672,6 +686,18 @@ LLVMAttributeRef LLVMCreateTypeAttribute(LLVMContextRef C, unsigned KindID,
  * Get the type attribute's value.
  */
 LLVMTypeRef LLVMGetTypeAttributeValue(LLVMAttributeRef A);
+
+/**
+ * Create a ConstantRange attribute.
+ *
+ * LowerWords and UpperWords need to be NumBits divided by 64 rounded up
+ * elements long.
+ */
+LLVMAttributeRef LLVMCreateConstantRangeAttribute(LLVMContextRef C,
+                                                  unsigned KindID,
+                                                  unsigned NumBits,
+                                                  const uint64_t LowerWords[],
+                                                  const uint64_t UpperWords[]);
 
 /**
  * Create a string attribute.
@@ -1699,6 +1725,42 @@ LLVMTypeRef LLVMTargetExtTypeInContext(LLVMContextRef C, const char *Name,
                                        unsigned IntParamCount);
 
 /**
+ * Obtain the name for this target extension type.
+ *
+ * @see llvm::TargetExtType::getName()
+ */
+const char *LLVMGetTargetExtTypeName(LLVMTypeRef TargetExtTy);
+
+/**
+ * Obtain the number of type parameters for this target extension type.
+ *
+ * @see llvm::TargetExtType::getNumTypeParameters()
+ */
+unsigned LLVMGetTargetExtTypeNumTypeParams(LLVMTypeRef TargetExtTy);
+
+/**
+ * Get the type parameter at the given index for the target extension type.
+ *
+ * @see llvm::TargetExtType::getTypeParameter()
+ */
+LLVMTypeRef LLVMGetTargetExtTypeTypeParam(LLVMTypeRef TargetExtTy,
+                                          unsigned Idx);
+
+/**
+ * Obtain the number of int parameters for this target extension type.
+ *
+ * @see llvm::TargetExtType::getNumIntParameters()
+ */
+unsigned LLVMGetTargetExtTypeNumIntParams(LLVMTypeRef TargetExtTy);
+
+/**
+ * Get the int parameter at the given index for the target extension type.
+ *
+ * @see llvm::TargetExtType::getIntParameter()
+ */
+unsigned LLVMGetTargetExtTypeIntParam(LLVMTypeRef TargetExtTy, unsigned Idx);
+
+/**
  * @}
  */
 
@@ -2342,16 +2404,22 @@ LLVMValueRef LLVMConstMul(LLVMValueRef LHSConstant, LLVMValueRef RHSConstant);
 LLVMValueRef LLVMConstNSWMul(LLVMValueRef LHSConstant, LLVMValueRef RHSConstant);
 LLVMValueRef LLVMConstNUWMul(LLVMValueRef LHSConstant, LLVMValueRef RHSConstant);
 LLVMValueRef LLVMConstXor(LLVMValueRef LHSConstant, LLVMValueRef RHSConstant);
-LLVMValueRef LLVMConstICmp(LLVMIntPredicate Predicate,
-                           LLVMValueRef LHSConstant, LLVMValueRef RHSConstant);
-LLVMValueRef LLVMConstFCmp(LLVMRealPredicate Predicate,
-                           LLVMValueRef LHSConstant, LLVMValueRef RHSConstant);
-LLVMValueRef LLVMConstShl(LLVMValueRef LHSConstant, LLVMValueRef RHSConstant);
 LLVMValueRef LLVMConstGEP2(LLVMTypeRef Ty, LLVMValueRef ConstantVal,
                            LLVMValueRef *ConstantIndices, unsigned NumIndices);
 LLVMValueRef LLVMConstInBoundsGEP2(LLVMTypeRef Ty, LLVMValueRef ConstantVal,
                                    LLVMValueRef *ConstantIndices,
                                    unsigned NumIndices);
+/**
+ * Creates a constant GetElementPtr expression. Similar to LLVMConstGEP2, but
+ * allows specifying the no-wrap flags.
+ *
+ * @see llvm::ConstantExpr::getGetElementPtr()
+ */
+LLVMValueRef LLVMConstGEPWithNoWrapFlags(LLVMTypeRef Ty,
+                                         LLVMValueRef ConstantVal,
+                                         LLVMValueRef *ConstantIndices,
+                                         unsigned NumIndices,
+                                         LLVMGEPNoWrapFlags NoWrapFlags);
 LLVMValueRef LLVMConstTrunc(LLVMValueRef ConstantVal, LLVMTypeRef ToType);
 LLVMValueRef LLVMConstPtrToInt(LLVMValueRef ConstantVal, LLVMTypeRef ToType);
 LLVMValueRef LLVMConstIntToPtr(LLVMValueRef ConstantVal, LLVMTypeRef ToType);
@@ -3517,8 +3585,7 @@ LLVMOpcode LLVMGetInstructionOpcode(LLVMValueRef Inst);
 /**
  * Obtain the predicate of an instruction.
  *
- * This is only valid for instructions that correspond to llvm::ICmpInst
- * or llvm::ConstantExpr whose opcode is llvm::Instruction::ICmp.
+ * This is only valid for instructions that correspond to llvm::ICmpInst.
  *
  * @see llvm::ICmpInst::getPredicate()
  */
@@ -3527,8 +3594,7 @@ LLVMIntPredicate LLVMGetICmpPredicate(LLVMValueRef Inst);
 /**
  * Obtain the float predicate of an instruction.
  *
- * This is only valid for instructions that correspond to llvm::FCmpInst
- * or llvm::ConstantExpr whose opcode is llvm::Instruction::FCmp.
+ * This is only valid for instructions that correspond to llvm::FCmpInst.
  *
  * @see llvm::FCmpInst::getPredicate()
  */
@@ -3726,6 +3792,28 @@ void LLVMSetNormalDest(LLVMValueRef InvokeInst, LLVMBasicBlockRef B);
 void LLVMSetUnwindDest(LLVMValueRef InvokeInst, LLVMBasicBlockRef B);
 
 /**
+ * Get the default destination of a CallBr instruction.
+ *
+ * @see llvm::CallBrInst::getDefaultDest()
+ */
+LLVMBasicBlockRef LLVMGetCallBrDefaultDest(LLVMValueRef CallBr);
+
+/**
+ * Get the number of indirect destinations of a CallBr instruction.
+ *
+ * @see llvm::CallBrInst::getNumIndirectDests()
+
+ */
+unsigned LLVMGetCallBrNumIndirectDests(LLVMValueRef CallBr);
+
+/**
+ * Get the indirect destination of a CallBr instruction at the given index.
+ *
+ * @see llvm::CallBrInst::getIndirectDest()
+ */
+LLVMBasicBlockRef LLVMGetCallBrIndirectDest(LLVMValueRef CallBr, unsigned Idx);
+
+/**
  * @}
  */
 
@@ -3842,6 +3930,20 @@ void LLVMSetIsInBounds(LLVMValueRef GEP, LLVMBool InBounds);
 LLVMTypeRef LLVMGetGEPSourceElementType(LLVMValueRef GEP);
 
 /**
+ * Get the no-wrap related flags for the given GEP instruction.
+ *
+ * @see llvm::GetElementPtrInst::getNoWrapFlags
+ */
+LLVMGEPNoWrapFlags LLVMGEPGetNoWrapFlags(LLVMValueRef GEP);
+
+/**
+ * Set the no-wrap related flags for the given GEP instruction.
+ *
+ * @see llvm::GetElementPtrInst::setNoWrapFlags
+ */
+void LLVMGEPSetNoWrapFlags(LLVMValueRef GEP, LLVMGEPNoWrapFlags NoWrapFlags);
+
+/**
  * @}
  */
 
@@ -3923,9 +4025,28 @@ const unsigned *LLVMGetIndices(LLVMValueRef Inst);
 
 LLVMBuilderRef LLVMCreateBuilderInContext(LLVMContextRef C);
 LLVMBuilderRef LLVMCreateBuilder(void);
+/**
+ * Set the builder position before Instr but after any attached debug records,
+ * or if Instr is null set the position to the end of Block.
+ */
 void LLVMPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef Block,
                          LLVMValueRef Instr);
+/**
+ * Set the builder position before Instr and any attached debug records,
+ * or if Instr is null set the position to the end of Block.
+ */
+void LLVMPositionBuilderBeforeDbgRecords(LLVMBuilderRef Builder,
+                                         LLVMBasicBlockRef Block,
+                                         LLVMValueRef Inst);
+/**
+ * Set the builder position before Instr but after any attached debug records.
+ */
 void LLVMPositionBuilderBefore(LLVMBuilderRef Builder, LLVMValueRef Instr);
+/**
+ * Set the builder position before Instr and any attached debug records.
+ */
+void LLVMPositionBuilderBeforeInstrAndDbgRecords(LLVMBuilderRef Builder,
+                                                 LLVMValueRef Instr);
 void LLVMPositionBuilderAtEnd(LLVMBuilderRef Builder, LLVMBasicBlockRef Block);
 LLVMBasicBlockRef LLVMGetInsertBlock(LLVMBuilderRef Builder);
 void LLVMClearInsertionPosition(LLVMBuilderRef Builder);
@@ -4011,6 +4132,12 @@ LLVMValueRef LLVMBuildSwitch(LLVMBuilderRef, LLVMValueRef V,
                              LLVMBasicBlockRef Else, unsigned NumCases);
 LLVMValueRef LLVMBuildIndirectBr(LLVMBuilderRef B, LLVMValueRef Addr,
                                  unsigned NumDests);
+LLVMValueRef LLVMBuildCallBr(LLVMBuilderRef B, LLVMTypeRef Ty, LLVMValueRef Fn,
+                             LLVMBasicBlockRef DefaultDest,
+                             LLVMBasicBlockRef *IndirectDests,
+                             unsigned NumIndirectDests, LLVMValueRef *Args,
+                             unsigned NumArgs, LLVMOperandBundleRef *Bundles,
+                             unsigned NumBundles, const char *Name);
 LLVMValueRef LLVMBuildInvoke2(LLVMBuilderRef, LLVMTypeRef Ty, LLVMValueRef Fn,
                               LLVMValueRef *Args, unsigned NumArgs,
                               LLVMBasicBlockRef Then, LLVMBasicBlockRef Catch,
@@ -4275,6 +4402,17 @@ LLVMValueRef LLVMBuildGEP2(LLVMBuilderRef B, LLVMTypeRef Ty,
 LLVMValueRef LLVMBuildInBoundsGEP2(LLVMBuilderRef B, LLVMTypeRef Ty,
                                    LLVMValueRef Pointer, LLVMValueRef *Indices,
                                    unsigned NumIndices, const char *Name);
+/**
+ * Creates a GetElementPtr instruction. Similar to LLVMBuildGEP2, but allows
+ * specifying the no-wrap flags.
+ *
+ * @see llvm::IRBuilder::CreateGEP()
+ */
+LLVMValueRef LLVMBuildGEPWithNoWrapFlags(LLVMBuilderRef B, LLVMTypeRef Ty,
+                                         LLVMValueRef Pointer,
+                                         LLVMValueRef *Indices,
+                                         unsigned NumIndices, const char *Name,
+                                         LLVMGEPNoWrapFlags NoWrapFlags);
 LLVMValueRef LLVMBuildStructGEP2(LLVMBuilderRef B, LLVMTypeRef Ty,
                                  LLVMValueRef Pointer, unsigned Idx,
                                  const char *Name);

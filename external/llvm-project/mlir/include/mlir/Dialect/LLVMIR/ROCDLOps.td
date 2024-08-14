@@ -89,11 +89,11 @@ class ROCDL_IntrPure1Op<string mnemonic> :
 
 class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
   list<int> overloadedOperands, list<Trait> traits, int numResults,
-  int requiresAccessGroup = 0, int requiresAliasAnalysis = 0> :
+  int requiresAccessGroup = 0, int requiresAliasAnalysis = 0, list<int> immArgPositions = []> :
   LLVM_IntrOpBase<ROCDL_Dialect,  mnemonic,
     "amdgcn_" # !subst(".", "_", mnemonic), overloadedResults,
     overloadedOperands, traits, numResults, requiresAccessGroup,
-    requiresAliasAnalysis>;
+    requiresAliasAnalysis, 0, immArgPositions>;
 
 //===----------------------------------------------------------------------===//
 // ROCDL special register op definitions
@@ -167,7 +167,7 @@ def ROCDL_BallotOp :
   let summary = "Vote across thread group";
 
   let description = [{
-      Ballot provides a bit mask containing the 1-bit predicate value from each lane. 
+      Ballot provides a bit mask containing the 1-bit predicate value from each lane.
       The nth bit of the result contains the 1 bit contributed by the nth warp lane.
   }];
 
@@ -241,6 +241,30 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
                         llvmContext.getOrInsertSyncScopeID("workgroup"));
   }];
   let assemblyFormat = "attr-dict";
+}
+
+def ROCDL_BarrierSignalOp : ROCDL_IntrOp<"s.barrier.signal", [], [], [], 0, 0, 0, [0]>,
+  Arguments<(ins I32Attr:$id)> {
+  let results = (outs);
+  let assemblyFormat = "$id attr-dict";
+  string llvmBuilder =
+    "createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier_signal,builder.getInt32(op.getId()));";
+}
+
+def ROCDL_BarrierWaitOp : ROCDL_IntrOp<"s.barrier.wait", [], [], [], 0>,
+  Arguments<(ins I16Attr:$id)> {
+  let results = (outs);
+  let assemblyFormat = "$id attr-dict";
+  string llvmBuilder =
+    "createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier_wait,builder.getInt16(op.getId()));";
+}
+
+def ROCDL_WaitDscntOp: ROCDL_IntrOp<"s.wait.dscnt", [], [], [], 0, 0, 0, [0]>,
+  Arguments<(ins I16Attr:$id)> {
+  let results = (outs);
+  let assemblyFormat = "$id attr-dict";
+  string llvmBuilder =
+    "createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_wait_dscnt,builder.getInt16(op.getId()));";
 }
 
 def ROCDL_SetPrioOp : ROCDL_IntrOp<"s.setprio", [], [], [], 0>,
@@ -428,26 +452,27 @@ def ROCDL_RawPtrBufferAtomicUminOp : ROCDL_RawPtrBufferAtomicNoRet<"umin">;
 def ROCDL_RawPtrBufferAtomicFaddOp : ROCDL_RawPtrBufferAtomicNoRet<"fadd">;
 
 //===---------------------------------------------------------------------===//
-// DPP Move intrinsic
-def ROCDL_DPPMovOp : ROCDL_IntrOp<"mov.dpp", [], [0],
-    [AllTypesMatch<["res", "src"]>], 1>,
-  Arguments<(ins LLVM_Type:$src, I32Attr:$dppCtrl, I32Attr:$rowMask,
+// DPP Update intrinsic
+def ROCDL_DPPUpdateOp : ROCDL_IntrOp<"update.dpp", [], [0],
+    [AllTypesMatch<["res", "src", "old"]>], 1>,
+  Arguments<(ins LLVM_Type:$old, LLVM_Type:$src, I32Attr:$dppCtrl, I32Attr:$rowMask,
       I32Attr:$bankMask, I1Attr:$boundCtrl)> {
   let results = (outs LLVM_Type:$res);
   let assemblyFormat = [{
-    attr-dict $src `with` $dppCtrl `,` $rowMask `,` $bankMask `,` $boundCtrl `:` type($src)
+    attr-dict $old `,` $src `with` $dppCtrl `,` $rowMask `,` $bankMask `,` $boundCtrl `:` type($src)
   }];
   string llvmBuilder = [{
       auto vdataType = moduleTranslation.convertType(op.getSrc().getType());
       llvm::Value *args[] = {
+        moduleTranslation.lookupValue(op.getOld()),
         moduleTranslation.lookupValue(op.getSrc()),
-          builder.getInt32(op.getDppCtrl()),  
-          builder.getInt32(op.getRowMask()),  
-          builder.getInt32(op.getBankMask()),  
+          builder.getInt32(op.getDppCtrl()),
+          builder.getInt32(op.getRowMask()),
+          builder.getInt32(op.getBankMask()),
           builder.getInt1(op.getBoundCtrl())
-      }; 
+      };
       $res = createIntrinsicCall(builder,
-        llvm::Intrinsic::amdgcn_mov_dpp, args, {vdataType});
+        llvm::Intrinsic::amdgcn_update_dpp, args, {vdataType});
   }];
 }
 
@@ -464,43 +489,6 @@ def ROCDL_CvtPkRtz:
   let assemblyFormat = [{
     attr-dict $srcA `,` $srcB `:` type($res)
   }];
-}
-
-/// LEGACY BUFFER OPERATIONS. DO NOT USE IN NEW CODE. KEPT FOR IR COMPATIBILITY.
-//===---------------------------------------------------------------------===//
-// Vector buffer load/store intrinsics
-
-def ROCDL_MubufLoadOp :
-  ROCDL_Op<"buffer.load">,
-  Results<(outs LLVM_Type:$res)>,
-  Arguments<(ins LLVM_Type:$rsrc,
-                 LLVM_Type:$vindex,
-                 LLVM_Type:$offset,
-                 LLVM_Type:$glc,
-                 LLVM_Type:$slc)>{
-  string llvmBuilder = [{
-      $res = createIntrinsicCall(builder,
-          llvm::Intrinsic::amdgcn_buffer_load, {$rsrc, $vindex, $offset, $glc,
-          $slc}, {$_resultType});
-  }];
-  let hasCustomAssemblyFormat = 1;
-}
-
-def ROCDL_MubufStoreOp :
-  ROCDL_Op<"buffer.store">,
-  Arguments<(ins LLVM_Type:$vdata,
-                 LLVM_Type:$rsrc,
-                 LLVM_Type:$vindex,
-                 LLVM_Type:$offset,
-                 LLVM_Type:$glc,
-                 LLVM_Type:$slc)>{
-  string llvmBuilder = [{
-    auto vdataType = moduleTranslation.convertType(op.getVdata().getType());
-    createIntrinsicCall(builder,
-          llvm::Intrinsic::amdgcn_buffer_store, {$vdata, $rsrc, $vindex,
-          $offset, $glc, $slc}, {vdataType});
-  }];
-  let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//

@@ -63,7 +63,7 @@ llvm_config.add_tool_substitutions(
 # subdirectories contain auxiliary inputs for various tests in their parent
 # directories.
 config.excludes = ['Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt',
-                   'lit.cfg.py', 'lit.site.cfg.py']
+                   'lit.cfg.py', 'lit.site.cfg.py', 'common_utils']
 
 # test_source_root: The root path where tests are located.
 config.test_source_root = os.path.dirname(__file__)

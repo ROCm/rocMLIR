@@ -22,19 +22,19 @@ namespace mlir {
 // RocmDeviceName handles decomposition of gcnArchName
 class RocmDeviceName {
 public:
-  LogicalResult parse(StringRef devName);
+  LogicalResult parse(llvm::StringRef devName);
 
-  StringRef getChip() const { return chip; }
+  llvm::StringRef getChip() const { return chip; }
   const llvm::StringMap<bool> &getFeatures() const { return features; }
   std::string getFeaturesForBackend() const;
-  StringRef getTriple() const { return triple; }
+  llvm::StringRef getTriple() const { return triple; }
 
-  void getFullName(SmallVectorImpl<char> &out) const;
+  void getFullName(llvm::SmallVectorImpl<char> &out) const;
 
 private:
-  SmallString<8> chip;
+  llvm::SmallString<8> chip;
   llvm::StringMap<bool> features;
-  SmallString<32> triple;
+  llvm::SmallString<32> triple;
 };
 
 } // namespace mlir

@@ -21,7 +21,7 @@ func.func private @bert_part_11__part_0(%arg0: memref<1x12x12x32xf32> {func.read
     %14 = arith.addf %13, %arg7 : f32
     linalg.yield %14 : f32
   }
-  %12 = memref.expand_shape %11 [[0, 1], [2], [3]] : memref<12x12x12xf32> into memref<1x12x12x12xf32>
+  %12 = memref.expand_shape %11 [[0, 1], [2], [3]] output_shape [1, 12, 12, 12] : memref<12x12x12xf32> into memref<1x12x12x12xf32>
   memref.copy %12, %arg4 : memref<1x12x12x12xf32> to memref<1x12x12x12xf32>
   return
 }

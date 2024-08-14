@@ -61,7 +61,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   auto &funcPm = pm.nest<func::FuncOp>();
   // TOSA conversion to rock and/or linalg with mhal.launch's
   if (!noRock) {
-    // convert tosa.conv2d/matmul to rock.conv2d
+    // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
     funcPm.addPass(tosa::createTosaToTensor());
@@ -93,7 +93,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm2.addPass(rock::createRockFoldBroadcastPass());
 
   // bufferization
-  /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
+  /* rocmlir-opt --canonicalize -convert-tensor-to-linalg --cse
         --one-shot-bufferize="allow-return-allocs=1
      create-deallocs=0 bufferize-function-boundaries=1
      unknown-type-conversion=identity-layout-map
@@ -101,6 +101,18 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
         --buffer-results-to-out-params
    */
   funcPm2.addPass(createCanonicalizerPass());
+  // Note: this is a workaround for an impedance mismatch between bufferization
+  // and our fusion code. Specifically, if there are two identical
+  // tensor.empty's
+  //, they can be CSE'd together, and then, if the bufferizer notices that the
+  // allocation that that empty tensor has two independent uses (that is,
+  // if op1 and op2 both have the "initial output" %x, and the values produces
+  // by op1 are dead by the time op2 rolls around), it'll reuse the buffer.
+  // This breaks rocMLIR's fusion code, which assumes allocations aren't reused
+  // like this. So, until we move bufferization after rock.regularize (so that
+  // we can do the alloc_tensor introductions ourselves), we have to do it up
+  // here before CSE.
+  funcPm2.addPass(bufferization::createEmptyTensorToAllocTensorPass());
   funcPm2.addPass(createCSEPass());
 
   pm.addPass(createConvertTensorToLinalgPass());
@@ -117,7 +129,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
       [](Value value, Attribute memorySpace,
          const bufferization::BufferizationOptions &options) {
         return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            value.getType().cast<TensorType>(), memorySpace);
+            cast<TensorType>(value.getType()), memorySpace);
       };
   // bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));
@@ -153,6 +165,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
       funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
+    funcPm.addPass(rock::createRockOutputSwizzlePass());
+
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
@@ -163,7 +177,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --canonicalize --rock-threadwise-gemm-lowering
      *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
      *   --math-legalize-to-f32 --rock-buffer-load-merge
-     *   --rock-transform-to-memref --rock-loops-to-cf --convert-rock-to-gpu
+     *   --rock-transform-to-memref --rock-emulate-narrow-type
+     *   --rock-loops-to-cf --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
@@ -172,6 +187,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(math::createMathLegalizeToF32());
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
+    funcPm.addPass(rock::createRockEmulateNarrowTypePass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
   }
@@ -194,8 +210,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
   gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
-  SmallVector<std::string, 3> unsupportedFloats = {"bf16", "f8E4M3FNUZ",
-                                                   "f8E5M2FNUZ"};
+  SmallVector<std::string, 5> unsupportedFloats = {
+      "bf16", "f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2"};
   floatEmuOpts.sourceTypeStrs = unsupportedFloats;
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
@@ -221,10 +237,14 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   llvmFuncPm.addPass(createCSEPass());
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile) {
-    gpuPm.addPass(createGpuSerializeToHsacoPass(
-        options.triple, options.chip, options.features, options.optLevel,
-        options.suppressDiagnostic));
-    gpuPm.addPass(createRockCheckResidencyPass());
+    GpuROCDLAttachTargetOptions opts;
+    opts.triple = options.triple;
+    opts.chip = options.chip;
+    opts.features = options.features;
+    opts.optLevel = options.optLevel;
+    pm.addPass(createGpuROCDLAttachTarget(opts));
+    pm.addPass(createGpuModuleToBinaryPass());
+    pm.addPass(createRockCheckResidencyPass());
   }
   // Quick hack around the facct that our host code runner pipeline can't
   // include our fp8 extf implmenentation becasue of MHAL's organization. That

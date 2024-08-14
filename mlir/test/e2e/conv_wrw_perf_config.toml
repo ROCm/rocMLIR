@@ -1,0 +1,23 @@
+directory = "conv_wrw_perf_config"
+prefix = "rocmlir-gen"
+suffix = "--arch %arch %pv %random_data -mfma=infer -wmma=infer | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "operation"
+values = ["conv_bwd_weight"]
+prefix = "--operation "
+
+[[axis]]
+name = "layout"
+values = ["-fil_layout=kcyx -in_layout=nchw -out_layout=nkhw"]
+
+[[suite]]
+name = "config"
+
+## Restore once kPack + padding work
+## --perf_config v2:256,128,8,64,32,8,1,0,1
+[[suite.test]]
+config = "--perf_config v2:256,128,8,64,32,1,1,1,1 -t f16 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 256 --in_channels 64 --in_h 56 --in_w 56 --out_channels 64 --fil_h 3 --fil_w 3 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 1 --padding_w 1"
+
+[[suite.test]]
+config = "--perf_config v2:64,64,2,64,64,2,1,1,1 -t f32 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 512 --in_channels 512 --in_h 1 --in_w 1 --out_channels 512 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0"

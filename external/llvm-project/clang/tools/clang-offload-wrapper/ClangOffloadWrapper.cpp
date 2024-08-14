@@ -44,6 +44,7 @@
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 
 #define OPENMP_OFFLOAD_IMAGE_VERSION "1.0"
 
@@ -82,10 +83,20 @@ static cl::list<std::string> Inputs(cl::Positional, cl::OneOrMore,
                                     cl::desc("<input files>"),
                                     cl::cat(ClangOffloadWrapperCategory));
 
+// The target triple for offload objects (input files).
 static cl::opt<std::string>
     Target("target", cl::Required,
-           cl::desc("Target triple for the output module"),
+           cl::desc("Target triple for input files"),
            cl::value_desc("triple"), cl::cat(ClangOffloadWrapperCategory));
+
+// The target triple for the host, not the wrapped offload objects.  NOTE: This argument
+// is optional, and if it is omitted it defaults to using the value given by the
+// "-target" option above (which is then presumed to match the host architecture, not the
+// offload target).  This is wrong, but matches legacy behaviour.
+static cl::opt<std::string>
+    AuxTriple("aux-triple", cl::Optional,
+              cl::desc("Target triple for the output module"),
+              cl::value_desc("triple"), cl::cat(ClangOffloadWrapperCategory));
 
 static cl::opt<bool> SaveTemps(
     "save-temps",
@@ -319,6 +330,17 @@ private:
     // Construct function body
     IRBuilder<> Builder(BasicBlock::Create(C, "entry", Func));
     Builder.CreateCall(RegFuncC, BinDesc);
+
+    // Register the destructors with 'atexit'. This is expected the
+    // runtime and ensures that we clean up before dynamic objects are
+    // destroyed. This needs to be done after plugin initialization to ensure
+    // that it is called before the plugin runtime is destroyed.
+    Function *UnregFunc = createUnregisterFunction(BinDesc);
+    auto *AtExitTy = FunctionType::get(
+        Type::getInt32Ty(C), PointerType::getUnqual(C), /*isVarArg=*/false);
+    FunctionCallee AtExit = M.getOrInsertFunction("atexit", AtExitTy);
+    Builder.CreateCall(AtExit, UnregFunc);
+
     Builder.CreateRetVoid();
 
     // Add this function to constructors.
@@ -330,7 +352,7 @@ private:
     appendToGlobalCtors(M, Func, /*Priority*/ 1);
   }
 
-  void createUnregisterFunction(GlobalVariable *BinDesc) {
+  Function *createUnregisterFunction(GlobalVariable *BinDesc) {
     auto *FuncTy = FunctionType::get(Type::getVoidTy(C), /*isVarArg*/ false);
     auto *Func = Function::Create(FuncTy, GlobalValue::InternalLinkage,
                                   ".omp_offloading.descriptor_unreg", &M);
@@ -347,9 +369,7 @@ private:
     Builder.CreateCall(UnRegFuncC, BinDesc);
     Builder.CreateRetVoid();
 
-    // Add this function to global destructors.
-    // Match priority of __tgt_register_lib
-    appendToGlobalDtors(M, Func, /*Priority*/ 1);
+    return Func;
   }
 
 public:
@@ -415,7 +435,6 @@ public:
     GlobalVariable *Desc = createBinDesc(Binaries);
     assert(Desc && "no binary descriptor");
     createRegisterFunction(Desc, OffloadArchs);
-    createUnregisterFunction(Desc);
     return M;
   }
 
@@ -629,6 +648,23 @@ bundleImage(ArrayRef<OffloadingImage> Images) {
   return std::move(Buffers);
 }
 
+// If we are invoked with "-target" but not "-aux-triple", assume that the
+// triple given refers to the host, rather than the offload target (which is
+// the legacy behaviour).  In that case, we only know the architecture
+// version (gfx90x, sm*).  Try to guess the triple for the offload target,
+// or fall back to the "-target" setting if we see something unexpected
+// (e.g., offloading to x86_64 from x86_64).  This is a best-effort attempt,
+// and may not DTRT in all circumstances.
+static const char *GuessTargetFromArch(const char *Arch) {
+  if (strncmp (Arch, "gfx", 3) == 0) {
+    return "amdgcn-amd-amdhsa";
+  } else if (strncmp (Arch, "sm_", 3) == 0) {
+    return "nvptx64-nvidia-cuda";
+  } else {
+    return Target.c_str();
+  }
+}
+
 } // anonymous namespace
 
 int main(int argc, const char **argv) {
@@ -660,7 +696,16 @@ int main(int argc, const char **argv) {
     return 1;
   }
 
-  BinaryWrapper Wrapper(Target, argv[0]);
+  if (!AuxTriple.empty() &&
+      Triple(AuxTriple).getArch() == Triple::UnknownArch) {
+    reportError(createStringError(
+        errc::invalid_argument, "'" + AuxTriple +
+        "': unsupported aux target triple"));
+    return 1;
+  }
+
+  // See comment on AuxTriple declaration above.
+  BinaryWrapper Wrapper(AuxTriple.empty() ? Target : AuxTriple, argv[0]);
 
   // Collect offload-archs.
   SmallVector<ArrayRef<char>, 4u> OffloadArchs;
@@ -682,6 +727,8 @@ int main(int argc, const char **argv) {
   DenseMap<OffloadKind, SmallVector<OffloadingImage>> Images;
   SmallVector<ArrayRef<char>, 4> BuffersToWrap;
 
+  const auto &TargetTriple = Triple(Target);
+
   int numOffloadArch = 0;
   for (const std::string &File : Inputs) {
     ErrorOr<std::unique_ptr<MemoryBuffer>> BufOrErr =
@@ -697,10 +744,17 @@ int main(int argc, const char **argv) {
     }
 
    OffloadingImage TheImage{};
-   TheImage.TheImageKind = IMG_Bitcode;
+   if (llvm::identify_magic(Buffer->getBuffer()) == llvm::file_magic::bitcode)
+     TheImage.TheImageKind = IMG_Bitcode;
+   else
+     TheImage.TheImageKind = IMG_Object;
    TheImage.TheOffloadKind = OFK_OpenMP ;
-   TheImage.StringData["triple"] =
-     Triple(Target).isAMDGCN() ? "amdgcn-amd-amdhsa" : "nvptx64-nvidia-cuda";
+   if (!AuxTriple.empty() || OffloadArchs.size() == 0) {
+     TheImage.StringData["triple"] = Target.c_str();
+   } else {
+     TheImage.StringData["triple"] =
+       GuessTargetFromArch(OffloadArch[numOffloadArch].c_str());
+   }
    if(OffloadArchs.size() != 0){
      TheImage.StringData["arch"] =
        OffloadArch[numOffloadArch].c_str();

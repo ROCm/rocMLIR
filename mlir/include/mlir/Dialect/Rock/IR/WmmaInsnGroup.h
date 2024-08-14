@@ -24,8 +24,7 @@ namespace rock {
 
 struct WmmaInsn {
   StringRef insn;
-  int64_t inputLen;
-  int64_t outputLen;
+  int64_t dPerAccel;
   int64_t outputStride;
   int64_t mRepeats;
   int64_t nRepeats;
@@ -36,8 +35,8 @@ struct WmmaInsn {
 public:
   bool isCoherentWithK(int64_t kpack, int64_t kPerBlock);
   static FailureOr<WmmaInsn> select(Type elementTypeA, Type elementTypeB,
-                                    int64_t waveSize, int64_t mPerWave,
-                                    int64_t nPerWave);
+                                    int64_t waveSize, StringRef arch,
+                                    int64_t mPerWave, int64_t nPerWave);
 };
 } // namespace rock
 } // namespace mlir

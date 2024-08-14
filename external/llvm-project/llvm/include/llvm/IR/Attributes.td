@@ -47,6 +47,9 @@ class ComplexStrAttr<string S, list<AttrProperty> P> : Attr<S, P>;
 /// ConstantRange attribute.
 class ConstantRangeAttr<string S, list<AttrProperty> P> : Attr<S, P>;
 
+/// ConstantRangeList attribute.
+class ConstantRangeListAttr<string S, list<AttrProperty> P> : Attr<S, P>;
+
 /// Target-independent enum attributes.
 
 /// Alignment of parameter (5 bits) stored as log2 of alignment with +1 bias.
@@ -111,6 +114,9 @@ def FnRetThunkExtern : EnumAttr<"fn_ret_thunk_extern", [FnAttr]>;
 
 /// Pass structure in an alloca.
 def InAlloca : TypeAttr<"inalloca", [ParamAttr]>;
+
+/// Pointer argument memory is initialized.
+def Initializes : ConstantRangeListAttr<"initializes", [ParamAttr]>;
 
 /// Source said inlining was desirable.
 def InlineHint : EnumAttr<"inlinehint", [FnAttr]>;
@@ -288,6 +294,9 @@ def SanitizeMemTag : EnumAttr<"sanitize_memtag", [FnAttr]>;
 /// Attribute to identify global variables instrumented by Sanitizers.
 def SanitizedPaddedGlobal : EnumAttr<"sanitized_padded_global", []>;
 
+/// NumericalStabilitySanitizer is on.
+def SanitizeNumericalStability : EnumAttr<"sanitize_numerical_stability", [FnAttr]>;
+
 /// Speculative Load Hardening is enabled.
 ///
 /// Note that this uses the default compatibility (always compatible during
@@ -375,6 +384,7 @@ def : CompatRule<"isEqual<SanitizeThreadAttr>">;
 def : CompatRule<"isEqual<SanitizeMemoryAttr>">;
 def : CompatRule<"isEqual<SanitizeHWAddressAttr>">;
 def : CompatRule<"isEqual<SanitizeMemTagAttr>">;
+def : CompatRule<"isEqual<SanitizeNumericalStabilityAttr>">;
 def : CompatRule<"isEqual<SafeStackAttr>">;
 def : CompatRule<"isEqual<ShadowCallStackAttr>">;
 def : CompatRule<"isEqual<UseSampleProfileAttr>">;

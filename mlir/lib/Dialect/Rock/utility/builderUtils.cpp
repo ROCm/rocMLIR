@@ -31,7 +31,7 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
   auto constValue = b.getIntegerAttr(elementType, apValue);
 
   Value retValue;
-  if (auto shapedType = type.dyn_cast<ShapedType>()) {
+  if (auto shapedType = dyn_cast<ShapedType>(type)) {
     retValue = b.create<ConstantOp>(
         loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
@@ -54,6 +54,10 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
     semantics = APFloat::S_Float8E4M3FNUZ;
   } else if (elementType.isFloat8E5M2FNUZ()) {
     semantics = APFloat::S_Float8E5M2FNUZ;
+  } else if (elementType.isFloat8E4M3FN()) {
+    semantics = APFloat::S_Float8E4M3FN;
+  } else if (elementType.isFloat8E5M2()) {
+    semantics = APFloat::S_Float8E5M2;
   } else {
     llvm_unreachable("Unexpected float semantics");
   }
@@ -64,7 +68,7 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                   APFloat::rmNearestTiesToEven, &lostInfo);
   Value retValue;
 
-  if (auto shapedType = type.dyn_cast<ShapedType>()) {
+  if (auto shapedType = dyn_cast<ShapedType>(type)) {
     Attribute constValue = b.getFloatAttr(elementType, apValue);
     retValue = b.create<ConstantOp>(
         loc, SplatElementsAttr::get(shapedType, constValue));
@@ -93,10 +97,10 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   // Convert from sourceType to destType if necessary.
   Value result = source;
   Type sourceType = source.getType();
-  if (auto sourceVec = sourceType.dyn_cast<VectorType>()) {
-    if (auto destVec = destType.dyn_cast<VectorType>()) {
+  if (auto sourceVec = dyn_cast<VectorType>(sourceType)) {
+    if (auto destVec = dyn_cast<VectorType>(destType)) {
       assert(sourceVec.getNumElements() == destVec.getNumElements() &&
-             "source and destinatioon have same length");
+             "source and destination have same length");
     } else {
       llvm_unreachable("Can't store vector sources to scalar destinations in "
                        "output writeback");
@@ -104,25 +108,25 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   }
   Type sourceElemType = getElementTypeOrSelf(sourceType);
   Type destElemType = getElementTypeOrSelf(destType);
+  unsigned sourceWidth = sourceElemType.getIntOrFloatBitWidth();
+  unsigned destWidth = destElemType.getIntOrFloatBitWidth();
   if (sourceElemType != destElemType) {
     // All these ops act elementwise on vectors.
-    if (sourceElemType.isa<IntegerType>() && destElemType.isa<IntegerType>()) {
-      uint32_t sourceWidth = sourceElemType.getIntOrFloatBitWidth();
-      uint32_t destWidth = destElemType.getIntOrFloatBitWidth();
+    if (isa<IntegerType>(sourceElemType) && isa<IntegerType>(destElemType)) {
       if (sourceWidth <= destWidth) {
         result = b.create<arith::ExtSIOp>(loc, destType, source);
       } else {
         result = b.create<arith::TruncIOp>(loc, destType, source);
       }
-    } else if (sourceElemType.getIntOrFloatBitWidth() < 32 &&
-               sourceElemType.isa<FloatType>() && destElemType.isF32()) {
-      result = b.create<arith::ExtFOp>(loc, destType, source);
-    } else if (sourceElemType.isF32() && destElemType.isa<FloatType>() &&
-               destElemType.getIntOrFloatBitWidth() < 32) {
-      result = b.create<arith::TruncFOp>(loc, destType, source);
+    } else if (isa<FloatType>(sourceElemType) && isa<FloatType>(destElemType)) {
+      if (sourceWidth < destWidth) {
+        result = b.create<arith::ExtFOp>(loc, destType, source);
+      } else {
+        result = b.create<arith::TruncFOp>(loc, destType, source);
+      }
     } else {
       llvm_unreachable("Only float-to-float and int-to-int conversions "
-                       "allowed, and doubles are not supported");
+                       "allowed");
     }
   }
   return result;
@@ -130,7 +134,7 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
 
 void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
                                    Value src, Value dst) {
-  MemRefType dstType = dst.getType().cast<MemRefType>();
+  MemRefType dstType = cast<MemRefType>(dst.getType());
   SmallVector<AffineMap, 2> indexingMaps{
       2, rewriter.getMultiDimIdentityMap(dstType.getRank())};
   SmallVector<utils::IteratorType> iteratorTypes(dstType.getRank(),
@@ -165,11 +169,13 @@ void createTypeConversionStore(PatternRewriter &rewriter, Location loc,
 
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
   auto ctx = b.getContext();
-  auto sourceType = source.getType().cast<ShapedType>();
+  auto sourceType = cast<ShapedType>(source.getType());
   assert(sourceType.hasStaticShape() &&
          "Only memrefs with static shapes are allowed");
 
   auto shape = sourceType.getShape();
+  if (shape.size() == 1)
+    return source;
   uint64_t collapsedDim = 1;
   SmallVector<AffineExpr, 2> exprs;
   for (uint32_t dim = 0; dim < shape.size(); ++dim) {
@@ -190,9 +196,19 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
 }
 
 int64_t getByteWidth(Type type) {
-  if (auto vecType = type.dyn_cast<VectorType>())
+  if (auto vecType = dyn_cast<VectorType>(type))
     return (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
   return type.getIntOrFloatBitWidth() / 8;
+}
+
+Type getFlattenedType(Type type) {
+  if (auto mt = dyn_cast<MemRefType>(type)) {
+    return MemRefType::get(mt.getNumElements(), mt.getElementType(), nullptr,
+                           mt.getMemorySpace());
+  }
+  if (auto st = dyn_cast<ShapedType>(type))
+    return st.cloneWith(st.getNumElements(), /*elementType=*/nullptr);
+  return type;
 }
 
 Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,

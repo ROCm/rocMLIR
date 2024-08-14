@@ -44,7 +44,7 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
     auto inA = op->getOperand(0);
-    auto outputTy = op->getResults()[0].getType().cast<ShapedType>();
+    auto outputTy = cast<ShapedType>(op->getResults()[0].getType());
     auto rSop = rewriter.create<migraphx::RsqrtOp>(loc, outputTy, inA);
     auto rCop = rewriter.create<migraphx::RecipOp>(loc, outputTy, rSop);
 

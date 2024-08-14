@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // Defines MLIR MIGraphX operations.
-// https://rocmsoftwareplatform.github.io/AMDMIGraphX/doc/html/dev/operators.html
+// https://rocm.docs.amd.com/projects/AMDMIGraphX/en/latest/dev/operators.html
 //
 //===----------------------------------------------------------------------===//
 
@@ -244,7 +244,7 @@ def MIGraphX_AsLogicalShapeOp : MIGraphX_Op<"mlir.as.logical.shape">,
     OpBuilder<(ins "::mlir::Value":$in),
     [{
       $_state.addOperands({in});
-      $_state.addTypes(in.getType().cast<MIXRShapedType>().asTensor());
+      $_state.addTypes(cast<MIXRShapedType>(in.getType()).asTensor());
     }]>
   ];
   let assemblyFormat = [{
@@ -297,7 +297,7 @@ class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> 
 }
 
 def MIGraphX_QuantConvolutionOp :
-    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, I8], [F32, I32]> {
+    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN, I8], [F32, I32]> {
   let summary = "quantized convolution forward";
   let description = [{
     The `migraphx.quant_convolution` op computes quantized convolution forward.
@@ -305,7 +305,8 @@ def MIGraphX_QuantConvolutionOp :
 }
 
 def MIGraphX_ConvolutionOp :
-    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ], [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ]> {
+    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN],
+                                       [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN]> {
   let summary = "convolution forward";
   let description = [{
     The `migraphx.convolution` op computes convolution forward.
@@ -473,7 +474,7 @@ class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> o
 }
 
 def MIGraphX_QuantDotOp :
-    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, I8], [F32, I32]>{
+    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, I8], [F32, I32]>{
   let summary = "Dot product of quantized tensors";
   let description = [{
     The `migraphx.quant_dot` op computes the dot product of two tensors.
@@ -512,6 +513,21 @@ def MIGraphX_ReduceMeanOp :
   let summary = "Get the mean of the values in given axis";
   let description = [{
     The `migraphx.reduce_mean` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def MIGraphX_ReduceSumOp :
+    MIGraphX_Op<"reduce_sum">,
+    Arguments<(ins AnyMIXRShaped:$input,
+                   I64ArrayAttr:$axes
+                   )>,
+	Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Get the sum of the values in given axis";
+  let description = [{
+    The `migraphx.reduce_sum` op.
   }];
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)

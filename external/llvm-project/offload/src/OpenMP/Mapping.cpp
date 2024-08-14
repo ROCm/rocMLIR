@@ -270,10 +270,8 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
       // can optimize memory access latency by registering allocated
       // memory as coarse-grained. The usage of coarse-grained memory can be
       // overriden by setting the env-var OMPX_DISABLE_USM_MAPS=1.
-      // This is not done for APUs.
-      if (Device.RTL->has_USM_capable_dGPU(Device.DeviceID) && HstPtrBegin &&
-          (!Device.RTL->is_fine_grained_memory_enabled(Device.DeviceID)) &&
-          Device.RTL->set_coarse_grain_mem_region) {
+      if (Device.RTL->is_gfx90a(Device.DeviceID) && HstPtrBegin &&
+          (!Device.RTL->is_fine_grained_memory_enabled(Device.DeviceID))) {
         Device.RTL->set_coarse_grain_mem_region(Device.DeviceID, HstPtrBegin,
                                                 Size);
         INFO(OMP_INFOTYPE_MAPPING_CHANGED, Device.DeviceID,
@@ -337,9 +335,7 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
 
     // Notify the plugin about the new mapping.
     if (Device.notifyDataMapped(HstPtrBegin, Size))
-      return {{false /*IsNewEntry=*/, false /*IsHostPointer=*/},
-              nullptr /*Entry=*/,
-              nullptr /*TargetPointer=*/};
+      return TargetPointerResultTy{};
   } else {
     // This entry is not present and we did not create a new entry for it.
     LR.TPR.Flags.IsPresent = false;
@@ -367,9 +363,7 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
       LR.TPR.TargetPointer = nullptr;
     } else if (LR.TPR.getEntry()->addEventIfNecessary(Device, AsyncInfo) !=
                OFFLOAD_SUCCESS)
-      return {{false /*IsNewEntry=*/, false /*IsHostPointer=*/},
-              nullptr /*Entry=*/,
-              nullptr /*TargetPointer=*/};
+      return TargetPointerResultTy{};
   } else {
     // If not a host pointer and no present modifier, we need to wait for the
     // event if it exists.
@@ -383,9 +377,7 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
           // If it fails to wait for the event, we need to return nullptr in
           // case of any data race.
           REPORT("Failed to wait for event " DPxMOD ".\n", DPxPTR(Event));
-          return {{false /*IsNewEntry=*/, false /*IsHostPointer=*/},
-                  nullptr /*Entry=*/,
-                  nullptr /*TargetPointer=*/};
+          return TargetPointerResultTy{};
         }
       }
     }

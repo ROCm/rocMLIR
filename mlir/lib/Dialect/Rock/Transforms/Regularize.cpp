@@ -14,23 +14,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // ============================================================
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 
 namespace mlir {
@@ -121,7 +120,6 @@ static bool isRegularGeneric(linalg::GenericOp lgop) {
     if (idxMap != outIdxMap)
       return false; //"Must be same index maps"
   }
-
   return true;
 }
 
@@ -148,147 +146,502 @@ struct RegularizeGenericRewritePattern
   }
 };
 
-////////////////////////////////////////////////////////////////////////
-////  Push Transforms Over alloc to writer
-////////////////////////////////////////////////////////////////////////
-struct PushTransformsUpRewritePattern
-    : public OpRewritePattern<memref::AllocOp> {
-  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
+static void annotateGenericOp(linalg::GenericOp lgop) {
+  MLIRContext *ctx = lgop.getContext();
+  int64_t majorTensorSize = 0;
+  size_t majorTensorIdx;
+  size_t argIdx = -1;
+  if (lgop.getInputs().size() == 1) {
+    lgop->setAttr("rock.majorTensorNumber",
+                  IntegerAttr::get(IndexType::get(ctx), 1));
+    return;
+  }
+  for (auto [inputIdx, inp] : llvm::enumerate(lgop.getInputs())) {
+    while (auto viewOp =
+               dyn_cast_or_null<ViewLikeOpInterface>(inp.getDefiningOp()))
+      inp = viewOp.getViewSource();
 
-  /////////////////////////////////////////////////////////////////////
-  static bool isFusorOp(Operation *useOp) {
-    return isa<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
-               rock::GridwiseAttentionAccelOp, rock::ThreadwiseWriteAllOp>(
-        useOp);
+    if (isa<BlockArgument>(inp)) {
+      auto arg = dyn_cast<BlockArgument>(inp);
+      auto shape = cast<ShapedType>(inp.getType());
+      int64_t argSize = shape.getNumElements();
+      if (inputIdx == 0 || argSize > majorTensorSize ||
+          (argSize == majorTensorSize && argIdx > arg.getArgNumber())) {
+        majorTensorIdx = inputIdx;
+        majorTensorSize = argSize;
+        argIdx = arg.getArgNumber();
+      }
+    }
+  }
+  if (majorTensorIdx >= 0)
+    lgop->setAttr("rock.majorTensorNumber",
+                  IntegerAttr::get(IndexType::get(ctx), majorTensorIdx));
+}
+
+////////////////////////////////////////////////////////////////////////
+////  Classify buffer writes into input and output fusion chains
+////////////////////////////////////////////////////////////////////////
+
+/// The overall goal of this pass is to make sore you can go from the operands
+/// of the fusion root (usually a GEMM or attention) to function arguments
+/// through any intervening fusable operations (generally linalg.generic
+/// operations or reductions) without needing to invert any transformations.
+/// This allows us to accurately (assuming the heuristic for multiple-output
+/// input fusions isn't meaningfully incorrect) analyze the memory layout of the
+/// underlying memory despite any intervening fusion code. This is important,
+/// especially in the case of input fusions, as we rely on those vectorization
+/// analyses in order to correctly select elements of our schedule, like whether
+/// to do a bank conflict avoidance swizzle.
+///
+/// To achaive this, we traverse the writeOperands starting from the output
+/// buffer of each "fusion root" (the C algument of GEMM, the output of
+/// attention, etc) and record all the buffer-writing operands on the way from
+/// that argument to a function result (such as the outputs of an intervening
+/// linalg.generic) and classify them as output fusion writes. That is, output
+/// fusion writes are all those that will be replaced by writes to a register
+/// buffer during fusion. We then classify all the buffer writes between
+/// funciton inputs and the read operands of a fusion root as input fusion
+/// writes, along with the writes needed to produce any elementwise arguments to
+/// operations in the output fusion path (ex. if the bias elements are
+/// constructed by a linalg.generic, the output operand of that generic is an
+/// input fusion write). Equivalently, input fusion writes are those that become
+/// reads into a register buffer after fusion.
+///
+/// Once we have done this, we regularize the function as follows:
+/// - If the operand that points at a buffer write is on the output path,
+/// all the readers of that buffer must refer to that buffer directly and not
+/// through transforms. If there are such transforms, we invert them and replace
+/// the buffer with one whose type is the one expected by the reading operation.
+/// Shoulld there be multiple such operations that disagree about what the type
+/// of that buffer should be, we copy the original output buffer so that the
+/// inversions can be performed independently.
+/// - Conversely, for operands on the input path, the operation that writes
+/// to the buffer has to refer to the bufffer directly, so any views on that
+/// writing operand are inverted and those inverses become part of the view
+/// stack for each operation reading the buffer. This lets us traverse from
+/// the writing operand to its input during a vectorization analysis without
+/// having to invert the maps on the output.
+
+namespace {
+/// Information needed while regularizing the view chains to allow vectorization
+/// and permit fusion.
+/// `worklist` is the set of memref.alloc ops that haven't been processed yet.
+/// When we do a non-trivial regularization, we always add the new buffer
+/// to the worklist to ensure that the regularization invariants are mantained.
+/// `inputFusionWrites` is the set of `OpOperand*`s that point at arguments
+/// of operations that write to a buffer where the underlying operation is on
+/// an input fusion chain.
+/// `outputFusionWrites` is similarly the set of operands indicating a
+/// potentially transformed buffer that's written during the main output fusion
+/// chain. These sets are needed to resolve the ambiguity abut how to regularize
+/// a `linalg.generic` - that is, can its `out` have a view on it or not? Note
+/// that this is mutable state because, in the case of conflicting
+/// transformations in an output fusion, we'll need to copy the intermediate
+/// buffer so we can invert the conflicting transformations onto the writes
+/// of each copy.
+struct TransformPushState {
+  llvm::SmallVector<memref::AllocOp> worklist;
+  llvm::SmallPtrSet<OpOperand *, 8> inputFusionWrites;
+  llvm::SmallPtrSet<OpOperand *, 8> outputFusionWrites;
+};
+} // end namespace
+
+/// Given an operand that reads a buffer, collect the write operand that filled
+/// that buffer and then recurse to all the buffers that that writing operation
+/// depends on. This allows us to classify linalg.generic operations as
+/// belonging to input fusions.
+static void
+collectInputFusionWriteOperands(OpOperand *readOperand,
+                                const BufferDependencyAnalysis &bufferDeps,
+                                TransformPushState &state) {
+  std::optional<memref::AllocOp> maybeBuffer =
+      bufferDeps.getReadBuffer(readOperand);
+  // This reads an argument or some such thing
+  if (!maybeBuffer)
+    return;
+  std::optional<SmallVector<OpOperand *>> writeOperands =
+      bufferDeps.getWriters(*maybeBuffer);
+  if (!writeOperands)
+    return;
+  for (OpOperand *writeOperand : *writeOperands) {
+    if (!state.inputFusionWrites.insert(writeOperand).second) {
+      continue; // No infinite recursion
+    }
+    auto writeOp = dyn_cast<MemoryEffectOpInterface>(writeOperand->getOwner());
+    if (!writeOp)
+      continue;
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    writeOp.getEffects(effects);
+    for (const auto &effect : effects) {
+      OpOperand *maybeRecursiveReadOperand =
+          effect.getEffectValue<OpOperand *>();
+      // Test against the write operand to guard against [MemRead, MemWrite]
+      if (maybeRecursiveReadOperand &&
+          maybeRecursiveReadOperand != writeOperand &&
+          isa<MemoryEffects::Read>(effect.getEffect())) {
+        collectInputFusionWriteOperands(maybeRecursiveReadOperand, bufferDeps,
+                                        state);
+      }
+    }
+  }
+}
+
+/// Given the operand that writes to a buffer, traverse all the operands that
+/// are reads from that buffer and examine their operations. Then, for each
+/// buffer that that reading operation accesses, if it is read, classify its
+/// producer as part of the input fusion process, while if the buffer is
+/// written, recurse to collect that write. This classifies the intermediate
+/// buffers for the output fusion chain as those that will be read from (their
+/// tile size will come from a threadwise_read_into) and those that will be
+/// written (their tile size will come from a threadwise_write_all).
+static void
+collectOutputFusionWrites(OpOperand *writeOperand,
+                          const BufferDependencyAnalysis &bufferDeps,
+                          TransformPushState &state) {
+  // This is, broadly, a cached untransform() except that it fails when you hit
+  // a function argument, which is what we want here.
+  std::optional<memref::AllocOp> maybeBuffer =
+      bufferDeps.getWrittenBuffer(writeOperand);
+  // This reads an argument or some such thing
+  if (!maybeBuffer)
+    return;
+  if (!state.outputFusionWrites.insert(writeOperand).second)
+    return; // Prevent recursion
+  std::optional<SmallVector<OpOperand *>> readOperands =
+      bufferDeps.getReaders(*maybeBuffer);
+  if (!readOperands)
+    return;
+  SmallPtrSet<OpOperand *, 4> elementwiseArgs, onwardWrites;
+  for (OpOperand *readOperand : *readOperands) {
+    auto readOp = dyn_cast<MemoryEffectOpInterface>(readOperand->getOwner());
+    if (!readOp)
+      continue;
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    readOp.getEffects(effects);
+    for (const auto &effect : effects) {
+      OpOperand *operand = effect.getEffectValue<OpOperand *>();
+      if (!operand || operand == readOperand)
+        continue;
+      MemoryEffects::Effect *effectType = effect.getEffect();
+      if (isa<MemoryEffects::Write>(effectType)) {
+        onwardWrites.insert(operand);
+        elementwiseArgs.erase(operand);
+      }
+      if (isa<MemoryEffects::Read>(effectType) &&
+          !onwardWrites.contains(operand)) {
+        elementwiseArgs.insert(operand);
+      }
+    }
+  }
+  for (OpOperand *arg : elementwiseArgs)
+    collectInputFusionWriteOperands(arg, bufferDeps, state);
+  for (OpOperand *localWrite : onwardWrites) {
+    LLVM_DEBUG(llvm::dbgs() << "Traversing via onward writer: "
+                            << *localWrite->getOwner() << "\n");
+    collectOutputFusionWrites(localWrite, bufferDeps, state);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////
+////  Push Transforms Over alloc to fusor
+////////////////////////////////////////////////////////////////////////
+
+/// Invert the transform stack between `operand` and `oldAlloc`, replacing all
+/// users but that transform stack with a new allocation whose type is the type
+/// of `transformedUse`'s value. If the original transforms (and
+/// allocation) then have no other uses, erase them after doing this. This also
+/// updates worklists with the new allocation and reanalyzes the buffer
+/// dependencies.
+static LogicalResult
+regularizeTransformStack(memref::AllocOp oldAlloc, OpOperand *transformedUse,
+                         BufferDependencyAnalysis &bufferDeps,
+                         TransformPushState &state, IRRewriter &rw) {
+  SmallVector<TransformOp> transforms;
+  Value transformed = transformedUse->get();
+  Value buffer;
+  std::tie(buffer, std::ignore) = untransform(transformed, transforms);
+  if (buffer != oldAlloc.getResult()) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "While processing " << transformed << " wanted to reach "
+               << oldAlloc.getResult() << " but reached " << buffer << "\n");
+    return oldAlloc->emitError(
+        "mismatch between expected buffer and result of untransform() while "
+        "inverting fusion transforms");
   }
 
-  static bool collectChain(Value result, Operation *forwOp,
-                           SmallVector<Operation *> &chain) {
-    while (auto top = dyn_cast<rock::TransformOp>(forwOp)) {
-      result = top.getResult();
-      if (!result.hasOneUse()) {
-        // currently restricted to 1 reader
-        LLVM_DEBUG(llvm::dbgs() << "multiple readers on transform\n");
-        return false; // TODO: fix when encountered
-      }
-      chain.push_back(forwOp);
-      forwOp = (*result.getUses().begin()).getOwner();
-    }
-    chain.push_back(forwOp);
-    if (auto lgop = dyn_cast<linalg::GenericOp>(forwOp)) {
-      return llvm::is_contained(lgop.getOutputs(), result);
-    } else if (auto mcop = dyn_cast<memref::CopyOp>(forwOp)) {
-      // should never be output of memcpy?
-      assert(mcop.getTarget() != result);
-      return mcop.getTarget() == result;
-    } else if (auto rgop = dyn_cast<rock::GridwiseGemmOp>(forwOp)) {
-      return rgop.getC() == result;
-    } else if (auto rgop = dyn_cast<rock::GridwiseGemmAccelOp>(forwOp)) {
-      return rgop.getC() == result;
-    } else if (auto rgop = dyn_cast<rock::GridwiseAttentionAccelOp>(forwOp)) {
-      return rgop.getOut() == result;
-    } else if (auto rgop = dyn_cast<rock::ThreadwiseWriteAllOp>(forwOp)) {
-      return rgop.getDest() == result;
-    }
-    LLVM_DEBUG(llvm::dbgs() << "unsupported op\n" << *forwOp);
-    return false;
+  SmallVector<std::pair<TransformMapAttr, Location>> inverses;
+  inverses.reserve(transforms.size());
+  for (TransformOp transform : llvm::reverse(transforms)) {
+    Location loc = transform.getLoc();
+    TransformMapAttr inverse =
+        invertTransformMap(rw, transform.getTransform(), loc);
+    if (!inverse)
+      return transform.emitOpError("could not invert fusee transform while "
+                                   "regularizing fusions. Map = ")
+             << transform.getTransform();
+    inverses.emplace_back(inverse, loc);
   }
 
-  LogicalResult matchAndRewrite(memref::AllocOp alloc,
-                                PatternRewriter &rw) const override {
-    LogicalResult lres = failure();
-    Value buffer = alloc.getResult();
+  rw.setInsertionPointAfter(oldAlloc);
+  auto newAlloc = rw.create<memref::AllocOp>(
+      oldAlloc.getLoc(), cast<MemRefType>(transformed.getType()));
+  Value newBuffer = newAlloc.getResult();
+  rw.modifyOpInPlace(transformedUse->getOwner(),
+                     [&]() { transformedUse->set(newBuffer); });
+  Value viewed = newBuffer;
+  for (auto [inverse, loc] : llvm::reverse(inverses))
+    viewed = rw.create<rock::TransformOp>(loc, viewed, inverse);
+  // Don't replace the use that kicked all this off, we're probably about to
+  // erase it.
+  rw.replaceAllUsesExcept(buffer, viewed, transforms.back());
 
-    bool hasTransforms = false;
-    Operation *writer = nullptr;
-    Operation *fusor = nullptr;
-    SmallVector<SmallVector<Operation *>> readChains;
+  for (TransformOp transform : transforms)
+    if (transform.use_empty())
+      rw.eraseOp(transform);
+  if (oldAlloc.use_empty())
+    rw.eraseOp(oldAlloc);
+  else
+    bufferDeps.analyze(oldAlloc);
+  // If the inversions are being processed correctly, this should hit the early
+  // exit case.
+  bufferDeps.analyze(newAlloc);
+  state.worklist.push_back(newAlloc);
+  return success();
+}
 
-    // find the fusor
-    for (auto &use : buffer.getUses()) {
-      Operation *useOp = use.getOwner();
-      Value result = buffer;
-      while (auto top = dyn_cast<rock::TransformOp>(useOp)) {
-        result = top.getResult();
-        useOp = (*result.getUses().begin()).getOwner();
-      }
-      if (isFusorOp(useOp)) {
-        fusor = useOp;
-      } else if (auto lgop = dyn_cast<linalg::GenericOp>(useOp)) {
-        if (!fusor && llvm::is_contained(lgop.getOutputs(), result))
-          fusor = useOp;
-      }
+/// If the writer of the buffer that'll be input-fused views that buffer through
+/// a series of transforms, invert those transforms and add them to the readers'
+/// (fusors) transform stacks, allocating a new buffer whose type is the type of
+/// that transformed view. This means that we don't need to compute inverses
+/// during, say, vectorization queries in GridwiseGemmToBlockwise.
+static LogicalResult pushTransformsToInputFusionReaders(
+    memref::AllocOp allocOp, BufferDependencyAnalysis &bufferDeps,
+    OpOperand *writer, TransformPushState &state, IRRewriter &rw) {
+  Value maybeTransformedBuffer = writer->get();
+  // If the input fusion writes directly to its buffer, there's nothing to do
+  // here, we've met the invariant.
+  if (maybeTransformedBuffer == allocOp.getResult())
+    return success();
+  LLVM_DEBUG(
+      llvm::dbgs() << "Processing input fusion write of " << writer->get()
+                   << " (argument " << writer->getOperandNumber() << " of "
+                   << *writer->getOwner() << ") via " << allocOp << "\n");
+  return regularizeTransformStack(allocOp, writer, bufferDeps, state, rw);
+}
+
+/// Isolate multiple readers that use transforms to view a buffer from each
+/// other so that we can regularize. This function will create a copy of
+/// `allocOp` for each of its readers that applies coordinate transformations
+/// while it reads from `allocOp` as a fusion input. This will allow register
+/// tiles to be reused in multiple contexts with multiple indexing schemes. Note
+/// that the extra copies implied by this operation will be elided - in the
+/// worst case, mem2reg will get through them, assuming we don't delete them.
+/// (An example of such multiple uses is returning both the gemm and the sum of
+/// each row within the gemm).
+static LogicalResult isolateMultipleTransformingReaders(
+    memref::AllocOp allocOp, Operation *writeOperand,
+    BufferDependencyAnalysis &bufferDeps, ArrayRef<OpOperand *> readOperands,
+    TransformPushState &state, IRRewriter &rw) {
+  TypedValue<MemRefType> buffer = allocOp.getResult();
+  Location loc = allocOp.getLoc();
+
+  LLVM_DEBUG(llvm::dbgs() << "Fixing multiple transformed readers of "
+                          << allocOp << "\n");
+  for (OpOperand *readOperand : llvm::make_early_inc_range(readOperands)) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Reading op is " << *readOperand->getOwner() << "\n");
+    Value transformed = readOperand->get();
+    rw.setInsertionPointAfter(allocOp);
+    // If there are partially-merged transform chains, isolate the transform
+    // chain and update the reader.
+    Value isolated = isolateTransforms(rw, transformed);
+    if (isolated != transformed) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Isolated " << transformed << " to " << isolated << "\n");
+      rw.modifyOpInPlace(readOperand->getOwner(),
+                         [&]() { readOperand->set(isolated); });
     }
 
-    // find fusee's transform chains
-    for (auto &use : buffer.getUses()) {
-      Operation *useOp = use.getOwner();
-      SmallVector<Operation *> chain;
-      bool isWriter = collectChain(buffer, useOp, chain);
-      if (isWriter) {
-        assert(writer == nullptr);
-        writer = useOp;
-      }
-      if (!chain.empty() && chain.back() != fusor) {
-        hasTransforms |= chain.size() > 1;
-        readChains.push_back(chain);
-      }
+    Value probablyBuffer;
+    SmallVector<TransformOp> transforms;
+    std::tie(probablyBuffer, std::ignore) = untransform(isolated, transforms);
+    if (probablyBuffer != buffer)
+      return allocOp.emitOpError("expected transformed reader ")
+             << *(readOperand->getOwner()) << " to trace value to " << buffer
+             << " but it reached " << probablyBuffer;
+    auto newBuffer = rw.create<memref::AllocOp>(loc, buffer.getType());
+    if (!transforms.empty()) {
+      TransformOp viewRoot = transforms.back();
+      rw.modifyOpInPlace(viewRoot, [&]() {
+        viewRoot.getInputMutable().set(newBuffer.getResult());
+      });
+    } else {
+      rw.modifyOpInPlace(readOperand->getOwner(),
+                         [&]() { readOperand->set(newBuffer.getResult()); });
+    }
+    rw.setInsertionPointAfter(writeOperand);
+    auto copy = rw.create<memref::CopyOp>(loc, allocOp, newBuffer);
+    state.worklist.push_back(newBuffer);
+    state.outputFusionWrites.insert(&copy.getTargetMutable());
+    bufferDeps.analyze(newBuffer);
+  }
+
+  // Prevent analysis of original allocation from going stale.
+  // If this function isn't correctly dispatching all the
+  // multiple-transforming-readers cases, the worklist emplacement will cause
+  // infinite recursion.
+  bufferDeps.analyze(allocOp);
+  state.worklist.push_back(allocOp);
+  return success();
+}
+
+/// Entry point for the regularization rewrite that inverts transforms.
+///
+/// This function dispatches to the input fusion case and the multiple
+/// transforming readers case, and then handles inverting the transforms on the
+/// operation argument corresponding to a read from an intermediate buffer onto
+/// tho operation that writes that buffer.
+static LogicalResult pushTransformsUp(memref::AllocOp allocOp,
+                                      BufferDependencyAnalysis &bufferDeps,
+                                      TransformPushState &state,
+                                      IRRewriter &rw) {
+  auto maybeBufferWriterOperands = bufferDeps.getWriters(allocOp);
+  auto maybeBufferReaderOperands = bufferDeps.getReaders(allocOp);
+  if (!maybeBufferWriterOperands)
+    return allocOp.emitOpError(
+        "couldn't find an operation that writes this buffer");
+  if (!maybeBufferReaderOperands)
+    return allocOp.emitError(
+        "couldn't find an operation that reads this buffer");
+  SmallVector<OpOperand *> writeOperands =
+      std::move(*maybeBufferWriterOperands);
+  SmallVector<OpOperand *> readOperands = std::move(*maybeBufferReaderOperands);
+  if (writeOperands.size() != 1) {
+    allocOp->getParentOp()->dump();
+    return allocOp.emitError(
+               "expected one operation to write this buffer, but there are ")
+           << writeOperands.size();
+  }
+
+  OpOperand *writeOperand = writeOperands[0];
+  bool isInputFusion = state.inputFusionWrites.contains(writeOperand);
+  if (isInputFusion)
+    return pushTransformsToInputFusionReaders(allocOp, bufferDeps, writeOperand,
+                                              state, rw);
+  if (!state.outputFusionWrites.contains(writeOperand)) {
+    return allocOp.emitOpError("couldn't find the writer of a buffer in the "
+                               "set of analyzed fusable writes. See ")
+           << writeOperand->get();
+  }
+
+  OpOperand *readOperandWithTransforms = nullptr;
+  for (OpOperand *readOperand : readOperands) {
+    Value maybeTransformedBuffer = readOperand->get();
+    if (!maybeTransformedBuffer.getDefiningOp<rock::TransformOp>()) {
+      continue;
+    }
+    if (readOperandWithTransforms && readOperandWithTransforms != readOperand)
+      return isolateMultipleTransformingReaders(
+          allocOp, writeOperand->getOwner(), bufferDeps, readOperands, state,
+          rw);
+    readOperandWithTransforms = readOperand;
+  }
+  // It's the simple case, do nothing
+  if (!readOperandWithTransforms)
+    return success();
+
+  if (readOperandWithTransforms && readOperands.size() > 1) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Adding copies to partially intercept a transform stack\n");
+    return isolateMultipleTransformingReaders(
+        allocOp, writeOperand->getOwner(), bufferDeps, readOperands, state, rw);
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "Processing output fusion read via "
+                          << readOperandWithTransforms->get() << " (argument "
+                          << readOperandWithTransforms->getOperandNumber()
+                          << " of " << *readOperandWithTransforms->getOwner()
+                          << ") via " << allocOp << "\n");
+
+  return regularizeTransformStack(allocOp, readOperandWithTransforms,
+                                  bufferDeps, state, rw);
+}
+
+LogicalResult findFusionRoots(func::FuncOp kernel,
+                              const BufferDependencyAnalysis &bufferDeps,
+                              TransformPushState &state) {
+  bool foundFusionRoot = false;
+  kernel.walk([&](Operation *op) {
+    if (auto allocOp = dyn_cast<memref::AllocOp>(op)) {
+      state.worklist.push_back(allocOp);
+      return;
     }
 
-    // push transforms from fusee to fusor
-    if (fusor && hasTransforms) {
-      PatternRewriter::InsertionGuard guard(rw);
-      rw.setInsertionPoint(alloc);
-      Location loc = alloc.getLoc();
-      for (auto readChain : readChains) {
-        if (readChain.size() > 1) {
-          Operation *readOp = readChain.back();
-          readChain.pop_back();
-          assert(!isa<rock::TransformOp>(readOp));
-          Operation *lastTOp = readChain.back();
-          Value readInp = lastTOp->getResult(0);
+    if (op->hasTrait<OpTrait::rock::FusionRoot>()) {
+      foundFusionRoot = true;
+      auto effectsIface = cast<MemoryEffectOpInterface>(op);
+      SmallVector<MemoryEffects::EffectInstance> effects;
+      effectsIface.getEffects(effects);
+      SmallPtrSet<OpOperand *, 4> readOperands, writeOperands;
+      for (const auto &effect : effects) {
+        OpOperand *operand = effect.getEffectValue<OpOperand *>();
+        if (!operand)
+          continue;
+        MemoryEffects::Effect *effectType = effect.getEffect();
+        if (isa<MemoryEffects::Read>(effectType) &&
+            !writeOperands.contains(operand)) {
+          readOperands.insert(operand);
+        } else if (isa<MemoryEffects::Write>(effectType)) {
+          writeOperands.insert(operand);
+          readOperands.erase(operand);
+        }
+      }
+      for (OpOperand *writeOperand : writeOperands)
+        collectOutputFusionWrites(writeOperand, bufferDeps, state);
+      for (OpOperand *readOperand : readOperands)
+        collectInputFusionWriteOperands(readOperand, bufferDeps, state);
+    }
 
-          // Collect inverses of transforms now so we can bail without modifying
-          // IR.
-          SmallVector<TransformMapAttr> inverses;
-          inverses.reserve(readChain.size());
-          for (Operation *op : llvm::reverse(readChain)) {
-            auto txOp = dyn_cast<rock::TransformOp>(op);
-            if (!txOp)
-              return rw.notifyMatchFailure(op->getLoc(),
-                                           "non-transform op in read chain");
-            auto itx = rock::invertTransformMap(rw, txOp.getTransform(), loc);
-            if (!itx)
-              return rw.notifyMatchFailure(
-                  txOp.getLoc(), [&txOp](Diagnostic &diag) {
-                    diag << "unable to invert transform" << txOp.getTransform();
-                  });
-            inverses.push_back(itx);
-          }
-
-          // create new buffer (substitue in fusee)
-          MemRefType nbufferType = readInp.getType().cast<MemRefType>();
-          Value nbuffer =
-              rw.create<memref::AllocOp>(loc, nbufferType).getResult();
-          // update fusee with new buffer input
-          readOp->replaceUsesOfWith(readInp, nbuffer);
-
-          // insert inverse transforms after new buffer to fusor chain
-          Value val = nbuffer;
-          for (auto [itx, op] : llvm::zip(inverses, llvm::reverse(readChain))) {
-            auto top = rw.create<rock::TransformOp>(loc, val, itx);
-            val = top.getResult();
-            rw.eraseOp(op);
-          }
-          rw.replaceOp(alloc, val);
-
-          lres = success();
+    if (isa<AttentionOp, GridwiseAttentionAccelOp>(op)) {
+      // The linalg.generic inside the attention's body will be expected to
+      // write out a global tensor as if it were an output fusion, so its
+      // write should be added to the set of output fusion writes lest we
+      // get complaints that there's an alloc that doesn't participatie in
+      // fusion.
+      for (Region &attachedFunc : op->getRegions()) {
+        for (auto lgop : attachedFunc.getOps<linalg::GenericOp>()) {
+          collectOutputFusionWrites(&lgop.getOutputsMutable()[0], bufferDeps,
+                                    state);
         }
       }
     }
-    return lres;
+  });
+  // Make the traversal top-down just to be safe.
+  std::reverse(state.worklist.begin(), state.worklist.end());
+
+  return success(foundFusionRoot);
+}
+
+static LogicalResult runPushTransformsUp(func::FuncOp op,
+                                         BufferDependencyAnalysis &bufferDeps) {
+  TransformPushState state;
+  if (failed(findFusionRoots(op, bufferDeps, state))) {
+    // This pass is being run post gridwise-gemm-to-blockwise or otherwise out
+    // of its context, and so should do nothing. Usually this is because the
+    // early-pipeline applicability passes are being re-run as part of the
+    // lowering pipeline.
+    return success();
   }
-};
+  IRRewriter rw(op.getContext());
+  while (!state.worklist.empty()) {
+    memref::AllocOp allocOp = state.worklist.pop_back_val();
+    LLVM_DEBUG(llvm::dbgs() << "Regularizing: " << allocOp << "\n");
+    if (failed(pushTransformsUp(allocOp, bufferDeps, state, rw)))
+      return failure();
+    LLVM_DEBUG(llvm::dbgs() << "// --- //\n");
+  }
+  return success();
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -318,14 +671,15 @@ void RockRegularizePass::runOnOperation() {
     patterns.add<CollapseRewritePattern, ExpandRewritePattern,
                  RegularizeGenericRewritePattern>(ctx);
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
-      signalPassFailure();
+      return signalPassFailure();
     }
   }
 
   {
-    RewritePatternSet patterns(ctx);
-    patterns.add<PushTransformsUpRewritePattern>(ctx);
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
-      signalPassFailure();
+    auto &bufferDeps = getAnalysis<BufferDependencyAnalysis>();
+    if (failed(runPushTransformsUp(func, bufferDeps)))
+      return signalPassFailure();
   }
+
+  func->walk(annotateGenericOp);
 }

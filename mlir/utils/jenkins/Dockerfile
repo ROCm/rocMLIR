@@ -1,10 +1,10 @@
 FROM ubuntu:20.04
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.1/
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.2/
 ARG ROCM_BUILD_NAME=focal
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-6.1
+ARG ROCM_PATH=/opt/rocm-6.2
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -12,66 +12,81 @@ RUN apt-get clean all
 
 # --------------------- Section 1: ported from llvm-premerge-checks -----------------
 # Keep this section up-to-date with the upstream
-# https://github.com/google/llvm-premerge-checks/blob/master/containers/base-debian/Dockerfile
+# https://github.com/google/llvm-premerge-checks/blob/main/containers/buildbot-linux/Dockerfile
 RUN echo 'install build dependencies'; \
     apt-get update ;\
     apt-get install -y --no-install-recommends \
-        locales openssh-client gnupg ca-certificates  \
-        zip wget git \
+        locales openssh-client gnupg ca-certificates apt-transport-https \
+        zip wget curl git \
         gdb build-essential  \
         ninja-build \
-        ccache \
-        python3 python3-psutil \
-        python3-pip python3-setuptools \
-        swig python3-dev libedit-dev libncurses5-dev libxml2-dev liblzma-dev golang rsync jq;
+        libelf-dev libffi-dev gcc-multilib libmpfr-dev libpfm4-dev \
+        python3 python3-psutil python3-pip python3-setuptools \
+        lsb-release software-properties-common \
+        swig python3-dev libedit-dev libncurses5-dev libxml2-dev liblzma-dev golang rsync jq \
+        # for libc++ tests that use the timezone database of the chrono header
+        tzdata \
+        # for llvm installation script
+        sudo \
+        # build scripts
+        nodejs ccache \
+        # shell users
+        less vim
 
-RUN apt-get update ;\
-    apt-get upgrade -y ;\
-    apt-get install -y \
-        clang-10 lld-10 clang-tidy-10 clang-format-10 \
-        ;\
-    apt-get clean
+# Install cmake 3.23+ from source.
+RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/download/v3.23.3/cmake-3.23.3-linux-x86_64.sh; \
+    chmod +x /cmake.sh; \
+    mkdir -p /etc/cmake; \
+    /cmake.sh --prefix=/etc/cmake --skip-license; \
+    ln -s /etc/cmake/bin/cmake /usr/bin/cmake; \
+    ln -s /etc/cmake/bin/ctest /usr/bin/ctest; \
+    cmake --version; \
+    rm /cmake.sh
 
-RUN echo 'configure locale'; \
-    sed --in-place '/en_US.UTF-8/s/^#//' /etc/locale.gen ;\
-    locale-gen ;\
-    echo 'make python 3 default'; \
-    rm -f /usr/bin/python && ln -s /usr/bin/python3 /usr/bin/python; \
-    pip3 install wheel
+# LLVM must be installed after prerequisite packages.
+ENV LLVM_VERSION=17
+RUN echo 'install llvm ${LLVM_VERSION}' && \
+    wget --no-verbose https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh ${LLVM_VERSION} && \
+    apt-get update && \
+    apt-get install -y clang-${LLVM_VERSION} clang-format-${LLVM_VERSION} clang-tidy-${LLVM_VERSION} lld-${LLVM_VERSION} && \
+    ln -s /usr/bin/clang-${LLVM_VERSION} /usr/bin/clang && \
+    ln -s /usr/bin/clang++-${LLVM_VERSION} /usr/bin/clang++ && \
+    ln -s /usr/bin/clang-tidy-${LLVM_VERSION} /usr/bin/clang-tidy && \
+    ln -s /usr/bin/clang-tidy-diff-${LLVM_VERSION}.py /usr/bin/clang-tidy-diff && \
+    ln -s /usr/bin/clang-format-${LLVM_VERSION} /usr/bin/clang-format && \
+    ln -s /usr/bin/git-clang-format-${LLVM_VERSION} /usr/bin/git-clang-format && \
+    ln -s /usr/bin/clang-format-diff-${LLVM_VERSION} /usr/bin/clang-format-diff && \
+    ln -s /usr/bin/lld-${LLVM_VERSION} /usr/bin/lld && \
+    ln -s /usr/bin/lldb-${LLVM_VERSION} /usr/bin/lldb && \
+    ln -s /usr/bin/ld.lld-${LLVM_VERSION} /usr/bin/ld.lld && \
+    ln -s /usr/bin/llvm-profdata-${LLVM_VERSION} /usr/bin/llvm-profdata && \
+    ln -s /usr/bin/llvm-cov-${LLVM_VERSION} /usr/bin/llvm-cov && \
+    ln -s /usr/bin/llvm-symbolizer-${LLVM_VERSION} /usr/bin/llvm-symbolizer && \
+    ln -s /usr/bin/llvm-cxxfilt-${LLVM_VERSION} /usr/bin/llvm-cxxfilt && \
+    clang --version
 
-# Configure locale
+RUN echo 'configure locale' && \
+    sed --in-place '/en_US.UTF-8/s/^#//' /etc/locale.gen && \
+    locale-gen
 ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
-# Install python dependencies for the scripts. ADD will check contentents of a file for changes changed.
+# Install python dependencies for the scripts. ADD will check contents of a file for changes.
 # TODO: that should be done during the build as it will pull this repo anyway and will have latest version.
 ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" requirements.txt
 RUN pip3 install -r requirements.txt
 
-RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
-    ln -s /usr/bin/clang++-10 /usr/bin/clang++;\
-    ln -s /usr/bin/clang-tidy-10 /usr/bin/clang-tidy;\
-    ln -s /usr/bin/clang-tidy-diff-10.py /usr/bin/clang-tidy-diff;\
-    ln -s /usr/bin/clang-format-10 /usr/bin/clang-format;\
-    ln -s /usr/bin/git-clang-format-10 /usr/bin/git-clang-format;\
-    ln -s /usr/bin/clang-format-diff-10 /usr/bin/clang-format-diff;\
-    ln -s /usr/bin/lld-10 /usr/bin/lld;\
-    ln -s /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
-
 # --------------------- Section 2: Rock dialect setups -----------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-utils \
-  apt-transport-https \
-  curl \
   gpg \
-  libnuma-dev \
-  software-properties-common
+  libnuma-dev
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-           python3.8 python3.8-dev python3.8-venv python3-psutil \
-           python3-pip python3-setuptools \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10 \
+           python3-venv \
     && apt upgrade -y \
     && python3 -m pip install --upgrade pip \
     && pip3 install pandas numpy scipy jinja2 tomli \
@@ -86,19 +101,15 @@ RUN groupadd -g 109 render
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
 RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/rocm.list
 
-# Install cmake distribution
-RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | \
-    tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
-RUN echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ focal main' | \
-    tee /etc/apt/sources.list.d/kitware.list >/dev/null
-
 # Note instead of installing the latest, we should always manually bump cmake version when necessary.
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.
-# As of 2022-08-17, the rocm/rock images has /opt/conda/bin/cmake at 3.22.1, so we'll match that.
-# Note that the mlir minimum is 3.18.
-RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
+# llvm-premerge-checks installs 3.23.3, see above.
+# As of 2022-08-17, the rocm/rock images has /opt/conda/bin/cmake at 3.22.1.
+# Note that the mlir minimum is 3.20.0.
+RUN apt-get update && \
   apt-get install -y --no-install-recommends \
   rocm-dev \
+  rocm-llvm-dev \
   rocm-cmake \
   rocminfo \
   rocprofiler-dev \
@@ -108,14 +119,9 @@ RUN apt-get update && rm /usr/share/keyrings/kitware-archive-keyring.gpg && \
   miopen-hip-dev \
   libelf1 \
   pkg-config \
-  sudo \
-  vim \
   kmod \
   file \
   netcat-openbsd \
-  cmake-data=3.22.1-0kitware1ubuntu20.04.1 \
-  cmake=3.22.1-0kitware1ubuntu20.04.1 \
-  kitware-archive-keyring \
   libsqlite3-dev \
   parallel \
   libaio1 && \
@@ -135,5 +141,5 @@ RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
     python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
     python3 -m pip install scipy pandas
 
-# Workaround for 6.0.0 rocprof not supporting navi3x:  add it to list.
+# Workaround for 6.1.1 rocprof not supporting navi3x:  add it to list.
 RUN sed --in-place 's/gfx94x")/gfx94x","gfx11xx")/' /opt/rocm/bin/rocprof

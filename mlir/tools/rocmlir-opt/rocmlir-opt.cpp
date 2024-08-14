@@ -25,6 +25,7 @@ void registerVectorizationInferenceTestPass();
 void registerMultiBufferingTestPass();
 void registerBufferDependencyAnalysisTestPass();
 void registerFusibilityTestPass();
+void registerTransformMapsUtilsTestPass();
 } // end namespace rock
 } // end namespace mlir
 
@@ -35,6 +36,7 @@ void registerRockTestPasses() {
   rock::registerMultiBufferingTestPass();
   rock::registerBufferDependencyAnalysisTestPass();
   rock::registerFusibilityTestPass();
+  rock::registerTransformMapsUtilsTestPass();
 }
 #endif
 

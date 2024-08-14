@@ -96,11 +96,12 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
 
 def getWinningConfig(tuningOutput, config, allData, options: Options):
     maxTFlops = -np.inf
+    minNs = np.inf
     winningConfig = "None"
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
         if not options.quiet and not options.compact_print and i > 0 and i % 100 == 0:
-            print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
+            print(f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
         if options.debug:
             print(result, file=sys.stderr)
         # Time is in ns
@@ -116,9 +117,10 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         theseTFlops = entry['TFlops']
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
+            minNs = nanoSeconds
             winningConfig = perfConfig
             if options.compact_print and not options.quiet:
-                print(f"Tested {i} configs, best perf {maxTFlops} TFlops on perf_config {winningConfig}", file=sys.stderr)
+                print(f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
 
     return winningConfig, maxTFlops
 
@@ -131,6 +133,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
             commandLine = testVector.split(sep=' ')
             config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
             config.MLIR_N_REPEATS=1
+            testVector = config.toCommandLine()
             print("Tuning:", testVector, file=sys.stderr)
             commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
             # Note, we don't need the -ph, this goes to the tuning driver
@@ -235,7 +238,7 @@ def main(args=None):
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR tuning runner",
-        description="A script for tunning MLIR conv2d or gemm kernels",
+        description="A script for tuning MLIR conv or gemm kernels",
         allow_abbrev=False,
     )
 

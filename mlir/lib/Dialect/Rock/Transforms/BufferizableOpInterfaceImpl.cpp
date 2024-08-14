@@ -198,9 +198,9 @@ struct TensorUntransformCastOpInterface
 
     Value buffer = std::get<0>(rock::untransform(rewriter, *transformedArg));
     ArrayRef<int64_t> bufferShape =
-        buffer.getType().cast<ShapedType>().getShape();
+        cast<ShapedType>(buffer.getType()).getShape();
     ArrayRef<int64_t> resultShape =
-        castOp.getUntransformed().getType().cast<ShapedType>().getShape();
+        cast<ShapedType>(castOp.getUntransformed().getType()).getShape();
     if (bufferShape != resultShape)
       return op->emitOpError("buffer shape not equal to result shape");
     replaceOpWithBufferizedValues(rewriter, op, buffer);
@@ -215,10 +215,9 @@ struct TensorUntransformCastOpInterface
 void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, rock::RockDialect *dialect) {
-    Conv2DOp::attachInterface<GemmLikeInterface<Conv2DOp>>(*ctx);
-    Conv2DBwdDataOp::attachInterface<GemmLikeInterface<Conv2DBwdDataOp>>(*ctx);
-    Conv2DBwdWeightOp::attachInterface<GemmLikeInterface<Conv2DBwdWeightOp>>(
-        *ctx);
+    ConvOp::attachInterface<GemmLikeInterface<ConvOp>>(*ctx);
+    ConvBwdDataOp::attachInterface<GemmLikeInterface<ConvBwdDataOp>>(*ctx);
+    ConvBwdWeightOp::attachInterface<GemmLikeInterface<ConvBwdWeightOp>>(*ctx);
     GemmOp::attachInterface<GemmLikeInterface<GemmOp>>(*ctx);
     ReduceOp::attachInterface<GemmLikeInterface<ReduceOp>>(*ctx);
 

@@ -12,13 +12,10 @@
 #===----------------------------------------------------------------------===//
 
 # Use the rocm/mlir image as base
-FROM rocm/mlir:rocm6.1-latest
+FROM rocm/mlir:rocm6.2-latest
 
 RUN apt-get update; \
-    apt-get install -y dumb-init; \
-    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-10 100 ;\
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-10 100 ;\
-    update-alternatives --install /usr/bin/lld lld /usr/bin/lld-10 100
+    apt-get install -y dumb-init;
 
 # LTS releases often bundle obsolete pip versions that cannot access newest
 # Linux binary wheels.

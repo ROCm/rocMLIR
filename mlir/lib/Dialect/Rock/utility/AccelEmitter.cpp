@@ -24,6 +24,7 @@
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -57,7 +58,7 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
   int64_t nResultVectors = accelEmitterParams.nResultVectors;
   VectorType accVectorType = accelEmitterParams.accVectorType;
 
-  Type destType = regDest.getType().dyn_cast<MemRefType>().getElementType();
+  Type destType = dyn_cast<MemRefType>(regDest.getType()).getElementType();
 
   int64_t accVectorLen = accVectorType.getNumElements();
   int64_t numElements = accVectorLen * (mRepeats * nRepeats * nResultVectors);
@@ -137,12 +138,13 @@ Value AccelEmitter::generateThreadwiseViewBufferC(PatternRewriter &b,
 MfmaEmitter::MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
                          RockAccelTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
-                   initAccelEmitterParams(mfmaGroup, tuningParams),
+                   initAccelEmitterParams(mfmaGroup, tuningParams, arch),
                    AccelEmitterKind::AEK_MFMAEmitter},
       mfmaGroup{mfmaGroup} {}
 
 AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
-    MfmaInsnGroup mfmaGroup, RockAccelTuningParamAttrInterface tuningParams) {
+    MfmaInsnGroup mfmaGroup, RockAccelTuningParamAttrInterface tuningParams,
+    StringRef arch) {
   AccelEmitterParams params;
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
@@ -240,7 +242,7 @@ getDimNamesAndSize(ArrayRef<Dim> dims) {
   return {names, sizes};
 }
 
-RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
+llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
     OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
     ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
@@ -297,7 +299,7 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   SmallVector<StringRef> dimNamesM;
   SmallVector<int64_t, 7> dimSizesM;
   std::tie(dimNamesM, dimSizesM) =
-      getDimNamesAndSize({mBlock, mi, waveM, blkRow, vecGroup, mTid, vecItem});
+      getDimNamesAndSize({mi, waveM, blkRow, vecGroup, mTid, vecItem});
 
   // N sub dims
   Dim nBlock{"n_block", nLen / nPerBlock};
@@ -308,7 +310,7 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   SmallVector<StringRef> dimNamesN;
   SmallVector<int64_t, 7> dimSizesN;
   std::tie(dimNamesN, dimSizesN) =
-      getDimNamesAndSize({nBlock, ni, waveN, blkCol, nTid});
+      getDimNamesAndSize({ni, waveN, blkCol, nTid});
 
   RegsAsMatrixSubTiles ret;
   {
@@ -348,9 +350,9 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
                             blocksInOutRegs);
     TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
     auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
-    toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
-    toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
+    toMatrixC.passThrough({"g_block", mBlock.name, nBlock.name});
+    toMatrixC.unmerge("gemmBlockM", 3, dimNamesM, dimSizesM);
+    toMatrixC.unmerge("gemmBlockN", 4, dimNamesN, dimSizesN);
 
     // Before returning the output view, if necessary, swap back the
     // threadid/iter dimensions on both the M/N axis.
@@ -367,55 +369,24 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
 
   {
     // Create views as blockwise sub-tile of C
-    TopDownTMBuilder splitMemoryCoords(b, {"tid", "item"},
-                                       {blockSize, numElements}, loc);
-    splitMemoryCoords.merge(
-        {"wave", "m_tid", "n_tid"}, {0, 1, 2}, "tid",
-        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
-    splitMemoryCoords.merge(
-        {"i", "j", "vec_group", "vec_item"}, {3, 4, 5, 6}, "item",
-        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
-         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
-    auto toRowsAndCols =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    // "blkMajor" and "blkMinor" are placeholder names because we don't know
-    // if they'll be column or row until we check for broadcast-ness.
-    llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
-        splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}},
-                            {"i", {"m_i", "n_i"}},
-                            {"j", {"blkMajor", "blkMinor"}}});
-    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
-    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
-                          {wavesInKernelBlock / nWaves, nWaves});
-    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
-    rowsAndColsWrap.merge(
-        {"m_i", "n_i"}, "i",
-        {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
-    makeViewsForRowsAndCols(toRowsAndCols, mPerRepeat, nPerRepeat,
-                            rowsAndColsIdxs, splitMemoryCoords.endSize("j"),
-                            blocksInOutRegs);
-    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
-    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.unmerge("gemmM", 0, ArrayRef<StringRef>{dimNamesM}.slice(1),
-                      ArrayRef<int64_t>{dimSizesM}.slice(1));
-    toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
-                      ArrayRef<int64_t>{dimSizesN}.slice(1));
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    FailureOr<ArrayAttr> maybeBlockSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
-    // Before returning the output view, if necessary, swap back the
-    // threadid/iter dimensions on both the M/N axis.
-    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
-                                          toRowsAndColsAttr};
-    mlir::rock::swapThreadIdAndIteration(
-        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
-        inMPerThread, inNPerThread, mPerBlock, nPerBlock,
-        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
-        /*isBlockwise=*/true, transformAttrs);
-    ret.blockSubTile = b.getArrayAttr(transformAttrs);
+    if (failed(maybeBlockSubTile)) {
+      return failure();
+    }
+    ret.blockSubTile = maybeBlockSubTile.value();
   }
 
   {
-    // Create views for tid slice of blockwise sub-tile of C
+    // TODO: we can't use "removeUpperDims" because of bug #1562
+    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
+    // Create views for tid slice of blockwise sub-tile of C    // Create views
+    // for tid slice of blockwise sub-tile of C
     TopDownTMBuilder splitMemoryCoords(b, {"tid"}, {blockSize}, loc);
     splitMemoryCoords.merge(
         {"wave", "m_tid", "n_tid"}, {0, 1, 2}, "tid",
@@ -446,6 +417,8 @@ RegsAsMatrixSubTiles MfmaEmitter::computeOutputTransforms(
   }
 
   {
+    // TODO: we can't use "removeUpperDims" because of bug #1562
+    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
     // Create views as threadwise sub-tile of C
     TopDownTMBuilder splitMemoryCoords(b, {"item"}, {numElements}, loc);
     splitMemoryCoords.merge(
@@ -627,7 +600,8 @@ int64_t MfmaEmitter::getRowGroupSize() const {
   return mfmaAttr.rowGroupSize;
 }
 
-RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
+llvm::FailureOr<RegsAsMatrixSubTiles>
+MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
     int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
@@ -777,103 +751,22 @@ RegsAsMatrixSubTiles MfmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute block sub tile transforms
   {
-    SmallVector<Attribute> transformAttrs;
-    // First coordinate transform
-    TopDownTMBuilder splitIter(b, {"tid", "iter"},
-                               {blockSize, dRepeats * kpackPerThread * kPack},
-                               loc);
-    {
-      splitIter.passThrough("tid");
-      if (isKContigousDim) {
-        splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {1, 2, 3}, "iter",
-                        {dRepeats, kpackPerThread, kPack});
-      } else {
-        splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {1, 2, 3}, "iter",
-                        {kpackPerThread, dRepeats, kPack});
-      }
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    FailureOr<ArrayAttr> maybeBlockSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
+
+    if (failed(maybeBlockSubTile)) {
+      return failure();
     }
-    TransformMapAttr splitIterAttr = splitIter.get();
-    transformAttrs.push_back(splitIterAttr);
-    // Second coordinate transform
-    TopDownTMBuilder splitTid =
-        TopDownTMBuilder::below(splitIter, splitIterAttr);
-    {
-      splitTid.passThrough({"kpack"}, {0}, {"kpack"});
-      unsigned int dims = 0;
-      if (!isKReduction) {
-        splitTid.merge({"wave_id", "lane_id"}, {1, 2}, "tid",
-                       {blockSize / waveSize, waveSize});
-        dims = 3;
-      } else {
-        splitTid.merge(
-            {"wave_id", "blk_id", "blk_td"}, {1, 2, 3}, "tid",
-            {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
-        dims = 4;
-      }
-      splitTid.passThrough({"d_iter", "k_iter"}, {dims, dims + 1},
-                           {"drepeat", "kpack_iter"});
-    }
-    TransformMapAttr splitTidAttr = splitTid.get();
-    transformAttrs.push_back(splitTidAttr);
-    // Third coordinate transform
-    TopDownTMBuilder splitWaveId =
-        TopDownTMBuilder::below(splitTid, splitTidAttr);
-    {
-      splitWaveId.passThrough({"kpack"}, {0}, {"kpack"});
-      splitWaveId.merge({"wave_m", "wave_n"}, {1, 2}, "wave_id",
-                        {mWaves, nWaves});
-      if (!isKReduction) {
-        splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {3, 4, 5},
-                                {"lane_id", "d_iter", "k_iter"});
-      } else {
-        splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter"},
-                                {3, 4, 5, 6},
-                                {"blk_id", "blk_td", "d_iter", "k_iter"});
-      }
-    }
-    TransformMapAttr splitWaveIdAttr = splitWaveId.get();
-    transformAttrs.push_back(splitWaveIdAttr);
-    // Fourth coordinate transform
-    TopDownTMBuilder toLDSRowCol =
-        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
-    {
-      toLDSRowCol.passThrough({"kpack"}, {0}, {"kpack"});
-      if (!isKReduction) {
-        // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
-        toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "lane_id"},
-                            {dRepeats, dWaves, dPerAccel});
-        // k = k_i
-        toLDSRowCol.passThrough({"k"}, 2, {"k_iter"});
-      } else {
-        // d = blk_td + d_i * waveOffset
-        toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "blk_td"},
-                            {dRepeats, dWaves, inputSpanLen});
-        if (doSplitKAcrossThreadsFirst) {
-          // k = blk_id + (waveSize / inputSpanLen) * k_i
-          toLDSRowCol.unmerge("k", 2, {"k_iter", "blk_id"},
-                              {kpackPerThread, waveSize / inputSpanLen});
-        } else {
-          // k = k_i + kpackPerBlock * blk_id
-          toLDSRowCol.unmerge("k", 2, {"blk_id", "k_iter"},
-                              {waveSize / inputSpanLen, kpackPerThread});
-        }
-      }
-      toLDSRowCol.ignore(otherWaveDim);
-    }
-    TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
-    transformAttrs.push_back(toLDSRowColAttr);
-    // Fifth coordinate transform
-    int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
-    auto offset = rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride,
-                           "d", dPerBlock, 0, "k", kPackPerBlock, {"kpack"},
-                           {"k"}, transformAttrs);
-    offset.unmerge("K", 0, {"k", "kpack"}, {kPackPerBlock, kPack});
-    offset.passThrough({"D"}, {1}, {"d"});
-    TransformMapAttr offsetAttr = offset.get();
-    transformAttrs.push_back(offsetAttr);
-    ret.blockSubTile = b.getArrayAttr(transformAttrs);
+    ret.blockSubTile = maybeBlockSubTile.value();
   }
   // compute thread sub tile transforms
+  // TODO: we can't use "removeUpperDims" because of bug #1562
+  // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
   {
     SmallVector<Attribute> transformAttrs;
     // First coordinate transform
@@ -924,27 +817,41 @@ LogicalResult MfmaEmitter::validateAcceleratorProperties() {
 WmmaEmitter::WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
                          RockAccelTuningParamAttrInterface tuningParams)
     : AccelEmitter{arch, tuningParams,
-                   initAccelEmitterParams(wmmaInsn, tuningParams),
+                   initAccelEmitterParams(wmmaInsn, tuningParams, arch),
                    AccelEmitterKind::AEK_WMMAEmitter},
-      wmmaInsn(wmmaInsn) {}
+      wmmaInsn(wmmaInsn), isGfx11(arch.contains("gfx11")) {}
 
 AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
-    WmmaInsn wmmaInsn, RockAccelTuningParamAttrInterface tuningParams) {
+    WmmaInsn wmmaInsn, RockAccelTuningParamAttrInterface tuningParams,
+    StringRef arch) {
   AccelEmitterParams params;
 
   // Extract relevant tuning parameters
   int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
   int64_t kPack = tuningParams.getKpack();
-
+  int64_t inputVectorLen = wmmaInsn.argTypeA.getNumElements();
+  params.kBase = inputVectorLen;
   params.mRepeats = wmmaInsn.mRepeats;
   params.nRepeats = wmmaInsn.nRepeats;
   params.nResultVectors = 1;
-  params.kpackPerThread = kpackPerBlock;
-  params.kBase = wmmaInsn.inputLen;
-  params.mPerAccel = wmmaInsn.inputLen;
-  params.nPerAccel = wmmaInsn.inputLen;
-  params.kBasePerThread = kpackPerBlock * kPack / params.kBase;
 
+  params.kpackPerThread = kpackPerBlock;
+  params.mPerAccel = wmmaInsn.dPerAccel;
+  params.nPerAccel = wmmaInsn.dPerAccel;
+  // Pre-gfx12 each thread in the wave is loading an entire groups
+  // of Ks to reduce. So, if there are 32 threads in a wave and
+  // and we want to do a(16x16) * b(16x16), 16 threads are loading a vector
+  // of 16 Ks and the other 16 threads are replicating those values.
+  int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
+  if (arch.contains("gfx12")) {
+    // Post-gfx12 each thread is loading a partial set of values
+    // to reduce. For instance, with the previous example, each
+    // thread is loading a vector of 8 Ks. The first 16 threads are
+    // loading k=[0:8] the second 16 threads are loading k=[8:16] threads
+    int64_t numReductions = waveSize / wmmaInsn.dPerAccel;
+    params.kpackPerThread /= numReductions;
+  }
+  params.kBasePerThread = (params.kpackPerThread * kPack) / params.kBase;
   params.argTypeA = wmmaInsn.argTypeA;
   params.argTypeB = wmmaInsn.argTypeB;
   params.accVectorType = wmmaInsn.retType;
@@ -967,7 +874,6 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t kPack = tuningParams.getKpack();
 
   // Extract relevant emitter parameters
-  int64_t inputLen = wmmaInsn.inputLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   int64_t dRepeats = (dName == "m" ? accelEmitterParams.mRepeats
                                    : accelEmitterParams.nRepeats);
@@ -987,7 +893,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   // Compute source offset as
   // sourceOffset = k_i * MN + (laneId % wmmaInputLen) + waveOffset * mn_i;
   TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                            {blockSize, dPerBlock, kpackPerThread});
+                            {blockSize, dRepeats, kpackPerThread});
   splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                  {blockSize / waveSize, waveSize});
 
@@ -1010,17 +916,22 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                              {"wave_m", "wave_n", "d_iter", "k_iter"});
 
   replicateLanes.merge({"block_id", "block_td"}, {2, 3}, "lane_id",
-                       {waveSize / inputLen, inputLen});
+                       {waveSize / dPerAccel, dPerAccel});
   TransformMapAttr replicateLanesAttr = replicateLanes.get();
   transformAttrs.push_back(replicateLanesAttr);
 
   TopDownTMBuilder toLDSRowCol =
       TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
-  toLDSRowCol.passThrough({"k"}, {1}, {"k_iter"});
-  toLDSRowCol.ignore("block_id");
-  toLDSRowCol.ignore(otherWaveDim);
+  if (isGfx11) {
+    toLDSRowCol.passThrough({"k"}, {1}, {"k_iter"});
+    toLDSRowCol.ignore("block_id");
+  } else {
+    toLDSRowCol.unmerge({"k"}, 1, {"block_id", "k_iter"},
+                        {wmmaInsn.outputStride, kpackPerThread});
+  }
   toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "block_td"},
                       {dRepeats, dWaves, dPerAccel});
+  toLDSRowCol.ignore(otherWaveDim);
 
   TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
   transformAttrs.push_back(toLDSRowColAttr);
@@ -1039,7 +950,8 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   return transform(b, buffer, ldsRead);
 }
 
-RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
+llvm::FailureOr<RegsAsMatrixSubTiles>
+WmmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
     int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
@@ -1059,7 +971,6 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
   int64_t kPack = tuningParams.getKpack();
 
   // Extract relevant emitter parameters
-  int64_t inputLen = wmmaInsn.inputLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   int64_t dRepeats = (dName == "m" ? accelEmitterParams.mRepeats
                                    : accelEmitterParams.nRepeats);
@@ -1134,7 +1045,7 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
                                  {"wave_m", "wave_n", "d_iter", "k_iter"});
 
       replicateLanes.merge({"block_id", "block_td"}, {6, 7}, "lane_id",
-                           {waveSize / inputLen, inputLen});
+                           {waveSize / dPerAccel, dPerAccel});
     }
     TransformMapAttr replicateLanesAttr = replicateLanes.get();
     transformAttrs.push_back(replicateLanesAttr);
@@ -1145,8 +1056,13 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
       toLDSRowCol.passThrough({"k_loop", "g_block"});
       toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
       toLDSRowCol.passThrough({"kpack"}, {3}, {"kpack"});
-      toLDSRowCol.passThrough({"k"}, {5}, {"k_iter"});
-      toLDSRowCol.ignore("block_id");
+      if (isGfx11) {
+        toLDSRowCol.passThrough({"k"}, {5}, {"k_iter"});
+        toLDSRowCol.ignore("block_id");
+      } else {
+        toLDSRowCol.unmerge({"k"}, 5, {"block_id", "k_iter"},
+                            {wmmaInsn.outputStride, kpackPerThread});
+      }
       toLDSRowCol.ignore(otherWaveDim);
       toLDSRowCol.unmerge("d", 4, {"d_iter", thisWaveDim, "block_td"},
                           {dRepeats, dWaves, dPerAccel});
@@ -1172,89 +1088,23 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute block sub tile transforms
   {
-    SmallVector<Attribute> transformAttrs;
-    // First coordinate transform
-    TopDownTMBuilder splitIter(b, {"tid", "iter"},
-                               {blockSize, dRepeats * kpackPerThread * kPack},
-                               loc);
-    {
-      splitIter.passThrough("tid");
-      if (isKContigousDim) {
-        splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {1, 2, 3}, "iter",
-                        {dRepeats, kpackPerThread, kPack});
-      } else {
-        splitIter.merge({"kpack_iter", "drepeat", "kpack"}, {1, 2, 3}, "iter",
-                        {kpackPerThread, dRepeats, kPack});
-      }
-    }
-    TransformMapAttr splitIterAttr = splitIter.get();
-    transformAttrs.push_back(splitIterAttr);
-    // Second coordinate transform
-    TopDownTMBuilder splitTid =
-        TopDownTMBuilder::below(splitIter, splitIterAttr);
-    {
-      splitTid.passThrough({"kpack"}, {0}, {"kpack"});
-      splitTid.merge({"wave_id", "lane_id"}, {1, 2}, "tid",
-                     {blockSize / waveSize, waveSize});
-      splitTid.passThrough({"d_iter", "k_iter"}, {3, 4},
-                           {"drepeat", "kpack_iter"});
-    }
-    TransformMapAttr splitTidAttr = splitTid.get();
-    transformAttrs.push_back(splitTidAttr);
-    // Second coordinate transform
-    TopDownTMBuilder splitWaveId =
-        TopDownTMBuilder::below(splitTid, splitTidAttr);
-    {
-      splitWaveId.passThrough({"kpack"}, {0}, {"kpack"});
-      splitWaveId.merge({"wave_m", "wave_n"}, {1, 2}, "wave_id",
-                        {mWaves, nWaves});
-      splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {3, 4, 5},
-                              {"lane_id", "d_iter", "k_iter"});
-    }
-    TransformMapAttr splitWaveIdAttr = splitWaveId.get();
-    transformAttrs.push_back(splitWaveIdAttr);
-    // Third coordinate transform
-    TopDownTMBuilder replicateLanes =
-        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
-    {
-      replicateLanes.passThrough({"kpack"}, {0}, {"kpack"});
-      replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
-                                 {1, 2, 5, 6},
-                                 {"wave_m", "wave_n", "d_iter", "k_iter"});
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    FailureOr<ArrayAttr> maybeBlockSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
-      replicateLanes.merge({"block_id", "block_td"}, {3, 4}, "lane_id",
-                           {waveSize / inputLen, inputLen});
+    if (failed(maybeBlockSubTile)) {
+      return failure();
     }
-    TransformMapAttr replicateLanesAttr = replicateLanes.get();
-    transformAttrs.push_back(replicateLanesAttr);
-    // Fourth coordinate transform
-    TopDownTMBuilder toLDSRowCol =
-        TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
-    {
-      toLDSRowCol.passThrough({"kpack"}, {0}, {"kpack"});
-      toLDSRowCol.passThrough({"k"}, {2}, {"k_iter"});
-      toLDSRowCol.ignore("block_id");
-      toLDSRowCol.ignore(otherWaveDim);
-      toLDSRowCol.unmerge("d", 1, {"d_iter", thisWaveDim, "block_td"},
-                          {dRepeats, dWaves, dPerAccel});
-    }
-    TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
-    transformAttrs.push_back(toLDSRowColAttr);
-    // Fifth coordinate transform
-    {
-      int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
-      auto offset = rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride,
-                             "d", dPerBlock, 0, "k", kPackPerBlock, {"kpack"},
-                             {"k"}, transformAttrs);
-      offset.unmerge("K", 0, {"k", "kpack"}, {kPackPerBlock, kPack});
-      offset.passThrough({"D"}, {1}, {"d"});
-      TransformMapAttr offsetAttr = offset.get();
-      transformAttrs.push_back(offsetAttr);
-    }
-    ret.blockSubTile = b.getArrayAttr(transformAttrs);
+    ret.blockSubTile = maybeBlockSubTile.value();
   }
   // compute thread sub tile transforms
   {
+    // TODO: we can't use "removeUpperDims" because of bug #1562
+    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
     SmallVector<Attribute> transformAttrs;
     // First coordinate transform
     TopDownTMBuilder splitIter(b, {"iter"}, {dRepeats * kpackPerThread * kPack},
@@ -1264,8 +1114,8 @@ RegsAsMatrixSubTiles WmmaEmitter::createAccelGemmOperandTransforms(
         splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter",
                         {dRepeats, kpackPerThread, kPack});
       } else {
-        splitIter.merge({"k_iter", "kpack", "d_iter"}, {0, 1, 2}, "iter",
-                        {kpackPerThread, kPack, dRepeats});
+        splitIter.merge({"k_iter", "d_iter", "kpack"}, {0, 1, 2}, "iter",
+                        {kpackPerThread, dRepeats, kPack});
       }
     }
     TransformMapAttr splitIterAttr = splitIter.get();
@@ -1298,7 +1148,7 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   b.create<memref::StoreOp>(loc, vectorD, bufferC, regCOffset);
 }
 
-RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
+llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
     OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
     ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
     int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
@@ -1307,8 +1157,8 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
   int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t mPerWave = tuningParams.getMPerWave();
 
   // Extract relevant emitter parameters
   int64_t mRepeats = accelEmitterParams.mRepeats;
@@ -1319,41 +1169,35 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
   int64_t mWaves = mPerBlock / mPerWave;
   SmallVector<Attribute> transformAttrs;
 
-  // High level code for this loop
-  // source: https://gpuopen.com/learn/wmma_on_rdna3/
-  //
-  // laneIdx = tid % waveSize;
-  // for (int item = 0; item < 8; item++){
-  //    m_tid = laneIdx / 16;
-  //    col = laneIdx % 16;
-  //    row = (2*item + m_tid);
-  //    c[16 * row+col] = regC[item];
-  // }
-  //
-  //
-
   int64_t retNumElements = accVectorType.getNumElements();
   int64_t wavesInKernelBlock = blockSize / waveSize;
 
-  // m_tid is liimited to 0 or 1 (or 0,1,2,3 for wave64). Basically every
-  // workitem is computing 8 values, which represent a sub-column of a 16x16
-  // tile. For workitems 0 to 15 m_tid is 0 and they write to 0,2,4,...,14.  For
-  // workitems 16 to 31 m_tid is 1 and they write at positions 1,3,5,..,15 .
-  // This is outlined in https://gpuopen.com/learn/wmma_on_rdna3/
-  //
-  // Note that `wave_m` and `wave_n` are strided by the inputLen, i.e., all the
-  // waves will compute next to each other and then they will move to the next
-  // subtile in the workgroup
   SmallVector<StringRef, 5> dimNamesM{/*0=*/"m_block",
                                       /*1=*/"rep_i",
-                                      /*2=*/"wave_m",
-                                      /*3=*/"item_i",
-                                      /*4=*/"m_tid"};
-  SmallVector<int64_t, 5> orderedDimStridesM{/*0=*/mPerBlock,
-                                             /*1=*/mWaves * wmmaInsn.inputLen,
-                                             /*2=*/wmmaInsn.inputLen,
-                                             /*3=*/wmmaInsn.outputStride,
-                                             /*4=*/1};
+                                      /*2=*/"wave_m"};
+  int64_t itemIdx = 0;
+  int64_t tidIdx = 0;
+  if (isGfx11) {
+    dimNamesM.push_back(/*3=*/"item_i");
+    dimNamesM.push_back(/*4=*/"m_tid");
+    itemIdx = 3;
+    tidIdx = 4;
+  } else {
+    dimNamesM.push_back(/*3=*/"m_tid");
+    dimNamesM.push_back(/*4=*/"item_i");
+    itemIdx = 4;
+    tidIdx = 3;
+  }
+  SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
+                                             /*1=*/mWaves * wmmaInsn.dPerAccel,
+                                             /*2=*/wmmaInsn.dPerAccel};
+  if (isGfx11) {
+    orderedDimStridesM.push_back(/*3=*/wmmaInsn.outputStride);
+  } else {
+    orderedDimStridesM.push_back(/*3=*/accVectorType.getNumElements());
+  }
+  orderedDimStridesM.push_back(/*4=*/1);
+
   SmallVector<int64_t, 7> dimSizesM;
   convertDimStridestoSizes(orderedDimStridesM, mLen, dimSizesM);
 
@@ -1362,8 +1206,8 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
                                       /*2=*/"wave_n",
                                       /*3=*/"n_tid"};
   SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
-                                             /*1=*/nWaves * wmmaInsn.inputLen,
-                                             /*2=*/wmmaInsn.inputLen,
+                                             /*1=*/nWaves * wmmaInsn.dPerAccel,
+                                             /*2=*/wmmaInsn.dPerAccel,
                                              /*3=*/1};
   SmallVector<int64_t, 7> dimSizesN;
   convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
@@ -1377,19 +1221,21 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
          mRepeats * nRepeats * retNumElements},
         loc);
     splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
-    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
-                            {3, 4, 5, 6}, "tid",
-                            {wavesInKernelBlock / nWaves, nWaves,
-                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
+    splitMemoryCoords.merge(
+        {"wave_m", "wave_n", "m_tid", "n_tid"}, {3, 4, 5, 6}, "tid",
+        {mWaves, nWaves, waveSize / wmmaInsn.dPerAccel, wmmaInsn.dPerAccel});
     splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {7, 8, 9}, "item",
                             {mRepeats, nRepeats, retNumElements});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
-    toMatrixC.unmerge("gemmM", 1, dimNamesM, dimSizesM);
-    toMatrixC.unmerge("gemmN", 2, dimNamesN, dimSizesN);
+    toMatrixC.passThrough({"g_block", dimNamesM[0], dimNamesN[0]});
+    toMatrixC.unmerge("gemmBlockM", 3, ArrayRef<StringRef>{dimNamesM}.slice(1),
+                      ArrayRef<int64_t>{dimSizesM}.slice(1));
+    toMatrixC.unmerge("gemmBlockN", 4, ArrayRef<StringRef>{dimNamesN}.slice(1),
+                      ArrayRef<int64_t>{dimSizesN}.slice(1));
+
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
     mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
@@ -1402,45 +1248,34 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
 
   {
     // Create views as blockwise sub-tile of C
-    TopDownTMBuilder splitMemoryCoords(
-        b, {"tid", "item"}, {blockSize, mRepeats * nRepeats * retNumElements},
-        loc);
-    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
-                            {0, 1, 2, 3}, "tid",
-                            {wavesInKernelBlock / nWaves, nWaves,
-                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
-    splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {4, 5, 6}, "item",
-                            {mRepeats, nRepeats, retNumElements});
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    FailureOr<ArrayAttr> maybeBlockSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
-    auto toMatrixC =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.unmerge("gemmM", 0, ArrayRef<StringRef>{dimNamesM}.slice(1),
-                      ArrayRef<int64_t>{dimSizesM}.slice(1));
-    toMatrixC.unmerge("gemmN", 1, ArrayRef<StringRef>{dimNamesN}.slice(1),
-                      ArrayRef<int64_t>{dimSizesN}.slice(1));
-    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
-    mlir::rock::swapThreadIdAndIteration(
-        toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
-        inMPerThread, inNPerThread, mPerBlock, nPerBlock,
-        doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
-        /**isBlocwise=*/true, transformAttrs);
-    ret.blockSubTile = b.getArrayAttr(transformAttrs);
+    if (failed(maybeBlockSubTile)) {
+      return failure();
+    }
+    ret.blockSubTile = maybeBlockSubTile.value();
   }
 
   {
     // Create views for tid slice of blockwise sub-tile of C
+    // TODO: we can't use "removeUpperDims" because of bug #1562
+    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
     TopDownTMBuilder splitMemoryCoords(b, {"tid"}, {blockSize}, loc);
-    splitMemoryCoords.merge({"wave_m", "wave_n", "m_tid", "n_tid"},
-                            {0, 1, 2, 3}, "tid",
-                            {wavesInKernelBlock / nWaves, nWaves,
-                             waveSize / wmmaInsn.inputLen, wmmaInsn.inputLen});
+    splitMemoryCoords.merge(
+        {"wave_m", "wave_n", "m_tid", "n_tid"}, {0, 1, 2, 3}, "tid",
+        {wavesInKernelBlock / nWaves, nWaves, waveSize / wmmaInsn.dPerAccel,
+         wmmaInsn.dPerAccel});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[4]},
-                      {dimSizesM[2], dimSizesM[4]});
+    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[tidIdx]},
+                      {dimSizesM[2], dimSizesM[tidIdx]});
     toMatrixC.unmerge("gemmN", 1, {dimNamesN[2], dimNamesN[3]},
                       {dimSizesN[2], dimSizesN[3]});
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
@@ -1450,6 +1285,8 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
 
   {
     // Create views as threadwise sub-tile of C
+    // TODO: we can't use "removeUpperDims" because of bug #1562
+    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
     TopDownTMBuilder splitMemoryCoords(
         b, {"item"}, {mRepeats * nRepeats * retNumElements}, loc);
     splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {0, 1, 2}, "item",
@@ -1458,8 +1295,8 @@ RegsAsMatrixSubTiles WmmaEmitter::computeOutputTransforms(
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.unmerge("gemmM", 0, {dimNamesM[1], dimNamesM[3]},
-                      {dimSizesM[1], dimSizesM[3]});
+    toMatrixC.unmerge("gemmM", 0, {dimNamesM[1], dimNamesM[itemIdx]},
+                      {dimSizesM[1], dimSizesM[itemIdx]});
     toMatrixC.unmerge("gemmN", 1, {dimNamesN[1]}, {dimSizesN[1]});
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
     ret.threadSubTile = b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
@@ -1476,7 +1313,7 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
   if (isMfma) {
     XdlopsGemmDerivedParamsAttr mfmaParams =
-        tuningParams.cast<XdlopsGemmDerivedParamsAttr>();
+        cast<XdlopsGemmDerivedParamsAttr>(tuningParams);
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch,
                                                     mfmaParams.getMnPerXdl());
     if (failed(maybeMfmaInsnGroup)) {
@@ -1487,7 +1324,7 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   } else if (isWmma) {
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
-                                               tuningParams.getMPerWave(),
+                                               arch, tuningParams.getMPerWave(),
                                                tuningParams.getNPerWave());
     if (failed(maybeWmmaInsnGroup)) {
       return nullptr;

@@ -8,7 +8,7 @@
 #ifndef MLIR_DIALECT_AMDGPU_UTILS_CHIPSET_H_
 #define MLIR_DIALECT_AMDGPU_UTILS_CHIPSET_H_
 
-#include "mlir/Support/LogicalResult.h"
+#include "mlir/Support/LLVM.h"
 
 namespace mlir {
 namespace amdgpu {
@@ -17,6 +17,13 @@ struct Chipset {
   Chipset(unsigned majorVersion, unsigned minorVersion)
       : majorVersion(majorVersion), minorVersion(minorVersion){};
   static FailureOr<Chipset> parse(StringRef name);
+
+  bool isGfx940() const {
+    return majorVersion == 9 && minorVersion >= 0x40 && majorVersion < 0x50;
+  }
+  bool hasOcpFp8() const {
+    return (majorVersion == 9 && minorVersion >= 0x50) || majorVersion >= 12;
+  }
 
   unsigned majorVersion = 0;
   unsigned minorVersion = 0;

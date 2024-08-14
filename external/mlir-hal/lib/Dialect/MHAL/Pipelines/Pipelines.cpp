@@ -119,7 +119,10 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   auto &funcPm1 = pm.nest<func::FuncOp>();
   funcPm1.addPass(createConvertLinalgToAffineLoopsPass());
   funcPm1.addPass(createLowerAffinePass());
+  funcPm1.addPass(createMHalEmulateNarrowTypePass());
   funcPm1.addPass(memref::createExpandStridedMetadataPass());
+  // Narrow type emulation can generate new affine appli ops
+  funcPm1.addPass(createLowerAffinePass());
 
   funcPm1.addPass(createConvertSCFToCFPass());
 
@@ -150,6 +153,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   GpuToLLVMConversionPassOptions opts;
   opts.kernelBarePtrCallConv = options.barePtrMemrefs;
   pm.addPass(createGpuToLLVMConversionPass(opts));
+  pm.addPass(createMHALDropBinaryMetadataPass());
 
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createReconcileUnrealizedCastsPass());

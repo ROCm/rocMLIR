@@ -405,6 +405,15 @@ if (NOT UNIX)
     PRIVATE version)
 endif()
 
+if (NOT WIN32)
+  target_link_libraries(amd_comgr
+    PRIVATE
+      pthread
+      rt
+      c
+      ${CMAKE_DL_LIBS})
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
   add_custom_target(check-comgr COMMAND ${CMAKE_CTEST_COMMAND} DEPENDS amd_comgr)
@@ -420,6 +429,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # Only libraries required for ASAN Package
     set(CPACK_COMPONENTS_ALL asan)
     set(PKG_DESC_SUMMARY "AddressSanitizer Instrumented Libraries to provide support functions for ROCm code objects.")
+  elseif(NOT COMGR_BUILD_SHARED_LIBS)
+    set(CPACK_COMPONENTS_ALL amd-comgr)
+    set(PKG_DESC_SUMMARY "Static Library to provide support functions for ROCm code objects.")
   else()
     set(CPACK_COMPONENTS_ALL amd-comgr)
     set(PKG_DESC_SUMMARY "Library to provide support functions for ROCm code objects.")
@@ -454,14 +466,19 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   # Debian package specific variables
   set(CPACK_DEB_COMPONENT_INSTALL ON)
-  set(CPACK_DEBIAN_AMD-COMGR_PACKAGE_NAME comgr)
-  set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/RadeonOpenCompute/ROCm-CompilerSupport")
-  if (LLVM_LINK_LLVM_DYLIB)
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core, rocm-llvm-core")
-    set(CPACK_DEBIAN_ASAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core-asan, rocm-llvm-core")
+  if(COMGR_BUILD_SHARED_LIBS)
+    set(CPACK_DEBIAN_AMD-COMGR_PACKAGE_NAME comgr)
   else()
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core")
-    set(CPACK_DEBIAN_ASAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core-asan")
+    set(CPACK_DEBIAN_AMD-COMGR_PACKAGE_NAME comgr-static-dev)
+  endif()
+  set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/ROCm/llvm-project/tree/amd-staging/amd/comgr")
+  set(DEBIAN_DEPENDENCIES "libzstd1, zlib1g, libc6, libstdc++6, libgcc-s1")
+  if (LLVM_LINK_LLVM_DYLIB)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core, rocm-llvm-core, ${DEBIAN_DEPENDENCIES}")
+    set(CPACK_DEBIAN_ASAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core-asan, rocm-llvm-core, ${DEBIAN_DEPENDENCIES}")
+  else()
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core, ${DEBIAN_DEPENDENCIES}")
+    set(CPACK_DEBIAN_ASAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core-asan, ${DEBIAN_DEPENDENCIES}")
   endif()
   if (DEFINED ENV{CPACK_DEBIAN_PACKAGE_RELEASE})
     set(CPACK_DEBIAN_PACKAGE_RELEASE $ENV{CPACK_DEBIAN_PACKAGE_RELEASE})
@@ -471,13 +488,31 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   # RPM package specific variables
   set(CPACK_RPM_COMPONENT_INSTALL ON)
-  set(CPACK_RPM_AMD-COMGR_PACKAGE_NAME comgr)
-  if (LLVM_LINK_LLVM_DYLIB)
-    set(CPACK_RPM_PACKAGE_REQUIRES "ncurses, rocm-core, rocm-llvm-core")
-    set(CPACK_RPM_ASAN_PACKAGE_REQUIRES "ncurses, rocm-core-asan, rocm-llvm-core")
+  if(COMGR_BUILD_SHARED_LIBS)
+    set(CPACK_RPM_AMD-COMGR_PACKAGE_NAME comgr)
   else()
-    set(CPACK_RPM_PACKAGE_REQUIRES "ncurses, rocm-core")
-    set(CPACK_RPM_ASAN_PACKAGE_REQUIRES "ncurses, rocm-core-asan")
+    set(CPACK_RPM_AMD-COMGR_PACKAGE_NAME comgr-static-devel)
+  endif()
+
+  execute_process(COMMAND rpm --eval %{?dist}
+                 RESULT_VARIABLE PROC_RESULT
+                 OUTPUT_VARIABLE EVAL_RESULT
+                 OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  if(PROC_RESULT EQUAL "0" AND "${EVAL_RESULT}" STREQUAL ".el7")
+    # In Centos using parentheses is causing cpack errors.
+    # Set the dependencies specifically for centos
+    set(RPM_DEPENDENCIES "zlib, glibc, libstdc++, libgcc")
+  else()
+    set(RPM_DEPENDENCIES "(zlib or libz1), (libzstd or libzstd1), glibc, (libstdc++ or libstdc++6), (libgcc or libgcc_s1)")
+  endif()
+
+  if (LLVM_LINK_LLVM_DYLIB)
+    set(CPACK_RPM_PACKAGE_REQUIRES "rocm-core, rocm-llvm-core, ${RPM_DEPENDENCIES}")
+    set(CPACK_RPM_ASAN_PACKAGE_REQUIRES "rocm-core-asan, rocm-llvm-core, ${RPM_DEPENDENCIES}")
+  else()
+    set(CPACK_RPM_PACKAGE_REQUIRES "rocm-core, ${RPM_DEPENDENCIES}")
+    set(CPACK_RPM_ASAN_PACKAGE_REQUIRES "rocm-core-asan, ${RPM_DEPENDENCIES}")
   endif()
   if(DEFINED ENV{CPACK_RPM_PACKAGE_RELEASE})
     set(CPACK_RPM_PACKAGE_RELEASE $ENV{CPACK_RPM_PACKAGE_RELEASE})

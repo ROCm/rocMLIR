@@ -40,6 +40,15 @@ class PatternRewriter;
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 
+namespace mlir {
+namespace OpTrait {
+namespace rock {
+template <typename ConcreteType>
+class FusionRoot : public TraitBase<ConcreteType, FusionRoot> {};
+} // namespace rock
+} // namespace OpTrait
+} // namespace mlir
+
 // Following ifdef could be used to change
 // the attention operator to be a fused gemm-gemm
 // kernel for debugging purposes. This will also
@@ -63,6 +72,10 @@ ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 // across all codegeneration done in rocMLIR. This will
 // limit the maxWaves per workgroup to be 4.
 constexpr int64_t maxWavesPerWG = 4;
+
+// The largest workgroup size ("block size") that LLVM and the runtime
+// support.
+constexpr int64_t maxHardwareWorkgroupSize = 1024;
 
 } // end namespace rock
 } // end namespace mlir

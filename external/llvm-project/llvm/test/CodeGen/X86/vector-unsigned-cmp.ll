@@ -650,7 +650,7 @@ define <8 x i16> @PR47448_ugt(i16 signext %0) {
 }
 
 ; Recognise the knownbits from X86ISD::AND in previous block.
-define void @PR54171(<4 x i64>* %mask0, <4 x i64>* %mask1, i64 %i) {
+define void @PR54171(ptr %mask0, ptr %mask1, i64 %i) {
 ; SSE-LABEL: PR54171:
 ; SSE:       # %bb.0: # %entry
 ; SSE-NEXT:    andq $7, %rdx
@@ -679,15 +679,16 @@ define void @PR54171(<4 x i64>* %mask0, <4 x i64>* %mask1, i64 %i) {
 ; AVX1-NEXT:  # %bb.1: # %if.then
 ; AVX1-NEXT:    vmovd %edx, %xmm0
 ; AVX1-NEXT:    vpshufd {{.*#+}} xmm0 = xmm0[0,0,0,0]
-; AVX1-NEXT:    vpcmpgtd {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm0, %xmm1
-; AVX1-NEXT:    vpcmpgtd {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm0, %xmm2
-; AVX1-NEXT:    vmovdqa %xmm2, (%rdi)
-; AVX1-NEXT:    vmovdqa %xmm1, 16(%rdi)
-; AVX1-NEXT:    vpcmpgtd {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm0, %xmm1
-; AVX1-NEXT:    vpcmpgtd {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm0, %xmm0
-; AVX1-NEXT:    vmovdqa %xmm0, (%rsi)
-; AVX1-NEXT:    vmovdqa %xmm1, 16(%rsi)
+; AVX1-NEXT:    vinsertf128 $1, %xmm0, %ymm0, %ymm0
+; AVX1-NEXT:    vcvtdq2ps %ymm0, %ymm0
+; AVX1-NEXT:    vmovaps {{.*#+}} ymm1 = [0.0E+0,0.0E+0,1.0E+0,1.0E+0,2.0E+0,2.0E+0,3.0E+0,3.0E+0]
+; AVX1-NEXT:    vcmpltps %ymm0, %ymm1, %ymm1
+; AVX1-NEXT:    vmovaps %ymm1, (%rdi)
+; AVX1-NEXT:    vmovaps {{.*#+}} ymm1 = [4.0E+0,4.0E+0,5.0E+0,5.0E+0,6.0E+0,6.0E+0,7.0E+0,7.0E+0]
+; AVX1-NEXT:    vcmpltps %ymm0, %ymm1, %ymm0
+; AVX1-NEXT:    vmovaps %ymm0, (%rsi)
 ; AVX1-NEXT:  .LBB18_2: # %if.end
+; AVX1-NEXT:    vzeroupper
 ; AVX1-NEXT:    retq
 ;
 ; AVX2-LABEL: PR54171:
@@ -715,12 +716,10 @@ if.then:
   %vecinit7.i.i = shufflevector <8 x i32> %vecinit.i.i, <8 x i32> poison, <8 x i32> zeroinitializer
   %cmp.i = icmp ugt <8 x i32> %vecinit7.i.i, <i32 0, i32 0, i32 1, i32 1, i32 2, i32 2, i32 3, i32 3>
   %sext.i = sext <8 x i1> %cmp.i to <8 x i32>
-  %0 = bitcast <4 x i64>* %mask0 to <8 x i32>*
-  store <8 x i32> %sext.i, <8 x i32>* %0, align 32
+  store <8 x i32> %sext.i, ptr %mask0, align 32
   %cmp.i18 = icmp ugt <8 x i32> %vecinit7.i.i, <i32 4, i32 4, i32 5, i32 5, i32 6, i32 6, i32 7, i32 7>
   %sext.i19 = sext <8 x i1> %cmp.i18 to <8 x i32>
-  %1 = bitcast <4 x i64>* %mask1 to <8 x i32>*
-  store <8 x i32> %sext.i19, <8 x i32>* %1, align 32
+  store <8 x i32> %sext.i19, ptr %mask1, align 32
   br label %if.end
 
 if.end:

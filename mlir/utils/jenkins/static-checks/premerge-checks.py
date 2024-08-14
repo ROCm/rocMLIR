@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ A script to perform static tests for the mlir project.
 
-This script runs clang-format and clang-tidy on the changes before a user 
+This script runs clang-format and clang-tidy on the changes before a user
 merges them to the master branch.
 
 The code was extracted from https://github.com/google/llvm-premerge-checks.
@@ -30,16 +30,18 @@ import git
 
 def get_diff(base_commit) -> Tuple[bool, str]:
   diff_run = subprocess.run(
-    f'/opt/rocm/llvm/bin/git-clang-format --binary /opt/rocm/llvm/bin/clang-format --diff {base_commit}', 
+    f'git-clang-format --diff {base_commit}',
     shell=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
   )
+  is_diff_run_succesful = diff_run.returncode <= 1
   diff = diff_run.stdout.decode()
   print(diff)
-  return diff
+  return is_diff_run_succesful, diff
 
 def check_external_file(filename: str) -> bool:
+  print(filename)
   regex = f'^external/'
   return re.search(regex, filename)
 
@@ -47,7 +49,10 @@ def run_clang_format(base_commit, ignore_config, ignore_external_files: bool = F
   """Apply clang-format and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_format_report.py"""
 
-  patch = get_diff(base_commit)
+  is_diff_run_succesful, patch = get_diff(base_commit)
+  if not is_diff_run_succesful:
+    print('git-clang-format returned an non-zero exit code')
+    return False
   patches = unidiff.PatchSet(patch)
   ignore_lines = []
 

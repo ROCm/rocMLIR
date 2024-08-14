@@ -98,7 +98,9 @@ LogicalResult RockEnabled(const mlir::rock::ConvGenerator::Config &conf) {
 
   const static std::set<std::tuple<std::string, std::string, std::string>>
       supportedLayouts = {{"ngchw", "gkcyx", "ngkhw"},
-                          {"nhwgc", "gkyxc", "nhwgk"}};
+                          {"nhwgc", "gkyxc", "nhwgk"},
+                          {"ngc01", "gkc01", "ngk01"},
+                          {"n01gc", "gk01c", "n01gk"}};
 
   bool layoutSupported =
       supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) >
@@ -194,7 +196,7 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
     if (!attr) {
       return failure();
     }
-    size = attr.template dyn_cast<IntegerAttr>().getInt();
+    size = dyn_cast<IntegerAttr>(attr).getInt();
     return success();
   };
 
@@ -223,14 +225,18 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
 
   count = 0;
   // If mlirHandle contains result from miirLowerTuningBin(), it is
-  // a LLVM::LLVMFuncOp
-  module.walk([&](LLVM::LLVMFuncOp funcOp) -> WalkResult {
-    auto statusBlock = getSizeAttr(funcOp->getAttr("block_size"), blockSize);
-    auto statusGrid = getSizeAttr(funcOp->getAttr("grid_size"), gridSize);
-    if (statusBlock.succeeded() && statusGrid.succeeded()) {
-      setReturn(blockSize, gridSize);
+  // a gpu::BinaryOp
+  module.walk([&](gpu::BinaryOp binary) -> WalkResult {
+    gpu::KernelTableAttr metadata =
+        cast<gpu::ObjectAttr>(binary.getObjects()[0]).getKernels();
+    for (auto [name, kernel] : metadata) {
+      auto statusBlock = getSizeAttr(kernel.getAttr("block_size"), blockSize);
+      auto statusGrid = getSizeAttr(kernel.getAttr("grid_size"), gridSize);
+      if (statusBlock.succeeded() && statusGrid.succeeded()) {
+        setReturn(blockSize, gridSize);
+      }
+      ++count;
     }
-    ++count;
     return WalkResult::advance();
   });
   if (count == 1)
@@ -294,22 +300,16 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
 
   // 1st call: give client the size of buffer to allocate
   if ((buffer == nullptr) && (size != nullptr)) {
-    module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(
-          gpu::getDefaultGpuBinaryAnnotation());
-      if (hsacoAttr) {
-        *size = hsacoAttr.getValue().size();
-      }
+    module.walk([&](gpu::BinaryOp binary) {
+      auto object = llvm::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+      *size = object.getObject().getValue().size();
     });
     // 2nd call: copy the hsaco to the target buffer
   } else {
-    module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(
-          gpu::getDefaultGpuBinaryAnnotation());
-      if (hsacoAttr) {
-        std::string hsaco = hsacoAttr.getValue().str();
-        std::copy(hsaco.begin(), hsaco.end(), buffer);
-      }
+    module.walk([&](gpu::BinaryOp binary) {
+      auto object = llvm::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]);
+      llvm::StringRef hsaco = object.getObject().getValue();
+      std::copy(hsaco.begin(), hsaco.end(), buffer);
     });
   }
   return MIIR_SUCCESS;

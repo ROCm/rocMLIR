@@ -21,6 +21,8 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/utility/fusionUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -28,6 +30,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
+#include "mlir/InitRocMLIRCLOptions.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
 #include "mlir/Parser/Parser.h"
@@ -248,7 +251,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     kernelFuncNames.push_back(funcOp.getSymName().str());
   }
   for (Type argType : funcs[0].getArgumentTypes()) {
-    auto shapedTy = argType.dyn_cast<ShapedType>();
+    auto shapedTy = dyn_cast<ShapedType>(argType);
     if (!shapedTy) {
       return funcs[0].emitOpError("all kernel inputs must be shaped types");
     }
@@ -327,6 +330,14 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     tuneCopy->walk([&perfConfigAttr](rock::AttentionOp op) {
       op->setAttr("perf_config", perfConfigAttr);
     });
+
+    if (rock::isSplitKRequested(tuneCopy.get(), perfConfig)) {
+      if (failed(rock::testFusionLegality(tuneCopy.get()))) {
+        llvm::outs() << "N/A\n";
+        continue;
+      }
+    }
+
     if (failed(applicability.run(tuneCopy.get()))) {
       llvm::outs() << "N/A\n";
       continue;
@@ -357,12 +368,14 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Extract binary and benchmark
     SmallVector<std::string> hipModules;
     for (const auto &fnName : kernelFuncNames) {
-      Operation *module = tuneCopy->lookupSymbol(fnName + "_module");
-      if (!isa<gpu::GPUModuleOp>(module)) {
-        llvm::errs() << "could not find the GPU module\n";
+      auto binary = tuneCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
+      if (!binary) {
+        llvm::errs() << "could not find the GPU binary\n";
       }
-      hipModules.push_back(
-          module->getAttrOfType<StringAttr>("gpu.binary").getValue().str());
+      hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
+                               .getObject()
+                               .getValue()
+                               .str());
     }
 
     FailureOr<double> timing =
@@ -387,9 +400,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
 
-  mlir::registerAsmPrinterCLOptions();
-  mlir::registerMLIRContextCLOptions();
-  mlir::registerPassManagerCLOptions();
+  mlir::registerMLIRCLOptions();
   llvm::cl::ParseCommandLineOptions(argc, argv, "rocMLIR tuning driver");
 
   DialectRegistry registry;
@@ -405,16 +416,18 @@ int main(int argc, char **argv) {
   }
 
   ModuleOp module;
-  WalkResult findModule = source->walk([&](ModuleOp op) -> WalkResult {
-    if (op->hasAttr("mhal.arch")) {
-      module = op;
+  WalkResult findModule = source->walk([&](func::FuncOp op) -> WalkResult {
+    FailureOr<StringAttr> mayBeArch = rock::getArch(op);
+    if (succeeded(mayBeArch)) {
+      module = op->getParentOfType<ModuleOp>();
+      module->setAttr("mhal.arch", mayBeArch.value());
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
   if (!findModule.wasInterrupted()) {
     source->emitOpError(
-        "no architecture set, set mhal.arch on the input module");
+        "no architecture set, set mhal.arch on the input module or func");
     llvm::errs() << "Tuning loop failed\n";
     return EXIT_FAILURE;
   }

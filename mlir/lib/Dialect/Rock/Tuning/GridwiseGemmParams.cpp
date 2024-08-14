@@ -76,7 +76,7 @@ PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
   PopulateParamsInfo info{op.getGemmSize(), op.getArch(),  op.getGemmFeatures(),
                           op.getAType(),    op.getBType(), op.getKernelType()};
 
-  if (auto convOp = dyn_cast<Conv2DBwdWeightOp>(*op)) {
+  if (auto convOp = dyn_cast<ConvBwdWeightOp>(*op)) {
     auto convDims = ConvolutionDims::fromOp(op);
     info.numCu = convOp.getNumCU();
     info.batchSize = convDims.n;
@@ -116,12 +116,12 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
                                                     GemmSize gemmSize) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
-  if (auto generalParams = params.dyn_cast<GeneralGemmParamsAttr>()) {
+  if (auto generalParams = dyn_cast<GeneralGemmParamsAttr>(params)) {
     kPerBlock = generalParams.getKPerBlock();
     mPerBlock = generalParams.getMPerBlock();
     nPerBlock = generalParams.getNPerBlock();
   } else if (auto accelParams =
-                 params.dyn_cast<RockAccelTuningParamAttrInterface>()) {
+                 dyn_cast<RockAccelTuningParamAttrInterface>(params)) {
     kPerBlock = accelParams.getKpackPerBlock();
     mPerBlock = accelParams.getMPerBlock();
     nPerBlock = accelParams.getNPerBlock();
@@ -321,7 +321,7 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
                                          const InitParamsAccel &params) {
   Attribute params0 = getGemmParamsAttr(b, params);
   RockAccelTuningParamAttrInterface accelParams0;
-  if (auto xdlopsParams0 = params0.dyn_cast<XdlopsGemmParamsAttr>()) {
+  if (auto xdlopsParams0 = dyn_cast<XdlopsGemmParamsAttr>(params0)) {
     int64_t mWaves = params.gemmMPerBlock / params.gemmMPerWave;
     if (mWaves > maxWavesPerWG) {
       return failure();
@@ -329,7 +329,7 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
     auto xdlopsDerivedParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
     accelParams0 = xdlopsDerivedParams0;
   } else {
-    accelParams0 = params0.cast<RockAccelTuningParamAttrInterface>();
+    accelParams0 = cast<RockAccelTuningParamAttrInterface>(params0);
   }
   return isValidBlockwiseGemm(accelParams0, info.gemmAType, info.gemmBType,
                               info.arch, false, false);
@@ -371,7 +371,8 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
     validParams = params;
     break;
   }
-  LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "perf config: " << genDebugForParams(validParams)
+                          << "\n");
   return res;
 }
 
@@ -395,136 +396,136 @@ PopulateParamsAccel::obtainTuningParameters(RockGemmWrapperInterface op,
 const InitParamsAccel
 PopulateParamsXDL::initParameters[PopulateParamsXDL::nInitParameters] = {
   // M/block N/block K/block M/wave N/wave kPack splitKFactor forceUnroll bCopyMore
-  {128, 256, 4, 64, 128, 4, 1, true, true},
-  {128, 128, 8, 64, 128, 1, 1, true, true},
-  {128, 128, 8, 64, 64, 1, 1, true, true},
-  {128, 128, 8, 64, 64, 4, 1, true, true},
-  {128, 128, 4, 64, 128, 4, 1, true, true},
-  {128, 128, 4, 64, 64, 8, 1, true, true},
-  {128, 128, 4, 64, 64, 4, 1, true, true},
-  {128, 128, 2, 64, 128, 8, 1, true, true},
-  {128, 128, 2, 64, 64, 8, 1, true, true},
-  {128, 128, 2, 64, 64, 4, 1, true, true},
-  {64, 256, 8, 64, 64, 1, 1, true, true},
-  {64, 256, 4, 64, 64, 4, 1, true, true},
-  {64, 128, 4, 32, 64, 4, 1, true, true},
-  {64, 128, 2, 32, 64, 8, 1, true, true},
-  {64, 128, 2, 32, 64, 4, 1, true, true},
+  {256, 256, 2, 128, 32, 4, 1, true, true},
+  {256, 64, 8, 128, 32, 1, 1, true, true},
+  {128, 128, 8, 64, 16, 4, 1, true, true},
+  {128, 128, 4, 128, 32, 4, 1, true, true},
+  {128, 128, 2, 32, 32, 8, 1, true, true},
+  {128, 64, 8, 64, 16, 1, 1, true, true},
+  {128, 64, 8, 32, 32, 4, 1, true, true},
+  {128, 64, 8, 32, 16, 1, 1, true, true},
+  {128, 64, 4, 32, 32, 4, 1, true, true},
+  {128, 64, 2, 128, 32, 4, 1, true, true},
+  {128, 32, 4, 128, 16, 4, 1, true, true},
+  {128, 16, 4, 32, 16, 8, 1, true, true},
+  {64, 256, 8, 64, 16, 4, 1, true, true},
+  {64, 128, 4, 64, 32, 1, 1, true, true},
+  {64, 128, 4, 64, 16, 4, 1, true , true},
+  {64, 128, 4, 32, 16, 4, 1, true, true},
+  {64, 128, 2, 32, 32, 8, 1, true, true},
   {64, 64, 8, 32, 32, 4, 1, true, true},
-  {64, 64, 4, 32, 32, 8, 1, true, true},
-  {64, 64, 4, 32, 32, 4, 1, true, true},
-  {64, 64, 4, 16, 64, 8, 1, true, true},
-  {64, 64, 4, 16, 64, 4, 1, true, true},
-  {64, 64, 2, 32, 32, 8, 1, true, true},
-  {32, 128, 4, 32, 32, 4, 1, true, true},
-  {32, 64, 4, 32, 64, 4, 1, true, true},
-  {32, 64, 4, 8, 64, 4, 1, true, true},
-  {32, 64, 8, 32, 32, 4, 1, true, true},
-  {32, 64, 8, 8, 64, 4, 1, true, true},
-  {32, 64, 2, 32, 32, 8, 1, true, true},
-  {32, 64, 2, 8, 64, 4, 1, true, true},
+  {64, 64, 8, 16, 16, 4, 1, true, true},
+  {64, 64, 8, 32, 16, 4, 1, true, true},
+  {64, 64, 8, 16, 16, 8, 1, true, true},
+  {64, 64, 4, 32, 16, 4, 1, true, true},
+  {64, 64, 4, 16, 16, 8, 1, true, true},
+  {64, 64, 8, 64, 16, 8, 1, true, true},
+  {64, 32, 4, 32, 16, 8, 1, true, true},
+  {64, 32, 8, 16, 16, 4, 1, true, true},
+  {64, 32, 8, 16, 16, 4, 1, true, true},
+  {64, 16, 8, 16, 16, 8, 1, true, true},
+  {32, 128, 8, 32, 16, 1, 1, true, true},
+  {32, 128, 8, 16, 16, 4, 1, true , true},
+  {32, 64, 8, 32, 16, 4, 1, true, true},
+  {32, 64, 4, 32, 16, 4, 1, true, true},
   {32, 32, 8, 16, 16, 8, 1, true, true},
   {32, 32, 8, 16, 16, 4, 1, true, true},
-  {32, 32, 4, 16, 16, 8, 1, true, true},
-  {16, 64, 8, 16, 16, 8, 1, true, true},
-  {16, 64, 8, 16, 16, 4, 1, true, true},
+  {32, 16, 8, 16, 16, 8, 1, true, true},
+  {32, 16, 4, 16, 16, 8, 1, true, true},
+  {16, 32, 4, 16, 16, 4, 1, true, true},
   {16, 32, 8, 16, 16, 8, 1, true, true},
-  {16, 32, 8, 16, 16, 4, 1, true, true},
-  {16, 16, 8, 16, 16, 8, 1, true, true},
   {16, 16, 4, 16, 16, 4, 1, true, true},
-  {8, 64, 8, 4, 64, 8, 1, true, true},
-  {4, 64, 16, 4, 64, 1, 1, true, true},
-  {4, 64, 2, 4, 64, 8, 1, true, true}
+  {16, 16, 8, 16, 16, 8, 1, true, true}
 };
 
 const InitParamsAccel
 PopulateParamsXDL::initParametersFp16[PopulateParamsXDL::nInitParametersFp16] = {
   // M/block N/block K/block M/wave N/wave kPack splitKFactor forceUnroll bCopyMore
-  {128, 256, 8, 64, 128, 4, 1, true, true},
-  {128, 256, 4, 64, 128, 8, 1, true, true},
-  {128, 256, 2, 64, 128, 8, 1, true, true},
-  {128, 256, 2, 64, 128, 4, 1, true, true},
-  {128, 128, 4, 64, 64, 8, 1, true, true},
-  {128, 128, 8, 64, 128, 1, 1, true, true},
-  {128, 128, 8, 64, 64, 1, 1, true, true},
-  {128, 128, 8, 64, 64, 4, 1, true, true},
-  {128, 128, 4, 64, 64, 8, 1, true, true},
-  {128, 128, 4, 64, 64, 4, 1, true, true},
-  {128, 128, 2, 64, 128, 8, 1, true, true},
-  {128, 128, 2, 64, 64, 8, 1, true, true},
-  {64, 256, 2, 64, 64, 8, 1, true, true},
-  {64, 128, 8, 32, 64, 4, 1, true, true},
-  {64, 128, 4, 32, 64, 4, 1, true, true},
-  {64, 128, 4, 32, 64, 8, 1, true, true},
-  {64, 128, 2, 64, 64, 8, 1, true, true},
-  {64, 128, 2, 32, 64, 8, 1, true, true},
+  {128, 256, 8, 64, 32, 4, 1, true, true},
+  {128, 256, 4, 64, 32, 8, 1, true, true},
+  {128, 128, 8, 128, 32, 8, 1, true, true},
+  {128, 128, 8, 64, 32, 4, 1, true, true},
+  {128, 128, 8, 32, 32, 8, 1, true, true},
+  {128, 128, 8, 32, 16, 4, 1, true, true},
+  {128, 128, 4, 128, 32, 8, 1, true, true},
+  {128, 128, 4, 128, 16, 8, 1, true, true},
+  {128, 128, 4, 64, 32, 8, 1, true, true},
+  {128, 128, 4, 64, 16, 8, 1, true, true},
+  {128, 128, 4, 32, 32, 8, 1, true, true},
+  {128, 64, 4, 128, 16, 8, 1, true, true},
+  {128, 64, 4, 32, 32, 8, 1, true, true},
+  {128, 32, 8, 32 ,32 ,8, 1, true, true},
+  {64, 128, 4, 64, 16, 8, 1, true, true},
+  {64, 128, 8, 32, 32, 4, 1, true, true},
+  {64, 128, 8, 32, 16, 8, 1, true, true},
+  {64, 128, 8, 32, 16, 4, 1, true, true},
+  {64, 128, 8, 64, 32, 4, 1, true, true},
+  {64, 128, 4, 32, 16, 8, 1, true, true},
+  {64, 128, 4, 32, 32, 8, 1, true, true},
   {64, 64, 8, 32, 32, 8, 1, true, true},
-  {64, 64, 8, 32, 32, 4, 1, true, true},
-  {64, 64, 8, 16, 64, 8, 1, true, true},
-  {64, 64, 8, 16, 64, 4, 1, true, true},
+  {64, 64, 8, 32, 32, 8, 1, true, true},
+  {64, 64, 8, 32, 16, 8, 1, true, true},
+  {64, 64, 8, 16, 16, 8, 1, true, true},
   {64, 64, 4, 32, 32, 8, 1, true, true},
-  {64, 64, 4, 16, 64, 8, 1, true, true},
-  {64, 64, 4, 16, 64, 4, 1, true, true},
-  {32, 128, 4, 32, 32, 8, 1, true, true},
-  {32, 64, 8, 16, 64, 8, 1, true, true},
-  {32, 64, 4, 32, 64, 4, 1, true, true},
-  {32, 64, 4, 32, 32, 8, 1, true, true},
-  {32, 64, 4, 16, 64, 8, 1, true, true},
-  {32, 64, 2, 32, 64, 8, 1, true, true},
+  {64 ,64, 2, 32, 32, 4, 1, true, true},
+  {64, 32, 8, 32, 32, 8, 1, true, true},
+  {64, 32, 8, 32, 16, 8, 1, true, true},
+  {64, 16, 8, 16, 16, 8, 1, true, true},
+  {32, 128, 8, 32, 32, 4, 1, true, true},
+  {32, 64, 8, 32, 32, 8, 1, true, true},
+  {32, 64, 8, 32, 16, 4, 1, true, true},
+  {32, 32, 8, 32, 32, 4, 1, true, true},
   {32, 32, 8, 16, 16, 8, 1, true, true},
-  {32, 32, 4, 16, 16, 4, 1, true, true},
+  {32, 16 ,8, 16, 16, 8, 1, true, true},
+  {16, 128, 4, 16, 16, 8, 1, true, true},
+  {16, 32, 8, 16, 16, 8, 1, true, true},
   {16, 64, 8, 16, 16, 8, 1, true, true},
-  {16, 64, 4, 8, 64, 4, 1, true, true},
-  {16, 64 ,4, 16, 16, 8, 1, true, true},
-  {16, 32, 4, 16, 16, 8, 1, true, true},
-  {16, 32, 4, 16, 16, 4, 1, true, true},
-  {16, 16, 4, 16, 16, 8, 1, true, true},
-  {8, 64, 8, 8, 64, 8, 1, true, true}
+  {16, 32, 8, 16 ,16 ,4, 1, true, true}
 };
 
 const InitParamsAccel
 PopulateParamsXDL::initParametersForward8Bit[
   PopulateParamsXDL::nInitParametersForward8Bit] = {
-  {128, 128, 16, 64, 64, 4, 1, true, true},
-  {128, 128, 8, 64, 64, 16, 1, true, true},
-  {128, 128, 8, 64, 64, 8, 1, true, true},
-  {128, 128, 8, 64, 64, 4, 1, true, true},
-  {128, 128, 4, 64, 128, 8, 1, true, true},
-  {128, 128, 4, 64, 64, 16, 1, true, true},
-  {128, 128, 4, 64, 64, 8, 1, true, true},
-  {64, 256, 4, 64, 64, 16, 1, true, true},
-  {64, 128, 16, 32, 64, 4, 1, true, true},
-  {64, 128, 8, 32, 64, 8, 1, true, true},
-  {64, 128, 8, 32, 64, 4, 1, true, true},
-  {64, 128, 4, 64, 64, 16, 1, true, true},
-  {64, 128, 4, 64, 64, 8, 1, true, true},
-  {64, 128, 4, 32, 64, 16, 1, true, true},
-  {64, 128, 4, 32, 64, 8, 1, true, true},
-  {64, 64, 16, 32, 32, 16, 1, true, true},
+  {128, 256, 8, 128, 16, 4, 1, true, true},
+  {128, 128, 16, 64, 32, 8, 1, true, true},
+  {128, 128, 8, 128, 16, 8, 1, true, true},
+  {128, 128, 8, 64, 16, 8, 1, true, true},
+  {128, 128, 8, 32, 16, 16, 1, true, true},
+  {128, 64, 32, 64, 32, 4, 1, true, true},
+  {128, 64, 8, 32, 32, 16, 1, true, true},
+  {128, 64, 8, 32, 16, 16, 1, true, true},
+  {128, 64, 4, 32, 16, 16, 1, true, true},
+  {64, 128, 32, 64, 32, 4, 1, true, true},
+  {64, 128, 16, 32, 16, 4, 1, true, true},
+  {64, 128, 8, 64, 16, 8, 1, true, true},
+  {64, 128, 4, 32, 16, 16, 1, true , true},
+  {64, 128, 8, 32, 16, 8, 1, true, true},
   {64, 64, 16, 32, 32, 4, 1, true, true},
-  {64, 64, 16, 16, 64, 4, 1, true, true},
-  {64, 64, 8, 32, 32, 8, 1, true, true},
-  {64, 64, 8, 32, 32, 4, 1, true, true},
-  {64, 64, 8, 16, 64, 8, 1, true, true},
-  {64, 64, 4, 32, 64, 16, 1, true, true},
-  {64, 64, 4, 32, 64, 8, 1, true, true},
-  {64, 64, 4, 16, 64, 16, 1, true, true},
-  {32, 128, 16, 32, 32, 4, 1, true, true},
-  {32, 64, 8, 32, 32, 8, 1, true, true},
-  {32, 64, 4, 32, 64, 16, 1, true, true},
-  {32, 64, 4, 32, 32, 16, 1, true, true},
-  {32, 64, 4, 16, 64, 16, 1, true, true},
+  {64, 64, 8, 32, 32, 16, 1, true, true},
+  {64, 64, 8, 32, 16, 16, 1, true, true},
+  {64, 64, 4, 32, 16, 16, 1, true, true},
+  {64, 64, 4, 32, 16, 8, 1, true, true},
+  {64, 64, 16, 32, 16, 4, 1, true, true},
+  {64, 64, 16, 16, 16, 16, 1, true, true},
+  {64, 32, 16, 32, 16, 4, 1, true, true},
+  {64, 32, 8, 16, 16, 16, 1, true, true},
+  {64, 32, 8, 32, 16, 16, 1, true, true},
+  {64, 32, 8, 32, 16, 8, 1, true, true},
+  {64, 16, 8, 16, 16, 16, 1, true, true},
+  {32, 256, 16, 32, 32, 4, 1, true, true},
+  {32, 256, 4, 32, 16, 8, 1, true, true},
+  {32, 128, 32, 32, 16, 4, 1, true, true},
+  {32, 64, 32, 16, 16, 4, 1, true, true},
+  {32, 64, 16, 32, 16, 4, 1, true, true},
+  {32, 64, 8, 16, 16, 16, 1, true, true},
+  {32, 64, 4, 32, 16, 8, 1, true, true},
   {32, 32, 32, 16, 16, 4, 1, true, true},
   {32, 32, 16, 16, 16, 8, 1, true, true},
-  {32, 32, 8, 16, 16, 8, 1, true, true},
-  {32, 32, 8, 16, 16, 4, 1, true, true},
-  {32, 32, 4, 16, 16, 8, 1, true, true},
+  {32, 16, 16, 16, 16, 8, 1, true, true},
   {16, 64, 16, 16, 16, 4, 1, true, true},
-  {16, 64, 8, 16, 16, 8, 1, true, true},
-  {16, 64, 32, 16, 16, 4, 1, true, true},
-  {16, 32, 32, 16, 16, 8, 1, true, true},
+  {16, 32, 16, 16, 16, 16, 1, true, true},
   {16, 16, 32, 16, 16, 4, 1, true, true},
-  {16, 16, 4, 16, 16, 16, 1, true, true}
+  {16, 16, 16, 16, 16, 4, 1, true, true}
 };
 // clang-format on
 
@@ -535,6 +536,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   int64_t blockSize = obtainBlockSize(waveSize, param);
+  if (blockSize > maxHardwareWorkgroupSize)
+    return failure();
   // TBD: support fp16/bf16
 
   // clang-format off
@@ -554,7 +557,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   // clang-format on
 
   XdlopsGemmDerivedParamsAttr xdlopsDerivedParams =
-      param.cast<XdlopsGemmDerivedParamsAttr>();
+      cast<XdlopsGemmDerivedParamsAttr>(param);
   if (xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getMPerWave() ||
       xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getNPerWave()) {
     LLVM_DEBUG(llvm::dbgs()
@@ -629,13 +632,13 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
-  if (param.cast<RockTuningParamAttrInterface>().getForceUnroll() == false) {
+  if (cast<RockTuningParamAttrInterface>(param).getForceUnroll() == false) {
     return failure();
   }
 
   // Reject invalid KPACK values.
   int64_t mnPerXdl = std::min(param.getMPerWave(), param.getNPerWave());
-  if (auto derivedParam = param.cast<XdlopsGemmDerivedParamsAttr>()) {
+  if (auto derivedParam = cast<XdlopsGemmDerivedParamsAttr>(param)) {
     mnPerXdl = derivedParam.getMnPerXdl();
   }
   auto maybeMfmaInsnGroup =
@@ -789,6 +792,8 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
 
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   int64_t blockSize = obtainBlockSize(waveSize, param);
+  if (blockSize > maxHardwareWorkgroupSize)
+    return failure();
 
   // clang-format off
   std::vector<std::tuple<int, int, int>> validWaveGemmSize =
@@ -856,8 +861,9 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   }
 
   // Reject invalid KPACK values.
-  auto maybeWmmaInsn = WmmaInsn::select(
-      dataTypeA, dataTypeB, waveSize, param.getMPerWave(), param.getNPerWave());
+  auto maybeWmmaInsn =
+      WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
+                       param.getMPerWave(), param.getNPerWave());
   if (failed(maybeWmmaInsn)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select wmma instruction.\n");
     return failure();
@@ -893,8 +899,8 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsAccel &param) {
         auto maybeWmmaInsn =
-            WmmaInsn::select(dataTypeA, dataTypeB, waveSize, param.gemmMPerWave,
-                             param.gemmNPerWaveOrMnPerXdl);
+            WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
+                             param.gemmMPerWave, param.gemmNPerWaveOrMnPerXdl);
         if (failed(maybeWmmaInsn)) {
           return false;
         }

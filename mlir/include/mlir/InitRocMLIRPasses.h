@@ -65,7 +65,6 @@ inline void registerUpstreamPasses() {
   bufferization::registerBufferizationPasses();
   func::registerFuncPasses();
   registerGPUPasses();
-  registerGpuSerializeToHsacoPass();
   registerLinalgPasses();
   LLVM::registerLLVMPasses();
   memref::registerMemRefPasses();

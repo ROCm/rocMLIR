@@ -15,7 +15,8 @@
 #ifndef MLIR_DIALECT_ROCK_IR_CONVOLUTIONDIMS_H
 #define MLIR_DIALECT_ROCK_IR_CONVOLUTIONDIMS_H
 
-#include <cstdint>
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
 class Operation;
@@ -23,20 +24,18 @@ namespace rock {
 
 /// Structure for holding the dimensions of a convolution problem
 struct ConvolutionDims {
-  int64_t y;
-  int64_t x;
-  int64_t ho;
-  int64_t wo;
-  int64_t hi;
-  int64_t wi;
+  llvm::SmallVector<int64_t, 4> fil;
+  llvm::SmallVector<int64_t, 4> out;
+  llvm::SmallVector<int64_t, 4> in;
   int64_t k;
   int64_t c;
   int64_t n;
   int64_t g;
 
-  ConvolutionDims(int64_t y, int64_t x, int64_t ho, int64_t wo, int64_t hi,
-                  int64_t wi, int64_t k, int64_t c, int64_t n, int64_t g)
-      : y(y), x(x), ho(ho), wo(wo), hi(hi), wi(wi), k(k), c(c), n(n), g(g) {}
+  ConvolutionDims(llvm::ArrayRef<int64_t> fil, llvm::ArrayRef<int64_t> out,
+                  llvm::ArrayRef<int64_t> in, int64_t k, int64_t c, int64_t n,
+                  int64_t g)
+      : fil(fil), out(out), in(in), k(k), c(c), n(n), g(g) {}
 
   static ConvolutionDims fromOp(Operation *op);
 };

@@ -150,8 +150,8 @@ char &llvm::PrologEpilogCodeInserterID = PEI::ID;
 
 INITIALIZE_PASS_BEGIN(PEI, DEBUG_TYPE, "Prologue/Epilogue Insertion", false,
                       false)
-INITIALIZE_PASS_DEPENDENCY(MachineLoopInfo)
-INITIALIZE_PASS_DEPENDENCY(MachineDominatorTree)
+INITIALIZE_PASS_DEPENDENCY(MachineLoopInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(MachineDominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(MachineOptimizationRemarkEmitterPass)
 INITIALIZE_PASS_END(PEI, DEBUG_TYPE,
                     "Prologue/Epilogue Insertion & Frame Finalization", false,
@@ -166,8 +166,8 @@ STATISTIC(NumBytesStackSpace,
 
 void PEI::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesCFG();
-  AU.addPreserved<MachineLoopInfo>();
-  AU.addPreserved<MachineDominatorTree>();
+  AU.addPreserved<MachineLoopInfoWrapperPass>();
+  AU.addPreserved<MachineDominatorTreeWrapperPass>();
   AU.addRequired<MachineOptimizationRemarkEmitterPass>();
   MachineFunctionPass::getAnalysisUsage(AU);
 }
@@ -1382,7 +1382,8 @@ bool PEI::replaceFrameIndexDebugInstr(MachineFunction &MF, MachineInstr &MI,
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
   const DataLayout &DL = MF.getDataLayout();
-  LLVMContext &Context = MF.getMMI().getModule()->getContext();
+  const Function &F = MF.getFunction();
+  LLVMContext &Context = F.getContext();
 
   if (MI.isDebugDef()) {
     MachineOperand &Op = MI.getOperand(OpIdx);
@@ -1486,7 +1487,7 @@ bool PEI::replaceFrameIndexDebugInstr(MachineFunction &MF, MachineInstr &MI,
   // pointer as the base register.
   if (MI.getOpcode() == TargetOpcode::STATEPOINT) {
     assert((!MI.isDebugValue() || OpIdx == 0) &&
-           "Frame indicies can only appear as the first operand of a "
+           "Frame indices can only appear as the first operand of a "
            "DBG_VALUE machine instruction");
     Register Reg;
     MachineOperand &Offset = MI.getOperand(OpIdx + 1);
