@@ -306,6 +306,7 @@ struct ThreadwiseWriteAllRewritePattern
     b.create<ThreadwiseReadIntoOp>(loc, ldsBufferForLoad, finalC,
                                    b.getArrayAttr({}), ValueRange{tid},
                                    forceUnroll, useIndexDiffs);
+    b.create<GpuDeallocOp>(loc, ldsBufferOutput);
 
     SmallVector<int64_t, 5> bidGridLengths;
     SmallVector<StringRef, 5> bidGridOrder;

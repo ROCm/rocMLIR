@@ -480,7 +480,7 @@ def Rock_GpuAllocOp:
 // Annotate lifetime of memory allocation on GPU memory hierachy.
 def Rock_GpuDeallocOp:
     Rock_Op<"dealloc">,
-    Arguments<(ins Res<AnyMemRef, "", [MemAlloc]>:$buffer)> {
+    Arguments<(ins AnyMemRef:$memref)> {
   let summary = "Annotate lifetime of memory allocation on GPU";
   let description = [{
     The `rock.dealloc` op annotates lifetime of memory allocation memory on GPU.
@@ -490,7 +490,7 @@ def Rock_GpuDeallocOp:
     All other values would be considered as allocation on global.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` $memref `)` attr-dict `:` type($memref)
   }];
 }
 

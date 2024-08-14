@@ -87,11 +87,11 @@ static std::tuple<int64_t, SmallVector<std::tuple<GpuAllocOp, int64_t, bool>>>
 graphColoring(
     SmallVector<GpuAllocOp> &gpuAllocs,
     llvm::MapVector<GpuAllocOp, SetVector<GpuAllocOp>> &interferenceGraph) {
-  std::map<GpuAllocOp, int64_t> colorAssignment;
+  llvm::MapVector<GpuAllocOp, int64_t> colorAssignment;
 
   // Assign colors using greedy algorithm
   for (const GpuAllocOp alloc : gpuAllocs) {
-    std::set<int64_t> usedColors;
+    llvm::SetVector<int64_t> usedColors;
     for (GpuAllocOp neighbor : interferenceGraph[alloc]) {
       if (colorAssignment.find(neighbor) != colorAssignment.end()) {
         usedColors.insert(colorAssignment[neighbor]);
@@ -100,14 +100,14 @@ graphColoring(
 
     // Find the first available color
     int64_t color = 0;
-    while (usedColors.find(color) != usedColors.end()) {
+    while (usedColors.contains(color)) {
       color++;
     }
     colorAssignment[alloc] = color;
   }
 
   // Compute maximum memory needed per color
-  std::map<int64_t, int64_t> colorMemSize;
+  llvm::MapVector<int64_t, int64_t> colorMemSize;
   int64_t maxColor = 0;
   for (const auto &tuple : colorAssignment) {
     GpuAllocOp alloc;
@@ -131,14 +131,14 @@ graphColoring(
 
   // Compute offsets per GpuAllocOp
   SmallVector<std::tuple<GpuAllocOp, int64_t, bool>> offsets;
-  std::set<int64_t> usedColors;
+  llvm::SetVector<int64_t> usedColors;
   for (const GpuAllocOp alloc : gpuAllocs) {
     int64_t color = colorAssignment[alloc];
     int64_t offset = colorOffsets[color];
 
     // if the color has been used, we are "reusing" memory,
     // we need a LDS barrier
-    bool useLDSBarrier = usedColors.find(color) != usedColors.end();
+    bool useLDSBarrier = usedColors.contains(color);
     usedColors.insert(color);
     offsets.push_back(std::tuple(alloc, offset, useLDSBarrier));
   }
@@ -155,6 +155,7 @@ static LogicalResult reuseLDS(func::FuncOp &func,
   llvm::MapVector<GpuAllocOp, llvm::SetVector<GpuAllocOp>> interferenceGraph;
   llvm::MapVector<Value, GpuAllocOp> memrefToAlloc;
 
+  // Create the interference graph and save all allocs and deallocs (LDS)
   WalkResult walkResult = func.walk([&](Operation *op) -> WalkResult {
     if (auto gpuAlloc = dyn_cast<GpuAllocOp>(op)) {
       auto type = gpuAlloc.getOutput().getType();
@@ -165,28 +166,33 @@ static LogicalResult reuseLDS(func::FuncOp &func,
                    << "Found rock.alloc of " << size << " bytes\n");
         assert(size > 0);
 
+        // add vertex and connections
         for (auto alloc : currentAllocs) {
           interferenceGraph[alloc].insert(gpuAlloc);
           interferenceGraph[gpuAlloc].insert(alloc);
+        }
+        // if it has no neighbors, we still want to add a vertex
+        if (currentAllocs.empty()) {
+          interferenceGraph[gpuAlloc] = {};
         }
         currentAllocs.insert(gpuAlloc);
         memrefToAlloc[gpuAlloc.getOutput()] = gpuAlloc;
         allocs.push_back(gpuAlloc);
       }
     } else if (auto gpuDealloc = dyn_cast<GpuDeallocOp>(op)) {
-      auto type = gpuDealloc.getBuffer().getType();
+      auto type = gpuDealloc.getMemref().getType();
       int64_t size = getWorkgroupMemorySize(type);
       if (size != -1) {
         LLVM_DEBUG(llvm::dbgs()
                    << "Found rock.dealloc of " << size << " bytes\n");
         assert(size > 0);
 
-        if (memrefToAlloc.find(gpuDealloc.getBuffer()) == memrefToAlloc.end()) {
+        if (memrefToAlloc.find(gpuDealloc.getMemref()) == memrefToAlloc.end()) {
           LLVM_DEBUG(llvm::dbgs() << "Called rock.dealloc multiple times?\n");
           return WalkResult::interrupt();
         }
         bool erased =
-            currentAllocs.remove(memrefToAlloc[gpuDealloc.getBuffer()]);
+            currentAllocs.remove(memrefToAlloc[gpuDealloc.getMemref()]);
         if (!erased) {
           LLVM_DEBUG(llvm::dbgs() << "Called rock.dealloc multiple times?\n");
           return WalkResult::interrupt();
@@ -198,6 +204,7 @@ static LogicalResult reuseLDS(func::FuncOp &func,
   });
 
   if (walkResult.wasInterrupted()) {
+    LLVM_DEBUG(llvm::dbgs() << "Walk interrupted\n");
     return failure();
   }
 
@@ -206,13 +213,17 @@ static LogicalResult reuseLDS(func::FuncOp &func,
       allocs.size() != interferenceGraph.size() || !currentAllocs.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "There should be an equal number of rock.alloc "
                                "and rock.dealloc (for LDS)\n");
-    // TODO: skip attention
-    return success();
-    // return failure();
+    LLVM_DEBUG(llvm::dbgs()
+               << "1: " << deallocs.size() << " != " << allocs.size() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "2: " << allocs.size()
+                            << " != " << interferenceGraph.size() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "3: " << currentAllocs.size() << "\n");
+    return failure();
   }
 
   // nothing to do if there is only one LDS allocation or none
   if (interferenceGraph.size() < 2) {
+    LLVM_DEBUG(llvm::dbgs() << "Not enough LDS allocations, skipping pass\n");
     return success();
   }
 
