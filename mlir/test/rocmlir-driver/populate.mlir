@@ -1,7 +1,7 @@
-// RUN: rocmlir-gen --arch %arch -p -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s --enable-var-scope=false -D\$ITYPE=f32 -D\$OTYPE=f32
-// RUN: rocmlir-gen --arch %arch -p -t f16 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s -D\$ITYPE=f16 -D\$OTYPE=f16
-// RUN: rocmlir-gen --arch %arch -p -t bf16 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s -D\$ITYPE=bf16 -D\$OTYPE=bf16
-// RUN: rocmlir-gen --arch %arch -p -t i8 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s -D\$ITYPE=i8 -D\$OTYPE=i32
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s --enable-var-scope=false -D\$ITYPE=f32 -D\$OTYPE=f32
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -t f16 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s -D\$ITYPE=f16 -D\$OTYPE=f16
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -t bf16 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s -D\$ITYPE=bf16 -D\$OTYPE=bf16
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -t i8 -mfma=off -wmma=off -atomic_add=off -atomic_fmax_f32=off -dot=on --mlir-print-local-scope | FileCheck %s -D\$ITYPE=i8 -D\$OTYPE=i32
 
 // CHECK-LABEL: module
 // CHECK-NEXT: func.func @rock_conv_gkc01_ngc01_ngk01_0

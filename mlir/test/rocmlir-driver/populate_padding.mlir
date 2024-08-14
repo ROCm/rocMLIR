@@ -1,5 +1,5 @@
-// RUN: rocmlir-gen --arch %arch -mfma=off -atomic_add=off -p=false --padding_h=0 -batchsize=32 -in_channels=32 -out_channels=256 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1  --padding_w_l=1 --padding_w_r=2 --mlir-print-local-scope | FileCheck %s --check-prefix=Padding_One
-// RUN: rocmlir-gen --arch %arch -mfma=off -atomic_add=off -p=false --padding_h=3 -batchsize=32 -in_channels=32 -out_channels=256 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1  --padding_w_l=1 --padding_w_r=2 --mlir-print-local-scope | FileCheck %s --check-prefix=Padding_Two
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -mfma=off -atomic_add=off -p=false --padding_h=0 -batchsize=32 -in_channels=32 -out_channels=256 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1  --padding_w_l=1 --padding_w_r=2 --mlir-print-local-scope | FileCheck %s --check-prefix=Padding_One
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -mfma=off -atomic_add=off -p=false --padding_h=3 -batchsize=32 -in_channels=32 -out_channels=256 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1  --padding_w_l=1 --padding_w_r=2 --mlir-print-local-scope | FileCheck %s --check-prefix=Padding_Two
 
 // Padding_One-LABEL: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // Padding_One-SAME: ([[arg0:%.+]]: memref<8192xf32>, [[arg1:%.+]]: memref<200704xf32>, [[arg2:%.+]]: memref<1949696xf32>)
