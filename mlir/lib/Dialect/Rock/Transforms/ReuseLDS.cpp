@@ -264,8 +264,9 @@ static LogicalResult reuseLDS(func::FuncOp &func,
       MemRefType::get({requiredMemory}, rewriter.getI8Type(), AffineMap{},
                       workgroupMemoryAddressSpace);
 
-  rewriter.setInsertionPoint(std::get<0>(allocOffsets[0]));
-  Location loc = std::get<0>(allocOffsets[0])->getLoc();
+  // write the big GpuAllocOp to the start
+  rewriter.setInsertionPointToStart(&func.getBody().front());
+  Location loc = func.getLoc();
   auto ldsBigPool = rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
   LLVM_DEBUG(llvm::dbgs() << "allocating " << requiredMemory << " bytes\n");
 

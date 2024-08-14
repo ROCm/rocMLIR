@@ -915,7 +915,7 @@ struct GridwiseAttentionAccelRewritePattern
     return ldsByteBuffer;
   }
 
-  std::tuple<SmallVector<Value>, int64_t, Value>
+  std::tuple<SmallVector<Value>, int64_t>
   createSharedLDSByteBufferRefs(PatternRewriter &rewriter, Location loc,
                                 ArrayRef<int64_t> numElementsArr,
                                 ArrayRef<Type> elemTypeArr) const {
@@ -954,7 +954,7 @@ struct GridwiseAttentionAccelRewritePattern
           ArrayRef<int64_t>{byteSize}, ArrayRef<int64_t>{1});
       ret.push_back(ldsByteBufferSubView);
     }
-    return {ret, maxSizeBytes, ldsByteBuffer};
+    return {ret, maxSizeBytes};
   }
 
   // This function will create fromGlobalRegsBuffer, toLDSRegBuffer and
@@ -1787,28 +1787,6 @@ struct GridwiseAttentionAccelRewritePattern
     if (doBypassLDSSecondGemm) {
       gemm1LDSByteBufferBSize = 0;
     }
-    auto [sharedBuffersGemmsB, ldsSizeB, gpuAllocB] =
-        createSharedLDSByteBufferRefs(rewriter, loc,
-                                      {ldsByteBufferQSize,
-                                       reductionWorkspaceSize,
-                                       gemm1LDSByteBufferBSize},
-                                      {elemTypeQ, elemTypeQxK, elemTypeV});
-    Value ldsByteBufferQ = sharedBuffersGemmsB[0];
-    Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsB[1];
-    Value gemm1LDSByteBufferB = sharedBuffersGemmsB[2];
-    auto [sharedBuffersGemmsA, ldsSizeA, gpuAllocA] =
-        createSharedLDSByteBufferRefs(
-            rewriter, loc,
-            {gemm0KPerBlock * gemm0MPerBlock, gemm1KPerBlock * gemm1MPerBlock},
-            {elemTypeK, elemTypeV});
-    Value ldsByteBufferK = sharedBuffersGemmsA[0];
-    Value ldsByteBufferV = sharedBuffersGemmsA[1];
-    const int64_t maxLdsSize =
-        rock::lookupArchInfo(op.getArch()).maxSharedMemPerWG;
-    if (ldsSizeB + ldsSizeA > maxLdsSize) {
-      return op.emitError() << "totalLDSSize (" << ldsSizeB + ldsSizeA
-                            << ") exceeds " << maxLdsSize << "KB\n";
-    }
 
     // Bufers for Gemm0
     Value fromGlobalRegBufferQ;
@@ -1848,8 +1826,6 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Buffers for reductions
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-    TypedValue<MemRefType> ldsReductionWorkspaceBuffer =
-        viewBufferAs(rewriter, ldsReductionWorkspaceByteBuffer, elemTypeQxK);
 
     Value gemm0OutBufferMax =
         createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
@@ -1948,7 +1924,6 @@ struct GridwiseAttentionAccelRewritePattern
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
     zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
 #endif
-    TypedValue<MemRefType> ldsTileBufferQ;
     // If gemm0K is equal to gemm0KPerBlock that means
     // effectively there is no K loop. Therefore, we
     // can prefetch the Q tile into regs outside of the
@@ -1963,6 +1938,7 @@ struct GridwiseAttentionAccelRewritePattern
       // as the first gemm is Kt x Qt.
       auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
           rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch);
+
       if (doBypassLDSForQ) {
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
             loc, inQ, /*kiter=*/zero, gridCoordsGemm0LoadQ,
@@ -1974,6 +1950,8 @@ struct GridwiseAttentionAccelRewritePattern
           return failure();
         }
       } else {
+        Value ldsByteBufferQ =
+            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
         LogicalResult statusLoadQ = loadAndStoreGemmInputTile(
             loc, inQ, /*kiter=*/zero, gridCoordsGemm0LoadQ,
             fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ, "n",
@@ -1983,12 +1961,14 @@ struct GridwiseAttentionAccelRewritePattern
         if (failed(statusLoadQ)) {
           return failure();
         }
-        ldsTileBufferQ = viewBufferAs(rewriter, ldsByteBufferQ,
-                                      vectorTypeOrSelf(elemTypeQ, gemm0kpack));
+
+        TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
+            rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         loadGemmOperandsFromLDSToRegs(
             rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n", blockSize,
             gemm0InMPerThread, *accelEmitterPtrGemm0.get(),
             ldsLayoutCfgNG0.doRotateWithK);
+        rewriter.create<GpuDeallocOp>(loc, ldsByteBufferQ);
       }
     }
 
@@ -2030,7 +2010,11 @@ struct GridwiseAttentionAccelRewritePattern
         }
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
+        TypedValue<MemRefType> ldsTileBufferQ;
+        Value ldsByteBufferQ;
         if (gemm0K != gemm0KPerBlock) {
+          ldsByteBufferQ =
+              createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
           LogicalResult statusLoadQ = loadAndStoreGemmInputTile(
               loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
               toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack,
@@ -2044,6 +2028,8 @@ struct GridwiseAttentionAccelRewritePattern
               viewBufferAs(rewriter, ldsByteBufferQ,
                            vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         }
+        Value ldsByteBufferK = createLDSByteBuffer(
+            rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
             loc, inK, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferK,
             toLDSRegBufferK, ldsByteBufferK, "m", gemm0kpack,
@@ -2064,7 +2050,9 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n",
               blockSize, gemm0InNPerThread, *accelEmitterPtrGemm0.get(),
               ldsLayoutCfgNG0.doRotateWithK);
+          rewriter.create<GpuDeallocOp>(loc, ldsByteBufferQ);
         }
+
         // Emit lowered blockwise GEMM 0.
 
         // Here we cannot use the full blockwise gemm operation
@@ -2098,6 +2086,7 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.create<ThreadwiseReadIntoOp>(
                 loc, wrappedLDSBufferForLoadA, preAccelRegBufferK,
                 rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
+            rewriter.create<GpuDeallocOp>(loc, ldsByteBufferK);
             // regsC += regsA * regsB
             auto kLoop = rewriter.create<affine::AffineForOp>(
                 loc, 0, accelParamsGemm0.kBasePerThread);
@@ -2165,6 +2154,11 @@ struct GridwiseAttentionAccelRewritePattern
       APInt nrDimPerThread = APInt(64, gemm0MPerBlock / gemm0MPerThread);
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
+
+      Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
+          rewriter, loc, reductionWorkspaceSize, elemTypeQxK);
+      TypedValue<MemRefType> ldsReductionWorkspaceBuffer =
+          viewBufferAs(rewriter, ldsReductionWorkspaceByteBuffer, elemTypeQxK);
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
           /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Max,
@@ -2188,9 +2182,7 @@ struct GridwiseAttentionAccelRewritePattern
       expSubstractMaxFromGemm0(rewriter, loc, gemm0MNThreadwiseView,
                                gemm0MNExpThreadwiseView,
                                gemm0MNMaxThreadwiseView, maxRowBuffer);
-      // LDS barrier is needed because
-      // of the LDS workspace reuse.
-      rewriter.create<LDSBarrierOp>(loc);
+
       rewriter.create<BlockwiseBroadcastReduceOp>(
           loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
           gemm0OutBufferSum, /*extraOut=*/nullptr, reductionAxis,
@@ -2198,6 +2190,7 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
           gemm0OutSubTileViewsTr.threadSubTile,
           /*extraViews=*/nullptr, blockSize);
+      rewriter.create<GpuDeallocOp>(loc, ldsReductionWorkspaceByteBuffer);
       // LDS barrier.
       rewriter.create<LDSBarrierOp>(loc);
       Value gemm0SumThreadwiseView =
@@ -2219,6 +2212,7 @@ struct GridwiseAttentionAccelRewritePattern
                                         gemm1RegBufferB);
         }
         Value wrappedLDSBufferForLoadB;
+        Value gemm1LDSByteBufferB;
         if (!doBypassLDSSecondGemm) {
           // The output RegsAsSubTile views are N x M where N is reduction dim
           RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
@@ -2234,6 +2228,8 @@ struct GridwiseAttentionAccelRewritePattern
           // to be scalars -- which makes the following layout agnostic.
           // We should get rid of storing to LDS altogether with
           // the transposed layout for this gemm.
+          gemm1LDSByteBufferB = createLDSByteBuffer(
+              rewriter, loc, gemm1LDSByteBufferBSize, elemTypeV);
           LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
               rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
               gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
@@ -2268,6 +2264,8 @@ struct GridwiseAttentionAccelRewritePattern
           auto gridCoordsGemm1 = layout::makeGxNGridLayout(
               rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks, gridSize, arch);
 
+          Value ldsByteBufferV = createLDSByteBuffer(
+              rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
           LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
               loc, inV,
               /*kIter=*/mLoopIV, gridCoordsGemm1, fromGlobalRegBufferV,
@@ -2312,11 +2310,13 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter.create<ThreadwiseReadIntoOp>(
                   loc, wrappedLDSBufferForLoadA, preAccelRegBufferV,
                   rewriter.getArrayAttr({}), ValueRange{tid, mi}, true, true);
+              rewriter.create<GpuDeallocOp>(loc, ldsByteBufferV);
               // regsB = read B from LDS
               if (!doBypassLDSSecondGemm) {
                 rewriter.create<ThreadwiseReadIntoOp>(
                     loc, wrappedLDSBufferForLoadB, preAccelRegBufferQxK,
                     rewriter.getArrayAttr({}), ValueRange{tid, ni}, true, true);
+                rewriter.create<GpuDeallocOp>(loc, gemm1LDSByteBufferB);
               } else {
                 rewriter.create<ThreadwiseReadIntoOp>(
                     loc, gemm1BDxKThreadwiseView, preAccelRegBufferQxK,
@@ -2382,8 +2382,6 @@ struct GridwiseAttentionAccelRewritePattern
         }
       }
     }
-    rewriter.create<GpuDeallocOp>(loc, gpuAllocA);
-    rewriter.create<GpuDeallocOp>(loc, gpuAllocB);
 
     {
       affine::AffineForOp g1MLoopOp =
