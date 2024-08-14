@@ -915,7 +915,7 @@ struct GridwiseAttentionAccelRewritePattern
     return ldsByteBuffer;
   }
 
-  std::tuple<SmallVector<Value>, int64_t>
+  std::tuple<SmallVector<Value>, int64_t, Value>
   createSharedLDSByteBufferRefs(PatternRewriter &rewriter, Location loc,
                                 ArrayRef<int64_t> numElementsArr,
                                 ArrayRef<Type> elemTypeArr) const {
@@ -954,7 +954,7 @@ struct GridwiseAttentionAccelRewritePattern
           ArrayRef<int64_t>{byteSize}, ArrayRef<int64_t>{1});
       ret.push_back(ldsByteBufferSubView);
     }
-    return {ret, maxSizeBytes};
+    return {ret, maxSizeBytes, ldsByteBuffer};
   }
 
   // This function will create fromGlobalRegsBuffer, toLDSRegBuffer and
@@ -1787,17 +1787,20 @@ struct GridwiseAttentionAccelRewritePattern
     if (doBypassLDSSecondGemm) {
       gemm1LDSByteBufferBSize = 0;
     }
-    auto [sharedBuffersGemmsB, ldsSizeB] = createSharedLDSByteBufferRefs(
-        rewriter, loc,
-        {ldsByteBufferQSize, reductionWorkspaceSize, gemm1LDSByteBufferBSize},
-        {elemTypeQ, elemTypeQxK, elemTypeV});
+    auto [sharedBuffersGemmsB, ldsSizeB, gpuAllocB] =
+        createSharedLDSByteBufferRefs(rewriter, loc,
+                                      {ldsByteBufferQSize,
+                                       reductionWorkspaceSize,
+                                       gemm1LDSByteBufferBSize},
+                                      {elemTypeQ, elemTypeQxK, elemTypeV});
     Value ldsByteBufferQ = sharedBuffersGemmsB[0];
     Value ldsReductionWorkspaceByteBuffer = sharedBuffersGemmsB[1];
     Value gemm1LDSByteBufferB = sharedBuffersGemmsB[2];
-    auto [sharedBuffersGemmsA, ldsSizeA] = createSharedLDSByteBufferRefs(
-        rewriter, loc,
-        {gemm0KPerBlock * gemm0MPerBlock, gemm1KPerBlock * gemm1MPerBlock},
-        {elemTypeK, elemTypeV});
+    auto [sharedBuffersGemmsA, ldsSizeA, gpuAllocA] =
+        createSharedLDSByteBufferRefs(
+            rewriter, loc,
+            {gemm0KPerBlock * gemm0MPerBlock, gemm1KPerBlock * gemm1MPerBlock},
+            {elemTypeK, elemTypeV});
     Value ldsByteBufferK = sharedBuffersGemmsA[0];
     Value ldsByteBufferV = sharedBuffersGemmsA[1];
     const int64_t maxLdsSize =
@@ -2379,6 +2382,9 @@ struct GridwiseAttentionAccelRewritePattern
         }
       }
     }
+    rewriter.create<GpuDeallocOp>(loc, gpuAllocA);
+    rewriter.create<GpuDeallocOp>(loc, gpuAllocB);
+
     {
       affine::AffineForOp g1MLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, gemm1MBlocks, 1);
