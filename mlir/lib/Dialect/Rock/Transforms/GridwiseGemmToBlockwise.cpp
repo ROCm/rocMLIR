@@ -2439,8 +2439,8 @@ struct GridwiseAttentionAccelRewritePattern
         prependUpperViews(rewriter, rewriter.getArrayAttr({flatToMiterMap}),
                           gemm1OutSubTileViews.gridSubTile);
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
-    auto gridCoordsGemm1 =
-        layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch);
+    auto gridCoordsGemm1 = layout::makeGxNGridLayout(
+        rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch);
     Value attentionOutAccBufferOutTypedFlat =
         getFlattenedMemref(rewriter, attentionOutAccBufferOutTyped);
     rewriter.create<ThreadwiseWriteAllOp>(
