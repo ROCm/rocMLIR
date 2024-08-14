@@ -2722,21 +2722,21 @@ struct GridwiseGemmAccelRewritePattern
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
       Value iv = loopOp.getInductionVar();
-      bool isReverseGrid = succeeded(rock::getReverseGrid(op));
-      // Purpose of reversing the grid is to exploit
-      // (if any) temporal locality between producers
-      // and consumers of data between kernels.
-      // Towards that goal, the kLoop has to be reversed
-      // to use latest producer.
-      if (isReverseGrid) {
-        AffineMap reverseMap = rock::getIdxReversalMap(b);
-        iv = b.createOrFold<affine::AffineApplyOp>(loc, reverseMap,
-                                                   ValueRange{iv, nIterations});
-      }
       auto stage0 = b.create<StageOp>(loc, "GlobalRead");
       {
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
+        bool isReverseGrid = succeeded(rock::getReverseGrid(op));
+        // Purpose of reversing the grid is to exploit
+        // (if any) temporal locality between producers
+        // and consumers of data between kernels.
+        // Towards that goal, the kLoop has to be reversed
+        // to use latest producer.
+        if (isReverseGrid) {
+          AffineMap reverseMap = rock::getIdxReversalMap(b);
+          iv = b.createOrFold<affine::AffineApplyOp>(
+              loc, reverseMap, ValueRange{iv, nIterations});
+        }
         b.create<ThreadwiseReadIntoOp>(
             loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
