@@ -112,7 +112,7 @@ struct AccelEmitter {
   /// 3) threadSubTileView :
   /// iter --> ... --> [KPerThread, DPerThread]
   /// for each operand tile to be used with gemm accelerators.
-  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(
+  virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
@@ -123,7 +123,7 @@ struct AccelEmitter {
 
   /// Compute the output transform map to be used to store the result of the
   /// matrix multiplication tile.
-  virtual RegsAsMatrixSubTiles computeOutputTransforms(
+  virtual FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
       ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
@@ -182,14 +182,14 @@ struct MfmaEmitter : public AccelEmitter {
                        StringRef dName, bool rotateDWithK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(
+  virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
       bool rotateDWithK,
       bool doSplitKAcrossThreadsFirst = false) const override;
 
-  RegsAsMatrixSubTiles computeOutputTransforms(
+  FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
       ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
@@ -229,14 +229,14 @@ struct WmmaEmitter : public AccelEmitter {
                        StringRef dName, bool rotateDWithK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual RegsAsMatrixSubTiles createAccelGemmOperandTransforms(
+  virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
       bool rotateDWithK,
       bool doSplitKAcrossThreadsFirst = false) const override;
 
-  RegsAsMatrixSubTiles computeOutputTransforms(
+  FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
       ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
