@@ -31,7 +31,7 @@ LogicalResult mlir::rock::testFusionLegality(func::FuncOp func) {
 
   WalkResult walkResult =
       func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
-        auto gemmResult = gemmOp->getOperand(2);
+        auto gemmResult = gemmOp.getOutArgument()->get();
         auto maybeAlloc = findMemrefAlloc(gemmResult);
         if (failed(maybeAlloc)) {
           return WalkResult::advance();
@@ -39,8 +39,8 @@ LogicalResult mlir::rock::testFusionLegality(func::FuncOp func) {
 
         // make sure that no `linalg::GenericOp` reads from a gemm output
         if (readersTable.contains(*maybeAlloc)) {
-          for (Operation *op : readersTable.at(*maybeAlloc)) {
-            if (dyn_cast<linalg::GenericOp>(op)) {
+          for (OpOperand *op : readersTable.at(*maybeAlloc)) {
+            if (isa<linalg::GenericOp>(op->getOwner())) {
               return WalkResult::interrupt();
             }
           }
@@ -48,8 +48,8 @@ LogicalResult mlir::rock::testFusionLegality(func::FuncOp func) {
 
         // make sure that no `linalg::GenericOp` writes to a gemm output
         if (writersTable.contains(maybeAlloc.value())) {
-          for (Operation *op : writersTable.at(*maybeAlloc)) {
-            if (dyn_cast<linalg::GenericOp>(op)) {
+          for (OpOperand *op : writersTable.at(*maybeAlloc)) {
+            if (isa<linalg::GenericOp>(op->getOwner())) {
               return WalkResult::interrupt();
             }
           }

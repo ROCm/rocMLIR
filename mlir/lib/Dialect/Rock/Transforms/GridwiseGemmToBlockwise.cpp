@@ -74,23 +74,6 @@ struct RockGridwiseGemmToBlockwisePass
   void runOnOperation() override;
 };
 
-/// Construct a `memref.view` operation that interprets the buffer `buffer`,
-/// whose elements are bytes, as a buffer of `type`.
-static TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
-                                           Type type) {
-  Location loc = buffer.getLoc();
-  Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  auto bufferType = cast<MemRefType>(buffer.getType());
-  int64_t byteWidth = getByteWidth(type);
-  int64_t numBytes = bufferType.getShape()[0];
-  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
-  int64_t length = numBytes / byteWidth;
-  auto newBufferType = bufferType.cloneWith({length}, type);
-  auto view =
-      b.create<memref::ViewOp>(loc, newBufferType, buffer, zeroByteOffset,
-                               /*dynamic dim sizes=*/ValueRange{});
-  return TypedValue<MemRefType>(view.getResult());
-}
 } // end anonymous namespace
 
 /// Given a copy layout <copyDPerThread, copyKPerThread>, come up with the best
@@ -238,19 +221,6 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
     return success(ldsBytes <= ldsSize);
   }
   return success();
-}
-
-Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
-               AddressSpace memoryAddressSpace) {
-  auto memoryAddressSpaceAttr =
-      b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
-
-  auto rawMemType =
-      MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
-                      AffineMap{}, memoryAddressSpaceAttr);
-  auto buffer = b.create<GpuAllocOp>(loc, rawMemType);
-
-  return viewBufferAs(b, buffer, elementType);
 }
 
 // Following structures holds knobs to tweak the
@@ -529,8 +499,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
 
     // Compute grid coordinates
+    FailureOr<mlir::StringAttr> maybeArch = getArch(op);
+    if (failed(maybeArch)) {
+      return op.emitError("arch needs to be set.");
+    }
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid,
+        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType},
+        maybeArch->getValue());
     b.create<ThreadwiseReadIntoOp>(
         loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
         /*extraIndices=*/
@@ -724,17 +700,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
+    toMatrixC.passThrough({"g_block", "m_block", "n_block"});
     toMatrixC.unmerge(
-        "gemmM", 1,
-        {"m_block", "m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
-        {M / mPerBlock, gemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave,
-         mPerThread});
+        "gemmBlockM", 3, {"m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
+        {gemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave, mPerThread});
     toMatrixC.unmerge(
-        "gemmN", 2,
-        {"n_block", "n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
-        {N / nPerBlock, gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
-         nPerThread});
+        "gemmBlockN", 4, {"n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
+        {gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave, nPerThread});
 
     swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1],
@@ -845,7 +817,6 @@ struct GridwiseAttentionAccelRewritePattern
     if (failed(maybeVectorDimInfo)) {
       return failure();
     }
-    int64_t vectorLen = maybeVectorDimInfo->vectorLen;
     GemmDimension vectorDim = maybeVectorDimInfo->vectorDim;
     FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews;
     if (!isDestBufferLDS) {
@@ -1663,10 +1634,10 @@ struct GridwiseAttentionAccelRewritePattern
                                      int64_t blockSize,
                                      int64_t numElements) const {
     TopDownTMBuilder viewBuilder(rewriter,
-                                 {"gblock", "nblock", "tid", "flatiter"},
+                                 {"g_block", "n_block", "tid", "flatiter"},
                                  {gBlocks, nBlocks, blockSize, numElements});
-    viewBuilder.passThrough({"gblock", "nblock", "tid"}, {0, 2, 3},
-                            {"gblock", "nblock", "tid"});
+    viewBuilder.passThrough({"g_block", "n_block", "tid"}, {0, 2, 3},
+                            {"g_block", "n_block", "tid"});
     viewBuilder.merge({"mIter", "iter"}, {1, 4}, "flatiter",
                       {mIterLen, numElements / mIterLen});
     return viewBuilder.get();
@@ -1969,8 +1940,8 @@ struct GridwiseAttentionAccelRewritePattern
       Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
-      auto gridCoordsGemm0LoadQ =
-          layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm0NBlocks);
+      auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
+          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch);
       if (doBypassLDSForQ) {
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
             loc, inQ, /*kiter=*/zero, gridCoordsGemm0LoadQ,
@@ -2018,8 +1989,8 @@ struct GridwiseAttentionAccelRewritePattern
             loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      layout::GridCoordinates gridCoordsGemm0 =
-          layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks);
+      layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
+          rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch);
       affine::AffineForOp kLoopOp =
           rewriter.create<affine::AffineForOp>(loc, 0, kIterationsGemm0, 1);
       {
@@ -2274,7 +2245,7 @@ struct GridwiseAttentionAccelRewritePattern
           }
 #endif
           auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks);
+              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks, gridSize, arch);
 
           LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
               loc, inV,
@@ -2444,8 +2415,8 @@ struct GridwiseAttentionAccelRewritePattern
         prependUpperViews(rewriter, rewriter.getArrayAttr({flatToMiterMap}),
                           gemm1OutSubTileViews.gridSubTile);
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
-    auto gridCoordsGemm1 =
-        layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks);
+    auto gridCoordsGemm1 = layout::makeGxNGridLayout(
+        rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch);
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, attentionOutAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
@@ -2519,15 +2490,13 @@ struct GridwiseGemmAccelRewritePattern
         math_util::integer_divide_ceil(bCopyPerThread, kpack);
 
     // Get the vector copy layout for A and B
-    FailureOr<VectorDimInfo> maybeVecDimInfoA =
-        getVectorDim(b, loc, op.getA(), elementTypeA, blockSize, kPerBlock,
-                     mPerBlock, kpack);
+    FailureOr<VectorDimInfo> maybeVecDimInfoA = getVectorDim(
+        b, loc, matA, elementTypeA, blockSize, kPerBlock, mPerBlock, kpack);
     if (failed(maybeVecDimInfoA)) {
       return failure();
     }
-    FailureOr<VectorDimInfo> maybeVecDimInfoB =
-        getVectorDim(b, loc, op.getB(), elementTypeB, blockSize, kPerBlock,
-                     nPerBlock, kpack);
+    FailureOr<VectorDimInfo> maybeVecDimInfoB = getVectorDim(
+        b, loc, matB, elementTypeB, blockSize, kPerBlock, nPerBlock, kpack);
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
@@ -2554,23 +2523,23 @@ struct GridwiseGemmAccelRewritePattern
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
-        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
-        kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
+        b, loc, matA, "m", bidGridOrder, bidGridLengths, blockSize, kPerBlock,
+        mPerBlock, maybeVecDimInfoA->inKPerThread,
         maybeVecDimInfoA->inDPerThread,
         maybeVecDimInfoA->vectorDim == GemmDimension::K);
     if (failed(maybeABufferViews)) {
       return failure();
     }
-    Value wrappedA = transform(b, op.getA(), maybeABufferViews->gridSubTile);
+    Value wrappedA = transform(b, matA, maybeABufferViews->gridSubTile);
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
-        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
-        kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
+        b, loc, matB, "n", bidGridOrder, bidGridLengths, blockSize, kPerBlock,
+        nPerBlock, maybeVecDimInfoB->inKPerThread,
         maybeVecDimInfoB->inDPerThread,
         maybeVecDimInfoB->vectorDim == GemmDimension::K);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
-    Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
+    Value wrappedB = transform(b, matB, maybeBBufferViews->gridSubTile);
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -2585,7 +2554,8 @@ struct GridwiseGemmAccelRewritePattern
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
-        b, loc, bid, {mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType});
+        b, loc, bid,
+        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType}, arch);
 
     Value storeBufferA =
         gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
@@ -2609,7 +2579,7 @@ struct GridwiseGemmAccelRewritePattern
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
         getPackedRegsAsTileViews(
-            b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
+            b, loc, matA, "m", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
             maybeVecDimInfoA->inDPerThread, kpack, isKContiguousDimA,
             ldsLayoutConfigA.doSwapThreadIterSubDims);
@@ -2627,7 +2597,7 @@ struct GridwiseGemmAccelRewritePattern
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
         getPackedRegsAsTileViews(
-            b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
+            b, loc, matB, "n", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
             maybeVecDimInfoB->inDPerThread, kpack, isKContiguousDimB,
             ldsLayoutConfigB.doSwapThreadIterSubDims);

@@ -42,6 +42,7 @@ struct GridCoordinates {
 
 /// Struct containing information that guide the layout heuristic selection
 struct GridLayoutInfo {
+  int64_t gBlocks;
   int64_t mBlocks;
   int64_t nBlocks;
   int64_t numCU;
@@ -54,13 +55,15 @@ struct GridLayoutInfo {
 /// https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html#sphx-glr-getting-started-tutorials-03-matrix-multiplication-py
 ///
 GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
-                                      Value bid, GridLayoutInfo info);
+                                      Value bid, GridLayoutInfo info,
+                                      StringRef arch);
 
 GridCoordinates makeGxMxNGridLayout(PatternRewriter &b, Location loc, Value bid,
                                     GridLayoutInfo info);
 
 GridCoordinates makeGxNGridLayout(PatternRewriter &b, Location loc, Value bid,
-                                  Value mIter, int64_t nBlocks);
+                                  Value mIter, int64_t nBlocks,
+                                  int64_t gridSize, StringRef arch);
 
 } // namespace layout
 } // namespace rock

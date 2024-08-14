@@ -8,6 +8,8 @@
 
 #include <vector>
 
+namespace omptest {
+
 /// Handler class to do whatever is needed to be done when a callback is invoked
 /// by the OMP runtime
 /// Supports a RecordAndReplay mechanism in which all OMPT events are recorded
@@ -30,6 +32,11 @@ public:
   /// When the record and replay mechanism is enabled this replays all OMPT
   /// events
   void replay();
+
+  /// Special asserter callback which checks that upon encountering the
+  /// synchronization point, all expected events have been processed. That is:
+  /// there are currently no remaining expected events for any asserter.
+  void handleAssertionSyncPoint(const std::string &MarkerName);
 
   void handleThreadBegin(ompt_thread_t ThreadType, ompt_data_t *ThreadData);
 
@@ -120,7 +127,7 @@ public:
 private:
   /// Wrapper around emplace_back for potential additional logging / checking or
   /// so
-  void recordEvent(omptest::OmptAssertEvent &&Event);
+  void recordEvent(OmptAssertEvent &&Event);
 
   /// Listeners to be notified
   std::vector<OmptListener *> Subscribers;
@@ -129,10 +136,12 @@ private:
   bool RecordAndReplay{false};
 
   /// Recorded events in Record and Replay mode
-  std::vector<omptest::OmptAssertEvent> RecordedEvents;
+  std::vector<OmptAssertEvent> RecordedEvents;
 };
 
+} // namespace omptest
+
 // Pointer to global callback handler
-extern OmptCallbackHandler *Handler;
+extern omptest::OmptCallbackHandler *Handler;
 
 #endif

@@ -115,23 +115,28 @@ struct BuiltinTypeDeclBuilder {
     return addMemberVariable("h", Ty, Access);
   }
 
-  BuiltinTypeDeclBuilder &annotateResourceClass(ResourceClass RC,
-                                                ResourceKind RK, bool IsROV) {
+  BuiltinTypeDeclBuilder &annotateHLSLResource(ResourceClass RC,
+                                               ResourceKind RK, bool IsROV) {
     if (Record->isCompleteDefinition())
       return *this;
-    Record->addAttr(HLSLResourceAttr::CreateImplicit(Record->getASTContext(),
-                                                     RC, RK, IsROV));
+    Record->addAttr(
+        HLSLResourceClassAttr::CreateImplicit(Record->getASTContext(), RC));
+    Record->addAttr(
+        HLSLResourceAttr::CreateImplicit(Record->getASTContext(), RK, IsROV));
     return *this;
   }
 
   static DeclRefExpr *lookupBuiltinFunction(ASTContext &AST, Sema &S,
                                             StringRef Name) {
-    CXXScopeSpec SS;
     IdentifierInfo &II = AST.Idents.get(Name, tok::TokenKind::identifier);
     DeclarationNameInfo NameInfo =
         DeclarationNameInfo(DeclarationName(&II), SourceLocation());
     LookupResult R(S, NameInfo, Sema::LookupOrdinaryName);
-    S.LookupParsedName(R, S.getCurScope(), &SS, false);
+    // AllowBuiltinCreation is false but LookupDirect will create
+    // the builtin when searching the global scope anyways...
+    S.LookupName(R, S.getCurScope());
+    // FIXME: If the builtin function was user-declared in global scope,
+    // this assert *will* fail. Should this call LookupBuiltin instead?
     assert(R.isSingleResult() &&
            "Since this is a builtin it should always resolve!");
     auto *VD = cast<ValueDecl>(R.getFoundDecl());
@@ -168,7 +173,6 @@ struct BuiltinTypeDeclBuilder {
 
     DeclRefExpr *Fn =
         lookupBuiltinFunction(AST, S, "__builtin_hlsl_create_handle");
-
     Expr *RCExpr = emitResourceClassExpr(AST, RC);
     Expr *Call = CallExpr::Create(AST, Fn, {RCExpr}, AST.VoidPtrTy, VK_PRValue,
                                   SourceLocation(), FPOptionsOverride());
@@ -493,7 +497,7 @@ static BuiltinTypeDeclBuilder setupBufferType(CXXRecordDecl *Decl, Sema &S,
   return BuiltinTypeDeclBuilder(Decl)
       .addHandleMember()
       .addDefaultHandleConstructor(S, RC)
-      .annotateResourceClass(RC, RK, IsROV);
+      .annotateHLSLResource(RC, RK, IsROV);
 }
 
 void HLSLExternalSemaSource::defineHLSLTypesWithForwardDeclarations() {

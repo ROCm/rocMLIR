@@ -38,8 +38,8 @@ static const char *getDeviceTypeStr(SystemDevice::Type type) {
   return "ALT";
 }
 
-LogicalResult SystemDevice::parse(StringRef arch) {
-  StringRef maybeTriple, remainder;
+LogicalResult SystemDevice::parse(llvm::StringRef arch) {
+  llvm::StringRef maybeTriple, remainder;
   std::tie(maybeTriple, remainder) = arch.split(':');
   if (maybeTriple.contains('-')) {
     // First part is a triple, ignore it
@@ -49,13 +49,13 @@ LogicalResult SystemDevice::parse(StringRef arch) {
     remainder = arch;
   }
 
-  StringRef rawFeatures;
+  llvm::StringRef rawFeatures;
   std::tie(chip, rawFeatures) = remainder.split(':');
 
   if (!rawFeatures.empty()) {
-    llvm::SmallVector<StringRef, 1> featureTokens;
+    llvm::SmallVector<llvm::StringRef, 1> featureTokens;
     rawFeatures.split(featureTokens, ':'); // check for CSV
-    for (StringRef feature : featureTokens) {
+    for (llvm::StringRef feature : featureTokens) {
       feature = feature.trim();
       if (!feature.empty()) {
         features.insert_or_assign(feature.drop_back(), feature.back() == '+');
@@ -75,7 +75,7 @@ bool SystemDevice::isCompatible(const SystemDevice &that) const {
   if (matches && !that.features.empty()) {
     // If `that` does not specify a feature, it is compatible
     for (const llvm::StringMapEntry<bool> &feature : that.features) {
-      StringRef key = feature.getKey();
+      llvm::StringRef key = feature.getKey();
       matches &= (features.count(key) != 0 &&
                   features.lookup(key) == feature.getValue());
     }

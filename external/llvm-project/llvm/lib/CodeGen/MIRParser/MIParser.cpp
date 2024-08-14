@@ -476,6 +476,7 @@ public:
   bool parseDILocation(MDNode *&Expr);
   bool parseMetadataOperand(MachineOperand &Dest);
   bool parseCFIOffset(int &Offset);
+  bool parseCFIUnsigned(unsigned &Value);
   bool parseCFIRegister(Register &Reg);
   bool parseCFIAddressSpace(unsigned &AddressSpace);
   bool parseCFIEscapeValues(std::string& Values);
@@ -2303,48 +2304,14 @@ bool MIParser::parseMDNode(MDNode *&Node) {
 }
 
 bool MIParser::parseDIExpression(MDNode *&Expr) {
-  assert(Token.is(MIToken::md_diexpr));
+  unsigned Read;
+  Expr = llvm::parseDIExpressionBodyAtBeginning(
+      CurrentSource, Read, Error, *PFS.MF.getFunction().getParent(),
+      &PFS.IRSlots);
+  CurrentSource = CurrentSource.slice(Read, StringRef::npos);
   lex();
-
-  // FIXME: Share this parsing with the IL parser.
-  SmallVector<uint64_t, 8> Elements;
-
-  if (expectAndConsume(MIToken::lparen))
-    return true;
-
-  if (Token.isNot(MIToken::rparen)) {
-    do {
-      if (Token.is(MIToken::Identifier)) {
-        if (unsigned Op = dwarf::getOperationEncoding(Token.stringValue())) {
-          lex();
-          Elements.push_back(Op);
-          continue;
-        }
-        if (unsigned Enc = dwarf::getAttributeEncoding(Token.stringValue())) {
-          lex();
-          Elements.push_back(Enc);
-          continue;
-        }
-        return error(Twine("invalid DWARF op '") + Token.stringValue() + "'");
-      }
-
-      if (Token.isNot(MIToken::IntegerLiteral) ||
-          Token.integerValue().isSigned())
-        return error("expected unsigned integer");
-
-      auto &U = Token.integerValue();
-      if (U.ugt(UINT64_MAX))
-        return error("element too large, limit is " + Twine(UINT64_MAX));
-      Elements.push_back(U.getZExtValue());
-      lex();
-
-    } while (consumeIfPresent(MIToken::comma));
-  }
-
-  if (expectAndConsume(MIToken::rparen))
-    return true;
-
-  Expr = DIExpression::get(MF.getFunction().getContext(), Elements);
+  if (!Expr)
+    return error(Error.getMessage());
   return false;
 }
 
@@ -2471,6 +2438,13 @@ bool MIParser::parseCFIOffset(int &Offset) {
   if (Token.integerValue().getSignificantBits() > 32)
     return error("expected a 32 bit integer (the cfi offset is too large)");
   Offset = (int)Token.integerValue().getExtValue();
+  lex();
+  return false;
+}
+
+bool MIParser::parseCFIUnsigned(unsigned &Value) {
+  if (getUnsigned(Value))
+    return true;
   lex();
   return false;
 }
@@ -2613,9 +2587,9 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
     unsigned R1Size, R2Size;
     if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
         parseCFIRegister(R1) || expectAndConsume(MIToken::comma) ||
-        getUnsigned(R1Size) || expectAndConsume(MIToken::comma) ||
+        parseCFIUnsigned(R1Size) || expectAndConsume(MIToken::comma) ||
         parseCFIRegister(R2) || expectAndConsume(MIToken::comma) ||
-        getUnsigned(R2Size))
+        parseCFIUnsigned(R2Size))
       return true;
 
     CFIIndex = MF.addFrameInst(MCCFIInstruction::createLLVMRegisterPair(
@@ -2630,11 +2604,11 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
       Register VR;
       unsigned Lane, Size;
       if (parseCFIRegister(VR) || expectAndConsume(MIToken::comma) ||
-          getUnsigned(Lane) || expectAndConsume(MIToken::comma) ||
-          getUnsigned(Size))
+          parseCFIUnsigned(Lane) || expectAndConsume(MIToken::comma) ||
+          parseCFIUnsigned(Size))
         return true;
       VectorRegisters.push_back({VR, Lane, Size});
-    } while (expectAndConsume(MIToken::comma));
+    } while (consumeIfPresent(MIToken::comma));
 
     CFIIndex = MF.addFrameInst(MCCFIInstruction::createLLVMVectorRegisters(
         nullptr, Reg, std::move(VectorRegisters)));
@@ -2646,14 +2620,29 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
     int Offset = 0;
 
     if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
-        getUnsigned(RegSize) || expectAndConsume(MIToken::comma) ||
+        parseCFIUnsigned(RegSize) || expectAndConsume(MIToken::comma) ||
         parseCFIRegister(MaskReg) || expectAndConsume(MIToken::comma) ||
-        getUnsigned(MaskRegSize) || expectAndConsume(MIToken::comma) ||
+        parseCFIUnsigned(MaskRegSize) || expectAndConsume(MIToken::comma) ||
         parseCFIOffset(Offset))
       return true;
 
     CFIIndex = MF.addFrameInst(MCCFIInstruction::createLLVMVectorOffset(
         nullptr, Reg, RegSize, MaskReg, MaskRegSize, Offset));
+    break;
+  }
+  case MIToken::kw_cfi_llvm_vector_register_mask: {
+    Register Reg, SpillReg, MaskReg;
+    unsigned SpillRegLaneSize, MaskRegSize;
+
+    if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
+        parseCFIRegister(SpillReg) || expectAndConsume(MIToken::comma) ||
+        parseCFIUnsigned(SpillRegLaneSize) ||
+        expectAndConsume(MIToken::comma) || parseCFIRegister(MaskReg) ||
+        expectAndConsume(MIToken::comma) || parseCFIUnsigned(MaskRegSize))
+      return true;
+
+    CFIIndex = MF.addFrameInst(MCCFIInstruction::createLLVMVectorRegisterMask(
+        nullptr, Reg, SpillReg, SpillRegLaneSize, MaskReg, MaskRegSize));
     break;
   }
   case MIToken::kw_cfi_escape: {
@@ -2966,6 +2955,7 @@ bool MIParser::parseMachineOperand(const unsigned OpCode, const unsigned OpIdx,
   case MIToken::IntegerLiteral:
     return parseImmediateOperand(Dest);
   case MIToken::kw_half:
+  case MIToken::kw_bfloat:
   case MIToken::kw_float:
   case MIToken::kw_double:
   case MIToken::kw_x86_fp80:
@@ -3013,6 +3003,7 @@ bool MIParser::parseMachineOperand(const unsigned OpCode, const unsigned OpIdx,
   case MIToken::kw_cfi_llvm_register_pair:
   case MIToken::kw_cfi_llvm_vector_registers:
   case MIToken::kw_cfi_llvm_vector_offset:
+  case MIToken::kw_cfi_llvm_vector_register_mask:
     return parseCFIOperand(Dest);
   case MIToken::kw_blockaddress:
     return parseBlockAddressOperand(Dest);

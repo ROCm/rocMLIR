@@ -1580,7 +1580,10 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                       TrailingReturnTypeLoc, &DS),
                   std::move(Attributes), DeclEndLoc);
 
-    Actions.ActOnLambdaClosureQualifiers(Intro, MutableLoc);
+    // We have called ActOnLambdaClosureQualifiers for parentheses-less cases
+    // above.
+    if (HasParentheses)
+      Actions.ActOnLambdaClosureQualifiers(Intro, MutableLoc);
 
     if (HasParentheses && Tok.is(tok::kw_requires))
       ParseTrailingRequiresClause(D);
@@ -3032,7 +3035,6 @@ bool Parser::ParseUnqualifiedId(CXXScopeSpec &SS, ParsedType ObjectType,
                  EnteringContext, Template,
                  /*AllowInjectedClassName*/ true) == TNK_Non_template)
       return true;
-
     return false;
   }
 
@@ -3999,6 +4001,9 @@ ExprResult Parser::ParseArrayTypeTrait() {
 
     ExprResult DimExpr = ParseExpression();
     T.consumeClose();
+
+    if (DimExpr.isInvalid())
+      return ExprError();
 
     return Actions.ActOnArrayTypeTrait(ATT, Loc, Ty.get(), DimExpr.get(),
                                        T.getCloseLocation());

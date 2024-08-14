@@ -105,7 +105,7 @@ static void addOptLevelArg(const llvm::opt::ArgList &Args,
       OOpt = "3";
   }
   // To remove unreferenced internalized functions, add globaldce pass to O0
-  if (OOpt.equals("0") && !IsLlc)
+  if (OOpt == "0" && !IsLlc)
     CmdArgs.push_back(Args.MakeArgString("-passes=default<O0>,globaldce"));
   else
     CmdArgs.push_back(Args.MakeArgString("-O" + OOpt));
@@ -415,8 +415,6 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
     CC1Args.push_back(OneFeature.data());
   }
 
-  CC1Args.push_back("-fcuda-is-device");
-
   if (DriverArgs.hasFlag(options::OPT_fgpu_approx_transcendentals,
                          options::OPT_fno_gpu_approx_transcendentals, false))
     CC1Args.push_back("-fcuda-approx-transcendentals");
@@ -447,6 +445,10 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
     CC1Args.append({"-fvisibility", "hidden"});
     CC1Args.push_back("-fapply-global-visibility-to-externs");
   }
+
+  CC1Args.push_back("-fcuda-is-device");
+
+  CC1Args.push_back("-fcuda-is-device");
 
   if (DriverArgs.hasArg(options::OPT_nogpulib))
     return;
@@ -508,7 +510,7 @@ llvm::opt::DerivedArgList *AMDGPUOpenMPToolChain::TranslateArgs(
               llvm::formatv("{0}", llvm::fmt_consume(ArchsOrErr.takeError()));
           getDriver().Diag(diag::err_drv_undetermined_gpu_arch)
               << llvm::Triple::getArchTypeName(getArch()) << ErrMsg << "-march";
-          Arch = CudaArchToString(CudaArch::HIPDefault);
+          Arch = OffloadArchToString(OffloadArch::HIPDefault);
         } else {
           Arch = Args.MakeArgString(ArchsOrErr->front());
         }

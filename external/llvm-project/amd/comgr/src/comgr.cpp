@@ -51,6 +51,7 @@
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/Module.h"
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -71,7 +72,7 @@
 
 using namespace llvm;
 using namespace COMGR;
-using namespace TimeStatistics;
+using namespace COMGR::TimeStatistics;
 
 static bool isLanguageValid(amd_comgr_language_t Language) {
   return Language >= AMD_COMGR_LANGUAGE_NONE &&

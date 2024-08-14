@@ -28,7 +28,9 @@ class FlatSymbolRefAttr;
 // disabled.
 void addEmulateFp8ExtTruncPatterns(RewritePatternSet &patterns,
                                    FlatSymbolRefAttr f8E4M3FNUZTruncFunc,
-                                   FlatSymbolRefAttr f8E5M2FNUZTruncFunc);
+                                   FlatSymbolRefAttr f8E5M2FNUZTruncFunc,
+                                   FlatSymbolRefAttr f8E4M3FNTruncFunc,
+                                   FlatSymbolRefAttr f8E5M2TruncFunc);
 
 } // namespace mlir
 

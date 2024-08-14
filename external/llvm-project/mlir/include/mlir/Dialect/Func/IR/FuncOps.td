@@ -9,7 +9,6 @@
 #ifndef MLIR_DIALECT_FUNC_IR_FUNCOPS_TD
 #define MLIR_DIALECT_FUNC_IR_FUNCOPS_TD
 
-include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/SymbolInterfaces.td"

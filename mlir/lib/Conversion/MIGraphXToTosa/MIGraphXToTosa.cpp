@@ -688,6 +688,15 @@ struct ReduceMeanConverter final
   matchAndRewrite(migraphx::ReduceMeanOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct ReduceSumConverter final
+    : public OpConversionPattern<migraphx::ReduceSumOp> {
+  using OpConversionPattern<migraphx::ReduceSumOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ReduceSumOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
 tosa::ConstOp ReduceMeanConverter::createNumElementsTosaConst(
@@ -731,6 +740,24 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
                                                tosaReciprocal, /*shift=*/0);
   auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
       rewriter, loc, elementType, tosaMul, axis);
+  rewriter.replaceOp(op, tosaReduceSum);
+  return success();
+}
+
+LogicalResult
+ReduceSumConverter::matchAndRewrite(migraphx::ReduceSumOp op, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  ArrayRef<Attribute> axes = op.getAxes().getValue();
+  if (axes.size() != 1) {
+    return op.emitError("We only support single axes reductions!");
+  }
+  IntegerAttr axis =
+      rewriter.getI32IntegerAttr(cast<IntegerAttr>(axes[0]).getInt());
+  auto input = cast<TypedValue<RankedTensorType>>(adaptor.getInput());
+  Type elementType = input.getType().getElementType();
+  auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
+      rewriter, loc, elementType, input, axis);
   rewriter.replaceOp(op, tosaReduceSum);
   return success();
 }
@@ -1217,27 +1244,28 @@ LogicalResult MHALLaunchConverter::matchAndRewrite(
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
-  patterns.add<
-      ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
-      DotConverter<DotOp>, DotConverter<QuantDotOp>, BroadcastConverter,
-      MultiBroadcastConverter, TransposeConverter, ReshapeConverter,
-      SliceConverter, ReduceMeanConverter, TrivialConverter<AddOp, tosa::AddOp>,
-      TrivialConverter<SubOp, tosa::SubOp>,
-      TrivialConverter<PowOp, tosa::PowOp>, DivConverter, MulConverter,
-      TrivialConverter<AbsOp, tosa::AbsOp>,
-      TrivialConverter<CeilOp, tosa::CeilOp>,
-      TrivialConverter<ConvertOp, tosa::CastOp>,
-      TrivialConverter<ErfOp, tosa::ErfOp>,
-      TrivialConverter<ExpOp, tosa::ExpOp>,
-      TrivialConverter<FloorOp, tosa::FloorOp>,
-      TrivialConverter<LogOp, tosa::LogOp>,
-      TrivialConverter<RecipOp, tosa::ReciprocalOp>,
-      TrivialConverter<RsqrtOp, tosa::RsqrtOp>,
-      TrivialConverter<SigmoidOp, tosa::SigmoidOp>,
-      TrivialConverter<TanhOp, tosa::TanhOp>, DeQuantizeLinearConverter,
-      QuantizeLinearConverter, DeQuantizeLinearConverter, NegConverter,
-      ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-      WhereConverter>(typeConverter, patterns.getContext());
+  patterns
+      .add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
+           DotConverter<DotOp>, DotConverter<QuantDotOp>, BroadcastConverter,
+           MultiBroadcastConverter, TransposeConverter, ReshapeConverter,
+           SliceConverter, ReduceMeanConverter, ReduceSumConverter,
+           TrivialConverter<AddOp, tosa::AddOp>,
+           TrivialConverter<SubOp, tosa::SubOp>,
+           TrivialConverter<PowOp, tosa::PowOp>, DivConverter, MulConverter,
+           TrivialConverter<AbsOp, tosa::AbsOp>,
+           TrivialConverter<CeilOp, tosa::CeilOp>,
+           TrivialConverter<ConvertOp, tosa::CastOp>,
+           TrivialConverter<ErfOp, tosa::ErfOp>,
+           TrivialConverter<ExpOp, tosa::ExpOp>,
+           TrivialConverter<FloorOp, tosa::FloorOp>,
+           TrivialConverter<LogOp, tosa::LogOp>,
+           TrivialConverter<RecipOp, tosa::ReciprocalOp>,
+           TrivialConverter<RsqrtOp, tosa::RsqrtOp>,
+           TrivialConverter<SigmoidOp, tosa::SigmoidOp>,
+           TrivialConverter<TanhOp, tosa::TanhOp>, DeQuantizeLinearConverter,
+           QuantizeLinearConverter, DeQuantizeLinearConverter, NegConverter,
+           ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
+           WhereConverter>(typeConverter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(

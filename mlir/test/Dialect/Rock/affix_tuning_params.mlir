@@ -396,6 +396,22 @@ func.func @rock_gemm_xdlops_fp8_bf8(%a : memref<1x72x128xf8E4M3FNUZ>, %b : memre
   return
 }
 
+// And verify that 8-bit floats have the same tuning behavior as i8.
+// CHECK-LABEL: func.func @rock_gemm_xdlops_fp8_bf8_ocp
+// GRID-LABEL: func.func @rock_gemm_xdlops_fp8_bf8_ocp
+func.func @rock_gemm_xdlops_fp8_bf8_ocp(%a : memref<1x72x128xf8E4M3FN>, %b : memref<1x72x115200xf8E5M2>, %c : memref<1x128x115200xf32>) {
+  // CHECK: rock.gemm
+  // CHECK-SAME: derivedBlockSize = 256
+  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, forceUnroll = true>
+  // GRID: rock.gridwise_gemm
+  // GRID-SAME: gridSize = 3600
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx940",
+    numCU = 120 : i32
+  } : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FN> * memref<1x72x115200xf8E5M2>
+  return
+}
+
 // CHECK-LABEL: func.func @rock_attention_default
 // CHECK-SAME: block_size = 32
 // GRID-LABEL: func.func @rock_attention_default

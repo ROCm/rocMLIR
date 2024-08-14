@@ -5,9 +5,9 @@
 // CHECK-NEXT: gpu.module @misckernel_module
 // CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?xf32>, %{{.*}}: memref<?xf32>) kernel
 // CHECK-SAME: block_size = 64 : i32
-// CHECK-SAME: gpu.known_block_size = array<i32: 64, 1, 1>
-// CHECK-SAME: gpu.known_grid_size = array<i32: 900, 1, 1>
 // CHECK-SAME: grid_size = 900 : i32
+// CHECK-SAME: known_block_size = array<i32: 64, 1, 1>
+// CHECK-SAME: known_grid_size = array<i32: 900, 1, 1>
 module {
   func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>)
       attributes {kernel = 0 : i32, block_size = 64 : i32, grid_size = 900 : i32} {
@@ -34,7 +34,7 @@ module {
 
 // -----
 
-// CHECK: #[[MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0 - 1)> 
+// CHECK: #[[MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0 - 1)>
 module {
   func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>)
       attributes {kernel = 0 : i32, block_size = 64 : i32, grid_size = 900 : i32, reverse_grid} {
@@ -48,5 +48,3 @@ module {
     return
   }
 }
-
-

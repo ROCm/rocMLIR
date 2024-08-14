@@ -767,6 +767,21 @@ static llvm::cl::opt<bool> disableSplitKForTuning(
     llvm::cl::desc("disable split-K GEMM scheme for tuning"),
     llvm::cl::init(false));
 
+enum class F8TypesChoice : int { Arch = 0, Nanoo = 1, OCP = 2 };
+
+static llvm::cl::opt<F8TypesChoice> forceF8Types(
+    "force-f8-types",
+    llvm::cl::desc("use OCP F8 types;  otherwise, use old F8 types"),
+    llvm::cl::values(clEnumValN(F8TypesChoice::Arch, "arch",
+                                "usual F8 types for architecture"),
+                     clEnumValN(F8TypesChoice::Nanoo, "nanoo",
+                                "older 'NANOO' or 'FNUZ' types"),
+                     clEnumValN(F8TypesChoice::Nanoo, "fnuz",
+                                "older 'NANOO' or 'FNUZ' types"),
+                     clEnumValN(F8TypesChoice::OCP, "ocp",
+                                "'OCP' or 'OFP8' types")),
+    llvm::cl::init(F8TypesChoice::Arch));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -1266,8 +1281,50 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
   return gpuWrapperFunc;
 }
 
+llvm::SmallString<32> archChip() {
+  RocmDeviceName targetInfo;
+  if (failed(targetInfo.parse(arch.getValue()))) {
+    llvm::errs() << "Invalid architecture name: " << arch << "\n";
+    exit(1);
+  }
+  return targetInfo.getChip();
+}
+
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
+  if (name == "fp8") {
+    switch (forceF8Types) {
+    case F8TypesChoice::Arch:
+      // f8E4M3FN for navi4, f8E4M3FNUZ for everyone else
+      if (archChip().substr(0, 5) == "gfx12")
+        name = "f8E4M3FN";
+      else
+        name = "f8E4M3FNUZ";
+      break;
+    case F8TypesChoice::Nanoo:
+      name = "f8E4M3FNUZ";
+      break;
+    case F8TypesChoice::OCP:
+      name = "f8E4M3FN";
+      break;
+    }
+  } else if (name == "bf8") {
+    switch (forceF8Types) {
+    case F8TypesChoice::Arch:
+      // f8E5M2 for navi4, f8E5M2FNUZ for everyone else
+      if (archChip().substr(0, 5) == "gfx12")
+        name = "f8E5M2";
+      else
+        name = "f8E5M2FNUZ";
+      break;
+    case F8TypesChoice::Nanoo:
+      name = "f8E5M2FNUZ";
+      break;
+    case F8TypesChoice::OCP:
+      name = "f8E5M2";
+      break;
+    }
+  }
   std::optional<Type> result =
       llvm::StringSwitch<std::optional<Type>>(name)
           .Case("f32", Float32Type::get(ctx))
@@ -1275,8 +1332,10 @@ static Type typeFromString(StringRef name, MLIRContext *ctx) {
           .Case("bf16", BFloat16Type::get(ctx))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
-          .Cases("bf8", "f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
-          .Cases("fp8", "f8E4M3FNUZ", Float8E4M3FNUZType::get(ctx))
+          .Case("f8E5M2", Float8E5M2Type::get(ctx))
+          .Case("f8E4M3FN", Float8E4M3FNType::get(ctx))
+          .Case("f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
+          .Case("f8E4M3FNUZ", Float8E4M3FNUZType::get(ctx))
           .Default(std::nullopt);
   if (!result) {
     llvm::errs() << "Unknown data type: " << name << "\n";

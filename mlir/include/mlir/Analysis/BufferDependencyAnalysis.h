@@ -9,7 +9,6 @@
 #ifndef ROCK_ANALYSIS_LOWERINGUTILS_H
 #define ROCK_ANALYSIS_LOWERINGUTILS_H
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/DenseMap.h"
@@ -27,27 +26,54 @@ namespace mlir {
 struct BufferDependencyAnalysis {
   BufferDependencyAnalysis(Operation *op);
 
-  std::optional<llvm::SmallVector<Operation *>>
-  getReaders(memref::AllocOp allocOp);
-  std::optional<llvm::SmallVector<Operation *>>
-  getWriters(memref::AllocOp allocOp);
+  /// Get all the OpOperands that read from the given buffer, potentially
+  /// through any number of views.
+  std::optional<llvm::SmallVector<OpOperand *>>
+  getReaders(memref::AllocOp allocOp) const;
+  /// Get all the OpOperands that write to the given buffer, potentially through
+  /// any number of views.
+  std::optional<llvm::SmallVector<OpOperand *>>
+  getWriters(memref::AllocOp allocOp) const;
 
-  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> &
-  getReadersTable() {
+  /// Return, if one is known, the buffer that this OpOperand reads from.
+  /// The argument must be operand of the memory-writing operation, not any
+  /// intermediate view.
+  std::optional<memref::AllocOp> getReadBuffer(OpOperand *use) const;
+  /// Return, if one is known, the buffer that this OpOperand writes to.
+  /// The argument must be operand of the memory-writing operation, not any
+  /// intermediate view.
+  std::optional<memref::AllocOp> getWrittenBuffer(OpOperand *use) const;
+
+  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> &
+  getReadersTable() const {
     return readersTable;
   }
-  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> &
-  getWritersTable() {
+  const llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> &
+  getWritersTable() const {
     return writersTable;
+  }
+  const llvm::DenseMap<OpOperand *, memref::AllocOp> &
+  getReaderToBufferTable() const {
+    return readerToBufferTable;
+  }
+  const llvm::DenseMap<OpOperand *, memref::AllocOp> &
+  getWriterToBufferTable() const {
+    return writerToBufferTable;
   }
 
   // Returns the operation this analysis was constructed from.
   Operation *getOperation() const { return op; }
 
+  // Compute the analysis on `op`, overwriting existing analysis if necessary.
+  // This is to be used after updating the graph.
+  void analyze(memref::AllocOp allocOp);
+
 private:
   Operation *op;
-  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> readersTable;
-  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<Operation *>> writersTable;
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> readersTable;
+  llvm::DenseMap<memref::AllocOp, llvm::SmallVector<OpOperand *>> writersTable;
+  llvm::DenseMap<OpOperand *, memref::AllocOp> readerToBufferTable;
+  llvm::DenseMap<OpOperand *, memref::AllocOp> writerToBufferTable;
 };
 } // namespace mlir
 
