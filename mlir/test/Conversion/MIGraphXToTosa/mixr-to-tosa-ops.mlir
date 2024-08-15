@@ -28,8 +28,9 @@ module  {
   }
 
   // CHECK-LABEL: func @dequantize_scale_bias
-  // CHECK: tosa.sub
   // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.sub
   // CHECK: tosa.mul
   func.func @dequantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
     %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
@@ -37,9 +38,9 @@ module  {
   }
 
   // CHECK-LABEL: func @dequantize_wide_bias
-  // CHECK: tosa.cast{{.*}}i32
-  // CHECK: tosa.sub{{.*}}i32
   // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.sub{{.*}}f32
   // CHECK: tosa.mul
   func.func @dequantize_wide_bias(%arg: !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
     %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi8, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
@@ -47,9 +48,9 @@ module  {
   }
 
   // CHECK-LABEL: func @dequantize_wide_input
-  // CHECK: tosa.cast{{.*}}i32
-  // CHECK: tosa.sub{{.*}}i32
   // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.cast{{.*}}f32
+  // CHECK: tosa.sub{{.*}}f32
   // CHECK: tosa.mul
   func.func @dequantize_wide_input(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
     %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi8, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
@@ -142,8 +143,9 @@ module  {
 
   // CHECK-LABEL: func @conv_with_quant
   // CHECK: tosa.conv2d{{.*}} quantization_info
-  // CHECK: tosa.sub
   // CHECK: tosa.cast
+  // CHECK: tosa.cast
+  // CHECK: tosa.sub
   // CHECK: tosa.mul
   // CHECK: tosa.reciprocal
   // CHECK: tosa.mul
