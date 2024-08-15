@@ -928,7 +928,7 @@ getKnownBitsFromAndXorOr(const Operator *I, const APInt &DemandedElts,
     // Demanded) == (xor(x, x-1) & Demanded). Extend the xor pattern
     // to use arbitrary C if xor(x, x-C) as the same as xor(x, x-1).
     if (HasKnownOne &&
-        match(I, m_c_Xor(m_Value(X), m_c_Add(m_Deferred(X), m_AllOnes())))) {
+        match(I, m_c_Xor(m_Value(X), m_Add(m_Deferred(X), m_AllOnes())))) {
       const KnownBits &XBits = I->getOperand(0) == X ? KnownLHS : KnownRHS;
       KnownOut = XBits.blsmsk();
     }
@@ -957,6 +957,32 @@ getKnownBitsFromAndXorOr(const Operator *I, const APInt &DemandedElts,
     }
   }
   return KnownOut;
+}
+
+static KnownBits computeKnownBitsForHorizontalOperation(
+    const Operator *I, const APInt &DemandedElts, unsigned Depth,
+    const SimplifyQuery &Q,
+    const function_ref<KnownBits(const KnownBits &, const KnownBits &)>
+        KnownBitsFunc) {
+  APInt DemandedEltsLHS, DemandedEltsRHS;
+  getHorizDemandedEltsForFirstOperand(Q.DL.getTypeSizeInBits(I->getType()),
+                                      DemandedElts, DemandedEltsLHS,
+                                      DemandedEltsRHS);
+
+  const auto ComputeForSingleOpFunc =
+      [Depth, &Q, KnownBitsFunc](const Value *Op, APInt &DemandedEltsOp) {
+        return KnownBitsFunc(
+            computeKnownBits(Op, DemandedEltsOp, Depth + 1, Q),
+            computeKnownBits(Op, DemandedEltsOp << 1, Depth + 1, Q));
+      };
+
+  if (DemandedEltsRHS.isZero())
+    return ComputeForSingleOpFunc(I->getOperand(0), DemandedEltsLHS);
+  if (DemandedEltsLHS.isZero())
+    return ComputeForSingleOpFunc(I->getOperand(1), DemandedEltsRHS);
+
+  return ComputeForSingleOpFunc(I->getOperand(0), DemandedEltsLHS)
+      .intersectWith(ComputeForSingleOpFunc(I->getOperand(1), DemandedEltsRHS));
 }
 
 // Public so this can be used in `SimplifyDemandedUseBits`.
@@ -1065,15 +1091,15 @@ static void computeKnownBitsFromOperator(const Operator *I,
     break;
   }
   case Instruction::UDiv: {
-    computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-    computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+    computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+    computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
     Known =
         KnownBits::udiv(Known, Known2, Q.IIQ.isExact(cast<BinaryOperator>(I)));
     break;
   }
   case Instruction::SDiv: {
-    computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-    computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+    computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+    computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
     Known =
         KnownBits::sdiv(Known, Known2, Q.IIQ.isExact(cast<BinaryOperator>(I)));
     break;
@@ -1081,7 +1107,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
   case Instruction::Select: {
     auto ComputeForArm = [&](Value *Arm, bool Invert) {
       KnownBits Res(Known.getBitWidth());
-      computeKnownBits(Arm, Res, Depth + 1, Q);
+      computeKnownBits(Arm, DemandedElts, Res, Depth + 1, Q);
       adjustKnownBitsForSelectArm(Res, I->getOperand(0), Arm, Invert, Depth, Q);
       return Res;
     };
@@ -1116,7 +1142,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
 
     assert(SrcBitWidth && "SrcBitWidth can't be zero");
     Known = Known.anyextOrTrunc(SrcBitWidth);
-    computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
+    computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
     if (auto *Inst = dyn_cast<PossiblyNonNegInst>(I);
         Inst && Inst->hasNonNeg() && !Known.isNegative())
       Known.makeNonNegative();
@@ -1138,7 +1164,8 @@ static void computeKnownBitsFromOperator(const Operator *I,
     if (match(I, m_ElementWiseBitCast(m_Value(V))) &&
         V->getType()->isFPOrFPVectorTy()) {
       Type *FPType = V->getType()->getScalarType();
-      KnownFPClass Result = computeKnownFPClass(V, fcAllFlags, Depth + 1, Q);
+      KnownFPClass Result =
+          computeKnownFPClass(V, DemandedElts, fcAllFlags, Depth + 1, Q);
       FPClassTest FPClasses = Result.KnownFPClasses;
 
       // TODO: Treat it as zero/poison if the use of I is unreachable.
@@ -1219,7 +1246,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
     unsigned SrcBitWidth = I->getOperand(0)->getType()->getScalarSizeInBits();
 
     Known = Known.trunc(SrcBitWidth);
-    computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
+    computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
     // If the sign bit of the input is known set or clear, then we know the
     // top bits of the result.
     Known = Known.sext(BitWidth);
@@ -1279,14 +1306,14 @@ static void computeKnownBitsFromOperator(const Operator *I,
     break;
   }
   case Instruction::SRem:
-    computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-    computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+    computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+    computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
     Known = KnownBits::srem(Known, Known2);
     break;
 
   case Instruction::URem:
-    computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-    computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+    computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+    computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
     Known = KnownBits::urem(Known, Known2);
     break;
   case Instruction::Alloca:
@@ -1402,7 +1429,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
         // inferred hold at original context instruction.  TODO: It may be
         // correct to use the original context.  IF warranted, explore and
         // add sufficient tests to cover.
-        SimplifyQuery RecQ = Q;
+        SimplifyQuery RecQ = Q.getWithoutCondContext();
         RecQ.CxtI = P;
         computeKnownBits(R, DemandedElts, Known2, Depth + 1, RecQ);
         switch (Opcode) {
@@ -1435,21 +1462,21 @@ static void computeKnownBitsFromOperator(const Operator *I,
         // phi. This is important because that is where the value is actually
         // "evaluated" even though it is used later somewhere else. (see also
         // D69571).
-        SimplifyQuery RecQ = Q;
+        SimplifyQuery RecQ = Q.getWithoutCondContext();
 
         unsigned OpNum = P->getOperand(0) == R ? 0 : 1;
         Instruction *RInst = P->getIncomingBlock(OpNum)->getTerminator();
-        Instruction *LInst = P->getIncomingBlock(1-OpNum)->getTerminator();
+        Instruction *LInst = P->getIncomingBlock(1 - OpNum)->getTerminator();
 
         // Ok, we have a PHI of the form L op= R. Check for low
         // zero bits.
         RecQ.CxtI = RInst;
-        computeKnownBits(R, Known2, Depth + 1, RecQ);
+        computeKnownBits(R, DemandedElts, Known2, Depth + 1, RecQ);
 
         // We need to take the minimum number of known bits
         KnownBits Known3(BitWidth);
         RecQ.CxtI = LInst;
-        computeKnownBits(L, Known3, Depth + 1, RecQ);
+        computeKnownBits(L, DemandedElts, Known3, Depth + 1, RecQ);
 
         Known.Zero.setLowBits(std::min(Known2.countMinTrailingZeros(),
                                        Known3.countMinTrailingZeros()));
@@ -1513,7 +1540,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
         // phi. This is important because that is where the value is actually
         // "evaluated" even though it is used later somewhere else. (see also
         // D69571).
-        SimplifyQuery RecQ = Q;
+        SimplifyQuery RecQ = Q.getWithoutCondContext();
         RecQ.CxtI = P->getIncomingBlock(u)->getTerminator();
 
         Known2 = KnownBits(BitWidth);
@@ -1522,7 +1549,8 @@ static void computeKnownBitsFromOperator(const Operator *I,
         // want to waste time spinning around in loops.
         // TODO: See if we can base recursion limiter on number of incoming phi
         // edges so we don't overly clamp analysis.
-        computeKnownBits(IncValue, Known2, MaxAnalysisRecursionDepth - 1, RecQ);
+        computeKnownBits(IncValue, DemandedElts, Known2,
+                         MaxAnalysisRecursionDepth - 1, RecQ);
 
         // See if we can further use a conditional branch into the phi
         // to help us determine the range of the value.
@@ -1593,9 +1621,10 @@ static void computeKnownBitsFromOperator(const Operator *I,
     }
     if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {
       switch (II->getIntrinsicID()) {
-      default: break;
+      default:
+        break;
       case Intrinsic::abs: {
-        computeKnownBits(I->getOperand(0), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known2, Depth + 1, Q);
         bool IntMinIsPoison = match(II->getArgOperand(1), m_One());
         Known = Known2.abs(IntMinIsPoison);
         break;
@@ -1611,7 +1640,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
         Known.One |= Known2.One.byteSwap();
         break;
       case Intrinsic::ctlz: {
-        computeKnownBits(I->getOperand(0), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known2, Depth + 1, Q);
         // If we have a known 1, its position is our upper bound.
         unsigned PossibleLZ = Known2.countMaxLeadingZeros();
         // If this call is poison for 0 input, the result will be less than 2^n.
@@ -1622,7 +1651,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
         break;
       }
       case Intrinsic::cttz: {
-        computeKnownBits(I->getOperand(0), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known2, Depth + 1, Q);
         // If we have a known 1, its position is our upper bound.
         unsigned PossibleTZ = Known2.countMaxTrailingZeros();
         // If this call is poison for 0 input, the result will be less than 2^n.
@@ -1633,7 +1662,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
         break;
       }
       case Intrinsic::ctpop: {
-        computeKnownBits(I->getOperand(0), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known2, Depth + 1, Q);
         // We can bound the space the count needs.  Also, bits known to be zero
         // can't contribute to the population.
         unsigned BitsPossiblySet = Known2.countMaxPopulation();
@@ -1655,8 +1684,8 @@ static void computeKnownBitsFromOperator(const Operator *I,
           ShiftAmt = BitWidth - ShiftAmt;
 
         KnownBits Known3(BitWidth);
-        computeKnownBits(I->getOperand(0), Known2, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known3, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known3, Depth + 1, Q);
 
         Known.Zero =
             Known2.Zero.shl(ShiftAmt) | Known3.Zero.lshr(BitWidth - ShiftAmt);
@@ -1665,24 +1694,29 @@ static void computeKnownBitsFromOperator(const Operator *I,
         break;
       }
       case Intrinsic::uadd_sat:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::uadd_sat(Known, Known2);
         break;
       case Intrinsic::usub_sat:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::usub_sat(Known, Known2);
         break;
       case Intrinsic::sadd_sat:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::sadd_sat(Known, Known2);
         break;
       case Intrinsic::ssub_sat:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::ssub_sat(Known, Known2);
+        break;
+        // Vec reverse preserves bits from input vec.
+      case Intrinsic::vector_reverse:
+        computeKnownBits(I->getOperand(0), DemandedElts.reverseBits(), Known,
+                         Depth + 1, Q);
         break;
         // for min/max/and/or reduce, any bit common to each element in the
         // input vec is set in the output.
@@ -1710,31 +1744,31 @@ static void computeKnownBitsFromOperator(const Operator *I,
         break;
       }
       case Intrinsic::umin:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::umin(Known, Known2);
         break;
       case Intrinsic::umax:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::umax(Known, Known2);
         break;
       case Intrinsic::smin:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::smin(Known, Known2);
         break;
       case Intrinsic::smax:
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
-        computeKnownBits(I->getOperand(1), Known2, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(1), DemandedElts, Known2, Depth + 1, Q);
         Known = KnownBits::smax(Known, Known2);
         break;
       case Intrinsic::ptrmask: {
-        computeKnownBits(I->getOperand(0), Known, Depth + 1, Q);
+        computeKnownBits(I->getOperand(0), DemandedElts, Known, Depth + 1, Q);
 
         const Value *Mask = I->getOperand(1);
         Known2 = KnownBits(Mask->getType()->getScalarSizeInBits());
-        computeKnownBits(Mask, Known2, Depth + 1, Q);
+        computeKnownBits(Mask, DemandedElts, Known2, Depth + 1, Q);
         // TODO: 1-extend would be more precise.
         Known &= Known2.anyextOrTrunc(BitWidth);
         break;
@@ -1756,6 +1790,44 @@ static void computeKnownBitsFromOperator(const Operator *I,
       case Intrinsic::x86_sse42_crc32_64_64:
         Known.Zero.setBitsFrom(32);
         break;
+      case Intrinsic::x86_ssse3_phadd_d_128:
+      case Intrinsic::x86_ssse3_phadd_w_128:
+      case Intrinsic::x86_avx2_phadd_d:
+      case Intrinsic::x86_avx2_phadd_w: {
+        Known = computeKnownBitsForHorizontalOperation(
+            I, DemandedElts, Depth, Q,
+            [](const KnownBits &KnownLHS, const KnownBits &KnownRHS) {
+              return KnownBits::computeForAddSub(/*Add=*/true, /*NSW=*/false,
+                                                 /*NUW=*/false, KnownLHS,
+                                                 KnownRHS);
+            });
+        break;
+      }
+      case Intrinsic::x86_ssse3_phadd_sw_128:
+      case Intrinsic::x86_avx2_phadd_sw: {
+        Known = computeKnownBitsForHorizontalOperation(I, DemandedElts, Depth,
+                                                       Q, KnownBits::sadd_sat);
+        break;
+      }
+      case Intrinsic::x86_ssse3_phsub_d_128:
+      case Intrinsic::x86_ssse3_phsub_w_128:
+      case Intrinsic::x86_avx2_phsub_d:
+      case Intrinsic::x86_avx2_phsub_w: {
+        Known = computeKnownBitsForHorizontalOperation(
+            I, DemandedElts, Depth, Q,
+            [](const KnownBits &KnownLHS, const KnownBits &KnownRHS) {
+              return KnownBits::computeForAddSub(/*Add=*/false, /*NSW=*/false,
+                                                 /*NUW=*/false, KnownLHS,
+                                                 KnownRHS);
+            });
+        break;
+      }
+      case Intrinsic::x86_ssse3_phsub_sw_128:
+      case Intrinsic::x86_avx2_phsub_sw: {
+        Known = computeKnownBitsForHorizontalOperation(I, DemandedElts, Depth,
+                                                       Q, KnownBits::ssub_sat);
+        break;
+      }
       case Intrinsic::riscv_vsetvli:
       case Intrinsic::riscv_vsetvlimax: {
         bool HasAVL = II->getIntrinsicID() == Intrinsic::riscv_vsetvli;
@@ -2251,7 +2323,7 @@ bool isKnownToBeAPowerOfTwo(const Value *V, bool OrZero, unsigned Depth,
     // it is an induction variable where in each step its value is a power of
     // two.
     auto *PN = cast<PHINode>(I);
-    SimplifyQuery RecQ = Q;
+    SimplifyQuery RecQ = Q.getWithoutCondContext();
 
     // Check if it is an induction variable and always power of two.
     if (isPowerOfTwoRecurrence(PN, OrZero, Depth, RecQ))
@@ -2865,7 +2937,7 @@ static bool isKnownNonZeroFromOperator(const Operator *I,
       return true;
 
     // Check if all incoming values are non-zero using recursion.
-    SimplifyQuery RecQ = Q;
+    SimplifyQuery RecQ = Q.getWithoutCondContext();
     unsigned NewDepth = std::max(Depth, MaxAnalysisRecursionDepth - 1);
     return llvm::all_of(PN->operands(), [&](const Use &U) {
       if (U.get() == PN)
@@ -3026,6 +3098,8 @@ static bool isKnownNonZeroFromOperator(const Operator *I,
         return isNonZeroAdd(DemandedElts, Depth, Q, BitWidth,
                             II->getArgOperand(0), II->getArgOperand(1),
                             /*NSW=*/true, /* NUW=*/false);
+        // Vec reverse preserves zero/non-zero status from input vec.
+      case Intrinsic::vector_reverse:
         // umin/smin/smax/smin/or of all non-zero elements is always non-zero.
       case Intrinsic::vector_reduce_or:
       case Intrinsic::vector_reduce_umax:
@@ -3422,7 +3496,7 @@ static bool isNonEqualPHIs(const PHINode *PN1, const PHINode *PN2,
     if (UsedFullRecursion)
       return false;
 
-    SimplifyQuery RecQ = Q;
+    SimplifyQuery RecQ = Q.getWithoutCondContext();
     RecQ.CxtI = IncomBB->getTerminator();
     if (!isKnownNonEqual(IV1, IV2, Depth + 1, RecQ))
       return false;
@@ -3705,7 +3779,8 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
     default: break;
     case Instruction::SExt:
       Tmp = TyBits - U->getOperand(0)->getType()->getScalarSizeInBits();
-      return ComputeNumSignBits(U->getOperand(0), Depth + 1, Q) + Tmp;
+      return ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q) +
+             Tmp;
 
     case Instruction::SDiv: {
       const APInt *Denominator;
@@ -3717,7 +3792,8 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
           break;
 
         // Calculate the incoming numerator bits.
-        unsigned NumBits = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
+        unsigned NumBits =
+            ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
 
         // Add floor(log(C)) bits to the numerator bits.
         return std::min(TyBits, NumBits + Denominator->logBase2());
@@ -3726,7 +3802,7 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
     }
 
     case Instruction::SRem: {
-      Tmp = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
+      Tmp = ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
 
       const APInt *Denominator;
       // srem X, C -> we know that the result is within [-C+1,C) when C is a
@@ -3757,7 +3833,7 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
     }
 
     case Instruction::AShr: {
-      Tmp = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
+      Tmp = ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
       // ashr X, C   -> adds C sign bits.  Vectors too.
       const APInt *ShAmt;
       if (match(U->getOperand(1), m_APInt(ShAmt))) {
@@ -3771,11 +3847,22 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
     }
     case Instruction::Shl: {
       const APInt *ShAmt;
+      Value *X = nullptr;
       if (match(U->getOperand(1), m_APInt(ShAmt))) {
         // shl destroys sign bits.
-        Tmp = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
-        if (ShAmt->uge(TyBits) ||   // Bad shift.
-            ShAmt->uge(Tmp)) break; // Shifted all sign bits out.
+        if (ShAmt->uge(TyBits))
+          break; // Bad shift.
+        // We can look through a zext (more or less treating it as a sext) if
+        // all extended bits are shifted out.
+        if (match(U->getOperand(0), m_ZExt(m_Value(X))) &&
+            ShAmt->uge(TyBits - X->getType()->getScalarSizeInBits())) {
+          Tmp = ComputeNumSignBits(X, DemandedElts, Depth + 1, Q);
+          Tmp += TyBits - X->getType()->getScalarSizeInBits();
+        } else
+          Tmp =
+              ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
+        if (ShAmt->uge(Tmp))
+          break; // Shifted all sign bits out.
         Tmp2 = ShAmt->getZExtValue();
         return Tmp - Tmp2;
       }
@@ -3785,9 +3872,9 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
     case Instruction::Or:
     case Instruction::Xor: // NOT is handled here.
       // Logical binary ops preserve the number of sign bits at the worst.
-      Tmp = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
+      Tmp = ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
       if (Tmp != 1) {
-        Tmp2 = ComputeNumSignBits(U->getOperand(1), Depth + 1, Q);
+        Tmp2 = ComputeNumSignBits(U->getOperand(1), DemandedElts, Depth + 1, Q);
         FirstAnswer = std::min(Tmp, Tmp2);
         // We computed what we know about the sign bits as our first
         // answer. Now proceed to the generic code that uses
@@ -3803,9 +3890,10 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
       if (isSignedMinMaxClamp(U, X, CLow, CHigh))
         return std::min(CLow->getNumSignBits(), CHigh->getNumSignBits());
 
-      Tmp = ComputeNumSignBits(U->getOperand(1), Depth + 1, Q);
-      if (Tmp == 1) break;
-      Tmp2 = ComputeNumSignBits(U->getOperand(2), Depth + 1, Q);
+      Tmp = ComputeNumSignBits(U->getOperand(1), DemandedElts, Depth + 1, Q);
+      if (Tmp == 1)
+        break;
+      Tmp2 = ComputeNumSignBits(U->getOperand(2), DemandedElts, Depth + 1, Q);
       return std::min(Tmp, Tmp2);
     }
 
@@ -3819,7 +3907,7 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
       if (const auto *CRHS = dyn_cast<Constant>(U->getOperand(1)))
         if (CRHS->isAllOnesValue()) {
           KnownBits Known(TyBits);
-          computeKnownBits(U->getOperand(0), Known, Depth + 1, Q);
+          computeKnownBits(U->getOperand(0), DemandedElts, Known, Depth + 1, Q);
 
           // If the input is known to be 0 or 1, the output is 0/-1, which is
           // all sign bits set.
@@ -3832,19 +3920,21 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
             return Tmp;
         }
 
-      Tmp2 = ComputeNumSignBits(U->getOperand(1), Depth + 1, Q);
-      if (Tmp2 == 1) break;
+      Tmp2 = ComputeNumSignBits(U->getOperand(1), DemandedElts, Depth + 1, Q);
+      if (Tmp2 == 1)
+        break;
       return std::min(Tmp, Tmp2) - 1;
 
     case Instruction::Sub:
-      Tmp2 = ComputeNumSignBits(U->getOperand(1), Depth + 1, Q);
-      if (Tmp2 == 1) break;
+      Tmp2 = ComputeNumSignBits(U->getOperand(1), DemandedElts, Depth + 1, Q);
+      if (Tmp2 == 1)
+        break;
 
       // Handle NEG.
       if (const auto *CLHS = dyn_cast<Constant>(U->getOperand(0)))
         if (CLHS->isNullValue()) {
           KnownBits Known(TyBits);
-          computeKnownBits(U->getOperand(1), Known, Depth + 1, Q);
+          computeKnownBits(U->getOperand(1), DemandedElts, Known, Depth + 1, Q);
           // If the input is known to be 0 or 1, the output is 0/-1, which is
           // all sign bits set.
           if ((Known.Zero | 1).isAllOnes())
@@ -3861,17 +3951,22 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
 
       // Sub can have at most one carry bit.  Thus we know that the output
       // is, at worst, one more bit than the inputs.
-      Tmp = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
-      if (Tmp == 1) break;
+      Tmp = ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
+      if (Tmp == 1)
+        break;
       return std::min(Tmp, Tmp2) - 1;
 
     case Instruction::Mul: {
       // The output of the Mul can be at most twice the valid bits in the
       // inputs.
-      unsigned SignBitsOp0 = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
-      if (SignBitsOp0 == 1) break;
-      unsigned SignBitsOp1 = ComputeNumSignBits(U->getOperand(1), Depth + 1, Q);
-      if (SignBitsOp1 == 1) break;
+      unsigned SignBitsOp0 =
+          ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
+      if (SignBitsOp0 == 1)
+        break;
+      unsigned SignBitsOp1 =
+          ComputeNumSignBits(U->getOperand(1), DemandedElts, Depth + 1, Q);
+      if (SignBitsOp1 == 1)
+        break;
       unsigned OutValidBits =
           (TyBits - SignBitsOp0 + 1) + (TyBits - SignBitsOp1 + 1);
       return OutValidBits > TyBits ? 1 : TyBits - OutValidBits + 1;
@@ -3887,13 +3982,13 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
 
       // Take the minimum of all incoming values.  This can't infinitely loop
       // because of our depth threshold.
-      SimplifyQuery RecQ = Q;
+      SimplifyQuery RecQ = Q.getWithoutCondContext();
       Tmp = TyBits;
       for (unsigned i = 0, e = NumIncomingValues; i != e; ++i) {
         if (Tmp == 1) return Tmp;
         RecQ.CxtI = PN->getIncomingBlock(i)->getTerminator();
-        Tmp = std::min(
-            Tmp, ComputeNumSignBits(PN->getIncomingValue(i), Depth + 1, RecQ));
+        Tmp = std::min(Tmp, ComputeNumSignBits(PN->getIncomingValue(i),
+                                               DemandedElts, Depth + 1, RecQ));
       }
       return Tmp;
     }
@@ -3954,10 +4049,13 @@ static unsigned ComputeNumSignBitsImpl(const Value *V,
     case Instruction::Call: {
       if (const auto *II = dyn_cast<IntrinsicInst>(U)) {
         switch (II->getIntrinsicID()) {
-        default: break;
+        default:
+          break;
         case Intrinsic::abs:
-          Tmp = ComputeNumSignBits(U->getOperand(0), Depth + 1, Q);
-          if (Tmp == 1) break;
+          Tmp =
+              ComputeNumSignBits(U->getOperand(0), DemandedElts, Depth + 1, Q);
+          if (Tmp == 1)
+            break;
 
           // Absolute value reduces number of sign bits by at most 1.
           return Tmp - 1;
@@ -5163,6 +5261,12 @@ void computeKnownFPClass(const Value *V, const APInt &DemandedElts,
         Known.SignBit.reset();
       break;
     }
+      // reverse preserves all characteristics of the input vec's element.
+    case Intrinsic::vector_reverse:
+      Known = computeKnownFPClass(
+          II->getArgOperand(0), DemandedElts.reverseBits(),
+          II->getFastMathFlags(), InterestedClasses, Depth + 1, Q);
+      break;
     case Intrinsic::trunc:
     case Intrinsic::floor:
     case Intrinsic::ceil:
@@ -5786,10 +5890,10 @@ void computeKnownFPClass(const Value *V, const APInt &DemandedElts,
         // Recurse, but cap the recursion to two levels, because we don't want
         // to waste time spinning around in loops. We need at least depth 2 to
         // detect known sign bits.
-        computeKnownFPClass(
-            IncValue, DemandedElts, InterestedClasses, KnownSrc,
-            PhiRecursionLimit,
-            Q.getWithInstruction(P->getIncomingBlock(U)->getTerminator()));
+        computeKnownFPClass(IncValue, DemandedElts, InterestedClasses, KnownSrc,
+                            PhiRecursionLimit,
+                            Q.getWithoutCondContext().getWithInstruction(
+                                P->getIncomingBlock(U)->getTerminator()));
 
         if (First) {
           Known = KnownSrc;
@@ -6457,7 +6561,7 @@ const Value *llvm::getUnderlyingObject(const Value *V, unsigned MaxLookup) {
 
 void llvm::getUnderlyingObjects(const Value *V,
                                 SmallVectorImpl<const Value *> &Objects,
-                                LoopInfo *LI, unsigned MaxLookup) {
+                                const LoopInfo *LI, unsigned MaxLookup) {
   SmallPtrSet<const Value *, 4> Visited;
   SmallVector<const Value *, 4> Worklist;
   Worklist.push_back(V);
@@ -6495,6 +6599,48 @@ void llvm::getUnderlyingObjects(const Value *V,
 
     Objects.push_back(P);
   } while (!Worklist.empty());
+}
+
+const Value *llvm::getUnderlyingObjectAggressive(const Value *V) {
+  const unsigned MaxVisited = 8;
+
+  SmallPtrSet<const Value *, 8> Visited;
+  SmallVector<const Value *, 8> Worklist;
+  Worklist.push_back(V);
+  const Value *Object = nullptr;
+  // Used as fallback if we can't find a common underlying object through
+  // recursion.
+  bool First = true;
+  const Value *FirstObject = getUnderlyingObject(V);
+  do {
+    const Value *P = Worklist.pop_back_val();
+    P = First ? FirstObject : getUnderlyingObject(P);
+    First = false;
+
+    if (!Visited.insert(P).second)
+      continue;
+
+    if (Visited.size() == MaxVisited)
+      return FirstObject;
+
+    if (auto *SI = dyn_cast<SelectInst>(P)) {
+      Worklist.push_back(SI->getTrueValue());
+      Worklist.push_back(SI->getFalseValue());
+      continue;
+    }
+
+    if (auto *PN = dyn_cast<PHINode>(P)) {
+      append_range(Worklist, PN->incoming_values());
+      continue;
+    }
+
+    if (!Object)
+      Object = P;
+    else if (Object != P)
+      return FirstObject;
+  } while (!Worklist.empty());
+
+  return Object;
 }
 
 /// This is the function that does the work of looking through basic
@@ -6648,15 +6794,16 @@ bool llvm::isSafeToSpeculativelyExecute(const Instruction *Inst,
                                         const Instruction *CtxI,
                                         AssumptionCache *AC,
                                         const DominatorTree *DT,
-                                        const TargetLibraryInfo *TLI) {
+                                        const TargetLibraryInfo *TLI,
+                                        bool UseVariableInfo) {
   return isSafeToSpeculativelyExecuteWithOpcode(Inst->getOpcode(), Inst, CtxI,
-                                                AC, DT, TLI);
+                                                AC, DT, TLI, UseVariableInfo);
 }
 
 bool llvm::isSafeToSpeculativelyExecuteWithOpcode(
     unsigned Opcode, const Instruction *Inst, const Instruction *CtxI,
-    AssumptionCache *AC, const DominatorTree *DT,
-    const TargetLibraryInfo *TLI) {
+    AssumptionCache *AC, const DominatorTree *DT, const TargetLibraryInfo *TLI,
+    bool UseVariableInfo) {
 #ifndef NDEBUG
   if (Inst->getOpcode() != Opcode) {
     // Check that the operands are actually compatible with the Opcode override.
@@ -6708,6 +6855,9 @@ bool llvm::isSafeToSpeculativelyExecuteWithOpcode(
     return false;
   }
   case Instruction::Load: {
+    if (!UseVariableInfo)
+      return false;
+
     const LoadInst *LI = dyn_cast<LoadInst>(Inst);
     if (!LI)
       return false;
@@ -6941,16 +7091,13 @@ OverflowResult llvm::computeOverflowForUnsignedSub(const Value *LHS,
     if (isGuaranteedNotToBeUndef(LHS, SQ.AC, SQ.CxtI, SQ.DT))
       return OverflowResult::NeverOverflows;
 
-  // Checking for conditions implied by dominating conditions may be expensive.
-  // Limit it to usub_with_overflow calls for now.
-  if (match(SQ.CxtI,
-            m_Intrinsic<Intrinsic::usub_with_overflow>(m_Value(), m_Value())))
-    if (auto C = isImpliedByDomCondition(CmpInst::ICMP_UGE, LHS, RHS, SQ.CxtI,
-                                         SQ.DL)) {
-      if (*C)
-        return OverflowResult::NeverOverflows;
-      return OverflowResult::AlwaysOverflowsLow;
-    }
+  if (auto C = isImpliedByDomCondition(CmpInst::ICMP_UGE, LHS, RHS, SQ.CxtI,
+                                       SQ.DL)) {
+    if (*C)
+      return OverflowResult::NeverOverflows;
+    return OverflowResult::AlwaysOverflowsLow;
+  }
+
   ConstantRange LHSRange =
       computeConstantRangeIncludingKnownBits(LHS, /*ForSigned=*/false, SQ);
   ConstantRange RHSRange =
@@ -8644,10 +8791,7 @@ llvm::canConvertToMinOrMaxIntrinsic(ArrayRef<Value *> VL) {
   if (all_of(VL, [&SelectPattern, &AllCmpSingleUse](Value *I) {
         Value *LHS, *RHS;
         auto CurrentPattern = matchSelectPattern(I, LHS, RHS);
-        if (!SelectPatternResult::isMinOrMax(CurrentPattern.Flavor) ||
-            CurrentPattern.Flavor == SPF_FMINNUM ||
-            CurrentPattern.Flavor == SPF_FMAXNUM ||
-            !I->getType()->isIntOrIntVectorTy())
+        if (!SelectPatternResult::isMinOrMax(CurrentPattern.Flavor))
           return false;
         if (SelectPattern.Flavor != SPF_UNKNOWN &&
             SelectPattern.Flavor != CurrentPattern.Flavor)
@@ -8666,6 +8810,10 @@ llvm::canConvertToMinOrMaxIntrinsic(ArrayRef<Value *> VL) {
       return {Intrinsic::smax, AllCmpSingleUse};
     case SPF_UMAX:
       return {Intrinsic::umax, AllCmpSingleUse};
+    case SPF_FMAXNUM:
+      return {Intrinsic::maxnum, AllCmpSingleUse};
+    case SPF_FMINNUM:
+      return {Intrinsic::minnum, AllCmpSingleUse};
     default:
       llvm_unreachable("unexpected select pattern flavor");
     }
