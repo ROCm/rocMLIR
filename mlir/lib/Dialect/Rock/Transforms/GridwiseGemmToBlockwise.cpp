@@ -489,14 +489,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
     Value wrappedB = transform(b, op.getB(), maybeBBufferViews->gridSubTile);
 
-    Type loadBufferAType, loadBufferBType;
-    loadBufferAType = MemRefType::get({aCopyPerThread}, elementTypeA,
-                                      AffineMap{}, privateMemoryAddressSpace);
-    loadBufferBType = MemRefType::get({bCopyPerThread}, elementTypeB,
-                                      AffineMap{}, privateMemoryAddressSpace);
-
-    auto loadBufferA = b.create<GpuAllocOp>(loc, loadBufferAType);
-    auto loadBufferB = b.create<GpuAllocOp>(loc, loadBufferBType);
+    auto makeRegs = [&](int64_t len, Type elementType) -> GpuAllocOp {
+      Type allocType = MemRefType::get({len}, elementType, AffineMap{},
+                                       privateMemoryAddressSpace);
+      return b.create<GpuAllocOp>(loc, allocType);
+    };
+    GpuAllocOp loadBufferA = makeRegs(aCopyPerThread, elementTypeA);
+    GpuAllocOp loadBufferB = makeRegs(bCopyPerThread, elementTypeB);
 
     // Compute grid coordinates
     FailureOr<mlir::StringAttr> maybeArch = getArch(op);
@@ -507,18 +506,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b, loc, bid,
         {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType},
         maybeArch->getValue());
-    b.create<ThreadwiseReadIntoOp>(
-        loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/
-        ValueRange{/*kIter=*/zeroConstantOp, gridCoords.g_block,
-                   gridCoords.m_block, gridCoords.n_block, tid},
-        true, true);
-    b.create<ThreadwiseReadIntoOp>(
-        loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/
-        ValueRange{/*kIter=*/zeroConstantOp, gridCoords.g_block,
-                   gridCoords.m_block, gridCoords.n_block, tid},
-        true, true);
 
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
@@ -623,13 +610,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
 
         b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
+            loc, validityVectorShapedLike(loadBufferA), wrappedA, loadBufferA,
+            /*dynamicValidities=*/ValueRange{},
+            /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
             true, true);
         b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
+            loc, validityVectorShapedLike(loadBufferB), wrappedB, loadBufferB,
+            /*dynamicValidities=*/ValueRange{},
+            /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
@@ -841,7 +832,9 @@ struct GridwiseAttentionAccelRewritePattern
     Value viewIn = transform(rewriter, in, maybeInBufferViews->gridSubTile);
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseReadIntoOp>(
-        loc, viewIn, fromGlobalRegBuffer,
+        loc, validityVectorShapedLike(fromGlobalRegBuffer), viewIn,
+        fromGlobalRegBuffer,
+        /*dynamicValidities=*/ValueRange{},
         /*extraViews=*/rewriter.getArrayAttr({}),
         ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                    gridCoords.n_block, tid},
@@ -915,8 +908,50 @@ struct GridwiseAttentionAccelRewritePattern
     return ldsByteBuffer;
   }
 
-  // This function will create fromGlobalRegsBuffer, toLDSRegBuffer and
-  // ldsTileBuffer for a gemm input
+  std::tuple<SmallVector<Value>, int64_t>
+  createSharedLDSByteBufferRefs(PatternRewriter &rewriter, Location loc,
+                                ArrayRef<int64_t> numElementsArr,
+                                ArrayRef<Type> elemTypeArr) const {
+    auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getWorkgroupAddressSpace());
+    int64_t maxSizeBytes = 0;
+    SmallVector<int64_t, 4> byteSizes;
+    for (auto [numElements, elemType] :
+         llvm::zip(numElementsArr, elemTypeArr)) {
+      int64_t sizeBytes = numElements * getByteWidth(elemType);
+      if (sizeBytes > maxSizeBytes) {
+        maxSizeBytes = sizeBytes;
+      }
+      byteSizes.push_back(sizeBytes);
+    }
+    auto ldsMemRefType =
+        MemRefType::get({maxSizeBytes}, rewriter.getI8Type(), AffineMap{},
+                        workgroupMemoryAddressSpace);
+    Value ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefType);
+
+    SmallVector<Value> ret;
+    for (int64_t byteSize : byteSizes) {
+      if (byteSize == 0) {
+        ret.push_back(Value());
+        continue;
+      }
+      if (byteSize == maxSizeBytes) {
+        ret.push_back(ldsByteBuffer);
+        continue;
+      }
+      auto byteBufferType =
+          MemRefType::get({byteSize}, rewriter.getI8Type(), AffineMap{},
+                          workgroupMemoryAddressSpace);
+      Value ldsByteBufferSubView = rewriter.create<memref::SubViewOp>(
+          loc, byteBufferType, ldsByteBuffer, ArrayRef<int64_t>{0},
+          ArrayRef<int64_t>{byteSize}, ArrayRef<int64_t>{1});
+      ret.push_back(ldsByteBufferSubView);
+    }
+    return {ret, maxSizeBytes};
+  }
+
+  // This function will create fromGlobalRegsBuffer and toLDSRegBuffer for a
+  // gemm input
   std::tuple<Value, Value>
   createRegBuffersForGemmIn(Location loc, int64_t kPerBlock, int64_t blockSize,
                             Type elemType, int64_t dPerBlock,
@@ -1750,7 +1785,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value fromGlobalRegBufferQ;
     Value toLDSRegBufferQ;
     if (doBypassLDSForQ) {
-      Type loadBufferType =
+      auto loadBufferType =
           MemRefType::get({accelParamsGemm0.nRepeats *
                            accelParamsGemm0.kpackPerThread * gemm0kpack},
                           elemTypeQ, AffineMap{}, privateMemoryAddressSpace);
@@ -2527,9 +2562,9 @@ struct GridwiseGemmAccelRewritePattern
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-    auto loadBufferA =
+    Value loadBufferA =
         gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
-    auto loadBufferB =
+    Value loadBufferB =
         gpuAlloc(b, loc, bCopyPerThread, elementTypeB, AddressSpace::Private);
 
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
@@ -2719,13 +2754,17 @@ struct GridwiseGemmAccelRewritePattern
               loc, reverseMap, ValueRange{iv, nIterations});
         }
         b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
+            loc, validityVectorShapedLike(loadBufferA), wrappedA, loadBufferA,
+            /*dynamicValidities=*/ValueRange{},
+            /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
             true, true);
         b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
+            loc, validityVectorShapedLike(loadBufferB), wrappedB, loadBufferB,
+            /*dynamicValidities=*/ValueRange{},
+            /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},

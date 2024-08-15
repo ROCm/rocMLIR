@@ -211,3 +211,38 @@ func.func @threadwise_read_into_small_to_big_vec(%source: memref<8xvector<4xf16>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%source)[] -> %dest : memref<8xvector<4xf16>, #gpu.address_space<workgroup>> -> memref<4xvector<8xf16>, #gpu.address_space<private>>
   func.return
 }
+
+// CHECK-LABEL: func @threadwise_read_into_validities
+// CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[validIn:%.+]]: vector<32xi1>
+func.func @threadwise_read_into_validities(%source: memref<2x64x30xf32>,
+    %dest: memref<32xf32, #gpu.address_space<private>>,
+    %validIn: vector<32xi1>) -> vector<32xi1> {
+  // CHECK-DAG: [[zero:%.+]] = arith.constant 0
+  // CHECK-DAG: [[trues:%.+]] = arith.constant dense<true>
+  // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
+  // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
+  // CHECK: [[validOut:%.+]] = rock.transforming_for {forceUnroll, useIndexDiffs}
+  // CHECK-SAME: ([[args:%.+, %.+, %.+]]) = [#[[$ON_OP]], #[[$IN_FUNC]]]([[bid]], [[tid]], [[zero]])
+  // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = []([[bid]], [[tid]], [[zero]])
+  // CHECK-SAME: ([[valid:%.+]], {{%.*}}) = validity
+  // CHECK-SAME: iter_args ([[validOutIter:%.+]] = [[trues]]) -> (vector<32xi1>)
+  // CHECK-SAME: bounds [1, 1, 32]
+  // COM: Note that the strides are 1 here despite a potential vectorization.
+  // CHECK-SAME: strides [1, 1, 1]
+  // CHECK-NEXT: [[vInElem:%.+]] = vector.extract [[validIn]][[[i]]]
+  // CHECK-NEXT: [[validCombo:%.+]] = arith.andi [[valid]], [[vInElem]] : i1
+  // CHECK-NEXT: [[validOutIterNext:%.+]] = rock.insert_slice [[validCombo]] -> [[validOutIter]][[[i]]]
+  // CHECK-NEXT: [[tmp:%.+]] = rock.global_load [[source]][[[args]]] if [[validCombo]]
+  // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
+  // CHECK-NEXT: yield [[validOutIterNext]]
+  // CHECK: return [[validOut]]
+
+  %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
+  %validOut = rock.threadwise_read_into {forceUnroll, useIndexDiffs}
+    [#transform_map0](%view)[%bid, %tid] -> %dest
+    if [%validIn]
+    : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>, vector<32xi1>
+  func.return %validOut : vector<32xi1>
+}

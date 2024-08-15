@@ -525,6 +525,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
   }
 
+  // Force the dynamic validity case down to a vectorizaiton of 1
+  if (!adaptor.getDynamicValidities().empty()) {
+    vectorSrcLen = 1;
+    srcStride = 1;
+    loadType = elementType;
+  }
+
   if (isDstVectorBuffer) {
     dstVectorType = dyn_cast<VectorType>(dstBufferType.getElementType());
     vectorDstLen = dyn_cast<VectorType>(dstVectorType).getNumElements();
@@ -561,27 +568,58 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   SmallVector<Attribute> transformAttrs;
 
+  bool recordsValidity =
+      op.getValidityRecord() && !op.getValidityRecord().use_empty();
+  Value validityInit = nullptr;
+  if (recordsValidity) {
+    Value trueConst = b.createOrFold<arith::ConstantIntOp>(loc, true, 1);
+    validityInit = b.create<vector::SplatOp>(
+        loc, op.getValidityRecord().getType(), trueConst);
+  }
   auto loadLoop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
       ArrayRef<Attribute>{transforms, b.getArrayAttr({})}, bounds, strides,
-      forceUnroll, useIndexDiffs);
+      forceUnroll, useIndexDiffs,
+      recordsValidity ? ValueRange{validityInit} : std::nullopt);
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loadLoop.getBody());
+    Value validity = loadLoop.getValidity(/*domain=*/0);
+    Value destIndex = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
+
+    for (Value dynamicValidity : adaptor.getDynamicValidities()) {
+      Value validityHere = b.create<vector::ExtractOp>(
+          loc, b.getI1Type(), dynamicValidity, destIndex,
+          ArrayRef<int64_t>{ShapedType::kDynamic});
+      validity =
+          b.create<arith::AndIOp>(loc, b.getI1Type(), validity, validityHere);
+    }
+    Value nextValidityRecord = nullptr;
+    if (recordsValidity) {
+      Value validityToStore = validity;
+      Type validityType = b.getI1Type();
+      if (auto loadVecType = dyn_cast<VectorType>(loadType)) {
+        validityType = loadVecType.cloneWith(std::nullopt, validityType);
+        validityToStore =
+            b.createOrFold<vector::SplatOp>(loc, validityType, validityToStore);
+      }
+      Value validityRecord = loadLoop.getIterArgs()[0];
+      nextValidityRecord =
+          b.create<InsertSliceOp>(loc, validityRecord.getType(),
+                                  validityToStore, validityRecord, destIndex);
+    }
+
     if (srcAddrSpace == gpu::AddressSpace::Global) {
       Value loaded = b.create<GlobalLoadOp>(
-          loc, loadType, buffer, loadLoop.getValidity(/*domain=*/0),
+          loc, loadType, buffer, validity,
           loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx);
-      b.create<InBoundsStoreOp>(loc, loaded, dest,
-                                loadLoop.getLowerCoords(
-                                    /*domain=*/1)[extraIdxCount]);
+      b.create<InBoundsStoreOp>(loc, loaded, dest, destIndex);
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(
             loc, "non-global address spaces must have 32-bit pointers");
-      TypedValue<IntegerType> valid = loadLoop.getValidity(/*domain=*/0);
       scf::IfOp ifb =
-          b.create<scf::IfOp>(loc, loadType, valid, /*withElseRegion=*/true);
+          b.create<scf::IfOp>(loc, loadType, validity, /*withElseRegion=*/true);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
         Value loaded;
@@ -599,13 +637,12 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         elseb.create<scf::YieldOp>(loc, zeroVal);
       }
 
-      Value destOffset = loadLoop.getLowerCoords(1)[extraIdxCount];
       if (!isDstVectorBuffer && !isSrcVectorBuffer) {
-        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
+        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destIndex);
       } else if (!isDstVectorBuffer && isSrcVectorBuffer) {
-        destOffset = b.create<arith::MulIOp>(
-            loc, destOffset, b.create<ConstantIndexOp>(loc, vectorSrcLen));
-        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destOffset);
+        destIndex = b.create<arith::MulIOp>(
+            loc, destIndex, b.create<ConstantIndexOp>(loc, vectorSrcLen));
+        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destIndex);
       } else {
         // Destination is a vector buffer
         Value idx = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
@@ -663,8 +700,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         }
       }
     }
+    if (recordsValidity)
+      b.create<rock::YieldOp>(loc, nextValidityRecord);
   }
-  b.eraseOp(op);
+  // Special case: we planned to record validity, but no one cared
+  if (op.getValidityRecord() && !recordsValidity)
+    b.replaceOp(op, ValueRange{Value{}});
+  else
+    b.replaceOp(op, loadLoop.getResults());
   return success();
 }
 

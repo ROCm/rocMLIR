@@ -39,6 +39,10 @@ Type getFlattenedType(Type type);
 Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
                   bool isWritable = false);
 
+// Return the type of a boolean vector whose shape is the same as the shape of
+// `v` except that its elements are booleans.
+Type validityVectorShapedLike(Value v);
+
 } // namespace rock
 } // namespace mlir
 
