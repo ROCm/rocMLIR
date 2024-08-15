@@ -221,7 +221,8 @@ def Rock_AttentionOp :
     Rock_GemmFeaturesAttr:$features,
     OptionalAttr<I32Attr>:$numCU,
     OptionalAttr<RockTuningParamAttrInterface>:$params0,
-    OptionalAttr<RockTuningParamAttrInterface>:$params1
+    OptionalAttr<RockTuningParamAttrInterface>:$params1,
+    OptionalAttr<IndexAttr>:$firstGemmIdx
   )>,
   Results<(outs Optional<TensorOf<[F32, F16]>>:$result)> {
   let summary = "Attention operation of transformer models";
