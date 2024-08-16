@@ -88,6 +88,7 @@ Reverts:
 7cfffe74 Unittests and usability for BitstreamWriter incremental flushing (#92983)
 993d2383e68b [ctx_prof] Remove `Buffer` field in PGOCtxProfWriter  
 1488fb415336 [PAC][AArch64] Lower ptrauth constants in code (#96879)  
+cc7308a1563e [ctx_prof] Make the profile output analyzable by llvm-bcanalyzer (#99563)
 Contacts: RonL and Hulk
 ---
 needs previous SEMA patches
@@ -113,4 +114,18 @@ fb5a38bb4930 [llvm-objcopy] Add verification of added .note section format
 ---
 Reverts: depends upon older SLP reverts
 beccecaacde4 [SLP]Fix PR98838: do no replace condition of select-based logical op by poison.
+f6e01b9ec [SLP]Do not trunc bv nodes, if the user is vectorized an requires wider type.
+---
+Reverts: Failing test llvm/test/Transforms/SLPVectorizer/X86/minbitwidth-transformed-operand.ll
+c5c1bd164 [SLP]Improve minbitwidth analysis for trun'ed gather nodes
+---
+problematic cmake in npsdb:
+[LLVM] Silence compiler-rt warning in runtimes build (#99525)  
+---
+breaks rocALUTION build
+72ff0499bba7 [ValueTracking] Consistently propagate `DemandedElts` is `isKnownNonZero`  
+--
+breaks openmp tests:
+3c8efd79283b [OpenMP] Ensure the actual kernel is annotated with launch bounds (#99927)  
+Ron
 ---

@@ -549,9 +549,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr storeBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    auto packALoop = b.create<ThreadwiseCopyOp>(
-        loc, viewLoadBufferA, ValueRange{}, viewStoreBufferA, ValueRange{},
-        useIndexDiffs, true);
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
@@ -571,9 +568,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    auto packBLoop = b.create<ThreadwiseCopyOp>(
-        loc, viewLoadBufferB, ValueRange{}, viewStoreBufferB, ValueRange{},
-        useIndexDiffs, true);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
@@ -599,17 +593,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // This will produce a (tid, iter) --> flat LDS view
     wrappedLdsB = transform(b, wrappedLdsB, maybeBLdsStoreViews->blockSubTile);
 
-    ThreadwiseWriteAllOp blockwiseStoreA = b.create<ThreadwiseWriteAllOp>(
-        loc, storeBufferA, wrappedLdsA,
-        /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{tid}, op.getFeatures(), StoreMethod::Set,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-    ThreadwiseWriteAllOp blockwiseStoreB = b.create<ThreadwiseWriteAllOp>(
-        loc, storeBufferB, wrappedLdsB,
-        /*extraViews=*/b.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{tid}, op.getFeatures(), StoreMethod::Set,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-
     // The blockwise gemm isn't set up for vector-of-kpack loads and so expects
     // a scalar kpacksPerBlock x dPerBlock x kpack x T buffer unconditionally.
     Value ldsMatrixA = viewBufferAs(b, ldsByteBufferA, elementTypeA);
@@ -620,66 +603,84 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                {kpacksPerBlock, nPerBlock, kpack});
 
     // Emit loop.
-    int64_t nIterations = K / kPerBlock;
+    Value nIterations = b.create<ConstantIndexOp>(loc, K / kPerBlock);
+    Value step = b.create<ConstantIndexOp>(loc, 1);
     BlockwiseGemmOp blockwiseGemmOp;
-    // Start at 1 to make it clearer we have performed software pipelining.
-    auto loopOp = b.create<affine::AffineForOp>(loc, 1, nIterations, 1);
+
+    auto loopOp = b.create<scf::ForOp>(loc, zeroConstantOp, nIterations, step);
+    loopOp->setAttr(PipelineAttr::getMnemonic(),
+                    rock::PipelineAttr::get(b.getContext(), 2));
     {
       // inside the loop.
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
 
       Value iv = loopOp.getInductionVar();
-      b.create<ThreadwiseReadIntoOp>(
-          loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
-          /*extraIndices=*/
-          ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
-                     gridCoords.n_block, tid},
-          true, true);
-      b.create<ThreadwiseReadIntoOp>(
-          loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
-          /*extraIndices=*/
-          ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
-                     gridCoords.n_block, tid},
-          true, true);
 
-      // LDS barrier.
-      b.create<LDSBarrierOp>(loc);
+      auto stage0 = b.create<StageOp>(loc, "GlobalRead");
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
 
-      // Emit blockwise GEMM.
-      blockwiseGemmOp = b.create<BlockwiseGemmOp>(
-          loc, ldsMatrixA, ldsMatrixB, registerMatrixCViewOp,
-          b.getI32IntegerAttr(maybeVecDimInfoA->inDPerThread),
-          b.getI32IntegerAttr(maybeVecDimInfoB->inDPerThread),
-          ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr,
-          ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr,
-          op.getParamsAttr());
+        b.create<ThreadwiseReadIntoOp>(
+            loc, wrappedA, loadBufferA, /*extraViews=*/b.getArrayAttr({}),
+            /*extraIndices=*/
+            ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
+                       gridCoords.n_block, tid},
+            true, true);
+        b.create<ThreadwiseReadIntoOp>(
+            loc, wrappedB, loadBufferB, /*extraViews=*/b.getArrayAttr({}),
+            /*extraIndices=*/
+            ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
+                       gridCoords.n_block, tid},
+            true, true);
+        b.create<rock::YieldOp>(loc);
+      }
 
-      // LDS barrier.
-      // This barrier prevents halo part of outputs having weird values.
-      b.create<LDSBarrierOp>(loc);
+      auto stage1 = b.create<StageOp>(loc, "LDSWrite");
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
 
-      // Packing step
-      b.clone(*packALoop.getOperation());
-      b.clone(*packBLoop.getOperation());
+        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferA, ValueRange{},
+                                   viewStoreBufferA, ValueRange{},
+                                   useIndexDiffs, true);
+        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferB, ValueRange{},
+                                   viewStoreBufferB, ValueRange{},
+                                   useIndexDiffs, true);
 
-      // Emit blockwise stores
-      b.clone(*blockwiseStoreA.getOperation());
-      b.clone(*blockwiseStoreB.getOperation());
+        b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
+                                       /*extraViews=*/b.getArrayAttr({}),
+                                       /*extraIndices=*/ValueRange{tid},
+                                       op.getFeatures(), StoreMethod::Set,
+                                       /*forceUnroll=*/true,
+                                       /*useIndexDiffs=*/true);
+        b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB,
+                                       /*extraViews=*/b.getArrayAttr({}),
+                                       /*extraIndices=*/ValueRange{tid},
+                                       op.getFeatures(), StoreMethod::Set,
+                                       /*forceUnroll=*/true,
+                                       /*useIndexDiffs=*/true);
+
+        b.create<rock::YieldOp>(loc);
+      }
+
+      auto stage2 = b.create<StageOp>(loc, "MMA");
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
+
+        // Emit blockwise GEMM.
+        blockwiseGemmOp = b.create<BlockwiseGemmOp>(
+            loc, ldsMatrixA, ldsMatrixB, registerMatrixCViewOp,
+            b.getI32IntegerAttr(maybeVecDimInfoA->inDPerThread),
+            b.getI32IntegerAttr(maybeVecDimInfoB->inDPerThread),
+            ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr,
+            ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr,
+            op.getParamsAttr());
+        b.create<rock::YieldOp>(loc);
+      }
     }
-    // outside the loop.
-
-    // LDS barrier.
-    b.create<LDSBarrierOp>(loc);
-
-    // Emit blockwise GEMM for the loop tail.
-    IRMapping tailGemmCloneMap;
-    b.clone(*blockwiseGemmOp, tailGemmCloneMap);
-
-    // Apparently, the canonicalizer doesn't get rid of empty loops without
-    // results properly, remove them ourselves.
-    if (nIterations <= 1)
-      b.eraseOp(loopOp);
 
     SmallVector<Attribute> transformAttrs;
 
@@ -2762,12 +2763,6 @@ struct GridwiseGemmAccelRewritePattern
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
             true, true);
-        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferA, ValueRange{},
-                                   viewStoreBufferA, ValueRange{}, false,
-                                   false);
-        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferB, ValueRange{},
-                                   viewStoreBufferB, ValueRange{}, false,
-                                   false);
         b.create<rock::YieldOp>(loc);
       }
 
@@ -2776,6 +2771,15 @@ struct GridwiseGemmAccelRewritePattern
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
 
+        // Emit potentially-transposing copies to store buffer. This is here
+        // both to enable code motion for fusions and to prevent the accesses to
+        // the memory from breaking software pipelining.
+        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferA, ValueRange{},
+                                   viewStoreBufferA, ValueRange{}, false,
+                                   false);
+        b.create<ThreadwiseCopyOp>(loc, viewLoadBufferB, ValueRange{},
+                                   viewStoreBufferB, ValueRange{}, false,
+                                   false);
         // Emit blockwise stores
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
                                        /*extraViews=*/b.getArrayAttr({}),
