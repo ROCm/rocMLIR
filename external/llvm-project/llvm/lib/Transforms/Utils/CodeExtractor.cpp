@@ -932,6 +932,7 @@ Function *CodeExtractor::constructFunction(const ValueSet &inputs,
       case Attribute::DisableSanitizerInstrumentation:
       case Attribute::FnRetThunkExtern:
       case Attribute::Hot:
+      case Attribute::HybridPatchable:
       case Attribute::NoRecurse:
       case Attribute::InlineHint:
       case Attribute::MinSize:
@@ -1002,6 +1003,7 @@ Function *CodeExtractor::constructFunction(const ValueSet &inputs,
       case Attribute::DeadOnUnwind:
       case Attribute::Range:
       case Attribute::Initializes:
+      case Attribute::SanitizedPaddedGlobal:
       //  These are not really attributes.
       case Attribute::None:
       case Attribute::EndAttrKinds:
