@@ -244,6 +244,7 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
     gridSize = 24 : i32,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
+    firstGemmIdx = 0 : i32,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
@@ -266,6 +267,7 @@ func.func @gridwise_attn_grid_reversed(%arg0: memref<1x384x64xf32>, %arg1: memre
     gridSize = 24 : i32,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
+    firstGemmIdx = 0 : i32,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return

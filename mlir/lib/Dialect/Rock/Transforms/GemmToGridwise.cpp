@@ -517,7 +517,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       loc, queries, keys, values, adaptor.getPreSoftmaxElemWiseInputs(), out,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
-      params1);
+      params1, op.getFirstGemmIdxAttr());
   bool linalgOpFound = false;
   op.getPreSoftmaxBody().walk(
       [&](linalg::GenericOp genOp) { linalgOpFound = true; });
