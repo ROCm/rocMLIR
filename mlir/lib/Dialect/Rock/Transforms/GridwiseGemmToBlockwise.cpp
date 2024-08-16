@@ -1463,7 +1463,6 @@ struct GridwiseAttentionAccelRewritePattern
       linalgOpFound = true;
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
       SmallVector<Value> inputTileBuffers;
-      inputTileBuffers.push_back(srcGemm0OutBuffer);
       MemRefType srcBufType = cast<MemRefType>(srcGemm0OutBuffer.getType());
 
       // Pull non-identiy index maps to rock transforms
@@ -1472,7 +1471,7 @@ struct GridwiseAttentionAccelRewritePattern
       // Obtain transform stack from gemmOutput to linalg generic input.
       ArrayAttr linalgToGemmOutMaps;
       std::tie(std::ignore, linalgToGemmOutMaps, std::ignore) =
-          untransform(rewriter, genOp.getInputs()[0]);
+          untransform(rewriter, genOp.getInputs()[op.getFirstGemmIdx()]);
       // The obtained transforms will be linalg generic being the upperview
       // leading to gemmOutput being the lowerview. However, we need to
       // construct
@@ -1490,12 +1489,13 @@ struct GridwiseAttentionAccelRewritePattern
 
       for (auto [idx, otherInput] :
            llvm::enumerate(op.getPreSoftmaxElemWiseInputs())) {
+        if(idx >= op.getFirstGemmIdx()) idx++;
         MemRefType otherInputBufType = cast<MemRefType>(otherInput.getType());
         MemRefType tileBufType = MemRefType::get(
             srcBufType.getShape(), otherInputBufType.getElementType(),
             AffineMap{}, privateMemoryAddressSpace);
         auto tileBuffer = rewriter.create<rock::GpuAllocOp>(loc, tileBufType);
-        auto genOpInput = genOp.getInputs()[idx + 1];
+        auto genOpInput = genOp.getInputs()[idx];
         ArrayAttr linalgToOtherInputMaps;
         std::tie(std::ignore, linalgToOtherInputMaps, std::ignore) =
             untransform(rewriter, genOpInput);
@@ -1511,6 +1511,9 @@ struct GridwiseAttentionAccelRewritePattern
             true, true);
         inputTileBuffers.push_back(tileBuffer);
       }
+      // Insert the first gemm output buffer according to which input
+      // it was to the linalg generic
+      inputTileBuffers.insert(inputTileBuffers.begin() + op.getFirstGemmIdx(), srcGemm0OutBuffer);
       // Output is overwriting the same input buffer
       inputTileBuffers.push_back(destGemm0OutBuffer);
       linalg::GenericOp newLinalgOp;

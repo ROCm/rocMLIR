@@ -2384,7 +2384,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
       transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
       numCUAttr,
-      /*params0=*/nullptr, /*params1=*/nullptr);
+      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSoftmaxElemwiseBlock =
         &attention.getPreSoftmaxBody().emplaceBlock();
