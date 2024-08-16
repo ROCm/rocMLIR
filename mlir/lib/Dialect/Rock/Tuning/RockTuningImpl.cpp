@@ -129,21 +129,16 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
   };
   SmallVector<LocalData> factors;
   constexpr double minGain = 1.30;
-  // There are cases where perfect load balancing can be achieved with very
-  // high splitK values. However, experiments show that performance
-  // can considerably drop in such cases. Currently, we limit the `upperBound`
-  // on purpose because the current heuristics does not consider the overheads
-  // resulting from reducing partial solution along the split dimension.
-  // This needs to be improved in the future.
-  constexpr int32_t upperBound = 32;
-  for (int32_t splitKFactor = 2; splitKFactor < upperBound; ++splitKFactor) {
-    const double imbalance =
-        computeWorkImbalance(origGemmSize, gemmMPerBlock, gemmNPerBlock,
-                             gemmKPerBlock, kPack, numCUs, splitKFactor);
-    const auto gain = dataPrallelGemmImbalance / imbalance;
-    if (gain > minGain) {
-      factors.emplace_back(LocalData{splitKFactor, imbalance});
-    }
+  // A large set of splitK values significantly increases tuning time,
+  // after analysis, we've determined that using only splitK factor 4 is
+  // sufficient.
+  constexpr int32_t splitKFactor = 4;
+  const double imbalance =
+      computeWorkImbalance(origGemmSize, gemmMPerBlock, gemmNPerBlock,
+                           gemmKPerBlock, kPack, numCUs, splitKFactor);
+  const auto gain = dataPrallelGemmImbalance / imbalance;
+  if (gain > minGain) {
+    factors.emplace_back(LocalData{splitKFactor, imbalance});
   }
 
   if (factors.empty()) {
@@ -154,8 +149,7 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
     return a.workImbalance < b.workImbalance;
   });
 
-  const size_t maxVariants = std::min(static_cast<size_t>(6), factors.size());
-  llvm::ArrayRef<LocalData> view(factors.data(), maxVariants);
+  llvm::ArrayRef<LocalData> view(factors.data(), factors.size());
   llvm::for_each(view, [&](const LocalData &item) {
     splitKValues.push_back(item.splitKValue);
   });
