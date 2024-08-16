@@ -109,7 +109,8 @@ assignColors(GpuAllocOp alloc, llvm::SetVector<int64_t> &usedColors,
 static std::tuple<int64_t, SmallVector<std::tuple<GpuAllocOp, int64_t, bool>>>
 graphColoring(
     SmallVector<GpuAllocOp> &gpuAllocs,
-    llvm::MapVector<GpuAllocOp, SetVector<GpuAllocOp>> &interferenceGraph) {
+    llvm::MapVector<GpuAllocOp, SetVector<GpuAllocOp>> &interferenceGraph,
+    llvm::MapVector<GpuAllocOp, SetVector<GpuAllocOp>> &deallocBefore) {
   llvm::MapVector<GpuAllocOp, SetVector<int64_t>> colorAssignment;
   llvm::MapVector<int64_t, int64_t> colorMemSize;
   int64_t maxColor = 0;
@@ -163,6 +164,16 @@ graphColoring(
       usedColors.insert(color);
     }
 
+    if (useLDSBarrier) {
+      for (GpuAllocOp deadAlloc : deallocBefore[alloc]) {
+        for (int64_t color : colorAssignment[deadAlloc]) {
+          if (!colorAssignment[alloc].contains(color)) {
+            usedColors.remove(color);
+          }
+        }
+      }
+    }
+
     offsets.push_back(std::tuple(alloc, offset, useLDSBarrier));
   }
 
@@ -177,6 +188,8 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
   SetVector<GpuAllocOp> currentAllocs;
   llvm::MapVector<GpuAllocOp, llvm::SetVector<GpuAllocOp>> interferenceGraph;
   llvm::MapVector<Value, GpuAllocOp> memrefToAlloc;
+  llvm::MapVector<GpuAllocOp, llvm::SetVector<GpuAllocOp>> deallocBefore;
+  llvm::SetVector<GpuAllocOp> deallocsUpToNow;
 
   // Create the interference graph and save all allocs and deallocs (LDS)
   WalkResult walkResult = func.walk([&](Operation *op) -> WalkResult {
@@ -188,6 +201,11 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
         LLVM_DEBUG(llvm::dbgs()
                    << "Found rock.alloc of " << size << " bytes\n");
         assert(size > 0);
+
+        // save deallocs up to this point
+        deallocBefore[gpuAlloc] = SetVector<GpuAllocOp>(deallocsUpToNow.begin(),
+                                                        deallocsUpToNow.end());
+        deallocsUpToNow.clear();
 
         // add vertex and connections
         for (auto alloc : currentAllocs) {
@@ -216,6 +234,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
         }
         bool erased =
             currentAllocs.remove(memrefToAlloc[gpuDealloc.getMemref()]);
+        deallocsUpToNow.insert(memrefToAlloc[gpuDealloc.getMemref()]);
         if (!erased) {
           LLVM_DEBUG(llvm::dbgs() << "Called rock.dealloc multiple times?\n");
           return WalkResult::interrupt();
@@ -248,7 +267,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
   int64_t requiredMemory;
   SmallVector<std::tuple<GpuAllocOp, int64_t, bool>> allocOffsets;
   std::tie(requiredMemory, allocOffsets) =
-      graphColoring(allocs, interferenceGraph);
+      graphColoring(allocs, interferenceGraph, deallocBefore);
 
   // not enough LDS memory
   if (failed(checkLDSSize(func, requiredMemory))) {

@@ -2110,8 +2110,6 @@ struct GridwiseAttentionAccelRewritePattern
 
       APInt reductionAxis = APInt(64, 1);
       APInt nrDimPerThread = APInt(64, gemm0MPerBlock / gemm0MPerThread);
-      // LDS barrier.
-      rewriter.create<LDSBarrierOp>(loc);
 
       Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
           rewriter, loc, reductionWorkspaceSize, elemTypeQxK);

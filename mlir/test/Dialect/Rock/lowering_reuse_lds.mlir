@@ -94,7 +94,7 @@ func.func @rock_reuse_all() attributes{arch = "", block_size = 256 : i32, grid_s
   %5 = rock.alloc() : memref<4096xi8, #wg>
   // CHECK: %[[OFFSET6:.*]] = arith.constant 0 : index
   // CHECK-NEXT: memref.view %[[ALLOC]][%[[OFFSET6]]][] : memref<5120xi8, #gpu.address_space<workgroup>> to memref<1024xi8, #gpu.address_space<workgroup>>
-  // CHECK-NEXT: rock.lds_barrier
+  // CHECK-NOT: rock.lds_barrier
   %6 = rock.alloc() : memref<1024xi8, #wg>
   rock.dealloc(%5) : memref<4096xi8, #wg>
   rock.dealloc(%6) : memref<1024xi8, #wg>
