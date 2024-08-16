@@ -169,11 +169,11 @@ graphColoring(
   return std::tuple(offset, offsets);
 }
 
-static LogicalResult reuseLDS(func::FuncOp &func,
-                              SmallVector<Operation *> &deallocs) {
+static LogicalResult reuseLDS(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
 
   SmallVector<GpuAllocOp> allocs;
+  SmallVector<GpuDeallocOp> deallocs;
   SetVector<GpuAllocOp> currentAllocs;
   llvm::MapVector<GpuAllocOp, llvm::SetVector<GpuAllocOp>> interferenceGraph;
   llvm::MapVector<Value, GpuAllocOp> memrefToAlloc;
@@ -318,19 +318,19 @@ static LogicalResult reuseLDS(func::FuncOp &func,
       rewriter.create<LDSBarrierOp>(loc);
     }
   }
+
+  // Remove all GpuDeallocOps but the last one
+  for (auto [i, dealloc] : llvm::enumerate(deallocs)) {
+    rewriter.setInsertionPointAfter(dealloc);
+    if (i == deallocs.size() - 1) {
+      rewriter.replaceOpWithNewOp<GpuDeallocOp>(dealloc, ldsBigPool);
+    } else {
+      rewriter.eraseOp(dealloc);
+    }
+  }
+
   return success();
 }
-
-struct GpuDeallocOpRewritePattern : public OpRewritePattern<GpuDeallocOp> {
-  using OpRewritePattern<GpuDeallocOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(GpuDeallocOp op,
-                                PatternRewriter &b) const override {
-
-    b.eraseOp(op);
-    return mlir::success();
-  }
-};
 
 void RockReuseLDSPass::runOnOperation() {
   func::FuncOp func = getOperation();
@@ -339,18 +339,7 @@ void RockReuseLDSPass::runOnOperation() {
   if (!func->hasAttr("kernel"))
     return;
 
-  SmallVector<Operation *> deallocs;
-  if (failed(reuseLDS(func, deallocs))) {
-    return signalPassFailure();
-  }
-
-  // Remove all GpuDeallocOps
-  RewritePatternSet patterns(&getContext());
-  patterns.add<GpuDeallocOpRewritePattern>(&getContext());
-
-  GreedyRewriteConfig config;
-  config.strictMode = GreedyRewriteStrictness::ExistingOps;
-  if (failed(applyOpPatternsAndFold(deallocs, std::move(patterns), config))) {
+  if (failed(reuseLDS(func))) {
     return signalPassFailure();
   }
 }

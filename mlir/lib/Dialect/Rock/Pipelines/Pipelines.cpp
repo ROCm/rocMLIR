@@ -165,6 +165,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
       funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
+    funcPm.addPass(rock::createRockReuseLDSPass());
     funcPm.addPass(rock::createRockOutputSwizzlePass());
     funcPm.addPass(rock::createRockReuseLDSPass());
 

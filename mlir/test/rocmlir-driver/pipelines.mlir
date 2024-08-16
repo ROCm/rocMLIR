@@ -24,6 +24,7 @@
 // GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
+// GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-output-swizzle,
 // GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-lower-reduce,
