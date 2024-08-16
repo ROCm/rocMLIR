@@ -1489,7 +1489,8 @@ struct GridwiseAttentionAccelRewritePattern
 
       for (auto [idx, otherInput] :
            llvm::enumerate(op.getPreSoftmaxElemWiseInputs())) {
-        if(idx >= op.getFirstGemmIdx()) idx++;
+        if (idx >= op.getFirstGemmIdx())
+          idx++;
         MemRefType otherInputBufType = cast<MemRefType>(otherInput.getType());
         MemRefType tileBufType = MemRefType::get(
             srcBufType.getShape(), otherInputBufType.getElementType(),
@@ -1513,7 +1514,8 @@ struct GridwiseAttentionAccelRewritePattern
       }
       // Insert the first gemm output buffer according to which input
       // it was to the linalg generic
-      inputTileBuffers.insert(inputTileBuffers.begin() + op.getFirstGemmIdx(), srcGemm0OutBuffer);
+      inputTileBuffers.insert(inputTileBuffers.begin() + op.getFirstGemmIdx(),
+                              srcGemm0OutBuffer);
       // Output is overwriting the same input buffer
       inputTileBuffers.push_back(destGemm0OutBuffer);
       linalg::GenericOp newLinalgOp;
