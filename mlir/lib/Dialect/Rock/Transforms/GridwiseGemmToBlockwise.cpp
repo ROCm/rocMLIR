@@ -2122,6 +2122,7 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
           gemm0OutSubTileViewsTr.threadSubTile, /*extraViews=*/nullptr,
           blockSize);
+      rewriter.create<GpuDeallocOp>(loc, ldsReductionWorkspaceByteBuffer);
       // softmax normalization.
       Value gemm0MNThreadwiseView =
           transform(rewriter, gemm0OutBuffer,
@@ -2139,14 +2140,18 @@ struct GridwiseAttentionAccelRewritePattern
                                gemm0MNExpThreadwiseView,
                                gemm0MNMaxThreadwiseView, maxRowBuffer);
 
+      Value ldsReductionWorkspaceByteSecondBuffer = createLDSByteBuffer(
+          rewriter, loc, reductionWorkspaceSize, elemTypeQxK);
+      TypedValue<MemRefType> ldsReductionWorkspaceSecondBuffer = viewBufferAs(
+          rewriter, ldsReductionWorkspaceByteSecondBuffer, elemTypeQxK);
       rewriter.create<BlockwiseBroadcastReduceOp>(
-          loc, gemm0OutBufferExp, ldsReductionWorkspaceBuffer,
+          loc, gemm0OutBufferExp, ldsReductionWorkspaceSecondBuffer,
           gemm0OutBufferSum, /*extraOut=*/nullptr, reductionAxis,
           rock::ReduceMethod::Sum, gemm0OutSubTileViewsTr.blockSubTile,
           gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
           gemm0OutSubTileViewsTr.threadSubTile,
           /*extraViews=*/nullptr, blockSize);
-      rewriter.create<GpuDeallocOp>(loc, ldsReductionWorkspaceByteBuffer);
+      rewriter.create<GpuDeallocOp>(loc, ldsReductionWorkspaceByteSecondBuffer);
       Value gemm0SumThreadwiseView =
           transform(rewriter, gemm0OutBufferSum,
                     invertTransforms(rewriter, loc,
