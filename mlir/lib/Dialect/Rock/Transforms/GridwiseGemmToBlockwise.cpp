@@ -2147,8 +2147,6 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutSubTileViewsTr.threadSubTile,
           /*extraViews=*/nullptr, blockSize);
       rewriter.create<GpuDeallocOp>(loc, ldsReductionWorkspaceByteBuffer);
-      // LDS barrier.
-      rewriter.create<LDSBarrierOp>(loc);
       Value gemm0SumThreadwiseView =
           transform(rewriter, gemm0OutBufferSum,
                     invertTransforms(rewriter, loc,
