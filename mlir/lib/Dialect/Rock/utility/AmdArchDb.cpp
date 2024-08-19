@@ -95,7 +95,8 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return gfx11Info;
   }
   if (major == "gfx12") {
-    // We know these chips have common features per backend
+    // TODO: some of those information are not accurate and need to be adjusted
+    // after hardware release
     AmdArchInfo gfx12Info(gfx11Info);
     gfx12Info.hasFp8ConversionInstrs = true;
     return gfx12Info;
