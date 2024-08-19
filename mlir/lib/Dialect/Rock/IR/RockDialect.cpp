@@ -1013,8 +1013,8 @@ LogicalResult GpuDeallocOp::verify() {
     }
     return emitError("The size of rock.dealloc should be greather than zero.");
   }
-  return emitError(
-      "The input of rock.dealloc should come from rock.alloc output.");
+  return emitError("The operand of rock.dealloc must be the result of a "
+                   "rock.alloc operation.");
 }
 
 //===-----------------------------------------------------===//
