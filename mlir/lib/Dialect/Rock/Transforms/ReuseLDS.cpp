@@ -46,17 +46,13 @@ struct RockReuseLDSPass
 };
 } // end anonymous namespace
 
-// Function to round up size to the nearest multiple of 16 bytes
-static int64_t roundUpToMultipleOf16(int64_t size) { return (size + 15) & ~15; }
-
-static int64_t getWorkgroupMemorySize(MemRefType type) {
+static std::optional<int64_t> getWorkgroupMemorySize(MemRefType type) {
   auto memSpaceValue =
       dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace()).getValue();
-  int64_t size = -1;
   if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-    size = type.getNumElements() * getByteWidth(type.getElementType());
+    return type.getNumElements() * getByteWidth(type.getElementType());
   }
-  return size;
+  return std::nullopt;
 }
 
 static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
@@ -70,16 +66,17 @@ static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
   return success();
 }
 
-static int64_t
-assignColors(GpuAllocOp alloc, llvm::SetVector<int64_t> &usedColors,
-             llvm::MapVector<int64_t, int64_t> &colorMemSize,
-             llvm::MapVector<GpuAllocOp, SetVector<int64_t>> &colorAssignment) {
-  const int64_t requiredSize =
+static void assignColors(
+    GpuAllocOp alloc, llvm::SetVector<int64_t> &usedColors,
+    llvm::SmallDenseMap<int64_t, int64_t> &colorMemSize,
+    llvm::SmallDenseMap<GpuAllocOp, SetVector<int64_t>> &colorAssignment) {
+  const std::optional<int64_t> maybeRequiredSize =
       getWorkgroupMemorySize(alloc.getOutput().getType());
+  assert(maybeRequiredSize.has_value());
+  const int64_t requiredSize = maybeRequiredSize.value();
   assert(requiredSize > 0);
   int64_t color = 0;
   int64_t allocatedSize = 0;
-  int64_t maxColor = 0;
 
   while (allocatedSize < requiredSize) {
     if (usedColors.contains(color)) {
@@ -92,28 +89,24 @@ assignColors(GpuAllocOp alloc, llvm::SetVector<int64_t> &usedColors,
         color++;
       }
     }
-    maxColor = std::max(maxColor, color);
     colorAssignment[alloc].insert(color);
-    bool existingColor = colorMemSize.contains(color);
     // New color
-    if (!existingColor) {
+    if (!colorMemSize.contains(color)) {
       // Make this aligned to 128 bits
-      colorMemSize[color] = roundUpToMultipleOf16(requiredSize - allocatedSize);
+      colorMemSize[color] = llvm::alignTo(requiredSize - allocatedSize, 16);
     }
     allocatedSize += colorMemSize[color];
     color++;
   }
-  return maxColor;
 }
 
 static std::tuple<int64_t, SmallVector<std::tuple<GpuAllocOp, int64_t, bool>>>
 graphColoring(
     SmallVector<GpuAllocOp> &gpuAllocs,
-    llvm::MapVector<GpuAllocOp, SetVector<GpuAllocOp>> &interferenceGraph,
-    llvm::MapVector<GpuAllocOp, SetVector<GpuAllocOp>> &deallocBefore) {
-  llvm::MapVector<GpuAllocOp, SetVector<int64_t>> colorAssignment;
-  llvm::MapVector<int64_t, int64_t> colorMemSize;
-  int64_t maxColor = 0;
+    llvm::SmallDenseMap<GpuAllocOp, SetVector<GpuAllocOp>> &interferenceGraph,
+    llvm::SmallDenseMap<GpuAllocOp, SetVector<GpuAllocOp>> &deallocBefore) {
+  llvm::SmallDenseMap<GpuAllocOp, SetVector<int64_t>> colorAssignment;
+  llvm::SmallDenseMap<int64_t, int64_t> colorMemSize;
 
   SmallVector<GpuAllocOp> sortedAllocs(gpuAllocs);
 
@@ -121,13 +114,14 @@ graphColoring(
   llvm::sort(sortedAllocs, [](GpuAllocOp &a, GpuAllocOp &b) {
     auto aSize = getWorkgroupMemorySize(a.getOutput().getType());
     auto bSize = getWorkgroupMemorySize(b.getOutput().getType());
-    return aSize < bSize;
+    assert(aSize.has_value() && bSize.has_value());
+    return aSize.value() < bSize.value();
   });
   // Assign colors using greedy algorithm
   for (GpuAllocOp alloc : sortedAllocs) {
     llvm::SetVector<int64_t> usedColors;
     for (GpuAllocOp neighbor : interferenceGraph[alloc]) {
-      if (colorAssignment.find(neighbor) != colorAssignment.end()) {
+      if (colorAssignment.contains(neighbor)) {
         for (int64_t color : colorAssignment[neighbor]) {
           usedColors.insert(color);
         }
@@ -135,15 +129,13 @@ graphColoring(
     }
 
     // Assign a set of colors
-    int64_t localMaxColor =
-        assignColors(alloc, usedColors, colorMemSize, colorAssignment);
-    maxColor = std::max(maxColor, localMaxColor);
+    assignColors(alloc, usedColors, colorMemSize, colorAssignment);
   }
 
   // Compute required memory and offsets per color
   SmallVector<int64_t> colorOffsets;
   int64_t offset = 0;
-  for (int64_t color = 0; color < maxColor + 1; color++) {
+  for (int64_t color = 0; color < colorMemSize.size(); color++) {
     colorOffsets.push_back(offset);
     offset += colorMemSize[color];
   }
@@ -186,9 +178,10 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
   SmallVector<GpuAllocOp> allocs;
   SmallVector<GpuDeallocOp> deallocs;
   SetVector<GpuAllocOp> currentAllocs;
-  llvm::MapVector<GpuAllocOp, llvm::SetVector<GpuAllocOp>> interferenceGraph;
-  llvm::MapVector<Value, GpuAllocOp> memrefToAlloc;
-  llvm::MapVector<GpuAllocOp, llvm::SetVector<GpuAllocOp>> deallocBefore;
+  llvm::SmallDenseMap<GpuAllocOp, llvm::SetVector<GpuAllocOp>>
+      interferenceGraph;
+  llvm::SmallDenseMap<Value, GpuAllocOp> memrefToAlloc;
+  llvm::SmallDenseMap<GpuAllocOp, llvm::SetVector<GpuAllocOp>> deallocBefore;
   llvm::SetVector<GpuAllocOp> deallocsUpToNow;
 
   // Create the interference graph and save all allocs and deallocs (LDS)
@@ -196,11 +189,11 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     if (auto gpuAlloc = dyn_cast<GpuAllocOp>(op)) {
       auto type = gpuAlloc.getOutput().getType();
 
-      int64_t size = getWorkgroupMemorySize(type);
-      if (size != -1) {
+      std::optional<int64_t> maybeSize = getWorkgroupMemorySize(type);
+      if (maybeSize.has_value()) {
+        int64_t size = maybeSize.value();
         LLVM_DEBUG(llvm::dbgs()
                    << "Found rock.alloc of " << size << " bytes\n");
-        assert(size > 0);
 
         // save deallocs up to this point
         deallocBefore[gpuAlloc] = SetVector<GpuAllocOp>(deallocsUpToNow.begin(),
@@ -222,11 +215,11 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
       }
     } else if (auto gpuDealloc = dyn_cast<GpuDeallocOp>(op)) {
       auto type = gpuDealloc.getMemref().getType();
-      int64_t size = getWorkgroupMemorySize(type);
-      if (size != -1) {
+      std::optional<int64_t> maybeSize = getWorkgroupMemorySize(type);
+      if (maybeSize.has_value()) {
+        int64_t size = maybeSize.value();
         LLVM_DEBUG(llvm::dbgs()
                    << "Found rock.dealloc of " << size << " bytes\n");
-        assert(size > 0);
 
         if (memrefToAlloc.find(gpuDealloc.getMemref()) == memrefToAlloc.end()) {
           LLVM_DEBUG(llvm::dbgs() << "Called rock.dealloc multiple times?\n");

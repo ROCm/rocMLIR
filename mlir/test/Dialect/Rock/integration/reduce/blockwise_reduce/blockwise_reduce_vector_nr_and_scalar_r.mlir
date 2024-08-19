@@ -44,7 +44,7 @@ func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>, 
     [#transform_map1, #transform_map2, #transform_map3](%input)[%c0, %m_block_id, %n_block_id, %tid] -> %input_reg : memref<1x64x384xf32> ->  memref<16xf32, #gpu.address_space<private>>
 
   rock.blockwise_broadcast_reduce  sum [#transform_map21, #transform_map22, #transform_map23][#transform_map21_tid, #transform_map22_tid, #transform_map23_tid][#transform_map21_iter, #transform_map22_iter, #transform_map23_iter] %input_reg into %output_reg using %ws_lds {axis = 0 : index, blockSize = 64 : i32} : memref<16xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
-  rock.dealloc(%ws_lds) : memref<64xf32, #gpu.address_space<workgroup>>
+  rock.dealloc %ws_lds : memref<64xf32, #gpu.address_space<workgroup>>
 
   rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map1, #transform_map2, #transform_map3](%output)[%c0, %m_block_id, %n_block_id, %tid] by set : memref<16xf32, #gpu.address_space<private>> -> memref<1x64x384xf32>
   return

@@ -144,8 +144,8 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
       rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 features = ##TOKEN_FEATURES## {arch = "##TOKEN_ARCH##", blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
     }
-    rock.dealloc(%29) : memref<8192xi8, #gpu.address_space<workgroup>>
-    rock.dealloc(%30) : memref<8192xi8, #gpu.address_space<workgroup>>
+    rock.dealloc %29 : memref<8192xi8, #gpu.address_space<workgroup>>
+    rock.dealloc %30 : memref<8192xi8, #gpu.address_space<workgroup>>
     %50 = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
     %c0_8 = arith.constant 0 : index
     rock.transforming_for {forceUnroll, useIndexDiffs} (%arg3) = [](%c0_8), (%arg4) = [#transform_map24](%c0_8) (%arg5, %arg6) = validity bounds [1] strides [1] {

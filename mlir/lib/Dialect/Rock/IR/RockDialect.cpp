@@ -977,6 +977,47 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// GpuAllocOp
+//===-----------------------------------------------------===//
+
+static int64_t getSize(MemRefType memref) {
+  int64_t elementSize;
+  Type type = memref.getElementType();
+  if (auto vecType = dyn_cast<VectorType>(type)) {
+    elementSize =
+        (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
+  } else {
+    elementSize = type.getIntOrFloatBitWidth() / 8;
+  }
+  return memref.getNumElements() * elementSize;
+}
+
+LogicalResult GpuAllocOp::verify() {
+  // Make sure the size is bigger than 0
+  if (getSize(getOutput().getType()) > 0) {
+    return success();
+  }
+  return emitError("The size of rock.alloc should be greather than zero.");
+}
+
+//===-----------------------------------------------------===//
+// GpuDeallocOp
+//===-----------------------------------------------------===//
+
+LogicalResult GpuDeallocOp::verify() {
+  // Make sure the input memref defining operation is a GpuAllocOp
+  if (auto gpuAlloc = dyn_cast<GpuAllocOp>(getMemref().getDefiningOp())) {
+    // Make sure the size is bigger than 0
+    if (getSize(getMemref().getType()) > 0) {
+      return success();
+    }
+    return emitError("The size of rock.dealloc should be greather than zero.");
+  }
+  return emitError(
+      "The input of rock.dealloc should come from rock.alloc output.");
+}
+
+//===-----------------------------------------------------===//
 // ExtractMultiBufferOp
 //===-----------------------------------------------------===//
 
@@ -1288,10 +1329,11 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 }
 
 void TransformingForOp::print(OpAsmPrinter &p) {
-  p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
-                              TransformingForOp::getOperandSegmentSizeAttr(),
-                              getTransformsAttrName(), getLowerStartsAttrName(),
-                              getBoundsAttrName(), getStridesAttrName()});
+  p.printOptionalAttrDict(
+      getOperation()->getAttrs(),
+      /*elidedAttrs=*/{TransformingForOp::getOperandSegmentSizeAttr(),
+                       getTransformsAttrName(), getLowerStartsAttrName(),
+                       getBoundsAttrName(), getStridesAttrName()});
   p << " ";
   for (uint32_t i = 0, e = domains(); i < e; ++i) {
     p << "(";
@@ -1857,8 +1899,8 @@ LogicalResult ReduceOp::verify() {
       }
     } else {
       if (dimSize != inpShape[dim]) {
-        return emitError(
-            "The size of the non-reduction dimension should match the input.");
+        return emitError("The size of the non-reduction dimension should "
+                         "match the input.");
       }
     }
   }
@@ -1930,8 +1972,8 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   }
 
   if (inputThreadView[0] != blockSize) {
-    return emitError(
-        "first dimension of the input view should be equal to the block size");
+    return emitError("first dimension of the input view should be equal to "
+                     "the block size");
   }
   if (wsShape.size() != 1) {
     return emitError("workspace LDS buffer should be flat");
