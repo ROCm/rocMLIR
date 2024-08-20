@@ -182,7 +182,8 @@ def MIGraphX_TanhOp :
 // int4 operations
 def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
     Arguments<(ins MIXRShapedOf<[I8, I<4>]>:$in,
-                   I64Attr:$axis)>,
+                   I64Attr:$axis,
+                   BoolAttr:$isUnsigned)>,
     Results<(outs MIXRShapedOf<[I8, I<4>]>:$out)> {
   let summary = "Unpack int4 vaules stored as bytes";
   let description = [{
@@ -200,6 +201,9 @@ def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
     the corresponding tensor of i8 (in which case, the `i4` are exposed as an
     extra dimension and not flattened) or another tensor of i4. This allows us to
     progressively move unpack up to function boundaries.
+
+    If `isUnsigned` is true, the inputs are a buffer of unsigned 4-bit ints,
+    otherwise they are signed.
   }];
 
   let assemblyFormat = [{ $in attr-dict `:` type($in) `->` type($out) }];
