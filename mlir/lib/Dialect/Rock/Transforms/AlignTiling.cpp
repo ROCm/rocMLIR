@@ -44,6 +44,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -1033,7 +1034,68 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   }
   rewriter.moveAfterIfNeeded(threadwiseWriteOp, reduceOp);
 
+  // Obtain blockwise subtile.
+
+  // This has < block dimensions ... > x tid x iter to Gemm Dimensions.
+  ArrayAttr extraViews = threadwiseWriteOp.getExtraViews();
+  TransformMapAttr firstCoordTransform = cast<TransformMapAttr>(extraViews[0]);
+  int upperRank = firstCoordTransform.getUpperBounds().size();
+  SetVector<int64_t> removeIndicesSet;
+  // We only want to keep tid x iter in the maps
+  // which is the last two for block subtile
+  for(int64_t i = 0; i < upperRank - 2; i++){
+    removeIndicesSet.insert(i);
+  }
+  FailureOr<ArrayAttr> blockSubTileViews =
+      removeUpperDims(rewriter, extraViews, removeIndicesSet);
+  // We only want to keep tid in the maps
+  // which is the last two for block subtile tid
+  removeIndicesSet.clear();
+  for(int64_t i = 0; i < upperRank; i++){
+    if(i != upperRank - 2){
+      removeIndicesSet.insert(i);
+    }
+  }
+  FailureOr<ArrayAttr> blockSubTileTidSliceViews =
+      removeUpperDims(rewriter, extraViews, removeIndicesSet);
+  // We only want to keep iter in the maps
+  // which is the last one.
+  removeIndicesSet.clear();
+  for(int64_t i = 0; i < upperRank - 1; i++){
+    removeIndicesSet.insert(i);
+  }
+  FailureOr<ArrayAttr> threadSubTileViews =
+      removeUpperDims(rewriter, extraViews, removeIndicesSet);
   int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
+  if(succeeded(blockSubTileViews) && succeeded(threadSubTileViews) && succeeded(blockSubTileTidSliceViews)){
+    int64_t reduceDimPerThread = getLowerShape(threadSubTileViews.value())[reductionAxis];
+    ArrayRef<int64_t> blockLowerShape = getLowerShape(blockSubTileViews.value());
+    int64_t reduceDimPerBlock  = blockLowerShape[reductionAxis];
+    int64_t partialReductionsPerThread = reduceDimPerBlock / reduceDimPerThread;
+    int64_t ldsWorkspaceSize = 1;
+    for(auto [idx, size] : llvm::enumerate(blockLowerShape)){
+      if(idx == reductionAxis){
+        ldsWorkspaceSize *= partialReductionsPerThread;
+      }
+      else{
+        ldsWorkspaceSize *= size;
+      }
+    }
+    TypedValue<MemRefType> src = threadwiseWriteOp.getSource();
+    auto broadcastReducedSrc= rewriter.create<GpuAllocOp>(loc, src.getType());
+    Value ldsWorkspace = rock::gpuAlloc(rewriter, loc, ldsWorkspaceSize, src.getType().getElementType(), gpu::AddressSpace::Workgroup);
+
+    rewriter.create<BlockwiseBroadcastReduceOp>(
+    loc, src, ldsWorkspace, broadcastReducedSrc,
+    /*extraOut=*/nullptr, reductionAxis, reduceOp.getReduceMethod(),
+    blockSubTileViews.value(),
+    blockSubTileTidSliceViews.value(),
+    threadSubTileViews.value(), /*extraViews=*/nullptr,
+    reduceOp.getBlockSize());
+
+    // Create partial reduction views
+  }
+
   TypedValue<ShapedType> redOut = reduceOp.getOut();
   ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
   TypedValue<ShapedType> redIn = reduceOp.getIn();
