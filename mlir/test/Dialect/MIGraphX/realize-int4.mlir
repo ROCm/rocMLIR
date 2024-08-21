@@ -50,3 +50,14 @@ func.func @reshape_collapse(%x: !migraphx.shaped<9x2x4xi8, 8x4x1>) -> !migraphx.
   %y = migraphx.unpack %reshaped {axis = 1 : i64, isUnsigned = false} : <9x8xi8, 8x1> -> <9x16xi8, 16x1>
   func.return %y : !migraphx.shaped<9x16xi8, 16x1>
 }
+
+// CHECK-LABEL: @multibroadcast
+// CHECK-SAME: (%[[x:.+]]: !migraphx.shaped<1x8x1xi4, 2x1x2>)
+// CHECK: %[[mbcast:.+]] = migraphx.multibroadcast %[[x]]
+// CHECK-SAME: out_lens = [4, 8, 3]
+// CHECK: migraphx.convert %[[mbcast]]
+func.func @multibroadcast(%x: !migraphx.shaped<1x4x1xi8, 1x1x1>) -> !migraphx.shaped<4x8x3xi8, 0x1x0> {
+  %mbcast = migraphx.multibroadcast %x {out_lens = [4, 4, 3]} : <1x4x1xi8, 1x1x1> -> <4x4x3xi8, 0x1x0>
+  %y = migraphx.unpack %mbcast {axis = 1 : i64, isUnsigned = false} : <4x4x3xi8, 0x1x0> -> <4x8x3xi8, 0x1x0>
+  func.return %y : !migraphx.shaped<4x8x3xi8, 0x1x0>
+}

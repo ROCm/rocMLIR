@@ -53,6 +53,13 @@ struct ReshapeUnpackInterchange : public OpConversionPattern<UnpackOp> {
                   ConversionPatternRewriter &rewriter) const override;
 };
 
+struct MultiBroadcastUnpackInterchange : public OpConversionPattern<UnpackOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(UnpackOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
 struct FuncArgUnpackElimination : public OpConversionPattern<UnpackOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -148,6 +155,37 @@ LogicalResult ReshapeUnpackInterchange::matchAndRewrite(
   return success();
 }
 
+LogicalResult MultiBroadcastUnpackInterchange::matchAndRewrite(
+    UnpackOp op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const {
+  auto broadcastOp = adaptor.getIn().getDefiningOp<MultiBroadcastOp>();
+  if (!broadcastOp)
+    return failure();
+  int64_t unpackAxis = adaptor.getAxis();
+  MIXRShapedType preBroadcastBytes = broadcastOp.getInput().getType();
+  MIXRShapedType preBroadcastInt4 = asInt4Tensor(preBroadcastBytes, unpackAxis);
+
+  SmallVector<Attribute> newOutLens;
+  newOutLens.reserve(broadcastOp.getOutLens().size());
+  for (auto [i, attr] : llvm::enumerate(broadcastOp.getOutLens())) {
+    if (static_cast<int64_t>(i) == unpackAxis) {
+      auto intAttr = cast<IntegerAttr>(attr);
+      newOutLens.push_back(
+          IntegerAttr::get(intAttr.getType(), intAttr.getValue() * 2));
+    } else {
+      newOutLens.push_back(attr);
+    }
+  }
+  Value reinterpreted = rewriter.create<UnpackOp>(
+      op.getLoc(), preBroadcastInt4, broadcastOp.getInput(), adaptor.getAxis(),
+      adaptor.getIsUnsigned());
+  Value broadcasted = rewriter.create<MultiBroadcastOp>(
+      broadcastOp.getLoc(), op.getOut().getType(), reinterpreted,
+      rewriter.getArrayAttr(newOutLens));
+  rewriter.replaceOp(op, broadcasted);
+  rewriter.eraseOp(broadcastOp);
+  return success();
+}
+
 LogicalResult FuncArgUnpackElimination::matchAndRewrite(
     UnpackOp op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const {
   auto unpackArg = dyn_cast<BlockArgument>(adaptor.getIn());
@@ -181,7 +219,7 @@ void MIGraphXRealizeInt4Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<TransposeUnpackInterchange, ReshapeUnpackInterchange,
-               FuncArgUnpackElimination>(ctx);
+               MultiBroadcastUnpackInterchange, FuncArgUnpackElimination>(ctx);
   patterns.add<RewriteByteUnpackPattern>(ctx, /*benefit=*/2);
 
   if (failed(applyPartialConversion(func, noPacks, std::move(patterns))))
