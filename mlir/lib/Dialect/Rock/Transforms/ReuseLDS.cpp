@@ -405,7 +405,8 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     }
   }
 
-  // Remove all GpuDeallocOps but the last one
+  // Remove all GpuDeallocOps but the last one and add a new alloc/dealloc pair
+  // for each buffer
   for (auto [i, dealloc] : llvm::enumerate(deallocs)) {
     rewriter.setInsertionPointAfter(dealloc);
     if (i == deallocs.size() - 1) {
