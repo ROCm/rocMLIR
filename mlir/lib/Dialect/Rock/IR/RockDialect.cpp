@@ -9,7 +9,6 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -519,12 +518,17 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
 }
 
 static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
-                                     Type elemTypeA, Type elemTypeB,
-                                     Type elemTypeC) {
+                                     StringRef arch, Type elemTypeA,
+                                     Type elemTypeB, Type elemTypeC) {
+  bool isGfx11 = arch.contains("gfx11");
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
     if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
-      return op->emitOpError(
-          "Wmma gridwise supports only F16/BF16/int8 data types");
+      if (isGfx11)
+        return op->emitOpError(
+            "Wmma gridwise supports only F16/BF16/int8 data types");
+      if (!elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2())
+        return op->emitOpError(
+            "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
   }
   if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
@@ -547,8 +551,8 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   Type elemTypeC = cast<ShapedType>(gemmOp.getOutArgument()->get().getType())
                        .getElementType();
 
-  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), elemTypeA, elemTypeB,
-                         elemTypeC);
+  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), gemmOp.getArch(),
+                         elemTypeA, elemTypeB, elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -877,7 +881,8 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
 
-  if (failed(verifyGemmTypes(op, op.getFeatures(), aElem, bElem, cElem)))
+  if (failed(
+          verifyGemmTypes(op, op.getFeatures(), "gfx00", aElem, bElem, cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
