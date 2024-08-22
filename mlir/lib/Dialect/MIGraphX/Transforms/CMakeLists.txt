@@ -1,5 +1,6 @@
 add_rocmlir_dialect_library(MLIRMIGraphXTransforms
   MIGraphXTransform.cpp
+  RealizeInt4.cpp
 
   DEPENDS
   MLIRMIGraphXPassIncGen
