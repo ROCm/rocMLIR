@@ -506,7 +506,6 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     }
     return (argMap["fil_layout"].length() == argMap["in_layout"].length()) &&
            (argMap["in_layout"].length() == argMap["out_layout"].length());
-
   };
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
@@ -844,9 +843,12 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
   // TODO[split-K]: remove after integrating split-K into MIGraphX
-  if (!config.disableSplitKForTuning)
+  // TODO[split-K]: split-K does not work with BwdWeight
+  if (!config.disableSplitKForTuning &&
+      config.operation.value() != ConvOpType::BwdWeight) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
+  }
   if (config.reverseGrid) {
     func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());
