@@ -465,11 +465,14 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   }
 
   SmallVector<int64_t> fil({y, x});
-  if (z > 0) fil.push_back(z);
+  if (z > 0)
+    fil.push_back(z);
   SmallVector<int64_t> out({ho, wo});
-  if (dout > 0) out.push_back(dout);
+  if (dout > 0)
+    out.push_back(dout);
   SmallVector<int64_t> in({hi, wi});
-  if (di > 0) in.push_back(di);
+  if (di > 0)
+    in.push_back(di);
   return ConvolutionDims(fil, out, in, k, c, n, g);
 }
 
