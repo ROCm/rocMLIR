@@ -185,7 +185,7 @@ String getLabelFromCodepath(String codepath) {
     } else if (codepath == "vanilla"){
         label = 'mlir'
     } else if (codepath == "navi3x") {
-        label = 'mlir && gfx1101 && aus-navi3x-07.amd.com'
+        label = 'mlir && gfx1100 && aus-navi3x-07.amd.com'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
