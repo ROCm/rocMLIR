@@ -65,9 +65,9 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], l
                        DeclareOpInterfaceMethods<RockConvInterface>,
                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                        RockFusionRoot]>{
-    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5,6]>:$filter,
-                              TensorOrMemRefRankOf<inputTypes, [5,6]>:$input,
-                              TensorOrMemRefRankOf<outputTypes, [5,6]>:$output,
+    dag commonConvArgs = (ins TensorOrMemRefOf<inputTypes>:$filter,
+                              TensorOrMemRefOf<inputTypes>:$input,
+                              TensorOrMemRefOf<outputTypes>:$output,
                               StrAttr:$arch,
                               Rock_GemmFeaturesAttr:$features,
                               OptionalAttr<I32Attr>:$derivedBlockSize,
@@ -119,7 +119,7 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 
 def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 {
-  dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5,6]>>:$workspace,
+  dag additionalArgs = (ins Optional<TensorOrMemRefOf<[F32]>>:$workspace,
                             OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$numCU);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution backward weight";
@@ -135,11 +135,11 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 
 def Rock_GemmOp :
     Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>, RockFusionRoot]>,
-    Arguments<(ins Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
+    Arguments<(ins Arg<TensorOrMemRefOf<GemmInputTypes>,
                        "matrix A", [MemRead]>:$a,
-                   Arg<TensorOrMemRefRankOf<GemmInputTypes, [2, 3]>,
+                   Arg<TensorOrMemRefOf<GemmInputTypes>,
                        "matrix B", [MemRead]>:$b,
-                   Arg<TensorOrMemRefRankOf<GemmOutputTypes, [2, 3]>,
+                   Arg<TensorOrMemRefOf<GemmOutputTypes>,
                        "matrix C", [MemRead, MemWrite]>:$c,
                    UnitAttr:$aTransposed,
                    UnitAttr:$bTransposed,

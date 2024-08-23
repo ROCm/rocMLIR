@@ -630,7 +630,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     // is what's left
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
     expansions.insert({"ni", {"n0", "n1"}});
-    for (int i = 0; i < convDims.in.size(); i++) {
+    for (size_t i = 0; i < convDims.in.size(); i++) {
       StringAttr key = b.getStringAttr(Twine(i) + "i");
       StringAttr val = b.getStringAttr(Twine(i) + "ipad");
       expansions.insert({key, {val}});
