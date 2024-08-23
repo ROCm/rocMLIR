@@ -394,7 +394,7 @@ pipeline {
     agent none
     parameters {
         // Below should be set statically by Jenkins job
-        booleanParam(name: 'nightly', true,
+        booleanParam(name: 'nightly', defaultValue: true,
                      description: 'Run extra nightly-only tests')
         booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
                      description: 'Can this CI instance use xdlops (no for public server)')
