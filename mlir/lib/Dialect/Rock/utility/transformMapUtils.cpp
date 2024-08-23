@@ -1817,6 +1817,19 @@ getPreservedIndices(rock::TransformAttr tr,
   return preservedIndices;
 }
 
+SetVector<uint32_t>
+getRemovedIndicesInTr(rock::TransformAttr tr, DimType type,
+                      const SetVector<int64_t> &globalRemoveIndicesSet) {
+  SetVector<uint32_t> removedDimsInThisTr;
+  ArrayRef<unsigned int> dims = type == DimType::Upper ? tr.getUpperDims() : tr.getLowerDims();
+  for (unsigned int dim : dims){
+    if (globalRemoveIndicesSet.contains(dim)) {
+      removedDimsInThisTr.insert(dim);
+    }
+  }
+  return removedDimsInThisTr;
+}
+
 template <DimType Type>
 void populatePreservedNames(rock::TransformAttr tr, TransformAttrArgs &args) {
   const auto &preservedDims = std::get<Type>(args.preservedDims);
@@ -1866,6 +1879,22 @@ void remapDims(
   }
 }
 
+struct SubDimInfo{
+  int64_t size;
+  int64_t stride;
+};
+
+static SmallVector<int64_t> getStrides(ArrayRef<int64_t> dimLens){
+  SmallVector<int64_t> ret {1};
+  for(int64_t dimLen : llvm::reverse(dimLens)){
+    if(ret.size() < dimLens.size()){
+      ret.push_back(dimLen * ret.back());
+    }
+  }
+  ret = to_vector(llvm::reverse(ret));
+  return ret;
+}
+
 /// Given a single `TransformMapAttr`s and a set of indices, the function
 /// re-builds a map by removing dimensions specified by indices. The function
 /// operates on the user provided upper dimensions bounds. This allows
@@ -1887,8 +1916,8 @@ FailureOr<rock::TransformMapAttr>
 removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
                        SetVector<int64_t> &removeIndicesSet,
                        llvm::SmallVector<int64_t> &origUpperBounds,
-                       llvm::SmallVector<int64_t> &origLowerBounds) {
-
+                       llvm::SmallVector<int64_t> &origLowerBounds, DenseMap<int64_t, SmallVector<SubDimInfo>>& removedSubDims) {
+  llvm::errs() << trMap << "\n";
   origLowerBounds =
       llvm::SmallVector<int64_t>(trMap.getLowerBounds().asArrayRef());
 
@@ -1953,6 +1982,16 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
       switch (args.type) {
       case TransformType::Unmerge: {
         uint32_t total = 1;
+        SmallVector<int64_t> subDimStrides = getStrides(tr.getParams());
+        SetVector<uint32_t> removedDimsInTr = getRemovedIndicesInTr(tr, DimType::Upper, removeIndicesSet);
+        for (auto[idx, subDimSize] : enumerate(tr.getParams())){
+          int64_t upperDim = tr.getUpperDims()[idx];
+          if(removedDimsInTr.contains(upperDim)){
+            removedSubDims[preservedLowerDims[0]].push_back(
+              {subDimSize, subDimStrides[idx]}
+            );
+          }
+        }
         for (auto globalDimIdx : preservedUpperDims) {
           auto dimSize = origUpperBounds[globalDimIdx];
           total *= dimSize;
@@ -1962,11 +2001,58 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         origLowerBounds[preservedLowerDims[0]] = total;
         break;
       }
+      case TransformType::Merge: {
+        SmallVector<int64_t> subDimStrides = getStrides(tr.getParams());
+        SmallVector<SubDimInfo> relevantSubDims;
+        assert(preservedUpperDims.size() == 1);
+        for(int64_t dim = 0; dim < tr.getParams().size(); dim++){
+          for(const SubDimInfo& removedSubDimInfo : removedSubDims[preservedUpperDims[0]]){
+              // The removedSubDimInfo stride is larger than
+              // the current subDim stride * size, then its
+              // not going to affect this sub dimension
+
+              // Case 1: the removed subdim stride itself is larger than this subdim's
+              //         stride. Therefore, do nothing 
+              if(removedSubDimInfo.stride > subDimStrides[dim] * tr.getParams()[dim]) {
+                // do nothing
+                args.params.push_back(tr.getParams()[dim]);
+              }
+              // Case 2 : the removed stride * removedSubDimInfo.size is smaller than the
+              // currrent subDimStride.
+              else if (removedSubDimInfo.stride * removedSubDimInfo.size < subDimStrides[dim]){
+                // do nothing
+                args.params.push_back(tr.getParams()[dim]);
+              }
+              // Everyother case means removedSubDim at least partially overlaps with this
+              // dimension 
+              else {
+                int diff = 0;
+                if(removedSubDimInfo.stride * removedSubDimInfo.size >= subDimStrides[dim] * tr.getParams()[dim]){
+                  diff = (subDimStrides[dim] * tr.getParams()[dim]) / std::max(removedSubDimInfo.stride, subDimStrides[dim]);
+                }
+                else {
+                  diff = subDimStrides[dim] / (removedSubDimInfo.stride * removedSubDimInfo.size);
+                }
+                llvm::errs() << "diff=" << diff << "\n";
+                origLowerBounds[dim] = origLowerBounds[dim] / diff;
+                args.params.push_back(tr.getParams()[dim] / diff);
+              }
+          }
+        }
+        break;
+      }
       case TransformType::PassThrough: {
         // propagate possibly modified dimensions
+        DenseMap<int64_t, int64_t> upperToLower;
         for (auto [idx, upperDim] : llvm::enumerate(tr.getUpperDims())) {
           const auto lowerDim = tr.getLowerDims()[idx];
+          upperToLower[upperDim] = lowerDim;
           origLowerBounds[lowerDim] = origUpperBounds[upperDim];
+        }
+        DenseMap<int64_t, SmallVector<SubDimInfo>> origRemovedSubDims = removedSubDims;
+        removedSubDims.clear();
+        for(auto [dim, subDimInfo] : origRemovedSubDims){
+          removedSubDims[upperToLower[dim]] = subDimInfo;
         }
         [[fallthrough]];
       }
@@ -2038,6 +2124,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         TransformMapAttr::get(newOps, std::get<DimType::Upper>(newBounds),
                               std::get<DimType::Lower>(newBounds));
   }
+  llvm::errs() << "newTrMap = " << newTrMap << "\n";
   return newTrMap;
 }
 
@@ -2056,6 +2143,7 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
   SmallVector<Attribute> results;
 
   llvm::SmallVector<int64_t> upperBounds = {};
+  DenseMap<int64_t, SmallVector<SubDimInfo>> preservedSubDims;
   if (!transformAttrs.empty()) {
     auto first = *(transformAttrs.begin());
     auto trMap = cast<rock::TransformMapAttr>(first);
@@ -2071,13 +2159,14 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
     llvm::SmallVector<int64_t> lowerBounds = {};
     FailureOr<rock::TransformMapAttr> maybeNewTrMapAttr =
         removeUpperDimsFromMap(b, trMap, removeIndicesSet, upperBounds,
-                               lowerBounds);
+                               lowerBounds, preservedSubDims);
     upperBounds = lowerBounds;
     if (failed(maybeNewTrMapAttr)) {
       return failure();
     }
-    if (*maybeNewTrMapAttr)
+    if (*maybeNewTrMapAttr){
       results.push_back(*maybeNewTrMapAttr);
+    }
   }
 
   return b.getArrayAttr(results);
