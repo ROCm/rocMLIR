@@ -80,8 +80,8 @@ static bool hasGlobalMemoryAddressSpace(MemRefType type) {
          !hasPrivateMemoryAddressSpace(type);
 }
 
-static std::tuple<int64_t, int64_t> getLDSTotalSize(func::FuncOp &func) {
-  int64_t totalSize = 0, numLDSAllocs = 0;
+static int64_t getLDSTotalSize(func::FuncOp &func) {
+  int64_t totalSize = 0;
   func.walk([&](GpuAllocOp gpuAlloc) {
     mlir::MemRefType type = gpuAlloc.getOutput().getType();
     auto memSpaceValue =
@@ -89,10 +89,9 @@ static std::tuple<int64_t, int64_t> getLDSTotalSize(func::FuncOp &func) {
             .getValue();
     if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
       totalSize += type.getNumElements() * getByteWidth(type.getElementType());
-      numLDSAllocs++;
     }
   });
-  return std::make_tuple(totalSize, numLDSAllocs);
+  return totalSize;
 }
 
 static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
@@ -102,95 +101,6 @@ static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
     StringAttr arch = maybeArch.value();
     const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
     return success(ldsBytes <= ldsSize);
-  }
-  return success();
-}
-
-// Function to create the schedule of the current set of stages
-static LogicalResult reuseDeadLDS(func::FuncOp &func) {
-  // Retrieve all GpuAlloc operations targeting LDS and
-  // calculate the total memory space required for all operations
-  // except the last one. Additionally, compute the memory space
-  // required by the last GpuAlloc operation.
-  SmallVector<std::tuple<GpuAllocOp, int64_t>> allocs;
-  int64_t totalSize = 0;
-  int64_t lastSize = 0;
-  func.walk([&](GpuAllocOp gpuAlloc) {
-    auto type = gpuAlloc.getOutput().getType();
-    auto memSpaceValue =
-        dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
-            .getValue();
-    if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-      allocs.push_back({gpuAlloc, totalSize});
-      lastSize = type.getNumElements() * getByteWidth(type.getElementType());
-      totalSize += lastSize;
-    }
-  });
-  // There should be at least two LDS allocations
-  if (allocs.size() < 2) {
-    LLVM_DEBUG(llvm::dbgs() << "Expected at least two GpuAllocOp, found "
-                            << allocs.size() << "\n");
-    return failure();
-  }
-  LLVM_DEBUG(llvm::dbgs() << "number of GpuAllocOp ops to rewrite: "
-                          << allocs.size() << "\n");
-  int64_t deadSize = totalSize - lastSize;
-
-  // we assume the last GpuAllocOp can reuse previous
-  // LDS allocations because they are no longer needed
-
-  // New allocation
-  IRRewriter rewriter(func->getContext());
-  int64_t requiredMemory = std::max(deadSize, lastSize);
-  LLVM_DEBUG(llvm::dbgs() << "deadSize: " << deadSize
-                          << " lastSize: " << lastSize
-                          << " requiredMemory: " << requiredMemory << "\n");
-  auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-      gpu::GPUDialect::getWorkgroupAddressSpace());
-  auto ldsMemRefBufferType =
-      MemRefType::get({requiredMemory}, rewriter.getI8Type(), AffineMap{},
-                      workgroupMemoryAddressSpace);
-
-  rewriter.setInsertionPoint(std::get<0>(allocs[0]));
-  Location loc = std::get<0>(allocs[0])->getLoc();
-  auto ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
-
-  // Rewrite all GpuAllocs as ViewOp
-  for (auto [i, allocTuple] : llvm::enumerate(allocs)) {
-    GpuAllocOp alloc;
-    int64_t offset;
-    std::tie(alloc, offset) = allocTuple;
-    auto bufferType = alloc.getOutput().getType();
-    auto numElements = bufferType.getNumElements();
-    auto elementBytes = getByteWidth(bufferType.getElementType());
-    auto rank = bufferType.getRank();
-    if (elementBytes != 1) {
-      LLVM_DEBUG(llvm::dbgs() << "GpuAllocOp allocates a type of "
-                              << elementBytes << " bytes, expected 1 byte\n");
-      return failure();
-    }
-    if (rank != 1) {
-      LLVM_DEBUG(llvm::dbgs() << "Rank should be one, it's " << rank << "\n");
-      return failure();
-    }
-
-    rewriter.setInsertionPointAfter(alloc);
-    Location loc = alloc->getLoc();
-
-    // last GpuAllocOp reuses LDS memory
-    if (i == allocs.size() - 1) {
-      offset = 0;
-    }
-    LLVM_DEBUG(llvm::dbgs() << "offset: " << offset
-                            << " numElements: " << numElements << "\n");
-    Value byteOffset =
-        rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
-
-    auto newViewType =
-        MemRefType::get({numElements}, rewriter.getI8Type(), AffineMap{},
-                        workgroupMemoryAddressSpace);
-    rewriter.replaceOpWithNewOp<memref::ViewOp>(
-        alloc, newViewType, ldsByteBuffer, byteOffset, ValueRange{});
   }
   return success();
 }
@@ -345,10 +255,6 @@ struct ThreadwiseWriteAllRewritePattern
 
     auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
 
-    // LDS barrier.
-    // This barrier is needed because we reuse A and B buffers
-    b.create<LDSBarrierOp>(loc);
-
     // Store C results to LDS.
     b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
                                    /*extraViews=*/idToLDS,
@@ -400,6 +306,7 @@ struct ThreadwiseWriteAllRewritePattern
     b.create<ThreadwiseReadIntoOp>(loc, ldsBufferForLoad, finalC,
                                    b.getArrayAttr({}), ValueRange{tid},
                                    forceUnroll, useIndexDiffs);
+    b.create<GpuDeallocOp>(loc, ldsBufferOutput);
 
     SmallVector<int64_t, 5> bidGridLengths;
     SmallVector<StringRef, 5> bidGridOrder;
@@ -506,8 +413,7 @@ void RockOutputSwizzlePass::runOnOperation() {
     return;
 
   // Get total LDS memory allocated
-  int64_t ldsAllocated, numLDSAllocs;
-  std::tie(ldsAllocated, numLDSAllocs) = getLDSTotalSize(func);
+  int64_t ldsAllocated = getLDSTotalSize(func);
 
   SmallVector<Operation *, 4> writes;
   func.walk([&writes, &rewriter,
@@ -564,16 +470,6 @@ void RockOutputSwizzlePass::runOnOperation() {
     GreedyRewriteConfig config;
     config.strictMode = GreedyRewriteStrictness::ExistingOps;
     if (failed(applyOpPatternsAndFold(writes, std::move(patterns), config))) {
-      return signalPassFailure();
-    }
-
-    int64_t ldsAllocatedAfter, numLDSAllocsAfter;
-    std::tie(ldsAllocatedAfter, numLDSAllocsAfter) = getLDSTotalSize(func);
-    // Reuse LDS, we assume the last GpuAllocOp can reuse previous
-    // LDS allocations because they are no longer needed
-    // Note: this is a temporary trick that will be solved here:
-    // https://github.com/ROCm/rocMLIR-internal/issues/1487
-    if (numLDSAllocsAfter > numLDSAllocs && failed(reuseDeadLDS(func))) {
       return signalPassFailure();
     }
   }

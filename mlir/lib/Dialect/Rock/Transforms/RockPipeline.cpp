@@ -665,18 +665,6 @@ void RockPipeline::runOnOperation() {
       (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs, factor);
   }
 
-  // Check we didn't push memory too far
-  DenseMap<AddressSpace, size_t> gpuMemoryBytes;
-  func.walk([&](rock::GpuAllocOp alloc) {
-    auto addressSpace = getAddressSpace(alloc);
-    gpuMemoryBytes[addressSpace] += alloc.getType().getShape().back();
-  });
-
-  if (gpuMemoryBytes[AddressSpace::Workgroup] > size_t(64 * 1024)) {
-    emitError(loc, "LDS consumption is more than 64K!\n");
-    return signalPassFailure();
-  }
-
   // Cleanup the stages
   {
     if (removeStages) {
