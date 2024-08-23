@@ -843,6 +843,8 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   // and we want to do a(16x16) * b(16x16), 16 threads are loading a vector
   // of 16 Ks and the other 16 threads are replicating those values.
   int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
+  // isGfx11 flag is set after call to this function. Therefore can not use
+  // isGfx11 flag yet from inside this function.
   if (!arch.contains("gfx11")) {
     // Post-gfx12 each thread is loading a partial set of values
     // to reduce. For instance, with the previous example, each
