@@ -153,7 +153,7 @@ static void annotateGenericOp(linalg::GenericOp lgop) {
   size_t argIdx = -1;
   if (lgop.getInputs().size() == 1) {
     lgop->setAttr("rock.majorTensorNumber",
-                  IntegerAttr::get(IndexType::get(ctx), 1));
+                  IntegerAttr::get(IndexType::get(ctx), 0));
     return;
   }
   for (auto [inputIdx, inp] : llvm::enumerate(lgop.getInputs())) {
