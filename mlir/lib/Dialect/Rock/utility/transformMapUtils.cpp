@@ -1917,7 +1917,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
                        SetVector<int64_t> &removeIndicesSet,
                        llvm::SmallVector<int64_t> &origUpperBounds,
                        llvm::SmallVector<int64_t> &origLowerBounds, DenseMap<int64_t, SmallVector<SubDimInfo>>& removedSubDims) {
-  llvm::errs() << "orig=" << trMap << ",removedSubDims.size=" << removedSubDims.size() << "\n";
+  LLVM_DEBUG(llvm::dbgs() << "orig = " << trMap << ", removedSubDims.size=" << removedSubDims.size() << "\n");
   origLowerBounds =
       llvm::SmallVector<int64_t>(trMap.getLowerBounds().asArrayRef());
 
@@ -1941,10 +1941,6 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         preservedUpperDims.size() == tr.getUpperDims().size();
     const bool mustBeCompletelyRemoved = preservedUpperDims.empty();
     const bool mustBeModified = !mustBePreserved && !mustBeCompletelyRemoved;
-    llvm::errs() << " mustBePreserved=" << mustBePreserved << ",";
-    llvm::errs() << " mustBeCompletelyRemoved=" << mustBeCompletelyRemoved << ",";
-    llvm::errs() << " mustBeModified=" << mustBeModified << ",";
-    llvm::errs() << "\n";
 
     // compute which lower dimensions must be preserved
     switch (args.type) {
@@ -1992,7 +1988,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         // Collect all removedSubDims in upper to the lower dim
         for(auto [upperDim, subDimStride] : zip(tr.getUpperDims(), subDimStrides)){
           for(const SubDimInfo& remSubDimInfo : origRemovedSubDims[upperDim]){
-            llvm::errs() << "creating newRemovedSubDim /w size = " << remSubDimInfo.size << ", stride=" << remSubDimInfo.stride * subDimStride  << " @ " << preservedLowerDims[0] << "\n";
+            LLVM_DEBUG(llvm::dbgs() << "creating newRemovedSubDim /w size = " << remSubDimInfo.size << ", stride=" << remSubDimInfo.stride * subDimStride  << " @ " << preservedLowerDims[0] << "\n");
             removedSubDims[preservedLowerDims[0]].push_back(
               {remSubDimInfo.size, remSubDimInfo.stride * subDimStride}
             );
@@ -2002,7 +1998,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         for (auto[idx, subDimSize] : enumerate(tr.getParams())){
           int64_t upperDim = tr.getUpperDims()[idx];
           if(removedDimsInTr.contains(upperDim)){
-            llvm::errs() << "creating newRemovedSubDim /w size = " << subDimSize << ", stride=" << subDimStrides[idx]  << " @ " << preservedLowerDims[0] << "\n";
+            LLVM_DEBUG(llvm::dbgs() << "creating newRemovedSubDim /w size = " << subDimSize << ", stride=" << subDimStrides[idx]  << " @ " << preservedLowerDims[0] << "\n");
             removedSubDims[preservedLowerDims[0]].push_back(
               {subDimSize, subDimStrides[idx]}
             );
@@ -2025,54 +2021,46 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         for(int64_t subDim = 0; subDim < tr.getParams().size(); subDim++){
           int64_t lowDim = tr.getLowerDims()[subDim];
           for(const SubDimInfo& removedSubDimInfo : removedSubDims[preservedUpperDims[0]]){
-              llvm::errs() << "lowDim = " << lowDim << "\n";
-              llvm::errs() << "remove.stride = " << removedSubDimInfo.stride << "\n";
-              llvm::errs() << "remove.size = " << removedSubDimInfo.size << "\n";
-              llvm::errs() << "subdim.stride = " << subDimStrides[subDim] << "\n";
-              llvm::errs() << "subdim.size = " << tr.getParams()[subDim] << "\n";
+              LLVM_DEBUG(llvm::dbgs() << "lowDim = " << lowDim << "\n");
+              LLVM_DEBUG(llvm::dbgs() << "remove.stride = " << removedSubDimInfo.stride << "\n");
+              LLVM_DEBUG(llvm::dbgs() << "remove.size = " << removedSubDimInfo.size << "\n");
+              LLVM_DEBUG(llvm::dbgs() << "subdim.stride = " << subDimStrides[subDim] << "\n");
+              LLVM_DEBUG(llvm::dbgs() << "subdim.size = " << tr.getParams()[subDim] << "\n");
 
-              // Case 1: the removed subdim stride itself is larger than this subdim's
-              //         stride. Therefore, do nothing 
               if(removedSubDimInfo.stride >= subDimStrides[subDim] * tr.getParams()[subDim]) {
                 // do nothing
-                llvm::errs() << "1\n";
+                LLVM_DEBUG(llvm::dbgs() << "The relative stride of removed subDim is larger than original subDim\n");
+                LLVM_DEBUG(llvm::dbgs() << "Hence, no effect on this newly created sub dimension...\n");
               }
-              // Case 2 : the removed stride * removedSubDimInfo.size is smaller than the
-              // currrent subDimStride.
               else if (removedSubDimInfo.stride * removedSubDimInfo.size < subDimStrides[subDim]){
-                // do nothing
-                llvm::errs() << "2\n";
+                LLVM_DEBUG(llvm::dbgs() << "The stride of this newly created sub dimension is larger than removed subDim\n");
+                LLVM_DEBUG(llvm::dbgs() << "Hence, no effect on this newly created sub dimension...\n");
               }
               // Everyother case means removedSubDim at least partially overlaps with this
               // dimension 
               else {
-                llvm::errs() << "3\n";
+                LLVM_DEBUG(llvm::dbgs() << "There is atleast partial overlap between removed subDim and new subDim\n");
                 int diff = 0;
-                int size = 0;
+                int newRemovedSubDimStride = 0;
                 // Overlap on right side of removedSubDim
                 if(removedSubDimInfo.stride * removedSubDimInfo.size >= subDimStrides[subDim] * tr.getParams()[subDim]){
                   int64_t rhsBoundForRemoval = std::max(removedSubDimInfo.stride, subDimStrides[subDim]);
                   diff = (subDimStrides[subDim] * tr.getParams()[subDim]) / rhsBoundForRemoval;
-                  size = origLowerBounds[lowDim] / diff;
-                  llvm::errs() << "creating newRemovedSubDim /w size = " << diff << ", stride=" << rhsBoundForRemoval / subDimStrides[subDim]  << " @ " << lowDim << "\n";
-                  newRemovedSubDims[lowDim].push_back({diff, rhsBoundForRemoval / subDimStrides[subDim]});
+                  newRemovedSubDimStride = rhsBoundForRemoval / subDimStrides[subDim];
                 }
                 // The whole of removedSubDim is within the newly created lowDim
                 else if(removedSubDimInfo.stride >= subDimStrides[subDim]) {
                   diff = removedSubDimInfo.size;
-                  size = origLowerBounds[lowDim] / diff;
-                  llvm::errs() << "creating newRemovedSubDim /w size = " << diff << ", stride=" << removedSubDimInfo.stride << " @ " << lowDim << "\n";
-                  newRemovedSubDims[lowDim].push_back({diff, removedSubDimInfo.stride});
+                  newRemovedSubDimStride = removedSubDimInfo.stride;
                 }
                 // Overlap is left side of removedSubDim
                 else {
                   diff = (removedSubDimInfo.stride * removedSubDimInfo.size) / subDimStrides[subDim];
-                  size = origLowerBounds[lowDim] / diff;
-                  llvm::errs() << "creating newRemovedSubDim /w size = " << diff << ", stride=" << 1  << " @ " << lowDim << "\n";
-                  newRemovedSubDims[lowDim].push_back({diff, 1});
+                  newRemovedSubDimStride = 1;
                 }
-                llvm::errs() << "diff=" << diff << "\n";
-                origLowerBounds[lowDim] = size;
+                LLVM_DEBUG(llvm::dbgs() << "creating newRemovedSubDim /w size = " << diff << ", stride=" << newRemovedSubDimStride  << " @ " << lowDim << "\n");
+                newRemovedSubDims[lowDim].push_back({diff, newRemovedSubDimStride});
+                origLowerBounds[lowDim] = origLowerBounds[lowDim] / diff;
               }
           }
           args.params.push_back(origLowerBounds[lowDim]);
@@ -2163,8 +2151,8 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
     newTrMap =
         TransformMapAttr::get(newOps, std::get<DimType::Upper>(newBounds),
                               std::get<DimType::Lower>(newBounds));
+    LLVM_DEBUG(llvm::dbgs() << "newTrMap = " << newTrMap << "\n");
   }
-  llvm::errs() << "newTrMap = " << newTrMap << "\n";
   return newTrMap;
 }
 
