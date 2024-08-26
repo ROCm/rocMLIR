@@ -11,6 +11,8 @@
 
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/MemRef/IR/MemRefBase.td"
+include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
+include "mlir/Dialect/LLVMIR/LLVMInterfaces.td"
 include "mlir/Interfaces/CastInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/CopyOpInterface.td"
@@ -1179,7 +1181,8 @@ def LoadOp : MemRef_Op<"load",
                      "::llvm::cast<MemRefType>($_self).getElementType()">,
       MemRefsNormalizable,
       DeclareOpInterfaceMethods<PromotableMemOpInterface>,
-      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>]> {
+      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>,
+      DeclareOpInterfaceMethods<AliasAnalysisOpInterface>]> {
   let summary = "load operation";
   let description = [{
     The `load` op reads an element from a memref specified by an index list. The
@@ -1221,8 +1224,28 @@ def LoadOp : MemRef_Op<"load",
   let arguments = (ins Arg<AnyMemRef, "the reference to load from",
                            [MemRead]>:$memref,
                        Variadic<Index>:$indices,
-                       DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal);
+                       DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+                       OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
   let results = (outs AnyType:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$memref, "ValueRange":$indices,
+      "bool":$nontemporal), [{
+        return build($_builder, $_state, memref, indices, nontemporal, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "Value":$memref, "ValueRange":$indices), [{
+        return build($_builder, $_state, memref, indices, false, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$memref, "ValueRange":$indices,
+    "bool":$nontemporal), [{
+      return build($_builder, $_state, resultTypes, memref, indices, nontemporal, nullptr, nullptr, nullptr);
+    }]>,
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$memref, "ValueRange":$indices), [{
+      return build($_builder, $_state, resultTypes, memref, indices, false, nullptr, nullptr, nullptr);
+    }]>
+  ];
 
   let extraClassDeclaration = [{
     Value getMemRef() { return getOperand(0); }
@@ -1807,7 +1830,8 @@ def MemRef_StoreOp : MemRef_Op<"store",
                      "::llvm::cast<MemRefType>($_self).getElementType()">,
       MemRefsNormalizable,
       DeclareOpInterfaceMethods<PromotableMemOpInterface>,
-      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>]> {
+      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>,
+      DeclareOpInterfaceMethods<AliasAnalysisOpInterface>]> {
   let summary = "store operation";
   let description = [{
     Store a value to a memref location given by indices. The value stored should
@@ -1842,13 +1866,31 @@ def MemRef_StoreOp : MemRef_Op<"store",
                        Arg<AnyMemRef, "the reference to store to",
                            [MemWrite]>:$memref,
                        Variadic<Index>:$indices,
-                       DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal);
+                       DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+                       OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
 
   let builders = [
     OpBuilder<(ins "Value":$valueToStore, "Value":$memref), [{
       $_state.addOperands(valueToStore);
       $_state.addOperands(memref);
-    }]>];
+    }]>,
+    OpBuilder<(ins "Value":$value, "Value":$memref, "ValueRange":$indices, 
+      "bool":$nontemporal), [{
+        return build($_builder, $_state, value, memref, indices, nontemporal, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "Value":$value, "Value":$memref, "ValueRange":$indices), [{
+        return build($_builder, $_state, value, memref, indices, false, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$value, "Value":$memref, "ValueRange":$indices, 
+      "bool":$nontemporal), [{
+        return build($_builder, $_state, resultTypes, value, memref, indices, nontemporal, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$value, "Value":$memref, "ValueRange":$indices), [{
+        return build($_builder, $_state, resultTypes, value, memref, indices, false, nullptr, nullptr, nullptr);
+      }]>
+    ];
 
   let extraClassDeclaration = [{
       Value getValueToStore() { return getOperand(0); }

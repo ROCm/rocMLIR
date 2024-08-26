@@ -592,9 +592,12 @@ struct LoadOpLowering : public LoadStoreOpLowering<memref::LoadOp> {
     Value dataPtr =
         getStridedElementPtr(loadOp.getLoc(), type, adaptor.getMemref(),
                              adaptor.getIndices(), rewriter);
-    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(
+    auto llvmLoadOp = rewriter.replaceOpWithNewOp<LLVM::LoadOp>(
         loadOp, typeConverter->convertType(type.getElementType()), dataPtr, 0,
         false, loadOp.getNontemporal());
+    llvmLoadOp.setAliasScopes(loadOp.getAliasScopesOrNull());
+    llvmLoadOp.setNoAliasScopes(loadOp.getNoAliasScopesOrNull());
+    llvmLoadOp.setTBAATags(loadOp.getTBAATagsOrNull());
     return success();
   }
 };
@@ -611,8 +614,11 @@ struct StoreOpLowering : public LoadStoreOpLowering<memref::StoreOp> {
 
     Value dataPtr = getStridedElementPtr(op.getLoc(), type, adaptor.getMemref(),
                                          adaptor.getIndices(), rewriter);
-    rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptor.getValue(), dataPtr,
-                                               0, false, op.getNontemporal());
+    auto llvmStoreOp = rewriter.replaceOpWithNewOp<LLVM::StoreOp>(
+        op, adaptor.getValue(), dataPtr, 0, false, op.getNontemporal());
+    llvmStoreOp.setAliasScopes(op.getAliasScopesOrNull());
+    llvmStoreOp.setNoAliasScopes(op.getNoAliasScopesOrNull());
+    llvmStoreOp.setTBAATags(op.getTBAATagsOrNull());
     return success();
   }
 };

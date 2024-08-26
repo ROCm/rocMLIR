@@ -73,3 +73,7 @@ std::optional<Operation *> mlir::memref::findDealloc(Value allocValue) {
   }
   return dealloc;
 }
+
+SmallVector<Value> LoadOp::getAccessedOperands() { return {getMemRef()}; }
+
+SmallVector<Value> StoreOp::getAccessedOperands() { return {getMemRef()}; }
