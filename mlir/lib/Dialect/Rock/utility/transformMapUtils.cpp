@@ -1864,18 +1864,17 @@ SmallVector<uint32_t> getDifference(rock::TransformAttr tr,
 template <DimType Type>
 void remapDims(
     std::vector<TransformAttrArgs> &argsVector,
-    std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> &removedDims) {
-  auto &sortedDeletedDims = std::get<Type>(removedDims);
-  llvm::sort(sortedDeletedDims);
+    const std::pair<SetVector<unsigned int>, SetVector<unsigned int>> &preservedDims) {
+  SmallVector<uint32_t> preservedDimsVec = to_vector(std::get<Type>(preservedDims));
+  llvm::sort(preservedDimsVec);
+  DenseMap<uint32_t, uint32_t> originalToReducedDims;
+  for (auto [idx, dim] : enumerate(preservedDimsVec)){
+    originalToReducedDims[dim] = idx;
+  }
   for (auto &args : argsVector) {
     auto &preserved = std::get<Type>(args.preservedDims);
     for (auto [idx, dim] : llvm::enumerate(preserved)) {
-      size_t leastUpperBoundIdx = 0;
-      while ((leastUpperBoundIdx < sortedDeletedDims.size()) &&
-             (dim > sortedDeletedDims[leastUpperBoundIdx])) {
-        ++leastUpperBoundIdx;
-      }
-      preserved[idx] -= leastUpperBoundIdx;
+      preserved[idx] = originalToReducedDims[dim];
     }
   }
 }
@@ -2130,11 +2129,26 @@ FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
     newRemoveIndicesSet.insert(dim);
   }
 
-  remapDims<DimType::Upper>(argsVector, removedDims);
-  remapDims<DimType::Lower>(argsVector, removedDims);
+  std::pair<llvm::SetVector<unsigned int>, llvm::SetVector<unsigned int>> preservedDims;  
+  for (auto &args : argsVector) {
+    std::get<DimType::Upper>(preservedDims).insert(std::get<DimType::Upper>(args.preservedDims).begin(), std::get<DimType::Upper>(args.preservedDims).end());
+    std::get<DimType::Lower>(preservedDims).insert(std::get<DimType::Lower>(args.preservedDims).begin(), std::get<DimType::Lower>(args.preservedDims).end());
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "preservedDimsUpper = ");
+  LLVM_DEBUG(llvm::interleaveComma(std::get<DimType::Upper>(preservedDims), llvm::dbgs()); llvm::dbgs() << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "preservedDimsLower = ");
+  LLVM_DEBUG(llvm::interleaveComma(std::get<DimType::Lower>(preservedDims), llvm::dbgs()); llvm::dbgs() << "\n");
+
+  remapDims<DimType::Upper>(argsVector, preservedDims);
+  remapDims<DimType::Lower>(argsVector, preservedDims);
 
   // build new transformations based on the computer preserved data
   for (auto &args : argsVector) {
+    LLVM_DEBUG(llvm::dbgs() << "reMappedPreservedUpperDims = ");
+    LLVM_DEBUG(llvm::interleaveComma(std::get<DimType::Upper>(args.preservedDims), llvm::dbgs()); llvm::dbgs() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "reMappedPreservedLowerDims = ");
+    LLVM_DEBUG(llvm::interleaveComma(std::get<DimType::Lower>(args.preservedDims), llvm::dbgs()); llvm::dbgs() << "\n");
     auto newTr =
         TransformAttr::get(b.getContext(), args.type, args.params,
                            std::get<DimType::Upper>(args.preservedNames),
@@ -2156,11 +2170,11 @@ FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
     auto oldBound = type == DimType::Upper
                         ? std::get<DimType::Upper>(oldBounds)
                         : std::get<DimType::Lower>(oldBounds);
-    const auto &deletedDims = type == DimType::Upper
-                                  ? std::get<DimType::Upper>(removedDims)
-                                  : std::get<DimType::Lower>(removedDims);
+    const auto &preservedDimsTyped = type == DimType::Upper
+                                  ? std::get<DimType::Upper>(preservedDims)
+                                  : std::get<DimType::Lower>(preservedDims);
     for (auto [dim, bound] : llvm::enumerate(oldBound)) {
-      if (!llvm::is_contained(deletedDims, dim)) {
+      if (preservedDimsTyped.contains(dim)) {
         newBound.push_back(bound);
       }
     }

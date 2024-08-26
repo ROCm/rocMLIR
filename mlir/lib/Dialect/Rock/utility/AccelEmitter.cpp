@@ -423,8 +423,6 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
     dimensionsToRemove.insert("m_block");
     dimensionsToRemove.insert("n_block");
     dimensionsToRemove.insert("tid");
-    llvm::errs() << "grid tile = \n";
-    llvm::errs() << ret.gridSubTile << "\n";
     FailureOr<ArrayAttr> maybeThreadSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -747,34 +745,20 @@ MfmaEmitter::createAccelGemmOperandTransforms(
     ret.blockSubTile = maybeBlockSubTile.value();
   }
   // compute thread sub tile transforms
-  // TODO: we can't use "removeUpperDims" because of bug #1562
-  // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
   {
-    SmallVector<Attribute> transformAttrs;
-    // First coordinate transform
-    TopDownTMBuilder splitIter(b, {"iter"}, {dRepeats * kpackPerThread * kPack},
-                               loc);
-    {
-      if (isKContigousDim) {
-        splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter",
-                        {dRepeats, kpackPerThread, kPack});
-      } else {
-        splitIter.merge({"k_iter", "d_iter", "kpack"}, {0, 1, 2}, "iter",
-                        {kpackPerThread, dRepeats, kPack});
-      }
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    dimensionsToRemove.insert("tid");
+    FailureOr<ArrayAttr> maybeThreadSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
+
+    if (failed(maybeThreadSubTile)) {
+      return failure();
     }
-    TransformMapAttr splitIterAttr = splitIter.get();
-    transformAttrs.push_back(splitIterAttr);
-    // Second coordinate transform
-    TopDownTMBuilder transposeKD =
-        TopDownTMBuilder::below(splitIter, splitIterAttr);
-    {
-      transposeKD.unmerge("K", 0, {"k_iter", "kpack"}, {kpackPerThread, kPack});
-      transposeKD.passThrough({"D"}, {1}, {"d_iter"});
-    }
-    TransformMapAttr transposeKDAttr = transposeKD.get();
-    transformAttrs.push_back(transposeKDAttr);
-    ret.threadSubTile = b.getArrayAttr(transformAttrs);
+    ret.threadSubTile = maybeThreadSubTile.value();
   }
   return ret;
 }
