@@ -195,9 +195,12 @@ static void replaceLoadOrStoreOp(vector::LoadOp loadOp,
                                  vector::LoadOpAdaptor adaptor,
                                  VectorType vectorTy, Value ptr, unsigned align,
                                  ConversionPatternRewriter &rewriter) {
-  rewriter.replaceOpWithNewOp<LLVM::LoadOp>(loadOp, vectorTy, ptr, align,
-                                            /*volatile_=*/false,
-                                            loadOp.getNontemporal());
+  auto llvmLoadOp = rewriter.replaceOpWithNewOp<LLVM::LoadOp>(
+      loadOp, vectorTy, ptr, align,
+      /*volatile_=*/false, loadOp.getNontemporal());
+  llvmLoadOp.setAliasScopes(loadOp.getAliasScopesOrNull());
+  llvmLoadOp.setNoAliasScopes(loadOp.getNoAliasScopesOrNull());
+  llvmLoadOp.setTBAATags(loadOp.getTBAATagsOrNull());
 }
 
 static void replaceLoadOrStoreOp(vector::MaskedLoadOp loadOp,
@@ -212,9 +215,12 @@ static void replaceLoadOrStoreOp(vector::StoreOp storeOp,
                                  vector::StoreOpAdaptor adaptor,
                                  VectorType vectorTy, Value ptr, unsigned align,
                                  ConversionPatternRewriter &rewriter) {
-  rewriter.replaceOpWithNewOp<LLVM::StoreOp>(storeOp, adaptor.getValueToStore(),
-                                             ptr, align, /*volatile_=*/false,
-                                             storeOp.getNontemporal());
+  auto llvmStoreOp = rewriter.replaceOpWithNewOp<LLVM::StoreOp>(
+      storeOp, adaptor.getValueToStore(), ptr, align, /*volatile_=*/false,
+      storeOp.getNontemporal());
+  llvmStoreOp.setAliasScopes(storeOp.getAliasScopesOrNull());
+  llvmStoreOp.setNoAliasScopes(storeOp.getNoAliasScopesOrNull());
+  llvmStoreOp.setTBAATags(storeOp.getTBAATagsOrNull());
 }
 
 static void replaceLoadOrStoreOp(vector::MaskedStoreOp storeOp,
