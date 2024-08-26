@@ -417,39 +417,21 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   }
 
   {
-    // TODO: we can't use "removeUpperDims" because of bug #1562
-    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
     // Create views as threadwise sub-tile of C
-    TopDownTMBuilder splitMemoryCoords(b, {"item"}, {numElements}, loc);
-    splitMemoryCoords.merge(
-        {"i", "j", "vec_group", "vec_item"}, {0, 1, 2, 3}, "item",
-        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
-         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
-    auto toRowsAndCols =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    // "blkMajor" and "blkMinor" are placeholder names because we don't know
-    // if they'll be column or row until we check for broadcast-ness.
-    llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
-        splitMemoryCoords,
-        {{"i", {"m_i", "n_i"}}, {"j", {"blkMajor", "blkMinor"}}});
-    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
-    rowsAndColsWrap.merge(
-        {"m_i", "n_i"}, "i",
-        {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
-    makeViewsForRowsAndCols(toRowsAndCols, mPerRepeat, nPerRepeat,
-                            rowsAndColsIdxs, splitMemoryCoords.endSize("j"),
-                            blocksInOutRegs);
-    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
-    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.unmerge("gemmM", 0,
-                      {mi.name, blkRow.name, vecGroup.name, vecItem.name},
-                      {mi.size, blkRow.size, vecGroup.size, vecItem.size});
-    toMatrixC.unmerge("gemmN", 1, {ni.name, blkCol.name},
-                      {ni.size, blkCol.size});
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
-    ret.threadSubTile = b.getArrayAttr(
-        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    dimensionsToRemove.insert("tid");
+    llvm::errs() << "grid tile = \n";
+    llvm::errs() << ret.gridSubTile << "\n";
+    FailureOr<ArrayAttr> maybeThreadSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
+
+    if (failed(maybeThreadSubTile)) {
+      return failure();
+    }
+    ret.threadSubTile = maybeThreadSubTile.value();
   }
 
   return ret;

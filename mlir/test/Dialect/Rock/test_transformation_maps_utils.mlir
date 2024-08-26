@@ -17,6 +17,7 @@ func.func @transform_ex0_t0(%arg0: memref<4x1x32xf32>) {
   return
 }
 
+// CHECK-LABEL: @transform_unmerge_merge_unmerge_pt
 func.func @transform_unmerge_merge_unmerge_pt(%arg0: memref<4x1x32xf32>) {
   // CHECK: %[[TR1:.+]] = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["B", "A", "C"] at [0, 1, 2] -> ["A", "B", "C"] at [1, 0, 2]>] bounds = [1, 1, 16] -> [1, 1, 16]> : memref<1x1x16xf32> to memref<1x1x16xf32>
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["B", "A", "C"] at [0, 1, 2] -> ["A", "B", "C"] at [1, 0, 2]>] bounds = [1, 4, 32] -> [4, 1, 32]> : memref<4x1x32xf32> to memref<1x4x32xf32>
@@ -30,6 +31,7 @@ func.func @transform_unmerge_merge_unmerge_pt(%arg0: memref<4x1x32xf32>) {
   return
 }
 
+// CHECK-LABEL: @transform_unmerge_merge_pt_unmerge_merge
 func.func @transform_unmerge_merge_pt_unmerge_merge(%arg0: memref<16x16x16xf32>) {
   // CHECK: %[[MERGE:.+]] = rock.transform %arg0 by <affine_map<(d0) -> (d0 floordiv 64, (d0 mod 64) floordiv 16, d0 mod 16)> by [<Merge{2, 4, 16} ["C"] at [0] -> ["C1", "C2", "C3"] at [0, 1, 2]>] bounds = [128] -> [2, 4, 16]> : memref<2x4x16xf32> to memref<128xf32>
   %merge = rock.transform %arg0 by <affine_map<(d0) -> (d0 floordiv (16 * 16), (d0 mod (16 * 16)) floordiv 16, d0 mod 16)> by [<Merge{16, 16, 16} ["C"] at [0] -> ["C1", "C2", "C3"] at [0, 1, 2]>] bounds = [4096] -> [16, 16, 16]> : memref<16x16x16xf32> to memref<4096xf32>
@@ -202,3 +204,15 @@ func.func @transform_ex4_t1(%arg0: memref<1x64x1024xf32>) {
   "remove_dims"(%1) {names_to_drop = ["A", "B", "C"]} : (memref<1x8x1024x64xf32>) -> ()
   return
 }
+
+// CHECK-LABEL: @mfma_thread_subtile
+func.func @mfma_thread_subtile(%arg0: memref<1x64x384xf32>) {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1 * 32 + d3, d2 * 64 + d4)> by [<PassThrough ["g_block"] at [0] -> ["gemmG"] at [0]>, <Unmerge{2, 32} ["m_block", "gemmBlockM"] at [1, 3] -> ["gemmM"] at [1]>, <Unmerge{6, 64} ["n_block", "gemmBlockN"] at [2, 4] -> ["gemmN"] at [2]>] bounds = [1, 2, 6, 32, 64] -> [1, 64, 384]> : memref<1x64x384xf32> to memref<1x2x6x32x64xf32>
+  %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d4 + d3, d5)> by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>, <Unmerge{32, 1} ["m_tid", "m_iter"] at [4, 3] -> ["gemmBlockM"] at [3]>, <PassThrough ["gemmBlockN"] at [5] -> ["gemmBlockN"] at [4]>] bounds = [1, 2, 6, 1, 32, 64] -> [1, 2, 6, 32, 64]> : memref<1x2x6x32x64xf32> to memref<1x2x6x1x32x64xf32>
+  %2 = rock.transform %1 by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, 0, d3, d4)> by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>, <Merge{1, 32} ["gemmBlockM"] at [3] -> ["m_iter", "m_tid"] at [3, 4]>, <PassThrough ["gemmBlockN"] at [4] -> ["gemmBlockN"] at [5]>] bounds = [1, 2, 6, 32, 64] -> [1, 2, 6, 1, 32, 64]> : memref<1x2x6x1x32x64xf32> to memref<1x2x6x32x64xf32>
+  %3 = rock.transform %2 by <affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12) -> (d0, d1, d2, ((d7 * 2 + d3 + d9 + d11) * 4 + d5) * 4 + d12, (d8 * 2 + d4 + d10) * 16 + d6)> by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>, <Unmerge{1, 2, 1, 1, 4, 4} ["m_i", "wave_m", "blk_row", "vec_group", "m_tid", "vec_item"] at [7, 3, 9, 11, 5, 12] -> ["gemmBlockM"] at [3]>, <Unmerge{2, 2, 1, 16} ["n_i", "wave_n", "blk_col", "n_tid"] at [8, 4, 10, 6] -> ["gemmBlockN"] at [4]>] bounds = [1, 2, 6, 2, 2, 4, 16, 1, 2, 1, 1, 1, 4] -> [1, 2, 6, 32, 64]> : memref<1x2x6x32x64xf32> to memref<1x2x6x2x2x4x16x1x2x1x1x1x4xf32>
+  %4 = rock.transform %3 by <affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3 floordiv 2, d3 mod 2, d4, d5, 0, d6, 0, 0, d8, d9)> by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>, <Merge{2, 2} ["wave"] at [3] -> ["wave_m", "wave_n"] at [3, 4]>, <PassThrough ["m_tid", "n_tid"] at [4, 5] -> ["m_tid", "n_tid"] at [5, 6]>, <Merge{1, 2} ["i"] at [6] -> ["m_i", "n_i"] at [7, 8]>, <Merge{1, 1} ["j"] at [7] -> ["blk_row", "blk_col"] at [9, 10]>, <PassThrough ["vec_group", "vec_item"] at [8, 9] -> ["vec_group", "vec_item"] at [11, 12]>] bounds = [1, 2, 6, 4, 4, 16, 2, 1, 1, 4] -> [1, 2, 6, 2, 2, 4, 16, 1, 2, 1, 1, 1, 4]> : memref<1x2x6x2x2x4x16x1x2x1x1x1x4xf32> to memref<1x2x6x4x4x16x2x1x1x4xf32>
+  %5 = rock.transform %4 by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 floordiv 64, (d3 mod 64) floordiv 16, d3 mod 16, d4 floordiv 4, 0, 0, d4 mod 4)> by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>, <Merge{4, 4, 16} ["tid"] at [3] -> ["wave", "m_tid", "n_tid"] at [3, 4, 5]>, <Merge{2, 1, 1, 4} ["item"] at [4] -> ["i", "j", "vec_group", "vec_item"] at [6, 7, 8, 9]>] bounds = [1, 2, 6, 256, 8] -> [1, 2, 6, 4, 4, 16, 2, 1, 1, 4]> : memref<1x2x6x4x4x16x2x1x1x4xf32> to memref<1x2x6x256x8xf32>
+  "remove_dims"(%5) {names_to_drop = ["g_block", "m_block", "n_block", "tid"]} : (memref<1x2x6x256x8xf32>) -> ()
+}
+
