@@ -316,6 +316,36 @@ def Rock_ConvertingCopyKernelOp :
 
 }
 
+def Rock_NoAliasViewOp : Rock_Op<"noalias_view", [Pure, ViewLikeOpInterface]>,
+    Arguments<(ins MemRefRankOf<[I8], [1]>:$source, Index:$byte_shift, Variadic<Index>:$sizes)>,
+    Results<(outs AnyMemRef:$output)> {
+  let summary = "view operation with alias information";
+  let description = [{
+    This is a memref.view with alias information
+    ```
+  }];
+  let extraClassDeclaration = [{
+    /// The result of a view is always a memref.
+    MemRefType getType() { return ::llvm::cast<MemRefType>(getResult().getType()); }
+
+    /// Returns the dynamic sizes for this view operation. This is redundant
+    /// with `sizes` but needed in template implementations. More specifically:
+    /// ```
+    /// template <typename AnyMemRefDefOp>
+    /// bool isMemRefSizeValidSymbol(AnyMemRefDefOp memrefDefOp, unsigned index,
+    ///                              Region *region)
+    /// ```
+    operand_range getDynamicSizes() {
+      return {getSizes().begin(), getSizes().end()};
+    }
+    Value getViewSource() { return getSource(); }
+  }];
+  let assemblyFormat = [{
+    $source `[` $byte_shift `]` `` `[` $sizes `]` attr-dict
+    `:` type($source) `to` type(results)
+  }];
+}
+
 def Rock_TransformOp :
     Rock_Op<"transform", [Pure, ViewLikeOpInterface]>,
     Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,

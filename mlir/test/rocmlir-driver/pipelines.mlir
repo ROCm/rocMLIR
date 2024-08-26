@@ -37,6 +37,7 @@
 // GPU-NEXT:rock-buffer-load-merge,
 // GPU-NEXT:rock-transform-to-memref,
 // GPU-NEXT:rock-emulate-narrow-type,
+// GPU-NEXT:rock-propagate-alias,
 // GPU-NEXT:rock-loops-to-cf),
 // GPU-NEXT:convert-rock-to-gpu)
 

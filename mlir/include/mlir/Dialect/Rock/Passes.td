@@ -161,4 +161,9 @@ def RockReuseLDSPass : Pass<"rock-reuse-lds", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
+def RockPropagateAliasPass : Pass<"rock-propagate-alias", "::mlir::func::FuncOp"> {
+  let summary = "This pass propagates rock.noalias_view into memref.load, memref.store and other operations";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

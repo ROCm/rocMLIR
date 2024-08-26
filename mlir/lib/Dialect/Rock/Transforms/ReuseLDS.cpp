@@ -354,7 +354,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
                << "allocating " << size << " bytes, color: " << color << "\n");
   }
 
-  // Replace all GpuAllocs as ViewOps
+  // Replace all GpuAllocs as NoAliasViewOps
   for (auto allocTuple : allocOffsets) {
     GpuAllocOp alloc;
     int64_t color, offset;
@@ -396,8 +396,8 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     auto newViewType =
         MemRefType::get({numElements}, rewriter.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
-    rewriter.replaceOpWithNewOp<memref::ViewOp>(alloc, newViewType, newAlloc,
-                                                byteOffset, ValueRange{});
+    rewriter.replaceOpWithNewOp<NoAliasViewOp>(alloc, newViewType, newAlloc,
+                                               byteOffset, ValueRange{});
 
     // add barrier if needed
     if (useLDSBarrier) {
