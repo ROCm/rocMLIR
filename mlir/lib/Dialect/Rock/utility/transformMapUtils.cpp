@@ -2025,7 +2025,8 @@ FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
         SmallVector<int64_t> subDimStrides = getStrides(tr.getParams());
         SmallVector<SubDimInfo> relevantSubDims;
         assert(preservedUpperDims.size() == 1);
-        LLVM_DEBUG(llvm::dbgs() << "preservedUpperDim = " << preservedUpperDims[0] << "\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "preservedUpperDim = " << preservedUpperDims[0] << "\n");
         for (size_t subDim = 0; subDim < tr.getParams().size(); subDim++) {
           int64_t lowDim = tr.getLowerDims()[subDim];
           for (const SubDimInfo &removedSubDimInfo :
@@ -2122,7 +2123,6 @@ FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
         .append(getDifference<DimType::Lower>(tr, args));
   }
   removedSubDims = newRemovedSubDims;
-
 
   // todo: use vector instead of set
   // update remove indices set
