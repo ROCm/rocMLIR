@@ -45,28 +45,20 @@ struct RockPropagateAliasPass
 
 // Trace a pointer value back to its function argument. Only returns arguments
 // of pointer type that are of flat or global type.
-static BlockArgument traceToArg(Value pointer, func::FuncOp func,
+static BlockArgument traceToArg(Value memref, func::FuncOp func,
                                 DenseMap<Value, BlockArgument> &cache) {
-  auto cached = cache.find(pointer);
+  auto cached = cache.find(memref);
   if (cached != cache.end())
     return cached->second;
   BlockArgument res = nullptr;
-  if (auto cast = pointer.getDefiningOp<LLVM::AddrSpaceCastOp>())
-    res = traceToArg(cast.getArg(), func, cache);
-  else if (auto asBuffer = pointer.getDefiningOp<ROCDL::MakeBufferRsrcOp>())
-    res = traceToArg(asBuffer.getBase(), func, cache);
-  else if (auto gep = pointer.getDefiningOp<LLVM::GEPOp>())
-    res = traceToArg(gep.getBase(), func, cache);
-  else if (auto arg = dyn_cast<BlockArgument>(pointer)) {
-    auto ptrType = dyn_cast<LLVM::LLVMPointerType>(arg.getType());
-    unsigned addrSpace = ~0;
-    if (ptrType)
-      addrSpace = ptrType.getAddressSpace();
-    if (arg.getOwner() == &func.front() && (addrSpace == 0 || addrSpace == 1))
+  if (auto cast = memref.getDefiningOp<memref::MemorySpaceCastOp>())
+    res = traceToArg(cast.getSource(), func, cache);
+  else if (auto arg = dyn_cast<BlockArgument>(memref)) {
+    if (arg.getOwner() == &func.front())
       res = arg;
   }
 
-  cache.insert({pointer, res});
+  cache.insert({memref, res});
   return res;
 }
 
@@ -162,16 +154,16 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
       // We will make the simplyfying assumption that the first pointer-valued
       // operand to the operation is the pointer being accessed.
       Operation *aliasOp = aliasIface.getOperation();
-      Value ptrArg;
+      Value memref;
       for (Value arg : aliasOp->getOperands()) {
-        if (isa<LLVM::LLVMPointerType>(arg.getType())) {
-          ptrArg = arg;
+        if (isa<MemRefType>(arg.getType())) {
+          memref = arg;
           break;
         }
       }
-      if (!ptrArg)
+      if (!memref)
         return;
-      BlockArgument funcArg = traceToArg(ptrArg, func, cache);
+      BlockArgument funcArg = traceToArg(memref, func, cache);
       if (!funcArg)
         return;
       unsigned argNo = funcArg.getArgNumber();
