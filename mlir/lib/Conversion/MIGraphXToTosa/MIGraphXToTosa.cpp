@@ -837,8 +837,11 @@ struct SoftmaxConverter final
 };
 } // namespace
 
-// MIGraphX pseudo code:
-// output[i] = static_cast<T>(input[i] - zero_pts[i]) * scales[i];
+// MIGraphX implements:
+// Let T = scale element type
+// output[i] = (convert<T>(input[i]) - convert<T>(zero_pts[i])) * scales[i];
+// For f32, this matches ONNX reference, dequantizing to f16, if it's ever done
+// will be less precise than the reference but that's probably fine.
 LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
     migraphx::DeQuantizeLinearOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
@@ -847,34 +850,25 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
   Value output = op.getOutput();
   Location loc = op->getLoc();
 
-  Value shifted = input;
+  Type outputType = getShapedElementTy(output);
+  Value upcastInput = createCastOp(rewriter, loc, outputType, input);
+
+  Value shifted = upcastInput;
   if (auto bias = adaptor.getBias()) {
-    Type inElemTy = getShapedElementTy(input);
-    Type biasElemTy = getShapedElementTy(bias);
-    Type elementType =
-        inElemTy.getIntOrFloatBitWidth() <= biasElemTy.getIntOrFloatBitWidth()
-            ? biasElemTy
-            : inElemTy;
-    if (inElemTy != elementType)
-      input = createCastOp(rewriter, loc, elementType, shifted);
-    if (biasElemTy != elementType)
-      bias = createCastOp(rewriter, loc, elementType, bias);
-    shifted =
-        createOpAndInfer<tosa::SubOp>(rewriter, loc, elementType, input, bias);
+    Value upcastBias = createCastOp(rewriter, loc, outputType, bias);
+    shifted = createOpAndInfer<tosa::SubOp>(rewriter, loc, outputType,
+                                            upcastInput, upcastBias);
   }
 
-  Type outputType = getShapedElementTy(output);
-  Value upCast = createCastOp(rewriter, loc, outputType, shifted);
-
   Value scaled = createOpAndInfer<tosa::MulOp>(rewriter, loc, outputType,
-                                               upCast, scale, /*shift=*/0);
+                                               shifted, scale, /*shift=*/0);
 
   rewriter.replaceOp(op, scaled);
   return success();
 }
 
 // MIGraphX pseudo code:
-// int64_t quantized = static_cast<int32>(
+// int32_t quantized = static_cast<int32>(
 //      std::round(input[i] / scales[i])) + zero_pts[i];
 // output[i] = std::max(-128, std::min(127, quantized));
 LogicalResult QuantizeLinearConverter::matchAndRewrite(
