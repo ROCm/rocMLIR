@@ -27,6 +27,8 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 include "mlir/IR/BuiltinAttributes.td"
+include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
+include "mlir/Dialect/LLVMIR/LLVMInterfaces.td"
 
 // TODO: Add an attribute to specify a different algebra with operators other
 // than the current set: {*, +}.
@@ -1756,7 +1758,7 @@ def Vector_TransferWriteOp :
   let hasVerifier = 1;
 }
 
-def Vector_LoadOp : Vector_Op<"load"> {
+def Vector_LoadOp : Vector_Op<"load", [DeclareOpInterfaceMethods<AliasAnalysisOpInterface>]> {
   let summary = "reads an n-D slice of memory into an n-D vector";
   let description = [{
     The 'vector.load' operation reads an n-D slice of memory into an n-D
@@ -1821,8 +1823,21 @@ def Vector_LoadOp : Vector_Op<"load"> {
   let arguments = (ins Arg<AnyMemRef, "the reference to load from",
       [MemRead]>:$base,
       Variadic<Index>:$indices,
-      DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal);
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+      OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
   let results = (outs AnyVectorOfAnyRank:$result);
+
+  let builders = [
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$base, "ValueRange":$indices,
+    "bool":$nontemporal), [{
+      return build($_builder, $_state, resultTypes, base, indices, nontemporal, nullptr, nullptr, nullptr);
+    }]>,
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$base, "ValueRange":$indices), [{
+      return build($_builder, $_state, resultTypes, base, indices, false, nullptr, nullptr, nullptr);
+    }]>
+  ];
 
   let extraClassDeclaration = [{
     MemRefType getMemRefType() {
@@ -1841,7 +1856,7 @@ def Vector_LoadOp : Vector_Op<"load"> {
       "$base `[` $indices `]` attr-dict `:` type($base) `,` type($result)";
 }
 
-def Vector_StoreOp : Vector_Op<"store"> {
+def Vector_StoreOp : Vector_Op<"store", [DeclareOpInterfaceMethods<AliasAnalysisOpInterface>]> {
   let summary = "writes an n-D vector to an n-D slice of memory";
   let description = [{
     The 'vector.store' operation writes an n-D vector to an n-D slice of memory.
@@ -1906,8 +1921,28 @@ def Vector_StoreOp : Vector_Op<"store"> {
       Arg<AnyMemRef, "the reference to store to",
       [MemWrite]>:$base,
       Variadic<Index>:$indices,
-      DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+      OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa
   );
+  
+  let builders = [
+    OpBuilder<(ins "Value":$value, "Value":$base, "ValueRange":$indices, 
+      "bool":$nontemporal), [{
+        return build($_builder, $_state, value, base, indices, nontemporal, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "Value":$value, "Value":$base, "ValueRange":$indices), [{
+        return build($_builder, $_state, value, base, indices, false, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$value, "Value":$base, "ValueRange":$indices, 
+      "bool":$nontemporal), [{
+        return build($_builder, $_state, resultTypes, value, base, indices, nontemporal, nullptr, nullptr, nullptr);
+      }]>,
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$value, "Value":$base, "ValueRange":$indices), [{
+        return build($_builder, $_state, resultTypes, value, base, indices, false, nullptr, nullptr, nullptr);
+      }]>
+    ];
 
   let extraClassDeclaration = [{
     MemRefType getMemRefType() {

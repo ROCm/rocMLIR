@@ -6660,3 +6660,7 @@ Value mlir::vector::selectPassthru(OpBuilder &builder, Value mask,
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Vector/IR/VectorOps.cpp.inc"
+
+SmallVector<Value> LoadOp::getAccessedOperands() { return {getBase()}; }
+
+SmallVector<Value> StoreOp::getAccessedOperands() { return {getBase()}; }
