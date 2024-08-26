@@ -21,6 +21,7 @@
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Rock/Passes.h"
 
 namespace mlir {
@@ -41,6 +42,33 @@ struct RockPropagateAliasPass
   void runOnOperation() override;
 };
 } // end anonymous namespace
+
+// Trace a pointer value back to its function argument. Only returns arguments
+// of pointer type that are of flat or global type.
+static BlockArgument traceToArg(Value pointer, func::FuncOp func,
+                                DenseMap<Value, BlockArgument> &cache) {
+  auto cached = cache.find(pointer);
+  if (cached != cache.end())
+    return cached->second;
+  BlockArgument res = nullptr;
+  if (auto cast = pointer.getDefiningOp<LLVM::AddrSpaceCastOp>())
+    res = traceToArg(cast.getArg(), func, cache);
+  else if (auto asBuffer = pointer.getDefiningOp<ROCDL::MakeBufferRsrcOp>())
+    res = traceToArg(asBuffer.getBase(), func, cache);
+  else if (auto gep = pointer.getDefiningOp<LLVM::GEPOp>())
+    res = traceToArg(gep.getBase(), func, cache);
+  else if (auto arg = dyn_cast<BlockArgument>(pointer)) {
+    auto ptrType = dyn_cast<LLVM::LLVMPointerType>(arg.getType());
+    unsigned addrSpace = ~0;
+    if (ptrType)
+      addrSpace = ptrType.getAddressSpace();
+    if (arg.getOwner() == &func.front() && (addrSpace == 0 || addrSpace == 1))
+      res = arg;
+  }
+
+  cache.insert({pointer, res});
+  return res;
+}
 
 // Trace a memref value back to its NoAliasViewOp. Only returns arguments
 // of pointer type that are of flat or global type.
@@ -78,6 +106,35 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
     views.push_back(viewOp);
   });
 
+  LLVM_DEBUG(llvm::dbgs() << "Found " << func.getNumArguments()
+                          << " function arguments\n");
+  llvm::SmallDenseMap<size_t, ArrayAttr> argAliasScopes;
+  for (size_t i = 0; i < func.getNumArguments(); ++i) {
+    if (isa<MemRefType>(func.getArgument(i).getType())) {
+      auto aliasScope = LLVM::AliasScopeAttr::get(
+          domain, rewriter.getStringAttr("arg" + Twine(i)));
+      argAliasScopes[i] = rewriter.getArrayAttr(aliasScope);
+    }
+  }
+
+  llvm::SmallDenseMap<size_t, ArrayAttr> argNoaliasScopes;
+  argNoaliasScopes.reserve(argAliasScopes.size());
+  {
+    SmallVector<Attribute> allButOneScope;
+    allButOneScope.reserve(argAliasScopes.size());
+    for (auto [arg, _] : argNoaliasScopes) {
+      for (auto [secondArg, aliasInfo] : argNoaliasScopes) {
+        if (arg != secondArg)
+          allButOneScope.push_back(aliasInfo[0]);
+      }
+      for (auto [_, scope] : aliasScopes) {
+        allButOneScope.push_back(scope[0]);
+      }
+      argNoaliasScopes[arg] = rewriter.getArrayAttr(allButOneScope);
+      allButOneScope.clear();
+    }
+  }
+
   llvm::SmallDenseMap<NoAliasViewOp, ArrayAttr> noaliasScopes;
   size_t n = aliasScopes.size();
   LLVM_DEBUG(llvm::dbgs() << "Found " << n << " NoAliasViewOp\n");
@@ -90,33 +147,61 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
         if (view != secondView)
           allButOneScope.push_back(aliasInfo[0]);
       }
+      for (auto [_, argScope] : argAliasScopes) {
+        allButOneScope.push_back(argScope[0]);
+      }
       noaliasScopes[view] = rewriter.getArrayAttr(allButOneScope);
       allButOneScope.clear();
     }
   }
 
-  llvm::DenseMap<Value, NoAliasViewOp> cache;
-  // The alias analysis interface will pick up all ops that write or load
-  func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
-    // We will make the simplyfying assumption that the first pointer-valued
-    // operand to the operation is the pointer being accessed.
-    Operation *aliasOp = aliasIface.getOperation();
-    Value memref;
-    // TODO: not a valid assumption
-    for (Value arg : aliasOp->getOperands()) {
-      if (isa<MemRefType>(arg.getType())) {
-        memref = arg;
-        break;
+  {
+    llvm::DenseMap<Value, BlockArgument> cache;
+    // The alias analysis interface will pick up all ops that write or load
+    func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
+      // We will make the simplyfying assumption that the first pointer-valued
+      // operand to the operation is the pointer being accessed.
+      Operation *aliasOp = aliasIface.getOperation();
+      Value ptrArg;
+      for (Value arg : aliasOp->getOperands()) {
+        if (isa<LLVM::LLVMPointerType>(arg.getType())) {
+          ptrArg = arg;
+          break;
+        }
       }
-    }
-    if (!memref)
-      return;
-    NoAliasViewOp viewOp = traceToNoAliasView(memref, cache);
-    if (!viewOp)
-      return;
-    aliasIface.setAliasScopes(aliasScopes[viewOp]);
-    aliasIface.setNoAliasScopes(noaliasScopes[viewOp]);
-  });
+      if (!ptrArg)
+        return;
+      BlockArgument funcArg = traceToArg(ptrArg, func, cache);
+      if (!funcArg)
+        return;
+      unsigned argNo = funcArg.getArgNumber();
+      aliasIface.setAliasScopes(argAliasScopes[argNo]);
+      aliasIface.setNoAliasScopes(argNoaliasScopes[argNo]);
+    });
+  }
+
+  {
+    llvm::DenseMap<Value, NoAliasViewOp> cache;
+    // The alias analysis interface will pick up all ops that write or load
+    func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
+      // We will make the simplyfying assumption that the last pointer-valued
+      // operand to the operation is the pointer being accessed.
+      Operation *aliasOp = aliasIface.getOperation();
+      Value memref;
+      for (Value arg : aliasOp->getOperands()) {
+        if (isa<MemRefType>(arg.getType())) {
+          memref = arg;
+        }
+      }
+      if (!memref)
+        return;
+      NoAliasViewOp viewOp = traceToNoAliasView(memref, cache);
+      if (!viewOp)
+        return;
+      aliasIface.setAliasScopes(aliasScopes[viewOp]);
+      aliasIface.setNoAliasScopes(noaliasScopes[viewOp]);
+    });
+  }
 
   // finally, rewrite NoAliasViewOp as ViewOp
   for (NoAliasViewOp view : views) {

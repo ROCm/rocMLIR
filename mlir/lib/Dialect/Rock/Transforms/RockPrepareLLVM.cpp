@@ -144,36 +144,36 @@ void RockPrepareLLVMPass::runOnOperation() {
   size_t n = func.getNumArguments();
   llvm::SmallBitVector isReadonly(n);
   // All this alias scope stuff can be removed if the backend fixes things.
-  auto domain =
-      b.getAttr<LLVM::AliasScopeDomainAttr>(b.getStringAttr(func.getSymName()));
-  llvm::SmallVector<ArrayAttr> aliasScopes;
-  aliasScopes.reserve(n);
-  llvm::SmallVector<ArrayAttr> noaliasScopes;
-  noaliasScopes.reserve(n);
-  for (size_t i = 0; i < n; ++i) {
-    if (func.getArgAttr(i, LLVM::LLVMDialect::getReadonlyAttrName()))
-      isReadonly[i] = true;
-    if (!isa<LLVM::LLVMPointerType>(func.getArgument(i).getType())) {
-      aliasScopes.push_back(nullptr);
-      continue;
-    }
-    auto aliasScope =
-        LLVM::AliasScopeAttr::get(domain, b.getStringAttr("arg" + Twine(i)));
-    aliasScopes.push_back(b.getArrayAttr(aliasScope));
-  }
-  {
-    SmallVector<Attribute> allButOneScope;
-    allButOneScope.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-      for (auto [j, val] : llvm::enumerate(aliasScopes)) {
-        if (j != i && val)
-          allButOneScope.push_back(val[0]);
-      }
-      noaliasScopes.push_back(b.getArrayAttr(allButOneScope));
-      allButOneScope.clear();
-      LLVM_DEBUG(llvm::dbgs() << noaliasScopes.back() << "\n");
-    }
-  }
+  // auto domain =
+  //     b.getAttr<LLVM::AliasScopeDomainAttr>(b.getStringAttr(func.getSymName()));
+  // llvm::SmallVector<ArrayAttr> aliasScopes;
+  // aliasScopes.reserve(n);
+  // llvm::SmallVector<ArrayAttr> noaliasScopes;
+  // noaliasScopes.reserve(n);
+  // for (size_t i = 0; i < n; ++i) {
+  //   if (func.getArgAttr(i, LLVM::LLVMDialect::getReadonlyAttrName()))
+  //     isReadonly[i] = true;
+  //   if (!isa<LLVM::LLVMPointerType>(func.getArgument(i).getType())) {
+  //     aliasScopes.push_back(nullptr);
+  //     continue;
+  //   }
+  //   auto aliasScope =
+  //       LLVM::AliasScopeAttr::get(domain, b.getStringAttr("arg" + Twine(i)));
+  //   aliasScopes.push_back(b.getArrayAttr(aliasScope));
+  // }
+  // {
+  //   SmallVector<Attribute> allButOneScope;
+  //   allButOneScope.reserve(n);
+  //   for (size_t i = 0; i < n; ++i) {
+  //     for (auto [j, val] : llvm::enumerate(aliasScopes)) {
+  //       if (j != i && val)
+  //         allButOneScope.push_back(val[0]);
+  //     }
+  //     noaliasScopes.push_back(b.getArrayAttr(allButOneScope));
+  //     allButOneScope.clear();
+  //     LLVM_DEBUG(llvm::dbgs() << noaliasScopes.back() << "\n");
+  //   }
+  // }
   llvm::DenseMap<Value, BlockArgument> toArgCache;
 
   // The alias analysis interface will pick up ROCDL buffer ops and the native
@@ -201,8 +201,8 @@ void RockPrepareLLVMPass::runOnOperation() {
     unsigned argNo = funcArg.getArgNumber();
     if (auto load = dyn_cast<LLVM::LoadOp>(aliasOp))
       load.setInvariant(isReadonly[argNo]);
-    aliasIface.setAliasScopes(aliasScopes[argNo]);
-    aliasIface.setNoAliasScopes(noaliasScopes[argNo]);
+    // aliasIface.setAliasScopes(aliasScopes[argNo]);
+    // aliasIface.setNoAliasScopes(noaliasScopes[argNo]);
   });
 
   // 3. Relax atomics. We set the atomic order on read-modify-write
