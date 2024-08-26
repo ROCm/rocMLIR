@@ -38,7 +38,6 @@ config.substitutions.append(('%pv', config.populate_validation))
 
 llvm_config.with_system_environment(
     ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
-llvm_config.with_environment('AMD_LOG_LEVEL', '7')
 
 ##############
 # FIXME: adding a path to the environment isn't appearing to work as

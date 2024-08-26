@@ -185,7 +185,7 @@ String getLabelFromCodepath(String codepath) {
     } else if (codepath == "vanilla"){
         label = 'mlir'
     } else if (codepath == "navi3x") {
-        label = 'mlir && gfx1100 && aus-navi3x-07.amd.com'
+        label = 'mlir && gfx1101'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -209,7 +209,7 @@ String getLabelFromChip(String chip) {
             // fix the vm-5 workstation for testing
             return "mlir && vm-5"
         case "gfx1100":
-            return "mlir && gfx1100 && aus-navi3x-07.amd.com"
+            return "mlir && gfx1100"
         case "gfx1101":
             return "mlir && gfx1101"
     }
@@ -222,12 +222,14 @@ def rebootNode() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
+    llvm_lit_log_level = '-v'
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
     }
     // Filter out dense_output_bf16.mlir for navi3x codepath as a workaround for issue#1023
     filter_out_tests = false
     if ( codepath == 'navi3x') {
+        llvm_lit_log_level = '-va'
         filter_out_tests = true
     }
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
@@ -235,7 +237,7 @@ void build_fixedE2ETests(String codepath) {
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='-va --time-tests ${ limit_lit_workers ? '-j 8' : ' ' } ${ filter_out_tests ? '--filter-out=dense_output_bf16.mlir' : ' '}'
+              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests ${ limit_lit_workers ? '-j 8' : ' ' } ${ filter_out_tests ? '--filter-out=dense_output_bf16.mlir' : ' '}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
@@ -254,6 +256,7 @@ void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
      """)
 }
 
+
 void check_RockE2ETests_Navi3x(boolean fixed) {
 
     // Run PR CI tests; Skip Static Test on Novi3x
@@ -263,7 +266,7 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                  -DROCK_E2E_TEST_ENABLED=0
                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                 -DLLVM_LIT_ARGS='-va --time-tests --filter-out=dense_output_bf16.mlir -j 4'
+                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 4'
                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
          """)
          echo "Static Test step skipped"
@@ -291,8 +294,13 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
+    llvm_lit_log_level='-v'
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
+    }
+    if ( (codepath == 'navi3x') && (params.nightly == true) ) {
+        limit_lit_workers = true
+        llvm_lit_log_level='-va'
     }
     buildProject('check-rocmlir', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
@@ -300,7 +308,7 @@ void check_randomE2ETests(String codepath) {
               -DROCK_E2E_TEST_ENABLED=1
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='-va --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
+              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
@@ -388,15 +396,16 @@ boolean shouldRunBuildAndTest(String codepath) {
     }
 }
 
+
 pipeline {
     agent none
     parameters {
         // Below should be set statically by Jenkins job
-        booleanParam(name: 'nightly', defaultValue: true,
+        booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
                      description: 'Run extra nightly-only tests')
         booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
                      description: 'Can this CI instance use xdlops (no for public server)')
-        booleanParam(name: 'weekly', defaultValue: false,
+        booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
                      description: 'Run weekly-only jobs')
         // Temporary change to MIGraphX branch because of upstream merge.
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
@@ -405,6 +414,7 @@ pipeline {
             description: 'The Composable Kernel branch to be used with the job')
         string(name: 'rocMLIRTargetBranch', defaultValue: 'origin/develop',
             description: 'The target branch the PR is intended to merge with')
+
 
         // Each below control whether to run a individual stage from parallel run
         // They default to true or empty but deverloper can toggle them for debugging purpose
@@ -423,7 +433,7 @@ pipeline {
 
         // choose the codepath for testing
         choice(name: 'codepath',
-               choices: ['navi3x'],
+               choices: ['default', 'mfma', 'navi21', 'navi3x', 'vanilla'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
         booleanParam(name: 'disableNavi21', defaultValue: true,
@@ -473,7 +483,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'navi3x'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x'
                     }
                 }
                 agent {
@@ -541,6 +551,61 @@ pipeline {
                             }
                         }
                     }
+                    stage("Tune selected rocmlir configs") {
+                        when {
+                            beforeAgent true;
+                            equals expected: true, actual: params.sharedLib;
+                            equals expected: false, actual: params.nightly;
+                        }
+                        steps {
+                            buildProject('ci-performance-scripts', '')
+                            // How to check out into specific directory, according to stackoverflow.
+                            dir('MITuna') {
+                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                            }
+                            dir('build') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    // Tune gemms, fail if the DB is not created
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                          [ -f tuning_gemm.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                          [ -f tuning_conv.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                          [ -f tuning_attention.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                          [ -f quick_tuning_gemm.tsv ]"""
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                          [ -f quick_tuning_conv.tsv ]"""
+                                }
+                            }
+                        }
+                    }
+                    stage("Static Library: build rocMLIR packages") {
+                        when {
+                            beforeAgent true;
+                            equals expected: true, actual: params.staticLib;
+                            equals expected: false, actual: params.nightly;
+                        }
+                        steps {
+                            sh 'rm -f build/CMakeCache.txt'
+                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                            preMergeCheckPackage("${CODEPATH}")
+                            echo "Running tests on the newly-built static library"
+                            dir ('build') {
+                                sh 'ninja check-rocmlir'
+                            }
+                        }
+                    }
                 }
                 post {
                     unsuccessful {
@@ -552,5 +617,541 @@ pipeline {
                 }
             }
         }
+        stage ("Parameter sweeps") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.weekly;
+                equals expected: true, actual: params.sharedLib;
+                anyOf {
+                    equals expected: "default", actual: params.weeklyTasks;
+                    equals expected: "parameterSweeps", actual: params.weeklyTasks;
+               }
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CODEPATH'
+                        values 'mfma', 'vanilla', 'navi21'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("$CODEPATH") }
+                }
+                environment {
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Prepare Performance Scripts") {
+                        steps {
+                            setHeartbeat()
+                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                        }
+                    }
+                    stage("Parameter Sweep") {
+                        steps {
+                            parameterSweep("conv_structure", "${CODEPATH}")
+                            parameterSweep("perf_config", "${CODEPATH}")
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+        stage ("Tune MLIR kernels") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.weekly;
+                equals expected: true, actual: params.staticLib;
+                anyOf {
+                    equals expected: "default", actual: params.weeklyTasks;
+                    equals expected: "Tuning", actual: params.weeklyTasks;
+               }
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'ARCH'
+                        values 'gfx908', 'gfx90a', 'gfx1030'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromChip("${ARCH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromChip("${ARCH}") }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage("Set System Property on Lockhart nodes") {
+                        when {
+                            equals expected: "gfx90a", actual: "${ARCH}"
+                        }
+                        steps {
+                            setHeartbeat()
+                        }
+                    }
+                    stage("Environment") {
+                        steps {
+                            echo "ARCH = ${ARCH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Tune rocMLIR") {
+                        steps {
+                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                            dir('MITuna') {
+                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                            }
+                            dir('build') {
+                                // Tune gemms with default datatypes, fail if the DB is not created
+                                // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                        -c ../mlir/utils/performance/gemm-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv
+                                      [ -f mlir_tuning_${ARCH}.tsv ]"""
+                                // Tune resnet50 and unet configs
+                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                        -c ../mlir/utils/performance/conv-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
+                                // Tune attention configs
+                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                        -c ../mlir/utils/performance/attention-configs \
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
+                                // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+                                // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                        -c ../mlir/utils/performance/gemm-configs -s quick \
+                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
+                                      [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
+                                // Tune resnet50 and unet configs (quick tuning)
+                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                        -c ../mlir/utils/performance/conv-configs -s quick \
+                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
+                            }
+                        }
+                    }
+                    stage("Tune Fusion") {
+                        steps {
+                            dir('build') {
+                                // Tune resnet50
+                                sh """python3 ./bin/tuningRunner.py --op fusion \
+--test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${ARCH}.tsv"""
+
+                                // Tune bert
+                                sh """python3 ./bin/tuningRunner.py --op fusion \
+--test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv"""
+                            }
+                            sh 'rm -f build/CMakeCache.txt'
+                        }
+                    }
+                    stage("Stash Databases") {
+                        steps {
+                            // Save user database for nightly jobs
+                            dir ('build') {
+                                stash name: "MLIR-PerfDB-${params.canXdlops ? ARCH : 'vanilla'}", includes: "*.tsv"
+                            }
+                        }
+                    }
+                }
+                post {
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+        stage("Archive weekly tuning perfDB") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.weekly;
+                equals expected: true, actual: params.staticLib;
+                anyOf {
+                    equals expected: "default", actual: params.weeklyTasks;
+                    equals expected: "Tuning", actual: params.weeklyTasks;
+               }
+            }
+            agent { label 'build-only' }
+            options {
+                skipDefaultCheckout()
+            }
+            steps {
+                archivePerfDB()
+            }
+            post {
+                always {
+                    cleanWs()
+                }
+            }
+        }
+        // FIXME: run perf tests on both gfx90a and gfx908
+        stage("Benchmark and Report Performance") {
+            matrix {
+                axes {
+                    axis {
+                        name 'CHIP'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'
+                    }
+                }
+                when {
+                    beforeAgent true;
+                    equals expected: true, actual: params.perfTest;
+                    equals expected: true, actual: params.nightly;
+                    expression { return shouldRunFromChip("${CHIP}")}
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromChip("${CHIP}")
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage("Environment") {
+                        steps {
+                            echo "chip is ${CHIP}"
+                            showEnv()
+                        }
+                    }
+                    stage("Copy tuning database") {
+                        steps {
+                            copyArtifacts filter: 'build/perfDB/**',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/MLIR/mlir-weekly",\
+                                selector: lastSuccessful(),\
+                                target: 'build'
+                                sh 'ls build'
+                                sh 'cat build/tuning-date'
+                        }
+                    }
+                    stage("Build MLIR") {
+                        steps {
+                            // Clean up build settings to disable static library and allow
+                            // ROCm testing
+                            buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
+                                         ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                            -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
+                        }
+                    }
+                    stage("Copy earlier performance results") {
+                        steps {
+                            copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/${JOB_NAME}",\
+                                selector: lastSuccessful(),\
+                                target: 'build/oldData'
+                        }
+                    }
+                    stage("Test MLIR vs MIOpen/rocBLAS") {
+                        steps {
+                            dir('build') {
+                                sh 'date --utc +%Y-%m-%d > perf-run-date'
+                                // Run MLIR vs MIOpend perf benchmarks.
+                                sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                       --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                // Run MLIR vs rocBLAS perf benchmarks
+                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                       --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                            }
+                        }
+                    }
+                    stage("Test Fusion") {
+                        steps {
+                            dir('build') {
+                                // Run fusion resnet50 perf benchmarks
+                                sh """python3 ./bin/perfRunner.py --op=fusion \
+          --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                // Run bert perf benchmarks
+                                sh """python3 ./bin/perfRunner.py --op fusion \
+          --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                            }
+                        }
+                    }
+                    stage("Test Attention") {
+                        steps {
+                            dir('build') {
+                                // Run attention benchmarks
+                                sh """python3 ./bin/perfRunner.py --op=attention -b \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/attention-configs \
+                                       --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                            }
+                        }
+                    }
+                    stage("Test MLIR vs CK") {
+                        when {
+                            beforeAgent true;
+                            equals expected: true, actual: params.checkCK;
+                        }
+                        steps {
+                            catchError (buildResult: null) { // This is an optional stage
+                                dir('composable_kernel') {
+                                    sh 'rm -rf composable_kernel'
+                                    getAndBuildCK('''
+                                        -DGPU_TARGETS=${CHIP}
+                                        -DCMAKE_CXX_FLAGS="-O3"
+                                        -DCMAKE_PREFIX_PATH="/opt/rocm"
+                                        -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                        -DCMAKE_BUILD_TYPE=Release
+                                        ''')
+                                    sh 'cd build; make install'
+                                    sh 'echo `git rev-parse HEAD`'
+                                }
+                                sh 'rm -f build/CMakeCache.txt'
+                                buildProject("ck-benchmark-driver",
+                                             '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+
+                                dir('build') {
+                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
+                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                    sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                }
+                            }
+                        }
+                    }
+                    stage("Create performance reports") {
+                        steps {
+                            dir('build') {
+                                sh 'ls -l'
+                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
+                                sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
+                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
+                                sh 'mkdir -p reports && cp ./*.html reports'
+                            }
+                            postProcessPerfRes("${CHIP}")
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+        stage ("MIGraphX") {
+            when {
+                beforeAgent true;
+                anyOf {
+                    equals expected: true, actual: params.checkMIGraphX;
+                    equals expected: true, actual: params.nightly;
+                }
+            }
+            matrix {
+                axes {
+                    axis {
+                        // Disabling MIGraphX build stage for gfx906 (vanilla) as it is deprecated.
+                        name 'CODEPATH'
+                        values 'mfma', 'navi21'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImageCIMIGraphX()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("$CODEPATH") }
+                }
+                environment {
+                    HOME="${WORKSPACE}"
+                    PYTHONPATH="${WORKSPACE}/MIGraphX/build/lib:$PYTHONPATH"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Install MIGraphX Dependencies") {
+                        steps {
+                            // Package and install current checkout of rocMLIR as MIGraphX dependency.
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
+                        }
+                    }
+                    stage("Build MIGraphX with MLIR") {
+                        steps {
+                            script {
+                                def gpu_arch = get_gpu_architecture()
+                                sh 'rm -rf MIGraphX'
+                                dir('MIGraphX') {
+                                    getAndBuildMIGraphX("""
+                                                    -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
+                                                    -DMIGRAPHX_ENABLE_MLIR=On
+                                                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                    -DMIGRAPHX_USE_HIPRTC=Off
+                                                    -DGPU_TARGETS="${gpu_arch}"
+                                                    """)
+                                }
+                            }
+                        }
+                    }
+                    stage("Verify MIGraphX with MLIR") {
+                        steps {
+                            dir('MIGraphX/build') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    withEnv(['MIGRAPHX_ENABLE_MLIR=1']) {
+                                        // Verify MLIR unit tests
+                                        sh 'make -j$(nproc) driver test_gpu_mlir'
+                                        sh 'ctest -R test_gpu_mlir'
+                                        // Verify ResNet50, Bert, Gpt2
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                    }
+                                }
+                            }
+                            //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
+                            dir('MIGraphX/tools/accuracy') {
+                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
+                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
+                            }
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+
+        stage ("Code coverage") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.runCodeCoverage;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CPATH'
+                        values 'mfma'           // 'navi3x' or hypothetical 'wmma' if needed
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CPATH}")
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                    // Note the %m to avoid issues with threads and dynamic libraries.
+                    LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
+                    LLVM_PROFDATA="/opt/rocm/llvm/bin/llvm-profdata"
+                    LLVM_COV="/opt/rocm/llvm/bin/llvm-cov"
+                }
+                stages {
+                    stage ("body") {
+                        steps {
+                            // Build with profiling on, and just code-generation tests.
+                            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE',
+                                       message: 'Code coverage stage had an error or timeout.') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    sh 'rm -f build/CMakeCache.txt'
+                                    sh 'rm -f build/*.profraw'
+                                    buildProject('check-rocmlir-build-only',
+                                                 '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                    dir ('build') {
+                                        // Run tests.
+                                        sh 'ninja check-rocmlir'
+                                        // Profile processing.
+                                        sh "${LLVM_PROFDATA} merge -sparse ./*.profraw -o ./coverage.profdata"
+                                        sh "${LLVM_COV} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
+                                        sh "cat ./coverage_${CPATH}.report"
+                                        sh "${LLVM_COV} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
+                                        sh "${LLVM_COV} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
+                                        // Upload to codecov.
+                                        withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
+                                            sh '''
+                                               curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                               proxy_opt=""
+                                               if [ -n "${http_proxy}" ]; then
+                                                   proxy_opt="-U ${http_proxy}"
+                                               fi
+                                               ./codecov -t ${CODECOV_TOKEN} --flags "${CPATH}" -f ./coverage_${CPATH}.lcov ${proxy_opt}
+                                               '''
+                                        }
+                                    }
+                                    archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
+                                }
+                            }
+                        }
+                    }
+                }
+                post {
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+
     }
 }
