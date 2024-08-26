@@ -229,6 +229,7 @@ void build_fixedE2ETests(String codepath) {
     // Filter out dense_output_bf16.mlir for navi3x codepath as a workaround for issue#1023
     filter_out_tests = false
     if ( codepath == 'navi3x') {
+        // print verbose logs for all the tests on Navi3x for the debugging purposes
         llvm_lit_log_level = '-va'
         filter_out_tests = true
     }
@@ -243,6 +244,7 @@ void build_fixedE2ETests(String codepath) {
 }
 
 void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
+    // print verbose logs for all the tests on Navi3x for the debugging purposes
     sh '[ ! -d build ] || rm -rf build'
     buildProject('check-rocmlir', """
              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
@@ -273,6 +275,7 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
     }
     // Run nightly E2E tests in multiple smaller batches to increase the chance of successful completion
     else {
+        // print verbose logs for all the tests on Navi3x for debugging purposes 
         sh '[ ! -d build ] || rm -rf build'
         buildProject('check-mlir check-rocmlir', """
              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
@@ -300,6 +303,7 @@ void check_randomE2ETests(String codepath) {
     }
     if ( (codepath == 'navi3x') && (params.nightly == true) ) {
         limit_lit_workers = true
+        // print verbose logs for all the tests on Navi3x for debugging purposes
         llvm_lit_log_level='-va'
     }
     buildProject('check-rocmlir', """
