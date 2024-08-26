@@ -1998,19 +1998,20 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
         thenBody.create<affine::AffineLoadOp>(loc, opd1, opd1Map, idx1);
     auto loadOp2 =
         thenBody.create<affine::AffineLoadOp>(loc, opd2, opd2Map, idx2);
+    size_t nIVs = genConfig.inputDimension.size();
     auto loadOutput = thenBody.create<affine::AffineLoadOp>(
-        loc, result, resultStoreMap, ivs.take_front(5));
+        loc, result, resultStoreMap, ivs.take_front(nIVs));
     if (elemType.isIntOrIndex()) {
       auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
       auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
       auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
       thenBody.create<affine::AffineStoreOp>(loc, addiOp, result,
-                                             resultStoreMap, ivs.take_front(5));
+                                             resultStoreMap, ivs.take_front(nIVs));
     } else {
       auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
       auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
       thenBody.create<affine::AffineStoreOp>(loc, addfOp, result,
-                                             resultStoreMap, ivs.take_front(5));
+                                             resultStoreMap, ivs.take_front(nIVs));
     }
   };
 
