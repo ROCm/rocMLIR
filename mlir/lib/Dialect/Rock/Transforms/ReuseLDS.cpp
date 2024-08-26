@@ -24,7 +24,6 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir {
 namespace rock {
@@ -111,8 +110,7 @@ static void assignColors(
 /// Colors 0 and 1 are 1kB each.
 /// Note: If an alloc has more than one color assigned, they have to be
 ///       consecutive.
-static std::tuple<llvm::MapVector<int64_t, int64_t>,
-                  SmallVector<std::tuple<GpuAllocOp, int64_t, int64_t, bool>>>
+static std::tuple<int64_t, SmallVector<std::tuple<GpuAllocOp, int64_t, bool>>>
 graphColoring(
     SmallVector<GpuAllocOp> &gpuAllocs,
     llvm::SmallDenseMap<GpuAllocOp, SetVector<GpuAllocOp>> &interferenceGraph,
@@ -144,62 +142,16 @@ graphColoring(
     assignColors(alloc, usedColors, colorMemSize, colorAssignment);
   }
 
-  // If we replace all GpuAllocOps with a single one, we run into
-  // aliasing issues that cause performance regressions.
-  // In order to avoid that, we first merge colors so that each
-  // GpuAlloc is assigned a single color and an offset.
-  // Then, we can generate more than one GpuAllocOp and improve
-  // aliasing issues.
-  // This might be removed in the future if aliasing issues are solved.
-  llvm::SmallDenseMap<int64_t, SetVector<int64_t>> colorsToMerge;
-  llvm::SmallDenseMap<int64_t, int64_t> oldColorToNew;
-  for (GpuAllocOp alloc : sortedAllocs) {
-    int64_t firstColor = colorAssignment[alloc][0];
-    // if the color has been replaced already
-    if (oldColorToNew.contains(firstColor)) {
-      int64_t newColor = oldColorToNew[firstColor];
-      // assign all the colors of the current 'alloc' to newColor
-      for (int64_t color : colorAssignment[alloc]) {
-        oldColorToNew[color] = newColor;
-        colorsToMerge[newColor].insert(color);
-      }
-    } else {
-      // the color has not been replaced yet
-      for (auto [i, color] : llvm::enumerate(colorAssignment[alloc])) {
-        // merge all non-first colors with the first one
-        if (i > 0) {
-          oldColorToNew[color] = firstColor;
-          colorsToMerge[firstColor].insert(color);
-          // if the current 'color' has merged some colors,
-          // merge its colors to 'firstColor'
-          if (colorsToMerge.contains(color)) {
-            for (int64_t otherColor : colorsToMerge[color]) {
-              oldColorToNew[otherColor] = firstColor;
-              colorsToMerge[firstColor].insert(otherColor);
-            }
-            colorsToMerge.erase(color);
-          }
-        }
-      }
-    }
-  }
-  // Compute offsets and new sizes (after merging)
-  llvm::MapVector<int64_t, int64_t> mergedColorMemSize(colorMemSize);
+  // Compute offsets for each color
   llvm::MapVector<int64_t, int64_t> colorOffset;
-  for (auto [color, _] : colorMemSize) {
-    colorOffset[color] = 0;
-  }
-  for (auto [color, oldColors] : colorsToMerge) {
-    for (int64_t oldColor : oldColors) {
-      assert(oldColor > color);
-      colorOffset[oldColor] = mergedColorMemSize[color];
-      mergedColorMemSize[color] += mergedColorMemSize[oldColor];
-      mergedColorMemSize.erase(oldColor);
-    }
+  int64_t offset = 0;
+  for (auto [color, size] : colorMemSize) {
+    colorOffset[color] = offset;
+    offset += size;
   }
 
   // Compute information per GpuAllocOp
-  SmallVector<std::tuple<GpuAllocOp, int64_t, int64_t, bool>> gpuAllocInfo;
+  SmallVector<std::tuple<GpuAllocOp, int64_t, bool>> gpuAllocInfo;
   llvm::SetVector<int64_t> usedColors;
   for (const GpuAllocOp alloc : gpuAllocs) {
     assert(colorAssignment.contains(alloc));
@@ -222,15 +174,12 @@ graphColoring(
       }
     }
 
-    int64_t oldColor = colorAssignment[alloc][0];
-    assert(colorOffset.contains(oldColor));
-    int64_t offset = colorOffset[oldColor];
-    int64_t newColor =
-        (oldColorToNew.contains(oldColor)) ? oldColorToNew[oldColor] : oldColor;
-    gpuAllocInfo.push_back(std::tuple(alloc, newColor, offset, useLDSBarrier));
+    int64_t firstColor = colorAssignment[alloc][0];
+    int64_t offset = colorOffset[firstColor];
+    gpuAllocInfo.push_back(std::tuple(alloc, offset, useLDSBarrier));
   }
 
-  return std::tuple(mergedColorMemSize, gpuAllocInfo);
+  return std::tuple(offset, gpuAllocInfo);
 }
 
 static LogicalResult reuseLDS(func::FuncOp &func) {
@@ -318,15 +267,10 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     return success();
   }
 
-  llvm::MapVector<int64_t, int64_t> colorSizes;
-  SmallVector<std::tuple<GpuAllocOp, int64_t, int64_t, bool>> allocOffsets;
-  std::tie(colorSizes, allocOffsets) =
+  int64_t requiredMemory;
+  SmallVector<std::tuple<GpuAllocOp, int64_t, bool>> allocOffsets;
+  std::tie(requiredMemory, allocOffsets) =
       graphColoring(allocs, interferenceGraph, deallocBefore);
-
-  int64_t requiredMemory = 0;
-  for (auto [_, size] : colorSizes) {
-    requiredMemory += size;
-  }
 
   // not enough LDS memory
   if (failed(checkLDSSize(func, requiredMemory))) {
@@ -338,36 +282,30 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
   // write the new GpuAllocOp to the start
   rewriter.setInsertionPointToStart(&func.getBody().front());
 
-  // New allocations
-  llvm::MapVector<int64_t, GpuAllocOp> colorAllocs;
+  // New allocation
   auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getWorkgroupAddressSpace());
-  for (auto [color, size] : colorSizes) {
-    auto ldsMemRefBufferType = MemRefType::get(
-        {size}, rewriter.getI8Type(), AffineMap{}, workgroupMemoryAddressSpace);
+  auto ldsMemRefBufferType =
+      MemRefType::get({requiredMemory}, rewriter.getI8Type(), AffineMap{},
+                      workgroupMemoryAddressSpace);
 
-    Location loc = func.getLoc();
-    GpuAllocOp colorAlloc =
-        rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
-    colorAllocs[color] = colorAlloc;
-    LLVM_DEBUG(llvm::dbgs()
-               << "allocating " << size << " bytes, color: " << color << "\n");
-  }
+  Location loc = func.getLoc();
+  GpuAllocOp globalAlloc =
+      rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
+  LLVM_DEBUG(llvm::dbgs() << "allocating " << requiredMemory << " bytes\n");
 
   // Replace all GpuAllocs as NoAliasViewOps
   for (auto allocTuple : allocOffsets) {
     GpuAllocOp alloc;
-    int64_t color, offset;
+    int64_t offset;
     bool useLDSBarrier;
-    std::tie(alloc, color, offset, useLDSBarrier) = allocTuple;
-    int64_t colorSize = colorSizes[color];
-    GpuAllocOp newAlloc = colorAllocs[color];
+    std::tie(alloc, offset, useLDSBarrier) = allocTuple;
 
     if (offset < 0) {
       LLVM_DEBUG(llvm::dbgs() << "Negative offset\n");
       return failure();
     }
-    if (offset >= colorSize) {
+    if (offset >= requiredMemory) {
       LLVM_DEBUG(llvm::dbgs() << "Offset is too big\n");
       return failure();
     }
@@ -388,7 +326,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     rewriter.setInsertionPointAfter(alloc);
     Location loc = alloc->getLoc();
 
-    LLVM_DEBUG(llvm::dbgs() << "color: " << color << " offset: " << offset
+    LLVM_DEBUG(llvm::dbgs() << "offset: " << offset
                             << " numElements: " << numElements << "\n");
     Value byteOffset =
         rewriter.createOrFold<arith::ConstantIndexOp>(loc, offset);
@@ -396,7 +334,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     auto newViewType =
         MemRefType::get({numElements}, rewriter.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
-    rewriter.replaceOpWithNewOp<NoAliasViewOp>(alloc, newViewType, newAlloc,
+    rewriter.replaceOpWithNewOp<NoAliasViewOp>(alloc, newViewType, globalAlloc,
                                                byteOffset, ValueRange{});
 
     // add barrier if needed
@@ -405,22 +343,12 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     }
   }
 
-  // Remove all GpuDeallocOps but the last one and add a new alloc/dealloc pair
-  // for each buffer
+  // Remove all GpuDeallocOps but the last one, which will be replaced by
+  // a new dealloc for the new global alloc
   for (auto [i, dealloc] : llvm::enumerate(deallocs)) {
     rewriter.setInsertionPointAfter(dealloc);
     if (i == deallocs.size() - 1) {
-      GpuDeallocOp prevDealloc = rewriter.replaceOpWithNewOp<GpuDeallocOp>(
-          dealloc, std::get<1>(colorAllocs.front()));
-      for (auto [i, pair] : llvm::enumerate(colorAllocs)) {
-        // skip first, already done
-        if (i > 0) {
-          GpuAllocOp alloc = std::get<1>(pair);
-          rewriter.setInsertionPointAfter(prevDealloc);
-          Location loc = prevDealloc.getLoc();
-          prevDealloc = rewriter.create<GpuDeallocOp>(loc, alloc);
-        }
-      }
+      rewriter.replaceOpWithNewOp<GpuDeallocOp>(dealloc, globalAlloc);
     } else {
       rewriter.eraseOp(dealloc);
     }
