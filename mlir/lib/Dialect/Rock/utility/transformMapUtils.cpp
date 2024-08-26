@@ -1917,7 +1917,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
                        SetVector<int64_t> &removeIndicesSet,
                        llvm::SmallVector<int64_t> &origUpperBounds,
                        llvm::SmallVector<int64_t> &origLowerBounds, DenseMap<int64_t, SmallVector<SubDimInfo>>& removedSubDims) {
-  llvm::errs() << trMap << "\n";
+  llvm::errs() << "orig=" << trMap << ",removedSubDims.size=" << removedSubDims.size() << "\n";
   origLowerBounds =
       llvm::SmallVector<int64_t>(trMap.getLowerBounds().asArrayRef());
 
@@ -1941,6 +1941,10 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         preservedUpperDims.size() == tr.getUpperDims().size();
     const bool mustBeCompletelyRemoved = preservedUpperDims.empty();
     const bool mustBeModified = !mustBePreserved && !mustBeCompletelyRemoved;
+    llvm::errs() << " mustBePreserved=" << mustBePreserved << ",";
+    llvm::errs() << " mustBeCompletelyRemoved=" << mustBeCompletelyRemoved << ",";
+    llvm::errs() << " mustBeModified=" << mustBeModified << ",";
+    llvm::errs() << "\n";
 
     // compute which lower dimensions must be preserved
     switch (args.type) {
@@ -2005,7 +2009,9 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
         SmallVector<int64_t> subDimStrides = getStrides(tr.getParams());
         SmallVector<SubDimInfo> relevantSubDims;
         assert(preservedUpperDims.size() == 1);
-        for(int64_t dim = 0; dim < tr.getParams().size(); dim++){
+        DenseMap<int64_t, SmallVector<SubDimInfo>> newRemovedSubDims;
+        for(int64_t subDim = 0; subDim < tr.getParams().size(); subDim++){
+          int64_t lowDim = tr.getLowerDims()[subDim];
           for(const SubDimInfo& removedSubDimInfo : removedSubDims[preservedUpperDims[0]]){
               // The removedSubDimInfo stride is larger than
               // the current subDim stride * size, then its
@@ -2013,32 +2019,54 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
 
               // Case 1: the removed subdim stride itself is larger than this subdim's
               //         stride. Therefore, do nothing 
-              if(removedSubDimInfo.stride > subDimStrides[dim] * tr.getParams()[dim]) {
+              if(removedSubDimInfo.stride > subDimStrides[subDim] * tr.getParams()[subDim]) {
                 // do nothing
-                args.params.push_back(tr.getParams()[dim]);
+                llvm::errs() << "1\n";
+                args.params.push_back(tr.getParams()[subDim]);
               }
               // Case 2 : the removed stride * removedSubDimInfo.size is smaller than the
               // currrent subDimStride.
-              else if (removedSubDimInfo.stride * removedSubDimInfo.size < subDimStrides[dim]){
+              else if (removedSubDimInfo.stride * removedSubDimInfo.size < subDimStrides[subDim]){
                 // do nothing
-                args.params.push_back(tr.getParams()[dim]);
+                llvm::errs() << "2\n";
+                args.params.push_back(tr.getParams()[subDim]);
               }
               // Everyother case means removedSubDim at least partially overlaps with this
               // dimension 
               else {
+                llvm::errs() << "3\n";
                 int diff = 0;
-                if(removedSubDimInfo.stride * removedSubDimInfo.size >= subDimStrides[dim] * tr.getParams()[dim]){
-                  diff = (subDimStrides[dim] * tr.getParams()[dim]) / std::max(removedSubDimInfo.stride, subDimStrides[dim]);
+                int size = 0;
+                // Overlap on right side of removedSubDim
+                if(removedSubDimInfo.stride * removedSubDimInfo.size >= subDimStrides[subDim] * tr.getParams()[subDim]){
+                  int64_t rhsBoundForRemoval = std::max(removedSubDimInfo.stride, subDimStrides[subDim]);
+                  diff = (subDimStrides[subDim] * tr.getParams()[subDim]) / rhsBoundForRemoval;
+                  size = origLowerBounds[lowDim] / diff;
+                  llvm::errs() << "creating newRemovedSubDim /w diff = " << diff << ", stride=" << rhsBoundForRemoval / subDimStrides[subDim]  << " @ " << lowDim << "\n";
+                  newRemovedSubDims[lowDim].push_back({diff, rhsBoundForRemoval / subDimStrides[subDim]});
                 }
+                // The whole of removedSubDim is within the newly created lowDim
+                else if(removedSubDimInfo.stride >= subDimStrides[subDim]) {
+                  diff = removedSubDimInfo.size;
+                  size = origLowerBounds[lowDim] / diff;
+                  llvm::errs() << "creating newRemovedSubDim /w diff = " << diff << ", stride=" << removedSubDimInfo.stride << " @ " << lowDim << "\n";
+                  newRemovedSubDims[lowDim].push_back({diff, removedSubDimInfo.stride});
+                }
+                // Overlap is left side of removedSubDim
                 else {
-                  diff = subDimStrides[dim] / (removedSubDimInfo.stride * removedSubDimInfo.size);
+                  diff = subDimStrides[subDim] / (removedSubDimInfo.stride * removedSubDimInfo.size);
+                  size = origLowerBounds[lowDim] / diff;
+                  llvm::errs() << "creating newRemovedSubDim /w diff = " << diff << ", stride=" << 1  << " @ " << lowDim << "\n";
+                  newRemovedSubDims[lowDim].push_back({diff, 1});
                 }
                 llvm::errs() << "diff=" << diff << "\n";
-                origLowerBounds[dim] = origLowerBounds[dim] / diff;
-                args.params.push_back(tr.getParams()[dim] / diff);
+                origLowerBounds[lowDim] = size;
+                args.params.push_back(tr.getParams()[subDim] / diff);
               }
           }
         }
+        removedSubDims.clear();
+        removedSubDims = newRemovedSubDims;
         break;
       }
       case TransformType::PassThrough: {
