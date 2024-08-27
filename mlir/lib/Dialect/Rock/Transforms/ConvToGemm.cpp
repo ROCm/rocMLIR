@@ -630,7 +630,7 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     // is what's left
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
     expansions.insert({"ni", {"n0", "n1"}});
-    for (int i = 0; i < 2; i++) {
+    for (size_t i = 0; i < convDims.in.size(); i++) {
       StringAttr key = b.getStringAttr(Twine(i) + "i");
       StringAttr val = b.getStringAttr(Twine(i) + "ipad");
       expansions.insert({key, {val}});
@@ -897,11 +897,13 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     sliceTransform.passThrough({"g", "k", "c"});
     llvm::SmallVector<StringRef, 2> uppers;
     llvm::SmallVector<StringRef, 2> lowers;
+    llvm::SmallVector<int64_t, 2> begins;
     for (size_t i = 0; i < convDims.in.size(); i++) {
       uppers.push_back(b.getStringAttr(Twine(i) + "dotslice"));
       lowers.push_back(b.getStringAttr(Twine(i) + "dot"));
+      begins.push_back(0);
     }
-    sliceTransform.slice(uppers, lowers, {0, 0}, iDotSlice);
+    sliceTransform.slice(uppers, lowers, begins, iDotSlice);
     uppers.clear();
     lowers.clear();
     for (size_t i = 0; i < convDims.fil.size(); i++) {
@@ -1066,11 +1068,13 @@ LogicalResult backwardData(ConvBwdDataOp op, PatternRewriter &b) {
     sliceTransform.passThrough({"go", "no", "ko"});
     llvm::SmallVector<StringRef, 2> uppers;
     llvm::SmallVector<StringRef, 2> lowers;
+    llvm::SmallVector<int64_t, 2> begins;
     for (size_t i = 0; i < convDims.out.size(); i++) {
       uppers.push_back(b.getStringAttr(Twine(i) + "slice"));
       lowers.push_back(b.getStringAttr(Twine(i) + "dot"));
+      begins.push_back(0);
     }
-    sliceTransform.slice(uppers, lowers, {0, 0}, iDotSlice);
+    sliceTransform.slice(uppers, lowers, begins, iDotSlice);
     lowers.clear();
     uppers.clear();
     for (size_t i = 0; i < convDims.out.size(); i++) {

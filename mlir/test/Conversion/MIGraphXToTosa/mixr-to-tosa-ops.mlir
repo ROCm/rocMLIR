@@ -425,7 +425,7 @@ module  {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1>
   }
-  
+
   // CHECK-LABEL: func.func @func_reduce_sum_f32
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
@@ -490,7 +490,7 @@ module  {
     %0 = migraphx.reduce_sum %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1>
   }
-  
+
   // CHECK-LABEL: func.func @func_dot_mul
   // CHECK: tosa.matmul
   // CHECK: tosa.mul
@@ -539,6 +539,14 @@ module {
   func.func @func_convert(%arg0: !migraphx.shaped<16xf16, 1>) -> !migraphx.shaped<16xf32, 1> {
     %0 = migraphx.convert %arg0 : <16xf16, 1> to <16xf32, 1>
      return %0 : !migraphx.shaped<16xf32, 1>
+  }
+
+  // CHECK-LABEL: func.func @func_convert
+  // CHECK: tosa.custom
+  // CHECK-SAME: {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_cast"} : (tensor<16xi4>) -> tensor<16xi8>
+  func.func @func_convert_int4_unsigned(%arg0: !migraphx.shaped<16xi4, 1>) -> !migraphx.shaped<16xi8, 1> {
+    %0 = migraphx.convert zero_extend %arg0 : <16xi4, 1> to <16xi8, 1>
+     return %0 : !migraphx.shaped<16xi8, 1>
   }
 
   // CHECK-LABEL: func.func @func_div_f32

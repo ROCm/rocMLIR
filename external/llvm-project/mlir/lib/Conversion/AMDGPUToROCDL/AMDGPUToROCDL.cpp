@@ -287,15 +287,23 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
     if (requiresInlineAsm) {
       auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
                                                       LLVM::AsmDialect::AD_ATT);
+      Location loc = op->getLoc();
+      // Ensure the inlineAsm is guarded with a scheduling region
+      // So it will not interfere with backend compilation more than
+      // it needs.
+      rewriter.create<amdgpu::SchedBarrierOp>(
+          loc, amdgpu::sched_barrier_opt_enum::none);
       const char *asmStr =
           ";;;WARNING: BREAKS DEBUG WATCHES\ns_waitcnt lgkmcnt(0)\ns_barrier";
       const char *constraints = "";
-      rewriter.replaceOpWithNewOp<LLVM::InlineAsmOp>(
-          op,
+      rewriter.create<LLVM::InlineAsmOp>(
+          loc,
           /*resultTypes=*/TypeRange(), /*operands=*/ValueRange(),
           /*asm_string=*/asmStr, constraints, /*has_side_effects=*/true,
           /*is_align_stack=*/false, /*asm_dialect=*/asmDialectAttr,
           /*operand_attrs=*/ArrayAttr());
+      rewriter.replaceOpWithNewOp<amdgpu::SchedBarrierOp>(
+          op, amdgpu::sched_barrier_opt_enum::none);
       return success();
     }
     if (chipset.majorVersion < 12) {
@@ -393,6 +401,7 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
                                  Location loc,
                                  const TypeConverter *typeConverter,
                                  bool isUnsigned, Value llvmInput,
+                                 Value mlirInput,
                                  SmallVector<Value, 4> &operands) {
   Type inputType = llvmInput.getType();
   auto vectorType = dyn_cast<VectorType>(inputType);
@@ -401,28 +410,30 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
   if (elemType.isBF16())
     llvmInput = rewriter.create<LLVM::BitcastOp>(
         loc, vectorType.clone(rewriter.getI16Type()), llvmInput);
-  if (!elemType.isInteger(8)) {
+  if (elemType.getIntOrFloatBitWidth() != 8) {
     operands.push_back(llvmInput);
     return;
+  }
+
+  auto mlirInputType = dyn_cast<VectorType>(mlirInput.getType());
+  if (mlirInputType.getElementType().isInteger(8)) {
+    // if element type is 8-bit signed or unsigned, ignore the isUnsigned flag
+    bool localIsUnsigned = isUnsigned;
+    if (elemType.isUnsignedInteger(8)) {
+      localIsUnsigned = true;
+    } else if (elemType.isSignedInteger(8)) {
+      localIsUnsigned = false;
+    }
+    Value sign = createI1Constant(rewriter, loc, !localIsUnsigned);
+    operands.push_back(sign);
   }
 
   int64_t numBytes = vectorType.getNumElements();
   Type i32 = rewriter.getI32Type();
   VectorType vectorType32bits = VectorType::get(numBytes * 8 / 32, i32);
   auto llvmVectorType32bits = typeConverter->convertType(vectorType32bits);
-
   Value result = rewriter.createOrFold<LLVM::BitcastOp>(
       loc, llvmVectorType32bits, llvmInput);
-
-  // if element type is 8-bit signed or unsigned, ignore the isUnsigned flag
-  bool localIsUnsigned = isUnsigned;
-  if (elemType.isUnsignedInteger(8)) {
-    localIsUnsigned = true;
-  } else if (elemType.isSignedInteger(8)) {
-    localIsUnsigned = false;
-  }
-  Value sign = createI1Constant(rewriter, loc, !localIsUnsigned);
-  operands.push_back(sign);
   operands.push_back(result);
 }
 
@@ -612,6 +623,10 @@ static std::optional<StringRef> wmmaOpToIntrinsic(WMMAOp wmma,
     return ROCDL::wmma_bf16_16x16x16_bf16::getOperationName();
   } else if (elemSourceType.isInteger(8) && elemDestType.isInteger(32)) {
     return ROCDL::wmma_i32_16x16x16_iu8::getOperationName();
+  } else if (elemSourceType.isFloat8E4M3FN() && elemDestType.isF32()) {
+    return ROCDL::wmma_f32_16x16x16_fp8::getOperationName();
+  } else if (elemSourceType.isFloat8E5M2() && elemDestType.isF32()) {
+    return ROCDL::wmma_f32_16x16x16_bf8::getOperationName();
   }
   return std::nullopt;
 }
@@ -686,9 +701,9 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
 
     SmallVector<Value, 4> operands;
     wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(),
-                         adaptor.getSourceA(), operands);
+                         adaptor.getSourceA(), op.getSourceA(), operands);
     wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(),
-                         adaptor.getSourceB(), operands);
+                         adaptor.getSourceB(), op.getSourceB(), operands);
     wmmaPushOutputOperand(rewriter, loc, typeConverter, adaptor.getDestC(),
                           op.getSubwordOffset(), op.getClamp(), operands);
 

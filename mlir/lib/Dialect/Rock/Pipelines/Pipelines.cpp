@@ -69,6 +69,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockViewToTransformPass());
   }
 
+  funcPm.addPass(createRocmlirCustomTosaToLinalgPass());
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
   TosaToLinalgOptions tosaToLinalgOptions;
@@ -165,7 +166,9 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
       funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
+    funcPm.addPass(rock::createRockReuseLDSPass());
     funcPm.addPass(rock::createRockOutputSwizzlePass());
+    funcPm.addPass(rock::createRockReuseLDSPass());
 
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce

@@ -21,6 +21,7 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input : memref<1x20
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map2, #transform_map1, #transform_map0](%input)[%bid, %tid] -> %input_reg : memref<1x20x160xf32> ->  memref<20xf32, #gpu.address_space<private>>
   rock.blockwise_broadcast_reduce sum [#transform_map5][#transform_map5_tid][#transform_map5_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32} : memref<20xf32, #gpu.address_space<private>> using memref<400xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>
+  rock.dealloc %ws_lds : memref<400xf32, #gpu.address_space<workgroup>>
   rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map3](%output)[%bid, %tid] by set : memref<20xf32, #gpu.address_space<private>> -> memref<1x1x160xf32>
   return
 }
