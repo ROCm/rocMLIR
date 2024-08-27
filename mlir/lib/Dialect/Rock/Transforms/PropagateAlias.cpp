@@ -114,8 +114,8 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
   {
     SmallVector<Attribute> allButOneScope;
     allButOneScope.reserve(argAliasScopes.size());
-    for (auto [arg, _] : argNoaliasScopes) {
-      for (auto [secondArg, aliasInfo] : argNoaliasScopes) {
+    for (auto [arg, _] : argAliasScopes) {
+      for (auto [secondArg, aliasInfo] : argAliasScopes) {
         if (arg != secondArg)
           allButOneScope.push_back(aliasInfo[0]);
       }
