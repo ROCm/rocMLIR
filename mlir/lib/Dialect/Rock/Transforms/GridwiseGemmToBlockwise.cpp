@@ -908,48 +908,6 @@ struct GridwiseAttentionAccelRewritePattern
     return ldsByteBuffer;
   }
 
-  std::tuple<SmallVector<Value>, int64_t>
-  createSharedLDSByteBufferRefs(PatternRewriter &rewriter, Location loc,
-                                ArrayRef<int64_t> numElementsArr,
-                                ArrayRef<Type> elemTypeArr) const {
-    auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getWorkgroupAddressSpace());
-    int64_t maxSizeBytes = 0;
-    SmallVector<int64_t, 4> byteSizes;
-    for (auto [numElements, elemType] :
-         llvm::zip(numElementsArr, elemTypeArr)) {
-      int64_t sizeBytes = numElements * getByteWidth(elemType);
-      if (sizeBytes > maxSizeBytes) {
-        maxSizeBytes = sizeBytes;
-      }
-      byteSizes.push_back(sizeBytes);
-    }
-    auto ldsMemRefType =
-        MemRefType::get({maxSizeBytes}, rewriter.getI8Type(), AffineMap{},
-                        workgroupMemoryAddressSpace);
-    Value ldsByteBuffer = rewriter.create<GpuAllocOp>(loc, ldsMemRefType);
-
-    SmallVector<Value> ret;
-    for (int64_t byteSize : byteSizes) {
-      if (byteSize == 0) {
-        ret.push_back(Value());
-        continue;
-      }
-      if (byteSize == maxSizeBytes) {
-        ret.push_back(ldsByteBuffer);
-        continue;
-      }
-      auto byteBufferType =
-          MemRefType::get({byteSize}, rewriter.getI8Type(), AffineMap{},
-                          workgroupMemoryAddressSpace);
-      Value ldsByteBufferSubView = rewriter.create<memref::SubViewOp>(
-          loc, byteBufferType, ldsByteBuffer, ArrayRef<int64_t>{0},
-          ArrayRef<int64_t>{byteSize}, ArrayRef<int64_t>{1});
-      ret.push_back(ldsByteBufferSubView);
-    }
-    return {ret, maxSizeBytes};
-  }
-
   // This function will create fromGlobalRegsBuffer and toLDSRegBuffer for a
   // gemm input
   std::tuple<Value, Value>

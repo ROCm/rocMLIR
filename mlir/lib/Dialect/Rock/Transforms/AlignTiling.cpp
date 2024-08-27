@@ -857,7 +857,7 @@ static LogicalResult knownToPreserveZero(linalg::GenericOp laGeneric,
 /// - Clone the output tile
 /// - Set up a register->register threadwise_read_into between this cloned tile
 ///   and the original output tile, with dynamic validities drawn from the
-///   validity validity results of each read.
+///   validity results of each read.
 /// The extra threadwise_read_into we create here will cause elements that
 /// didn't actually get fetched from memory to become 0s again thanks to an if
 /// statement in what would otherwise be a memcpy().

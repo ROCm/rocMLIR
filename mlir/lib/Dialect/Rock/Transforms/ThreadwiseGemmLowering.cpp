@@ -525,7 +525,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
   }
 
-  // Force the dynamic validity case down to a vectorizaiton of 1
+  // Force the dynamic validity case down to a vectorization of 1
   if (!adaptor.getDynamicValidities().empty()) {
     vectorSrcLen = 1;
     srcStride = 1;
