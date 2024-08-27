@@ -383,37 +383,19 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   }
 
   {
-    // TODO: we can't use "removeUpperDims" because of bug #1562
-    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
-    // Create views for tid slice of blockwise sub-tile of C    // Create views
-    // for tid slice of blockwise sub-tile of C
-    TopDownTMBuilder splitMemoryCoords(b, {"tid"}, {blockSize}, loc);
-    splitMemoryCoords.merge(
-        {"wave", "m_tid", "n_tid"}, {0, 1, 2}, "tid",
-        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
-    auto toRowsAndCols =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    // "blkMajor" and "blkMinor" are placeholder names because we don't know
-    // if they'll be column or row until we check for broadcast-ness.
-    llvm::StringMap<uint32_t> rowsAndColsIdxs =
-        expandNamesInPlace(splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}}});
-    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
-    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
-                          {wavesInKernelBlock / nWaves, nWaves});
-    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
-    TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
-    auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
-    toMatrixC.unmerge("gemmM", 0, {waveM.name, mTid.name},
-                      {waveM.size, mTid.size});
-    toMatrixC.unmerge("gemmN", 1, {waveN.name, nTid.name},
-                      {waveN.size, nTid.size});
+    // Create views for tid slice of blockwise sub-tile of C
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    dimensionsToRemove.insert("item");
+    FailureOr<ArrayAttr> maybeBlockSubTileTidSlice =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
-    // Before returning the output view, if necessary, swap back the
-    // threadid/iter dimensions on both the M/N axis.
-    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
-                                          toRowsAndColsAttr, toMatrixC.get()};
-    ret.blockSubTileTidSlice = b.getArrayAttr(transformAttrs);
+    if (failed(maybeBlockSubTileTidSlice)) {
+      return failure();
+    }
+    ret.blockSubTileTidSlice = maybeBlockSubTileTidSlice.value();
   }
 
   {
