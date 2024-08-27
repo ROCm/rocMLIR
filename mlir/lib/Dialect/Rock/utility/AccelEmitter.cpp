@@ -1051,33 +1051,19 @@ WmmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute thread sub tile transforms
   {
-    // TODO: we can't use "removeUpperDims" because of bug #1562
-    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
-    SmallVector<Attribute> transformAttrs;
-    // First coordinate transform
-    TopDownTMBuilder splitIter(b, {"iter"}, {dRepeats * kpackPerThread * kPack},
-                               loc);
-    {
-      if (isKContigousDim) {
-        splitIter.merge({"d_iter", "k_iter", "kpack"}, {0, 1, 2}, "iter",
-                        {dRepeats, kpackPerThread, kPack});
-      } else {
-        splitIter.merge({"k_iter", "d_iter", "kpack"}, {0, 1, 2}, "iter",
-                        {kpackPerThread, dRepeats, kPack});
-      }
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("k_loop");
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    dimensionsToRemove.insert("tid");
+    FailureOr<ArrayAttr> maybeThreadSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
+
+    if (failed(maybeThreadSubTile)) {
+      return failure();
     }
-    TransformMapAttr splitIterAttr = splitIter.get();
-    transformAttrs.push_back(splitIterAttr);
-    // Second coordinate transform
-    TopDownTMBuilder transposeKD =
-        TopDownTMBuilder::below(splitIter, splitIterAttr);
-    {
-      transposeKD.unmerge("K", 0, {"k_iter", "kpack"}, {kpackPerThread, kPack});
-      transposeKD.passThrough({"D"}, {1}, {"d_iter"});
-    }
-    TransformMapAttr transposeKDAttr = transposeKD.get();
-    transformAttrs.push_back(transposeKDAttr);
-    ret.threadSubTile = b.getArrayAttr(transformAttrs);
+    ret.threadSubTile = maybeThreadSubTile.value();
   }
   return ret;
 }
@@ -1118,23 +1104,16 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
   SmallVector<Attribute> transformAttrs;
 
   int64_t retNumElements = accVectorType.getNumElements();
-  int64_t wavesInKernelBlock = blockSize / waveSize;
 
   SmallVector<StringRef, 5> dimNamesM{/*0=*/"m_block",
                                       /*1=*/"rep_i",
                                       /*2=*/"wave_m"};
-  int64_t itemIdx = 0;
-  int64_t tidIdx = 0;
   if (isGfx11) {
     dimNamesM.push_back(/*3=*/"item_i");
     dimNamesM.push_back(/*4=*/"m_tid");
-    itemIdx = 3;
-    tidIdx = 4;
   } else {
     dimNamesM.push_back(/*3=*/"m_tid");
     dimNamesM.push_back(/*4=*/"item_i");
-    itemIdx = 4;
-    tidIdx = 3;
   }
   SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
                                              /*1=*/mWaves * wmmaInsn.dPerAccel,
@@ -1211,43 +1190,34 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
 
   {
     // Create views for tid slice of blockwise sub-tile of C
-    // TODO: we can't use "removeUpperDims" because of bug #1562
-    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
-    TopDownTMBuilder splitMemoryCoords(b, {"tid"}, {blockSize}, loc);
-    splitMemoryCoords.merge(
-        {"wave_m", "wave_n", "m_tid", "n_tid"}, {0, 1, 2, 3}, "tid",
-        {wavesInKernelBlock / nWaves, nWaves, waveSize / wmmaInsn.dPerAccel,
-         wmmaInsn.dPerAccel});
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    dimensionsToRemove.insert("item");
+    FailureOr<ArrayAttr> maybeBlockSubTileTidSlice =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
-    auto toMatrixC =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.unmerge("gemmM", 0, {dimNamesM[2], dimNamesM[tidIdx]},
-                      {dimSizesM[2], dimSizesM[tidIdx]});
-    toMatrixC.unmerge("gemmN", 1, {dimNamesN[2], dimNamesN[3]},
-                      {dimSizesN[2], dimSizesN[3]});
-    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
-                                          toMatrixC.get()};
-    ret.blockSubTileTidSlice = b.getArrayAttr(transformAttrs);
+    if (failed(maybeBlockSubTileTidSlice)) {
+      return failure();
+    }
+    ret.blockSubTileTidSlice = maybeBlockSubTileTidSlice.value();
   }
 
   {
     // Create views as threadwise sub-tile of C
-    // TODO: we can't use "removeUpperDims" because of bug #1562
-    // (https://github.com/ROCm/rocMLIR-internal/issues/1562)
-    TopDownTMBuilder splitMemoryCoords(
-        b, {"item"}, {mRepeats * nRepeats * retNumElements}, loc);
-    splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {0, 1, 2}, "item",
-                            {mRepeats, nRepeats, retNumElements});
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    SetVector<StringRef> dimensionsToRemove;
+    dimensionsToRemove.insert("g_block");
+    dimensionsToRemove.insert("m_block");
+    dimensionsToRemove.insert("n_block");
+    dimensionsToRemove.insert("tid");
+    FailureOr<ArrayAttr> maybeThreadSubTile =
+        removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
-    auto toMatrixC =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    toMatrixC.unmerge("gemmM", 0, {dimNamesM[1], dimNamesM[itemIdx]},
-                      {dimSizesM[1], dimSizesM[itemIdx]});
-    toMatrixC.unmerge("gemmN", 1, {dimNamesN[1]}, {dimSizesN[1]});
-    TransformMapAttr toMatrixCAttr = toMatrixC.get();
-    ret.threadSubTile = b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
+    if (failed(maybeThreadSubTile)) {
+      return failure();
+    }
+    ret.threadSubTile = maybeThreadSubTile.value();
   }
 
   return ret;
