@@ -1868,7 +1868,7 @@ void remapDims(std::vector<TransformAttrArgs> &argsVector,
   SmallVector<uint32_t> preservedDimsVec =
       to_vector(std::get<Type>(preservedDims));
   llvm::sort(preservedDimsVec);
-  DenseMap<uint32_t, uint32_t> originalToReducedDims;
+  llvm::SmallDenseMap<uint32_t, uint32_t> originalToReducedDims;
   for (auto [idx, dim] : enumerate(preservedDimsVec)) {
     originalToReducedDims[dim] = idx;
   }
@@ -1913,12 +1913,12 @@ static SmallVector<int64_t> getStrides(ArrayRef<int64_t> dimLens) {
 /// possible holes in index numbering - e.g., 0, 3, 4 -> 0, 1, 2. After that,
 /// the function builds new `TransformAttr` and, at the end, constructs a new
 /// `TransformMapAttr`
-FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
+static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
     OpBuilder &b, rock::TransformMapAttr trMap,
     SetVector<int64_t> &removeIndicesSet,
     llvm::SmallVector<int64_t> &origUpperBounds,
     llvm::SmallVector<int64_t> &origLowerBounds,
-    DenseMap<int64_t, SmallVector<SubDimInfo>> &removedSubDims) {
+    llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> &removedSubDims) {
   LLVM_DEBUG(llvm::dbgs() << "orig = " << trMap << ", removedSubDims.size="
                           << removedSubDims.size() << "\n");
   origLowerBounds =
@@ -1929,7 +1929,7 @@ FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
   std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> removedDims = {};
 
   std::vector<TransformAttrArgs> argsVector;
-  DenseMap<int64_t, SmallVector<SubDimInfo>> newRemovedSubDims;
+  llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> newRemovedSubDims;
   for (auto tr : trMap.getOps()) {
     TransformAttrArgs args;
     args.type = tr.getType();
@@ -2098,7 +2098,7 @@ FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
       }
       case TransformType::PassThrough: {
         // propagate possibly modified dimensions
-        DenseMap<int64_t, int64_t> upperToLower;
+        llvm::SmallDenseMap<int64_t, int64_t> upperToLower;
         for (auto [idx, upperDim] : llvm::enumerate(tr.getUpperDims())) {
           const auto lowerDim = tr.getLowerDims()[idx];
           upperToLower[upperDim] = lowerDim;
@@ -2225,7 +2225,7 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
   SmallVector<Attribute> results;
 
   llvm::SmallVector<int64_t> upperBounds = {};
-  DenseMap<int64_t, SmallVector<SubDimInfo>> preservedSubDims;
+  llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> preservedSubDims;
   if (!transformAttrs.empty()) {
     auto first = *(transformAttrs.begin());
     auto trMap = cast<rock::TransformMapAttr>(first);
