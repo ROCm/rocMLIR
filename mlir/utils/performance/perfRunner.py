@@ -1327,7 +1327,15 @@ def getChip():
     return chip
 
 def getNumCU(chip):
-    rocminfo = subprocess.check_output("/opt/rocm/bin/rocminfo")
+    try:
+        rocminfo = subprocess.check_output("/opt/rocm/bin/rocminfo",
+                                           stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        print(e.stderr.decode('utf-8'))
+        raise
+    except Exception as e:
+        print(f"Exception: {e}")
+        raise
     rocminfoLines = rocminfo.decode("utf-8").split("\n")
     foundChip = False
     for line in rocminfoLines:
