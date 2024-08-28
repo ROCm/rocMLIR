@@ -2187,7 +2187,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   b.create<func::ReturnOp>(loc);
 
-  // TODO[split-K]: remove after integrating split-K into MIGraphX
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   b.getUnitAttr());

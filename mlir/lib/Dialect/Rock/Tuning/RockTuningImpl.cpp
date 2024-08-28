@@ -175,7 +175,6 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return splitKValues;
   }
 
-  // TODO[split-K]: remove after integrating split-K into MIGraphX
   auto func = cast<func::FuncOp>(gemmOp->getParentOp());
   if (!func->hasAttr(rock::EnableSplitKForTuningAttr::getMnemonic())) {
     return splitKValues;

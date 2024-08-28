@@ -32,7 +32,6 @@ public:
     std::string arch;
     // TODO: drop these
     std::string chip;
-    // TODO[split-K]: remove after integrating split-K into MIGraphX
     bool disableSplitKForTuning;
     std::string triple;
     std::string chipFeatures;
