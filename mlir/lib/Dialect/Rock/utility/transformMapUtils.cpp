@@ -2256,7 +2256,7 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
 
 SetVector<int64_t>
 convertDimNamesToIndices(const ArrayAttr trAttrs,
-                         const SetVector<StringRef> &removeDimNamesSet) {
+                         const StringSet<> &removeDimNamesSet) {
   SetVector<int64_t> indices = {};
   if (trAttrs.empty())
     return indices;
@@ -2279,7 +2279,7 @@ convertDimNamesToIndices(const ArrayAttr trAttrs,
 /// of `removeUpperDims` from above.
 FailureOr<ArrayAttr>
 mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
-                            const SetVector<StringRef> &removeDimNamesSet) {
+                            const StringSet<> &removeDimNamesSet) {
   SetVector<int64_t> removeIndicesSet =
       convertDimNamesToIndices(transformAttrs, removeDimNamesSet);
   return removeUpperDims(b, transformAttrs, removeIndicesSet);

@@ -59,8 +59,8 @@ struct ByIndices {
 };
 
 struct ByNames {
-  static SetVector<StringRef> getTests(Operation *testHandleOp) {
-    SetVector<StringRef> removeIndices;
+  static StringSet<> getTests(Operation *testHandleOp) {
+    StringSet<> removeIndices;
     auto arrayAttr = cast<ArrayAttr>(testHandleOp->getAttr("names_to_drop"));
     for (auto &attr : arrayAttr) {
       removeIndices.insert(cast<StringAttr>(attr).getValue());

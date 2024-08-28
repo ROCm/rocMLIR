@@ -369,10 +369,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
 
   {
     // Create views as blockwise sub-tile of C
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
+    StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block"};
     FailureOr<ArrayAttr> maybeBlockSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -384,11 +381,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
 
   {
     // Create views for tid slice of blockwise sub-tile of C
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
-    dimensionsToRemove.insert("item");
+    StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block", "item"};
     FailureOr<ArrayAttr> maybeBlockSubTileTidSlice =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -400,11 +393,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
 
   {
     // Create views as threadwise sub-tile of C
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
-    dimensionsToRemove.insert("tid");
+    StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block", "tid"};
     FailureOr<ArrayAttr> maybeThreadSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -713,11 +702,7 @@ MfmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute block sub tile transforms
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
+    StringSet<> dimensionsToRemove{"k_loop", "g_block", "m_block", "n_block"};
     FailureOr<ArrayAttr> maybeBlockSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -728,12 +713,8 @@ MfmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute thread sub tile transforms
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
-    dimensionsToRemove.insert("tid");
+    StringSet<> dimensionsToRemove{"k_loop", "g_block", "m_block", "n_block",
+                                   "tid"};
     FailureOr<ArrayAttr> maybeThreadSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -1038,11 +1019,7 @@ WmmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute block sub tile transforms
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
+    StringSet<> dimensionsToRemove{"k_loop", "g_block", "m_block", "n_block"};
     FailureOr<ArrayAttr> maybeBlockSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -1053,12 +1030,8 @@ WmmaEmitter::createAccelGemmOperandTransforms(
   }
   // compute thread sub tile transforms
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
-    dimensionsToRemove.insert("tid");
+    StringSet<> dimensionsToRemove{"k_loop", "g_block", "m_block", "n_block",
+                                   "tid"};
     FailureOr<ArrayAttr> maybeThreadSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -1177,10 +1150,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
 
   {
     // Create views as blockwise sub-tile of C
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
+    StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block"};
     FailureOr<ArrayAttr> maybeBlockSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -1192,11 +1162,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
 
   {
     // Create views for tid slice of blockwise sub-tile of C
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
-    dimensionsToRemove.insert("item");
+    StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block", "item"};
     FailureOr<ArrayAttr> maybeBlockSubTileTidSlice =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
@@ -1208,11 +1174,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
 
   {
     // Create views as threadwise sub-tile of C
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("g_block");
-    dimensionsToRemove.insert("m_block");
-    dimensionsToRemove.insert("n_block");
-    dimensionsToRemove.insert("tid");
+    StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block", "tid"};
     FailureOr<ArrayAttr> maybeThreadSubTile =
         removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
 
