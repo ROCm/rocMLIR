@@ -1327,7 +1327,9 @@ static Type typeFromString(StringRef name, MLIRContext *ctx) {
   std::optional<Type> result =
       llvm::StringSwitch<std::optional<Type>>(name)
           .Case("f32", Float32Type::get(ctx))
+          .Case("fp32", Float32Type::get(ctx))
           .Case("f16", Float16Type::get(ctx))
+          .Case("fp16", Float16Type::get(ctx))
           .Case("bf16", BFloat16Type::get(ctx))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
@@ -3745,6 +3747,31 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "MLIR Rock Dialect host generation\n");
+
+  if (!arch.getValue().empty()) {
+    SmallVector<std::string>f8e4m3TypeNames{"", "f8E4M3FNUZ", "f8E4M3FN"};
+    SmallVector<std::string>f8e5m2TypeNames{"", "f8E5M2FNUZ", "f8E5M2"};
+    int archIndex = llvm::to_underlying(F8TypesChoice::Arch);
+    if (archChip().substr(0, 5) == "gfx12") {
+      f8e4m3TypeNames[archIndex] = "f8E4M3FN";
+      f8e5m2TypeNames[archIndex] = "f8E5M2";
+    } else {
+      f8e4m3TypeNames[archIndex] = "f8E4M3FNUZ";
+      f8e5m2TypeNames[archIndex] = "f8E5M2FNUZ";
+    }
+
+    auto canonicaliseF8Type = [&](StringRef name) -> std::string {
+                                if (name == "fp8")
+                                  return f8e4m3TypeNames[llvm::to_underlying(forceF8Types.getValue())];
+                                if (name == "bf8")
+                                  return f8e5m2TypeNames[llvm::to_underlying(forceF8Types.getValue())];
+                                return std::string(name);
+                              };
+
+    filterDataType = canonicaliseF8Type(filterDataType);
+    inputDataType = canonicaliseF8Type(inputDataType);
+    outputDataType = canonicaliseF8Type(outputDataType);
+  }
 
   if (operation != rock::KernelType::Gemm) {
     verifyConvLayout();

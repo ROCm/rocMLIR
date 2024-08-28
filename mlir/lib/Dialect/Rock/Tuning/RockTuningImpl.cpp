@@ -247,7 +247,8 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
     // XDLOPS
     Type inTypeA = gemmOp.getAType();
     bool is8BitReduction = inTypeA.isInteger(8) || inTypeA.isFloat8E5M2FNUZ() ||
-                           inTypeA.isFloat8E4M3FNUZ();
+                           inTypeA.isFloat8E4M3FNUZ() || inTypeA.isFloat8E5M2() ||
+                           inTypeA.isFloat8E4M3FN();
     const std::vector<std::vector<uint32_t>> &xdlopsParams =
         is8BitReduction ? validRangeAccelGemmParams8BitReduction
                         : validRangeAccelGemmParams;
@@ -643,6 +644,14 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
 
+  auto f8TypeStr = [](const Type &type) -> const char * {
+    if (type.isFloat8E4M3FNUZ() || type.isFloat8E4M3FN())
+      return "fp8";
+    if (type.isFloat8E5M2FNUZ() || type.isFloat8E5M2())
+      return "bf8";
+    return nullptr;
+  };
+
   // ARCH string
   problemOS << gemmIF.getArch() << tab;
   // Num of Compute Units
@@ -738,20 +747,13 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       problemOS << "convbfp16 ";
     } else if (inElemType.isInteger(8)) {
       problemOS << "convint8 ";
-    } else if (inElemType.isFloat8E4M3FNUZ() &&
-               filElemType.isFloat8E4M3FNUZ()) {
-      problemOS << "convfp8_fp8 ";
-    } else if (inElemType.isFloat8E4M3FNUZ() &&
-               filElemType.isFloat8E5M2FNUZ()) {
-      problemOS << "convfp8_bf8 ";
-    } else if (inElemType.isFloat8E5M2FNUZ() &&
-               filElemType.isFloat8E4M3FNUZ()) {
-      problemOS << "convbf8_fp8 ";
-    } else if (inElemType.isFloat8E5M2FNUZ() &&
-               filElemType.isFloat8E5M2FNUZ()) {
-      problemOS << "convbf8_bf8 ";
     } else {
-      return failure();
+      const char *inString = f8TypeStr(inElemType);
+      const char *filString = f8TypeStr(filElemType);
+      if (inString && filString)
+        problemOS << "conv" << inString << "_" << filString << " ";
+      else
+        return failure();
     }
 
     // OP direction
@@ -817,30 +819,24 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       problemOS << "bf16";
     } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
       problemOS << "i8";
-    } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
-      problemOS << "fp8_fp8";
-    } else if (elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
-      problemOS << "fp8_bf8";
-    } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) {
-      problemOS << "bf8_fp8";
-    } else if (elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) {
-      problemOS << "bf8_bf8";
     } else {
-      // Unknown data type
-      return failure();
+      const char *aString = f8TypeStr(elemTypeA);
+      const char *bString = f8TypeStr(elemTypeB);
+      if (aString && bString)
+        problemOS << aString << "_" << bString;
+      else
+        return failure();
     }
 
     // OUtput datatype
     auto outType = gemmIF.getOutArgument()->get().getType();
     auto elemTypeC = dyn_cast<mlir::MemRefType>(outType).getElementType();
     problemOS << " -out_datatype ";
-    if (elemTypeC.isFloat8E4M3FNUZ()) {
-      problemOS << "fp8" << sep;
-    } else if (elemTypeC.isFloat8E5M2FNUZ()) {
-      problemOS << "bf8" << sep;
-    } else {
+    const char *outStr = f8TypeStr(elemTypeC);
+    if (outStr)
+      problemOS << outStr << sep;
+    else
       problemOS << elemTypeC << sep;
-    }
 
     // TransA
     problemOS << "-transA ";
