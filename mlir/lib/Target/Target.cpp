@@ -124,8 +124,8 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
       library =
           llvm::getLazyIRModule(std::move(fileBc), error, module.getContext());
       if (!library) {
-        getOperation().emitError("Error loading library: " +
-                                 error.getMessage());
+        getOperation().emitError("Error loading library: " + file +
+                                 ", error message:" + error.getMessage());
         return std::nullopt;
       }
       // Unset the lib so we don't add it with `appendStandardLibs`.
