@@ -790,3 +790,58 @@ func.func @test_fusion_traversal_fail(%buf: memref<4x8xi8>, %buf2: memref<8x4xi8
 func.func @test_vectorization_align_pad() {
   func.return
 }
+
+// CHECK-LABEL: func @test_input_fusion_traversal_good
+func.func @test_input_fusion_traversal_good(%buf: memref<4x8xi8>) {
+  %0 = rock.transform %buf by #transform_map0 : memref<4x8xi8> to memref<8x4xi8>
+  %alloc1 = memref.alloc() : memref<8x4xi8>
+  linalg.generic {rock.majorTensorNumber = 0 : index, indexing_maps = [#id2, #id2], iterator_types = ["parallel", "parallel"]}
+    ins(%0 : memref<8x4xi8>)
+    outs(%alloc1 : memref<8x4xi8>) {
+    ^bb0(%i : i8, %o : i8):
+      linalg.yield %i : i8
+  }
+  // Here we see the transpose so we get to vectorize
+  // CHECK: get_length
+  // CHECK-Same: fusionTraversalStatus = true
+  // CHECK-SAME: result = 8
+  "get_length"(%alloc1) {in_dim = 0 : index, traverseFusions} : (memref<8x4xi8>) -> ()
+  func.return
+}
+
+// CHECK-LABEL: func @test_input_fusion_traversal_bad
+func.func @test_input_fusion_traversal_bad(%buf: memref<4x8xi8>) {
+  %0 = rock.transform %buf by #transform_map0 : memref<4x8xi8> to memref<8x4xi8>
+  %alloc1 = memref.alloc() : memref<8x4xi8>
+  linalg.generic {rock.majorTensorNumber = 0 : index, indexing_maps = [#id2, #id2], iterator_types = ["parallel", "parallel"]}
+    ins(%0 : memref<8x4xi8>)
+    outs(%alloc1 : memref<8x4xi8>) {
+    ^bb0(%i : i8, %o : i8):
+      linalg.yield %i : i8
+  }
+  // And here the transpose tells us we can't vectorize
+  // CHECK: get_length
+  // CHECK-Same: fusionTraversalStatus = true
+  // CHECK-SAME: result = 1
+  "get_length"(%alloc1) {in_dim = 1 : index, traverseFusions} : (memref<8x4xi8>) -> ()
+  func.return
+}
+
+#id1 = affine_map<(d0) -> (d0)>
+// CHECK-LABEL: func @input_fusion_true_max_length
+func.func @input_fusion_true_max_length(%buf: memref<8xf16>) {
+  %alloc1 = memref.alloc() : memref<8xf32>
+  linalg.generic {rock.majorTensorNumber = 0 : index, indexing_maps = [#id1, #id1], iterator_types = ["parallel"]}
+    ins(%buf : memref<8xf16>)
+    outs(%alloc1 : memref<8xf32>) {
+    ^bb0(%i : f16, %o : f32):
+      %e = arith.extf %i : f16 to f32
+      linalg.yield %e : f32
+  }
+  // Confirm that we vectorize by f16's, not f32s
+  // CHECK: get_length
+  // CHECK-Same: fusionTraversalStatus = true
+  // CHECK-SAME: result = 8
+  "get_length"(%alloc1) {in_dim = 0 : index, traverseFusions} : (memref<8xf32>) -> ()
+  func.return
+}

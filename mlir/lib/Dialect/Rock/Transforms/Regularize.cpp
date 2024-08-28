@@ -149,11 +149,15 @@ struct RegularizeGenericRewritePattern
 static void annotateGenericOp(linalg::GenericOp lgop) {
   MLIRContext *ctx = lgop.getContext();
   int64_t majorTensorSize = 0;
-  size_t majorTensorIdx;
+  size_t majorTensorIdx = -1;
   size_t argIdx = -1;
+  if (lgop.getInputs().empty()) {
+    // Weird constant iniializer or something.
+    return;
+  }
   if (lgop.getInputs().size() == 1) {
     lgop->setAttr("rock.majorTensorNumber",
-                  IntegerAttr::get(IndexType::get(ctx), 1));
+                  IntegerAttr::get(IndexType::get(ctx), 0));
     return;
   }
   for (auto [inputIdx, inp] : llvm::enumerate(lgop.getInputs())) {

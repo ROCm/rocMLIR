@@ -828,14 +828,16 @@ findPostFusionTransforms(Value buffer, Operation *currentUser) {
       if (genericOut == buffer) {
         if (auto index = genericOp->getAttrOfType<IntegerAttr>(
                 "rock.majorTensorNumber")) {
+          candidate = genericOp.getInputs()[index.getInt()];
+        } else {
           LLVM_DEBUG(llvm::dbgs()
                      << "[vectorization] can't analyze linalg.generic "
                         "without rock.majorTensorNumber\n");
           return failure();
-        } else
-          candidate = genericOp.getInputs()[index.getInt()];
-      } else
+        }
+      } else {
         candidate = genericOut;
+      }
     } else {
       LLVM_DEBUG(llvm::dbgs()
                  << "[vectorization] Unexpected user of temporary buffer: "
@@ -960,7 +962,7 @@ VectorizationResult mlir::rock::getMaxVectorization(
   // warp will issue, if possible, a global_load_dwordx4 instruction
   if (!ignoreDataType) {
     constexpr int64_t maxVectorLenBits = 128;
-    int64_t bwidth = upperType.getElementTypeBitWidth();
+    int64_t bwidth = outputType.getElementTypeBitWidth();
     result = math_util::gcd(maxVectorLenBits / bwidth, result);
   }
   // bufferVectorSize will become non-trivial once scalarization comes in
