@@ -212,18 +212,21 @@ func.func @threadwise_read_into_small_to_big_vec(%source: memref<8xvector<4xf16>
   func.return
 }
 
+// Note: The source is given as private memory to comply with the validity check
+// that got added during review without reeding to rewrite the test. If we start
+// supporting dynamic validities for reads from global memory, take the <private>
+// off the source.
 // CHECK-LABEL: func @threadwise_read_into_validities
-// CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[validIn:%.+]]: vector<32xi1>
-func.func @threadwise_read_into_validities(%source: memref<2x64x30xf32>,
+// CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[validIn:%.+]]: vector<32xi1>
+func.func @threadwise_read_into_validities(%source: memref<2x64x30xf32, #gpu.address_space<private>>,
     %dest: memref<32xf32, #gpu.address_space<private>>,
     %validIn: vector<32xi1>) -> vector<32xi1> {
-  // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[trues:%.+]] = arith.constant dense<true>
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
   // CHECK: [[validOut:%.+]] = rock.transforming_for {forceUnroll, useIndexDiffs}
-  // CHECK-SAME: ([[args:%.+, %.+, %.+]]) = [#[[$ON_OP]], #[[$IN_FUNC]]]([[bid]], [[tid]], [[zero]])
-  // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = []([[bid]], [[tid]], [[zero]])
+  // CHECK-SAME: ([[args:%.+, %.+, %.+]]) = [#[[$ON_OP]], #[[$IN_FUNC]]]([[bid]], [[tid]], %{{[^)]+}})
+  // CHECK-SAME: ({{%.*}}, {{%.*}}, [[i:%.+]]) = []([[bid]], [[tid]], %{{[^)]+}})
   // CHECK-SAME: ([[valid:%.+]], {{%.*}}) = validity
   // CHECK-SAME: iter_args ([[validOutIter:%.+]] = [[trues]]) -> (vector<32xi1>)
   // CHECK-SAME: bounds [1, 1, 32]
@@ -232,17 +235,17 @@ func.func @threadwise_read_into_validities(%source: memref<2x64x30xf32>,
   // CHECK-NEXT: [[vInElem:%.+]] = vector.extract [[validIn]][[[i]]]
   // CHECK-NEXT: [[validCombo:%.+]] = arith.andi [[valid]], [[vInElem]] : i1
   // CHECK-NEXT: [[validOutIterNext:%.+]] = rock.insert_slice [[validCombo]] -> [[validOutIter]][[[i]]]
-  // CHECK-NEXT: [[tmp:%.+]] = rock.global_load [[source]][[[args]]] if [[validCombo]]
-  // CHECK-NEXT: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
+  // CHECK-NEXT: [[tmp:%.+]] = scf.if [[validCombo]]
+  // CHECK: rock.in_bounds_store [[tmp]] -> [[dest]][[[i]]]
   // CHECK-NEXT: yield [[validOutIterNext]]
   // CHECK: return [[validOut]]
 
-  %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
+  %view = rock.transform %source by #transform_map1 : memref<2x64x30xf32, #gpu.address_space<private>> to memref<2x64x32xf32, #gpu.address_space<private>>
   %bid = rock.workgroup_id : index
   %tid = rock.workitem_id : index
   %validOut = rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map0](%view)[%bid, %tid] -> %dest
     if [%validIn]
-    : memref<2x64x32xf32> -> memref<32xf32, #gpu.address_space<private>>, vector<32xi1>
+    : memref<2x64x32xf32, #gpu.address_space<private>> -> memref<32xf32, #gpu.address_space<private>>, vector<32xi1>
   func.return %validOut : vector<32xi1>
 }
