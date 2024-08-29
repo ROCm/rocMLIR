@@ -1083,7 +1083,7 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   ProgInfo.Occupancy = AMDGPUMCExpr::createOccupancy(
       STM.computeOccupancy(F, ProgInfo.LDSSize), ProgInfo.NumSGPRsForWavesPerEU,
       ProgInfo.NumVGPRsForWavesPerEU, STM, Ctx);
-
+  /*
   const auto [MinWEU, MaxWEU] =
       AMDGPU::getIntegerPairAttribute(F, "amdgpu-waves-per-eu", {0, 0}, true);
   uint64_t Occupancy;
@@ -1096,6 +1096,7 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
             ", final occupancy is " + Twine(Occupancy));
     F.getContext().diagnose(Diag);
   }
+  */
 }
 
 static unsigned getRsrcReg(CallingConv::ID CallConv) {
