@@ -610,7 +610,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
 
         b.create<ThreadwiseReadIntoOp>(
-            loc, validityVectorShapedLike(loadBufferA), wrappedA, loadBufferA,
+            loc, vectorOfBoolShapedLike(loadBufferA), wrappedA, loadBufferA,
             /*dynamicValidities=*/ValueRange{},
             /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
@@ -618,7 +618,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                        gridCoords.n_block, tid},
             true, true);
         b.create<ThreadwiseReadIntoOp>(
-            loc, validityVectorShapedLike(loadBufferB), wrappedB, loadBufferB,
+            loc, vectorOfBoolShapedLike(loadBufferB), wrappedB, loadBufferB,
             /*dynamicValidities=*/ValueRange{},
             /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
@@ -832,7 +832,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value viewIn = transform(rewriter, in, maybeInBufferViews->gridSubTile);
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseReadIntoOp>(
-        loc, validityVectorShapedLike(fromGlobalRegBuffer), viewIn,
+        loc, vectorOfBoolShapedLike(fromGlobalRegBuffer), viewIn,
         fromGlobalRegBuffer,
         /*dynamicValidities=*/ValueRange{},
         /*extraViews=*/rewriter.getArrayAttr({}),
@@ -2712,7 +2712,7 @@ struct GridwiseGemmAccelRewritePattern
               loc, reverseMap, ValueRange{iv, nIterations});
         }
         b.create<ThreadwiseReadIntoOp>(
-            loc, validityVectorShapedLike(loadBufferA), wrappedA, loadBufferA,
+            loc, vectorOfBoolShapedLike(loadBufferA), wrappedA, loadBufferA,
             /*dynamicValidities=*/ValueRange{},
             /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/
@@ -2720,7 +2720,7 @@ struct GridwiseGemmAccelRewritePattern
                        gridCoords.n_block, tid},
             true, true);
         b.create<ThreadwiseReadIntoOp>(
-            loc, validityVectorShapedLike(loadBufferB), wrappedB, loadBufferB,
+            loc, vectorOfBoolShapedLike(loadBufferB), wrappedB, loadBufferB,
             /*dynamicValidities=*/ValueRange{},
             /*extraViews=*/b.getArrayAttr({}),
             /*extraIndices=*/

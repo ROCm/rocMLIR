@@ -1669,8 +1669,9 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 
   if (!getDynamicValidities().empty() &&
       srcType.getElementType() != destType.getElementType()) {
-    return emitOpError("dynamic validities are incompatible with making the "
-                       "source and destination have different types");
+    return emitOpError("dynamic validities applied where the "
+                       "source and destination have different types are "
+                       "currently unimplemented");
   }
   if (!getDynamicValidities().empty() && srcVectorType) {
     return emitOpError(

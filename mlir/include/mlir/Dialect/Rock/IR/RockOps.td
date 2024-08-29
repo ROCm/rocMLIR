@@ -1060,7 +1060,10 @@ def Rock_ThreadwiseReadIntoOp :
     ANDed together with the validity implied by the coordinate transformations
     to determine whether the read is to actually be performed.
 
-    Note that using dynamic validities forces the vectorization width to 1.
+    Note that using dynamic validities forces the vectorization width to 1 (but
+    that merely requesting a validity vector does not). There isn't any inherent
+    reason for this limitation other than that support for post-vectorization
+    masking wasn't needed in the initial usecase for this feature.
 
     If `validityRecord` is specified, it will be filled with a boolean indicating
     whether each of the values in `dest` was actually read from memory or if it

@@ -652,7 +652,7 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
   src = applyViewsOnDest(b, loc, src, globalCoordsToGenericViews);
 
   // 2.1. load into registers
-  Type validityRecordResultType = validityVectorShapedLike(alloc);
+  Type validityRecordResultType = vectorOfBoolShapedLike(alloc);
   ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
       loc,
       validityRecord != nullptr ? TypeRange{validityRecordResultType}
@@ -863,20 +863,25 @@ static LogicalResult knownToPreserveZero(linalg::GenericOp laGeneric,
 /// statement in what would otherwise be a memcpy().
 ///
 /// Returns the validity record from the padding read if there is one.
-static Value reapplyPaddingIfNeeded(linalg::GenericOp reconfiguredGeneric,
-                                    ValueRange validityRecords,
-                                    ThreadwiseReadIntoOp oldTwRead,
-                                    LinalgAlignRewriter &b) {
-  // If the old read isn't recording its validity anywhere, or if we're not
-  // using that record, we don't need to propagate the validity records from the
-  // inputs.
-  if (!oldTwRead.getValidityRecord() ||
-      oldTwRead.getValidityRecord().use_empty()) {
+static std::optional<Value>
+reapplyPaddingIfNeeded(linalg::GenericOp reconfiguredGeneric,
+                       ValueRange validityRecords,
+                       ThreadwiseReadIntoOp oldTwRead, LinalgAlignRewriter &b) {
+  // If the old read never produces validity records, we just need to erase it.
+  if (!oldTwRead.getValidityRecord())
+    return std::nullopt;
+  // However, if we don't need to reapply the mask, we can return the null
+  // result to "replace" all zero uses of the validity record. Note that if the
+  // validity record is used, we'll still need to construct the read.
+  if (oldTwRead.getValidityRecord().use_empty()) {
     if (validityRecords.empty())
       return Value{};
     if (succeeded(knownToPreserveZero(reconfiguredGeneric, b)))
       return Value{};
   }
+  assert(reconfiguredGeneric.getOutputs().size() == 1 &&
+         "Multi-output generics shouldn't have made it here since they're not "
+         "supported");
   Value originalTile = reconfiguredGeneric.getOutputs()[0];
   LinalgAlignRewriter::InsertionGuard guard(b);
   b.setInsertionPoint(reconfiguredGeneric);
@@ -886,7 +891,7 @@ static Value reapplyPaddingIfNeeded(linalg::GenericOp reconfiguredGeneric,
   });
   b.setInsertionPointAfter(reconfiguredGeneric);
   auto maskingRead = b.create<rock::ThreadwiseReadIntoOp>(
-      reconfiguredGeneric.getLoc(), validityVectorShapedLike(unmaskedTile),
+      reconfiguredGeneric.getLoc(), vectorOfBoolShapedLike(unmaskedTile),
       unmaskedTile, originalTile,
       /*dynamicValidities=*/validityRecords,
       /*extraViews=*/b.getArrayAttr({}), /*extraIndices=*/ValueRange{},
@@ -985,12 +990,12 @@ LAGenericRewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     if (newOutput.getDefiningOp()->getBlock() == laGeneric->getBlock())
       b.moveBeforeIfNeeded(newOutput.getDefiningOp(), laGeneric);
     reconfigureLAGeneric(b, laGeneric, newInputs, newOutput);
-    Value newValidityRecord =
+    std::optional<Value> newValidityRecord =
         reapplyPaddingIfNeeded(laGeneric, newValidityRecords, tileReadOp, b);
     if (!newValidityRecord)
       b.eraseOp(tileReadOp);
     else
-      b.replaceOp(tileReadOp, newValidityRecord);
+      b.replaceOp(tileReadOp, *newValidityRecord);
     return success();
   }
   auto outType = cast<ShapedType>(out.getType());

@@ -202,7 +202,7 @@ Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
   return origTensor;
 }
 
-Type validityVectorShapedLike(Value v) {
+Type vectorOfBoolShapedLike(Value v) {
   return VectorType::get(cast<ShapedType>(v.getType()).getShape(),
                          IntegerType::get(v.getContext(), 1));
 }
