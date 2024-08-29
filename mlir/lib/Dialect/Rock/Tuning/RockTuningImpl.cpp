@@ -22,6 +22,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/FormatVariadic.h"
 #include <algorithm>
 
 namespace mlir {
@@ -644,12 +645,12 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
 
-  auto f8TypeStr = [](const Type &type) -> const char * {
+  auto f8TypeStr = [](const Type &type) -> std::optional<StringRef> {
     if (type.isFloat8E4M3FNUZ() || type.isFloat8E4M3FN())
       return "fp8";
     if (type.isFloat8E5M2FNUZ() || type.isFloat8E5M2())
       return "bf8";
-    return nullptr;
+    return std::nullopt;
   };
 
   // ARCH string
@@ -748,10 +749,10 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     } else if (inElemType.isInteger(8)) {
       problemOS << "convint8 ";
     } else {
-      const char *inString = f8TypeStr(inElemType);
-      const char *filString = f8TypeStr(filElemType);
+      auto inString = f8TypeStr(inElemType);
+      auto filString = f8TypeStr(filElemType);
       if (inString && filString)
-        problemOS << "conv" << inString << "_" << filString << " ";
+        problemOS << llvm::formatv("conv{0}_{1} ", *inString, *filString);
       else
         return failure();
     }
@@ -820,21 +821,21 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
       problemOS << "i8";
     } else {
-      const char *aString = f8TypeStr(elemTypeA);
-      const char *bString = f8TypeStr(elemTypeB);
+      auto aString = f8TypeStr(elemTypeA);
+      auto bString = f8TypeStr(elemTypeB);
       if (aString && bString)
-        problemOS << aString << "_" << bString;
+        problemOS << llvm::formatv("{0}_{1}", *aString, *bString);
       else
         return failure();
     }
 
-    // OUtput datatype
+    // Output datatype
     auto outType = gemmIF.getOutArgument()->get().getType();
     auto elemTypeC = dyn_cast<mlir::MemRefType>(outType).getElementType();
     problemOS << " -out_datatype ";
-    const char *outStr = f8TypeStr(elemTypeC);
+    auto outStr = f8TypeStr(elemTypeC);
     if (outStr)
-      problemOS << outStr << sep;
+      problemOS << *outStr << sep;
     else
       problemOS << elemTypeC << sep;
 

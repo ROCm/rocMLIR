@@ -3749,22 +3749,21 @@ int main(int argc, char **argv) {
                                     "MLIR Rock Dialect host generation\n");
 
   if (!arch.getValue().empty()) {
-    SmallVector<std::string>f8e4m3TypeNames{"", "f8E4M3FNUZ", "f8E4M3FN"};
-    SmallVector<std::string>f8e5m2TypeNames{"", "f8E5M2FNUZ", "f8E5M2"};
-    int archIndex = llvm::to_underlying(F8TypesChoice::Arch);
-    if (archChip().substr(0, 5) == "gfx12") {
-      f8e4m3TypeNames[archIndex] = "f8E4M3FN";
-      f8e5m2TypeNames[archIndex] = "f8E5M2";
-    } else {
-      f8e4m3TypeNames[archIndex] = "f8E4M3FNUZ";
-      f8e5m2TypeNames[archIndex] = "f8E5M2FNUZ";
-    }
+    bool archPrefersOCP = (archChip().substr(0, 5) == "gfx12");
+    std::map<F8TypesChoice,std::string>f8e4m3TypeNames{
+        {F8TypesChoice::Arch, archPrefersOCP ? "f8E4M3FN" : "f8E4M3FNUZ"},
+        {F8TypesChoice::Nanoo, "f8E4M3FNUZ"},
+        {F8TypesChoice::OCP, "f8E4M3FN"}};
+    std::map<F8TypesChoice,std::string>f8e5m2TypeNames{
+        {F8TypesChoice::Arch, archPrefersOCP ? "f8E5M2" : "f8E5M2FNUZ"},
+        {F8TypesChoice::Nanoo, "f8E5M2FNUZ"},
+        {F8TypesChoice::OCP, "f8E5M2"}};
 
-    auto canonicaliseF8Type = [&](StringRef name) -> std::string {
+    auto canonicaliseF8Type = [&](std::string name) {
                                 if (name == "fp8")
-                                  return f8e4m3TypeNames[llvm::to_underlying(forceF8Types.getValue())];
+                                  return f8e4m3TypeNames[forceF8Types.getValue()];
                                 if (name == "bf8")
-                                  return f8e5m2TypeNames[llvm::to_underlying(forceF8Types.getValue())];
+                                  return f8e5m2TypeNames[forceF8Types.getValue()];
                                 return std::string(name);
                               };
 
