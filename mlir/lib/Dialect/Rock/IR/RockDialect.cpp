@@ -1667,15 +1667,22 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
           "Vector buffers vector's lengths need to be evenly divisible");
   }
 
-  if (!getDynamicValidities().empty() &&
-      srcType.getElementType() != destType.getElementType()) {
-    return emitOpError("dynamic validities applied where the "
-                       "source and destination have different types are "
-                       "currently unimplemented");
-  }
-  if (!getDynamicValidities().empty() && srcVectorType) {
-    return emitOpError(
-        "dynamic validities with vector buffers are unimplemented");
+  if (!getDynamicValidities().empty()) {
+    if (srcType.getElementType() != destType.getElementType()) {
+      return emitOpError("dynamic validities applied where the "
+                         "source and destination have different types are "
+                         "currently unimplemented");
+    }
+    if (srcVectorType) {
+      return emitOpError(
+          "dynamic validities with vector buffers are unimplemented");
+    }
+    if (!gpuSrcMemSpaceAttr ||
+        gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitOpError(
+          "it's currently expeccted that dynamic validities will only be used "
+          "in register-to-register reads produced by input fusion");
+    }
   }
   return success();
 }
