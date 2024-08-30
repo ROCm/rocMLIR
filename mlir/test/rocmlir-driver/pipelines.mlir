@@ -8,9 +8,10 @@
 
 // COM: Do not put a leading space between the colon and the pass you're looking for
 // MIGRAPHX:Kernel pipeline:
-// MIGRAPHX-NEXT:builtin.module(func.func(migraphx-transform),
-// MIGRAPHX-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
-// MIGRAPHX-NEXT:func.func(migraphx-to-tosa))
+// MIGRAPHX-NEXT:builtin.module(func.func(migraphx-realize-int4,
+// MIGRAPHX-NEXT:migraphx-transform,
+// MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// MIGRAPHX-NEXT:migraphx-to-tosa))
 
 // GPU:Kernel pipeline:
 // GPU-NEXT:builtin.module(func.func(rock-affix-params{fallback=false},
@@ -24,7 +25,9 @@
 // GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
+// GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-output-swizzle,
+// GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-lower-reduce,
 // GPU-NEXT:rock-threadwise-gemm-lowering,
 // GPU-NEXT:rock-analyze-memory-use,
@@ -94,7 +97,8 @@
 // HIGHLEVEL:Kernel pipeline:
 // HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
-// HIGHLEVEL-NEXT:rock-view-to-transform),
+// HIGHLEVEL-NEXT:rock-view-to-transform,
+// HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),

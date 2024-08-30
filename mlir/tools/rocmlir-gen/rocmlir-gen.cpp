@@ -1081,8 +1081,7 @@ static void populateDefaults() {
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
   }
-  if (isConv && outputDepth.getNumOccurrences() == 0 &&
-      inputDepth.getNumOccurrences() > 0) {
+  if (isConv && outputDepth.getNumOccurrences() == 0) {
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
@@ -1999,19 +1998,20 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
         thenBody.create<affine::AffineLoadOp>(loc, opd1, opd1Map, idx1);
     auto loadOp2 =
         thenBody.create<affine::AffineLoadOp>(loc, opd2, opd2Map, idx2);
+    size_t nIVs = genConfig.inputDimension.size();
     auto loadOutput = thenBody.create<affine::AffineLoadOp>(
-        loc, result, resultStoreMap, ivs.take_front(5));
+        loc, result, resultStoreMap, ivs.take_front(nIVs));
     if (elemType.isIntOrIndex()) {
       auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
       auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
       auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      thenBody.create<affine::AffineStoreOp>(loc, addiOp, result,
-                                             resultStoreMap, ivs.take_front(5));
+      thenBody.create<affine::AffineStoreOp>(
+          loc, addiOp, result, resultStoreMap, ivs.take_front(nIVs));
     } else {
       auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
       auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      thenBody.create<affine::AffineStoreOp>(loc, addfOp, result,
-                                             resultStoreMap, ivs.take_front(5));
+      thenBody.create<affine::AffineStoreOp>(
+          loc, addfOp, result, resultStoreMap, ivs.take_front(nIVs));
     }
   };
 
@@ -3612,14 +3612,23 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           outputLayout.getValue());
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (inputDepth < 1)
+          inputDepth = 1;
         inDims.push_back(inputDepth);
+      }
       SmallVector<int64_t> outDims{outputHeight, outputWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (outputDepth < 1)
+          outputDepth = 1;
         outDims.push_back(outputDepth);
+      }
       SmallVector<int64_t> filDims{filterHeight, filterWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (filterDepth < 1)
+          filterDepth = 1;
         filDims.push_back(filterDepth);
+      }
 
       status =
           convGenerator.parseConvDims(batchSize, groupSize, inputChannel,

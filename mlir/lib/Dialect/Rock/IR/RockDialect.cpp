@@ -9,7 +9,6 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -412,8 +411,8 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   auto outputType = cast<MemRefType>(op->getOperand(2).getType());
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
-  int64_t y, x, ho, wo, hi, wi, k, c, n, g;
-  y = x = ho = wo = hi = wi = k = c = n = g = 0;
+  int64_t y, x, z, ho, wo, dout, hi, wi, di, k, c, n, g;
+  y = x = z = ho = wo = dout = hi = wi = di = k = c = n = g = 0;
 
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
@@ -428,6 +427,8 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       x = filterShape[i];
     } else if (filterAttr.getValue() == "1") {
       x = filterShape[i];
+    } else if (filterAttr.getValue() == "2") {
+      z = filterShape[i];
     } else if (filterAttr.getValue() == "k") {
       k = filterShape[i];
     } else if (filterAttr.getValue() == "c") {
@@ -444,6 +445,8 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       hi = inputShape[i];
     } else if (inputAttr.getValue() == "1i") {
       wi = inputShape[i];
+    } else if (inputAttr.getValue() == "2i") {
+      di = inputShape[i];
     } else if (inputAttr.getValue() == "ni") {
       n = inputShape[i];
     }
@@ -456,10 +459,21 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       ho = outputShape[i];
     } else if (outputAttr.getValue() == "1o") {
       wo = outputShape[i];
+    } else if (outputAttr.getValue() == "2o") {
+      dout = outputShape[i];
     }
   }
 
-  return ConvolutionDims({y, x}, {ho, wo}, {hi, wi}, k, c, n, g);
+  SmallVector<int64_t> fil({y, x});
+  if (z > 0)
+    fil.push_back(z);
+  SmallVector<int64_t> out({ho, wo});
+  if (dout > 0)
+    out.push_back(dout);
+  SmallVector<int64_t> in({hi, wi});
+  if (di > 0)
+    in.push_back(di);
+  return ConvolutionDims(fil, out, in, k, c, n, g);
 }
 
 ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
@@ -519,12 +533,17 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
 }
 
 static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
-                                     Type elemTypeA, Type elemTypeB,
-                                     Type elemTypeC) {
+                                     StringRef arch, Type elemTypeA,
+                                     Type elemTypeB, Type elemTypeC) {
+  bool isGfx11 = arch.contains("gfx11");
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
     if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
-      return op->emitOpError(
-          "Wmma gridwise supports only F16/BF16/int8 data types");
+      if (isGfx11)
+        return op->emitOpError(
+            "Wmma gridwise supports only F16/BF16/int8 data types");
+      if (!elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2())
+        return op->emitOpError(
+            "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
   }
   if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
@@ -547,8 +566,8 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   Type elemTypeC = cast<ShapedType>(gemmOp.getOutArgument()->get().getType())
                        .getElementType();
 
-  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), elemTypeA, elemTypeB,
-                         elemTypeC);
+  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), gemmOp.getArch(),
+                         elemTypeA, elemTypeB, elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -877,7 +896,8 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
 
-  if (failed(verifyGemmTypes(op, op.getFeatures(), aElem, bElem, cElem)))
+  if (failed(
+          verifyGemmTypes(op, op.getFeatures(), "gfx00", aElem, bElem, cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
@@ -974,6 +994,47 @@ LogicalResult InsertSliceOp::verify() {
           Twine(destSize));
   }
   return success();
+}
+
+//===-----------------------------------------------------===//
+// GpuAllocOp
+//===-----------------------------------------------------===//
+
+static int64_t getSize(MemRefType memref) {
+  int64_t elementSize;
+  Type type = memref.getElementType();
+  if (auto vecType = dyn_cast<VectorType>(type)) {
+    elementSize =
+        (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
+  } else {
+    elementSize = type.getIntOrFloatBitWidth() / 8;
+  }
+  return memref.getNumElements() * elementSize;
+}
+
+LogicalResult GpuAllocOp::verify() {
+  // Make sure the size is bigger than 0
+  if (getSize(getOutput().getType()) > 0) {
+    return success();
+  }
+  return emitError("The size of rock.alloc should be greather than zero.");
+}
+
+//===-----------------------------------------------------===//
+// GpuDeallocOp
+//===-----------------------------------------------------===//
+
+LogicalResult GpuDeallocOp::verify() {
+  // Make sure the input memref defining operation is a GpuAllocOp
+  if (auto gpuAlloc = dyn_cast<GpuAllocOp>(getMemref().getDefiningOp())) {
+    // Make sure the size is bigger than 0
+    if (getSize(getMemref().getType()) > 0) {
+      return success();
+    }
+    return emitError("The size of rock.dealloc should be greather than zero.");
+  }
+  return emitError("The operand of rock.dealloc must be the result of a "
+                   "rock.alloc operation.");
 }
 
 //===-----------------------------------------------------===//
@@ -1288,10 +1349,11 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 }
 
 void TransformingForOp::print(OpAsmPrinter &p) {
-  p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
-                              TransformingForOp::getOperandSegmentSizeAttr(),
-                              getTransformsAttrName(), getLowerStartsAttrName(),
-                              getBoundsAttrName(), getStridesAttrName()});
+  p.printOptionalAttrDict(
+      getOperation()->getAttrs(),
+      /*elidedAttrs=*/{TransformingForOp::getOperandSegmentSizeAttr(),
+                       getTransformsAttrName(), getLowerStartsAttrName(),
+                       getBoundsAttrName(), getStridesAttrName()});
   p << " ";
   for (uint32_t i = 0, e = domains(); i < e; ++i) {
     p << "(";
@@ -1857,8 +1919,8 @@ LogicalResult ReduceOp::verify() {
       }
     } else {
       if (dimSize != inpShape[dim]) {
-        return emitError(
-            "The size of the non-reduction dimension should match the input.");
+        return emitError("The size of the non-reduction dimension should "
+                         "match the input.");
       }
     }
   }
@@ -1930,8 +1992,8 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   }
 
   if (inputThreadView[0] != blockSize) {
-    return emitError(
-        "first dimension of the input view should be equal to the block size");
+    return emitError("first dimension of the input view should be equal to "
+                     "the block size");
   }
   if (wsShape.size() != 1) {
     return emitError("workspace LDS buffer should be flat");

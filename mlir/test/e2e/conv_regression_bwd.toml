@@ -9,7 +9,7 @@ prefix = "--operation "
 
 [[axis]]
 name = "layout"
-values = ["-fil_layout=kcyx -in_layout=nchw -out_layout=nkhw", "-fil_layout=kyxc -in_layout=nhwc -out_layout=nhwk"]
+values = ["-fil_layout=kcyx -in_layout=nchw -out_layout=nkhw", "-fil_layout=kyxc -in_layout=nhwc -out_layout=nhwk", "-fil_layout=kc012 -in_layout=nc012 -out_layout=nk012"]
 
 [[axis]]
 name = "data type"

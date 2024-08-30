@@ -64,9 +64,9 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
     inputVectorLen = 16;
   }
 
-  if (mPerWave % inputVectorLen != 0)
+  if (mPerWave % inputVectorLen != 0 || mPerWave % dPerAccel != 0)
     return failure();
-  if (nPerWave % inputVectorLen != 0)
+  if (nPerWave % inputVectorLen != 0 || nPerWave % dPerAccel != 0)
     return failure();
 
   int64_t mRepeats = mPerWave / dPerAccel;
@@ -84,6 +84,10 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
     insn = ROCDL::wmma_f32_16x16x16_bf16::getOperationName();
   } else if (elementTypeA.isInteger(8)) {
     insn = ROCDL::wmma_i32_16x16x16_iu8::getOperationName();
+  } else if (elementTypeA.isFloat8E4M3FN()) {
+    insn = ROCDL::wmma_f32_16x16x16_fp8::getOperationName();
+  } else if (elementTypeA.isFloat8E5M2()) {
+    insn = ROCDL::wmma_f32_16x16x16_bf8::getOperationName();
   } else {
     return failure();
   }

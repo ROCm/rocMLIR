@@ -185,7 +185,7 @@ String getLabelFromCodepath(String codepath) {
     } else if (codepath == "vanilla"){
         label = 'mlir'
     } else if (codepath == "navi3x") {
-        label = 'mlir && ( gfx1100 || gfx1101 )'
+        label = 'mlir && gfx1101'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -199,7 +199,7 @@ String getLabelFromChip(String chip) {
         case "gfx906":
             return getLabelFromCodepath("vanilla")
         case "gfx908":
-            return "mlir && gfx908 && multi_gpu"
+            return "mlir && gfx908"
         case "gfx90a":
             return "mlir && gfx90a"
         case "gfx942":
@@ -341,10 +341,12 @@ boolean shouldRunFromChip(String chip) {
             return shouldRunFromCodepath("vanilla")
         case "gfx90a":
             // Special case because all our "vanilla" hosts are gfx90a.
-            return shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla")
+            return params.disable90a == false &&
+                   (shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla"))
         case "gfx908":
+            return params.disable908 == false && shouldRunFromCodepath("mfma")
         case "gfx942":
-            return shouldRunFromCodepath("mfma")
+            return params.disable942 == false && shouldRunFromCodepath("mfma")
         case "gfx1030":
             return shouldRunFromCodepath("navi21")
         case "gfx1100":
@@ -427,12 +429,18 @@ pipeline {
                choices: ['default', 'mfma', 'navi21', 'navi3x', 'vanilla'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
-        booleanParam(name: 'disableNavi21', defaultValue: false,
+        booleanParam(name: 'disableNavi21', defaultValue: true,
                      description: 'Disable testing on Navi21')
         // option to disable navi3x cells in case nodes are offline
         booleanParam(name: 'disableNavi3x', defaultValue: false,
                      description: 'Disable testing on Navi3x')
 
+        booleanParam(name: 'disable90a', defaultValue: false,
+                     description: 'Disable testing on gfx90a')
+        booleanParam(name: 'disable908', defaultValue: false,
+                     description: 'Disable testing on gfx908')
+        booleanParam(name: 'disable942', defaultValue: false,
+                     description: 'Disable testing on gfx942')
 
         // option only to be used with upstream merges
         booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
@@ -544,9 +552,11 @@ pipeline {
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
+                            // How to check out into specific directory, according to stackoverflow.
+                            dir('MITuna') {
+                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                            }
                             dir('build') {
-                                sh """rm -rf ${WORKSPACE}/MITuna
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
@@ -713,9 +723,10 @@ pipeline {
                     stage("Tune rocMLIR") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                            dir('MITuna') {
+                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                            }
                             dir('build') {
-                                sh """rm -rf ${WORKSPACE}/MITuna
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
@@ -802,7 +813,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'
                     }
                 }
                 when {

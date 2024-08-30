@@ -304,3 +304,19 @@ LogicalResult LiteralOp::verify() {
   }
   return success();
 }
+
+LogicalResult UnpackOp::verify() {
+  MIXRShapedType inType = getIn().getType();
+  MIXRShapedType outType = getOut().getType();
+  int64_t axis = getAxis();
+
+  if (axis < 0 || axis > inType.getRank())
+    return emitOpError("axis out of range of shape: ") << axis;
+  // If we're not an int8 <-> int8 operator, we're in the middle of rewrites.
+  if (inType.getElementType().isInteger(8) &&
+      outType.getElementType().isInteger(8) &&
+      inType.getDimSize(axis) * 2 != outType.getDimSize(axis))
+    return emitOpError("expected length along input axis to be half the length "
+                       "along output axis");
+  return success();
+}
