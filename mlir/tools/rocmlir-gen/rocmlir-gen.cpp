@@ -3750,22 +3750,22 @@ int main(int argc, char **argv) {
 
   if (!arch.getValue().empty()) {
     bool archPrefersOCP = (archChip().substr(0, 5) == "gfx12");
-    std::map<F8TypesChoice,std::string>f8e4m3TypeNames{
+    std::map<F8TypesChoice, std::string> f8e4m3TypeNames{
         {F8TypesChoice::Arch, archPrefersOCP ? "f8E4M3FN" : "f8E4M3FNUZ"},
         {F8TypesChoice::Nanoo, "f8E4M3FNUZ"},
         {F8TypesChoice::OCP, "f8E4M3FN"}};
-    std::map<F8TypesChoice,std::string>f8e5m2TypeNames{
+    std::map<F8TypesChoice, std::string> f8e5m2TypeNames{
         {F8TypesChoice::Arch, archPrefersOCP ? "f8E5M2" : "f8E5M2FNUZ"},
         {F8TypesChoice::Nanoo, "f8E5M2FNUZ"},
         {F8TypesChoice::OCP, "f8E5M2"}};
 
     auto canonicaliseF8Type = [&](std::string name) {
-                                if (name == "fp8")
-                                  return f8e4m3TypeNames[forceF8Types.getValue()];
-                                if (name == "bf8")
-                                  return f8e5m2TypeNames[forceF8Types.getValue()];
-                                return std::string(name);
-                              };
+      if (name == "fp8")
+        return f8e4m3TypeNames[forceF8Types.getValue()];
+      if (name == "bf8")
+        return f8e5m2TypeNames[forceF8Types.getValue()];
+      return std::string(name);
+    };
 
     filterDataType = canonicaliseF8Type(filterDataType);
     inputDataType = canonicaliseF8Type(inputDataType);
