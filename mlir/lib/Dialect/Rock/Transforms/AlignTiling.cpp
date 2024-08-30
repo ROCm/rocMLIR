@@ -1067,14 +1067,21 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   FailureOr<ArrayAttr> threadSubTileViews =
       removeUpperDims(rewriter, extraViews, removeIndicesSet);
   int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
+  int64_t blockReductionAxis = reductionAxis - 1;
+
+  TypedValue<ShapedType> redOut = reduceOp.getOut();
+  ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
+  TypedValue<ShapedType> redIn = reduceOp.getIn();
+  ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
+
   if(succeeded(blockSubTileViews) && succeeded(threadSubTileViews) && succeeded(blockSubTileTidSliceViews)){
-    int64_t reduceDimPerThread = getLowerShape(threadSubTileViews.value())[reductionAxis];
+    int64_t reduceDimPerThread = getLowerShape(threadSubTileViews.value())[blockReductionAxis];
     ArrayRef<int64_t> blockLowerShape = getLowerShape(blockSubTileViews.value());
-    int64_t reduceDimPerBlock  = blockLowerShape[reductionAxis];
+    int64_t reduceDimPerBlock  = blockLowerShape[blockReductionAxis];
     int64_t partialReductionsPerThread = reduceDimPerBlock / reduceDimPerThread;
     int64_t ldsWorkspaceSize = 1;
     for(auto [idx, size] : llvm::enumerate(blockLowerShape)){
-      if(idx == reductionAxis){
+      if(idx == (size_t)blockReductionAxis){
         ldsWorkspaceSize *= partialReductionsPerThread;
       }
       else{
@@ -1087,19 +1094,86 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
 
     rewriter.create<BlockwiseBroadcastReduceOp>(
     loc, src, ldsWorkspace, broadcastReducedSrc,
-    /*extraOut=*/nullptr, reductionAxis, reduceOp.getReduceMethod(),
+    /*extraOut=*/nullptr, rewriter.getIndexAttr(blockReductionAxis), reduceOp.getReduceMethodAttr(),
     blockSubTileViews.value(),
     blockSubTileTidSliceViews.value(),
     threadSubTileViews.value(), /*extraViews=*/nullptr,
-    reduceOp.getBlockSize());
+    reduceOp.getBlockSizeAttr());
 
+    ViewLikeOpInterface viewOp = ldsWorkspace.getDefiningOp<ViewLikeOpInterface>();
+    rewriter.create<GpuDeallocOp>(loc, viewOp.getViewSource());
     // Create partial reduction views
+    ArrayAttr paddedReducedTrStack;
+    {
+      SmallVector<Attribute> transformAttrs;    
+      ArrayRef<int64_t> blockTileShape = getLowerShape(blockSubTileViews.value());
+      TopDownTMBuilder toReducedView(rewriter, {"dim0", "dim1"}, blockTileShape);
+      if(blockReductionAxis == 0){
+        toReducedView.pad({"dim0"}, {0, blockTileShape[0] - 1});
+        toReducedView.passThrough({"dim1"}, {1}, {"dim1"});
+      }
+      else if(blockReductionAxis == 1){
+        toReducedView.pad({"dim1"}, {0, blockTileShape[1] - 1});
+        toReducedView.passThrough({"dim0"}, {0}, {"dim0"});
+      }
+      else{
+        return reduceOp.emitError("We only support reductions fusion with 2 dimensional outputs within a workgroup\n");
+      }
+      transformAttrs.push_back(toReducedView.get());
+      ArrayAttr arrayTransformAttrs = rewriter.getArrayAttr(transformAttrs);
+      paddedReducedTrStack = prependUpperViews(rewriter, blockSubTileViews.value(), arrayTransformAttrs);
+    }
+
+    // Recombine block dimensions
+    ArrayAttr recombinedTrStack;
+    {
+      SmallVector<Attribute> transformAttrs;  
+      ArrayRef<int64_t> upperGridView = cast<TransformMapAttr>(extraViews[0]).getUpperBounds().asArrayRef();
+      for(auto attr : paddedReducedTrStack){
+        TransformMapAttr trMapAttr = cast<TransformMapAttr>(attr);
+        SmallVector<TransformAttr> trAttrs;
+        TransformAttr blockPt = TransformAttr::get(rewriter.getContext(), TransformType::PassThrough, {},
+                                                  {"g_block", "m_block", "n_block"},
+                                                  {0, 1, 2},
+                                                  {"g_block", "m_block", "n_block"},
+                                                  {0, 1, 2});
+        trAttrs.push_back(blockPt);
+        for(TransformAttr trAttr : trMapAttr.getOps()){
+          SmallVector<unsigned> upperDims;
+          llvm::transform(trAttr.getUpperDims(), std::back_inserter(upperDims), [](unsigned idx){return idx + 3;});
+          SmallVector<unsigned> lowerDims;
+          llvm::transform(trAttr.getLowerDims(), std::back_inserter(lowerDims), [](unsigned idx){return idx + 3;});
+          TransformAttr newTrAttr = TransformAttr::get(rewriter.getContext(), trAttr.getType(), trAttr.getParams(),
+                                                  trAttr.getUpperNames(),
+                                                  upperDims,
+                                                  trAttr.getLowerNames(),
+                                                  lowerDims);
+          trAttrs.push_back(newTrAttr);
+        }
+        //set the bounds
+        SmallVector<int64_t> upperBounds {upperGridView[0], upperGridView[1], upperGridView[2]};
+        ArrayRef<int64_t> origUpperBounds = trMapAttr.getUpperBounds().asArrayRef();
+        upperBounds.insert(upperBounds.end(), origUpperBounds.begin(), origUpperBounds.end());
+        SmallVector<int64_t> lowerBounds {upperGridView[0], upperGridView[1], upperGridView[2]};
+        ArrayRef<int64_t> origLowerBounds = trMapAttr.getLowerBounds().asArrayRef();
+        lowerBounds.insert(lowerBounds.end(), origLowerBounds.begin(), origLowerBounds.end());
+        //create new trMapAttr
+        TransformMapAttr newTrMap = TransformMapAttr::get(trAttrs, upperBounds, lowerBounds);
+        transformAttrs.push_back(newTrMap);
+      }
+      ArrayRef<int64_t> currLowerShape = cast<TransformMapAttr>(transformAttrs.back()).getLowerBounds();
+      TopDownTMBuilder toMatrixView(rewriter, {"g_block", "m_block", "n_block", "mpb", "npb"}, currLowerShape);
+      toMatrixView.passThrough("g_block");
+      toMatrixView.unmerge("M", 1, {"m_block", "mpb"}, {currLowerShape[1], currLowerShape[3]});
+      toMatrixView.unmerge("N", 2, {"n_block", "npb"}, {currLowerShape[2], currLowerShape[4]});
+      transformAttrs.push_back(toMatrixView.get());
+      recombinedTrStack = rewriter.getArrayAttr(transformAttrs);
+    }
+    threadwiseWriteOp.setExtraViewsAttr(recombinedTrStack);
+    threadwiseWriteOp.getSourceMutable().assign(broadcastReducedSrc);
+    reduceInShape = getLowerShape(recombinedTrStack);
   }
 
-  TypedValue<ShapedType> redOut = reduceOp.getOut();
-  ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
-  TypedValue<ShapedType> redIn = reduceOp.getIn();
-  ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
   BottomUpTMBuilder dropReductionDim(rewriter, reduceOutShape, loc);
   for (uint32_t i = 0; i < reduceOutShape.size(); ++i) {
     if (i == reductionAxis) {
