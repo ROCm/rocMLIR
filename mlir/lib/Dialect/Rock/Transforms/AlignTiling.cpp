@@ -1098,7 +1098,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     blockSubTileViews.value(),
     blockSubTileTidSliceViews.value(),
     threadSubTileViews.value(), /*extraViews=*/nullptr,
-    reduceOp.getBlockSizeAttr());
+    getBlockSize(reduceOp->getParentOfType<func::FuncOp>()).value());
 
     ViewLikeOpInterface viewOp = ldsWorkspace.getDefiningOp<ViewLikeOpInterface>();
     rewriter.create<GpuDeallocOp>(loc, viewOp.getViewSource());
