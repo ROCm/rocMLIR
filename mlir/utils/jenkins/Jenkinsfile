@@ -1110,7 +1110,14 @@ pipeline {
                                     sh 'rm -f build/CMakeCache.txt'
                                     sh 'rm -f build/*.profraw'
                                     buildProject('check-rocmlir-build-only',
-                                                 '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                      """
+                                      -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                                      -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+                                      -DROCK_E2E_TEST_ENABLED=1
+                                      -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+                                      -DLLVM_LIT_ARGS='-sv -j8'
+                                      -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                                      """)
                                     dir ('build') {
                                         // Run tests.
                                         sh 'ninja check-rocmlir'
