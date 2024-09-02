@@ -115,11 +115,11 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
                             int32_t kPack, uint32_t numCUs) {
   SmallVector<int64_t> splitKValues = {1};
 
-  const auto dataPrallelGemmImbalance = computeWorkImbalance(
+  const auto dataParallelGemmImbalance = computeWorkImbalance(
       origGemmSize, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, kPack, numCUs);
 
   constexpr double imbalaceThreshold = 1.20;
-  if (dataPrallelGemmImbalance < imbalaceThreshold) {
+  if (dataParallelGemmImbalance < imbalaceThreshold) {
     return splitKValues;
   }
 
@@ -130,15 +130,16 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
   SmallVector<LocalData> factors;
   constexpr double minGain = 1.30;
   // A large set of splitK values significantly increases tuning time,
-  // after analysis, we've determined that using only splitK factor 4 is
+  // after analysis, we've determined that using only splitK factors 3 and 4 is
   // sufficient.
-  constexpr int32_t splitKFactor = 4;
-  const double imbalance =
-      computeWorkImbalance(origGemmSize, gemmMPerBlock, gemmNPerBlock,
-                           gemmKPerBlock, kPack, numCUs, splitKFactor);
-  const auto gain = dataPrallelGemmImbalance / imbalance;
-  if (gain > minGain) {
-    factors.emplace_back(LocalData{splitKFactor, imbalance});
+  for (int64_t splitKFactor : {3, 4}) {
+    const double imbalance =
+        computeWorkImbalance(origGemmSize, gemmMPerBlock, gemmNPerBlock,
+                             gemmKPerBlock, kPack, numCUs, splitKFactor);
+    const auto gain = dataParallelGemmImbalance / imbalance;
+    if (gain > minGain) {
+      factors.emplace_back(LocalData{splitKFactor, imbalance});
+    }
   }
 
   if (factors.empty()) {
