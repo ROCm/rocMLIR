@@ -115,13 +115,19 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
 #ifdef ROCMLIR_DEVICE_LIBS_PACKAGED
   const llvm::StringMap<StringRef> &packagedLibs = getDeviceLibraries();
   for (auto [file, lib] : libraries) {
-    llvm::SMDiagnostic error;
     std::unique_ptr<llvm::Module> library;
     if (packagedLibs.contains(file)) {
       std::unique_ptr<llvm::MemoryBuffer> fileBc =
           llvm::MemoryBuffer::getMemBuffer(packagedLibs.at(file), file);
+
+      llvm::SMDiagnostic error;
       library =
           llvm::getLazyIRModule(std::move(fileBc), error, module.getContext());
+      if (!library) {
+        getOperation().emitError("Error loading library: " + file +
+                                 ", error message:" + error.getMessage());
+        return std::nullopt;
+      }
       // Unset the lib so we don't add it with `appendStandardLibs`.
       libs = libs & ~lib;
       bcFiles.push_back(std::move(library));
