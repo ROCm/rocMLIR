@@ -541,10 +541,12 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
       if (isGfx11)
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8 data types");
-      if (!elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2())
+      if (!(elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2()))
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
+    if (elemTypeA != elemTypeB)
+      return op->emitOpError("Wmma gridwise does not support mixed types");
   }
   if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
     return op->emitOpError("floating-point input type ")
