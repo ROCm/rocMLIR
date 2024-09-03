@@ -150,17 +150,17 @@ void RockPrepareLLVMPass::runOnOperation() {
   // aliasScopes.reserve(n);
   // llvm::SmallVector<ArrayAttr> noaliasScopes;
   // noaliasScopes.reserve(n);
-  // for (size_t i = 0; i < n; ++i) {
-  //   if (func.getArgAttr(i, LLVM::LLVMDialect::getReadonlyAttrName()))
-  //     isReadonly[i] = true;
-  //   if (!isa<LLVM::LLVMPointerType>(func.getArgument(i).getType())) {
-  //     aliasScopes.push_back(nullptr);
-  //     continue;
-  //   }
-  //   auto aliasScope =
-  //       LLVM::AliasScopeAttr::get(domain, b.getStringAttr("arg" + Twine(i)));
-  //   aliasScopes.push_back(b.getArrayAttr(aliasScope));
-  // }
+  for (size_t i = 0; i < n; ++i) {
+    if (func.getArgAttr(i, LLVM::LLVMDialect::getReadonlyAttrName()))
+      isReadonly[i] = true;
+    // if (!isa<LLVM::LLVMPointerType>(func.getArgument(i).getType())) {
+    //   aliasScopes.push_back(nullptr);
+    //   continue;
+    // }
+    // auto aliasScope =
+    //     LLVM::AliasScopeAttr::get(domain, b.getStringAttr("arg" + Twine(i)));
+    // aliasScopes.push_back(b.getArrayAttr(aliasScope));
+  }
   // {
   //   SmallVector<Attribute> allButOneScope;
   //   allButOneScope.reserve(n);
