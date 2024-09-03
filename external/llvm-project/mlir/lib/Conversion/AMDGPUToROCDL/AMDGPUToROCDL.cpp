@@ -462,6 +462,20 @@ static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
   }
 }
 
+/// Return true if `type` is the E5M2 variant of an 8-bit float that is
+/// supported by the `_bf8` instructions on the given `chipset`.
+static bool isNativeBf8(Chipset chipset, Type type) {
+  return (chipset.isGfx940() && type.isFloat8E5M2FNUZ()) ||
+         (chipset.hasOcpFp8() && type.isFloat8E5M2());
+}
+
+/// Return true if `type` is the E4M3FN variant of an 8-bit float that is
+/// supported by the `_fp8` instructions on the given `chipset`.
+static bool isNativeFp8(Chipset chipset, Type type) {
+  return (chipset.isGfx940() && type.isFloat8E4M3FNUZ()) ||
+         (chipset.hasOcpFp8() && type.isFloat8E4M3FN());
+}
+
 /// Return the `rocdl` intrinsic corresponding to a MFMA operation `mfma`
 /// if one exists. This includes checking to ensure the intrinsic is supported
 /// on the architecture you are compiling for.
@@ -558,44 +572,38 @@ static std::optional<StringRef> mfmaOpToIntrinsic(MFMAOp mfma,
       return ROCDL::mfma_f64_4x4x4f64::getOperationName();
   }
 
-  if (destElem.isF32() &&
-      ((sourceElem.isFloat8E5M2FNUZ() && chipset.minorVersion >= 0x40 &&
-        chipset.minorVersion < 0x50) ||
-       (sourceElem.isFloat8E5M2() && chipset.minorVersion >= 0x50))) {
+  if (destElem.isF32() && isNativeBf8(chipset, sourceElem)) {
     // Known to be correct because there are no scalar f8 instructions and
     // because a length mismatch will have been caught by the verifier.
     Type sourceBElem =
         cast<VectorType>(mfma.getSourceB().getType()).getElementType();
     if (m == 16 && n == 16 && k == 32 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ() || sourceBElem.isFloat8E5M2())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ() || sourceBElem.isFloat8E4M3FN())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_bf8_fp8::getOperationName();
     }
     if (m == 32 && n == 32 && k == 16 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ() || sourceBElem.isFloat8E5M2())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ() || sourceBElem.isFloat8E4M3FN())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_bf8_fp8::getOperationName();
     }
   }
 
-  if (destElem.isF32() &&
-      ((sourceElem.isFloat8E4M3FNUZ() && chipset.minorVersion >= 0x40 &&
-        chipset.minorVersion < 0x50) ||
-       (sourceElem.isFloat8E4M3FN() && chipset.minorVersion >= 0x50))) {
+  if (destElem.isF32() && isNativeFp8(chipset, sourceElem)) {
     Type sourceBElem =
         cast<VectorType>(mfma.getSourceB().getType()).getElementType();
     if (m == 16 && n == 16 && k == 32 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ() || sourceBElem.isFloat8E5M2())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_fp8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ() || sourceBElem.isFloat8E4M3FN())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_fp8_fp8::getOperationName();
     }
     if (m == 32 && n == 32 && k == 16 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ() || sourceBElem.isFloat8E5M2())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_fp8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ() || sourceBElem.isFloat8E4M3FN())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_fp8_fp8::getOperationName();
     }
   }
@@ -758,7 +766,7 @@ LogicalResult ExtPackedFp8OpLowering::matchAndRewrite(
     ExtPackedFp8Op op, ExtPackedFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (chipset.majorVersion != 9 || chipset.minorVersion < 0x40)
+  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -788,11 +796,10 @@ LogicalResult ExtPackedFp8OpLowering::matchAndRewrite(
   }
   Value i32Source = rewriter.create<LLVM::BitcastOp>(loc, i32, source);
   Value wordSel = createI32Constant(rewriter, loc, op.getIndex());
-  if (sourceElemType.isFloat8E5M2FNUZ() || sourceElemType.isFloat8E5M2()) {
+  if (isNativeBf8(chipset, sourceElemType)) {
     rewriter.replaceOpWithNewOp<ROCDL::CvtF32Bf8Op>(op, f32, i32Source,
                                                     wordSel);
-  } else if (sourceElemType.isFloat8E4M3FNUZ() ||
-             sourceElemType.isFloat8E4M3FN()) {
+  } else if (isNativeFp8(chipset, sourceElemType)) {
     rewriter.replaceOpWithNewOp<ROCDL::CvtF32Fp8Op>(op, f32, i32Source,
                                                     wordSel);
   }
@@ -803,7 +810,7 @@ LogicalResult PackedTrunc2xFp8OpLowering::matchAndRewrite(
     PackedTrunc2xFp8Op op, PackedTrunc2xFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (chipset.majorVersion != 9 || chipset.minorVersion < 0x40)
+  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -824,10 +831,10 @@ LogicalResult PackedTrunc2xFp8OpLowering::matchAndRewrite(
   Value wordSel = createI1Constant(rewriter, loc, op.getWordIndex());
 
   Value result;
-  if (resultElemType.isFloat8E5M2FNUZ() || resultElemType.isFloat8E5M2())
+  if (isNativeBf8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtPkBf8F32Op>(loc, i32, sourceA, sourceB,
                                                    existing, wordSel);
-  else if (resultElemType.isFloat8E4M3FNUZ() || resultElemType.isFloat8E4M3FN())
+  else if (isNativeFp8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtPkFp8F32Op>(loc, i32, sourceA, sourceB,
                                                    existing, wordSel);
 
@@ -840,7 +847,7 @@ LogicalResult PackedStochRoundFp8OpLowering::matchAndRewrite(
     PackedStochRoundFp8Op op, PackedStochRoundFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (chipset.majorVersion != 9 || chipset.minorVersion < 0x40)
+  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -859,10 +866,10 @@ LogicalResult PackedStochRoundFp8OpLowering::matchAndRewrite(
   Value byteSel = createI32Constant(rewriter, loc, op.getStoreIndex());
 
   Value result;
-  if (resultElemType.isFloat8E5M2FNUZ() || resultElemType.isFloat8E5M2())
+  if (isNativeBf8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtSrBf8F32Op>(loc, i32, source, stoch,
                                                    existing, byteSel);
-  else if (resultElemType.isFloat8E4M3FNUZ() || resultElemType.isFloat8E4M3FN())
+  else if (isNativeFp8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtSrFp8F32Op>(loc, i32, source, stoch,
                                                    existing, byteSel);
 
