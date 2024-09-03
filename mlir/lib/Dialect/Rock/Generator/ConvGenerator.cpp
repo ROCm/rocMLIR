@@ -37,7 +37,8 @@ using namespace mlir::rock;
 #define DEBUG_TYPE "conv2d-gen"
 
 ConvGenerator::ConvGenerator(
-    const std::string &arch, const std::string &chip, const std::string &triple,
+    const std::string &arch, const std::string &chip,
+    bool disableSplitKForTuning, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig,
     std::optional<int> num_cu, bool reverseGrid, GemmFeatures features,
     const std::optional<ConvOpType> operation,
@@ -49,6 +50,7 @@ ConvGenerator::ConvGenerator(
     const std::string &kernelBaseName)
     : config{arch,
              chip,
+             disableSplitKForTuning,
              triple,
              chipFeatures,
              perfConfig,
@@ -504,7 +506,6 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     }
     return (argMap["fil_layout"].length() == argMap["in_layout"].length()) &&
            (argMap["in_layout"].length() == argMap["out_layout"].length());
-
   };
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
@@ -841,6 +842,12 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
+  // TODO[split-K]: split-K does not work with BwdWeight
+  if (!config.disableSplitKForTuning &&
+      config.operation.value() != ConvOpType::BwdWeight) {
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
+  }
   if (config.reverseGrid) {
     func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());

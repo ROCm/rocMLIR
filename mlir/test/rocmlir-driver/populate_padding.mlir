@@ -3,7 +3,7 @@
 
 // Padding_One-LABEL: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // Padding_One-SAME: ([[arg0:%.+]]: memref<8192xf32>, [[arg1:%.+]]: memref<200704xf32>, [[arg2:%.+]]: memref<1949696xf32>)
-// Padding_One-SAME: attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"}
+// Padding_One-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}"}
 // Padding_One-NEXT: [[exp0:%.+]] = rock.transform [[arg0]] by
 // Padding_One-SAME: Unmerge{1, 256, 32, 1, 1}
 // Padding_One-NEXT: [[exp1:%.+]] = rock.transform [[arg1]] by
@@ -14,7 +14,7 @@
 
 // Padding_Two-LABEL: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // Padding_Two-SAME: ([[arg0:%.+]]: memref<8192xf32>, [[arg1:%.+]]: memref<200704xf32>, [[arg2:%.+]]: memref<2785280xf32>)
-// Padding_Two-SAME: attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"}
+// Padding_Two-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}"}
 // Padding_Two-NEXT: [[exp0:%.+]] = rock.transform [[arg0]] by
 // Padding_Two-SAME: Unmerge{1, 256, 32, 1, 1}
 // Padding_Two-NEXT: [[exp1:%.+]] = rock.transform [[arg1]] by
