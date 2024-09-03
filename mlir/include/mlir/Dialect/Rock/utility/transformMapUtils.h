@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
+#include "llvm/ADT/StringSet.h"
 
 namespace mlir {
 class AffineMap;
@@ -249,9 +250,8 @@ ArrayRef<int64_t> getLowerShape(ArrayAttr transformStack);
 FailureOr<ArrayAttr> removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
                                      SetVector<int64_t> removeIndicesSet);
 
-FailureOr<ArrayAttr>
-removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
-                const SetVector<StringRef> &removeDimNamesSet);
+FailureOr<ArrayAttr> removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
+                                     const StringSet<> &removeDimNamesSet);
 } // end namespace rock
 } // end namespace mlir
 #endif
