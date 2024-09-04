@@ -19,7 +19,7 @@ struct Chipset {
   static FailureOr<Chipset> parse(StringRef name);
 
   bool isGfx940() const {
-    return majorVersion == 9 && minorVersion >= 0x40 && majorVersion < 0x50;
+    return majorVersion == 9 && minorVersion >= 0x40 && minorVersion < 0x50;
   }
   bool hasOcpFp8() const {
     return (majorVersion == 9 && minorVersion >= 0x50) || majorVersion >= 12;
