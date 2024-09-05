@@ -1953,6 +1953,7 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
     case TransformType::AddDim:
     case TransformType::ConstDim:
     case TransformType::Broadcast:
+    case TransformType::Pad:
     case TransformType::Merge: {
       assert(!mustBeModified && "must be preserved or removed completely");
       [[fallthrough]];
@@ -2107,13 +2108,23 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
           origLowerBounds[lowerDim] = origUpperBounds[upperDim];
         }
         for (auto [dim, subDimInfo] : removedSubDims) {
+          LLVM_DEBUG(llvm::dbgs()
+            << "copying removedSubDimInfo from:" << dim << " to:" << upperToLower[dim] << "\n");
           newRemovedSubDims[upperToLower[dim]] = subDimInfo;
         }
-        [[fallthrough]];
-      }
-      default: {
         llvm::copy(tr.getParams(), std::back_inserter(args.params));
         break;
+      }
+      case TransformType::Pad: {
+        for (auto [idx, upperDim] : llvm::enumerate(tr.getUpperDims())) {
+          LLVM_DEBUG(llvm::dbgs() << "pad upper dim = " << upperDim << "\n");
+          assert(!removedSubDims.contains(upperDim));
+        }
+        llvm::copy(tr.getParams(), std::back_inserter(args.params));
+        break;
+      }
+      default: {
+        return failure();
       }
       }
       argsVector.push_back(args);
