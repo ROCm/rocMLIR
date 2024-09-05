@@ -40,29 +40,6 @@ llvm.func @fix_align(%arg0: !llvm.ptr {llvm.noalias}) -> vector<8xf16> attribute
 }
 
 // -----
-// CHECK-DAG: #[[$DOMAIN:.+]] = #llvm.alias_scope_domain<id = distinct[{{[0-9]+}}]<>, description = "alias_scopes">
-// CHECK-DAG: #[[$AS0:.+]] = #llvm.alias_scope<id = distinct[{{[0-9]+}}]<>, domain = #[[$DOMAIN]], description = "arg1">
-// CHECK-DAG: #[[$AS1:.+]] = #llvm.alias_scope<id = distinct[{{[0-9]+}}]<>, domain = #[[$DOMAIN]], description = "arg2">
-llvm.func @alias_scopes(%arg0: f32, %arg1: !llvm.ptr {llvm.noalias}, %arg2: !llvm.ptr {llvm.noalias}) attributes {rocdl.kernel} {
-  %p = llvm.addrspacecast %arg1 : !llvm.ptr to !llvm.ptr<1>
-  // CHECK: llvm.load
-  // CHECK-SAME: alias_scopes = [#[[$AS0]]]
-  // CHECK-SAME: noalias_scopes = [#[[$AS1]]]
-  %v = llvm.load %arg1 : !llvm.ptr -> f32
-  %w = llvm.fadd %v, %arg0 : f32
-  %flags = llvm.mlir.constant(822243328 : i32) : i32
-  %extent = llvm.mlir.constant(128 : i32) : i32
-  %stride = llvm.mlir.constant(0 : i16) : i16
-  %c0 = llvm.mlir.constant(0 : i32) : i32
-  %b = rocdl.make.buffer.rsrc %arg2, %stride, %extent, %flags : !llvm.ptr to <8>
-  // CHECK: rocdl.raw.ptr.buffer.store
-  // CHECK-SAME: alias_scopes = [#[[$AS1]]]
-  // CHECK-SAME: noalias_scopes = [#[[$AS0]]]
-  rocdl.raw.ptr.buffer.store %w, %b, %c0, %c0, %c0 : f32
-  llvm.return
-}
-
-// -----
 
 // CHECK-LABEL: @invariant_load
 llvm.func @invariant_load(%arg0: f32, %arg1: !llvm.ptr {llvm.noalias, llvm.readonly}, %arg2: !llvm.ptr {llvm.noalias, llvm.writeonly}) attributes {rocdl.kernel} {

@@ -43,8 +43,7 @@ struct RockPropagateAliasPass
 };
 } // end anonymous namespace
 
-// Trace a pointer value back to its function argument. Only returns arguments
-// of pointer type that are of flat or global type.
+// Trace a memref value back to its function argument.
 static BlockArgument traceToArg(Value memref, func::FuncOp func,
                                 DenseMap<Value, BlockArgument> &cache) {
   auto cached = cache.find(memref);
@@ -62,8 +61,7 @@ static BlockArgument traceToArg(Value memref, func::FuncOp func,
   return res;
 }
 
-// Trace a memref value back to its NoAliasViewOp. Only returns arguments
-// of pointer type that are of flat or global type.
+// Trace a memref value back to its NoAliasViewOp.
 static NoAliasViewOp traceToNoAliasView(Value memref,
                                         DenseMap<Value, NoAliasViewOp> &cache) {
   auto cached = cache.find(memref);
@@ -85,21 +83,24 @@ static NoAliasViewOp traceToNoAliasView(Value memref,
 static LogicalResult propagateAlias(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
 
-  SmallVector<NoAliasViewOp> views;
   // see RockPrepareLLVM for similar alias handling for global memory
   llvm::SmallDenseMap<NoAliasViewOp, ArrayAttr> aliasScopes;
   auto domain = rewriter.getAttr<LLVM::AliasScopeDomainAttr>(
       rewriter.getStringAttr(func.getSymName()));
 
+  // create alias scopes for NoAliasViewOp
   func.walk([&](NoAliasViewOp viewOp) {
     auto aliasScope = LLVM::AliasScopeAttr::get(
-        domain, rewriter.getStringAttr("noAliasView" + Twine(views.size())));
+        domain,
+        rewriter.getStringAttr("noAliasView" + Twine(aliasScopes.size())));
     aliasScopes[viewOp] = rewriter.getArrayAttr(aliasScope);
-    views.push_back(viewOp);
   });
-
+  LLVM_DEBUG(llvm::dbgs() << "Found " << aliasScopes.size()
+                          << " NoAliasViewOp\n");
   LLVM_DEBUG(llvm::dbgs() << "Found " << func.getNumArguments()
                           << " function arguments\n");
+
+  // create alias scopes for function arguments
   llvm::SmallDenseMap<size_t, ArrayAttr> argAliasScopes;
   for (size_t i = 0; i < func.getNumArguments(); ++i) {
     if (isa<MemRefType>(func.getArgument(i).getType())) {
@@ -109,11 +110,12 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
     }
   }
 
+  // create noalias scopes for function arguments
   llvm::SmallDenseMap<size_t, ArrayAttr> argNoaliasScopes;
   argNoaliasScopes.reserve(argAliasScopes.size());
   {
     SmallVector<Attribute> allButOneScope;
-    allButOneScope.reserve(argAliasScopes.size());
+    allButOneScope.reserve(argAliasScopes.size() + aliasScopes.size());
     for (auto [arg, _] : argAliasScopes) {
       for (auto [secondArg, aliasInfo] : argAliasScopes) {
         if (arg != secondArg)
@@ -127,13 +129,12 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
     }
   }
 
+  // create noalias scopes for NoAliasViewOp
   llvm::SmallDenseMap<NoAliasViewOp, ArrayAttr> noaliasScopes;
-  size_t n = aliasScopes.size();
-  LLVM_DEBUG(llvm::dbgs() << "Found " << n << " NoAliasViewOp\n");
-  noaliasScopes.reserve(n);
+  noaliasScopes.reserve(aliasScopes.size());
   {
     SmallVector<Attribute> allButOneScope;
-    allButOneScope.reserve(n);
+    allButOneScope.reserve(aliasScopes.size() + argAliasScopes.size());
     for (auto [view, _] : aliasScopes) {
       for (auto [secondView, aliasInfo] : aliasScopes) {
         if (view != secondView)
@@ -148,55 +149,41 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
   }
 
   {
-    llvm::DenseMap<Value, BlockArgument> cache;
+    llvm::DenseMap<Value, BlockArgument> cacheArg;
+    llvm::DenseMap<Value, NoAliasViewOp> cacheNoAliasView;
     // The alias analysis interface will pick up all ops that write or load
     func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
-      // We will make the simplyfying assumption that the first pointer-valued
-      // operand to the operation is the pointer being accessed.
+      // We will make the simplyfying assumption that the last memref-valued
+      // operand to the operation is the memref being accessed.
       Operation *aliasOp = aliasIface.getOperation();
       Value memref;
       for (Value arg : aliasOp->getOperands()) {
         if (isa<MemRefType>(arg.getType())) {
           memref = arg;
-          break;
         }
       }
       if (!memref)
         return;
-      BlockArgument funcArg = traceToArg(memref, func, cache);
-      if (!funcArg)
-        return;
-      unsigned argNo = funcArg.getArgNumber();
-      aliasIface.setAliasScopes(argAliasScopes[argNo]);
-      aliasIface.setNoAliasScopes(argNoaliasScopes[argNo]);
-    });
-  }
 
-  {
-    llvm::DenseMap<Value, NoAliasViewOp> cache;
-    // The alias analysis interface will pick up all ops that write or load
-    func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
-      // We will make the simplyfying assumption that the last pointer-valued
-      // operand to the operation is the pointer being accessed.
-      Operation *aliasOp = aliasIface.getOperation();
-      Value memref;
-      for (Value arg : aliasOp->getOperands()) {
-        if (isa<MemRefType>(arg.getType())) {
-          memref = arg;
-        }
+      if (BlockArgument funcArg = traceToArg(memref, func, cacheArg)) {
+        unsigned argNo = funcArg.getArgNumber();
+        assert(argAliasScopes.contains(argNo) &&
+               argNoaliasScopes.contains(argNo));
+
+        aliasIface.setAliasScopes(argAliasScopes[argNo]);
+        aliasIface.setNoAliasScopes(argNoaliasScopes[argNo]);
+      } else if (NoAliasViewOp viewOp =
+                     traceToNoAliasView(memref, cacheNoAliasView)) {
+        assert(aliasScopes.contains(viewOp) && noaliasScopes.contains(viewOp));
+
+        aliasIface.setAliasScopes(aliasScopes[viewOp]);
+        aliasIface.setNoAliasScopes(noaliasScopes[viewOp]);
       }
-      if (!memref)
-        return;
-      NoAliasViewOp viewOp = traceToNoAliasView(memref, cache);
-      if (!viewOp)
-        return;
-      aliasIface.setAliasScopes(aliasScopes[viewOp]);
-      aliasIface.setNoAliasScopes(noaliasScopes[viewOp]);
     });
   }
 
   // finally, rewrite NoAliasViewOp as ViewOp
-  for (NoAliasViewOp view : views) {
+  for (auto [view, _] : aliasScopes) {
     rewriter.setInsertionPointAfter(view);
     rewriter.replaceOpWithNewOp<memref::ViewOp>(
         view, view.getType(), view.getSource(), view.getByteShift(),
