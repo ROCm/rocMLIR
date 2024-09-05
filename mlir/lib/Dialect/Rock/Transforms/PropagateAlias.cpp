@@ -43,24 +43,6 @@ struct RockPropagateAliasPass
 };
 } // end anonymous namespace
 
-// Trace a memref value back to its function argument.
-static BlockArgument traceToArg(Value memref, func::FuncOp func,
-                                DenseMap<Value, BlockArgument> &cache) {
-  auto cached = cache.find(memref);
-  if (cached != cache.end())
-    return cached->second;
-  BlockArgument res = nullptr;
-  if (auto cast = memref.getDefiningOp<memref::MemorySpaceCastOp>())
-    res = traceToArg(cast.getSource(), func, cache);
-  else if (auto arg = dyn_cast<BlockArgument>(memref)) {
-    if (arg.getOwner() == &func.front())
-      res = arg;
-  }
-
-  cache.insert({memref, res});
-  return res;
-}
-
 // Trace a memref value back to its NoAliasViewOp.
 static NoAliasViewOp traceToNoAliasView(Value memref,
                                         DenseMap<Value, NoAliasViewOp> &cache) {
@@ -86,7 +68,7 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
   // see RockPrepareLLVM for similar alias handling for global memory
   llvm::SmallDenseMap<NoAliasViewOp, ArrayAttr> aliasScopes;
   auto domain = rewriter.getAttr<LLVM::AliasScopeDomainAttr>(
-      rewriter.getStringAttr(func.getSymName()));
+      rewriter.getStringAttr("LDS"));
 
   // create alias scopes for NoAliasViewOp
   func.walk([&](NoAliasViewOp viewOp) {
@@ -97,51 +79,17 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
   });
   LLVM_DEBUG(llvm::dbgs() << "Found " << aliasScopes.size()
                           << " NoAliasViewOp\n");
-  LLVM_DEBUG(llvm::dbgs() << "Found " << func.getNumArguments()
-                          << " function arguments\n");
-
-  // create alias scopes for function arguments
-  llvm::SmallDenseMap<size_t, ArrayAttr> argAliasScopes;
-  for (size_t i = 0; i < func.getNumArguments(); ++i) {
-    if (isa<MemRefType>(func.getArgument(i).getType())) {
-      auto aliasScope = LLVM::AliasScopeAttr::get(
-          domain, rewriter.getStringAttr("arg" + Twine(i)));
-      argAliasScopes[i] = rewriter.getArrayAttr(aliasScope);
-    }
-  }
-
-  // create noalias scopes for function arguments
-  llvm::SmallDenseMap<size_t, ArrayAttr> argNoaliasScopes;
-  argNoaliasScopes.reserve(argAliasScopes.size());
-  {
-    SmallVector<Attribute> allButOneScope;
-    allButOneScope.reserve(argAliasScopes.size() + aliasScopes.size());
-    for (auto [arg, _] : argAliasScopes) {
-      for (auto [secondArg, aliasInfo] : argAliasScopes) {
-        if (arg != secondArg)
-          allButOneScope.push_back(aliasInfo[0]);
-      }
-      for (auto [_, scope] : aliasScopes) {
-        allButOneScope.push_back(scope[0]);
-      }
-      argNoaliasScopes[arg] = rewriter.getArrayAttr(allButOneScope);
-      allButOneScope.clear();
-    }
-  }
 
   // create noalias scopes for NoAliasViewOp
   llvm::SmallDenseMap<NoAliasViewOp, ArrayAttr> noaliasScopes;
   noaliasScopes.reserve(aliasScopes.size());
   {
     SmallVector<Attribute> allButOneScope;
-    allButOneScope.reserve(aliasScopes.size() + argAliasScopes.size());
+    allButOneScope.reserve(aliasScopes.size());
     for (auto [view, _] : aliasScopes) {
       for (auto [secondView, aliasInfo] : aliasScopes) {
         if (view != secondView)
           allButOneScope.push_back(aliasInfo[0]);
-      }
-      for (auto [_, argScope] : argAliasScopes) {
-        allButOneScope.push_back(argScope[0]);
       }
       noaliasScopes[view] = rewriter.getArrayAttr(allButOneScope);
       allButOneScope.clear();
@@ -149,7 +97,7 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
   }
 
   {
-    llvm::DenseMap<Value, BlockArgument> cacheArg;
+    // llvm::DenseMap<Value, BlockArgument> cacheArg;
     llvm::DenseMap<Value, NoAliasViewOp> cacheNoAliasView;
     // The alias analysis interface will pick up all ops that write or load
     func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
@@ -165,15 +113,7 @@ static LogicalResult propagateAlias(func::FuncOp &func) {
       if (!memref)
         return;
 
-      if (BlockArgument funcArg = traceToArg(memref, func, cacheArg)) {
-        unsigned argNo = funcArg.getArgNumber();
-        assert(argAliasScopes.contains(argNo) &&
-               argNoaliasScopes.contains(argNo));
-
-        aliasIface.setAliasScopes(argAliasScopes[argNo]);
-        aliasIface.setNoAliasScopes(argNoaliasScopes[argNo]);
-      } else if (NoAliasViewOp viewOp =
-                     traceToNoAliasView(memref, cacheNoAliasView)) {
+      if (NoAliasViewOp viewOp = traceToNoAliasView(memref, cacheNoAliasView)) {
         assert(aliasScopes.contains(viewOp) && noaliasScopes.contains(viewOp));
 
         aliasIface.setAliasScopes(aliasScopes[viewOp]);
