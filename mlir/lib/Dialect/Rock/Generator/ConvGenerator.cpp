@@ -562,10 +562,7 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
       return std::string("f32");
     if (type == "fp16")
       return std::string("f16");
-    if (type == "f8E5M2FNUZ")
-      return std::string("bf8");
-    if (type == "f8E4M3FNUZ")
-      return std::string("fp8");
+    // +++pf: chipset-based expansion of fp8/bf8 here?
     return type;
   };
   config.operation = op.value();
