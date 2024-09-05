@@ -3718,9 +3718,11 @@ int main(int argc, char **argv) {
 
   amdgpu::Chipset chipset;
   if (!arch.getValue().empty()) {
-    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(archChip());
+    FailureOr<amdgpu::Chipset> maybeChipset =
+        amdgpu::Chipset::parse(archChip());
     if (failed(maybeChipset)) {
-      emitError(UnknownLoc::get(&context), "Invalid chipset name: " + archChip());
+      emitError(UnknownLoc::get(&context),
+                "Invalid chipset name: " + archChip());
       exit(1);
     }
     chipset = *maybeChipset;
