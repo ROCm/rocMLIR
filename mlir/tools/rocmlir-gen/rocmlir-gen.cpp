@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/CallGraph.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -1291,39 +1292,6 @@ llvm::SmallString<32> archChip() {
 
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
-  if (name == "fp8") {
-    switch (forceF8Types) {
-    case F8TypesChoice::Arch:
-      // f8E4M3FN for navi4, f8E4M3FNUZ for everyone else
-      if (archChip().substr(0, 5) == "gfx12")
-        name = "f8E4M3FN";
-      else
-        name = "f8E4M3FNUZ";
-      break;
-    case F8TypesChoice::Nanoo:
-      name = "f8E4M3FNUZ";
-      break;
-    case F8TypesChoice::OCP:
-      name = "f8E4M3FN";
-      break;
-    }
-  } else if (name == "bf8") {
-    switch (forceF8Types) {
-    case F8TypesChoice::Arch:
-      // f8E5M2 for navi4, f8E5M2FNUZ for everyone else
-      if (archChip().substr(0, 5) == "gfx12")
-        name = "f8E5M2";
-      else
-        name = "f8E5M2FNUZ";
-      break;
-    case F8TypesChoice::Nanoo:
-      name = "f8E5M2FNUZ";
-      break;
-    case F8TypesChoice::OCP:
-      name = "f8E5M2";
-      break;
-    }
-  }
   std::optional<Type> result =
       llvm::StringSwitch<std::optional<Type>>(name)
           .Case("f32", Float32Type::get(ctx))
@@ -3748,13 +3716,20 @@ int main(int argc, char **argv) {
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "MLIR Rock Dialect host generation\n");
 
+  amdgpu::Chipset chipset;
   if (!arch.getValue().empty()) {
-    bool archPrefersOCP = (archChip().substr(0, 5) == "gfx12");
-    std::map<F8TypesChoice, std::string> f8e4m3TypeNames{
+    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(archChip());
+    if (failed(maybeChipset)) {
+      emitError(UnknownLoc::get(&context), "Invalid chipset name: " + archChip());
+      exit(1);
+    }
+    chipset = *maybeChipset;
+    bool archPrefersOCP = chipset.hasOcpFp8();
+    DenseMap<F8TypesChoice, std::string> f8e4m3TypeNames{
         {F8TypesChoice::Arch, archPrefersOCP ? "f8E4M3FN" : "f8E4M3FNUZ"},
         {F8TypesChoice::Nanoo, "f8E4M3FNUZ"},
         {F8TypesChoice::OCP, "f8E4M3FN"}};
-    std::map<F8TypesChoice, std::string> f8e5m2TypeNames{
+    DenseMap<F8TypesChoice, std::string> f8e5m2TypeNames{
         {F8TypesChoice::Arch, archPrefersOCP ? "f8E5M2" : "f8E5M2FNUZ"},
         {F8TypesChoice::Nanoo, "f8E5M2FNUZ"},
         {F8TypesChoice::OCP, "f8E5M2"}};
@@ -3764,7 +3739,7 @@ int main(int argc, char **argv) {
         return f8e4m3TypeNames[forceF8Types.getValue()];
       if (name == "bf8")
         return f8e5m2TypeNames[forceF8Types.getValue()];
-      return std::string(name);
+      return name;
     };
 
     filterDataType = canonicaliseF8Type(filterDataType);

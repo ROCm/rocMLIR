@@ -17,11 +17,10 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <algorithm>
 
@@ -645,11 +644,11 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   KernelType opType = gemmIF.getKernelType();
   Operation *gemmOp = gemmIF.getOperation();
 
-  auto f8TypeStr = [](const Type &type) -> std::optional<StringRef> {
+  auto f8TypeStr = [](const Type &type) -> std::optional<StringLiteral> {
     if (type.isFloat8E4M3FNUZ() || type.isFloat8E4M3FN())
-      return "fp8";
+      return StringLiteral("fp8");
     if (type.isFloat8E5M2FNUZ() || type.isFloat8E5M2())
-      return "bf8";
+      return StringLiteral("bf8");
     return std::nullopt;
   };
 
