@@ -1246,8 +1246,8 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       views.clear();
       views.insert(views.begin(), transformAttrs.begin(), transformAttrs.end());
     }
-    LLVM_DEBUG(llvm::errs() << "views = " << "\n";
-    llvm::interleaveComma(views, llvm::errs()); llvm::errs() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "views = " << "\n";
+    llvm::interleaveComma(views, llvm::dbgs()); llvm::dbgs() << "\n");
     threadwiseWriteOp.setExtraViewsAttr(rewriter.getArrayAttr({}));
     // threadwiseWriteOp.getSourceMutable().assign(broadcastReducedSrc);
   }

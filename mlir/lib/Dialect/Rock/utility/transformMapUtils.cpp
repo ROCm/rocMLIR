@@ -2065,11 +2065,12 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
               int diff = 0;
               int newRemovedSubDimStride = 0;
               // Overlap on right side of removedSubDim
-              if (removedSubDimInfo.stride * removedSubDimInfo.size >=
-                  subDimStrides[subDim] * tr.getParams()[subDim]) {
+              int64_t maxStrideSubDim = subDimStrides[subDim] * tr.getParams()[subDim];
+              if (removedSubDimInfo.stride * removedSubDimInfo.size >= maxStrideSubDim) {
                 int64_t rhsBoundForRemoval =
                     std::max(removedSubDimInfo.stride, subDimStrides[subDim]);
-                diff = (subDimStrides[subDim] * tr.getParams()[subDim]) /
+                assert(maxStrideSubDim % rhsBoundForRemoval == 0);
+                diff = maxStrideSubDim /
                        rhsBoundForRemoval;
                 newRemovedSubDimStride =
                     rhsBoundForRemoval / subDimStrides[subDim];
@@ -2081,7 +2082,9 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
               }
               // Overlap is left side of removedSubDim
               else {
-                diff = (removedSubDimInfo.stride * removedSubDimInfo.size) /
+                int64_t maxStrideRemovedSubDim = removedSubDimInfo.stride * removedSubDimInfo.size;
+                assert(maxStrideRemovedSubDim % subDimStrides[subDim] == 0);
+                diff = maxStrideRemovedSubDim /
                        subDimStrides[subDim];
                 newRemovedSubDimStride = 1;
               }
@@ -2091,6 +2094,7 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
                          << lowDim << "\n");
               newRemovedSubDims[lowDim].push_back(
                   {diff, newRemovedSubDimStride});
+              assert(origLowerBounds[lowDim] % diff == 0);
               origLowerBounds[lowDim] = origLowerBounds[lowDim] / diff;
             }
           }
