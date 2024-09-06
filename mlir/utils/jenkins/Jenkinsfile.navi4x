@@ -30,12 +30,6 @@ String dockerImage() {
     return 'rocm/mlir:rocm6.2-latest'
 }
 
-void setHeartbeat() {
-    script {
-        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
-    }
-}
-
 String getLabelFromCodepath() {  
     return 'mlir && ( gfx1200 || gfx1201 )'
 }
@@ -96,13 +90,6 @@ pipeline {
                      description: 'Run the E2E tests')
     }
     stages {
-        stage('Set System Property') {
-            steps {
-                script {
-                    setHeartbeat()
-                }
-            }
-        }
         stage("Build and Test") {
             agent {
                 docker {
