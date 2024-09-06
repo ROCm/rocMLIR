@@ -1,3 +1,4 @@
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
@@ -547,6 +548,13 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
 
+  FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(config.chip);
+  if (failed(maybeChipset)) {
+    emitError(UnknownLoc::get(builder.getContext()),
+              "Invalid chipset name: " + config.chip);
+    exit(1);
+  }
+
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
   strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
@@ -557,12 +565,21 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     return failure();
   }
 
-  auto canonicalizeDataType = [](const std::string &type) {
+  auto canonicalizeDataType = [&](const std::string &type) {
     if (type == "fp32")
       return std::string("f32");
     if (type == "fp16")
       return std::string("f16");
-    // +++pf: chipset-based expansion of fp8/bf8 here?
+    if (type == "fp8") {
+      if (maybeChipset->hasOcpFp8())
+        return std::string("f8E4M3FN");
+      return std::string("f8E4M3FNUZ");
+    }
+    if (type == "bf8") {
+      if (maybeChipset->hasOcpFp8())
+        return std::string("f8E5M2");
+      return std::string("f8E5M2FNUZ");
+    }
     return type;
   };
   config.operation = op.value();
