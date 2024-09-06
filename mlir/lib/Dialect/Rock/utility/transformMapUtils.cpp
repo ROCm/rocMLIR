@@ -1819,6 +1819,20 @@ getPreservedIndices(rock::TransformAttr tr,
   return preservedIndices;
 }
 
+SetVector<uint32_t>
+getRemovedIndicesInTr(rock::TransformAttr tr, DimType type,
+                      const SetVector<int64_t> &globalRemoveIndicesSet) {
+  SetVector<uint32_t> removedDimsInThisTr;
+  ArrayRef<unsigned int> dims =
+      type == DimType::Upper ? tr.getUpperDims() : tr.getLowerDims();
+  for (unsigned int dim : dims) {
+    if (globalRemoveIndicesSet.contains(dim)) {
+      removedDimsInThisTr.insert(dim);
+    }
+  }
+  return removedDimsInThisTr;
+}
+
 template <DimType Type>
 void populatePreservedNames(rock::TransformAttr tr, TransformAttrArgs &args) {
   const auto &preservedDims = std::get<Type>(args.preservedDims);
@@ -1850,22 +1864,38 @@ SmallVector<uint32_t> getDifference(rock::TransformAttr tr,
 }
 
 template <DimType Type>
-void remapDims(
-    std::vector<TransformAttrArgs> &argsVector,
-    std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> &removedDims) {
-  auto &sortedDeletedDims = std::get<Type>(removedDims);
-  llvm::sort(sortedDeletedDims);
+void remapDims(std::vector<TransformAttrArgs> &argsVector,
+               const std::pair<SetVector<unsigned int>, SetVector<unsigned int>>
+                   &preservedDims) {
+  SmallVector<uint32_t> preservedDimsVec =
+      to_vector(std::get<Type>(preservedDims));
+  llvm::sort(preservedDimsVec);
+  llvm::SmallDenseMap<uint32_t, uint32_t> originalToReducedDims;
+  for (auto [idx, dim] : enumerate(preservedDimsVec)) {
+    originalToReducedDims[dim] = idx;
+  }
   for (auto &args : argsVector) {
     auto &preserved = std::get<Type>(args.preservedDims);
     for (auto [idx, dim] : llvm::enumerate(preserved)) {
-      size_t leastUpperBoundIdx = 0;
-      while ((leastUpperBoundIdx < sortedDeletedDims.size()) &&
-             (dim > sortedDeletedDims[leastUpperBoundIdx])) {
-        ++leastUpperBoundIdx;
-      }
-      preserved[idx] -= leastUpperBoundIdx;
+      preserved[idx] = originalToReducedDims[dim];
     }
   }
+}
+
+struct SubDimInfo {
+  int64_t size;
+  int64_t stride;
+};
+
+static SmallVector<int64_t> getStrides(ArrayRef<int64_t> dimLens) {
+  SmallVector<int64_t> ret{1};
+  for (int64_t dimLen : llvm::reverse(dimLens)) {
+    if (ret.size() < dimLens.size()) {
+      ret.push_back(dimLen * ret.back());
+    }
+  }
+  ret = to_vector(llvm::reverse(ret));
+  return ret;
 }
 
 /// Given a single `TransformMapAttr`s and a set of indices, the function
@@ -1885,12 +1915,14 @@ void remapDims(
 /// possible holes in index numbering - e.g., 0, 3, 4 -> 0, 1, 2. After that,
 /// the function builds new `TransformAttr` and, at the end, constructs a new
 /// `TransformMapAttr`
-FailureOr<rock::TransformMapAttr>
-removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
-                       SetVector<int64_t> &removeIndicesSet,
-                       llvm::SmallVector<int64_t> &origUpperBounds,
-                       llvm::SmallVector<int64_t> &origLowerBounds) {
-
+static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
+    OpBuilder &b, rock::TransformMapAttr trMap,
+    SetVector<int64_t> &removeIndicesSet,
+    llvm::SmallVector<int64_t> &origUpperBounds,
+    llvm::SmallVector<int64_t> &origLowerBounds,
+    llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> &removedSubDims) {
+  LLVM_DEBUG(llvm::dbgs() << "orig = " << trMap << ", removedSubDims.size="
+                          << removedSubDims.size() << "\n");
   origLowerBounds =
       llvm::SmallVector<int64_t>(trMap.getLowerBounds().asArrayRef());
 
@@ -1899,6 +1931,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
   std::pair<SmallVector<uint32_t>, SmallVector<uint32_t>> removedDims = {};
 
   std::vector<TransformAttrArgs> argsVector;
+  llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> newRemovedSubDims;
   for (auto tr : trMap.getOps()) {
     TransformAttrArgs args;
     args.type = tr.getType();
@@ -1954,21 +1987,127 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
     if (mustBePreserved || mustBeModified) {
       switch (args.type) {
       case TransformType::Unmerge: {
+        assert(preservedLowerDims.size() == 1);
+        SmallVector<int64_t> subDimStrides = getStrides(tr.getParams());
+        // Collect all removedSubDims in upper to the lower dim
+        for (auto [upperDim, subDimStride] :
+             zip(tr.getUpperDims(), subDimStrides)) {
+          for (const SubDimInfo &remSubDimInfo : removedSubDims[upperDim]) {
+            LLVM_DEBUG(llvm::dbgs() << "creating newRemovedSubDim /w size = "
+                                    << remSubDimInfo.size << ", stride="
+                                    << remSubDimInfo.stride * subDimStride
+                                    << " @ " << preservedLowerDims[0] << "\n");
+            newRemovedSubDims[preservedLowerDims[0]].push_back(
+                {remSubDimInfo.size, remSubDimInfo.stride * subDimStride});
+          }
+        }
+        SetVector<uint32_t> removedDimsInTr =
+            getRemovedIndicesInTr(tr, DimType::Upper, removeIndicesSet);
+        for (auto [idx, subDimSize] : enumerate(tr.getParams())) {
+          int64_t upperDim = tr.getUpperDims()[idx];
+          if (removedDimsInTr.contains(upperDim)) {
+            LLVM_DEBUG(llvm::dbgs()
+                       << "creating newRemovedSubDim /w size = " << subDimSize
+                       << ", stride=" << subDimStrides[idx] << " @ "
+                       << preservedLowerDims[0] << "\n");
+            newRemovedSubDims[preservedLowerDims[0]].push_back(
+                {subDimSize, subDimStrides[idx]});
+          }
+        }
         uint32_t total = 1;
         for (auto globalDimIdx : preservedUpperDims) {
           auto dimSize = origUpperBounds[globalDimIdx];
           total *= dimSize;
           args.params.push_back(dimSize);
         }
-        assert(preservedLowerDims.size() == 1);
         origLowerBounds[preservedLowerDims[0]] = total;
+        break;
+      }
+      case TransformType::Merge: {
+        SmallVector<int64_t> subDimStrides = getStrides(tr.getParams());
+        SmallVector<SubDimInfo> relevantSubDims;
+        assert(preservedUpperDims.size() == 1);
+        LLVM_DEBUG(llvm::dbgs()
+                   << "preservedUpperDim = " << preservedUpperDims[0] << "\n");
+        for (size_t subDim = 0; subDim < tr.getParams().size(); subDim++) {
+          int64_t lowDim = tr.getLowerDims()[subDim];
+          for (const SubDimInfo &removedSubDimInfo :
+               removedSubDims[preservedUpperDims[0]]) {
+            LLVM_DEBUG(llvm::dbgs() << "lowDim = " << lowDim << "\n");
+            LLVM_DEBUG(llvm::dbgs() << "remove.stride = "
+                                    << removedSubDimInfo.stride << "\n");
+            LLVM_DEBUG(llvm::dbgs()
+                       << "remove.size = " << removedSubDimInfo.size << "\n");
+            LLVM_DEBUG(llvm::dbgs()
+                       << "subdim.stride = " << subDimStrides[subDim] << "\n");
+            LLVM_DEBUG(llvm::dbgs()
+                       << "subdim.size = " << tr.getParams()[subDim] << "\n");
+
+            if (removedSubDimInfo.stride >=
+                subDimStrides[subDim] * tr.getParams()[subDim]) {
+              // do nothing
+              LLVM_DEBUG(llvm::dbgs()
+                         << "The relative stride of removed subDim is larger "
+                            "than original subDim\n");
+            } else if (removedSubDimInfo.stride * removedSubDimInfo.size <
+                       subDimStrides[subDim]) {
+              // do nothing
+              LLVM_DEBUG(llvm::dbgs()
+                         << "The stride of this newly created sub dimension is "
+                            "larger than removed subDim\n");
+            }
+            // Everyother case means removedSubDim at least partially overlaps
+            // with this dimension
+            else {
+              LLVM_DEBUG(llvm::dbgs()
+                         << "There is atleast partial overlap between removed "
+                            "subDim and new subDim\n");
+              int diff = 0;
+              int newRemovedSubDimStride = 0;
+              // Overlap on right side of removedSubDim
+              if (removedSubDimInfo.stride * removedSubDimInfo.size >=
+                  subDimStrides[subDim] * tr.getParams()[subDim]) {
+                int64_t rhsBoundForRemoval =
+                    std::max(removedSubDimInfo.stride, subDimStrides[subDim]);
+                diff = (subDimStrides[subDim] * tr.getParams()[subDim]) /
+                       rhsBoundForRemoval;
+                newRemovedSubDimStride =
+                    rhsBoundForRemoval / subDimStrides[subDim];
+              }
+              // The whole of removedSubDim is within the newly created lowDim
+              else if (removedSubDimInfo.stride >= subDimStrides[subDim]) {
+                diff = removedSubDimInfo.size;
+                newRemovedSubDimStride = removedSubDimInfo.stride;
+              }
+              // Overlap is left side of removedSubDim
+              else {
+                diff = (removedSubDimInfo.stride * removedSubDimInfo.size) /
+                       subDimStrides[subDim];
+                newRemovedSubDimStride = 1;
+              }
+              LLVM_DEBUG(llvm::dbgs()
+                         << "creating newRemovedSubDim /w size = " << diff
+                         << ", stride=" << newRemovedSubDimStride << " @ "
+                         << lowDim << "\n");
+              newRemovedSubDims[lowDim].push_back(
+                  {diff, newRemovedSubDimStride});
+              origLowerBounds[lowDim] = origLowerBounds[lowDim] / diff;
+            }
+          }
+          args.params.push_back(origLowerBounds[lowDim]);
+        }
         break;
       }
       case TransformType::PassThrough: {
         // propagate possibly modified dimensions
+        llvm::SmallDenseMap<int64_t, int64_t> upperToLower;
         for (auto [idx, upperDim] : llvm::enumerate(tr.getUpperDims())) {
           const auto lowerDim = tr.getLowerDims()[idx];
+          upperToLower[upperDim] = lowerDim;
           origLowerBounds[lowerDim] = origUpperBounds[upperDim];
+        }
+        for (auto [dim, subDimInfo] : removedSubDims) {
+          newRemovedSubDims[upperToLower[dim]] = subDimInfo;
         }
         [[fallthrough]];
       }
@@ -1985,6 +2124,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
     std::get<DimType::Lower>(removedDims)
         .append(getDifference<DimType::Lower>(tr, args));
   }
+  removedSubDims = newRemovedSubDims;
 
   // todo: use vector instead of set
   // update remove indices set
@@ -1992,11 +2132,39 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
     newRemoveIndicesSet.insert(dim);
   }
 
-  remapDims<DimType::Upper>(argsVector, removedDims);
-  remapDims<DimType::Lower>(argsVector, removedDims);
+  std::pair<llvm::SetVector<unsigned int>, llvm::SetVector<unsigned int>>
+      preservedDims;
+  for (auto &args : argsVector) {
+    std::get<DimType::Upper>(preservedDims)
+        .insert(std::get<DimType::Upper>(args.preservedDims).begin(),
+                std::get<DimType::Upper>(args.preservedDims).end());
+    std::get<DimType::Lower>(preservedDims)
+        .insert(std::get<DimType::Lower>(args.preservedDims).begin(),
+                std::get<DimType::Lower>(args.preservedDims).end());
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "preservedDimsUpper = ");
+  LLVM_DEBUG(llvm::interleaveComma(std::get<DimType::Upper>(preservedDims),
+                                   llvm::dbgs());
+             llvm::dbgs() << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "preservedDimsLower = ");
+  LLVM_DEBUG(llvm::interleaveComma(std::get<DimType::Lower>(preservedDims),
+                                   llvm::dbgs());
+             llvm::dbgs() << "\n");
+
+  remapDims<DimType::Upper>(argsVector, preservedDims);
+  remapDims<DimType::Lower>(argsVector, preservedDims);
 
   // build new transformations based on the computer preserved data
   for (auto &args : argsVector) {
+    LLVM_DEBUG(llvm::dbgs() << "reMappedPreservedUpperDims = ");
+    LLVM_DEBUG(llvm::interleaveComma(
+                   std::get<DimType::Upper>(args.preservedDims), llvm::dbgs());
+               llvm::dbgs() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "reMappedPreservedLowerDims = ");
+    LLVM_DEBUG(llvm::interleaveComma(
+                   std::get<DimType::Lower>(args.preservedDims), llvm::dbgs());
+               llvm::dbgs() << "\n");
     auto newTr =
         TransformAttr::get(b.getContext(), args.type, args.params,
                            std::get<DimType::Upper>(args.preservedNames),
@@ -2018,11 +2186,11 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
     auto oldBound = type == DimType::Upper
                         ? std::get<DimType::Upper>(oldBounds)
                         : std::get<DimType::Lower>(oldBounds);
-    const auto &deletedDims = type == DimType::Upper
-                                  ? std::get<DimType::Upper>(removedDims)
-                                  : std::get<DimType::Lower>(removedDims);
+    const auto &preservedDimsTyped =
+        type == DimType::Upper ? std::get<DimType::Upper>(preservedDims)
+                               : std::get<DimType::Lower>(preservedDims);
     for (auto [dim, bound] : llvm::enumerate(oldBound)) {
-      if (!llvm::is_contained(deletedDims, dim)) {
+      if (preservedDimsTyped.contains(dim)) {
         newBound.push_back(bound);
       }
     }
@@ -2039,6 +2207,7 @@ removeUpperDimsFromMap(OpBuilder &b, rock::TransformMapAttr trMap,
     newTrMap =
         TransformMapAttr::get(newOps, std::get<DimType::Upper>(newBounds),
                               std::get<DimType::Lower>(newBounds));
+    LLVM_DEBUG(llvm::dbgs() << "newTrMap = " << newTrMap << "\n");
   }
   return newTrMap;
 }
@@ -2058,6 +2227,7 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
   SmallVector<Attribute> results;
 
   llvm::SmallVector<int64_t> upperBounds = {};
+  llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> preservedSubDims;
   if (!transformAttrs.empty()) {
     auto first = *(transformAttrs.begin());
     auto trMap = cast<rock::TransformMapAttr>(first);
@@ -2073,13 +2243,14 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
     llvm::SmallVector<int64_t> lowerBounds = {};
     FailureOr<rock::TransformMapAttr> maybeNewTrMapAttr =
         removeUpperDimsFromMap(b, trMap, removeIndicesSet, upperBounds,
-                               lowerBounds);
+                               lowerBounds, preservedSubDims);
     upperBounds = lowerBounds;
     if (failed(maybeNewTrMapAttr)) {
       return failure();
     }
-    if (*maybeNewTrMapAttr)
+    if (*maybeNewTrMapAttr) {
       results.push_back(*maybeNewTrMapAttr);
+    }
   }
 
   return b.getArrayAttr(results);
@@ -2087,7 +2258,7 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
 
 SetVector<int64_t>
 convertDimNamesToIndices(const ArrayAttr trAttrs,
-                         const SetVector<StringRef> &removeDimNamesSet) {
+                         const StringSet<> &removeDimNamesSet) {
   SetVector<int64_t> indices = {};
   if (trAttrs.empty())
     return indices;
@@ -2110,7 +2281,7 @@ convertDimNamesToIndices(const ArrayAttr trAttrs,
 /// of `removeUpperDims` from above.
 FailureOr<ArrayAttr>
 mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
-                            const SetVector<StringRef> &removeDimNamesSet) {
+                            const StringSet<> &removeDimNamesSet) {
   SetVector<int64_t> removeIndicesSet =
       convertDimNamesToIndices(transformAttrs, removeDimNamesSet);
   return removeUpperDims(b, transformAttrs, removeIndicesSet);

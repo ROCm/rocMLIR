@@ -2157,7 +2157,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   b.create<func::ReturnOp>(loc);
 
-  // TODO[split-K]: remove after integrating split-K into MIGraphX
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   b.getUnitAttr());
@@ -3571,7 +3570,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       }
 
       convGenerator = rock::ConvGenerator(
-          arch, chip, triple, chipFeatures, perfConfig.getValue(),
+          arch, chip, disableSplitKForTuning, triple, chipFeatures,
+          perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
           reverse_grid, enabledFeatures,

@@ -549,6 +549,8 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
+    if (elemTypeA != elemTypeB)
+      return op->emitOpError("Wmma gridwise does not support mixed types");
   }
   if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
     return op->emitOpError("floating-point input type ")

@@ -6,7 +6,7 @@
 // CHECK-LABEL: module
 // CHECK-NEXT: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // CHECK-SAME: ([[arg0:%.+]]: memref<9216x[[$ITYPE]]>, [[arg1:%.+]]: memref<1048576x[[$ITYPE]]>, [[arg2:%.+]]: memref<14745600x[[$OTYPE]]>)
-// CHECK-SAME: attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"}
+// CHECK-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}"}
 // CHECK-NEXT: [[fil:%.+]] = rock.transform [[arg0]]
 // CHECK-SAME: ["g", "k", "c", "0", "1"]
 // CHECK-NEXT: [[$In:%.+]] = rock.transform [[arg1]]
