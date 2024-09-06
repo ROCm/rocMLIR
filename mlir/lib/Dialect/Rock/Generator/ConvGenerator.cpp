@@ -1,4 +1,5 @@
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -352,8 +353,10 @@ static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
           .Case("bf16", builder.getBF16Type())
           .Case("i32", builder.getI32Type())
           .Case("i8", builder.getI8Type())
-          .Cases("f8E5M2FNUZ", "bf8", builder.getFloat8E5M2FNUZType())
-          .Cases("f8E4M3FNUZ", "fp8", builder.getFloat8E4M3FNUZType())
+          .Case("f8E5M2", builder.getFloat8E5M2Type())
+          .Case("f8E4M3FN", builder.getFloat8E4M3FNType())
+          .Case("f8E5M2FNUZ", builder.getFloat8E5M2FNUZType())
+          .Case("f8E4M3FNUZ", builder.getFloat8E4M3FNUZType())
           .Default(std::nullopt);
   if (!type) {
     llvm::errs() << "Unknown data type: " << dataTypeStr << "\n";
@@ -546,6 +549,13 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
 
+  FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(config.chip);
+  if (failed(maybeChipset)) {
+    emitError(UnknownLoc::get(builder.getContext()),
+              "Invalid chipset name: " + config.chip);
+    exit(1);
+  }
+
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
   strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
@@ -556,15 +566,21 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     return failure();
   }
 
-  auto canonicalizeDataType = [](const std::string &type) {
+  auto canonicalizeDataType = [&](const std::string &type) {
     if (type == "fp32")
       return std::string("f32");
     if (type == "fp16")
       return std::string("f16");
-    if (type == "f8E5M2FNUZ")
-      return std::string("bf8");
-    if (type == "f8E4M3FNUZ")
-      return std::string("fp8");
+    if (type == "fp8") {
+      if (maybeChipset->hasOcpFp8())
+        return std::string("f8E4M3FN");
+      return std::string("f8E4M3FNUZ");
+    }
+    if (type == "bf8") {
+      if (maybeChipset->hasOcpFp8())
+        return std::string("f8E5M2");
+      return std::string("f8E5M2FNUZ");
+    }
     return type;
   };
   config.operation = op.value();

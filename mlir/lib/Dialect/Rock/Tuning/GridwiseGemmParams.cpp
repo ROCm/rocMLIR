@@ -566,9 +566,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   }
 
   // Add broadcasts for non 8-bit types.
-  bool is8BitReduceOnly = dataTypeA.isInteger(8) ||
-                          dataTypeA.isFloat8E4M3FNUZ() ||
-                          dataTypeA.isFloat8E5M2FNUZ();
+  bool is8BitReduceOnly = dataTypeA.getIntOrFloatBitWidth() == 8;
   if (!is8BitReduceOnly) {
     validWaveGemmSize.emplace_back(8, 64, 1);
     validWaveGemmSize.emplace_back(4, 64, 1);

@@ -532,6 +532,10 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
+static bool isFloat8Type(Type type) {
+  return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
+}
+
 static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
@@ -541,7 +545,7 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
       if (isGfx11)
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8 data types");
-      if (!(elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2()))
+      if (!isFloat8Type(elemTypeA))
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
@@ -903,7 +907,7 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
-  if ((aElem.isFloat8E4M3FNUZ() || aElem.isFloat8E5M2FNUZ()) && !cElem.isF32())
+  if (isFloat8Type(aElem) && !cElem.isF32())
     return op.emitOpError("8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),

@@ -223,7 +223,7 @@ MLIRMIGraphXToTosa
 MLIRMIGraphXTransforms
 MLIRRocTarget
 MLIRRockAnalysis
-MLIRRockConv2dGenerator
+MLIRRockConvGenerator
 MLIRRockOps
 MLIRRockPipeline
 MLIRRockThin
