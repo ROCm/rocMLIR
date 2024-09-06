@@ -1953,6 +1953,7 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
     case TransformType::AddDim:
     case TransformType::ConstDim:
     case TransformType::Broadcast:
+    case TransformType::Pad:
     case TransformType::Merge: {
       assert(!mustBeModified && "must be preserved or removed completely");
       [[fallthrough]];
@@ -2111,13 +2112,45 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
           origLowerBounds[lowerDim] = origUpperBounds[upperDim];
         }
         for (auto [dim, subDimInfo] : removedSubDims) {
+          LLVM_DEBUG(llvm::dbgs() << "copying removedSubDimInfo from:" << dim
+                                  << " to:" << upperToLower[dim] << "\n");
           newRemovedSubDims[upperToLower[dim]] = subDimInfo;
         }
-        [[fallthrough]];
-      }
-      default: {
         llvm::copy(tr.getParams(), std::back_inserter(args.params));
         break;
+      }
+      case TransformType::Pad: {
+        for (auto [idx, upperDim] : llvm::enumerate(tr.getUpperDims())) {
+          LLVM_DEBUG(llvm::dbgs() << "pad upper dim = " << upperDim << "\n");
+          if (removedSubDims.contains(upperDim)) {
+            // If the padded dimension is being sub-tiled, then the padding is
+            // meaningless because it happens at the either boundary and only
+            // some tiles will have the effect. For all GPU usecases, we would
+            // materialize the padded region in sub tiles. Thus, we ignore the
+            // padding in sub-tile views.
+            LLVM_DEBUG(
+                llvm::dbgs()
+                << "Some parts of the padded dimension is to be removed.\n");
+            const auto lowerDim = tr.getLowerDims()[idx];
+            origLowerBounds[lowerDim] = origUpperBounds[upperDim];
+            args.params.append({0, 0});
+          } else {
+            args.params.append(
+                {tr.getParams()[idx * 2], tr.getParams()[idx * 2 + 1]});
+          }
+        }
+        break;
+      }
+      case TransformType::Broadcast:
+      case TransformType::AddDim:
+      case TransformType::ConstDim: {
+        llvm::copy(tr.getParams(), std::back_inserter(args.params));
+        break;
+      }
+      default: {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Unsupported coordinate transform:" << tr << "\n");
+        return failure();
       }
       }
       argsVector.push_back(args);
