@@ -1,5 +1,5 @@
-FROM rocm/mlir:rocm6.1-latest
-ARG ROCM_PATH=/opt/rocm-6.1
+FROM rocm/mlir:rocm6.2-latest
+ARG ROCM_PATH=/opt/rocm-6.2
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps

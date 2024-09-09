@@ -1,11 +1,11 @@
-// RUN: rocmlir-gen --arch %arch -p -prc | FileCheck %s --check-prefix=F32
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -prc | FileCheck %s --check-prefix=F32
 
 // F32: func.func @main()
 // F32:  %[[RES:.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
 // F32-NEXT:    call @printMemrefF32(%[[RES]]) : (memref<*xf32>) -> ()
 
-// RUN: rocmlir-gen --arch %arch -p -prc -t f16 | FileCheck %s --check-prefixes=CHECK -D\$TYPE=f16
-// RUN: rocmlir-gen --arch %arch -p -prc -t bf16 | FileCheck %s --check-prefix=CHECK -D\$TYPE=bf16
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -prc -t f16 | FileCheck %s --check-prefixes=CHECK -D\$TYPE=f16
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -prc -t bf16 | FileCheck %s --check-prefix=CHECK -D\$TYPE=bf16
 
 // CHECK-LABEL: func.func @conv_cpu
 // CHECK-SAME: ([[arg0:%.+]]: memref<9216x[[$TYPE]]>, [[arg1:%.+]]: memref<1048576x[[$TYPE]]>, [[arg2:%.+]]: memref<14745600x[[$TYPE]]>)
@@ -22,7 +22,7 @@
 // CHECK:  %[[RES2:.*]] = memref.cast %[[RES1]] : memref<{{.*}}> to memref<*xf32>
 // CHECK:  call @printMemrefF32(%[[RES2]]) : (memref<*xf32>) -> ()
 
-// RUN: rocmlir-gen --arch %arch -p -prc -t i8 | FileCheck %s --check-prefix=INT8
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -prc -t i8 | FileCheck %s --check-prefix=INT8
 
 // INT8: func.func @main()
 // INT8:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xi32>

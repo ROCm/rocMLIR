@@ -26,4 +26,8 @@ def Rock_Dialect : Dialect {
   }];
 }
 
+def RockFusionRoot : NativeOpTrait<"FusionRoot"> {
+  let cppNamespace = "mlir::OpTrait::rock";
+}
+
 #endif // ROCK_BASE

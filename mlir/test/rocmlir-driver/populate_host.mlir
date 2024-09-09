@@ -1,6 +1,6 @@
-// RUN: rocmlir-gen --arch %arch -p -ph --apply-bufferization-pipeline=false | FileCheck %s
-// RUN: rocmlir-gen --arch %arch -p -ph -t f16 --apply-bufferization-pipeline=false | FileCheck %s
-// RUN: rocmlir-gen --arch %arch -p -ph -t i8 --apply-bufferization-pipeline=false | FileCheck %s
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -ph --apply-bufferization-pipeline=false | FileCheck %s
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -ph -t f16 --apply-bufferization-pipeline=false | FileCheck %s
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -p -ph -t i8 --apply-bufferization-pipeline=false | FileCheck %s
 
 // CHECK-LABEL: func.func @main()
 // CHECK-NEXT: %[[filter:.*]] = memref.alloc() : memref<[[GKCYX:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>

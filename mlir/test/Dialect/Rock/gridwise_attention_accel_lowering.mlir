@@ -9,10 +9,6 @@
 // CHECK-DAG: %[[zeroVecF32:.+]] = arith.constant dense<0.000000e+00> : vector<16xf32>
 
 // CHECK: %[[QTr0:.+]] = rock.transform %[[Q]] by
-// CHECK: %[[ldsG0A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
-// CHECK: %[[ldsReductionWSBytes:.+]] = memref.subview {{.*}} : memref<4096xi8, #gpu.address_space<workgroup>> to memref<256xi8, #gpu.address_space<workgroup>>
-// CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
-// CHECK: %[[ldsReductionWS:.+]] = memref.view %[[ldsReductionWSBytes]][
 
 // init maxRow buffer
 // CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]])
@@ -29,7 +25,7 @@
 
   // Inner gemm0 KpacksPerBlock loop
   // CHECK: affine.for
-
+    // CHECK: %[[ldsG0A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
     // Load G0A tile to regs
     // CHECK-DAG: %[[QTr1:.+]] = rock.transform %[[QTr0]] by
     // CHECK-DAG: %[[QTr2:.+]] = rock.transform %[[QTr1]] by
@@ -52,6 +48,7 @@
     // Store to LDS G0A tile buffer
     // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0AregsKpack]] -> [](%[[viewG0AStoreTr3]])
     // CHECK-DAG: %[[view2G0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+    // CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
     // Load G0B tile to regs
     // CHECK-DAG: %[[KTr0:.+]] = rock.transform %[[K]] by
@@ -84,6 +81,7 @@
     // CHECK-DAG: %[[view2G0AStoreTr3:.+]] = rock.transform %[[view2G0AStoreTr2]]
     // CHECK: affine.for
       // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0AStoreTr3]]) {{.*}} -> %[[preAccelRegA:.+]] :
+    // CHECK: rock.dealloc %[[ldsG0A]] : memref<4096xi8, #gpu.address_space<workgroup>>
 
     // Load G0B from LDS to regs and accel gemm
     // CHECK-DAG: %[[view2G0BStoreTr0:.+]] = rock.transform %[[view2G0BStore]]
@@ -93,6 +91,7 @@
     // CHECK: affine.for
       // CHECK: affine.for
         // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0BStoreTr3]]) {{.*}} -> %[[preAccelRegB:.+]] :
+        // CHECK: rock.dealloc %[[ldsG0B]] : memref<4096xi8, #gpu.address_space<workgroup>>
         // CHECK: %[[bufferA:.*]] = rock.transform %[[preAccelRegB]]
         // CHECK: %[[bufferB:.*]] = rock.transform %[[preAccelRegA]]
         // CHECK: %[[bufferC:.*]] = rock.transform %[[gemm0AccBuf]]
@@ -106,7 +105,10 @@
   // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalar]]
     // CHECK: %[[gemm0Scaled:.+]] = arith.mulf %in, %[[ln2Recip]] : f32
     // CHECK: linalg.yield %[[gemm0Scaled]]
-  // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]] using %[[ldsReductionWS]]
+  // CHECK: %[[ldsReductionWS:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[ldsReductionWSView:.+]] = memref.view %[[ldsReductionWS]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
+  // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]] using %[[ldsReductionWSView]]
+  // CHECK: rock.dealloc %[[ldsReductionWS]] : memref<256xi8, #gpu.address_space<workgroup>>
 
   // Compute exp(gemm0 - rowmax_j)
   // *****************************
@@ -119,7 +121,10 @@
     // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
     // CHECK-DAG: rock.in_bounds_store %[[gemm0ValSubMaxExp]] -> %[[gemm0NormExp:.+]][
 
-  // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]] using %[[ldsReductionWS]]
+  // CHECK: %[[ldsReductionWS2:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[ldsReductionWS2View:.+]] = memref.view %[[ldsReductionWS2]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
+  // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]] using %[[ldsReductionWS2View]]
+  // CHECK: rock.dealloc %[[ldsReductionWS2]] : memref<256xi8, #gpu.address_space<workgroup>>
 
   // li = exp(m_{j-1} - m_{j}) * l_{j-1} + rowsum(Pij)
   // where
@@ -144,16 +149,24 @@
   // CHECK-DAG: %[[gemm0NormExpTr0:.+]] = rock.transform %[[gemm0NormExp]]
   // CHECK-DAG: %[[gemm0NormExpTr1:.+]] = rock.transform %[[gemm0NormExpTr0]]
   // CHECK-DAG: %[[gemm0NormExpTr2:.+]] = rock.transform %[[gemm0NormExpTr1]]
+  // CHECK-DAG: %[[gemm0NormExpTr3:.+]] = rock.transform %[[gemm0NormExpTr2]]
+  // CHECK-DAG: %[[gemm0NormExpTr4:.+]] = rock.transform %[[gemm0NormExpTr3]]
+  // CHECK-DAG: %[[gemm0NormExpTr5:.+]] = rock.transform %[[gemm0NormExpTr4]]
+  
+  // CHECK-DAG: %[[ldsG1AStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
   // Viewing another set of register with kPack packing
   // CHECK: %[[G1AregsKpackTr0:.+]] = rock.transform %[[G1AregsKpack:.+]] by
   // CHECK-DAG: %[[G1AregsKpackTr1:.+]] = rock.transform %[[G1AregsKpackTr0]] by
   // CHECK-DAG: %[[G1AregsKpackTr2:.+]] = rock.transform %[[G1AregsKpackTr1]] by
+  // CHECK-DAG: %[[G1AregsKpackTr3:.+]] = rock.transform %[[G1AregsKpackTr2]] by
+  // CHECK-DAG: %[[G1AregsKpackTr4:.+]] = rock.transform %[[G1AregsKpackTr3]] by
+  // CHECK-DAG: %[[G1AregsKpackTr5:.+]] = rock.transform %[[G1AregsKpackTr4]] by
 
-  // CHECK-DAG: rock.threadwise_copy %[[gemm0NormExpTr2]] -> %[[G1AregsKpackTr2]]
+  // CHECK-DAG: rock.threadwise_copy %[[gemm0NormExpTr5]] -> %[[G1AregsKpackTr5]]
 
   // Viewing G1 LDS A tile buffer
-  // CHECK-DAG: %[[viewG1AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+  // CHECK-DAG: %[[viewG1AStore:.+]] = memref.view %[[ldsG1AStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
   // CHECK-DAG: %[[viewG1AStoreTr0:.+]] = rock.transform %[[viewG1AStore]]
   // CHECK-DAG: %[[viewG1AStoreTr1:.+]] = rock.transform %[[viewG1AStoreTr0]]
   // CHECK-DAG: %[[viewG1AStoreTr2:.+]] = rock.transform %[[viewG1AStoreTr1]]
@@ -161,10 +174,11 @@
   // CHECK-DAG: %[[viewG1AStoreTr4:.+]] = rock.transform %[[viewG1AStoreTr3]]
   // CHECK-DAG: %[[viewG1AStoreTr5:.+]] = rock.transform %[[viewG1AStoreTr4]]
   // CHECK-DAG: %[[viewG1AStoreTr6:.+]] = rock.transform %[[viewG1AStoreTr5]]
+  // CHECK-DAG: %[[viewG1AStoreTr7:.+]] = rock.transform %[[viewG1AStoreTr6]]
 
   // Store to LDS G1A tile buffer
-  // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr6]])
-  // CHECK-DAG: %[[view2G1AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+  // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr7]])
+  // CHECK-DAG: %[[view2G1AStore:.+]] = memref.view %[[ldsG1AStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
   
   // Viewing LDS G1A tile buffer in MFMA layout
   // CHECK-DAG: %[[viewG1ALoadTr0:.+]] = rock.transform %[[view2G1AStore]]
@@ -175,6 +189,7 @@
   // Gemm1
   // CHECK: affine.for %[[g1MIter:.+]]
     // CHECK-DAG: rock.fill(%[[gemm1AccBuf:.+]], %[[zeroVecF32]])
+    // CHECK-DAG: %[[ldsG0BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
     // Load G1B tile from global to regs
     // CHECK-DAG: %[[VTr0:.+]] = rock.transform %[[V]] by
@@ -189,7 +204,7 @@
     // CHECK-DAG: rock.threadwise_copy %[[G1BregsTr1]] -> %[[G1BregsKpackTr1]]
 
     // Viewing G1 LDS B tile buffer
-    // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+    // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK-DAG: %[[viewG1BStoreTr0:.+]] = rock.transform %[[viewG1BStore]]
     // CHECK-DAG: %[[viewG1BStoreTr1:.+]] = rock.transform %[[viewG1BStoreTr0]]
     // CHECK-DAG: %[[viewG1BStoreTr2:.+]] = rock.transform %[[viewG1BStoreTr1]]
@@ -197,7 +212,7 @@
 
     // Store to LDS G1B tile buffer
     // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1BregsKpack]] -> [](%[[viewG1BStoreTr3]])
-    // CHECK-DAG: %[[view2G1BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+    // CHECK-DAG: %[[view2G1BStore:.+]] = memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
 
     // Viewing LDS G1B tile buffer in MFMA layout
     // CHECK-DAG: %[[viewG1BLoadTr0:.+]] = rock.transform %[[view2G1BStore]]
@@ -209,7 +224,9 @@
     // CHECK: affine.for
         // CHECK: affine.for
           // CHECK: rock.threadwise_read_into {{.*}} [](%[[viewG1BLoadTr3]]) {{.*}} -> %[[preAccelRegB:.+]] :
+          // CHECK: rock.dealloc %[[ldsG0BStore]] : memref<4096xi8, #gpu.address_space<workgroup>>
           // CHECK: rock.threadwise_read_into {{.*}} [](%[[viewG1ALoadTr3]]) {{.*}} -> %[[preAccelRegA:.+]] :
+          // CHECK: rock.dealloc %[[ldsG1AStore]] : memref<4096xi8, #gpu.address_space<workgroup>>
           // CHECK: %[[bufferA:.*]] = rock.transform %[[preAccelRegB]]
           // CHECK: %[[bufferB:.*]] = rock.transform %[[preAccelRegA]]
           // CHECK: %[[bufferC:.*]] = rock.transform %[[gemm1AccBuf]]
@@ -243,6 +260,7 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
     gridSize = 24 : i32,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
+    firstGemmIdx = 0 : i32,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
@@ -265,9 +283,8 @@ func.func @gridwise_attn_grid_reversed(%arg0: memref<1x384x64xf32>, %arg1: memre
     gridSize = 24 : i32,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>,
+    firstGemmIdx = 0 : i32,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
-
-

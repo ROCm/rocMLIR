@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/CallGraph.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -767,6 +768,21 @@ static llvm::cl::opt<bool> disableSplitKForTuning(
     llvm::cl::desc("disable split-K GEMM scheme for tuning"),
     llvm::cl::init(false));
 
+enum class F8TypesChoice : int { Arch = 0, Nanoo = 1, OCP = 2 };
+
+static llvm::cl::opt<F8TypesChoice> forceF8Types(
+    "force-f8-types",
+    llvm::cl::desc("use OCP F8 types;  otherwise, use old F8 types"),
+    llvm::cl::values(clEnumValN(F8TypesChoice::Arch, "arch",
+                                "usual F8 types for architecture"),
+                     clEnumValN(F8TypesChoice::Nanoo, "nanoo",
+                                "older 'NANOO' or 'FNUZ' types"),
+                     clEnumValN(F8TypesChoice::Nanoo, "fnuz",
+                                "older 'NANOO' or 'FNUZ' types"),
+                     clEnumValN(F8TypesChoice::OCP, "ocp",
+                                "'OCP' or 'OFP8' types")),
+    llvm::cl::init(F8TypesChoice::Arch));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -1066,8 +1082,7 @@ static void populateDefaults() {
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue());
   }
-  if (isConv && outputDepth.getNumOccurrences() == 0 &&
-      inputDepth.getNumOccurrences() > 0) {
+  if (isConv && outputDepth.getNumOccurrences() == 0) {
     outputDepth = rock::ConvGenerator::outputDim(
         inputDepth.getValue(), filterDepth.getValue(),
         paddingDepthLeft.getValue(), paddingDepthRight.getValue(),
@@ -1266,17 +1281,30 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
   return gpuWrapperFunc;
 }
 
+llvm::SmallString<32> archChip() {
+  RocmDeviceName targetInfo;
+  if (failed(targetInfo.parse(arch.getValue()))) {
+    llvm::errs() << "Invalid architecture name: " << arch << "\n";
+    exit(1);
+  }
+  return targetInfo.getChip();
+}
+
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
   std::optional<Type> result =
       llvm::StringSwitch<std::optional<Type>>(name)
           .Case("f32", Float32Type::get(ctx))
+          .Case("fp32", Float32Type::get(ctx))
           .Case("f16", Float16Type::get(ctx))
+          .Case("fp16", Float16Type::get(ctx))
           .Case("bf16", BFloat16Type::get(ctx))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
-          .Cases("bf8", "f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
-          .Cases("fp8", "f8E4M3FNUZ", Float8E4M3FNUZType::get(ctx))
+          .Case("f8E5M2", Float8E5M2Type::get(ctx))
+          .Case("f8E4M3FN", Float8E4M3FNType::get(ctx))
+          .Case("f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
+          .Case("f8E4M3FNUZ", Float8E4M3FNUZType::get(ctx))
           .Default(std::nullopt);
   if (!result) {
     llvm::errs() << "Unknown data type: " << name << "\n";
@@ -1940,19 +1968,20 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
         thenBody.create<affine::AffineLoadOp>(loc, opd1, opd1Map, idx1);
     auto loadOp2 =
         thenBody.create<affine::AffineLoadOp>(loc, opd2, opd2Map, idx2);
+    size_t nIVs = genConfig.inputDimension.size();
     auto loadOutput = thenBody.create<affine::AffineLoadOp>(
-        loc, result, resultStoreMap, ivs.take_front(5));
+        loc, result, resultStoreMap, ivs.take_front(nIVs));
     if (elemType.isIntOrIndex()) {
       auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
       auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
       auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      thenBody.create<affine::AffineStoreOp>(loc, addiOp, result,
-                                             resultStoreMap, ivs.take_front(5));
+      thenBody.create<affine::AffineStoreOp>(
+          loc, addiOp, result, resultStoreMap, ivs.take_front(nIVs));
     } else {
       auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
       auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      thenBody.create<affine::AffineStoreOp>(loc, addfOp, result,
-                                             resultStoreMap, ivs.take_front(5));
+      thenBody.create<affine::AffineStoreOp>(
+          loc, addfOp, result, resultStoreMap, ivs.take_front(nIVs));
     }
   };
 
@@ -2128,7 +2157,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   b.create<func::ReturnOp>(loc);
 
-  // TODO[split-K]: remove after integrating split-K into MIGraphX
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   b.getUnitAttr());
@@ -2325,7 +2353,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       loc, TypeRange{}, queries, keys, values, elemwiseInputs, output,
       transposeQ, transposeK, transposeV, transposeO, archAttr, params.features,
       numCUAttr,
-      /*params0=*/nullptr, /*params1=*/nullptr);
+      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSoftmaxElemwiseBlock =
         &attention.getPreSoftmaxBody().emplaceBlock();
@@ -3542,7 +3570,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       }
 
       convGenerator = rock::ConvGenerator(
-          arch, chip, triple, chipFeatures, perfConfig.getValue(),
+          arch, chip, disableSplitKForTuning, triple, chipFeatures,
+          perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
           reverse_grid, enabledFeatures,
@@ -3553,14 +3582,23 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           outputLayout.getValue());
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (inputDepth < 1)
+          inputDepth = 1;
         inDims.push_back(inputDepth);
+      }
       SmallVector<int64_t> outDims{outputHeight, outputWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (outputDepth < 1)
+          outputDepth = 1;
         outDims.push_back(outputDepth);
+      }
       SmallVector<int64_t> filDims{filterHeight, filterWidth};
-      if (nDims > 2)
+      if (nDims > 2) {
+        if (filterDepth < 1)
+          filterDepth = 1;
         filDims.push_back(filterDepth);
+      }
 
       status =
           convGenerator.parseConvDims(batchSize, groupSize, inputChannel,
@@ -3677,6 +3715,39 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "MLIR Rock Dialect host generation\n");
+
+  amdgpu::Chipset chipset;
+  if (!arch.getValue().empty()) {
+    FailureOr<amdgpu::Chipset> maybeChipset =
+        amdgpu::Chipset::parse(archChip());
+    if (failed(maybeChipset)) {
+      emitError(UnknownLoc::get(&context),
+                "Invalid chipset name: " + archChip());
+      exit(1);
+    }
+    chipset = *maybeChipset;
+    bool archPrefersOCP = chipset.hasOcpFp8();
+    DenseMap<F8TypesChoice, std::string> f8e4m3TypeNames{
+        {F8TypesChoice::Arch, archPrefersOCP ? "f8E4M3FN" : "f8E4M3FNUZ"},
+        {F8TypesChoice::Nanoo, "f8E4M3FNUZ"},
+        {F8TypesChoice::OCP, "f8E4M3FN"}};
+    DenseMap<F8TypesChoice, std::string> f8e5m2TypeNames{
+        {F8TypesChoice::Arch, archPrefersOCP ? "f8E5M2" : "f8E5M2FNUZ"},
+        {F8TypesChoice::Nanoo, "f8E5M2FNUZ"},
+        {F8TypesChoice::OCP, "f8E5M2"}};
+
+    auto canonicaliseF8Type = [&](std::string name) {
+      if (name == "fp8")
+        return f8e4m3TypeNames[forceF8Types.getValue()];
+      if (name == "bf8")
+        return f8e5m2TypeNames[forceF8Types.getValue()];
+      return name;
+    };
+
+    filterDataType = canonicaliseF8Type(filterDataType);
+    inputDataType = canonicaliseF8Type(inputDataType);
+    outputDataType = canonicaliseF8Type(outputDataType);
+  }
 
   if (operation != rock::KernelType::Gemm) {
     verifyConvLayout();

@@ -1,4 +1,4 @@
- // RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch %s | rocmlir-gen -ph -print-results -verifier clone -fut forward - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | FileCheck %s
+ // RUN: rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a:sramecc+:xnack- %s | rocmlir-gen -ph -print-results -verifier clone -fut forward - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | FileCheck %s
 
 // CHECK: mhal.launch @forward__part_19
 

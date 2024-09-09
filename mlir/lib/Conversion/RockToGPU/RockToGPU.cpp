@@ -101,6 +101,18 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
   }
 };
 
+struct MIGPUDeallocRewritePattern
+    : public OpRewritePattern<rock::GpuDeallocOp> {
+  using OpRewritePattern<rock::GpuDeallocOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::GpuDeallocOp op,
+                                PatternRewriter &b) const override {
+
+    b.eraseOp(op);
+    return mlir::success();
+  }
+};
+
 template <typename Tmi, typename Tgpu>
 struct MIOpRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
@@ -210,6 +222,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     }
     if (auto isReverse = rock::getReverseGrid(theFunc).value_or(nullptr)) {
       gpuFunc->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), isReverse);
+    }
+    FailureOr<StringAttr> maybeArch = rock::getArch(theFunc);
+    if (succeeded(maybeArch)) {
+      gpuFunc->setAttr("arch", maybeArch.value());
     }
 
     int32_t indexWidth = 32;
@@ -347,7 +363,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     RewritePatternSet patterns(ctx);
 
     // rock-lowering
-    patterns.add<MIGPUAllocRewritePattern,
+    patterns.add<MIGPUAllocRewritePattern, MIGPUDeallocRewritePattern,
                  MIOpRewritePattern<rock::WorkgroupBarrierOp, gpu::BarrierOp>,
                  MIOpRewritePattern<rock::LDSBarrierOp, amdgpu::LDSBarrierOp>,
                  WorkgroupIdRewritePattern,
@@ -429,6 +445,8 @@ void LowerRockOpsToGPUPass::runOnOperation() {
         LLVM_DEBUG(llvm::dbgs() << "waves_per_eu not set"
                                 << "\n");
       }
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "arch not found.\n");
     }
   });
 

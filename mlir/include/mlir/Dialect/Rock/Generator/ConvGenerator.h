@@ -32,6 +32,7 @@ public:
     std::string arch;
     // TODO: drop these
     std::string chip;
+    bool disableSplitKForTuning;
     std::string triple;
     std::string chipFeatures;
     std::string perfConfig;
@@ -63,8 +64,8 @@ public:
 
   ConvGenerator(
       const std::string &arch = "", const std::string &chip = "",
-      const std::string &triple = "", const std::string &chipFeatures = "",
-      const std::string &perfConfig = "",
+      bool disableSplitKForTuning = false, const std::string &triple = "",
+      const std::string &chipFeatures = "", const std::string &perfConfig = "",
       std::optional<int> num_cu = std::nullopt, bool reverseGrid = false,
       GemmFeatures features = GemmFeatures::none,
       const std::optional<rock::ConvOpType> operation = std::nullopt,

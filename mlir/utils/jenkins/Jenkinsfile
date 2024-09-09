@@ -67,16 +67,16 @@ String dockerArgs() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm6.1-latest'
+    return 'rocm/mlir:rocm6.2-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm6.1-latest'
+    return 'rocm/mlir-migraphx-ci:rocm6.2-latest'
 }
 
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
-    if ( !params.nightly && (codepath == "mfma") ) {
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
         echo "Performing Static Test (preMergeCheck)"
         sh '''
         if [ ! -f ./build/compile_commands.json ];  then
@@ -100,7 +100,7 @@ void preMergeCheck(String codepath) {
 
 void preMergeCheckPackage(String codepath) {
     // Only do static check on mfma codepath during PR CI
-    if ( !params.nightly && (codepath == "mfma") ) {
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
         echo "Checking if the fat library target list is accurate"
         dir('build') {
             sh '../mlir/utils/jenkins/static-checks/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
@@ -185,7 +185,7 @@ String getLabelFromCodepath(String codepath) {
     } else if (codepath == "vanilla"){
         label = 'mlir'
     } else if (codepath == "navi3x") {
-        label = 'mlir && ( gfx1100 || gfx1101 )'
+        label = 'mlir && gfx1101'
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -199,7 +199,7 @@ String getLabelFromChip(String chip) {
         case "gfx906":
             return getLabelFromCodepath("vanilla")
         case "gfx908":
-            return "mlir && gfx908 && multi_gpu"
+            return "mlir && gfx908"
         case "gfx90a":
             return "mlir && gfx90a"
         case "gfx942":
@@ -258,7 +258,7 @@ void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
 void check_RockE2ETests_Navi3x(boolean fixed) {
 
     // Run PR CI tests; Skip Static Test on Novi3x
-    if ( !params.nightly ) {
+    if ( params.nightly == false ) {
         buildProject('check-mlir check-rocmlir', """
                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
@@ -316,7 +316,7 @@ void parameterSweep(String CONFIG, String codepath) {
 
 boolean shouldRunFromCodepath(String codepath) {
     // Run vanilla on public CI
-    if ((codepath == "vanilla") && !params.canXdlops) {
+    if ((codepath == "vanilla") && (params.canXdlops == false)) {
         return true
     }
     // Run mfma on private CI
@@ -324,12 +324,12 @@ boolean shouldRunFromCodepath(String codepath) {
         return true
     }
     // Run navi21 on private nightly or weekly CI if it is not disabled
-    if (params.canXdlops && !params.disableNavi21 && (codepath == "navi21") &&
+    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21") &&
         (params.nightly || params.weekly)) {
         return true
     }
     // Run navi3x on private CI if it is not disabled
-    if (params.canXdlops && !params.disableNavi3x && (codepath == "navi3x")) {
+    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
         return true
     }
     return false
@@ -341,10 +341,12 @@ boolean shouldRunFromChip(String chip) {
             return shouldRunFromCodepath("vanilla")
         case "gfx90a":
             // Special case because all our "vanilla" hosts are gfx90a.
-            return shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla")
+            return params.disable90a == false &&
+                   (shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla"))
         case "gfx908":
+            return params.disable908 == false && shouldRunFromCodepath("mfma")
         case "gfx942":
-            return shouldRunFromCodepath("mfma")
+            return params.disable942 == false && shouldRunFromCodepath("mfma")
         case "gfx1030":
             return shouldRunFromCodepath("navi21")
         case "gfx1100":
@@ -381,8 +383,8 @@ boolean shouldRunBuildAndTest(String codepath) {
     if (params.codepath == codepath && params.canXdlops) {
         if (params.codepath == "mfma") return true
         if (params.codepath == "vanilla") return true
-        if (params.codepath == "navi21" && !params.disableNavi21) return true
-        if (params.codepath == "navi3x" && !params.disableNavi3x) return true
+        if (params.codepath == "navi21" && params.disableNavi21 == false) return true
+        if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
         return false
     }
 }
@@ -392,11 +394,11 @@ pipeline {
     agent none
     parameters {
         // Below should be set statically by Jenkins job
-        booleanParam(name: 'nightly', defaultValue: params.nightly,
+        booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
                      description: 'Run extra nightly-only tests')
-        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops,
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
                      description: 'Can this CI instance use xdlops (no for public server)')
-        booleanParam(name: 'weekly', defaultValue: params.weekly,
+        booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
                      description: 'Run weekly-only jobs')
         // Temporary change to MIGraphX branch because of upstream merge.
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
@@ -427,12 +429,18 @@ pipeline {
                choices: ['default', 'mfma', 'navi21', 'navi3x', 'vanilla'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
-        booleanParam(name: 'disableNavi21', defaultValue: false,
+        booleanParam(name: 'disableNavi21', defaultValue: true,
                      description: 'Disable testing on Navi21')
         // option to disable navi3x cells in case nodes are offline
         booleanParam(name: 'disableNavi3x', defaultValue: false,
                      description: 'Disable testing on Navi3x')
 
+        booleanParam(name: 'disable90a', defaultValue: false,
+                     description: 'Disable testing on gfx90a')
+        booleanParam(name: 'disable908', defaultValue: false,
+                     description: 'Disable testing on gfx908')
+        booleanParam(name: 'disable942', defaultValue: false,
+                     description: 'Disable testing on gfx942')
 
         // option only to be used with upstream merges
         booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
@@ -544,9 +552,11 @@ pipeline {
                         }
                         steps {
                             buildProject('ci-performance-scripts', '')
+                            // How to check out into specific directory, according to stackoverflow.
+                            dir('MITuna') {
+                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                            }
                             dir('build') {
-                                sh """rm -rf ${WORKSPACE}/MITuna
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
@@ -713,9 +723,10 @@ pipeline {
                     stage("Tune rocMLIR") {
                         steps {
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                            dir('MITuna') {
+                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                            }
                             dir('build') {
-                                sh """rm -rf ${WORKSPACE}/MITuna
-                                      git clone --branch pf-tuna-rocmlir-3 http://github.com/ROCm/MITuna.git ${WORKSPACE}/MITuna"""
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
@@ -802,7 +813,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'
                     }
                 }
                 when {
@@ -1086,6 +1097,8 @@ pipeline {
                     HOME="${WORKSPACE}"
                     // Note the %m to avoid issues with threads and dynamic libraries.
                     LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
+                    LLVM_PROFDATA="/opt/rocm/llvm/bin/llvm-profdata"
+                    LLVM_COV="/opt/rocm/llvm/bin/llvm-cov"
                 }
                 stages {
                     stage ("body") {
@@ -1102,11 +1115,11 @@ pipeline {
                                         // Run tests.
                                         sh 'ninja check-rocmlir'
                                         // Profile processing.
-                                        sh 'llvm-profdata merge -sparse ./*.profraw -o ./coverage.profdata'
-                                        sh "llvm-cov report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
+                                        sh "${LLVM_PROFDATA} merge -sparse ./*.profraw -o ./coverage.profdata"
+                                        sh "${LLVM_COV} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
                                         sh "cat ./coverage_${CPATH}.report"
-                                        sh "llvm-cov export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
-                                        sh "llvm-cov show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
+                                        sh "${LLVM_COV} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
+                                        sh "${LLVM_COV} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
                                         // Upload to codecov.
                                         withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
                                             sh '''

@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -835,6 +836,15 @@ struct QuantizeLinearConverter final
                   ConversionPatternRewriter &rewriter) const final;
 };
 
+struct ConvertConverter final
+    : public OpConversionPattern<migraphx::ConvertOp> {
+  using OpConversionPattern<migraphx::ConvertOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+
 struct NegConverter final : public OpConversionPattern<migraphx::NegOp> {
   using OpConversionPattern<migraphx::NegOp>::OpConversionPattern;
 
@@ -968,6 +978,21 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   }
   rewriter.replaceOp(op, result);
 
+  return success();
+}
+
+LogicalResult
+ConvertConverter::matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+  if (!op.getZeroExtend()) {
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInA());
+    return success();
+  }
+  rewriter.replaceOpWithNewOp<tosa::CustomOp>(
+      op, getTypeConverter()->convertType(op.getResult().getType()),
+      "unsigned_cast", "rocmlir", "", adaptor.getInA());
   return success();
 }
 
@@ -1254,7 +1279,6 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
            TrivialConverter<PowOp, tosa::PowOp>, DivConverter, MulConverter,
            TrivialConverter<AbsOp, tosa::AbsOp>,
            TrivialConverter<CeilOp, tosa::CeilOp>,
-           TrivialConverter<ConvertOp, tosa::CastOp>,
            TrivialConverter<ErfOp, tosa::ErfOp>,
            TrivialConverter<ExpOp, tosa::ExpOp>,
            TrivialConverter<FloorOp, tosa::FloorOp>,
@@ -1263,9 +1287,9 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
            TrivialConverter<RsqrtOp, tosa::RsqrtOp>,
            TrivialConverter<SigmoidOp, tosa::SigmoidOp>,
            TrivialConverter<TanhOp, tosa::TanhOp>, DeQuantizeLinearConverter,
-           QuantizeLinearConverter, DeQuantizeLinearConverter, NegConverter,
-           ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-           WhereConverter>(typeConverter, patterns.getContext());
+           QuantizeLinearConverter, DeQuantizeLinearConverter, ConvertConverter,
+           NegConverter, ReluConverter, SoftmaxConverter, LiteralConverter,
+           ClipConverter, WhereConverter>(typeConverter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(

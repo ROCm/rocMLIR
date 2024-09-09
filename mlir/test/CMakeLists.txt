@@ -100,9 +100,8 @@ set(ROCMLIR_TEST_DEPENDS
   llc
 
   mlir-mixr-capi-test
-  mlir-mixr-full-test
   mlir-mixr-fullc-test
-  mlir-tosa-miir-test
+  mlir-mixr-split-k-test
 )
 
 list(APPEND ROCMLIR_TEST_DEPENDS

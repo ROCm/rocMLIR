@@ -12,18 +12,14 @@
 #===----------------------------------------------------------------------===//
 
 # Use the rocm/mlir image as base
-FROM rocm/mlir:rocm6.1-latest
+FROM rocm/mlir:rocm6.2-latest
 
 RUN apt-get update; \
     apt-get install -y dumb-init;
 
-# LTS releases often bundle obsolete pip versions that cannot access newest
-# Linux binary wheels.
-RUN python3 -m pip install --upgrade pip && python3 -m pip install --ignore-installed PyYAML
-
-# Refer to mlir/lib/Bindings/Python/requirements.txt. Listed explicitly here
-# and version pinned for consistency as this is a bot.
-RUN python3 -m pip install numpy 'pybind11>=2.8.0' dataclasses
+# Accounts for PyYAML, numpy, pybind11, ml_dtypes
+ADD "https://raw.githubusercontent.com/llvm/llvm-project/main/mlir/python/requirements.txt" requirements.txt
+RUN python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
 
 # Install build bot (server was at 2.8.5-dev at time of writing).
 RUN pip3 install buildbot-worker

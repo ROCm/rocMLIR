@@ -7,12 +7,14 @@ add_rocmlir_conversion_library(MLIRTosaToRock
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/IR
 
   DEPENDS
+  MLIRRockPassIncGen
   MLIRConversionPassIncGen
+  RocMLIRConversionPassIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRLinalgDialect
-  MLIRRockConv2dGenerator
+  MLIRRockConvGenerator
   MLIRRockTransforms
   MLIRLinalgUtils
   MLIRPass

@@ -69,6 +69,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockViewToTransformPass());
   }
 
+  funcPm.addPass(createRocmlirCustomTosaToLinalgPass());
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
   TosaToLinalgOptions tosaToLinalgOptions;
@@ -165,6 +166,10 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       funcPm.addPass(createConvertLinalgToAffineLoopsPass());
       funcPm.addPass(rock::createRockVectorizeFusionsPass());
     }
+    funcPm.addPass(rock::createRockReuseLDSPass());
+    funcPm.addPass(rock::createRockOutputSwizzlePass());
+    funcPm.addPass(rock::createRockReuseLDSPass());
+
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
@@ -175,7 +180,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --canonicalize --rock-threadwise-gemm-lowering
      *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
      *   --math-legalize-to-f32 --rock-buffer-load-merge
-     *   --rock-transform-to-memref --rock-loops-to-cf --convert-rock-to-gpu
+     *   --rock-transform-to-memref --rock-emulate-narrow-type
+     *   --rock-loops-to-cf --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
@@ -184,6 +190,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(math::createMathLegalizeToF32());
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
+    funcPm.addPass(rock::createRockEmulateNarrowTypePass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
   }
@@ -206,8 +213,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
   gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
-  SmallVector<std::string, 3> unsupportedFloats = {"bf16", "f8E4M3FNUZ",
-                                                   "f8E5M2FNUZ"};
+  SmallVector<std::string, 5> unsupportedFloats = {
+      "bf16", "f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2"};
   floatEmuOpts.sourceTypeStrs = unsupportedFloats;
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));

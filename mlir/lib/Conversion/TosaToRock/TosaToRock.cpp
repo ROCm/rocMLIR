@@ -31,6 +31,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#define DEBUG_TYPE "convert-tosa-to-rock"
+
 using namespace mlir;
 
 namespace {
@@ -432,6 +434,17 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     op->setAttr(name, BoolAttr::get(op->getContext(), newValue));
   }
 
+  LogicalResult checkInputHasUses(PatternRewriter &rewriter,
+                                  tosa::TransposeOp top, Value tInput) const {
+    // if the input has uses (apart from this one), we can't do this
+    if (!tInput.hasOneUse()) {
+      return rewriter.notifyMatchFailure(
+          top, "abandoning attempt to fuse transpose "
+               "because the operation has other uses");
+    }
+    return success();
+  }
+
   LogicalResult checkMatMulTransposeValid(tosa::MatMulOp matmulOp,
                                           ArrayRef<int32_t> dims) const {
     // batch dimension is expected to be 3rd from the last.
@@ -633,12 +646,19 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     Value tOutput = top.getResult();
 
     if (tosa::Conv2DOp convOp = tInput.getDefiningOp<tosa::Conv2DOp>()) {
+      if (checkInputHasUses(b, top, tInput).failed()) {
+        return failure();
+      }
       // tosa.conv2d output is transpose
       permuteLayout(convOp, "output_layout", "nhwk", dims);
       convOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(convOp);
     } else if (tosa::MatMulOp matMulOp =
                    tInput.getDefiningOp<tosa::MatMulOp>()) {
+
+      if (checkInputHasUses(b, top, tInput).failed()) {
+        return failure();
+      }
       if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
         return failure();
       }
@@ -875,17 +895,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   getPreSoftmaxElemwiseRegion(Value input, OpBuilder &regionBuilder,
                               Block *block, SmallVector<Value> &elemwiseArgs,
                               std::optional<Location> loc = std::nullopt,
-                              bool doRewrite = false) const {
+                              bool doRewrite = false, int recDepth = 0) const {
     PatternRewriter::InsertionGuard guard(regionBuilder);
     regionBuilder.setInsertionPointToEnd(block);
     // If the matmul is found, we return this information to the
     // root.
+    LLVM_DEBUG(llvm::dbgs()
+               << std::string(recDepth, '\t')
+               << "getPreSoftmaxElemwiseRegion:input=" << input << "\n");
     if (tosa::MatMulOp matmul = input.getDefiningOp<tosa::MatMulOp>()) {
       Value matmulMemRef;
       if (doRewrite) {
         matmulMemRef =
             addBlockArgument(regionBuilder, input, block, loc.value());
+        rock::AttentionOp attnOp =
+            cast<rock::AttentionOp>(block->getParentOp());
+        attnOp.setFirstGemmIdx(block->getArguments().size() - 1);
       }
+      LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                              << "matmul found. terminating recursion.\n");
       return {matmulMemRef, matmul};
     }
     if (tosa::ConstOp constOp = input.getDefiningOp<tosa::ConstOp>()) {
@@ -894,6 +922,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         auto newConstOp = regionBuilder.clone(*constOp);
         newConstOpRes = newConstOp->getResult(0);
       }
+      LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                              << "const found. terminating recursion.\n");
       return {newConstOpRes, failure()};
     }
     Operation *op = input.getDefiningOp();
@@ -909,6 +939,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         blockArg = addBlockArgument(regionBuilder, input, block, loc.value());
       }
       elemwiseArgs.push_back(input);
+      LLVM_DEBUG(llvm::dbgs()
+                 << std::string(recDepth, '\t')
+                 << "unsupported region op found. terminating recursion.\n");
       return {blockArg, failure()};
     }
     // Following section recursively calls into the left and right
@@ -916,19 +949,19 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // input.
     mlir::IRMapping mapper;
     SmallVector<Value> newOperands;
-    auto [lhsResult, maybeLhsMatMul] = getPreSoftmaxElemwiseRegion(
-        op->getOperand(0), regionBuilder, block, elemwiseArgs, loc, doRewrite);
-    mapper.map(op->getOperand(0), lhsResult);
-    newOperands.push_back(lhsResult);
-    FailureOr<mlir::tosa::MatMulOp> maybeRhsMatMul = failure();
-    Value rhsResult;
-    if (op->getNumOperands() > 1) {
-      std::tie(rhsResult, maybeRhsMatMul) =
-          getPreSoftmaxElemwiseRegion(op->getOperand(1), regionBuilder, block,
-                                      elemwiseArgs, loc, doRewrite);
-      mapper.map(op->getOperand(1), rhsResult);
-      newOperands.push_back(rhsResult);
+
+    FailureOr<mlir::tosa::MatMulOp> maybeMatMul = failure();
+    for (auto operand : op->getOperands()) {
+      auto [result, maybeSubTreeMatMul] = getPreSoftmaxElemwiseRegion(
+          operand, regionBuilder, block, elemwiseArgs, loc, doRewrite,
+          recDepth + 1);
+      mapper.map(operand, result);
+      newOperands.push_back(result);
+      if (succeeded(maybeSubTreeMatMul)) {
+        maybeMatMul = maybeSubTreeMatMul;
+      }
     }
+
     Value res;
     if (doRewrite) {
       auto newOp = regionBuilder.clone(*op, mapper);
@@ -937,11 +970,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // We convey to the caller the result
     // of the cloning as well if this subtree
     // contains the first matmul.
-    if (succeeded(maybeLhsMatMul)) {
-      return {res, maybeLhsMatMul};
-    } else if (succeeded(maybeRhsMatMul)) {
-      return {res, maybeLhsMatMul};
+    if (succeeded(maybeMatMul)) {
+      LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                              << "a subtree have a matmul in it.\n");
+      return {res, maybeMatMul};
     }
+    LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                            << "none of subtress have a matmul in it.\n");
     return {res, failure()};
   }
 
@@ -967,10 +1002,17 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       bool isDotProduct = *(std::prev(shapeC.end(), 1)) == 1;
       isDotProduct &= *(std::prev(shapeC.end(), 2)) == 1;
 
-      if (isDotProduct && hasReduceOp)
+      LLVM_DEBUG(llvm::dbgs()
+                 << "first matmul = " << maybeFirstMatMul.value() << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
+      if (isDotProduct && hasReduceOp) {
         return failure();
-      if (!isDotProduct && !hasReduceOp)
+      }
+      if (!isDotProduct && !hasReduceOp) {
         return failure();
+      }
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "first matmul not found\n");
     }
 
     return maybeFirstMatMul;
@@ -1005,7 +1047,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, arch,
         rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
-        /*params0=*/nullptr, /*params1=*/nullptr);
+        /*params0=*/nullptr, /*params1=*/nullptr,
+        /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
     FailureOr<tosa::MatMulOp> maybeMatMul;

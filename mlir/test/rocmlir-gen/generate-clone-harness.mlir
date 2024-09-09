@@ -1,5 +1,5 @@
-// RUN: rocmlir-gen -fut mlir_reshape_convolution  --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx -host-pipeline=migraphx,highlevel |rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_reshape_convolution_wrapper --verifier clone - | FileCheck %s
-// RUN: rocmlir-gen -fut mlir_reshape_convolution  --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx -host-pipeline=migraphx,highlevel |rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_reshape_convolution_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full| FileCheck %s  --check-prefixes=CHECK_FULL
+// RUN: rocmlir-gen -fut mlir_reshape_convolution  --arch gfx90a:sramecc+:xnack- --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx -host-pipeline=migraphx,highlevel |rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_reshape_convolution_wrapper --verifier clone - | FileCheck %s
+// RUN: rocmlir-gen -fut mlir_reshape_convolution  --arch gfx90a:sramecc+:xnack- --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx -host-pipeline=migraphx,highlevel |rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_reshape_convolution_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full| FileCheck %s  --check-prefixes=CHECK_FULL
 
 
 func.func private @mlir_reshape_convolution(%arg0: !migraphx.shaped<1x1x16x2x16x2xf32, 256x256x16x0x1x0>, %arg1: !migraphx.shaped<1x1x3x3xf32, 9x9x3x1>) -> (!migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>) {

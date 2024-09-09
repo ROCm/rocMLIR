@@ -215,14 +215,49 @@ func.func @amdgpu_raw_buffer_atomic_cmpswap_i64(%src : i64, %cmp : i64, %buf : m
 
 // CHECK-LABEL: func @lds_barrier
 func.func @lds_barrier() {
+  // GFX908: rocdl.sched.barrier 0
   // GFX908: llvm.inline_asm has_side_effects asm_dialect = att
   // GFX908-SAME: ";;;WARNING: BREAKS DEBUG WATCHES\0As_waitcnt lgkmcnt(0)\0As_barrier"
+  // GFX908: rocdl.sched.barrier 0
   // GFX90A: rocdl.waitcnt -7937
   // GFX90A-NEXT: rocdl.s.barrier
   // GFX10:  rocdl.waitcnt -16129
   // GFX10-NEXT: rocdl.s.barrier
+  // GFX11: rocdl.sched.barrier 0
   // GFX11:  llvm.inline_asm has_side_effects asm_dialect = att
   // GFX11-SAME: ";;;WARNING: BREAKS DEBUG WATCHES\0As_waitcnt lgkmcnt(0)\0As_barrier"
+  // GFX11: rocdl.sched.barrier 0
   amdgpu.lds_barrier
+  func.return
+}
+
+// CHECK-LABEL: func @sched_barrier
+func.func @sched_barrier() {
+  // CHECK: rocdl.sched.barrier 0
+  amdgpu.sched_barrier allow = <none>
+  // CHECK: rocdl.sched.barrier 1
+  amdgpu.sched_barrier allow = <non_mem_non_sideffect>
+  // CHECK: rocdl.sched.barrier 2
+  amdgpu.sched_barrier allow = <valu>
+  // CHECK: rocdl.sched.barrier 4
+  amdgpu.sched_barrier allow = <salu>
+  // CHECK: rocdl.sched.barrier 8
+  amdgpu.sched_barrier allow = <mfma_wmma>
+  // CHECK: rocdl.sched.barrier 16
+  amdgpu.sched_barrier allow = <all_vmem>
+  // CHECK: rocdl.sched.barrier 32
+  amdgpu.sched_barrier allow = <vmem_read>
+  // CHECK: rocdl.sched.barrier 64
+  amdgpu.sched_barrier allow = <vmem_write>
+  // CHECK: rocdl.sched.barrier 128
+  amdgpu.sched_barrier allow = <all_ds>
+  // CHECK: rocdl.sched.barrier 256
+  amdgpu.sched_barrier allow = <ds_read>
+  // CHECK: rocdl.sched.barrier 512
+  amdgpu.sched_barrier allow = <ds_write>
+  // CHECK: rocdl.sched.barrier 1024
+  amdgpu.sched_barrier allow = <transcendental>
+  // CHECK: rocdl.sched.barrier 18
+  amdgpu.sched_barrier allow = <valu|all_vmem>
   func.return
 }

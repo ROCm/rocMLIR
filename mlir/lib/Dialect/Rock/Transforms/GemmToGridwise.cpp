@@ -153,7 +153,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   // Extend input types to the highest-precision type among the inputs
   if (elemTypeA != elemTypeB &&
       !(elemTypeA.isFloat8E5M2FNUZ() && elemTypeB.isFloat8E4M3FNUZ()) &&
-      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ())) {
+      !(elemTypeA.isFloat8E4M3FNUZ() && elemTypeB.isFloat8E5M2FNUZ()) &&
+      !(elemTypeA.isFloat8E5M2() && elemTypeB.isFloat8E4M3FN()) &&
+      !(elemTypeA.isFloat8E4M3FN() && elemTypeB.isFloat8E5M2())) {
     if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
       MemRefType newBType = MemRefType::get(bShape, elemTypeA);
       memref::AllocOp newB = rw.create<memref::AllocOp>(loc, newBType);
@@ -515,7 +517,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       loc, queries, keys, values, adaptor.getPreSoftmaxElemWiseInputs(), out,
       op.getArchAttr(), op.getFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
-      params1);
+      params1, op.getFirstGemmIdxAttr());
   bool linalgOpFound = false;
   op.getPreSoftmaxBody().walk(
       [&](linalg::GenericOp genOp) { linalgOpFound = true; });

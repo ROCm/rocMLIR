@@ -127,6 +127,7 @@ MLIRMaskableOpInterface
 MLIRMaskingOpInterface
 MLIRMathDialect
 MLIRMathToLLVM
+MLIRMathToROCDL
 MLIRMathTransforms
 MLIRMemRefDialect
 MLIRMemRefToLLVM
@@ -222,7 +223,7 @@ MLIRMIGraphXToTosa
 MLIRMIGraphXTransforms
 MLIRRocTarget
 MLIRRockAnalysis
-MLIRRockConv2dGenerator
+MLIRRockConvGenerator
 MLIRRockOps
 MLIRRockPipeline
 MLIRRockThin
@@ -231,5 +232,6 @@ MLIRRockTransforms
 MLIRRockTuning
 MLIRRockUtility
 MLIRTosaToRock
+RocmlirCustomTosaToLinalg
 RocmlirEmulateFp8ExtTrunc
 )

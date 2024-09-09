@@ -8,9 +8,10 @@
 
 // COM: Do not put a leading space between the colon and the pass you're looking for
 // MIGRAPHX:Kernel pipeline:
-// MIGRAPHX-NEXT:builtin.module(func.func(migraphx-transform),
-// MIGRAPHX-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
-// MIGRAPHX-NEXT:func.func(migraphx-to-tosa))
+// MIGRAPHX-NEXT:builtin.module(func.func(migraphx-realize-int4,
+// MIGRAPHX-NEXT:migraphx-transform,
+// MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// MIGRAPHX-NEXT:migraphx-to-tosa))
 
 // GPU:Kernel pipeline:
 // GPU-NEXT:builtin.module(func.func(rock-affix-params{fallback=false},
@@ -24,6 +25,9 @@
 // GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
+// GPU-NEXT:rock-reuse-lds,
+// GPU-NEXT:rock-output-swizzle,
+// GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-lower-reduce,
 // GPU-NEXT:rock-threadwise-gemm-lowering,
 // GPU-NEXT:rock-analyze-memory-use,
@@ -32,6 +36,7 @@
 // GPU-NEXT:math-legalize-to-f32,
 // GPU-NEXT:rock-buffer-load-merge,
 // GPU-NEXT:rock-transform-to-memref,
+// GPU-NEXT:rock-emulate-narrow-type,
 // GPU-NEXT:rock-loops-to-cf),
 // GPU-NEXT:convert-rock-to-gpu)
 
@@ -40,7 +45,9 @@
 // BINARY-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx90a},
 // BINARY-NEXT:arith-emulate-unsupported-floats{source-types=bf16,
 // BINARY-NEXT:f8E4M3FNUZ,
-// BINARY-NEXT:f8E5M2FNUZ target-type=f32},
+// BINARY-NEXT:f8E5M2FNUZ,
+// BINARY-NEXT:f8E4M3FN,
+// BINARY-NEXT:f8E5M2 target-type=f32},
 // BINARY-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=true chipset=gfx90a saturate-fp8-truncf=true},
 // BINARY-NEXT:emulate-fp8-ext-trunc,
 // BINARY-NEXT:expand-strided-metadata,
@@ -59,7 +66,9 @@
 // BINARY_MI300-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx940},
 // BINARY_MI300-NEXT:arith-emulate-unsupported-floats{source-types=bf16,
 // BINARY_MI300-NEXT:f8E4M3FNUZ,
-// BINARY_MI300-NEXT:f8E5M2FNUZ target-type=f32},
+// BINARY_MI300-NEXT:f8E5M2FNUZ,
+// BINARY_MI300-NEXT:f8E4M3FN,
+// BINARY_MI300-NEXT:f8E5M2 target-type=f32},
 // BINARY_MI300-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=true chipset=gfx940 saturate-fp8-truncf=true},
 // BINARY_MI300-NEXT:expand-strided-metadata,
 // BINARY_MI300-NEXT:lower-affine,
@@ -88,7 +97,8 @@
 // HIGHLEVEL:Kernel pipeline:
 // HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
-// HIGHLEVEL-NEXT:rock-view-to-transform),
+// HIGHLEVEL-NEXT:rock-view-to-transform,
+// HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),

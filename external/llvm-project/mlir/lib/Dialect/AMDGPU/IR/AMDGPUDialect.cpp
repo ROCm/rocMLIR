@@ -236,7 +236,9 @@ LogicalResult WMMAOp::verify() {
 
   bool isDestFloat =
       (destElemType.isF32() || destElemType.isF16() || destElemType.isBF16());
-  bool isSrcFloat = (sourceAElemType.isF16() || sourceAElemType.isBF16());
+  bool isSrcFloat =
+      (sourceAElemType.isF16() || sourceAElemType.isBF16() ||
+       sourceAElemType.isFloat8E4M3FN() || sourceAElemType.isFloat8E5M2());
 
   if (isDestFloat && !isSrcFloat) {
     return emitOpError("Expected float sources with float destination");
@@ -271,14 +273,16 @@ LogicalResult MFMAOp::verify() {
   }
 
   Type sourceBType = getSourceB().getType();
-  if (sourceElem.isFloat8E5M2FNUZ() || sourceElem.isFloat8E4M3FNUZ()) {
+  if (sourceElem.isFloat8E5M2FNUZ() || sourceElem.isFloat8E4M3FNUZ() ||
+      sourceElem.isFloat8E5M2() || sourceElem.isFloat8E4M3FN()) {
     int64_t sourceBLen = 1;
     Type sourceBElem = sourceBType;
     if (auto sourceBVector = llvm::dyn_cast<VectorType>(sourceBType)) {
       sourceBLen = sourceBVector.getNumElements();
       sourceBElem = sourceBVector.getElementType();
     }
-    if (!sourceBElem.isFloat8E5M2FNUZ() && !sourceBElem.isFloat8E4M3FNUZ())
+    if (!sourceBElem.isFloat8E5M2FNUZ() && !sourceBElem.isFloat8E4M3FNUZ() &&
+        !sourceBElem.isFloat8E5M2() && !sourceBElem.isFloat8E4M3FN())
       return emitOpError("expected both source operands to have f8 elements");
     if (sourceLen != sourceBLen)
       return emitOpError(

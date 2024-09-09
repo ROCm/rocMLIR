@@ -117,14 +117,18 @@ def MIGraphX_WhereOp :
 
 def MIGraphX_ConvertOp :
     MIGraphX_Op<"convert">,
-    Arguments<(ins AnyMIXRShaped:$inA)>,
+    Arguments<(ins AnyMIXRShaped:$inA, UnitAttr:$zeroExtend)>,
 	  Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise type conversion";
   let description = [{
     Type conversion. Due to impedance mismatches between MIGraphX and Tosa,
     currently only supports float to float conversions
+
+    If zeroExtend is set, the input is treated as an unsigned integer.
+    This is MLIR-specific, since MIGraphX encodes integer signedness in types
+    but MLIR generally uses signless integers.
   }];
-  let assemblyFormat = "$inA attr-dict `:` type($inA) `to` type($output)";
+  let assemblyFormat = "(`zero_extend` $zeroExtend^)? $inA attr-dict `:` type($inA) `to` type($output)";
 }
 
 class MIGraphX_ElementwiseUnaryOp<string name, list<Trait> traits=[]> :
@@ -174,6 +178,38 @@ def MIGraphX_SqrtOp :
     MIGraphX_ElementwiseUnaryOp<"sqrt">;
 def MIGraphX_TanhOp :
     MIGraphX_ElementwiseUnaryOp<"tanh">;
+
+// int4 operations
+def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
+    Arguments<(ins MIXRShapedOf<[I8, I<4>]>:$in,
+                   I64Attr:$axis,
+                   BoolAttr:$isUnsigned)>,
+    Results<(outs MIXRShapedOf<[I8, I<4>]>:$out)> {
+  let summary = "Unpack int4 vaules stored as bytes";
+  let description = [{
+    Given a shaped tensor of bytes, double the length of `axis` by
+    ```
+    out[..., 2*i, ...] = in[..., i, ...] & 0xf
+    out[..., 2*i + 1, ...] = in[ ..., i, ...] >>[unsigned] 4
+    ```
+
+    That is, the `axis` dimension of `in` consists of, in MLIR terms,
+    `vector<2xi4>`, which we then turn into `vector<2xi8>` by zero-extension
+    and then we flatten out the elements back into `axis`.
+
+    To enable MLIR rewrites, this can also take a tensor of i4 and return
+    the corresponding tensor of i8 (in which case, the `i4` are exposed as an
+    extra dimension and not flattened) or another tensor of i4. This allows us to
+    progressively move unpack up to function boundaries.
+
+    If `isUnsigned` is true, the inputs are a buffer of unsigned 4-bit ints,
+    otherwise they are signed.
+  }];
+
+  let assemblyFormat = [{ $in attr-dict `:` type($in) `->` type($out) }];
+
+  let hasVerifier = 1;
+}
 
 // Quantization operations.
 
@@ -297,7 +333,7 @@ class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> 
 }
 
 def MIGraphX_QuantConvolutionOp :
-    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, I8], [F32, I32]> {
+    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN, I8], [F32, I32]> {
   let summary = "quantized convolution forward";
   let description = [{
     The `migraphx.quant_convolution` op computes quantized convolution forward.
@@ -305,7 +341,8 @@ def MIGraphX_QuantConvolutionOp :
 }
 
 def MIGraphX_ConvolutionOp :
-    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ], [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ]> {
+    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN],
+                                       [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN]> {
   let summary = "convolution forward";
   let description = [{
     The `migraphx.convolution` op computes convolution forward.
@@ -473,7 +510,7 @@ class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> o
 }
 
 def MIGraphX_QuantDotOp :
-    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, I8], [F32, I32]>{
+    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, I8], [F32, I32]>{
   let summary = "Dot product of quantized tensors";
   let description = [{
     The `migraphx.quant_dot` op computes the dot product of two tensors.

@@ -287,15 +287,23 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
     if (requiresInlineAsm) {
       auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
                                                       LLVM::AsmDialect::AD_ATT);
+      Location loc = op->getLoc();
+      // Ensure the inlineAsm is guarded with a scheduling region
+      // So it will not interfere with backend compilation more than
+      // it needs.
+      rewriter.create<amdgpu::SchedBarrierOp>(
+          loc, amdgpu::sched_barrier_opt_enum::none);
       const char *asmStr =
           ";;;WARNING: BREAKS DEBUG WATCHES\ns_waitcnt lgkmcnt(0)\ns_barrier";
       const char *constraints = "";
-      rewriter.replaceOpWithNewOp<LLVM::InlineAsmOp>(
-          op,
+      rewriter.create<LLVM::InlineAsmOp>(
+          loc,
           /*resultTypes=*/TypeRange(), /*operands=*/ValueRange(),
           /*asm_string=*/asmStr, constraints, /*has_side_effects=*/true,
           /*is_align_stack=*/false, /*asm_dialect=*/asmDialectAttr,
           /*operand_attrs=*/ArrayAttr());
+      rewriter.replaceOpWithNewOp<amdgpu::SchedBarrierOp>(
+          op, amdgpu::sched_barrier_opt_enum::none);
       return success();
     }
     if (chipset.majorVersion < 12) {
@@ -329,6 +337,22 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
     return success();
   }
 };
+
+struct SchedBarrierOpLowering : public ConvertOpToLLVMPattern<SchedBarrierOp> {
+  SchedBarrierOpLowering(LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<SchedBarrierOp>(converter), chipset(chipset) {}
+
+  Chipset chipset;
+
+  LogicalResult
+  matchAndRewrite(SchedBarrierOp op, SchedBarrierOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ROCDL::SchedBarrier>(op,
+                                                     (uint32_t)op.getOpts());
+    return success();
+  }
+};
+
 } // namespace
 
 /// If `input` is a vector of bytes, concatentate those bytes in little-endian
@@ -377,6 +401,7 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
                                  Location loc,
                                  const TypeConverter *typeConverter,
                                  bool isUnsigned, Value llvmInput,
+                                 Value mlirInput,
                                  SmallVector<Value, 4> &operands) {
   Type inputType = llvmInput.getType();
   auto vectorType = dyn_cast<VectorType>(inputType);
@@ -385,28 +410,30 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
   if (elemType.isBF16())
     llvmInput = rewriter.create<LLVM::BitcastOp>(
         loc, vectorType.clone(rewriter.getI16Type()), llvmInput);
-  if (!elemType.isInteger(8)) {
+  if (elemType.getIntOrFloatBitWidth() != 8) {
     operands.push_back(llvmInput);
     return;
+  }
+
+  auto mlirInputType = dyn_cast<VectorType>(mlirInput.getType());
+  if (mlirInputType.getElementType().isInteger(8)) {
+    // if element type is 8-bit signed or unsigned, ignore the isUnsigned flag
+    bool localIsUnsigned = isUnsigned;
+    if (elemType.isUnsignedInteger(8)) {
+      localIsUnsigned = true;
+    } else if (elemType.isSignedInteger(8)) {
+      localIsUnsigned = false;
+    }
+    Value sign = createI1Constant(rewriter, loc, !localIsUnsigned);
+    operands.push_back(sign);
   }
 
   int64_t numBytes = vectorType.getNumElements();
   Type i32 = rewriter.getI32Type();
   VectorType vectorType32bits = VectorType::get(numBytes * 8 / 32, i32);
   auto llvmVectorType32bits = typeConverter->convertType(vectorType32bits);
-
   Value result = rewriter.createOrFold<LLVM::BitcastOp>(
       loc, llvmVectorType32bits, llvmInput);
-
-  // if element type is 8-bit signed or unsigned, ignore the isUnsigned flag
-  bool localIsUnsigned = isUnsigned;
-  if (elemType.isUnsignedInteger(8)) {
-    localIsUnsigned = true;
-  } else if (elemType.isSignedInteger(8)) {
-    localIsUnsigned = false;
-  }
-  Value sign = createI1Constant(rewriter, loc, !localIsUnsigned);
-  operands.push_back(sign);
   operands.push_back(result);
 }
 
@@ -433,6 +460,20 @@ static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
   } else if (elemType.isInteger(32)) {
     operands.push_back(createI1Constant(rewriter, loc, clamp));
   }
+}
+
+/// Return true if `type` is the E5M2 variant of an 8-bit float that is
+/// supported by the `_bf8` instructions on the given `chipset`.
+static bool isNativeBf8(Chipset chipset, Type type) {
+  return (chipset.isGfx940() && type.isFloat8E5M2FNUZ()) ||
+         (chipset.hasOcpFp8() && type.isFloat8E5M2());
+}
+
+/// Return true if `type` is the E4M3FN variant of an 8-bit float that is
+/// supported by the `_fp8` instructions on the given `chipset`.
+static bool isNativeFp8(Chipset chipset, Type type) {
+  return (chipset.isGfx940() && type.isFloat8E4M3FNUZ()) ||
+         (chipset.hasOcpFp8() && type.isFloat8E4M3FN());
 }
 
 /// Return the `rocdl` intrinsic corresponding to a MFMA operation `mfma`
@@ -531,40 +572,38 @@ static std::optional<StringRef> mfmaOpToIntrinsic(MFMAOp mfma,
       return ROCDL::mfma_f64_4x4x4f64::getOperationName();
   }
 
-  if (sourceElem.isFloat8E5M2FNUZ() && destElem.isF32() &&
-      chipset.minorVersion >= 0x40) {
+  if (destElem.isF32() && isNativeBf8(chipset, sourceElem)) {
     // Known to be correct because there are no scalar f8 instructions and
     // because a length mismatch will have been caught by the verifier.
     Type sourceBElem =
         cast<VectorType>(mfma.getSourceB().getType()).getElementType();
     if (m == 16 && n == 16 && k == 32 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_bf8_fp8::getOperationName();
     }
     if (m == 32 && n == 32 && k == 16 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_bf8_fp8::getOperationName();
     }
   }
 
-  if (sourceElem.isFloat8E4M3FNUZ() && destElem.isF32() &&
-      chipset.minorVersion >= 0x40) {
+  if (destElem.isF32() && isNativeFp8(chipset, sourceElem)) {
     Type sourceBElem =
         cast<VectorType>(mfma.getSourceB().getType()).getElementType();
     if (m == 16 && n == 16 && k == 32 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_fp8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_16x16x32_fp8_fp8::getOperationName();
     }
     if (m == 32 && n == 32 && k == 16 && b == 1) {
-      if (sourceBElem.isFloat8E5M2FNUZ())
+      if (isNativeBf8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_fp8_bf8::getOperationName();
-      if (sourceBElem.isFloat8E4M3FNUZ())
+      if (isNativeFp8(chipset, sourceBElem))
         return ROCDL::mfma_f32_32x32x16_fp8_fp8::getOperationName();
     }
   }
@@ -592,6 +631,10 @@ static std::optional<StringRef> wmmaOpToIntrinsic(WMMAOp wmma,
     return ROCDL::wmma_bf16_16x16x16_bf16::getOperationName();
   } else if (elemSourceType.isInteger(8) && elemDestType.isInteger(32)) {
     return ROCDL::wmma_i32_16x16x16_iu8::getOperationName();
+  } else if (elemSourceType.isFloat8E4M3FN() && elemDestType.isF32()) {
+    return ROCDL::wmma_f32_16x16x16_fp8::getOperationName();
+  } else if (elemSourceType.isFloat8E5M2() && elemDestType.isF32()) {
+    return ROCDL::wmma_f32_16x16x16_bf8::getOperationName();
   }
   return std::nullopt;
 }
@@ -666,9 +709,9 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
 
     SmallVector<Value, 4> operands;
     wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(),
-                         adaptor.getSourceA(), operands);
+                         adaptor.getSourceA(), op.getSourceA(), operands);
     wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(),
-                         adaptor.getSourceB(), operands);
+                         adaptor.getSourceB(), op.getSourceB(), operands);
     wmmaPushOutputOperand(rewriter, loc, typeConverter, adaptor.getDestC(),
                           op.getSubwordOffset(), op.getClamp(), operands);
 
@@ -723,7 +766,7 @@ LogicalResult ExtPackedFp8OpLowering::matchAndRewrite(
     ExtPackedFp8Op op, ExtPackedFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (chipset.majorVersion != 9 || chipset.minorVersion < 0x40)
+  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -753,10 +796,10 @@ LogicalResult ExtPackedFp8OpLowering::matchAndRewrite(
   }
   Value i32Source = rewriter.create<LLVM::BitcastOp>(loc, i32, source);
   Value wordSel = createI32Constant(rewriter, loc, op.getIndex());
-  if (sourceElemType.isFloat8E5M2FNUZ()) {
+  if (isNativeBf8(chipset, sourceElemType)) {
     rewriter.replaceOpWithNewOp<ROCDL::CvtF32Bf8Op>(op, f32, i32Source,
                                                     wordSel);
-  } else if (sourceElemType.isFloat8E4M3FNUZ()) {
+  } else if (isNativeFp8(chipset, sourceElemType)) {
     rewriter.replaceOpWithNewOp<ROCDL::CvtF32Fp8Op>(op, f32, i32Source,
                                                     wordSel);
   }
@@ -767,7 +810,7 @@ LogicalResult PackedTrunc2xFp8OpLowering::matchAndRewrite(
     PackedTrunc2xFp8Op op, PackedTrunc2xFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (chipset.majorVersion != 9 || chipset.minorVersion < 0x40)
+  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -788,10 +831,10 @@ LogicalResult PackedTrunc2xFp8OpLowering::matchAndRewrite(
   Value wordSel = createI1Constant(rewriter, loc, op.getWordIndex());
 
   Value result;
-  if (resultElemType.isFloat8E5M2FNUZ())
+  if (isNativeBf8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtPkBf8F32Op>(loc, i32, sourceA, sourceB,
                                                    existing, wordSel);
-  else if (resultElemType.isFloat8E4M3FNUZ())
+  else if (isNativeFp8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtPkFp8F32Op>(loc, i32, sourceA, sourceB,
                                                    existing, wordSel);
 
@@ -804,7 +847,7 @@ LogicalResult PackedStochRoundFp8OpLowering::matchAndRewrite(
     PackedStochRoundFp8Op op, PackedStochRoundFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (chipset.majorVersion != 9 || chipset.minorVersion < 0x40)
+  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -823,10 +866,10 @@ LogicalResult PackedStochRoundFp8OpLowering::matchAndRewrite(
   Value byteSel = createI32Constant(rewriter, loc, op.getStoreIndex());
 
   Value result;
-  if (resultElemType.isFloat8E5M2FNUZ())
+  if (isNativeBf8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtSrBf8F32Op>(loc, i32, source, stoch,
                                                    existing, byteSel);
-  else if (resultElemType.isFloat8E4M3FNUZ())
+  else if (isNativeFp8(chipset, resultElemType))
     result = rewriter.create<ROCDL::CvtSrFp8F32Op>(loc, i32, source, stoch,
                                                    existing, byteSel);
 
@@ -1035,9 +1078,10 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicUminOp>,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
-           AMDGPUDPPLowering, LDSBarrierOpLowering, MFMAOpLowering,
-           WMMAOpLowering, ExtPackedFp8OpLowering, PackedTrunc2xFp8OpLowering,
-           PackedStochRoundFp8OpLowering>(converter, chipset);
+           AMDGPUDPPLowering, LDSBarrierOpLowering, SchedBarrierOpLowering,
+           MFMAOpLowering, WMMAOpLowering, ExtPackedFp8OpLowering,
+           PackedTrunc2xFp8OpLowering, PackedStochRoundFp8OpLowering>(converter,
+                                                                      chipset);
 }
 
 std::unique_ptr<Pass> mlir::createConvertAMDGPUToROCDLPass() {

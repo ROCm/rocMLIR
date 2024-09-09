@@ -396,6 +396,22 @@ func.func @rock_gemm_xdlops_fp8_bf8(%a : memref<1x72x128xf8E4M3FNUZ>, %b : memre
   return
 }
 
+// And verify that 8-bit floats have the same tuning behavior as i8.
+// CHECK-LABEL: func.func @rock_gemm_xdlops_fp8_bf8_ocp
+// GRID-LABEL: func.func @rock_gemm_xdlops_fp8_bf8_ocp
+func.func @rock_gemm_xdlops_fp8_bf8_ocp(%a : memref<1x72x128xf8E4M3FN>, %b : memref<1x72x115200xf8E5M2>, %c : memref<1x128x115200xf32>) {
+  // CHECK: rock.gemm
+  // CHECK-SAME: derivedBlockSize = 256
+  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, forceUnroll = true>
+  // GRID: rock.gridwise_gemm
+  // GRID-SAME: gridSize = 3600
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx940",
+    numCU = 120 : i32
+  } : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FN> * memref<1x72x115200xf8E5M2>
+  return
+}
+
 // CHECK-LABEL: func.func @rock_attention_default
 // CHECK-SAME: block_size = 32
 // GRID-LABEL: func.func @rock_attention_default
@@ -406,7 +422,7 @@ func.func @rock_attention_default(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {arch = "amdgcn-amd-amdhsa:gfx1100", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>}
+  } {arch = "amdgcn-amd-amdhsa:gfx1100", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIdx = 0 : i32}
   return
 }
 
@@ -422,7 +438,7 @@ func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   rock.attention{
     qk = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
     %arg3 = softmax(qk) * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "attn:v1:128,128,128,2,64,64,8,1"}
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
   return
 }
 
@@ -437,7 +453,7 @@ func.func @rock_attention_mperblockg1_wmma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {arch = "amdgcn-amd-amdhsa:gfx1100", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v1:128,256,128,2,64,64,8,1"}
+  } {arch = "amdgcn-amd-amdhsa:gfx1100", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
   return
 }
 
@@ -452,7 +468,7 @@ func.func @rock_attention_mperblockg1_mfma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "attn:v1:128,256,128,2,64,64,8,1"}
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
   return
 }
 

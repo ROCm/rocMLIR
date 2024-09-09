@@ -2,7 +2,7 @@ set(LLVM_LINK_COMPONENTS
   Support
   )
 
-add_rocmlir_dialect_library(MLIRRockConv2dGenerator
+add_rocmlir_dialect_library(MLIRRockConvGenerator
   ConvGenerator.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -12,8 +12,9 @@ add_rocmlir_dialect_library(MLIRRockConv2dGenerator
   MLIRSupport
 )
 
-target_link_libraries(MLIRRockConv2dGenerator
+target_link_libraries(MLIRRockConvGenerator
   PRIVATE
   MLIRRockTransforms
   MLIRRockOps
+  MLIRAMDGPUUtils
 )
