@@ -154,22 +154,22 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
   funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
 
-  if (!options.enableApplicability) {
-    if (options.enableFusion) {
-      // align linalg tiling
-      /* rocmlir-opt --rock-linalg-align --canonicalize
-       * --convert-linalg-to-affine-loops
-       */
-      funcPm.addPass(rock::createRockLinalgAlignPass());
-      funcPm.addPass(rock::createRockPipelinePass());
-      funcPm.addPass(createCanonicalizerPass());
-      funcPm.addPass(createConvertLinalgToAffineLoopsPass());
-      funcPm.addPass(rock::createRockVectorizeFusionsPass());
-    }
-    funcPm.addPass(rock::createRockReuseLDSPass());
-    funcPm.addPass(rock::createRockOutputSwizzlePass());
-    funcPm.addPass(rock::createRockReuseLDSPass());
+  if (options.enableFusion) {
+    // align linalg tiling
+    /* rocmlir-opt --rock-linalg-align --canonicalize
+     * --convert-linalg-to-affine-loops
+     */
+    funcPm.addPass(rock::createRockLinalgAlignPass());
+    funcPm.addPass(rock::createRockPipelinePass());
+    funcPm.addPass(createCanonicalizerPass());
+    funcPm.addPass(createConvertLinalgToAffineLoopsPass());
+    funcPm.addPass(rock::createRockVectorizeFusionsPass());
+  }
+  funcPm.addPass(rock::createRockReuseLDSPass());
+  funcPm.addPass(rock::createRockOutputSwizzlePass());
+  funcPm.addPass(rock::createRockReuseLDSPass());
 
+  if (!options.enableApplicability) {
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
