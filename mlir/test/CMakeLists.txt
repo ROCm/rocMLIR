@@ -52,14 +52,6 @@ else()
 endif()
 message(STATUS "LLVM_EXTERNAL_LIT: ${LLVM_EXTERNAL_LIT}")
 
-if(CMAKE_HOST_WIN32 AND NOT CYGWIN)
-  set(LLVM_EXTERNAL_LIT "${LLVM_LIT_TOOLS_DIR}/llvm-lit.py")
-else()
-  set(LLVM_EXTERNAL_LIT "${LLVM_LIT_TOOLS_DIR}/llvm-lit")
-endif()
-
-message(STATUS "LLVM_EXTERNAL_LIT: ${LLVM_EXTERNAL_LIT}")
-
 # Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
 set(MLIR_RANDOM_DATA "")
 if(NOT ROCMLIR_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
