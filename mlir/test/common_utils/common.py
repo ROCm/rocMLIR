@@ -46,7 +46,7 @@ def get_agents(rocm_path):
         p = subprocess.run([rocm_path + "/bin/rocm_agent_enumerator", "-name"],
                            check=True, stdout=subprocess.PIPE)
         agents = set(x.decode("utf-8") for x in p.stdout.split())
-        if not agents:
+        if not agents or not all(agent.startswith("gfx") for agent in agents):
             # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
             # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
             q = subprocess.run([rocm_path + "/bin/rocm_agent_enumerator"],
