@@ -587,11 +587,7 @@ static bool compareSameArgs(IndexCmpPredicate pred) {
   case IndexCmpPredicate::UGE:
   case IndexCmpPredicate::ULE:
     return true;
-  case IndexCmpPredicate::NE:
-  case IndexCmpPredicate::SGT:
-  case IndexCmpPredicate::SLT:
-  case IndexCmpPredicate::UGT:
-  case IndexCmpPredicate::ULT:
+  default:
     return false;
   }
 }

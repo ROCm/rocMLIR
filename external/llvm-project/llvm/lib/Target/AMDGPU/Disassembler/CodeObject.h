@@ -86,8 +86,13 @@ const ELFNote* getNext(const ELFNote &N);
 
 
 template <typename Item>
-class const_varsize_item_iterator :
-  std::iterator<std::forward_iterator_tag, const Item, void> {
+class const_varsize_item_iterator {
+  using iterator_category = std::forward_iterator_tag;
+  using value_type        = const Item;
+  using difference_type   = void;
+  using pointer           = const Item*;
+  using reference         = const Item&;
+
   ArrayRef<uint8_t> Ref;
 
   const Item *item() const {

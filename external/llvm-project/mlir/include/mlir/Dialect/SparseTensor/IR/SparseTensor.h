@@ -87,7 +87,7 @@ public:
 
   bool operator[](unsigned i) const {
     assert(i < 64);
-    return (bits & (1 << i)) != 0;
+    return (bits & (1ULL << i)) != 0;
   }
   unsigned max() const { return 64 - llvm::countl_zero(bits); }
   unsigned count() const { return llvm::popcount(bits); }
