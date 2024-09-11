@@ -733,7 +733,7 @@ static mlir::WalkResult unwrap(MlirWalkResult result) {
   case MlirWalkResultInterrupt:
     return mlir::WalkResult::interrupt();
 
-  case MlirWalkResultSkip:
+  default:
     return mlir::WalkResult::skip();
   }
 }
