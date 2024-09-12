@@ -80,20 +80,6 @@ static bool hasGlobalMemoryAddressSpace(MemRefType type) {
          !hasPrivateMemoryAddressSpace(type);
 }
 
-static int64_t getLDSTotalSize(func::FuncOp &func) {
-  int64_t totalSize = 0;
-  func.walk([&](GpuAllocOp gpuAlloc) {
-    mlir::MemRefType type = gpuAlloc.getOutput().getType();
-    auto memSpaceValue =
-        dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
-            .getValue();
-    if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-      totalSize += type.getNumElements() * getByteWidth(type.getElementType());
-    }
-  });
-  return totalSize;
-}
-
 static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
   // Check for arch limitations exceeded
   FailureOr<StringAttr> maybeArch = getArch(op);
@@ -136,6 +122,9 @@ struct ThreadwiseWriteAllRewritePattern
   LogicalResult matchAndRewrite(ThreadwiseWriteAllOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
+
+    if (!hasGlobalMemoryAddressSpace(op.getDest().getType()))
+      return b.notifyMatchFailure(op, "isn't writing to global memory");
 
     // Prepare some useful constants.
     Value convertedC = op.getSource();
@@ -207,7 +196,7 @@ struct ThreadwiseWriteAllRewritePattern
     }
     size_t extraIdxCount = op.getExtraIndices().size();
     VectorizationResult vectorRes =
-        getMaxVectorization(destView, extraIdxCount);
+        getMaxVectorization(destView, extraIdxCount, /*inputDimLen=*/std::nullopt, destView.getDefiningOp());
     int64_t originalVectorLen = vectorRes.max;
 
     if (vectorLen <= originalVectorLen) {
@@ -409,12 +398,8 @@ void RockOutputSwizzlePass::runOnOperation() {
   if (!func->hasAttr("kernel"))
     return;
 
-  // Get total LDS memory allocated
-  int64_t ldsAllocated = getLDSTotalSize(func);
-
   SmallVector<Operation *, 4> writes;
-  func.walk([&writes, &rewriter,
-             ldsAllocated](ThreadwiseWriteAllOp threadwiseWriteAll) {
+  func.walk([&writes, &rewriter](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
 
@@ -439,14 +424,6 @@ void RockOutputSwizzlePass::runOnOperation() {
         LLVM_DEBUG(llvm::dbgs()
                    << "OutputSwizzle requires too much LDS memory: "
                    << ldsRequiredBytes << " bytes, skipping pass\n");
-        return;
-      }
-      // heuristic: if we need more LDS, skip this pass
-      if (ldsRequiredBytes > ldsAllocated) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "OutputSwizzle requires more LDS memory, current usage: "
-                   << ldsAllocated << " bytes, required: " << ldsRequiredBytes
-                   << " bytes, skipping pass\n");
         return;
       }
       writes.push_back(threadwiseWriteAll);

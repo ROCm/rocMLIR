@@ -812,6 +812,11 @@ findPostFusionTransforms(Value buffer, Operation *currentUser) {
   for (Operation *user : buffer.getUsers()) {
     if (user == currentUser)
       continue;
+    // Handle cases, like in checking for output swizzling, where an auxilliary
+    // transform chain's been stapled on to a buffer that's otherwise
+    // untransformed.
+    if (isa<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp>(user))
+      continue;
     Value candidate = nullptr;
     if (auto copyOp = dyn_cast<memref::CopyOp>(user)) {
       if (copyOp.getTarget() == buffer)
