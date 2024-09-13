@@ -33,7 +33,7 @@
 // GPU-NEXT:rock-analyze-memory-use,
 // GPU-NEXT:rock-sugar-to-loops,
 // GPU-NEXT:rock-clean-math,
-// GPU-NEXT:math-legalize-to-f32,
+// GPU-NEXT:math-extend-to-supported-types{extra-types=f16 target-type=f32},
 // GPU-NEXT:rock-buffer-load-merge,
 // GPU-NEXT:rock-transform-to-memref,
 // GPU-NEXT:rock-emulate-narrow-type,

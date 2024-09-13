@@ -179,15 +179,22 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
      *   --canonicalize --rock-threadwise-gemm-lowering
      *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
-     *   --math-legalize-to-f32 --rock-buffer-load-merge
-     *   --rock-transform-to-memref --rock-emulate-narrow-type
-     *   --rock-loops-to-cf --convert-rock-to-gpu
+     *   --math-extend-to-supported-types="source-types=f64,f32,f16
+     * target-type=f32"
+     *   --rock-buffer-load-merge --rock-transform-to-memref
+     *   --rock-emulate-narrow-type --rock-loops-to-cf
+     *    --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
-    funcPm.addPass(math::createMathLegalizeToF32());
+    math::MathExtendToSupportedTypesOptions extendToLLVMTypesOptions;
+    SmallVector<std::string, 1> supportedFloats = {"f16"};
+    extendToLLVMTypesOptions.extraTypeStrs = supportedFloats;
+    extendToLLVMTypesOptions.targetTypeStr = "f32";
+    funcPm.addPass(
+        math::createMathExtendToSupportedTypes(extendToLLVMTypesOptions));
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockEmulateNarrowTypePass());
