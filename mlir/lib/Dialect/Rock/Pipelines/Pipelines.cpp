@@ -256,7 +256,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     pm.addPass(createGpuModuleToBinaryPass());
     pm.addPass(createRockCheckResidencyPass());
   }
-  // Quick hack around the facct that our host code runner pipeline can't
+  // Quick hack around the fact that our host code runner pipeline can't
   // include our fp8 extf implmenentation becasue of MHAL's organization. That
   // pass will ideally be nicely implemented and upstreamed Later (tm).
   pm.addPass(createEmulateFp8ExtTruncPass());
