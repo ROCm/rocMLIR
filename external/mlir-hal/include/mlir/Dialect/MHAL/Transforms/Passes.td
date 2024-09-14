@@ -22,6 +22,15 @@ def MHALPackageTargetsPass : Pass<"mhal-package-targets", "ModuleOp"> {
   let summary = "apply target implementation to host kernel funcs";
 }
 
+def MHALAnnotateAccessKindsPass : Pass<"mhal-annotate-access-kinds", "func::FuncOp"> {
+  let summary = "Annotate arguments for read and write access";
+  let description = [{
+    Annotate arguments and results of functions to preserve readonly/writeonly/read-write
+    information post-bufferization.
+  }];
+  let dependentDialects = ["mhal::MHALDialect"];
+}
+
 def MHALInferGraphPass : Pass<"mhal-infer-graph", "func::FuncOp"> {
   let summary = "convert kernel func call ops to mhal.launch ops with dependencies";
   let dependentDialects = ["mhal::MHALDialect"];
