@@ -2,8 +2,8 @@
 
 
 module {
-// CHECK:  func.func private @mobilenetv1__part_0(%arg0: tensor<1x112x112x32xf32> {func.read_access}, %arg1: tensor<64x1x1x32xf32> {func.read_access}) -> (tensor<1x112x112x64xf32> {func.write_access}) {
-// CHECK:  func.func private @mobilenetv1__part_1(%arg0: tensor<1x112x112x32xf32> {func.read_access}, %arg1: tensor<3x3x32x1xf32> {func.read_access}) -> (tensor<1x112x112x32xf32> {func.write_access}) {
+// CHECK:  func.func private @mobilenetv1__part_0(%arg0: tensor<1x112x112x32xf32> {mhal.read_access}, %arg1: tensor<64x1x1x32xf32> {mhal.read_access}) -> (tensor<1x112x112x64xf32> {mhal.write_access}) {
+// CHECK:  func.func private @mobilenetv1__part_1(%arg0: tensor<1x112x112x32xf32> {mhal.read_access}, %arg1: tensor<3x3x32x1xf32> {mhal.read_access}) -> (tensor<1x112x112x32xf32> {mhal.write_access}) {
 // CHECK:  func.func @mobilenetv1(%arg0: tensor<1x112x112x32xf32>, %arg1: tensor<32x3x3x3xf32>, %arg2: tensor<3x3x32x1xf32>, %arg3: tensor<64x1x1x32xf32>) -> tensor<1x112x112x64xf32> {
 // CHECK:    %[[T0:.*]], %[[RES0:.*]] = mhal.launch @mobilenetv1__part_1 (%arg0, %arg2) : (tensor<1x112x112x32xf32>, tensor<3x3x32x1xf32>) -> tensor<1x112x112x32xf32>
 // CHECK:    %[[T1:.*]], %[[RES1:.*]] = mhal.launch @mobilenetv1__part_0

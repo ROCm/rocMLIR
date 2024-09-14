@@ -9,10 +9,10 @@ func.func private @mlir_reshape_convolution(%arg0: !migraphx.shaped<1x1x16x2x16x
 }
 
 // CHECK-LABEL: module
-// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<256xf32> {func.read_access}, {{.*}}: memref<9xf32> {func.read_access}, {{.*}}: memref<1024xf32> {func.write_access})
+// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<256xf32> {mhal.read_access}, {{.*}}: memref<9xf32> {mhal.read_access}, {{.*}}: memref<1024xf32> {mhal.write_access})
 // CHECK: func.func @mlir_reshape_convolution_wrapper({{.*}}: memref<256xf32>, {{.*}}: memref<9xf32>, {{.*}}: memref<1024xf32>)
 // CHECK: module @__xmodule_ attributes {mhal.arch = "{{.*}}", mhal.module}
-// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<256xf32> {func.read_access}, {{.*}}: memref<9xf32> {func.read_access}, {{.*}}: memref<1024xf32> {func.write_access}) attributes {kernel, original_func = @mlir_reshape_convolution}
+// CHECK: func.func private @mlir_reshape_convolution({{.*}}: memref<256xf32> {mhal.read_access}, {{.*}}: memref<9xf32> {mhal.read_access}, {{.*}}: memref<1024xf32> {mhal.write_access}) attributes {kernel, original_func = @mlir_reshape_convolution}
 // CHECK-LABEL: @main
 // CHECK: call @mlir_reshape_convolution_wrapper({{.*}}, {{.*}}, {{.*}}) : (memref<256xf32>, memref<9xf32>, memref<1024xf32>) -> ()
 // CHECK: call @mlir_reshape_convolution_wrapper_cloned({{.*}}, {{.*}}, {{.*}}) : (memref<256xf32>, memref<9xf32>, memref<1024xf32>) -> ()

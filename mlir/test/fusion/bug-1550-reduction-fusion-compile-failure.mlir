@@ -3,7 +3,7 @@
 
 // -----// IR Dump After RockGemmToGridwisePass (rock-gemm-to-gridwise) //----- //
 // CHECK-LABEL: @mlir_convolution_reshape_mul_reshape_reduce_sum_reshape_mul_mul_reshape_reduce_sum_reshape
-func.func @mlir_convolution_reshape_mul_reshape_reduce_sum_reshape_mul_mul_reshape_reduce_sum_reshape(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {func.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32>, %arg5: memref<2621440xf32>) attributes {arch = "gfx908:sramecc+:xnack-", block_size = 256 : i32, grid_size = 1536 : i32, kernel = "mixr", num_cu = 120 : i64} {
+func.func @mlir_convolution_reshape_mul_reshape_reduce_sum_reshape_mul_mul_reshape_reduce_sum_reshape(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32>, %arg5: memref<2621440xf32>) attributes {arch = "gfx908:sramecc+:xnack-", block_size = 256 : i32, grid_size = 1536 : i32, kernel = "mixr", num_cu = 120 : i64} {
   %cst = arith.constant 2.44140629E-5 : f32
   %0 = rock.transform %arg1 by <affine_map<(d0, d1, d2, d3) -> (((d0 * 4 + d1) * 64 + d2) * 64 + d3)> by [<Unmerge{2, 4, 64, 64} ["exp0", "exp1", "exp2", "exp3"] at [0, 1, 2, 3] -> ["dim0"] at [0]>] bounds = [2, 4, 64, 64] -> [32768]> : memref<32768xf32> to memref<2x4x64x64xf32>
   %1 = rock.transform %arg2 by <affine_map<(d0, d1, d2, d3) -> (((d0 * 4 + d1) * 3 + d2) * 3 + d3)> by [<Unmerge{320, 4, 3, 3} ["exp0", "exp1", "exp2", "exp3"] at [0, 1, 2, 3] -> ["dim0"] at [0]>] bounds = [320, 4, 3, 3] -> [11520]> : memref<11520xf32> to memref<320x4x3x3xf32>
