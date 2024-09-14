@@ -264,33 +264,6 @@ public:
         loc, partFnName, type, ArrayRef<NamedAttribute>(kernelAttrs));
     outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
 
-    // Add access modes for parameters: read-only, write-only, read-write
-    // All MemRef params are marked as 'read-write'
-    // Non-MemRef inputs are added as 'read-only'
-    auto readAttr =
-        b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
-    auto writeAttr =
-        b.getNamedAttr(func::FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
-    auto getAccessAttrs = [&](Type t,
-                              bool inputs) -> std::optional<DictionaryAttr> {
-      if (isa<VectorType, RankedTensorType, UnrankedTensorType>(t))
-        return b.getDictionaryAttr({inputs ? readAttr : writeAttr});
-      if (isa<MemRefType>(t))
-        return b.getDictionaryAttr({readAttr, writeAttr});
-      return {};
-    };
-
-    // Non-MemRef inputs are added as 'read-only'
-    for (auto pair : llvm::enumerate(inputs)) {
-      if (auto attrs = getAccessAttrs(pair.value().getType(), true))
-        outlinedFunc.setArgAttrs(pair.index(), *attrs);
-    }
-    // Non-MemRef results are added as 'write-only'
-    for (auto pair : llvm::enumerate(results)) {
-      if (auto attrs = getAccessAttrs(pair.value().getType(), false))
-        outlinedFunc.setResultAttrs(pair.index(), *attrs);
-    }
-
     // Clone collected ops into the body of the new function.
     b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
     IRMapping bvm;
