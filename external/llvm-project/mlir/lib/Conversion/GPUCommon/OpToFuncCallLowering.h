@@ -15,12 +15,12 @@
 
 namespace mlir {
 
-/// Rewriting that replace SourceOp with a CallOp to `f32Func` or `f64Func`
-/// depending on the element type that Op operates upon. The function
+/// Rewriting that replace SourceOp with a CallOp to `f32Func` or `f64Func` or
+/// `f16Func` depending on the element type that Op operates upon. The function
 /// declaration is added in case it was not added before.
 ///
-/// If the input values are of f16 type, the value is first casted to f32, the
-/// function called and then the result casted back.
+/// If the input values are of unsupported type, the value is first casted to
+/// f32, the function called and then the result casted back.
 ///
 /// Example with NVVM:
 ///   %exp_f32 = math.exp %arg_f32 : f32
@@ -31,9 +31,9 @@ template <typename SourceOp>
 struct OpToFuncCallLowering : public ConvertOpToLLVMPattern<SourceOp> {
 public:
   explicit OpToFuncCallLowering(LLVMTypeConverter &lowering, StringRef f32Func,
-                                StringRef f64Func)
+                                StringRef f64Func, StringRef f16Func = "")
       : ConvertOpToLLVMPattern<SourceOp>(lowering), f32Func(f32Func),
-        f64Func(f64Func) {}
+        f64Func(f64Func), f16Func(f16Func) {}
 
   LogicalResult
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
@@ -78,7 +78,14 @@ public:
 private:
   Value maybeCast(Value operand, PatternRewriter &rewriter) const {
     Type type = operand.getType();
-    if (!isa<Float16Type>(type))
+    if (!isa<FloatType>(type))
+      return operand;
+
+    // if there's a f16 function, no need to cast f16 values
+    if (!f16Func.empty() && isa<Float16Type>(type))
+      return operand;
+
+    if (isa<Float64Type>(type) || isa<Float32Type>(type))
       return operand;
 
     return rewriter.create<LLVM::FPExtOp>(
@@ -91,6 +98,8 @@ private:
   }
 
   StringRef getFunctionName(Type type) const {
+    if (isa<Float16Type>(type))
+      return f16Func;
     if (isa<Float32Type>(type))
       return f32Func;
     if (isa<Float64Type>(type))
@@ -113,6 +122,7 @@ private:
 
   const std::string f32Func;
   const std::string f64Func;
+  const std::string f16Func;
 };
 
 } // namespace mlir
