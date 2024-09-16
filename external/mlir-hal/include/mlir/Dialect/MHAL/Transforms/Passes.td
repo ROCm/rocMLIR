@@ -25,7 +25,7 @@ def MHALPackageTargetsPass : Pass<"mhal-package-targets", "ModuleOp"> {
 def MHALAnnotateAccessKindsPass : Pass<"mhal-annotate-access-kinds", "func::FuncOp"> {
   let summary = "Annotate arguments for read and write access";
   let description = [{
-    Annotate arguments and results of functions to preserve readonly/writeonly/read-write
+    Annotate arguments and results of functions to preserve read-only/write-only/read-write
     information post-bufferization.
   }];
   let dependentDialects = ["mhal::MHALDialect"];
