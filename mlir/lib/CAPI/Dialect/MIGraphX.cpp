@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
+#include "mlir/InitRocMLIRCLOptions.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
 #include <mutex>
@@ -136,6 +137,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 MLIR_CAPI_EXPORTED
 void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   auto passMan = unwrap(pm);
+  mlir::registerRocMLIROptions();
   if (failed(applyPassManagerCLOptions(*passMan)))
     llvm::errs() << "Failed to apply command-line options.\n";
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
@@ -157,6 +159,7 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *arch) {
   auto *passMan = unwrap(pm);
+  mlir::registerRocMLIROptions();
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);

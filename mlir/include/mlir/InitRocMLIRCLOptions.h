@@ -16,6 +16,7 @@
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/Support/CommandLine.h"
 
 namespace mlir {
 
@@ -23,6 +24,16 @@ inline void registerMLIRCLOptions() {
   mlir::registerAsmPrinterCLOptions();
   mlir::registerMLIRContextCLOptions();
   mlir::registerPassManagerCLOptions();
+}
+
+inline void registerRocMLIROptions() {
+  const char *fakeArgv[] = {"rocMLIR-invoked-as-library",
+                            "--mlir-print-local-scope"};
+  mlir::registerMLIRCLOptions();
+  llvm::cl::ParseCommandLineOptions(
+      sizeof(fakeArgv) / sizeof(const char *), fakeArgv,
+      "Fake 'command line' for MIGraphX library debugging", nullptr,
+      "ROCMLIR_DEBUG_FLAGS");
 }
 
 } // namespace mlir
