@@ -247,9 +247,23 @@ Value addPassThroughIndices(OpBuilder &b, Value transformed,
 
 ArrayRef<int64_t> getLowerShape(ArrayAttr transformStack);
 
+// Given a sequence of transform maps, this will remove the specified upper
+// dimensions. This is usually used to obtain intra-tile indexing in the
+// resultant tile where the remaining upper dims correspond to.
+// NOTE: if there is padding involved in a dimension that is partially
+// being removed, that padding will be ignored in the sub tile indexing
+// maps because the sub tile is assumed to fully materialized filled
+// padded data.
 FailureOr<ArrayAttr> removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
                                      SetVector<int64_t> removeIndicesSet);
 
+// Given a sequence of transform maps, this will remove the specified upper
+// dimensions. This is usually used to obtain intra-tile indexing in the
+// resultant tile where the remaining upper dims correspond to.
+// NOTE: if there is padding involved in a dimension that is partially
+// being removed, that padding will be ignored in the sub tile indexing
+// maps because the sub tile is assumed to fully materialized filled
+// padded data.
 FailureOr<ArrayAttr> removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
                                      const StringSet<> &removeDimNamesSet);
 } // end namespace rock
