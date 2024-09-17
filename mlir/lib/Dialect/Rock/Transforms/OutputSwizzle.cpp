@@ -22,7 +22,6 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -32,6 +31,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/memoryUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
@@ -78,17 +78,6 @@ static bool hasPrivateMemoryAddressSpace(MemRefType type) {
 static bool hasGlobalMemoryAddressSpace(MemRefType type) {
   return !gpu::GPUDialect::hasWorkgroupMemoryAddressSpace(type) &&
          !hasPrivateMemoryAddressSpace(type);
-}
-
-static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
-  // Check for arch limitations exceeded
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (succeeded(maybeArch)) {
-    StringAttr arch = maybeArch.value();
-    const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-    return success(ldsBytes <= ldsSize);
-  }
-  return success();
 }
 
 static std::optional<std::tuple<int64_t, int64_t, ArrayAttr>>
@@ -195,8 +184,9 @@ struct ThreadwiseWriteAllRewritePattern
       return success();
     }
     size_t extraIdxCount = op.getExtraIndices().size();
-    VectorizationResult vectorRes =
-        getMaxVectorization(destView, extraIdxCount, /*inputDimLen=*/std::nullopt, destView.getDefiningOp());
+    VectorizationResult vectorRes = getMaxVectorization(
+        destView, extraIdxCount, /*inputDimLen=*/std::nullopt,
+        destView.getDefiningOp());
     int64_t originalVectorLen = vectorRes.max;
 
     if (vectorLen <= originalVectorLen) {
@@ -398,8 +388,24 @@ void RockOutputSwizzlePass::runOnOperation() {
   if (!func->hasAttr("kernel"))
     return;
 
+  // Get allocated LDS after "reuse LDS" pass
+  FailureOr<int64_t> maybeAllocatedLDS = getAllocatedLDSAfterReuse(func);
+  if (failed(maybeAllocatedLDS)) {
+    LLVM_DEBUG(llvm::dbgs() << "Failed calling getAllocatedLDS\n");
+    return signalPassFailure();
+  }
+  int64_t allocatedLDS = maybeAllocatedLDS.value();
+
+  // not enough LDS memory
+  if (failed(checkLDSSize(func, allocatedLDS))) {
+    LLVM_DEBUG(llvm::dbgs() << "We require too much LDS memory: "
+                            << allocatedLDS << " bytes\n");
+    return signalPassFailure();
+  }
+
   SmallVector<Operation *, 4> writes;
-  func.walk([&writes, &rewriter](ThreadwiseWriteAllOp threadwiseWriteAll) {
+  func.walk([&writes, &rewriter,
+             allocatedLDS](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
 
@@ -424,6 +430,14 @@ void RockOutputSwizzlePass::runOnOperation() {
         LLVM_DEBUG(llvm::dbgs()
                    << "OutputSwizzle requires too much LDS memory: "
                    << ldsRequiredBytes << " bytes, skipping pass\n");
+        return;
+      }
+      // heuristic: if we need more LDS, skip this pass
+      if (ldsRequiredBytes > allocatedLDS) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "OutputSwizzle requires more LDS memory, current usage: "
+                   << allocatedLDS << " bytes, required: " << ldsRequiredBytes
+                   << " bytes, skipping pass\n");
         return;
       }
       writes.push_back(threadwiseWriteAll);
