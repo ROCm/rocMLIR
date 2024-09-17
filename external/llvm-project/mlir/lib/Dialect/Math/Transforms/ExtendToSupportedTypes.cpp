@@ -66,7 +66,7 @@ void mlir::math::populateExtendToSupportedTypesTypeConverter(
   typeConverter.addConversion(
       [&sourceTypes, targetType](ShapedType type) -> std::optional<Type> {
         if (auto elemTy = dyn_cast<FloatType>(type.getElementType()))
-          if (!sourceTypes.contains(type))
+          if (!sourceTypes.contains(elemTy))
             return type.clone(targetType);
 
         return std::nullopt;

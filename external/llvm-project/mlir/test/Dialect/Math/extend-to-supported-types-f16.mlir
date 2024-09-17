@@ -89,6 +89,15 @@ func.func @sin_vector(%arg0: vector<2xbf16>) -> vector<2xbf16> {
   return %0 : vector<2xbf16>
 }
 
+// CHECK-LABEL: @sin_vector_f16
+// CHECK-SAME: ([[ARG0:%.+]]: vector<2xf16>)
+// CHECK: [[SIN:%.+]] = math.sin [[ARG0]]
+// CHECK: return [[SIN]] : vector<2xf16>
+func.func @sin_vector_f16(%arg0: vector<2xf16>) -> vector<2xf16> {
+  %0 = math.sin %arg0 : vector<2xf16>
+  return %0 : vector<2xf16>
+}
+
 // CHECK-LABEL: @fastmath
 // CHECK: math.sin %{{.+}} fastmath<nsz>
 func.func @fastmath(%arg0: f16) -> f16 {
