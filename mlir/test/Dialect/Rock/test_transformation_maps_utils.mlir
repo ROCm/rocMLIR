@@ -237,3 +237,29 @@ func.func @mfma_in_thread_subtile(%arg0: memref<1x64x384xf32>) {
   "remove_dims"(%4) {names_to_drop = ["k_loop", "g_block", "m_block", "n_block", "tid"]} : (memref<1x1x12x6x256x32xf32>) -> ()
 }
 
+// CHECK-LABEL: @padding_no_overlap
+func.func @padding_no_overlap(%arg0: memref<320xf32>) {
+  // CHECK : %[[TR1:.+]] = rock.transform %arg0 by <affine_map<(d0, d1) -> (d0 * 10 + d1)> by [<Unmerge{4, 10} ["B1", "B2"] at [0, 1] -> ["A"] at [0]>] bounds = [4, 10] -> [40]> : memref<40xf32> to memref<4x10xf32>
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1) -> (d0 * 10 + d1)> by [<Unmerge{32, 10} ["B1", "B2"] at [0, 1] -> ["A"] at [0]>] bounds = [32, 10] -> [320]> : memref<320xf32> to memref<32x10xf32>
+  // CHECK : %[[TR2:.+]] = rock.transform %[[TR1]] by <affine_map<(d0, d1) -> (d0, d1)> by [<PassThrough ["C1"] at [0] -> ["B1"] at [0]>, <Pad{0, 6} ["C2"] at [1] -> ["B2"] at [1]>] bounds = [4, 16] -> [4, 10]> : memref<4x10xf32> to memref<4x16xf32>
+  %1 = rock.transform %0 by <affine_map<(d0, d1) -> (d0, d1 - 6)> by [<PassThrough ["C1"] at [0] -> ["B1"] at [0]>, <Pad{0, 6} ["C2"] at [1] -> ["B2"] at [1]>] bounds = [32, 16] -> [32, 10]> : memref<32x10xf32> to memref<32x16xf32>
+  // CHECK : %[[TR3:.+]] = rock.transform %[[TR2]] by <affine_map<(d0) -> (d0 floordiv 16, d0 mod 16)> by [<Merge{4, 16} ["D"] at [0] -> ["C1", "C2"] at [0, 1]>] bounds = [64] -> [4, 16]> : memref<4x16xf32> to memref<64xf32>
+  %2 = rock.transform %1 by <affine_map<(d0) -> (d0 floordiv 16, d0 mod 16)> by [<Merge{32, 16} ["D"] at [0] -> ["C1", "C2"] at [0, 1]>] bounds = [512] -> [32, 16]> : memref<32x16xf32> to memref<512xf32>
+  // CHECK : %[[TR4:.+]] = rock.transform %[[TR3]] by <affine_map<(d0) -> (d0)> by [<Unmerge{64} ["E2"] at [0] -> ["D"] at [0]>] bounds = [64] -> [64]> : memref<64xf32> to memref<64xf32>
+  %3 = rock.transform %2 by <affine_map<(d0, d1) -> (d0 * 64 + d1)> by [<Unmerge{8, 64} ["E1", "E2"] at [0, 1] -> ["D"] at [0]>] bounds = [8, 64] -> [512]> : memref<512xf32> to memref<8x64xf32>
+  "remove_dims"(%3) {names_to_drop = ["E1"]} : (memref<8x64xf32>) -> ()
+}
+
+// CHECK-LABEL: @padding_overlap
+func.func @padding_overlap(%arg0: memref<320xf32>) {
+  // CHECK : %[[TR1:.+]] = rock.transform %arg0 by <affine_map<(d0, d1) -> (d0 * 4 + d1)> by [<Unmerge{8, 4} ["B1", "B2"] at [0, 1] -> ["A"] at [0]>] bounds = [8, 4] -> [32]> : memref<32xf32> to memref<8x4xf32>
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1) -> (d0 * 10 + d1)> by [<Unmerge{32, 10} ["B1", "B2"] at [0, 1] -> ["A"] at [0]>] bounds = [32, 10] -> [320]> : memref<320xf32> to memref<32x10xf32>
+  // CHECK : %[[TR2:.+]] = rock.transform %[[TR1]] by <affine_map<(d0, d1) -> (d0, d1)> by [<PassThrough ["C1"] at [0] -> ["B1"] at [0]>, <Pad{0, 0} ["C2"] at [1] -> ["B2"] at [1]>] bounds = [8, 4] -> [8, 4]> : memref<8x4xf32> to memref<8x4xf32>
+  %1 = rock.transform %0 by <affine_map<(d0, d1) -> (d0, d1 - 6)> by [<PassThrough ["C1"] at [0] -> ["B1"] at [0]>, <Pad{0, 6} ["C2"] at [1] -> ["B2"] at [1]>] bounds = [32, 16] -> [32, 10]> : memref<32x10xf32> to memref<32x16xf32>
+  // CHECK : %[[TR3:.+]] = rock.transform %[[TR2]] by <affine_map<(d0) -> (d0 floordiv 4, d0 mod 4)> by [<Merge{8, 4} ["D"] at [0] -> ["C1", "C2"] at [0, 1]>] bounds = [32] -> [8, 4]> : memref<8x4xf32> to memref<32xf32>
+  %2 = rock.transform %1 by <affine_map<(d0) -> (d0 floordiv 16, d0 mod 16)> by [<Merge{32, 16} ["D"] at [0] -> ["C1", "C2"] at [0, 1]>] bounds = [512] -> [32, 16]> : memref<32x16xf32> to memref<512xf32>
+  // CHECK : %[[TR4:.+]] = rock.transform %[[TR3]] by <affine_map<(d0, d1) -> (d0 * 4 + d1)> by [<Unmerge{8, 4} ["E1", "E3"] at [0, 1] -> ["D"] at [0]>] bounds = [8, 4] -> [32]> : memref<32xf32> to memref<8x4xf32>
+  %3 = rock.transform %2 by <affine_map<(d0, d1, d2) -> (d0 * (16 * 4) + d1 * 4 + d2)> by [<Unmerge{8, 16, 4} ["E1", "E2", "E3"] at [0, 1, 2] -> ["D"] at [0]>] bounds = [8, 16, 4] -> [512]> : memref<512xf32> to memref<8x16x4xf32>
+  "remove_dims"(%3) {names_to_drop = ["E2"]} : (memref<8x16x4xf32>) -> ()
+}
+
