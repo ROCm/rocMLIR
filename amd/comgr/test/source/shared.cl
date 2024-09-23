@@ -34,10 +34,7 @@
  ******************************************************************************/
 
 // Standard
-// clang shared.cl --target=amdgcn-amd-amdhsa -mcpu=gfx900 -g -O3 -o shared.so
-
-// Debug
-// clang shared.cl --target=amdgcn-amd-amdhsa -mcpu=gfx900 -g -O3 -o shared-debug.so
+// clang shared.cl --target=amdgcn-amd-amdhsa -mcpu=gfx900 -O3 -o shared.so
 
 __attribute__((visibility("default"))) constant int foo = 0;
 

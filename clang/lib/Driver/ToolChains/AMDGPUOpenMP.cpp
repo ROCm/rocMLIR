@@ -388,7 +388,7 @@ const char *amdgpu::dlr::getLldCommandArgs(
 AMDGPUOpenMPToolChain::AMDGPUOpenMPToolChain(const Driver &D, const llvm::Triple &Triple,
                              const ToolChain &HostTC, const ArgList &Args,
                              const Action::OffloadKind OK)
-    : ROCMToolChain(D, Triple, Args), HostTC(HostTC), OK(OK) {
+    : ROCMToolChain(D, Triple, Args), HostTC(HostTC) {
   // Lookup binaries into the driver directory, this is used to
   // discover the 'amdgpu-arch' executable.
   getProgramPaths().push_back(getDriver().Dir);
@@ -402,8 +402,8 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
   StringRef GPUArch = DriverArgs.getLastArgValue(options::OPT_march_EQ);
   assert(!GPUArch.empty() && "Must have an explicit GPU arch.");
 
-  CC1Args.push_back("-target-cpu");
-  CC1Args.push_back(DriverArgs.MakeArgStringRef(GPUArch));
+  assert(DeviceOffloadingKind == Action::OFK_OpenMP &&
+         "Only OpenMP offloading kinds are supported.");
 
   // Extract all the -m options
   std::vector<llvm::StringRef> Features;
@@ -435,7 +435,10 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
                          options::OPT_fno_gpu_allow_device_init, false))
     CC1Args.push_back("-fgpu-allow-device-init");
 
-  CC1Args.push_back("-fcuda-allow-variadic-functions");
+  // TODO: check if flag is needed for the opaque linker case
+  const char *UseLinkerWrapper = std::getenv("CLANG_USE_LINKER_WRAPPER");
+  if (!UseLinkerWrapper || atoi(UseLinkerWrapper) == 0)
+    CC1Args.push_back("-fcuda-allow-variadic-functions");
 
   // Default to "hidden" visibility, as object level linking will not be
   // supported for the foreseeable future.
@@ -445,8 +448,6 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
     CC1Args.append({"-fvisibility", "hidden"});
     CC1Args.push_back("-fapply-global-visibility-to-externs");
   }
-
-  CC1Args.push_back("-fcuda-is-device");
 
   if (DriverArgs.hasArg(options::OPT_nogpulib))
     return;
@@ -465,7 +466,7 @@ void AMDGPUOpenMPToolChain::addClangTargetOptions(
     LibraryPaths.push_back(DriverArgs.MakeArgString(Path));
 
   // Link the bitcode library late if we're using device LTO.
-  if (getDriver().isUsingLTO(/* IsOffload */ true))
+  if (getDriver().isUsingOffloadLTO())
     return;
 
   std::string BitcodeSuffix;

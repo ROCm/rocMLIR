@@ -67,10 +67,10 @@ if(LIBOMPTARGET_DEVICE_ARCHITECTURES STREQUAL "all")
 elseif(LIBOMPTARGET_DEVICE_ARCHITECTURES STREQUAL "auto" OR
        LIBOMPTARGET_DEVICE_ARCHITECTURES STREQUAL "native")
   if(NOT LIBOMPTARGET_NVPTX_ARCH AND NOT LIBOMPTARGET_AMDGPU_ARCH)
-    libomptarget_error_say(
+    message(FATAL_ERROR
       "Could not find 'amdgpu-arch' and 'nvptx-arch' tools required for 'auto'")
   elseif(NOT LIBOMPTARGET_FOUND_NVIDIA_GPU AND NOT LIBOMPTARGET_FOUND_AMDGPU_GPU)
-    libomptarget_error_say("No AMD or NVIDIA GPU found on the system when using 'auto'")
+    message(FATAL_ERROR "No AMD or NVIDIA GPU found on the system when using 'auto'")
   endif()
   set(LIBOMPTARGET_DEVICE_ARCHITECTURES
       "${LIBOMPTARGET_NVPTX_DETECTED_ARCH_LIST};${LIBOMPTARGET_AMDGPU_DETECTED_ARCH_LIST}")
@@ -85,10 +85,11 @@ set(include_files
   ${include_directory}/Interface.h
   ${include_directory}/LibC.h
   ${include_directory}/Mapping.h
+  ${include_directory}/Profiling.h
   ${include_directory}/State.h
   ${include_directory}/Synchronization.h
-  ${include_directory}/Types.h
-  ${include_directory}/Utils.h
+  ${include_directory}/DeviceTypes.h
+  ${include_directory}/DeviceUtils.h
   ${include_directory}/Xteamr.h
   ${include_directory}/Xteams.h
   ${include_directory}/Workshare.h
@@ -104,11 +105,12 @@ set(src_files
   ${source_directory}/Mapping.cpp
   ${source_directory}/Misc.cpp
   ${source_directory}/Parallelism.cpp
+  ${source_directory}/Profiling.cpp
   ${source_directory}/Reduction.cpp
   ${source_directory}/State.cpp
   ${source_directory}/Synchronization.cpp
   ${source_directory}/Tasking.cpp
-  ${source_directory}/Utils.cpp
+  ${source_directory}/DeviceUtils.cpp
   ${source_directory}/Workshare.cpp
   ${source_directory}/ExtraMapping.cpp
   ${source_directory}/Xteamr.cpp
@@ -123,7 +125,7 @@ set(src_files
 # propagation. That said, we will run the vectorizer again after the runtime
 # has been linked into the user program.
 set(clang_opt_flags -O3 -mllvm -openmp-opt-disable -DSHARED_SCRATCHPAD_SIZE=512 -mllvm -vectorize-slp=false )
-set(link_opt_flags  -O3        -openmp-opt-disable -vectorize-slp=false )
+set(link_opt_flags  -O3        -openmp-opt-disable -attributor-enable=module -vectorize-slp=false )
 set(link_export_flag -passes=internalize -internalize-public-api-file=${source_directory}/exports)
 
 # If the user built with the GPU C library enabled we will use that instead.
@@ -138,7 +140,7 @@ list(TRANSFORM LIBOMPTARGET_LLVM_INCLUDE_DIRS_DEVICERTL PREPEND "-I")
 # Set flags for LLVM Bitcode compilation.
 set(bc_flags -c -foffload-lto -std=c++17 -fvisibility=hidden
               ${clang_opt_flags} --offload-device-only
-             -nogpuinc -nogpulib
+             -nocudalib -nogpulib -nogpuinc
              -fopenmp -fopenmp-cuda-mode
              -Wno-unknown-cuda-version
              -I${CMAKE_BINARY_DIR}/openmp/runtime/src # Need omp.h for LibM.
@@ -343,7 +345,7 @@ function(compileDeviceRTLLibrary target_cpu target_name target_triple)
       -fopenmp --offload-arch=${target_cpu} -fopenmp-cuda-mode
       -mllvm -openmp-opt-disable
       -foffload-lto -fvisibility=hidden --offload-device-only
-      -nocudalib -nogpulib -nostdinc -Wno-unknown-cuda-version
+      -nocudalib -nogpulib -nogpuinc -nostdlibinc -Wno-unknown-cuda-version
     )
     target_compile_definitions(${ide_target_name} PRIVATE SHARED_SCRATCHPAD_SIZE=512)
     target_include_directories(${ide_target_name} PRIVATE
@@ -381,7 +383,7 @@ foreach(gpu_arch ${LIBOMPTARGET_DEVICE_ARCHITECTURES})
   elseif("${gpu_arch}" IN_LIST all_nvptx_architectures)
     compileDeviceRTLLibrary(${gpu_arch} nvptx nvptx64-nvidia-cuda --cuda-feature=+ptx63)
   else()
-    libomptarget_error_say("Unknown GPU architecture '${gpu_arch}'")
+    message(FATAL_ERROR "Unknown GPU architecture '${gpu_arch}'")
   endif()
 endforeach()
 

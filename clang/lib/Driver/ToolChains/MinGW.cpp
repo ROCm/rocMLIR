@@ -15,6 +15,7 @@
 #include "clang/Driver/InputInfo.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/SanitizerArgs.h"
+#include "llvm/Config/llvm-config.h" // for LLVM_HOST_TRIPLE
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
@@ -298,6 +299,10 @@ void tools::MinGW::Linker::ConstructJob(Compilation &C, const JobAction &JA,
           break;
         case Driver::OMPRT_GOMP:
           CmdArgs.push_back("-lgomp");
+          break;
+        case Driver::OMPRT_BOLT:
+          llvm::report_fatal_error(
+              "MinGW toolchain does not support OMPRT_BOLT");
           break;
         case Driver::OMPRT_Unknown:
           // Already diagnosed.

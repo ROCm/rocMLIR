@@ -1,5 +1,5 @@
-#ifndef OPENMP_LIBOMPTARGET_TEST_OMPTEST_OMPTCALLBACKHANDLER_H
-#define OPENMP_LIBOMPTARGET_TEST_OMPTEST_OMPTCALLBACKHANDLER_H
+#ifndef OFFLOAD_TEST_OMPTEST_INCLUDE_OMPTCALLBACKHANDLER_H
+#define OFFLOAD_TEST_OMPTEST_INCLUDE_OMPTCALLBACKHANDLER_H
 
 #include "OmptAssertEvent.h"
 #include "OmptAsserter.h"
@@ -36,7 +36,7 @@ public:
   /// Special asserter callback which checks that upon encountering the
   /// synchronization point, all expected events have been processed. That is:
   /// there are currently no remaining expected events for any asserter.
-  void handleAssertionSyncPoint(const std::string &MarkerName);
+  void handleAssertionSyncPoint(const std::string &SyncPointName);
 
   void handleThreadBegin(ompt_thread_t ThreadType, ompt_data_t *ThreadData);
 
@@ -115,14 +115,19 @@ public:
 
   void handleBufferRecord(ompt_record_ompt_t *Record);
 
-  /// Not needed for a conforming minimal OMPT implementation
-  void handleWorkBegin(ompt_work_t work_type, ompt_scope_endpoint_t endpoint,
-                       ompt_data_t *parallel_data, ompt_data_t *task_data,
-                       uint64_t count, const void *codeptr_ra);
+  void handleBufferRecordDeallocation(ompt_buffer_t *Buffer);
 
-  void handleWorkEnd(ompt_work_t work_type, ompt_scope_endpoint_t endpoint,
-                     ompt_data_t *parallel_data, ompt_data_t *task_data,
-                     uint64_t count, const void *codeptr_ra);
+  /// Not needed for a conforming minimal OMPT implementation
+  void handleWork(ompt_work_t WorkType, ompt_scope_endpoint_t Endpoint,
+                  ompt_data_t *ParallelData, ompt_data_t *TaskData,
+                  uint64_t Count, const void *CodeptrRA);
+
+  void handleDispatch(ompt_data_t *ParallelData, ompt_data_t *TaskData,
+                      ompt_dispatch_t Kind, ompt_data_t Instance);
+
+  void handleSyncRegion(ompt_sync_region_t Kind, ompt_scope_endpoint_t Endpoint,
+                        ompt_data_t *ParallelData, ompt_data_t *TaskData,
+                        const void *CodeptrRA);
 
 private:
   /// Wrapper around emplace_back for potential additional logging / checking or

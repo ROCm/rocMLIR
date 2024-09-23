@@ -463,10 +463,8 @@ static bool executeAssemblerImpl(AssemblerInvocation &Opts,
       MAB.reset(TheTarget->createMCAsmBackend(*STI, *MRI, Options));
     }
     auto FOut = std::make_unique<formatted_raw_ostream>(*Out);
-    Str.reset(TheTarget->createAsmStreamer(
-        Ctx, std::move(FOut), /*asmverbose*/ true,
-        /*useDwarfDirectory*/ true, IP, std::move(MCE), std::move(MAB),
-        Opts.ShowInst));
+    Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut), IP,
+                                           std::move(MCE), std::move(MAB)));
   } else if (Opts.OutputType == AssemblerInvocation::FT_Null) {
     Str.reset(createNullStreamer(Ctx));
   } else {
@@ -483,9 +481,8 @@ static bool executeAssemblerImpl(AssemblerInvocation &Opts,
     Triple T(Opts.Triple);
     Str.reset(TheTarget->createMCObjectStreamer(
         T, Ctx, std::unique_ptr<MCAsmBackend>(MAB),
-        MAB->createObjectWriter(*Out), std::unique_ptr<MCCodeEmitter>(CE), *STI,
-        Opts.RelaxAll, Opts.IncrementalLinkerCompatible,
-        /*DWARFMustBeAtTheEnd*/ true));
+        MAB->createObjectWriter(*Out), std::unique_ptr<MCCodeEmitter>(CE),
+        *STI));
     Str.get()->initSections(Opts.NoExecStack, *STI);
   }
 
@@ -1294,9 +1291,10 @@ amd_comgr_status_t AMDGPUCompiler::unbundle() {
 
     // Generate random name if none provided
     if (!strcmp(Input->Name, "")) {
-      char *buf = (char *) malloc(sizeof(char) * 30);
-      sprintf(buf,"comgr-bundle-%d.%s", std::rand() % 10000,
-              FileExtension.c_str());
+      const size_t buf_size = sizeof(char) * 30;
+      char *buf = (char *)malloc(buf_size);
+      snprintf(buf, buf_size, "comgr-bundle-%d.%s", std::rand() % 10000,
+               FileExtension.c_str());
       Input->Name = buf;
     }
 
@@ -1419,8 +1417,9 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
       // string to assign. This string is used when the DataObject is written
       // to the file system via SAVE_TEMPS, or if the object is a bundle which
       // also needs a file system write for unpacking
-      char *buf = (char *) malloc(sizeof(char) * 30);
-      sprintf(buf,"comgr-anon-bitcode-%d.bc", std::rand() % 10000);
+      const size_t buf_size = sizeof(char) * 30;
+      char *buf = (char *)malloc(buf_size);
+      snprintf(buf, buf_size, "comgr-anon-bitcode-%d.bc", std::rand() % 10000);
 
       Input->Name = buf;
     }
