@@ -62,7 +62,7 @@ struct MHALPackageTargetsPass
           gpu::KernelTableAttr metadata = object.getKernels();
           assert(metadata && "expected a valid metadata attribute");
           // apply target spec to original func
-          for (auto [name, kernel] : metadata) {
+          for (auto kernel : metadata) {
             if (auto attr = kernel.getAttr<SymbolRefAttr>("original_func")) {
               if (auto kernelFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
                 auto archName =
