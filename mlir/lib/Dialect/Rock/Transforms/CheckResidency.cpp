@@ -37,7 +37,7 @@ namespace {
 struct RockCheckResidencyPass
     : public rock::impl::RockCheckResidencyPassBase<RockCheckResidencyPass> {
 public:
-  LogicalResult checkFunc(gpu::BinaryOp bop, gpu::KernelAttr &kernel) {
+  LogicalResult checkFunc(gpu::BinaryOp bop, gpu::KernelMetadataAttr &kernel) {
     bool hasGlobalSync = kernel.getAttr("rock.has_global_sync") != nullptr;
 
     auto removeBinary = [&]() -> LogicalResult {
@@ -143,10 +143,10 @@ public:
             if (!metadata)
               continue;
             bool changedMD = false;
-            NamedAttrList updatedMD;
+            SmallVector<gpu::KernelMetadataAttr> kernels;
             // Walk each of the kernels in the object.
-            for (auto [name, attr] : metadata) {
-              gpu::KernelAttr kernel = attr;
+            for (auto attr : metadata) {
+              gpu::KernelMetadataAttr kernel = attr;
               if (failed(checkFunc(binOp, kernel))) {
                 // Disabled failure: may be valid to simply remove the binary
                 // signalPassFailure();
@@ -154,18 +154,21 @@ public:
               if (kernel != attr)
                 changedMD = true;
               // Append the kernel metadata in case it was updated.
-              updatedMD.append(name, kernel);
+              kernels.push_back(kernel);
             }
             if (!changedMD) {
               objects.push_back(obj);
               continue;
             }
+            
+            SmallVector<gpu::KernelMetadataAttr> sortedKernels(kernels);
+            llvm::array_pod_sort(sortedKernels.begin(), sortedKernels.end());
             // Update the object attribute in case any of the objects was
             // updated with info from checkFunc.
             objects.push_back(gpu::ObjectAttr::get(
                 context, obj.getTarget(), obj.getFormat(), obj.getObject(),
                 obj.getProperties(),
-                gpu::KernelTableAttr::get(updatedMD.getDictionary(context))));
+                gpu::KernelTableAttr::get(context, sortedKernels, true)));
             changedObj = true;
           }
           // If any of the objects was updated, update the binary.

@@ -120,11 +120,11 @@ static Value getZeroTensor(Location loc, Type elemType, ArrayRef<int64_t> shape,
 
 static tosa::TransposeOp getTransposeOp(Location loc, Value input,
                                         ConversionPatternRewriter &rewriter,
-                                        ArrayRef<int64_t> permutation) {
+                                        ArrayRef<int32_t> permutation) {
   int64_t len = permutation.size();
 
   auto permutationAttrType =
-      RankedTensorType::get({len}, rewriter.getI64Type());
+      RankedTensorType::get({len}, rewriter.getI32Type());
   auto permutationAttr =
       DenseIntElementsAttr::get(permutationAttrType, permutation);
   Value permutationValue =
@@ -133,7 +133,7 @@ static tosa::TransposeOp getTransposeOp(Location loc, Value input,
   auto inputShape = inputTy.getShape();
   SmallVector<int64_t> newShape;
   newShape.reserve(len);
-  for (int64_t fromIdx : permutation)
+  for (int32_t fromIdx : permutation)
     newShape.push_back(inputShape[fromIdx]);
   Type newTy = RankedTensorType::get(newShape, inputTy.getElementType());
 
@@ -219,8 +219,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
   int dims = outputTy.getShape().size() - 2;
-  SmallVector<int64_t> toChannelLast{0};
-  SmallVector<int64_t> fromChannelLast{0, dims + 1};
+  SmallVector<int32_t> toChannelLast{0};
+  SmallVector<int32_t> fromChannelLast{0, dims + 1};
   for (int i = 0; i < dims; i++) {
     toChannelLast.push_back(i + 2);
     fromChannelLast.push_back(i + 1);
@@ -611,7 +611,7 @@ LogicalResult
 TransposeConverter::matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  SmallVector<int64_t, 4> permutation;
+  SmallVector<int32_t, 4> permutation;
   permutation.reserve(op.getPermutation().size());
   for (auto permElem : op.getPermutation().getAsRange<IntegerAttr>())
     permutation.push_back(permElem.getInt());
@@ -1168,12 +1168,12 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   // shape, we need to invert it.
   SmallVector<int64_t, 4> inversePermutation;
   inType.getStridePermutation(inversePermutation);
-  SmallVector<int64_t> permutation;
+  SmallVector<int32_t> permutation;
   permutation.resize_for_overwrite(inversePermutation.size());
   bool hasTranspose = false;
   for (auto [to, from] : llvm::enumerate(inversePermutation)) {
     permutation[from] = to;
-    hasTranspose |= (from != static_cast<int64_t>(to));
+    hasTranspose |= (from != static_cast<int32_t>(to));
   }
   Value transposed = expanded;
   if (hasTranspose)
@@ -1226,9 +1226,15 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   // in a standard shape. So, applying it to a logically-shaped tensor gets
   // you the tensor in in-memory layout.
   resultType.getStridePermutation(permutation);
+  // TOSA transpose takes i32
+  SmallVector<int32_t, 4> permutationI32;
+  permutationI32.reserve(permutation.size());
+  std::transform(permutation.begin(), permutation.end(), std::back_inserter(permutationI32),
+                  [](int64_t val) { return static_cast<int32_t>(val); });
+
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
-    transposed = getTransposeOp(loc, in, rewriter, permutation);
+    transposed = getTransposeOp(loc, in, rewriter, permutationI32);
   if (transposed.getType() != memoryLayoutType) {
     rewriter.eraseOp(transposed.getDefiningOp());
     return op.emitOpError(

@@ -96,7 +96,7 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
   mod.walk([&](mlir::gpu::BinaryOp binary) {
     mlir::gpu::KernelTableAttr metadata =
         mlir::cast<mlir::gpu::ObjectAttr>(binary.getObjects()[0]).getKernels();
-    for (auto [name, kernel] : metadata) {
+    for (auto kernel : metadata) {
       auto block = kernel.getAttr<mlir::IntegerAttr>("block_size");
       auto grid = kernel.getAttr<mlir::IntegerAttr>("grid_size");
       if (!block || !grid)

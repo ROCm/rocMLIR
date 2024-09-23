@@ -2493,10 +2493,10 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 }
 
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
-                             ArrayRef<int64_t> perm) {
+                             ArrayRef<int32_t> perm) {
   auto elemType = cast<RankedTensorType>(src.getType()).getElementType();
   auto permutationAttr = DenseIntElementsAttr::get(
-      RankedTensorType::get({(int64_t)perm.size()}, builder.getI64Type()),
+      RankedTensorType::get({(int64_t)perm.size()}, builder.getI32Type()),
       perm);
   Value permutationValue =
       builder.create<arith::ConstantOp>(loc, permutationAttr);
