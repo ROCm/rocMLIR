@@ -1,0 +1,19 @@
+// RUN: sed -e 's/##ARCH##/%arch/g' %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -c  | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void --mattr=-avx512bf16 | FileCheck %s
+// ALLOW_RETRIES: 2
+
+// CHECK:  [5]
+!unit = memref<1x1x1x{type}>
+#map1 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+module attributes {{mhal.arch = "##ARCH##"}} {{
+  func.func @test_fusion(%arg0: !unit, %arg1: !unit, %arg2: !unit) attributes {{kernel}} {{
+    %cst = arith.constant 4.0 : {type}
+    %0 = memref.alloc() : !unit
+    linalg.generic {{indexing_maps = [#map1, #map1], iterator_types = ["parallel", "parallel", "parallel"]}} ins(%arg0 : !unit) outs(%0 : !unit) {{
+    ^bb0(%arg3: {type}, %arg4: {type}):
+      %1 = arith.addf %arg3, %cst : {type}
+      linalg.yield %1 : {type}
+    }}
+    rock.gemm %arg2 = %0 * %arg1 features = none storeMethod = set {{arch = "##ARCH##"}} : !unit = !unit * !unit
+    return
+  }}
+}}

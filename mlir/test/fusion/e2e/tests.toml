@@ -9,6 +9,7 @@ values = ["f32", "f16", "bf16"]
 [[suite.axis]]
 name = "test files"
 values = ["mixr-bcast-add",
+          "rock-add-to-input",
           "rock-bcast",
           "rock-bcast-exp",
           "rock-bcast-idxmap",
