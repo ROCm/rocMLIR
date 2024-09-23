@@ -1227,10 +1227,10 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   // you the tensor in in-memory layout.
   resultType.getStridePermutation(permutation);
   // TOSA transpose takes i32
-  SmallVector<int32_t, 4> permutationI32;
-  permutationI32.reserve(permutation.size());
-  std::transform(permutation.begin(), permutation.end(), std::back_inserter(permutationI32),
-                  [](int64_t val) { return static_cast<int32_t>(val); });
+  SmallVector<int32_t, 4> permutationI32 =
+      llvm::map_to_vector(permutation, [](int64_t val) -> int32_t {
+        return static_cast<int32_t>(val);
+      });
 
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
