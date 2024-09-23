@@ -390,7 +390,7 @@ calculateVectorIndex(Value *Ptr,
 
   auto I = GEPIdx.find(GEP);
   assert(I != GEPIdx.end() && "Must have entry for GEP!");
-   return I->second;
+  return I->second;
 }
 
 static Value *GEPToVectorIndex(GetElementPtrInst *GEP, AllocaInst *Alloca,

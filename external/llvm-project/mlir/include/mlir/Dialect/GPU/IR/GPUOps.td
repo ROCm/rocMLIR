@@ -1945,7 +1945,6 @@ def MMAElementWise : I32EnumAttr<"MMAElementwiseOp",
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::gpu";
 }
-
 def MMAElementWiseAttr : EnumAttr<GPU_Dialect, MMAElementWise,
                                   "mma_element_wise">;
 

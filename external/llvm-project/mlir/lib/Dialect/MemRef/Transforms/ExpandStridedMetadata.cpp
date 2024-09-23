@@ -1136,7 +1136,6 @@ class ExtractStridedMetadataOpMemorySpaceCastFolder
       results[0] = rewriter.create<memref::MemorySpaceCastOp>(
           loc, Type{newTypeBuilder}, baseBuffer);
     } else {
-      // Don't create spurious casts for values that are going away.
       results[0] = nullptr;
     }
     rewriter.replaceOp(extractStridedMetadataOp, results);

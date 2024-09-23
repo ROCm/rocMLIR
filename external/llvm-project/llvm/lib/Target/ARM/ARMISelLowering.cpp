@@ -1555,8 +1555,6 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FROUND, MVT::f16, Legal);
   }
 
-
-
   if (Subtarget->hasNEON()) {
     // vmin and vmax aren't available in a scalar form, so we can use
     // a NEON instruction with an undef lane instead.

@@ -37,8 +37,7 @@ bool mlirAttributeIsAGPUObjectAttr(MlirAttribute attr) {
 
 MlirAttribute mlirGPUObjectAttrGet(MlirContext mlirCtx, MlirAttribute target,
                                    uint32_t format, MlirStringRef objectStrRef,
-                                   MlirAttribute mlirObjectProps,
-                                   MlirAttribute mlirKernelsAttr) {
+                                   MlirAttribute mlirObjectProps) {
   MLIRContext *ctx = unwrap(mlirCtx);
   llvm::StringRef object = unwrap(objectStrRef);
   DictionaryAttr objectProps;

@@ -2096,7 +2096,6 @@ void AllocOp::getCanonicalizationPatterns(RewritePatternSet &results,
   results.add<SimplifyDimOfAllocOp>(context);
 }
 
-
 //===----------------------------------------------------------------------===//
 // GPU object attribute
 //===----------------------------------------------------------------------===//
