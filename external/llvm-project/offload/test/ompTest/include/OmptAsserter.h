@@ -1,5 +1,5 @@
-#ifndef OPENMP_LIBOMPTARGET_TEST_OMPTEST_OMPTASSERTER_H
-#define OPENMP_LIBOMPTARGET_TEST_OMPTEST_OMPTASSERTER_H
+#ifndef OFFLOAD_TEST_OMPTEST_INCLUDE_OMPTASSERTER_H
+#define OFFLOAD_TEST_OMPTEST_INCLUDE_OMPTASSERTER_H
 
 #include "OmptAssertEvent.h"
 
@@ -45,16 +45,26 @@ public:
 private:
   bool Active{true};
 
-  // For now we add event types to the set of suppressed events by default.
-  // This is necessary because AOMP currently does not handle these events.
+  // Add event types to the set of suppressed events by default.
   std::set<omptest::internal::EventTy> SuppressedEvents{
-      omptest::internal::EventTy::ParallelBegin,
-      omptest::internal::EventTy::ParallelEnd,
       omptest::internal::EventTy::ThreadBegin,
       omptest::internal::EventTy::ThreadEnd,
-      omptest::internal::EventTy::ImplicitTask,
+      omptest::internal::EventTy::ParallelBegin,
+      omptest::internal::EventTy::ParallelEnd,
+      omptest::internal::EventTy::Work,
+      omptest::internal::EventTy::Dispatch,
       omptest::internal::EventTy::TaskCreate,
-      omptest::internal::EventTy::TaskSchedule};
+      omptest::internal::EventTy::Dependences,
+      omptest::internal::EventTy::TaskDependence,
+      omptest::internal::EventTy::TaskSchedule,
+      omptest::internal::EventTy::ImplicitTask,
+      omptest::internal::EventTy::Masked,
+      omptest::internal::EventTy::SyncRegion,
+      omptest::internal::EventTy::MutexAcquire,
+      omptest::internal::EventTy::Mutex,
+      omptest::internal::EventTy::NestLock,
+      omptest::internal::EventTy::Flush,
+      omptest::internal::EventTy::Cancel};
 };
 
 /// Base class for asserting on OMPT events
@@ -72,14 +82,6 @@ public:
   /// Implemented in subclasses to implement what should actually be done with
   /// the notification.
   virtual void notifyImpl(omptest::OmptAssertEvent &&AE) = 0;
-
-  /// Report an error for a single event.
-  void reportError(const omptest::OmptAssertEvent &OffendingEvent,
-                   const std::string &Message);
-
-  void reportError(const omptest::OmptAssertEvent &AwaitedEvent,
-                   const omptest::OmptAssertEvent &OffendingEvent,
-                   const std::string &Message);
 
   /// Get the number of currently remaining events, with: ObserveState::always.
   virtual size_t getRemainingEventCount() = 0;
@@ -175,8 +177,8 @@ private:
 };
 
 /// This class provides the members and methods to manage event groups and
-/// markers in conjunction with asserters. Most importantly it maintains a
-/// coherent view of active and past events or markers.
+/// SyncPoints in conjunction with asserters. Most importantly it maintains a
+/// coherent view of active and past events or SyncPoints.
 class OmptEventGroupInterface {
 public:
   OmptEventGroupInterface()
@@ -208,7 +210,7 @@ private:
   std::mutex GroupMutex;
   std::map<std::string, omptest::AssertEventGroup> ActiveEventGroups{};
   std::map<std::string, omptest::AssertEventGroup> DeprecatedEventGroups{};
-  std::set<std::string> EncounteredMarkers{};
+  std::set<std::string> EncounteredSyncPoints{};
 };
 
 } // namespace omptest

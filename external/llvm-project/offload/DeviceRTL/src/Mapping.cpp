@@ -11,10 +11,10 @@
 
 #include "Mapping.h"
 #include "Debug.h"
+#include "DeviceTypes.h"
+#include "DeviceUtils.h"
 #include "Interface.h"
 #include "State.h"
-#include "Types.h"
-#include "Utils.h"
 
 #pragma omp begin declare target device_type(nohost)
 
@@ -336,7 +336,7 @@ uint32_t mapping::getNumberOfProcessorElements() {
 
 // TODO: This is a workaround for initialization coming from kernels outside of
 //       the TU. We will need to solve this more correctly in the future.
-[[gnu::weak, gnu::used, gnu::retain]] int SHARED(IsSPMDMode);
+[[gnu::weak]] int SHARED(IsSPMDMode);
 
 void mapping::init(bool IsSPMD) {
   if (mapping::isInitialThreadInLevel0(IsSPMD))

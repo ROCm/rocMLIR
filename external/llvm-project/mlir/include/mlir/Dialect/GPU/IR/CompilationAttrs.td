@@ -17,13 +17,13 @@ include "mlir/Dialect/GPU/IR/GPUBase.td"
 include "mlir/Dialect/GPU/IR/CompilationAttrInterfaces.td"
 
 //===----------------------------------------------------------------------===//
-// GPU kernel attribute
+// GPU kernel metadata attribute
 //===----------------------------------------------------------------------===//
 
-def GPU_KernelAttr : GPU_Attr<"Kernel", "kernel"> {
+def GPU_KernelMetadataAttr : GPU_Attr<"KernelMetadata", "kernel_metadata"> {
   let description = [{
     GPU attribute for storing metadata related to a compiled kernel. The
-    attribute contains the name and function type of the kernel.
+    attribute contains the name and arguments type of the kernel.
 
     The attribute also contains optional parameters for storing the arguments
     attributes as well as a dictionary for additional metadata, like occupancy
@@ -34,8 +34,8 @@ def GPU_KernelAttr : GPU_Attr<"Kernel", "kernel"> {
 
     Examples:
     ```mlir
-      #gpu.kernel<@kernel1, (i32) -> (), arg_attrs = [...],  metadata = {reg_count = 255, ...}>
-      #gpu.kernel<@kernel2, (i32, f64) -> ()>
+      #gpu.kernel_metadata<@kernel1, (i32) -> (), arg_attrs = [...],  metadata = {reg_count = 255, ...}>
+      #gpu.kernel_metadata<@kernel2, (i32, f64) -> ()>
     ```
   }];
   let parameters = (ins
@@ -62,10 +62,15 @@ def GPU_KernelAttr : GPU_Attr<"Kernel", "kernel"> {
   ];
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
+    /// Compare two kernels based on the name.
+    bool operator<(const KernelMetadataAttr& other) const {
+      return getName().getValue() < other.getName().getValue();
+    }
+
     /// Returns the metadata attribute corresponding to `key` or `nullptr`
     /// if missing.
     Attribute getAttr(StringRef key) const {
-      auto attrs = getMetadata();
+      DictionaryAttr attrs = getMetadata();
       return attrs ? attrs.get(key) : nullptr;
     }
     template <typename ConcreteAttr>
@@ -73,7 +78,7 @@ def GPU_KernelAttr : GPU_Attr<"Kernel", "kernel"> {
       return llvm::dyn_cast_or_null<ConcreteAttr>(getAttr(key));
     }
     Attribute getAttr(StringAttr key) const {
-      auto attrs = getMetadata();
+      DictionaryAttr attrs = getMetadata();
       return attrs ? attrs.get(key) : nullptr;
     }
     template <typename ConcreteAttr>
@@ -83,23 +88,23 @@ def GPU_KernelAttr : GPU_Attr<"Kernel", "kernel"> {
 
     /// Returns the attribute dictionary at position `index`.
     DictionaryAttr getArgAttrDict(unsigned index) {
-      auto argArray = getArgAttrs();
+      ArrayAttr argArray = getArgAttrs();
       return argArray ? llvm::cast<DictionaryAttr>(argArray[index]) : nullptr;
     }
 
     /// Return the specified attribute, if present, for the argument at 'index',
     /// null otherwise.
     Attribute getArgAttr(unsigned index, StringAttr name) {
-      auto argDict = getArgAttrDict(index);
+      DictionaryAttr argDict = getArgAttrDict(index);
       return argDict ? argDict.get(name) : nullptr;
     }
     Attribute getArgAttr(unsigned index, StringRef name) {
-      auto argDict = getArgAttrDict(index);
+      DictionaryAttr argDict = getArgAttrDict(index);
       return argDict ? argDict.get(name) : nullptr;
     }
 
-    /// Returns a new KernelAttr that contains `attrs` in the metadata dictionary.
-    KernelAttr appendMetadata(ArrayRef<NamedAttribute> attrs) const;
+    /// Returns a new KernelMetadataAttr that contains `attrs` in the metadata dictionary.
+    KernelMetadataAttr appendMetadata(ArrayRef<NamedAttribute> attrs) const;
   }];
 }
 
@@ -109,59 +114,54 @@ def GPU_KernelAttr : GPU_Attr<"Kernel", "kernel"> {
 
 def GPU_KernelTableAttr : GPU_Attr<"KernelTable", "kernel_table"> {
   let description = [{
-    GPU attribute representing a table of kernels metadata. All the attributes
-    in the dictionary must be of type `#gpu.kernel`.
+    GPU attribute representing a list of `#gpu.kernel_metadata` attributes. This
+    attribute supports searching kernels by name. All kernels in the table must
+    have an unique name.
 
     Examples:
     ```mlir
-      #gpu.kernel_table<{kernel0 = #gpu.kernel<...>}>
+      // Empty table.
+      #gpu.kernel_table<>
+
+      // Table with a single kernel.
+      #gpu.kernel_table<[#gpu.kernel_metadata<kernel0, () -> () >]>
+
+      // Table with multiple kernels.
+      #gpu.kernel_table<[
+        #gpu.kernel_metadata<"kernel0", (i32, f32) -> (), metadata = {sgpr_count = 255}>,
+        #gpu.kernel_metadata<"kernel1", (i32) -> ()>
+      ]>
     ```
   }];
   let parameters = (ins
-    "DictionaryAttr":$kernel_table
+    OptionalArrayRefParameter<"KernelMetadataAttr", "array of kernels">:$kernel_table
   );
   let assemblyFormat = [{
-    `<` $kernel_table `>`
+    `<` (`[` qualified($kernel_table)^ `]`)? `>`
   }];
   let builders = [
-    AttrBuilderWithInferredContext<(ins "DictionaryAttr":$kernel_table), [{
-      assert(kernel_table && "invalid kernel table");
-      return $_get(kernel_table.getContext(), kernel_table);
-    }]>
+    AttrBuilder<(ins "ArrayRef<KernelMetadataAttr>":$kernels,
+                     CArg<"bool", "false">:$isSorted)>
   ];
   let skipDefaultBuilders = 1;
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
-    /// Helper iterator class for traversing the kernel table.
-    struct KernelIterator
-        : llvm::mapped_iterator_base<KernelIterator,
-                                    llvm::ArrayRef<NamedAttribute>::iterator,
-                                    std::pair<StringAttr, KernelAttr>> {
-      using llvm::mapped_iterator_base<
-          KernelIterator, llvm::ArrayRef<NamedAttribute>::iterator,
-          std::pair<StringAttr, KernelAttr>>::mapped_iterator_base;
-      /// Map the iterator to the kernel name and a KernelAttribute.
-      std::pair<StringAttr, KernelAttr> mapElement(NamedAttribute attr) const {
-        return {attr.getName(), llvm::cast<KernelAttr>(attr.getValue())};
-      }
-    };
-    auto begin() const {
-      return KernelIterator(getKernelTable().begin());
+    llvm::ArrayRef<KernelMetadataAttr>::iterator begin() const {
+      return getKernelTable().begin();
     }
-    auto end() const {
-      return KernelIterator(getKernelTable().end());
+    llvm::ArrayRef<KernelMetadataAttr>::iterator end() const {
+      return getKernelTable().end();
     }
     size_t size() const {
       return getKernelTable().size();
     }
+    bool empty() const {
+      return getKernelTable().empty();
+    }
 
     /// Returns the kernel with name `key` or `nullptr` if not present.
-    KernelAttr lookup(StringRef key) const {
-      return getKernelTable().getAs<KernelAttr>(key);
-    }
-    KernelAttr lookup(StringAttr key) const {
-      return getKernelTable().getAs<KernelAttr>(key);
-    }
+    KernelMetadataAttr lookup(StringRef key) const;
+    KernelMetadataAttr lookup(StringAttr key) const;
   }];
 }
 

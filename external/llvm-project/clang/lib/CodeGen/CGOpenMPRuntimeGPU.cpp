@@ -707,20 +707,6 @@ static bool supportsSPMDExecutionMode(CodeGenModule &CGM,
       "Unknown programming model for OpenMP directive on NVPTX target.");
 }
 
-/// Check if the directive is loops based and has schedule clause at all or has
-/// static scheduling.
-static bool hasStaticScheduling(const OMPExecutableDirective &D) {
-  assert(isOpenMPWorksharingDirective(D.getDirectiveKind()) &&
-         isOpenMPLoopDirective(D.getDirectiveKind()) &&
-         "Expected loop-based directive.");
-  return !D.hasClausesOfKind<OMPOrderedClause>() &&
-         (!D.hasClausesOfKind<OMPScheduleClause>() ||
-          llvm::any_of(D.getClausesOfKind<OMPScheduleClause>(),
-                       [](const OMPScheduleClause *C) {
-                         return C->getScheduleKind() == OMPC_SCHEDULE_static;
-                       }));
-}
-
 // Create a unique global variable to indicate the flat-work-group-size
 // for this region. Values are [1..1024].
 static void setPropertyWorkGroupSize(CodeGenModule &CGM, StringRef Name,
@@ -729,6 +715,18 @@ static void setPropertyWorkGroupSize(CodeGenModule &CGM, StringRef Name,
       CGM.getModule(), CGM.Int16Ty,
       /*isConstant=*/true, llvm::GlobalValue::WeakAnyLinkage,
       llvm::ConstantInt::get(CGM.Int16Ty, WGSize), Twine(Name, "_wg_size"));
+
+  CGM.addCompilerUsedGlobal(GVMode);
+}
+
+// Create a unique global variable to indicate if the kernel is multi-device.
+static void setMultiDeviceStatus(CodeGenModule &CGM, StringRef Name,
+                                 int IsMultiDevice) {
+  auto *GVMode = new llvm::GlobalVariable(
+      CGM.getModule(), CGM.Int8Ty,
+      /*isConstant=*/true, llvm::GlobalValue::WeakAnyLinkage,
+      llvm::ConstantInt::get(CGM.Int8Ty, IsMultiDevice),
+      Twine(Name, "_multi_device"));
 
   CGM.addCompilerUsedGlobal(GVMode);
 }
@@ -815,6 +813,9 @@ void CGOpenMPRuntimeGPU::GenerateMetaData(CodeGenModule &CGM,
   }
   // Emit a kernel descriptor for runtime.
   setPropertyWorkGroupSize(CGM, OutlinedFn->getName(), FlatAttr);
+
+  // Emit multi-device flag for this kernel.
+  setMultiDeviceStatus(CGM, OutlinedFn->getName(), CGM.isMultiDeviceKernel(D));
 }
 
 void CGOpenMPRuntimeGPU::emitNonSPMDKernel(const OMPExecutableDirective &D,
@@ -1038,7 +1039,6 @@ void CGOpenMPRuntimeGPU::emitTargetOutlinedFunction(
       }
     }
   }
-  //bool Mode = supportsSPMDExecutionMode(CGM.getContext(), D);
   bool IsBareKernel = D.getSingleClause<OMPXBareClause>();
   if (Mode || IsBareKernel)
     emitSPMDKernel(D, ParentName, OutlinedFn, OutlinedFnID, IsOffloadEntry,
@@ -1234,6 +1234,7 @@ llvm::Function *CGOpenMPRuntimeGPU::emitTeamsOutlinedFunction(
     }
   } Action(Loc, GlobalizedRD, MappedDeclsFields);
   CodeGen.setAction(Action);
+
   llvm::Function *OutlinedFun = CGOpenMPRuntime::emitTeamsOutlinedFunction(
       CGF, D, ThreadIDVar, InnermostKind, CodeGen);
 
@@ -1401,6 +1402,20 @@ void CGOpenMPRuntimeGPU::emitTeamsCall(CodeGenFunction &CGF,
   else
     OutlinedFnArgs.push_back(emitThreadIDAddress(CGF, Loc).emitRawPointer(CGF));
   OutlinedFnArgs.push_back(ZeroAddr.getPointer());
+
+  // If this is a kernel we can run on multiple devices then we need to add
+  // the arguments for multi-device targets. This is needed for the case when
+  // we emit an outlined teams function which needs to be passed the multi
+  // device LB and UB.
+  if (CGM.isMultiDeviceKernel(D)) {
+    Address LBAddr =
+        CGF.GetAddrOfLocalVar(CGM.getMultiDeviceLBArg(D, CGF.CurFn));
+    OutlinedFnArgs.push_back(CGF.Builder.CreateLoad(LBAddr));
+    Address UBAddr =
+        CGF.GetAddrOfLocalVar(CGM.getMultiDeviceUBArg(D, CGF.CurFn));
+    OutlinedFnArgs.push_back(CGF.Builder.CreateLoad(UBAddr));
+  }
+
   OutlinedFnArgs.append(CapturedVars.begin(), CapturedVars.end());
   emitOutlinedFunctionCall(CGF, Loc, OutlinedFn, OutlinedFnArgs);
 }
@@ -2265,14 +2280,12 @@ Address CGOpenMPRuntimeGPU::getAddressOfLocalVariable(CodeGenFunction &CGF,
     const auto *A = VD->getAttr<OMPAllocateDeclAttr>();
     auto AS = LangAS::Default;
     switch (A->getAllocatorType()) {
-      // Use the default allocator here as by default local vars are
-      // threadlocal.
     case OMPAllocateDeclAttr::OMPNullMemAlloc:
     case OMPAllocateDeclAttr::OMPDefaultMemAlloc:
-    case OMPAllocateDeclAttr::OMPThreadMemAlloc:
     case OMPAllocateDeclAttr::OMPHighBWMemAlloc:
     case OMPAllocateDeclAttr::OMPLowLatMemAlloc:
-      // Follow the user decision - use default allocation.
+      break;
+    case OMPAllocateDeclAttr::OMPThreadMemAlloc:
       return Address::invalid();
     case OMPAllocateDeclAttr::OMPUserDefinedMemAlloc:
       // TODO: implement aupport for user-defined allocators.
@@ -2425,11 +2438,11 @@ bool CGOpenMPRuntimeGPU::hasAllocateAttributeForGlobalVar(const VarDecl *VD,
   case OMPAllocateDeclAttr::OMPNullMemAlloc:
   case OMPAllocateDeclAttr::OMPDefaultMemAlloc:
   // Not supported, fallback to the default mem space.
-  case OMPAllocateDeclAttr::OMPThreadMemAlloc:
   case OMPAllocateDeclAttr::OMPLargeCapMemAlloc:
   case OMPAllocateDeclAttr::OMPCGroupMemAlloc:
   case OMPAllocateDeclAttr::OMPHighBWMemAlloc:
   case OMPAllocateDeclAttr::OMPLowLatMemAlloc:
+  case OMPAllocateDeclAttr::OMPThreadMemAlloc:
     AS = LangAS::Default;
     return true;
   case OMPAllocateDeclAttr::OMPConstMemAlloc:
@@ -2596,6 +2609,11 @@ llvm::Value *CGOpenMPRuntimeGPU::getGPUBlockID(CodeGenFunction &CGF) {
 llvm::Value *CGOpenMPRuntimeGPU::getGPUNumBlocks(CodeGenFunction &CGF) {
   return CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
       CGM.getModule(), OMPRTL___kmpc_get_hardware_num_blocks));
+}
+
+llvm::Value *CGOpenMPRuntimeGPU::initSpecializedKernel(CodeGenFunction &CGF) {
+  return CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
+      CGM.getModule(), OMPRTL___kmpc_specialized_kernel_init));
 }
 
 std::pair<llvm::Value *, llvm::Value *>
@@ -2858,51 +2876,47 @@ CGOpenMPRuntimeGPU::emitFastFPAtomicCall(CodeGenFunction &CGF, LValue X,
                                          RValue Update, BinaryOperatorKind BO,
                                          bool IsXBinopExpr) {
   CGBuilderTy &Bld = CGF.Builder;
-  unsigned int IID = -1;
-  RValue UpdateFixed = Update;
+  llvm::AtomicRMWInst::BinOp Kind = llvm::AtomicRMWInst::FAdd;
   switch (BO) {
   case BO_Sub:
-    UpdateFixed = RValue::get(Bld.CreateFNeg(Update.getScalarVal()));
-    IID = llvm::Intrinsic::amdgcn_flat_atomic_fadd;
+    Kind = llvm::AtomicRMWInst::FSub;
     break;
   case BO_Add:
-    IID = llvm::Intrinsic::amdgcn_flat_atomic_fadd;
+    Kind = llvm::AtomicRMWInst::FAdd;
     break;
   case BO_LT:
-    IID = IsXBinopExpr ? llvm::Intrinsic::amdgcn_flat_atomic_fmax
-                       : llvm::Intrinsic::amdgcn_flat_atomic_fmin;
+    Kind = IsXBinopExpr ? llvm::AtomicRMWInst::FMax : llvm::AtomicRMWInst::FMin;
     break;
   case BO_GT:
-    IID = IsXBinopExpr ? llvm::Intrinsic::amdgcn_flat_atomic_fmin
-                       : llvm::Intrinsic::amdgcn_flat_atomic_fmax;
+    Kind = IsXBinopExpr ? llvm::AtomicRMWInst::FMin : llvm::AtomicRMWInst::FMax;
     break;
   default:
     // remaining operations are not supported yet
     return std::make_pair(false, RValue::get(nullptr));
   }
 
-  SmallVector<llvm::Value *> FPAtomicArgs;
-  FPAtomicArgs.reserve(2);
-  FPAtomicArgs.push_back(X.getPointer(CGF));
-  FPAtomicArgs.push_back(UpdateFixed.getScalarVal());
+  llvm::Value *UpdateVal = Update.getScalarVal();
 
-  llvm::Value *CallInst = nullptr;
-  if (Update.getScalarVal()->getType()->isFloatTy() &&
-      (getOffloadArch(CGF.CGM) == OffloadArch::GFX90a)) {
-    // Fast FP atomics are not available for single precision address located in
-    // FLAT address space.
-    // We need to check the address space at runtime to determine
-    // which function we can call. This is done in the OpenMP runtime.
-    CallInst =
-        CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
-                                CGM.getModule(), OMPRTL___kmpc_unsafeAtomicAdd),
-                            FPAtomicArgs);
-  } else {
-    llvm::Function *AtomicF = CGM.getIntrinsic(
-        IID, {FPAtomicArgs[1]->getType(), FPAtomicArgs[0]->getType(),
-              FPAtomicArgs[1]->getType()});
-    CallInst = CGF.EmitNounwindRuntimeCall(AtomicF, FPAtomicArgs);
-  }
+  // The scope of the atomic, currently set to 'agent'. By default, if this
+  // scope is not specified the scope will be 'system' scope.
+  llvm::SyncScope::ID SSID =
+      CGM.getLLVMContext().getOrInsertSyncScopeID("agent");
+  llvm::AtomicRMWInst *CallInst = Bld.CreateAtomicRMW(
+      Kind, X.getAddress(), UpdateVal, llvm::AtomicOrdering::Monotonic, SSID);
+
+  // The following settings are used to get the atomicrmw instruction to
+  // be closer in spirit to the previous use of the intrinsic.
+  // Setting of amdgpu.no.fine.grained.memory property
+  llvm::MDTuple *EmptyMD = llvm::MDNode::get(CGM.getLLVMContext(), {});
+  CallInst->setMetadata("amdgpu.no.fine.grained.memory", EmptyMD);
+
+  // Setting of amdgpu.ignore.denormal.mode
+  if (Kind == llvm::AtomicRMWInst::FAdd && UpdateVal->getType()->isFloatTy())
+    CallInst->setMetadata("amdgpu.ignore.denormal.mode", EmptyMD);
+
+  // Note: breaks fp_atomics test so volatile cannot be used
+  // CallInst->setVolatile(true);
+
   return std::make_pair(true, RValue::get(CallInst));
 }
 
