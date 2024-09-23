@@ -115,6 +115,8 @@ RUN apt-get update && \
   rocprofiler-dev \
   rocblas \
   rocblas-dev \
+  hipblas-dev \  
+  hipblaslt-dev \
   miopen-hip \
   miopen-hip-dev \
   libelf1 \
