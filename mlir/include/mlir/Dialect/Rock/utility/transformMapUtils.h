@@ -252,6 +252,19 @@ FailureOr<ArrayAttr> removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
 
 FailureOr<ArrayAttr> removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
                                      const StringSet<> &removeDimNamesSet);
+
+struct SubDimInfo {
+  int64_t size;
+  int64_t stride;
+};
+
+inline raw_ostream &operator<<(raw_ostream &os, const SubDimInfo &sdInfo) {
+  os << "<size: " << sdInfo.size << ",stride=" << sdInfo.stride << ">";
+  return os;
+}
+
+FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_t dim);
+                                    
 } // end namespace rock
 } // end namespace mlir
 #endif
