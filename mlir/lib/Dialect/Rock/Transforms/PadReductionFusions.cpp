@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -59,6 +60,12 @@ struct RockPadReductionFusionsPass
 //   }
 // };
 
+ArrayAttr reverse(ArrayAttr attrs){
+  SmallVector<Attribute> attrsReversed = llvm::to_vector(llvm::reverse(attrs));
+  IRRewriter rewriter(attrs.getContext());
+  return rewriter.getArrayAttr(attrsReversed);
+}
+
 ArrayAttr getAllViewsFromSource(OpOperand* operand){
   Value val = operand->get();
   SmallVector<Attribute> attrs;
@@ -66,12 +73,12 @@ ArrayAttr getAllViewsFromSource(OpOperand* operand){
     attrs.push_back(trOp.getTransformAttr());
     val = trOp.getViewSource();
   }
-  SmallVector<Attribute> attrsReversed = llvm::to_vector(llvm::reverse(attrs));
   IRRewriter rewriter(val.getContext());
-  return rewriter.getArrayAttr(attrsReversed);
+  ArrayAttr arrAttrs = rewriter.getArrayAttr({attrs});
+  return reverse(arrAttrs);
 }
 
-FailureOr<ArrayAttr> obtainViewsFromReaderToWriter(memref::AllocOp buffer, const BufferDependencyAnalysis& deps, ArrayAttr currViews){
+FailureOr<std::tuple<ArrayAttr,Operation*>> obtainViewsFromReaderToWriter(memref::AllocOp buffer, const BufferDependencyAnalysis& deps, ArrayAttr currViews){
   LLVM_DEBUG(llvm::dbgs() << "buffer = " << buffer << "\n");
   IRRewriter rewriter(buffer.getContext());
   std::optional<llvm::SmallVector<OpOperand *>> writersOperands = deps.getWriters(buffer);
@@ -80,7 +87,7 @@ FailureOr<ArrayAttr> obtainViewsFromReaderToWriter(memref::AllocOp buffer, const
     ArrayAttr viewsFromAllocOp = getAllViewsFromSource(writerOperand);
     currViews = prependUpperViews(rewriter, currViews, viewsFromAllocOp);
     if(isa<GridwiseGemmAccelOp,GridwiseGemmOp>(writerOperand->getOwner())){
-      return currViews;
+      return std::make_tuple(reverse(currViews), writerOperand->getOwner());
     }
     LLVM_DEBUG(llvm::dbgs() << "write op = " << *writerOperand->getOwner() << "\n");
     auto writeOp = dyn_cast<MemoryEffectOpInterface>(writerOperand->getOwner());
@@ -99,9 +106,9 @@ FailureOr<ArrayAttr> obtainViewsFromReaderToWriter(memref::AllocOp buffer, const
           readOperand != writerOperand &&
           isa<MemoryEffects::Read>(effect.getEffect())) {
           if(memref::AllocOp readBuffer = dyn_cast<memref::AllocOp>(readOperand->get().getDefiningOp())){
-            FailureOr<ArrayAttr> mayBeViews = obtainViewsFromReaderToWriter(readBuffer, deps, currViews);
-            if(succeeded(mayBeViews)){
-              return mayBeViews;
+            FailureOr<std::tuple<ArrayAttr,Operation*>> mayBeViewsAndGemmOp = obtainViewsFromReaderToWriter(readBuffer, deps, currViews);
+            if(succeeded(mayBeViewsAndGemmOp)){
+              return mayBeViewsAndGemmOp;
             }
           }
       }
@@ -111,13 +118,172 @@ FailureOr<ArrayAttr> obtainViewsFromReaderToWriter(memref::AllocOp buffer, const
   return failure();
 }
 
-FailureOr<ArrayAttr> obtainGemmToReduceViews(ReduceOp rOp, const BufferDependencyAnalysis& deps){
+FailureOr<std::tuple<ArrayAttr,Operation*>> obtainGemmToReduceViews(ReduceOp rOp, const BufferDependencyAnalysis& deps){
   IRRewriter rewriter(rOp.getContext());
   memref::AllocOp rSrc = rOp.getIn().getDefiningOp<memref::AllocOp>();
   if(!rSrc) return failure();
   ArrayAttr views = rewriter.getArrayAttr({});
   return obtainViewsFromReaderToWriter(rSrc, deps, views);
 }
+
+struct MNPerBlock {
+  int64_t MPerBlock;
+  int64_t NPerBlock;
+};
+
+static MNPerBlock getMNPerBlock(Operation* gemmOp){
+  MNPerBlock ret;
+  if(auto xdlGemmOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)){
+    ret.MPerBlock = xdlGemmOp.getParams().getMPerBlock();
+    ret.NPerBlock = xdlGemmOp.getParams().getNPerBlock();
+  }
+  else if (auto nonxdlGemmOp = dyn_cast<GridwiseGemmOp>(gemmOp)){
+    ret.MPerBlock = nonxdlGemmOp.getParams().getMPerBlock();
+    ret.NPerBlock = nonxdlGemmOp.getParams().getNPerBlock();
+  }
+  else{
+    llvm_unreachable("Only gemm ops are supported!\n");
+  }
+  return ret;
+}
+
+ArrayAttr appendTiledViews(ArrayAttr views, const MNPerBlock& tileSizes){
+  OpBuilder builder(views.getContext());
+  TransformMapAttr topMap = cast<TransformMapAttr>(views[0]);
+  llvm::errs() << "bottomMap=" << topMap << "\n";
+  llvm::errs() << "MPerBlock=" << tileSizes.MPerBlock << "\n";
+  llvm::errs() << "NPerBlock=" << tileSizes.NPerBlock << "\n";
+  ArrayRef<int64_t> upperSizes = topMap.getUpperBounds().asArrayRef();
+  BottomUpTMBuilder toTiledViews(builder, {"G", "M", "N"}, upperSizes);
+  toTiledViews.passThrough("G");
+  unsigned mblock = upperSizes[1] / tileSizes.MPerBlock;
+  toTiledViews.unmerge({"mblock", "mperblock"}, {1, 2}, "M", {mblock, (unsigned)tileSizes.MPerBlock});
+  unsigned nblock = upperSizes[2] / tileSizes.NPerBlock;
+  toTiledViews.unmerge({"nblock", "nperblock"}, {3, 4}, "N", {nblock, (unsigned)tileSizes.NPerBlock});
+  TransformMapAttr tiledView = toTiledViews.get();
+  llvm::errs() << "tiledView=" << tiledView << "\n"; 
+  return prependUpperViews(builder, builder.getArrayAttr({tiledView}), views); 
+}
+
+ArrayAttr doGemmParallelShuffle(ArrayAttr views, llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>> reductionSubDims, const MNPerBlock& tileSizes){
+  OpBuilder builder(views.getContext());
+  TransformMapAttr topMap = cast<TransformMapAttr>(views[0]);
+  ArrayRef<int64_t> upperSizes = topMap.getUpperBounds().asArrayRef();
+
+  BottomUpTMBuilder toReductionSplit(builder, {"G", "M", "N"}, upperSizes);
+  llvm::SmallDenseMap<int64_t, int64_t> reductionDimsM;
+  llvm::SmallDenseMap<int64_t, int64_t> reductionDimsN;
+  {
+    toReductionSplit.passThrough("G");
+    int64_t dimInsertionPoint = 1;
+    {
+      SmallVector<SubDimInfo> reductionSubDimsM = reductionSubDims[1];
+      llvm::sort(reductionSubDimsM, [](const SubDimInfo& L, const SubDimInfo& R){return L.stride > R.stride;});
+      SmallVector<int64_t> splitSizesM;
+      SmallVector<SmallString<8>> splitNamesM;
+      SmallVector<StringRef> splitNamesMRefs;
+      SmallVector<unsigned> splitDimsM;
+      int64_t currSize = upperSizes[1];
+      for (auto [idx, sdInfo] : enumerate(reductionSubDimsM)){
+        {
+          SmallString<8> dimName(Twine("m_nr" + Twine(idx)).str());
+          splitNamesM.push_back(dimName);
+        }
+        splitNamesMRefs.push_back(splitNamesM.back());
+        splitDimsM.push_back(dimInsertionPoint++);
+        splitSizesM.push_back(currSize / (sdInfo.size * sdInfo.stride));
+
+        {
+          SmallString<8> dimName(Twine("m_r" + Twine(idx)).str());
+          splitNamesM.push_back(dimName);
+        }
+        splitNamesMRefs.push_back(splitNamesM.back());
+        reductionDimsM[dimInsertionPoint] = sdInfo.size;
+        splitDimsM.push_back(dimInsertionPoint++);
+        splitSizesM.push_back(sdInfo.size);
+        currSize = sdInfo.stride;
+      }
+      toReductionSplit.unmerge(splitNamesMRefs, splitDimsM, "M", splitSizesM);
+    }
+
+    {
+      SmallVector<SubDimInfo> reductionSubDimsN = reductionSubDims[2];
+      llvm::sort(reductionSubDimsN, [](const SubDimInfo& L, const SubDimInfo& R) {return L.stride > R.stride;});
+      SmallVector<int64_t> splitSizesN;
+      SmallVector<SmallString<8>> splitNamesN;
+      SmallVector<StringRef> splitNamesNRefs;
+      SmallVector<unsigned> splitDimsN;
+      int64_t currSize = upperSizes[2];
+      for (auto [idx, sdInfo] : enumerate(reductionSubDimsN)){
+        {
+          SmallString<8> dimName(Twine("n_nr" + Twine(idx)).str());
+          splitNamesN.push_back(dimName);
+        }
+        splitNamesNRefs.push_back(splitNamesN.back());
+        splitDimsN.push_back(dimInsertionPoint++);
+        splitSizesN.push_back(currSize / (sdInfo.size * sdInfo.stride));
+
+        {
+          SmallString<8> dimName(Twine("n_r" + Twine(idx)).str());
+          splitNamesN.push_back(dimName);
+        }
+        splitNamesNRefs.push_back(splitNamesN.back());
+        reductionDimsN[dimInsertionPoint] = sdInfo.size;
+        splitDimsN.push_back(dimInsertionPoint++);
+        splitSizesN.push_back(sdInfo.size);
+        currSize = sdInfo.stride;
+      }
+      toReductionSplit.unmerge(splitNamesNRefs, splitDimsN, "N", splitSizesN);
+    }
+  }
+  TransformMapAttr reduceSplit = toReductionSplit.get();
+  llvm::errs() << "reduceSplit = " << reduceSplit << "\n";
+
+  auto toCommonReductionDim = BottomUpTMBuilder::above(toReductionSplit, reduceSplit);
+  {
+    SmallVector<StringRef, 4> startNames;
+    toCommonReductionDim.getStartNames(startNames);
+    toCommonReductionDim.passThrough("G");
+    SmallVector<StringRef, 4> reduceDimNamesM;
+    SmallVector<StringRef, 4> reduceDimNamesN;
+    unsigned dimInsertionPoint = 1;
+    for(unsigned dim = 1; dim < reduceSplit.getUpperBounds().size(); dim++){
+      if(!reductionDimsM.contains(dim) && !reductionDimsN.contains(dim)){
+        toCommonReductionDim.passThrough({dimInsertionPoint++},{dim});
+      }
+      else if(reductionDimsM.contains(dim)){
+        reduceDimNamesM.push_back(startNames[dim]);
+      }
+      else if(reductionDimsN.contains(dim)){
+        reduceDimNamesN.push_back(startNames[dim]);
+      }
+      else{
+        llvm_unreachable("above cases cover everything!");
+      }
+    }
+    toCommonReductionDim.merge("m_r", dimInsertionPoint++, reduceDimNamesM);
+    toCommonReductionDim.merge("n_r", dimInsertionPoint++, reduceDimNamesN);
+  }
+  TransformMapAttr commonReduction = toCommonReductionDim.get();
+  llvm::errs() << "commonReduction = " << commonReduction << "\n";
+
+  auto resplitReduction = BottomUpTMBuilder::above(toCommonReductionDim, commonReduction);
+  {
+    unsigned upperDimCount = commonReduction.getUpperBounds().size();
+    int64_t commonMReduceSize = commonReduction.getUpperBounds().asArrayRef()[upperDimCount - 2];
+    int64_t commonNReduceSize = commonReduction.getUpperBounds().asArrayRef().back();
+    int64_t commonMFactor = math_util::gcd(commonMReduceSize, tileSizes.MPerBlock);
+    int64_t commonNFactor = math_util::gcd(commonNReduceSize, tileSizes.NPerBlock);
+    resplitReduction.unmerge({"m_rh", "m_rl"}, {0, upperDimCount - 2}, "m_r", {commonMReduceSize / commonMFactor, commonMFactor});
+  }
+
+
+
+  // int64_t reductionSubDimMBlock = math_util::gcd(totalReductionSizeM, tileSizes.MPerBlock);
+  return views;
+}
+
+
 
 void RockPadReductionFusionsPass::runOnOperation() {
   func::FuncOp func = getOperation();
@@ -129,11 +295,35 @@ void RockPadReductionFusionsPass::runOnOperation() {
   WalkResult walkResult = func.walk([&](ReduceOp rOp) -> WalkResult {
     LLVM_DEBUG(llvm::dbgs() << "rOp = " << rOp << "\n");
     LLVM_DEBUG(llvm::dbgs() << "---------------------\n");
-    FailureOr<ArrayAttr> res = obtainGemmToReduceViews(rOp, bufferDeps);
+    FailureOr<std::tuple<ArrayAttr,Operation*>> res = obtainGemmToReduceViews(rOp, bufferDeps);
     if(succeeded(res)){
-      llvm::errs() << "views = ";
-      llvm::errs() << res.value();
-      llvm::errs() << "\n";
+      auto[views, gemmOp] = res.value();
+      MNPerBlock mnPerBlock = getMNPerBlock(gemmOp);
+      // views = appendTiledViews(views, mnPerBlock);
+      llvm::errs() << "views = " << views << "\n";
+      OpBuilder builder(views.getContext());
+      ArrayAttr invertedViews = invertTransforms(builder, rOp.getLoc(), views);
+      llvm::errs() << "inverted_views = " << invertedViews << "\n";
+      FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>> subDimensions = getLowerSubDimensions(builder, invertedViews, 2);
+      assert(succeeded(subDimensions));
+      for(auto [dim, subDimInfos] : subDimensions.value()){
+        llvm::errs() << "dim=" << dim << ":";
+        llvm::interleaveComma(subDimInfos, llvm::errs());
+        llvm::errs() << "\n";
+      }
+
+      doGemmParallelShuffle(views, subDimensions.value(), mnPerBlock);
+
+
+      llvm::errs() << "gemm=" << *gemmOp << "\n";
+
+      IRRewriter rewriter(rOp.getContext());
+      SetVector<int64_t> removeIndicesSet;
+      removeIndicesSet.insert(1);
+      removeIndicesSet.insert(3);
+      FailureOr<ArrayAttr> blockSubTileViews =
+      removeUpperDims(rewriter, views, removeIndicesSet);
+      llvm::errs() << "blockSubTileViews = " << blockSubTileViews.value() << "\n";
     }
     else{
       llvm::errs() << "failed obtaining views from reduce to gemm.\n";
