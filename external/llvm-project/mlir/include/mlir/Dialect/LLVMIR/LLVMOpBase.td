@@ -55,22 +55,6 @@ def LLVM_AnyFloat : Type<
 def LLVM_AnyPointer : Type<CPred<"::llvm::isa<::mlir::LLVM::LLVMPointerType>($_self)">,
                           "LLVM pointer type", "::mlir::LLVM::LLVMPointerType">;
 
-def LLVM_OpaquePointer : Type<
-  And<[LLVM_AnyPointer.predicate,
-       CPred<"::llvm::cast<::mlir::LLVM::LLVMPointerType>($_self).isOpaque()">]>,
-  "LLVM opaque pointer", "::mlir::LLVM::LLVMPointerType">;
-
-// Type constraint accepting LLVM pointer type with an additional constraint
-// on the element type.
-class LLVM_PointerTo<Type pointee> : Type<
-  And<[LLVM_AnyPointer.predicate,
-       Or<[LLVM_OpaquePointer.predicate,
-           SubstLeaves<
-             "$_self",
-             "::llvm::cast<::mlir::LLVM::LLVMPointerType>($_self).getElementType()",
-             pointee.predicate>]>]>,
-  "LLVM pointer to " # pointee.summary, "::mlir::LLVM::LLVMPointerType">;
-
 // Pointer in a given address space.
 class LLVM_PointerInAddressSpace<int addressSpace> : Type<
   And<[LLVM_AnyPointer.predicate,
