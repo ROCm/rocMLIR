@@ -160,7 +160,7 @@ public:
               objects.push_back(obj);
               continue;
             }
-            
+
             SmallVector<gpu::KernelMetadataAttr> sortedKernels(kernels);
             llvm::array_pod_sort(sortedKernels.begin(), sortedKernels.end());
             // Update the object attribute in case any of the objects was

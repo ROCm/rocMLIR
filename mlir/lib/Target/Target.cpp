@@ -261,7 +261,8 @@ static gpu::KernelTableAttr getRockKernelMetadata(Operation *gpuModule,
     addFuncAttr(funcOp, attrs, "grid_size");
     addFuncAttr(funcOp, attrs, "block_size");
     addFuncAttr(funcOp, attrs, "original_func");
-    kernels.push_back(gpu::KernelMetadataAttr::get(funcOp, builder.getDictionaryAttr(attrs)));
+    kernels.push_back(
+        gpu::KernelMetadataAttr::get(funcOp, builder.getDictionaryAttr(attrs)));
   }
   SmallVector<gpu::KernelMetadataAttr> sortedKernels(kernels);
   llvm::array_pod_sort(sortedKernels.begin(), sortedKernels.end());
