@@ -177,6 +177,7 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
     SmallVector<unsigned> splitDims;
     int64_t dimInsertionPoint = 2;
     int64_t currSize = dLen;
+    llvm::errs() << "dLen = " << dLen << "\n";
     for (auto [idx, sdInfo] : enumerate(reductionSubDimsVec)){
       {
         SmallString<8> dimName(Twine("d_nr" + Twine(idx)).str());
@@ -184,6 +185,7 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
       }
       splitNamesRefs.push_back(splitNames.back());
       splitDims.push_back(dimInsertionPoint++);
+      llvm::errs() << "\tsplitSize = " << currSize / (sdInfo.size * sdInfo.stride) << "\n";
       splitSizes.push_back(currSize / (sdInfo.size * sdInfo.stride));
       {
         SmallString<8> dimName(Twine("d_r" + Twine(idx)).str());
@@ -192,6 +194,7 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
       splitNamesRefs.push_back(splitNames.back());
       reductionDims[dimInsertionPoint] = sdInfo.size;
       splitDims.push_back(dimInsertionPoint++);
+      llvm::errs() << "\tsplitSize = " << sdInfo.size << "\n";
       splitSizes.push_back(sdInfo.size);
       currSize = sdInfo.stride;
     }
@@ -201,18 +204,21 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
   llvm::errs() << "reduceSplit = " << reduceSplit << "\n";
   auto toCommonReductionDim = BottomUpTMBuilder::above(toReductionSplit, reduceSplit);
   {
+    toCommonReductionDim.passThrough(ArrayRef<unsigned>{0, 1}, ArrayRef<unsigned>{0, 1});
     SmallVector<StringRef, 4> startNames;
     toCommonReductionDim.getStartNames(startNames);
     SmallVector<StringRef, 4> reduceDimNames;
-    unsigned dimInsertionPoint = 1;
-    for(unsigned dim = 0; dim < reduceSplit.getUpperBounds().size(); dim++){
+    SmallVector<StringRef, 4> nonReduceDimNames;
+    unsigned dimInsertionPoint = 2;
+    for(unsigned dim = 2; dim < reduceSplit.getUpperBounds().size(); dim++){
       if(!reductionDims.contains(dim)){
-        toCommonReductionDim.passThrough({dimInsertionPoint++},{dim});
+        nonReduceDimNames.push_back(startNames[dim]);
       }
       else {
         reduceDimNames.push_back(startNames[dim]);
       }
     }
+    toCommonReductionDim.merge("d_nr", dimInsertionPoint++, nonReduceDimNames);
     toCommonReductionDim.merge("d_r", dimInsertionPoint++, reduceDimNames);
   }
   TransformMapAttr commonReduction = toCommonReductionDim.get();
@@ -235,7 +241,7 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
   TransformMapAttr recombined = toRecombined.get();
   llvm::errs() << "recombined = " << recombined << "\n";
   OpBuilder builder(recombined.getContext());
-  builder.getArrayAttr({reduceSplit, commonReduction, resplitReduction, recombined});
+  return builder.getArrayAttr({reduceSplit, commonReduction, resplitReduction, recombined});
 }
 
 std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(OpBuilder& builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k, int64_t n, int64_t nPerBlock, llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims){
@@ -403,7 +409,7 @@ void RockPadReductionFusionsPass::runOnOperation() {
       int64_t k = gemmInA.getType().getShape()[1];
       int64_t m = gemmInA.getType().getShape()[2];
       int64_t n = gemmInB.getType().getShape()[2];
-      auto[additionalViewsA, additionalViewsB] = generateShuffledGemmInputViews(builder, g, m, mnPerBlock.MPerBlock, n, k, mnPerBlock.NPerBlock, subDimensions.value());
+      auto[additionalViewsA, additionalViewsB] = generateShuffledGemmInputViews(builder, g, m, mnPerBlock.MPerBlock, k, n, mnPerBlock.NPerBlock, subDimensions.value());
 
 
 
