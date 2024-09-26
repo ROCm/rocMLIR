@@ -165,6 +165,87 @@ ArrayAttr appendTiledViews(ArrayAttr views, const MNPerBlock& tileSizes){
   return prependUpperViews(builder, builder.getArrayAttr({tiledView}), views); 
 }
 
+ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<SubDimInfo> reductionSubDims, StringRef dName, int64_t dLen, int64_t dPerBlock){
+  SmallVector<SubDimInfo> reductionSubDimsVec = llvm::to_vector(reductionSubDims);
+  llvm::sort(reductionSubDimsVec, [](const SubDimInfo& L, const SubDimInfo& R){return L.stride > R.stride;});
+  llvm::SmallDenseMap<int64_t, int64_t> reductionDims;
+  {
+    toReductionSplit.passThrough(ArrayRef<unsigned>{0, 1}, ArrayRef<unsigned>{0, 1});
+    SmallVector<int64_t> splitSizes;
+    SmallVector<SmallString<8>> splitNames;
+    SmallVector<StringRef> splitNamesRefs;
+    SmallVector<unsigned> splitDims;
+    int64_t dimInsertionPoint = 2;
+    int64_t currSize = dLen;
+    for (auto [idx, sdInfo] : enumerate(reductionSubDimsVec)){
+      {
+        SmallString<8> dimName(Twine("d_nr" + Twine(idx)).str());
+        splitNames.push_back(dimName);
+      }
+      splitNamesRefs.push_back(splitNames.back());
+      splitDims.push_back(dimInsertionPoint++);
+      splitSizes.push_back(currSize / (sdInfo.size * sdInfo.stride));
+      {
+        SmallString<8> dimName(Twine("d_r" + Twine(idx)).str());
+        splitNames.push_back(dimName);
+      }
+      splitNamesRefs.push_back(splitNames.back());
+      reductionDims[dimInsertionPoint] = sdInfo.size;
+      splitDims.push_back(dimInsertionPoint++);
+      splitSizes.push_back(sdInfo.size);
+      currSize = sdInfo.stride;
+    }
+    toReductionSplit.unmerge(splitNamesRefs, splitDims, dName, splitSizes);
+  }
+  TransformMapAttr reduceSplit = toReductionSplit.get();
+  llvm::errs() << "reduceSplit = " << reduceSplit << "\n";
+  auto toCommonReductionDim = BottomUpTMBuilder::above(toReductionSplit, reduceSplit);
+  {
+    SmallVector<StringRef, 4> startNames;
+    toCommonReductionDim.getStartNames(startNames);
+    SmallVector<StringRef, 4> reduceDimNames;
+    unsigned dimInsertionPoint = 1;
+    for(unsigned dim = 0; dim < reduceSplit.getUpperBounds().size(); dim++){
+      if(!reductionDims.contains(dim)){
+        toCommonReductionDim.passThrough({dimInsertionPoint++},{dim});
+      }
+      else {
+        reduceDimNames.push_back(startNames[dim]);
+      }
+    }
+    toCommonReductionDim.merge("d_r", dimInsertionPoint++, reduceDimNames);
+  }
+  TransformMapAttr commonReduction = toCommonReductionDim.get();
+  llvm::errs() << "commonReduction = " << commonReduction << "\n";
+  auto toResplitReduction = BottomUpTMBuilder::above(toCommonReductionDim, commonReduction);
+  {
+    unsigned upperDimCount = commonReduction.getUpperBounds().size();
+    int64_t commonReduceSize = commonReduction.getUpperBounds().asArrayRef().back();
+    int64_t commonFactor = math_util::gcd(commonReduceSize, dPerBlock);
+    toResplitReduction.passThrough(ArrayRef<unsigned>{0, 1, 3}, ArrayRef<unsigned>{0, 1, 2});
+    toResplitReduction.unmerge({"d_rh", "d_rl"}, {2, upperDimCount}, "d_r", {commonReduceSize / commonFactor, commonFactor});
+  }
+  TransformMapAttr resplitReduction = toResplitReduction.get();
+  llvm::errs() << "resplitReductionAttr = " << resplitReduction << "\n";
+  auto toRecombined = BottomUpTMBuilder::above(toResplitReduction, resplitReduction);
+  {
+    toRecombined.passThrough(ArrayRef<unsigned>{0, 1}, ArrayRef<unsigned>{0, 1});
+    toRecombined.merge("d", 2, {"d_rh", "d_nr", "d_rl"});
+  }
+  TransformMapAttr recombined = toRecombined.get();
+  llvm::errs() << "recombined = " << recombined << "\n";
+  OpBuilder builder(recombined.getContext());
+  builder.getArrayAttr({reduceSplit, commonReduction, resplitReduction, recombined});
+}
+
+std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(OpBuilder& builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k, int64_t n, int64_t nPerBlock, llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims){
+  BottomUpTMBuilder toReductionSplitA(builder, {"G", "K", "M"}, {g, k, m});
+  ArrayAttr additionalViewsA = reorderReductionDims(toReductionSplitA, reductionSubDims[1], "M", m, mPerBlock);
+  BottomUpTMBuilder toReductionSplitB(builder, {"G", "K", "N"}, {g, k, n});
+  ArrayAttr additionalViewsB = reorderReductionDims(toReductionSplitB, reductionSubDims[2], "N", n, nPerBlock);
+  return {additionalViewsA, additionalViewsB};
+}
+
 ArrayAttr doGemmParallelShuffle(ArrayAttr views, llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>> reductionSubDims, const MNPerBlock& tileSizes){
   OpBuilder builder(views.getContext());
   TransformMapAttr topMap = cast<TransformMapAttr>(views[0]);
@@ -312,7 +393,21 @@ void RockPadReductionFusionsPass::runOnOperation() {
         llvm::errs() << "\n";
       }
 
-      doGemmParallelShuffle(views, subDimensions.value(), mnPerBlock);
+      TypedValue<MemRefType> gemmInA;
+      TypedValue<MemRefType> gemmInB;
+      if(GridwiseGemmAccelOp gemmAccelOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)){
+        gemmInA = gemmAccelOp.getA();
+        gemmInB = gemmAccelOp.getB();
+      }
+      int64_t g = gemmInA.getType().getShape()[0];
+      int64_t k = gemmInA.getType().getShape()[1];
+      int64_t m = gemmInA.getType().getShape()[2];
+      int64_t n = gemmInB.getType().getShape()[2];
+      auto[additionalViewsA, additionalViewsB] = generateShuffledGemmInputViews(builder, g, m, mnPerBlock.MPerBlock, n, k, mnPerBlock.NPerBlock, subDimensions.value());
+
+
+
+      // doGemmParallelShuffle(views, subDimensions.value(), mnPerBlock);
 
 
       llvm::errs() << "gemm=" << *gemmOp << "\n";
