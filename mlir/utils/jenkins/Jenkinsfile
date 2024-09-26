@@ -275,7 +275,7 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
     }
     // Run nightly E2E tests in multiple smaller batches to increase the chance of successful completion
     else {
-        // print verbose logs for all the tests on Navi3x for debugging purposes 
+        // print verbose logs for all the tests on Navi3x for debugging purposes
         sh '[ ! -d build ] || rm -rf build'
         buildProject('check-mlir check-rocmlir', """
              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
@@ -1124,13 +1124,24 @@ pipeline {
                                                  '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
                                     dir ('build') {
                                         // Run tests.
-                                        sh 'ninja check-rocmlir'
-                                        // Profile processing.
-                                        sh "${LLVM_PROFDATA} merge -sparse ./*.profraw -o ./coverage.profdata"
-                                        sh "${LLVM_COV} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report"
-                                        sh "cat ./coverage_${CPATH}.report"
-                                        sh "${LLVM_COV} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project --format=lcov --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov"
-                                        sh "${LLVM_COV} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt --format=html > ./coverage_${CPATH}.html"
+                                        sh """
+                                           ninja check-rocmlir
+                                           # Profile processing.
+                                           ${LLVM_PROFDATA} merge -sparse ./*.profraw -o ./coverage.profdata
+                                           rm -f build/*.profraw
+                                           ${LLVM_COV} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver \
+                                              --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
+                                              --ignore-filename-regex=external/llvm-project > ./coverage_${CPATH}.report
+                                           cat ./coverage_${CPATH}.report
+                                           ${LLVM_COV} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver \
+                                              --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
+                                              --ignore-filename-regex=external/llvm-project --format=lcov              \
+                                              --compilation-dir ${WORKSPACE} > ./coverage_${CPATH}.lcov
+                                           ${LLVM_COV} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver  \
+                                              --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata          \
+                                              --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt  \
+                                              --format=html > ./coverage_${CPATH}.html
+                                           """
                                         // Upload to codecov.
                                         withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
                                             sh '''
