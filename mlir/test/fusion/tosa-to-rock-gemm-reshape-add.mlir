@@ -11,7 +11,7 @@
 // CHECK_LINALG_ALIGN: rock.threadwise_write_all {{.*}} %[[outBuf]] ->
 // to test reshape is converted as transform and fused.
 
-func.func @test_fusion(%arg0: tensor<1x1x512xf32> {func.read_access}, %arg1: tensor<1x512x1000xf32> {func.read_access}, %arg2: tensor<1x1000xf32> {func.read_access}) -> (tensor<1x1000xf32> {func.write_access}) attributes {kernel, arch = ""} {
+func.func @test_fusion(%arg0: tensor<1x1x512xf32> {mhal.read_access}, %arg1: tensor<1x512x1000xf32> {mhal.read_access}, %arg2: tensor<1x1000xf32> {mhal.read_access}) -> (tensor<1x1000xf32> {mhal.write_access}) attributes {kernel, arch = ""} {
     %2 = "tosa.matmul"(%arg0, %arg1) : (tensor<1x1x512xf32>, tensor<1x512x1000xf32>) -> tensor<1x1x1000xf32>
     %3 = "tosa.reshape"(%2) {new_shape = array<i64: 1, 1000>} : (tensor<1x1x1000xf32>) -> tensor<1x1000xf32>
     %4 = "tosa.add"(%3, %arg2) : (tensor<1x1000xf32>, tensor<1x1000xf32>) -> tensor<1x1000xf32>

@@ -2,7 +2,7 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {func.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {func.write_access}) {
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {mhal.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.write_access}) {
     %0 = migraphx.dot %arg0, %arg1: <1x7x3xf32, 21x3x1>, <1x3x7xf32, 21x7x1> -> <1x7x7xf32, 49x7x1>
     %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : <1xf32, 0>
     %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : <1xf32, 0> -> <1x7x7xf32, 0x0x0>
@@ -17,7 +17,7 @@ module {
     return %results : !migraphx.shaped<1x7x3xf32, 21x3x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {func.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {func.write_access}) attributes {kernel, original_func = @mlir_attention} {
+    func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.read_access}, %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {mhal.read_access}, %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.read_access}) -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.write_access}) attributes {kernel, original_func = @mlir_attention} {
       %0 = migraphx.dot %arg0, %arg1: <1x7x3xf32, 21x3x1>, <1x3x7xf32, 21x7x1> -> <1x7x7xf32, 49x7x1>
       %cst = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : <1xf32, 0>
       %cst1 = migraphx.multibroadcast %cst {out_dyn_dims = [], out_lens = [1, 7, 7]} : <1xf32, 0> -> <1x7x7xf32, 0x0x0>

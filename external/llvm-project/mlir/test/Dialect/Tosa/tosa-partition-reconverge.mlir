@@ -6,7 +6,7 @@
 // CHECK-NEXT: return
 
 module attributes {torch.debug_module_name = "BertTinyWrapper"} {
-func.func @forward(%arg0: tensor<2x128x128xf32> {func.read_access}, %arg1: tensor<512x128xf32> {func.read_access}, %arg2: tensor<1x1x512xf32> {func.read_access}) -> (tensor<2x128x512xf32> {func.write_access}) {
+func.func @forward(%arg0: tensor<2x128x128xf32>, %arg1: tensor<512x128xf32>, %arg2: tensor<1x1x512xf32>) -> (tensor<2x128x512xf32>) {
   %5 = "tosa.const"() <{value = dense<0.000000e+00> : tensor<1x1x1xf32>}> : () -> tensor<1x1x1xf32>
   %6 = "tosa.const"() <{value = dense<1.000000e+00> : tensor<1x1x1xf32>}> : () -> tensor<1x1x1xf32>
   %7 = "tosa.const"() <{value = dense<0.707106769> : tensor<1x1x1xf32>}> : () -> tensor<1x1x1xf32>

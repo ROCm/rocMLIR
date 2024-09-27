@@ -3648,10 +3648,10 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   StringAttr archAttr = b.getStringAttr(arch);
   if (originalFunc->hasAttr("arch"))
     originalFunc->setAttr("arch", archAttr);
-  auto readAttr =
-      b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
-  auto writeAttr =
-      b.getNamedAttr(func::FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
+  auto readAttr = b.getNamedAttr(mhal::MHALDialect::getReadAccessAttrName(),
+                                 b.getUnitAttr());
+  auto writeAttr = b.getNamedAttr(mhal::MHALDialect::getWriteAccessAttrName(),
+                                  b.getUnitAttr());
   for (size_t index = 0; index < originalFunc.getArguments().size(); index++)
     originalFunc.setArgAttrs(index, readAttr);
   for (size_t index = 0; index < originalFunc.getNumResults(); index++)

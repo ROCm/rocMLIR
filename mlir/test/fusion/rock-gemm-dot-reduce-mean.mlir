@@ -14,7 +14,7 @@
 #transform_map4 = #rock.transform_map<#map5 by [<Unmerge{1, 32} ["exp0", "exp1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>] bounds = [1, 32, 32] -> [32, 32]>
 #transform_map5 = #rock.transform_map<#map6 by [<Merge{1, 32, 1} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [32] -> [1, 32, 1]>
 
-func.func @mlir_dot_add_reduce_mean(%arg0: memref<1024xf32>, %arg1: memref<4096xf32>, %arg2: memref<4096xf32>, %arg3: memref<32xf32> {func.read_access, rock.prefill = 0.000000e+00 : f32}) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr", num_cu = 120 : i64} {
+func.func @mlir_dot_add_reduce_mean(%arg0: memref<1024xf32>, %arg1: memref<4096xf32>, %arg2: memref<4096xf32>, %arg3: memref<32xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr", num_cu = 120 : i64} {
     %cst = arith.constant 3.125000e-02 : f32
     %0 = rock.transform %arg1 by #transform_map : memref<4096xf32> to memref<1x32x128xf32>
     %1 = rock.transform %arg2 by #transform_map1 : memref<4096xf32> to memref<1x128x32xf32>

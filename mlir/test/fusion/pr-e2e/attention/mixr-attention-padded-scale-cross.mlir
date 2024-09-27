@@ -2,11 +2,11 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x128x64xf32, 8192x64x1> {func.read_access},
-                                    %arg1: !migraphx.shaped<1x64x27xf32, 1728x27x1> {func.read_access},
-                                    %arg2: !migraphx.shaped<1x27x64xf32, 1728x64x1> {func.read_access},
-                                    %arg3: !migraphx.shaped<1x128x27xf32, 3456x27x1> {func.read_access}) 
-                                    -> (!migraphx.shaped<1x128x64xf32, 8192x64x1> {func.write_access}) {
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x128x64xf32, 8192x64x1> {mhal.read_access},
+                                    %arg1: !migraphx.shaped<1x64x27xf32, 1728x27x1> {mhal.read_access},
+                                    %arg2: !migraphx.shaped<1x27x64xf32, 1728x64x1> {mhal.read_access},
+                                    %arg3: !migraphx.shaped<1x128x27xf32, 3456x27x1> {mhal.read_access}) 
+                                    -> (!migraphx.shaped<1x128x64xf32, 8192x64x1> {mhal.write_access}) {
     %0 = migraphx.dot %arg0, %arg1: <1x128x64xf32, 8192x64x1>, <1x64x27xf32, 1728x27x1> -> <1x128x27xf32, 3456x27x1>
     %biased = migraphx.mul %0, %arg3 : <1x128x27xf32, 3456x27x1>, <1x128x27xf32, 3456x27x1> -> <1x128x27xf32, 3456x27x1>
     %1 = migraphx.softmax %biased{axis = 2 : i64} : <1x128x27xf32, 3456x27x1> -> <1x128x27xf32, 3456x27x1>
