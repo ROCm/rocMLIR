@@ -1050,6 +1050,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   for(int64_t i = 0; i < upperRank - 2; i++){
     removeIndicesSet.insert(i);
   }
+  llvm::errs() << "toBeReducedViews = " << toBeReducedViews << "\n";
   FailureOr<ArrayAttr> blockSubTileViews =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   // We only want to keep tid in the maps
@@ -1249,7 +1250,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     LLVM_DEBUG(llvm::dbgs() << "views = " << "\n";
     llvm::interleaveComma(views, llvm::dbgs()); llvm::dbgs() << "\n");
     threadwiseWriteOp.setExtraViewsAttr(rewriter.getArrayAttr({}));
-    // threadwiseWriteOp.getSourceMutable().assign(broadcastReducedSrc);
+    threadwiseWriteOp.getSourceMutable().assign(broadcastReducedSrc);
   }
   else{
     BottomUpTMBuilder dropReductionDim(rewriter, reduceOutShape, loc);

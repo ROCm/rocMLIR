@@ -468,7 +468,8 @@ void RockPadReductionFusionsPass::runOnOperation() {
       rewriter.setInsertionPointAfterValue(gemmOut);
       Value trGemmOut = gemmOut;
       Value firstUse = nullptr;
-      for (Attribute trMap : additionalOutputViews) {
+      ArrayAttr invertedOutViews = invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
+      for (Attribute trMap : invertedOutViews) {
         trGemmOut = rewriter.create<TransformOp>(rOp.getLoc(), trGemmOut, cast<TransformMapAttr>(trMap));
         if (!firstUse) firstUse = trGemmOut;
         // llvm::errs() << "transform()::ret=" << trGemmInB << "\n";
