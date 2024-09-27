@@ -288,9 +288,8 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
       auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
                                                       LLVM::AsmDialect::AD_ATT);
       Location loc = op->getLoc();
-      // Ensure the inlineAsm is guarded with a scheduling region
-      // So it will not interfere with backend compilation more than
-      // it needs.
+      // TODO: Revert scheduling region when
+      // https://github.com/llvm/llvm-project/issues/109294 is fixed
       rewriter.create<amdgpu::SchedBarrierOp>(
           loc, amdgpu::sched_barrier_opt_enum::none);
       const char *asmStr =
