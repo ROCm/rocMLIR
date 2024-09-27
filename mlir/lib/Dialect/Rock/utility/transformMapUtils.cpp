@@ -104,8 +104,10 @@ Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
   auto reverseTransformVec = llvm::reverse(transformsVec);
   Location loc = toBeTransformed.getLoc();
   Value ret = toBeTransformed;
+  llvm::errs() << "transform()::ret=" << ret << "\n";
   for (TransformMapAttr trMap : reverseTransformVec) {
     ret = b.create<TransformOp>(loc, ret, trMap);
+    llvm::errs() << "transform()::ret=" << ret << "\n";
   }
   return ret;
 }
@@ -2092,7 +2094,7 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
                   {diff, newRemovedSubDimStride});
               LLVM_DEBUG(llvm::dbgs() << "origLowerBounds[lowDim]=" << origLowerBounds[lowDim] << "\n");
               LLVM_DEBUG(llvm::dbgs() << "diff=" << diff << "\n");
-              // assert(origLowerBounds[lowDim] % diff == 0);
+              assert(origLowerBounds[lowDim] % diff == 0);
               origLowerBounds[lowDim] = origLowerBounds[lowDim] / diff;
             }
           }
