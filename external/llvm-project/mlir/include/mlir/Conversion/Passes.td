@@ -591,9 +591,6 @@ def ConvertGpuOpsToROCDLOps : Pass<"convert-gpu-to-rocdl", "gpu::GPUModuleOp"> {
     "memref::MemRefDialect",
   ];
   let options = [
-    Option<"chipset", "chipset", "std::string",
-           /*default=*/"\"gfx000\"",
-           "Chipset that these operations will run on">,
     Option<"indexBitwidth", "index-bitwidth", "unsigned",
            /*default=kDeriveIndexBitwidthFromDataLayout*/"0",
            "Bitwidth of the index type, 0 to use size of machine word">,
