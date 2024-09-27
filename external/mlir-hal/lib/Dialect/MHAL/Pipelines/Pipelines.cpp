@@ -66,7 +66,7 @@ void mhal::buildGraphPipeline(OpPassManager &pm,
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
   /* mlir-opt --tosa-make-broadcastable
-         --tosa-partition
+         --tosa-partition --mhal-annotate-access-kinds
    */
   pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
   pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
@@ -77,6 +77,7 @@ void mhal::buildGraphPipeline(OpPassManager &pm,
   opts.anchorOps = anchors;
   opts.trailingOnly = true;
   pm.addPass(tosa::createTosaPartition(opts));
+  pm.addPass(mhal::createMHALAnnotateAccessKindsPass());
 
   /* mlir-opt --duplicate-function-elimination
    */

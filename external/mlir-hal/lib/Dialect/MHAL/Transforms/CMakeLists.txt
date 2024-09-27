@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRMHALTransforms
+  AnnotateAccessKinds.cpp
   Bufferize.cpp
   BufferizableOpInterfaceImpl.cpp
   DropMetadata.cpp

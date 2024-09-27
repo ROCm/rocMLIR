@@ -1006,21 +1006,21 @@ LogicalResult InsertSliceOp::verify() {
 // GpuAllocOp
 //===-----------------------------------------------------===//
 
-static int64_t getSize(MemRefType memref) {
-  int64_t elementSize;
+static int64_t getByteSize(MemRefType memref) {
+  int64_t elementBitWidth = 0;
   Type type = memref.getElementType();
   if (auto vecType = dyn_cast<VectorType>(type)) {
-    elementSize =
-        (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
+    elementBitWidth =
+        (vecType.getElementTypeBitWidth() * vecType.getNumElements());
   } else {
-    elementSize = type.getIntOrFloatBitWidth() / 8;
+    elementBitWidth = type.getIntOrFloatBitWidth();
   }
-  return memref.getNumElements() * elementSize;
+  return (memref.getNumElements() * elementBitWidth) / 8;
 }
 
 LogicalResult GpuAllocOp::verify() {
   // Make sure the size is bigger than 0
-  if (getSize(getOutput().getType()) > 0) {
+  if (getByteSize(getOutput().getType()) > 0) {
     return success();
   }
   return emitError("The size of rock.alloc should be greather than zero.");
@@ -1034,7 +1034,7 @@ LogicalResult GpuDeallocOp::verify() {
   // Make sure the input memref defining operation is a GpuAllocOp
   if (auto gpuAlloc = dyn_cast<GpuAllocOp>(getMemref().getDefiningOp())) {
     // Make sure the size is bigger than 0
-    if (getSize(getMemref().getType()) > 0) {
+    if (getByteSize(getMemref().getType()) > 0) {
       return success();
     }
     return emitError("The size of rock.dealloc should be greather than zero.");
@@ -1667,6 +1667,23 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
           "Vector buffers vector's lengths need to be evenly divisible");
   }
 
+  if (!getDynamicValidities().empty()) {
+    if (srcType.getElementType() != destType.getElementType()) {
+      return emitOpError("dynamic validities applied where the "
+                         "source and destination have different types are "
+                         "currently unimplemented");
+    }
+    if (srcVectorType) {
+      return emitOpError(
+          "dynamic validities with vector buffers are unimplemented");
+    }
+    if (!gpuSrcMemSpaceAttr ||
+        gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitOpError(
+          "it's currently expeccted that dynamic validities will only be used "
+          "in register-to-register reads produced by input fusion");
+    }
+  }
   return success();
 }
 

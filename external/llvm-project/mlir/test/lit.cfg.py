@@ -78,6 +78,7 @@ def add_runtime(name):
 
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
+llvm_config.with_environment("AMD_LOG_LEVEL", "4")
 
 llvm_config.use_default_substitutions()
 

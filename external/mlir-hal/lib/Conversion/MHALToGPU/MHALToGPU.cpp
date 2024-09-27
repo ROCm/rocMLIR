@@ -233,9 +233,9 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
       // move input memories to GPU
       if (isa<MemRefType>(opr.getType())) {
         bool readAccess{
-            func.getArgAttr(fidx, func::FuncOp::getReadAccessAttrName())};
+            func.getArgAttr(fidx, mhal::MHALDialect::getReadAccessAttrName())};
         bool writeAccess{
-            func.getArgAttr(fidx, func::FuncOp::getWriteAccessAttrName())};
+            func.getArgAttr(fidx, mhal::MHALDialect::getWriteAccessAttrName())};
         opr = moveMemory(rw, op, opr, fidx, readAccess, writeAccess,
                          copyBackOprs, asyncDeps);
       }

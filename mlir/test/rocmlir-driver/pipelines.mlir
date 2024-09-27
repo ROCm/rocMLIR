@@ -85,6 +85,7 @@
 // PARTITION-NEXT:tosa-partition{anchor-ops={tosa.conv2d,
 // PARTITION-NEXT:tosa.depthwise_conv2d,
 // PARTITION-NEXT:tosa.matmul} partition-tag=kernel  trailing-only=true},
+// PARTITION-NEXT:func.func(mhal-annotate-access-kinds),
 // PARTITION-NEXT:duplicate-function-elimination,
 // PARTITION-NEXT:func.func(mhal-infer-graph),
 // PARTITION-NEXT:mhal-target-kernels{targets={amdgcn-amd-amdhsa:gfx90a}})

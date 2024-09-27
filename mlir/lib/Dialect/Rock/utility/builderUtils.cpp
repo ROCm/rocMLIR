@@ -202,5 +202,10 @@ Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
   return origTensor;
 }
 
+Type vectorOfBoolShapedLike(Value v) {
+  return VectorType::get(cast<ShapedType>(v.getType()).getShape(),
+                         IntegerType::get(v.getContext(), 1));
+}
+
 } // namespace rock
 } // namespace mlir

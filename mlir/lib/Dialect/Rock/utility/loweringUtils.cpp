@@ -760,6 +760,14 @@ Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
   auto memoryAddressSpaceAttr =
       b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
 
+  // Note: we don't need to create views for register buffers, since those won't
+  // have real memory accesses at the end of the day. This is important when
+  // dealing with booleans and sub-byte types.
+  if (memoryAddressSpace == gpu::AddressSpace::Private) {
+    auto memType = MemRefType::get({bufferDim}, elementType, AffineMap{},
+                                   memoryAddressSpaceAttr);
+    return b.create<GpuAllocOp>(loc, memType);
+  }
   auto rawMemType =
       MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
                       AffineMap{}, memoryAddressSpaceAttr);
