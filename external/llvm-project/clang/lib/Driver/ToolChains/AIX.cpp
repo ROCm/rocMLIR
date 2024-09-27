@@ -306,6 +306,9 @@ void aix::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         case Driver::OMPRT_GOMP:
           CmdArgs.push_back("-lgomp");
           break;
+        case Driver::OMPRT_BOLT:
+          llvm::report_fatal_error("AIX toolchain does not support OMPRT_BOLT");
+          break;
         case Driver::OMPRT_Unknown:
           // Already diagnosed.
           break;
@@ -377,6 +380,7 @@ void AIX::AddOpenMPIncludeArgs(const ArgList &DriverArgs,
       break;
     case Driver::OMPRT_IOMP5:
     case Driver::OMPRT_GOMP:
+    case Driver::OMPRT_BOLT:
     case Driver::OMPRT_Unknown:
       // Unknown / unsupported include paths.
       break;
@@ -560,12 +564,6 @@ void AIX::addClangTargetOptions(
   if (!Args.getLastArgNoClaim(options::OPT_fsized_deallocation,
                               options::OPT_fno_sized_deallocation))
     CC1Args.push_back("-fno-sized-deallocation");
-
-  if (Args.hasFlag(options::OPT_ferr_pragma_mc_func_aix,
-                   options::OPT_fno_err_pragma_mc_func_aix, false))
-    CC1Args.push_back("-ferr-pragma-mc-func-aix");
-  else
-    CC1Args.push_back("-fno-err-pragma-mc-func-aix");
 }
 
 void AIX::addProfileRTLibs(const llvm::opt::ArgList &Args,

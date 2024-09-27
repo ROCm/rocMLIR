@@ -228,6 +228,11 @@ bool PEI::runOnMachineFunction(MachineFunction &MF) {
   FrameIndexVirtualScavenging = TRI->requiresFrameIndexScavenging(MF);
   ORE = &getAnalysis<MachineOptimizationRemarkEmitterPass>().getORE();
 
+  // Spill frame pointer and/or base pointer registers if they are clobbered.
+  // It is placed before call frame instruction elimination so it will not mess
+  // with stack arguments.
+  TFI->spillFPBP(MF);
+
   // Calculate the MaxCallFrameSize value for the function's frame
   // information. Also eliminates call frame pseudo instructions.
   calculateCallFrameInfo(MF);
@@ -340,6 +345,9 @@ bool PEI::runOnMachineFunction(MachineFunction &MF) {
            << " stack bytes in function '"
            << ore::NV("Function", MF.getFunction().getName()) << "'";
   });
+
+  // Emit any remarks implemented for the target, based on final frame layout.
+  TFI->emitRemarks(MF, ORE);
 
   delete RS;
   SaveBlocks.clear();
@@ -1421,6 +1429,24 @@ bool PEI::replaceFrameIndexDebugInstr(MachineFunction &MF, MachineInstr &MI,
       }
     }
     Lifetime->setLocation(Builder.intoExpr());
+    return true;
+  }
+
+  if (MI.isDebugValue() && MI.getDebugExpression()->holdsNewElements()) {
+    MachineOperand &Op = MI.getOperand(OpIdx);
+    Register Reg;
+    unsigned FrameIdx = Op.getIndex();
+    StackOffset Offset = TFI->getFrameIndexReference(MF, FrameIdx, Reg);
+
+    if (Reg) {
+      Op.ChangeToRegister(Reg, false /*isDef*/);
+      Op.setIsDebug();
+    } else {
+      Op.ChangeToImmediate(0);
+    }
+
+    MI.getDebugExpressionOp().setMetadata(TFI->lowerFIArgToFPArg(
+        MF, MI.getDebugExpression(), MI.getDebugOperandIndex(&Op), Offset));
     return true;
   }
 

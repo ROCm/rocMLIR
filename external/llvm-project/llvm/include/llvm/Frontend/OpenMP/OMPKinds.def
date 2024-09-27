@@ -308,6 +308,14 @@ __OMP_RTL(__kmpc_distribute_static_init_8, false, Void, IdentPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
 __OMP_RTL(__kmpc_distribute_static_init_8u, false, Void, IdentPtr, Int32, Int32,
           Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
+__OMP_RTL(__kmpc_distribute_static_init_multi_device_4, false, Void, IdentPtr, Int32, Int32,
+          Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
+__OMP_RTL(__kmpc_distribute_static_init_multi_device_4u, false, Void, IdentPtr, Int32, Int32,
+          Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32Ptr, Int32, Int32)
+__OMP_RTL(__kmpc_distribute_static_init_multi_device_8, false, Void, IdentPtr, Int32, Int32,
+          Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
+__OMP_RTL(__kmpc_distribute_static_init_multi_device_8u, false, Void, IdentPtr, Int32, Int32,
+          Int32Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64Ptr, Int64, Int64)
 __OMP_RTL(__kmpc_distribute_static_fini, false, Void, IdentPtr, Int32)
 __OMP_RTL(__kmpc_dist_dispatch_init_4, false, Void, IdentPtr, Int32, Int32,
           Int32Ptr, Int32, Int32, Int32, Int32)
@@ -481,6 +489,7 @@ __OMP_RTL(omp_get_default_device, false, Int32,)
 /// OpenMP Device runtime functions
 __OMP_RTL(__kmpc_target_init, false, Int32, KernelEnvironmentPtr, KernelLaunchEnvironmentPtr)
 __OMP_RTL(__kmpc_target_deinit, false, Void,)
+__OMP_RTL(__kmpc_specialized_kernel_init, false, Void,)
 __OMP_RTL(__kmpc_kernel_prepare_parallel, false, Void, VoidPtr)
 __OMP_RTL(__kmpc_parallel_51, false, Void, IdentPtr, Int32, Int32, Int32, Int32,
           VoidPtr, VoidPtr, VoidPtrPtr, SizeTy)
@@ -527,8 +536,6 @@ __OMP_RTL(__kmpc_warp_active_thread_mask, false, Int64,)
 __OMP_RTL(__kmpc_syncwarp, false, Void, Int64)
 
 __OMP_RTL(__kmpc_is_generic_main_thread_id, false, Int8, Int32)
-
-__OMP_RTL(__kmpc_unsafeAtomicAdd, false, Float, FloatPtr, Float)
 
 __OMP_RTL(__kmpc_atomicCASLoopAdd_float, false, Void, FloatPtr, Float)
 
@@ -649,6 +656,9 @@ __OMP_RTL(__kmpc_xteamr_i_32x32_fast_sum, false, Void, Int32, Int32Ptr, Int32Ptr
 __OMP_RTL(__kmpc_xteamr_l_32x32, false, Void, Int64, Int64Ptr, Int64Ptr, Int32Ptr, VoidPtr, VoidPtr, Int64, Int64, Int32)
 
 __OMP_RTL(__kmpc_xteamr_l_32x32_fast_sum, false, Void, Int64, Int64Ptr, Int64Ptr, Int32Ptr, VoidPtr, VoidPtr, Int64, Int64, Int32)
+
+__OMP_RTL(__llvm_profile_register_function, false, Void, VoidPtr)
+__OMP_RTL(__llvm_profile_register_names_function, false, Void, VoidPtr, Int64)
 
 __OMP_RTL(__last, false, Void, )
 
@@ -1218,6 +1228,8 @@ __OMP_RTL_ATTRS(__kmpc_task_allow_completion_event, DefaultAttrs,
 __OMP_RTL_ATTRS(__kmpc_target_init, AttributeSet(), SExt,
                 ParamAttrs(AttributeSet()))
 __OMP_RTL_ATTRS(__kmpc_target_deinit, AttributeSet(), AttributeSet(),
+                ParamAttrs())
+__OMP_RTL_ATTRS(__kmpc_specialized_kernel_init, AttributeSet(), AttributeSet(),
                 ParamAttrs())
 __OMP_RTL_ATTRS(__kmpc_parallel_spmd, AlwaysInlineAttrs, AttributeSet(),
                 ParamAttrs())

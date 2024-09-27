@@ -1193,18 +1193,17 @@ template <> struct MDNodeKeyImpl<DILabel> {
 };
 
 template <> struct MDNodeKeyImpl<DIExpression> {
-  ArrayRef<uint64_t> Elements;
+  DIExpression::ElementsRef Elements;
 
+  MDNodeKeyImpl(DIExpression::NewElementsRef Elements) : Elements(Elements) {}
   MDNodeKeyImpl(ArrayRef<uint64_t> Elements) : Elements(Elements) {}
-  MDNodeKeyImpl(const DIExpression *N) : Elements(N->getElements()) {}
+  MDNodeKeyImpl(const DIExpression *N) : Elements(N->getElementsRef()) {}
 
   bool isKeyOf(const DIExpression *RHS) const {
-    return Elements == RHS->getElements();
+    return Elements == RHS->getElementsRef();
   }
 
-  unsigned getHashValue() const {
-    return hash_combine_range(Elements.begin(), Elements.end());
-  }
+  unsigned getHashValue() const { return hash_value(Elements); }
 };
 
 template <> struct MDNodeKeyImpl<DIExpr> {
@@ -1634,7 +1633,6 @@ public:
   DenseMap<std::pair<Type *, ElementCount>, VectorType *> VectorTypes;
   PointerType *AS0PointerType = nullptr; // AddrSpace = 0
   DenseMap<unsigned, PointerType *> PointerTypes;
-  DenseMap<std::pair<Type *, unsigned>, PointerType *> LegacyPointerTypes;
   DenseMap<std::pair<Type *, unsigned>, TypedPointerType *> ASTypedPointerTypes;
 
   /// ValueHandles - This map keeps track of all of the value handles that are

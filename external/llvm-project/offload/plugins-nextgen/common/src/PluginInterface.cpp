@@ -15,8 +15,10 @@
 #include "Shared/Debug.h"
 #include "Shared/Environment.h"
 
+#include "ErrorReporting.h"
 #include "GlobalHandler.h"
 #include "JIT.h"
+#include "Shared/Utils.h"
 #include "Utils/ELF.h"
 #include "omptarget.h"
 #include "print_tracing.h"
@@ -34,6 +36,8 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Signals.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>
 #include <limits>
@@ -107,7 +111,7 @@ private:
         Device->allocate(1024, /*HstPtr=*/nullptr, TARGET_ALLOC_DEFAULT);
     Device->free(Addr);
     // Align Address to MaxMemoryAllocation
-    Addr = (void *)alignPtr((Addr), MaxMemoryAllocation);
+    Addr = (void *)utils::alignPtr((Addr), MaxMemoryAllocation);
     return Addr;
   }
 
@@ -240,8 +244,8 @@ public:
     if (EC)
       report_fatal_error("Error saving image : " + StringRef(EC.message()));
     if (const auto *TgtImageBitcode = Image.getTgtImageBitcode()) {
-      size_t Size =
-          getPtrDiff(TgtImageBitcode->ImageEnd, TgtImageBitcode->ImageStart);
+      size_t Size = utils::getPtrDiff(TgtImageBitcode->ImageEnd,
+                                      TgtImageBitcode->ImageStart);
       MemoryBufferRef MBR = MemoryBufferRef(
           StringRef((const char *)TgtImageBitcode->ImageStart, Size), "");
       OS << MBR.getBuffer();
@@ -274,10 +278,10 @@ public:
 
       int32_t NameLength = std::strlen(OffloadEntry.Name) + 1;
       memcpy(BufferPtr, OffloadEntry.Name, NameLength);
-      BufferPtr = advanceVoidPtr(BufferPtr, NameLength);
+      BufferPtr = utils::advancePtr(BufferPtr, NameLength);
 
       *((uint32_t *)(BufferPtr)) = OffloadEntry.Size;
-      BufferPtr = advanceVoidPtr(BufferPtr, sizeof(uint32_t));
+      BufferPtr = utils::advancePtr(BufferPtr, sizeof(uint32_t));
 
       auto Err = Plugin::success();
       {
@@ -287,11 +291,12 @@ public:
       }
       if (Err)
         report_fatal_error("Error retrieving data for global");
-      BufferPtr = advanceVoidPtr(BufferPtr, OffloadEntry.Size);
+      BufferPtr = utils::advancePtr(BufferPtr, OffloadEntry.Size);
     }
     assert(BufferPtr == GlobalsMB->get()->getBufferEnd() &&
            "Buffer over/under-filled.");
-    assert(Size == getPtrDiff(BufferPtr, GlobalsMB->get()->getBufferStart()) &&
+    assert(Size == utils::getPtrDiff(BufferPtr,
+                                     GlobalsMB->get()->getBufferStart()) &&
            "Buffer size mismatch");
 
     StringRef GlobalsMemory(GlobalsMB.get()->getBufferStart(), Size);
@@ -519,6 +524,18 @@ Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
     ExecutionMode = ExecModeGlobal.getValue();
   }
 
+  // Create a metadata object for the multi-device global (auto-generated).
+  StaticGlobalTy<int8_t> MultiDeviceGlobal(Name, "_multi_device");
+  if (auto Err = GHandler.readGlobalFromImage(GenericDevice, Image,
+                                              MultiDeviceGlobal)) {
+    DP("Missing symbol %s, continue execution anyway.\n",
+       MultiDeviceGlobal.getName().data());
+    consumeError(std::move(Err));
+    IsMultiDeviceKernel = false;
+  } else {
+    IsMultiDeviceKernel = MultiDeviceGlobal.getValue();
+  }
+
   // Max = Config.Max > 0 ? min(Config.Max, Device.Max) : Device.Max;
   MaxNumThreads = KernelEnvironment.Configuration.MaxThreads > 0
                       ? std::min(KernelEnvironment.Configuration.MaxThreads,
@@ -618,20 +635,24 @@ GenericKernelTy::getKernelLaunchEnvironment(
 
 Error GenericKernelTy::printLaunchInfo(GenericDeviceTy &GenericDevice,
                                        KernelArgsTy &KernelArgs,
-                                       uint32_t NumThreads,
-                                       uint64_t NumBlocks) const {
+                                       uint32_t NumThreads, uint64_t NumBlocks,
+                                       int64_t MultiDeviceLB,
+                                       int64_t MultiDeviceUB) const {
   INFO(OMP_INFOTYPE_PLUGIN_KERNEL, GenericDevice.getDeviceId(),
        "Launching kernel %s with %" PRIu64
-       " blocks and %d threads in %s mode\n",
-       getName(), NumBlocks, NumThreads, getExecutionModeName());
+       " blocks and %d threads in %s mode %s\n",
+       getName(), NumBlocks, NumThreads, getExecutionModeName(),
+       isMultiDeviceKernel() ? " in multi-device mode" : "");
   return printLaunchInfoDetails(GenericDevice, KernelArgs, NumThreads,
-                                NumBlocks);
+                                NumBlocks, MultiDeviceLB, MultiDeviceUB);
 }
 
 Error GenericKernelTy::printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
                                               KernelArgsTy &KernelArgs,
                                               uint32_t NumThreads,
-                                              uint64_t NumBlocks) const {
+                                              uint64_t NumBlocks,
+                                              int64_t MultiDeviceLB,
+                                              int64_t MultiDeviceUB) const {
   return Plugin::success();
 }
 
@@ -646,9 +667,55 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
   if (!KernelLaunchEnvOrErr)
     return KernelLaunchEnvOrErr.takeError();
 
-  KernelLaunchParamsTy LaunchParams =
-      prepareArgs(GenericDevice, ArgPtrs, ArgOffsets, KernelArgs.NumArgs, Args,
-                  Ptrs, *KernelLaunchEnvOrErr);
+  // If the multi-device mode is not enabled for this kernel then there is no
+  // need to overwrite any arguments.
+  int32_t NumMultiDevices = GenericDevice.getNumMultiDevices();
+  int64_t MultiDeviceLB = -1;
+  int64_t MultiDeviceUB = -1;
+  if (isMultiDeviceKernel() && NumMultiDevices > 0) {
+    // Compute the chunk size based on how many devices we are targeting and
+    // the length of the loop trip count.
+    int32_t DeviceId = GenericDevice.getDeviceId();
+    if (KernelArgs.Tripcount < NumMultiDevices) {
+      ArgPtrs[0] = (void *)0;
+      ArgPtrs[1] = (void *)(KernelArgs.Tripcount - 1);
+    } else {
+      int64_t Chunk = (int64_t)KernelArgs.Tripcount / NumMultiDevices;
+
+      // Set the lower bound. Consider the case where the LB of the loop is not
+      // zero.
+      ArgPtrs[0] = (void *)(DeviceId * Chunk);
+
+      // Set the upper bound. If this is the last device then leave the upper
+      // limit unchanged because it is already set to the loop UB.
+      // TODO: support case where the first device is not device 0.
+      if (DeviceId < NumMultiDevices - 1)
+        ArgPtrs[1] = (void *)(((DeviceId + 1) * Chunk) - 1);
+      else if (DeviceId == NumMultiDevices - 1)
+        ArgPtrs[1] = (void *)(KernelArgs.Tripcount - 1);
+      else
+        assert(false && "Upper bound could not be set");
+    }
+
+    MultiDeviceLB = (int64_t)ArgPtrs[0];
+    MultiDeviceUB = (int64_t)ArgPtrs[1];
+  }
+
+  KernelLaunchParamsTy LaunchParams;
+
+  // Kernel languages don't use indirection.
+  if (KernelArgs.Flags.IsCUDA) {
+    assert(!isMultiDeviceKernel() && "Multi-device not supported");
+    LaunchParams =
+        *reinterpret_cast<KernelLaunchParamsTy *>(KernelArgs.ArgPtrs);
+  } else {
+    LaunchParams =
+        prepareArgs(GenericDevice, ArgPtrs, ArgOffsets, KernelArgs.NumArgs,
+                    Args, Ptrs, *KernelLaunchEnvOrErr);
+  }
+
+  // Get max occupancy for this kernel
+  computeMaxOccupancy(GenericDevice);
 
   uint32_t NumThreads = getNumThreads(GenericDevice, KernelArgs.ThreadLimit);
 
@@ -671,14 +738,22 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
                                  NumBlocks, NumThreads, KernelArgs.Tripcount);
   }
 
-  if (auto Err =
-          printLaunchInfo(GenericDevice, KernelArgs, NumThreads, NumBlocks))
+  // Get achieved occupancy for this kernel.
+  computeAchievedOccupancy(GenericDevice, NumThreads, NumBlocks);
+
+  if (auto Err = printLaunchInfo(GenericDevice, KernelArgs, NumThreads,
+                                 NumBlocks, MultiDeviceLB, MultiDeviceUB))
     return Err;
 
-  OMPT_IF_TRACING_ENABLED(setOmptGrantedNumTeams(NumBlocks);
-                          // Set number of granted teams for OMPT
-                          __tgt_async_info *AI = AsyncInfoWrapper;
-                          AI->OmptEventInfo->NumTeams = NumBlocks;);
+  OMPT_IF_TRACING_ENABLED(if (llvm::omp::target::ompt::isTracedDevice(
+                                  getDeviceId(&GenericDevice))) {
+    __tgt_async_info *AI = AsyncInfoWrapper;
+    if (AI->OmptEventInfo != nullptr) {
+      // Set number of granted teams for OMPT
+      setOmptGrantedNumTeams(NumBlocks);
+      AI->OmptEventInfo->NumTeams = NumBlocks;
+    }
+  });
 
   return launchImpl(GenericDevice, NumThreads, NumBlocks, KernelArgs,
                     LaunchParams, AsyncInfoWrapper);
@@ -836,6 +911,7 @@ GenericDeviceTy::GenericDeviceTy(GenericPluginTy &Plugin, int32_t DeviceId,
       // By default, the initial number of streams and events is 1.
       OMPX_InitialNumStreams("LIBOMPTARGET_NUM_INITIAL_STREAMS", 1),
       OMPX_InitialNumEvents("LIBOMPTARGET_NUM_INITIAL_EVENTS", 1),
+      OMPX_NumMultiDevices("LIBOMPTARGET_NUM_MULTI_DEVICES", 0),
       DeviceId(DeviceId), GridValues(OMPGridValues),
       PeerAccesses(NumDevices, PeerAccessState::PENDING), PeerAccessesLock(),
       PinnedAllocs(*this), RPCServer(nullptr) {
@@ -871,7 +947,7 @@ Error GenericDeviceTy::init(GenericPluginTy &Plugin) {
 
 #ifdef OMPT_SUPPORT
   auto DevicePtr = reinterpret_cast<ompt_device_t *>(this);
-  ompt::setDeviceId(DevicePtr, DeviceId);
+  ompt::setDeviceId(DevicePtr, Plugin.getUserId(DeviceId));
   if (ompt::CallbacksInitialized) {
     bool ExpectedStatus = false;
     if (OmptInitialized.compare_exchange_strong(ExpectedStatus, true))
@@ -955,6 +1031,20 @@ Error GenericDeviceTy::deinit(GenericPluginTy &Plugin) {
            DeviceMemoryPoolTracking.AllocationMax);
   }
 
+  for (auto *Image : LoadedImages) {
+    GenericGlobalHandlerTy &Handler = Plugin.getGlobalHandler();
+    if (!Handler.hasProfilingGlobals(*this, *Image))
+      continue;
+
+    GPUProfGlobals profdata;
+    auto ProfOrErr = Handler.readProfilingGlobals(*this, *Image);
+    if (!ProfOrErr)
+      return ProfOrErr.takeError();
+
+    // TODO: write data to profiling file
+    ProfOrErr->dump();
+  }
+
   // Delete the memory manager before deinitializing the device. Otherwise,
   // we may delete device allocations after the device is deinitialized.
   if (MemoryManager)
@@ -1031,7 +1121,7 @@ GenericDeviceTy::loadBinary(GenericPluginTy &Plugin,
 #ifdef OMPT_SUPPORT
   if (ompt::CallbacksInitialized) {
     size_t Bytes =
-        getPtrDiff(InputTgtImage->ImageEnd, InputTgtImage->ImageStart);
+        utils::getPtrDiff(InputTgtImage->ImageEnd, InputTgtImage->ImageStart);
     performOmptCallback(
         device_load, Plugin.getUserId(DeviceId),
         /*FileName=*/nullptr, /*FileOffset=*/0, /*VmaInFile=*/nullptr,
@@ -1270,8 +1360,8 @@ Expected<void *> PinnedAllocationMapTy::lockHostBuffer(void *HstPtr,
       return std::move(Err);
 
     // Return the device accessible pointer with the correct offset.
-    return advanceVoidPtr(Entry->DevAccessiblePtr,
-                          getPtrDiff(HstPtr, Entry->HstPtr));
+    return utils::advancePtr(Entry->DevAccessiblePtr,
+                             utils::getPtrDiff(HstPtr, Entry->HstPtr));
   }
 
   // No intersecting registered allocation found in the map. First, lock the
@@ -1473,6 +1563,25 @@ Expected<void *> GenericDeviceTy::dataAlloc(int64_t Size, void *HostPtr,
     if (auto Err = PinnedAllocs.registerHostBuffer(Alloc, Alloc, Size))
       return std::move(Err);
 
+  // Keep track of the allocation stack if we track allocation traces.
+  if (OMPX_TrackAllocationTraces) {
+    std::string StackTrace;
+    llvm::raw_string_ostream OS(StackTrace);
+    llvm::sys::PrintStackTrace(OS);
+
+    AllocationTraceInfoTy *ATI = new AllocationTraceInfoTy();
+    ATI->AllocationTrace = std::move(StackTrace);
+    ATI->DevicePtr = Alloc;
+    ATI->HostPtr = HostPtr;
+    ATI->Size = Size;
+    ATI->Kind = Kind;
+
+    auto AllocationTraceMap = AllocationTraces.getExclusiveAccessor();
+    auto *&MapATI = (*AllocationTraceMap)[Alloc];
+    ATI->LastAllocationInfo = MapATI;
+    MapATI = ATI;
+  }
+
   return Alloc;
 }
 
@@ -1480,6 +1589,37 @@ Error GenericDeviceTy::dataDelete(void *TgtPtr, TargetAllocTy Kind) {
   // Free is a noop when recording or replaying.
   if (Plugin.getRecordReplay().isRecordingOrReplaying())
     return Plugin::success();
+
+  // Keep track of the deallocation stack if we track allocation traces.
+  if (OMPX_TrackAllocationTraces) {
+    AllocationTraceInfoTy *ATI = nullptr;
+    {
+      auto AllocationTraceMap = AllocationTraces.getExclusiveAccessor();
+      ATI = (*AllocationTraceMap)[TgtPtr];
+    }
+
+    std::string StackTrace;
+    llvm::raw_string_ostream OS(StackTrace);
+    llvm::sys::PrintStackTrace(OS);
+
+    if (!ATI)
+      ErrorReporter::reportDeallocationOfNonAllocatedPtr(TgtPtr, Kind, ATI,
+                                                         StackTrace);
+
+    // ATI is not null, thus we can lock it to inspect and modify it further.
+    std::lock_guard<std::mutex> LG(ATI->Lock);
+    if (!ATI->DeallocationTrace.empty())
+      ErrorReporter::reportDeallocationOfDeallocatedPtr(TgtPtr, Kind, ATI,
+                                                        StackTrace);
+
+    if (ATI->Kind != Kind)
+      ErrorReporter::reportDeallocationOfWrongPtrKind(TgtPtr, Kind, ATI,
+                                                      StackTrace);
+
+    ATI->DeallocationTrace = StackTrace;
+
+#undef DEALLOCATION_ERROR
+  }
 
   int Res;
   switch (Kind) {
@@ -1550,6 +1690,18 @@ Error GenericDeviceTy::launchKernel(void *EntryPtr, void **ArgPtrs,
 
   GenericKernelTy &GenericKernel =
       *reinterpret_cast<GenericKernelTy *>(EntryPtr);
+
+  {
+    std::string StackTrace;
+    if (OMPX_TrackNumKernelLaunches) {
+      llvm::raw_string_ostream OS(StackTrace);
+      llvm::sys::PrintStackTrace(OS);
+    }
+
+    auto KernelTraceInfoRecord = KernelLaunchTraces.getExclusiveAccessor();
+    (*KernelTraceInfoRecord)
+        .emplace(&GenericKernel, std::move(StackTrace), AsyncInfo);
+  }
 
   auto Err = GenericKernel.launch(*this, ArgPtrs, ArgOffsets, KernelArgs,
                                   AsyncInfoWrapper);
@@ -1666,6 +1818,13 @@ Error GenericDeviceTy::zeroCopySanityChecksAndDiag(bool isUnifiedSharedMemory,
                                                    bool isEagerMaps) {
   return zeroCopySanityChecksAndDiagImpl(isUnifiedSharedMemory, isAutoZeroCopy,
                                          isEagerMaps);
+}
+
+bool GenericDeviceTy::getMultiDeviceKernelValue(void *EntryPtr) {
+  GenericKernelTy &GenericKernel =
+      *reinterpret_cast<GenericKernelTy *>(EntryPtr);
+
+  return GenericKernel.isMultiDeviceKernel();
 }
 
 Error GenericPluginTy::init() {
@@ -1800,7 +1959,7 @@ int32_t GenericPluginTy::is_plugin_compatible(__tgt_device_image *Image) {
   auto T = logger::log<int32_t>(__func__, Image);
   auto R = [&]() {
     StringRef Buffer(reinterpret_cast<const char *>(Image->ImageStart),
-                     target::getPtrDiff(Image->ImageEnd, Image->ImageStart));
+                     utils::getPtrDiff(Image->ImageEnd, Image->ImageStart));
 
     auto HandleError = [&](Error Err) -> bool {
       [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
@@ -1837,7 +1996,7 @@ int32_t GenericPluginTy::is_device_compatible(int32_t DeviceId,
   auto T = logger::log<int32_t>(__func__, DeviceId, Image);
   auto R = [&]() {
     StringRef Buffer(reinterpret_cast<const char *>(Image->ImageStart),
-                     target::getPtrDiff(Image->ImageEnd, Image->ImageStart));
+                     utils::getPtrDiff(Image->ImageEnd, Image->ImageStart));
 
     auto HandleError = [&](Error Err) -> bool {
       [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
@@ -2612,6 +2771,23 @@ int32_t GenericPluginTy::zero_copy_sanity_checks_and_diag(
     }
 
     return OFFLOAD_SUCCESS;
+  }();
+  T.res(R);
+  return R;
+}
+
+int32_t GenericPluginTy::get_num_multi_devices(int32_t DeviceId) {
+  auto T = logger::log<int32_t>(__func__);
+  auto R = [&]() { return getDevice(DeviceId).getNumMultiDevices(); }();
+  T.res(R);
+  return R;
+}
+
+bool GenericPluginTy::kernel_is_multi_device(int32_t DeviceId,
+                                             void *TgtEntryPtr) {
+  auto T = logger::log<bool>(__func__, DeviceId, TgtEntryPtr);
+  auto R = [&]() {
+    return getDevice(DeviceId).getMultiDeviceKernelValue(TgtEntryPtr);
   }();
   T.res(R);
   return R;

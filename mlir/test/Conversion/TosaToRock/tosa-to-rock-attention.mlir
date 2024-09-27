@@ -2,8 +2,8 @@
 
 // CHECK: rock.attention
 func.func @self_attention(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
-  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi64>
-  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi64>) -> tensor<1x64x384xf32>
+  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi32>
+  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi32>) -> tensor<1x64x384xf32>
   %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x384x64xf32>, tensor<1x64x384xf32>) -> tensor<1x384x384xf32>
   %2 = "tosa.mul"(%1, %arg3) {shift = 0 : i8} : (tensor<1x384x384xf32>, tensor<1x384x384xf32>) -> tensor<1x384x384xf32>
   %3 = "tosa.reduce_max"(%2) {axis = 1 : i32} : (tensor<1x384x384xf32>) -> tensor<1x1x384xf32>
@@ -18,8 +18,8 @@ func.func @self_attention(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf3
 
 // CHECK: rock.attention
 func.func @self_attention_no_scale(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
-  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi64>
-  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi64>) -> tensor<1x64x384xf32>
+  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi32>
+  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi32>) -> tensor<1x64x384xf32>
   %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x384x64xf32>, tensor<1x64x384xf32>) -> tensor<1x384x384xf32>
   %3 = "tosa.reduce_max"(%1) {axis = 1 : i32} : (tensor<1x384x384xf32>) -> tensor<1x1x384xf32>
   %4 = "tosa.sub"(%1, %3) : (tensor<1x384x384xf32>, tensor<1x1x384xf32>) -> tensor<1x384x384xf32>
@@ -33,8 +33,8 @@ func.func @self_attention_no_scale(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x
 
 // CHECK: rock.attention
 func.func @self_attention_with_bias_only(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
-  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi64>
-  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi64>) -> tensor<1x64x384xf32>
+  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi32>
+  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi32>) -> tensor<1x64x384xf32>
   %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x384x64xf32>, tensor<1x64x384xf32>) -> tensor<1x384x384xf32>
   %2 = "tosa.add"(%1, %arg3) : (tensor<1x384x384xf32>, tensor<1x384x384xf32>) -> tensor<1x384x384xf32>
   %3 = "tosa.reduce_max"(%2) {axis = 1 : i32} : (tensor<1x384x384xf32>) -> tensor<1x1x384xf32>
@@ -49,8 +49,8 @@ func.func @self_attention_with_bias_only(%arg0: tensor<1x384x64xf32>, %arg1: ten
 
 // CHECK: rock.attention
 func.func @self_attention_with_scale_and_bias(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>, %arg4: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
-  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi64>
-  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi64>) -> tensor<1x64x384xf32>
+  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi32>
+  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi32>) -> tensor<1x64x384xf32>
   %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x384x64xf32>, tensor<1x64x384xf32>) -> tensor<1x384x384xf32>
   %2 = "tosa.mul"(%1, %arg3) {shift = 0 : i8} : (tensor<1x384x384xf32>, tensor<1x384x384xf32>) -> tensor<1x384x384xf32>
   %3 = "tosa.add"(%2, %arg4) : (tensor<1x384x384xf32>, tensor<1x384x384xf32>) -> tensor<1x384x384xf32>
@@ -66,8 +66,8 @@ func.func @self_attention_with_scale_and_bias(%arg0: tensor<1x384x64xf32>, %arg1
 
 // CHECK: rock.attention
 func.func @self_attention_with_scale_bias_exp(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>, %arg4: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
-  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi64>
-  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi64>) -> tensor<1x64x384xf32>
+  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi32>
+  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x64xf32>, tensor<3xi32>) -> tensor<1x64x384xf32>
   %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x384x64xf32>, tensor<1x64x384xf32>) -> tensor<1x384x384xf32>
   %2 = "tosa.mul"(%1, %arg3) {shift = 0 : i8} : (tensor<1x384x384xf32>, tensor<1x384x384xf32>) -> tensor<1x384x384xf32>
   %3 = "tosa.add"(%2, %arg4) : (tensor<1x384x384xf32>, tensor<1x384x384xf32>) -> tensor<1x384x384xf32>
@@ -103,8 +103,8 @@ func.func @self_attention_with_reshapes(%arg0: tensor<1x12x384x64xf32>, %arg1: t
 
 // CHECK: rock.attention
 func.func @self_attention_with_4d_scale(%arg0: tensor<1x12x256x256xf32> , %arg1: tensor<1x12x256x256xf32>, %arg2: tensor<1x12x256x256xf32>, %arg3: tensor<1x12x256x256xf32>) -> (tensor<1x12x256x256xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
-  %cst = arith.constant dense<[0, 1, 3, 2]> : tensor<4xi64>
-  %0 = "tosa.transpose"(%arg3, %cst) : (tensor<1x12x256x256xf32>, tensor<4xi64>) -> tensor<1x12x256x256xf32>
+  %cst = arith.constant dense<[0, 1, 3, 2]> : tensor<4xi32>
+  %0 = "tosa.transpose"(%arg3, %cst) : (tensor<1x12x256x256xf32>, tensor<4xi32>) -> tensor<1x12x256x256xf32>
   %collapsed = tensor.collapse_shape %arg2 [[0, 1], [2], [3]] : tensor<1x12x256x256xf32> into tensor<12x256x256xf32>
   %collapsed_0 = tensor.collapse_shape %0 [[0, 1], [2], [3]] : tensor<1x12x256x256xf32> into tensor<12x256x256xf32>
   %1 = "tosa.matmul"(%collapsed, %collapsed_0) : (tensor<12x256x256xf32>, tensor<12x256x256xf32>) -> tensor<12x256x256xf32>
@@ -125,8 +125,8 @@ func.func @self_attention_with_4d_scale(%arg0: tensor<1x12x256x256xf32> , %arg1:
 
 // CHECK: rock.attention
 func.func @self_attention_with_dot_product(%arg0: tensor<1x1x64xf32>, %arg1: tensor<1x1x64xf32>, %arg2: tensor<1x1x64xf32>, %arg3: tensor<1x1x1xf32>, %arg4: tensor<1x1x1xf32>) -> tensor<1x1x64xf32> attributes {kernel, arch = ""} {
-  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi64>
-  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x1x64xf32>, tensor<3xi64>) -> tensor<1x64x1xf32>
+  %cst = arith.constant dense<[0, 2, 1]> : tensor<3xi32>
+  %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x1x64xf32>, tensor<3xi32>) -> tensor<1x64x1xf32>
   %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x1x64xf32>, tensor<1x64x1xf32>) -> tensor<1x1x1xf32>
   %2 = "tosa.mul"(%1, %arg3) {shift = 0 : i8} : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
   %3 = "tosa.add"(%2, %arg4) : (tensor<1x1x1xf32>, tensor<1x1x1xf32>) -> tensor<1x1x1xf32>
@@ -147,8 +147,8 @@ func.func @mlir_attention_where(%arg0: tensor<786432xf16>, %arg1: tensor<786432x
   %expanded_1 = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xi8> into tensor<1x12x256x256xi8>
   %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xf16> into tensor<1x12x256x256xf16>
   %expanded_3 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xf16> into tensor<1x12x256x256xf16>
-  %0 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi64>}> : () -> tensor<4xi64>
-  %1 = tosa.transpose %expanded_3, %0 : (tensor<1x12x256x256xf16>, tensor<4xi64>) -> tensor<1x12x256x256xf16>
+  %0 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %1 = tosa.transpose %expanded_3, %0 : (tensor<1x12x256x256xf16>, tensor<4xi32>) -> tensor<1x12x256x256xf16>
   %expanded_4 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [12, 256, 256] : tensor<786432xf16> into tensor<12x256x256xf16>
   %collapsed = tensor.collapse_shape %1 [[0, 1], [2], [3]] : tensor<1x12x256x256xf16> into tensor<12x256x256xf16>
   %2 = tosa.matmul %expanded_4, %collapsed : (tensor<12x256x256xf16>, tensor<12x256x256xf16>) -> tensor<12x256x256xf16>

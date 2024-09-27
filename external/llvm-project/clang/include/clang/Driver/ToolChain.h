@@ -158,7 +158,6 @@ private:
   /// The list of toolchain specific path prefixes to search for programs.
   path_list ProgramPaths;
 
-  mutable std::unique_ptr<Tool> FlangFrontend;
   mutable std::unique_ptr<Tool> Clang;
   mutable std::unique_ptr<Tool> Flang;
   mutable std::unique_ptr<Tool> Assemble;
@@ -172,7 +171,6 @@ private:
 
   Tool *getClang() const;
   Tool *getFlang() const;
-  //   Tool *getFlangFrontend() const;
   Tool *getAssemble() const;
   Tool *getLink() const;
   Tool *getStaticLibTool() const;
@@ -212,8 +210,7 @@ protected:
 
   /// Executes the given \p Executable and returns the stdout.
   llvm::Expected<std::unique_ptr<llvm::MemoryBuffer>>
-  executeToolChainProgram(StringRef Executable,
-                          unsigned SecondsToWait = 0) const;
+  executeToolChainProgram(StringRef Executable) const;
 
   void setTripleEnvironment(llvm::Triple::EnvironmentType Env);
 

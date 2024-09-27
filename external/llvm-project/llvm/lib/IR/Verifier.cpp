@@ -114,6 +114,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -402,8 +403,20 @@ public:
       : VerifierSupport(OS, M), LandingPadResultTy(nullptr),
         SawFrameEscape(false), TBAAVerifyHelper(this) {
     TreatBrokenDebugInfoAsError = ShouldTreatBrokenDebugInfoAsError;
-    if (unsigned V = getDebugMetadataVersionFromModule(M))
-      DebugInfoVersion = V;
+    if (NamedMDNode *ModFlags = M.getModuleFlagsMetadata()) {
+      auto OpIt = find_if(ModFlags->operands(), [](const MDNode *Flag) {
+        if (Flag->getNumOperands() < 3)
+          return false;
+        if (MDString *K = dyn_cast_or_null<MDString>(Flag->getOperand(1)))
+          return K->getString() == "Debug Info Version";
+        return false;
+      });
+      if (OpIt != ModFlags->op_end()) {
+        const MDOperand &ValOp = (*OpIt)->getOperand(2);
+        if (auto *CI = mdconst::dyn_extract_or_null<ConstantInt>(ValOp))
+          DebugInfoVersion = CI->getZExtValue();
+      }
+    }
   }
 
   bool hasBrokenDebugInfo() const { return BrokenDebugInfo; }
@@ -904,6 +917,14 @@ void Verifier::visitGlobalVariable(const GlobalVariable &GV) {
   SmallVector<MDNode *, 1> MDs;
   GV.getMetadata(LLVMContext::MD_dbg, MDs);
   for (auto *MD : MDs) {
+    if (auto *GVE = dyn_cast<DIGlobalVariableExpression>(MD)) {
+      if (auto *E = dyn_cast_or_null<DIExpression>(GVE->getRawExpression())) {
+        SmallVector<const Value *> Arguments{&GV};
+        DIExpressionEnv Env{GVE->getVariable(), Arguments, DL};
+        CheckDI(E->isValid(Env, dbgs()),
+                "invalid DIExpression in DIGlobalVariableExpression", &GV);
+      }
+    }
     if (auto *GVE = dyn_cast<DIGlobalVariableExpression>(MD))
       visitDIGlobalVariableExpression(*GVE);
     else
@@ -1016,9 +1037,7 @@ void Verifier::visitGlobalIFunc(const GlobalIFunc &GI) {
   Check(isa<PointerType>(Resolver->getFunctionType()->getReturnType()),
         "IFunc resolver must return a pointer", &GI);
 
-  const Type *ResolverFuncTy =
-      GlobalIFunc::getResolverFunctionType(GI.getValueType());
-  Check(ResolverTy == ResolverFuncTy->getPointerTo(GI.getAddressSpace()),
+  Check(ResolverTy == PointerType::get(Context, GI.getAddressSpace()),
         "IFunc resolver has incorrect type", &GI);
 }
 
@@ -2855,6 +2874,10 @@ void Verifier::visitFunction(const Function &F) {
   Check(!Attrs.hasAttrSomewhere(Attribute::ElementType),
         "Attribute 'elementtype' can only be applied to a callsite.", &F);
 
+  if (Attrs.hasFnAttr(Attribute::Naked))
+    for (const Argument &Arg : F.args())
+      Check(Arg.use_empty(), "cannot use argument of naked function", &Arg);
+
   // Check that this function meets the restrictions on this calling convention.
   // Sometimes varargs is used for perfectly forwarding thunks, so some of these
   // restrictions can be lifted.
@@ -4218,8 +4241,10 @@ void Verifier::verifyRangeMetadata(const Value &I, const MDNode *Range,
     ConstantInt *High =
         mdconst::dyn_extract<ConstantInt>(Range->getOperand(2 * i + 1));
     Check(High, "The upper limit must be an integer!", High);
-    Check(High->getType() == Low->getType() &&
-          High->getType() == Ty->getScalarType(),
+
+    Check(High->getType() == Low->getType(), "Range pair types must match!",
+          &I);
+    Check(High->getType() == Ty->getScalarType(),
           "Range types must match instruction type!", &I);
 
     APInt HighV = High->getValue();
@@ -5194,6 +5219,7 @@ void Verifier::visitInstruction(Instruction &I) {
                 F->getIntrinsicID() ==
                     Intrinsic::experimental_patchpoint_void ||
                 F->getIntrinsicID() == Intrinsic::experimental_patchpoint ||
+                F->getIntrinsicID() == Intrinsic::fake_use ||
                 F->getIntrinsicID() == Intrinsic::experimental_gc_statepoint ||
                 F->getIntrinsicID() == Intrinsic::wasm_rethrow ||
                 IsAttachedCallOperand(F, CBI, i),
@@ -6030,31 +6056,24 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
     break;
   }
   case Intrinsic::lrint:
-  case Intrinsic::llrint: {
-    Type *ValTy = Call.getArgOperand(0)->getType();
-    Type *ResultTy = Call.getType();
-    Check(
-        ValTy->isFPOrFPVectorTy() && ResultTy->isIntOrIntVectorTy(),
-        "llvm.lrint, llvm.llrint: argument must be floating-point or vector "
-        "of floating-points, and result must be integer or vector of integers",
-        &Call);
-    Check(ValTy->isVectorTy() == ResultTy->isVectorTy(),
-          "llvm.lrint, llvm.llrint: argument and result disagree on vector use",
-          &Call);
-    if (ValTy->isVectorTy()) {
-      Check(cast<VectorType>(ValTy)->getElementCount() ==
-                cast<VectorType>(ResultTy)->getElementCount(),
-            "llvm.lrint, llvm.llrint: argument must be same length as result",
-            &Call);
-    }
-    break;
-  }
+  case Intrinsic::llrint:
   case Intrinsic::lround:
   case Intrinsic::llround: {
     Type *ValTy = Call.getArgOperand(0)->getType();
     Type *ResultTy = Call.getType();
-    Check(!ValTy->isVectorTy() && !ResultTy->isVectorTy(),
-          "Intrinsic does not support vectors", &Call);
+    auto *VTy = dyn_cast<VectorType>(ValTy);
+    auto *RTy = dyn_cast<VectorType>(ResultTy);
+    Check(ValTy->isFPOrFPVectorTy() && ResultTy->isIntOrIntVectorTy(),
+          ExpectedName + ": argument must be floating-point or vector "
+                         "of floating-points, and result must be integer or "
+                         "vector of integers",
+          &Call);
+    Check(ValTy->isVectorTy() == ResultTy->isVectorTy(),
+          ExpectedName + ": argument and result disagree on vector use", &Call);
+    if (VTy) {
+      Check(VTy->getElementCount() == RTy->getElementCount(),
+            ExpectedName + ": argument must be same length as result", &Call);
+    }
     break;
   }
   case Intrinsic::bswap: {
@@ -6176,11 +6195,11 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
           &Call);
     break;
   }
-  case Intrinsic::experimental_stepvector: {
+  case Intrinsic::stepvector: {
     VectorType *VecTy = dyn_cast<VectorType>(Call.getType());
     Check(VecTy && VecTy->getScalarType()->isIntegerTy() &&
               VecTy->getScalarSizeInBits() >= 8,
-          "experimental_stepvector only supported for vectors of integers "
+          "stepvector only supported for vectors of integers "
           "with a bitwidth of at least 8.",
           &Call);
     break;
@@ -6311,10 +6330,7 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
                   &Call);
       break;
     }
-    Check(llvm::any_of(CBR->getIndirectDests(),
-                       [LandingPadBB](const BasicBlock *IndDest) {
-                         return IndDest == LandingPadBB;
-                       }),
+    Check(llvm::is_contained(CBR->getIndirectDests(), LandingPadBB),
           "Intrinsic's corresponding callbr must have intrinsic's parent basic "
           "block in indirect destination list",
           &Call);
@@ -6368,6 +6384,13 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
           "Value for inactive lanes must be a VGPR function argument", &Call);
     break;
   }
+  case Intrinsic::amdgcn_s_prefetch_data: {
+    Check(
+        AMDGPU::isFlatGlobalAddrSpace(
+            Call.getArgOperand(0)->getType()->getPointerAddressSpace()),
+        "llvm.amdgcn.s.prefetch.data only supports global or constant memory");
+    break;
+  }
   case Intrinsic::nvvm_setmaxnreg_inc_sync_aligned_u32:
   case Intrinsic::nvvm_setmaxnreg_dec_sync_aligned_u32: {
     Value *V = Call.getArgOperand(0);
@@ -6412,6 +6435,14 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
           "llvm.threadlocal.address first argument must be a GlobalValue");
     Check(cast<GlobalValue>(Arg0).isThreadLocal(),
           "llvm.threadlocal.address operand isThreadLocal() must be true");
+    break;
+  }
+  case Intrinsic::nvvm_fence_proxy_tensormap_generic_acquire_cta:
+  case Intrinsic::nvvm_fence_proxy_tensormap_generic_acquire_cluster:
+  case Intrinsic::nvvm_fence_proxy_tensormap_generic_acquire_gpu:
+  case Intrinsic::nvvm_fence_proxy_tensormap_generic_acquire_sys: {
+    unsigned size = cast<ConstantInt>(Call.getArgOperand(1))->getZExtValue();
+    Check(size == 128, " The only supported value for size operand is 128");
     break;
   }
   };
@@ -6826,6 +6857,14 @@ void Verifier::visitDbgIntrinsic(StringRef Kind, DbgVariableIntrinsic &DII) {
           DII.getRawVariable());
   CheckDI(isa<DIExpression>(DII.getRawExpression()),
           "invalid llvm.dbg." + Kind + " intrinsic expression", &DII,
+          DII.getRawExpression());
+
+  // This is redundant with the preprocessor-generated check, but here we
+  // can include arguments for DIOp-based expression checking.
+  SmallVector<const Value *> Arguments{DII.location_ops()};
+  DIExpressionEnv Env{DII.getVariable(), Arguments, DL};
+  CheckDI(DII.getExpression()->isValid(Env, dbgs()),
+          "invalid DIExpression in llvm.dbg." + Kind + " intrinsic", &DII,
           DII.getRawExpression());
 
   if (auto *DAI = dyn_cast<DbgAssignIntrinsic>(&DII)) {

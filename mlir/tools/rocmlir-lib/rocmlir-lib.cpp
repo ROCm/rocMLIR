@@ -229,7 +229,7 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   module.walk([&](gpu::BinaryOp binary) -> WalkResult {
     gpu::KernelTableAttr metadata =
         cast<gpu::ObjectAttr>(binary.getObjects()[0]).getKernels();
-    for (auto [name, kernel] : metadata) {
+    for (auto kernel : metadata) {
       auto statusBlock = getSizeAttr(kernel.getAttr("block_size"), blockSize);
       auto statusGrid = getSizeAttr(kernel.getAttr("grid_size"), gridSize);
       if (statusBlock.succeeded() && statusGrid.succeeded()) {

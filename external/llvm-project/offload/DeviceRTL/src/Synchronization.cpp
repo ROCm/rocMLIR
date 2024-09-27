@@ -13,11 +13,11 @@
 #include "Synchronization.h"
 
 #include "Debug.h"
+#include "DeviceTypes.h"
+#include "DeviceUtils.h"
 #include "Interface.h"
 #include "Mapping.h"
 #include "State.h"
-#include "Types.h"
-#include "Utils.h"
 
 #pragma omp begin declare target device_type(nohost)
 
@@ -40,6 +40,12 @@ template <typename Ty>
 Ty atomicAdd(Ty *Address, Ty Val, atomic::OrderingTy Ordering) {
   return __scoped_atomic_fetch_add(Address, Val, Ordering,
                                    __MEMORY_SCOPE_DEVICE);
+
+}
+
+template <typename Ty>
+Ty atomicSystemAdd(Ty *Address, Ty Val, atomic::OrderingTy Ordering) {
+  return __atomic_fetch_add(Address, Val, Ordering);
 }
 
 template <typename Ty>
@@ -143,8 +149,6 @@ uint64_t atomicAdd(uint64_t *Address, uint64_t Val,
                    atomic::OrderingTy Ordering) {
   return __atomic_fetch_add(Address, Val, Ordering);
 }
-
-float unsafeAtomicAdd(float *addr, float value);
 
 #if defined(__gfx941__)
 #define ATOMIC_CAS_LOOP_MIN(TY) void atomicCASLoopMin(TY *addr, TY val);
@@ -371,28 +375,6 @@ void setLock(omp_lock_t *Lock) {
   // test_lock will now return true for any thread in the warp
 }
 
-#if defined(__gfx90a__) && __has_builtin(__builtin_amdgcn_is_shared) &&        \
-    __has_builtin(__builtin_amdgcn_is_private) &&                              \
-    __has_builtin(__builtin_amdgcn_ds_atomic_fadd_f32) &&                      \
-    __has_builtin(__builtin_amdgcn_global_atomic_fadd_f32)
-// This function is called for gfx90a only and single precision
-// floating point type
-float unsafeAtomicAdd(float *addr, float value) {
-  if (__builtin_amdgcn_is_shared(
-          (const __attribute__((address_space(0))) void *)addr))
-    return __builtin_amdgcn_ds_atomic_fadd_f32(
-        (const __attribute__((address_space(3))) float *)addr, value);
-  else if (__builtin_amdgcn_is_private(
-               (const __attribute__((address_space(0))) void *)addr)) {
-    float temp = *addr;
-    *addr = temp + value;
-    return temp;
-  }
-  return __builtin_amdgcn_global_atomic_fadd_f32(
-      (const __attribute__((address_space(1))) float *)addr, value);
-}
-#endif // if defined(gfx90a) &&
-
 void unsetCriticalLock(omp_lock_t *Lock) {
   (void)atomicExchange((uint32_t *)Lock, UNSET, atomic::acq_rel);
 }
@@ -551,8 +533,6 @@ void setLock(omp_lock_t *Lock) {
   } // wait for 0 to be the read value
 }
 
-float unsafeAtomicAdd(float *addr, float value) { return 0.0; }
-
 #pragma omp end declare variant
 ///}
 
@@ -582,6 +562,9 @@ void fence::system(atomic::OrderingTy Ordering) { impl::fenceSystem(Ordering); }
 #define ATOMIC_COMMON_OP(TY)                                                   \
   TY atomic::add(TY *Addr, TY V, atomic::OrderingTy Ordering) {                \
     return impl::atomicAdd(Addr, V, Ordering);                                 \
+  }                                                                            \
+  TY atomic::add_system(TY *Addr, TY V, atomic::OrderingTy Ordering) {         \
+    return impl::atomicSystemAdd(Addr, V, Ordering);                           \
   }                                                                            \
   TY atomic::mul(TY *Addr, TY V, atomic::OrderingTy Ordering) {                \
     return impl::atomicMul(Addr, V, Ordering);                                 \
@@ -663,6 +646,11 @@ uint32_t atomic::inc(uint32_t *Addr, uint32_t V, atomic::OrderingTy Ordering,
 template <typename Ty>
 Ty atomic::add(Ty *Address, Ty Val, atomic::OrderingTy Ordering) {
   return impl::atomicAdd(Address, Val, Ordering);
+}
+
+template <typename Ty>
+Ty atomic::add_system(Ty *Address, Ty Val, atomic::OrderingTy Ordering) {
+  return impl::atomicSystemAdd(Address, Val, Ordering);
 }
 
 void unsetCriticalLock(omp_lock_t *Lock) { impl::unsetLock(Lock); }
@@ -755,10 +743,6 @@ void omp_set_lock(omp_lock_t *Lock) { impl::setLock(Lock); }
 void omp_unset_lock(omp_lock_t *Lock) { impl::unsetLock(Lock); }
 
 int omp_test_lock(omp_lock_t *Lock) { return impl::testLock(Lock); }
-
-float __kmpc_unsafeAtomicAdd(float *addr, float value) {
-  return impl::unsafeAtomicAdd(addr, value);
-}
 
 #if defined(__gfx941__)
 #define KMPC_ATOMIC_CAS_LOOP_MIN(TY)                                           \

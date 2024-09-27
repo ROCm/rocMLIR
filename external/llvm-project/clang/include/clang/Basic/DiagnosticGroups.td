@@ -597,7 +597,10 @@ def SelTypeCast : DiagGroup<"cast-of-sel-type">;
 def FunctionDefInObjCContainer : DiagGroup<"function-def-in-objc-container">;
 def BadFunctionCast : DiagGroup<"bad-function-cast">;
 def CastFunctionTypeStrict : DiagGroup<"cast-function-type-strict">;
-def CastFunctionType : DiagGroup<"cast-function-type", [CastFunctionTypeStrict]>;
+def CastFunctionTypeMismatch : DiagGroup<"cast-function-type-mismatch">;
+def CastFunctionType : DiagGroup<"cast-function-type",
+                                 [CastFunctionTypeStrict,
+                                  CastFunctionTypeMismatch]>;
 def ObjCPropertyImpl : DiagGroup<"objc-property-implementation">;
 def ObjCPropertyNoAttribute : DiagGroup<"objc-property-no-attribute">;
 def ObjCPropertyAssignOnObjectType : DiagGroup<"objc-property-assign-on-object-type">;
@@ -1063,6 +1066,7 @@ def Extra : DiagGroup<"extra", [
     EmptyInitStatement,
     StringConcatation,
     FUseLdPath,
+    CastFunctionTypeMismatch,
   ]>;
 
 def Most : DiagGroup<"most", [
@@ -1543,12 +1547,19 @@ def DXILValidation : DiagGroup<"dxil-validation">;
 // Warning for HLSL API availability
 def HLSLAvailability : DiagGroup<"hlsl-availability">;
 
+// Warnings for legacy binding behavior
+def LegacyConstantRegisterBinding : DiagGroup<"legacy-constant-register-binding">;
+
+// Warning for HLSL Attributes on Statement.
+def HLSLAttributeStatement : DiagGroup<"attribute-statement">;
+
 // Warnings and notes related to const_var_decl_type attribute checks
 def ReadOnlyPlacementChecks : DiagGroup<"read-only-types">;
 
 // Warnings and fixes to support the "safe buffers" programming model.
 def UnsafeBufferUsageInContainer : DiagGroup<"unsafe-buffer-usage-in-container">;
-def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInContainer]>;
+def UnsafeBufferUsageInLibcCall : DiagGroup<"unsafe-buffer-usage-in-libc-call">;
+def UnsafeBufferUsage : DiagGroup<"unsafe-buffer-usage", [UnsafeBufferUsageInContainer, UnsafeBufferUsageInLibcCall]>;
 
 // Warnings and notes related to the function effects system underlying
 // the nonblocking and nonallocating attributes.

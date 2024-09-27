@@ -33,7 +33,7 @@
 // GPU-NEXT:rock-analyze-memory-use,
 // GPU-NEXT:rock-sugar-to-loops,
 // GPU-NEXT:rock-clean-math,
-// GPU-NEXT:math-extend-to-supported-types{extra-types=f16 target-type=f32},
+// GPU-NEXT:math-extend-to-supported-types{extra-types={f16} target-type=f32},
 // GPU-NEXT:rock-buffer-load-merge,
 // GPU-NEXT:rock-transform-to-memref,
 // GPU-NEXT:rock-emulate-narrow-type,
@@ -43,10 +43,10 @@
 // BINARY:Kernel pipeline:
 // BINARY-NEXT:builtin.module(strip-debuginfo,
 // BINARY-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx90a},
-// BINARY-NEXT:arith-emulate-unsupported-floats{source-types=f8E4M3FNUZ,
+// BINARY-NEXT:arith-emulate-unsupported-floats{source-types={f8E4M3FNUZ,
 // BINARY-NEXT:f8E5M2FNUZ,
 // BINARY-NEXT:f8E4M3FN,
-// BINARY-NEXT:f8E5M2 target-type=f32},
+// BINARY-NEXT:f8E5M2} target-type=f32},
 // BINARY-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=true chipset=gfx90a saturate-fp8-truncf=true},
 // BINARY-NEXT:emulate-fp8-ext-trunc,
 // BINARY-NEXT:expand-strided-metadata,
@@ -63,10 +63,10 @@
 // BINARY_MI300:Kernel pipeline:
 // BINARY_MI300-NEXT:builtin.module(strip-debuginfo,
 // BINARY_MI300-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx940},
-// BINARY_MI300-NEXT:arith-emulate-unsupported-floats{source-types=f8E4M3FNUZ,
+// BINARY_MI300-NEXT:arith-emulate-unsupported-floats{source-types={f8E4M3FNUZ,
 // BINARY_MI300-NEXT:f8E5M2FNUZ,
 // BINARY_MI300-NEXT:f8E4M3FN,
-// BINARY_MI300-NEXT:f8E5M2 target-type=f32},
+// BINARY_MI300-NEXT:f8E5M2} target-type=f32},
 // BINARY_MI300-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=true chipset=gfx940 saturate-fp8-truncf=true},
 // BINARY_MI300-NEXT:expand-strided-metadata,
 // BINARY_MI300-NEXT:lower-affine,
@@ -82,13 +82,13 @@
 // PARTITION:Partitioner pipeline:
 // PARTITION-NEXT:builtin.module(func.func(tosa-make-broadcastable),
 // PARTITION-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
-// PARTITION-NEXT:tosa-partition{anchor-ops=tosa.conv2d,
+// PARTITION-NEXT:tosa-partition{anchor-ops={tosa.conv2d,
 // PARTITION-NEXT:tosa.depthwise_conv2d,
-// PARTITION-NEXT:tosa.matmul partition-tag=kernel  trailing-only=true},
+// PARTITION-NEXT:tosa.matmul} partition-tag=kernel  trailing-only=true},
 // PARTITION-NEXT:func.func(mhal-annotate-access-kinds),
 // PARTITION-NEXT:duplicate-function-elimination,
 // PARTITION-NEXT:func.func(mhal-infer-graph),
-// PARTITION-NEXT:mhal-target-kernels{targets=amdgcn-amd-amdhsa:gfx90a})
+// PARTITION-NEXT:mhal-target-kernels{targets={amdgcn-amd-amdhsa:gfx90a}})
 
 // MHAL:MHAL package pipeline:
 // MHAL-NEXT:any(mhal-package-targets)

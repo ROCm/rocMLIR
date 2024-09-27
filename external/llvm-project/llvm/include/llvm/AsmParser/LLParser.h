@@ -394,7 +394,7 @@ namespace llvm {
     bool parseGVFlags(GlobalValueSummary::GVFlags &GVFlags);
     bool parseGVarFlags(GlobalVarSummary::GVarFlags &GVarFlags);
     bool parseOptionalFFlags(FunctionSummary::FFlags &FFlags);
-    bool parseOptionalCalls(std::vector<FunctionSummary::EdgeTy> &Calls);
+    bool parseOptionalCalls(SmallVectorImpl<FunctionSummary::EdgeTy> &Calls);
     bool parseHotness(CalleeInfo::HotnessType &Hotness);
     bool parseOptionalTypeIdInfo(FunctionSummary::TypeIdInfo &TypeIdInfo);
     bool parseTypeTests(std::vector<GlobalValue::GUID> &TypeTests);
@@ -419,7 +419,7 @@ namespace llvm {
     bool parseParamAccessCall(FunctionSummary::ParamAccess::Call &Call,
                               IdLocListType &IdLocList);
     bool parseParamAccessOffset(ConstantRange &Range);
-    bool parseOptionalRefs(std::vector<ValueInfo> &Refs);
+    bool parseOptionalRefs(SmallVectorImpl<ValueInfo> &Refs);
     bool parseTypeIdEntry(unsigned ID);
     bool parseTypeIdSummary(TypeIdSummary &TIS);
     bool parseTypeIdCompatibleVtableEntry(unsigned ID);
@@ -561,8 +561,7 @@ namespace llvm {
     bool parseExceptionArgs(SmallVectorImpl<Value *> &Args,
                             PerFunctionState &PFS);
 
-    bool resolveFunctionType(Type *RetType,
-                             const SmallVector<ParamInfo, 16> &ArgList,
+    bool resolveFunctionType(Type *RetType, ArrayRef<ParamInfo> ArgList,
                              FunctionType *&FuncTy);
 
     // Constant Parsing.
@@ -596,6 +595,8 @@ namespace llvm {
     bool parseMDFieldsImpl(ParserTy ParseField, LocTy &ClosingLoc);
     bool parseSpecializedMDNode(MDNode *&N, bool IsDistinct = false);
     bool parseDIExpressionBody(MDNode *&Result, bool IsDistinct);
+
+    bool parseDIOpExpression(MDNode *&Result, bool IsDIExpr);
 
 #define HANDLE_SPECIALIZED_MDNODE_LEAF(CLASS)                                  \
   bool parse##CLASS(MDNode *&Result, bool IsDistinct);

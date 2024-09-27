@@ -19,24 +19,6 @@ module @test_module {
 // -----
 
 module @test_module {
-  // CHECK: llvm.func @__ocml_fabs_f16(f16) -> f16
-  // CHECK: llvm.func @__ocml_fabs_f32(f32) -> f32
-  // CHECK: llvm.func @__ocml_fabs_f64(f64) -> f64
-  // CHECK-LABEL: func @math_absf
-  func.func @math_absf(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64) -> (f16, f32, f64) {
-    %result16 = math.absf %arg_f16 : f16
-    // CHECK: llvm.call @__ocml_fabs_f16(%{{.*}}) : (f16) -> f16
-    %result32 = math.absf %arg_f32 : f32
-    // CHECK: llvm.call @__ocml_fabs_f32(%{{.*}}) : (f32) -> f32
-    %result64 = math.absf %arg_f64 : f64
-    // CHECK: llvm.call @__ocml_fabs_f64(%{{.*}}) : (f64) -> f64
-    func.return %result16, %result32, %result64 : f16, f32, f64
-  }
-}
-
-// -----
-
-module @test_module {
   // CHECK: llvm.func @__ocml_acos_f16(f16) -> f16
   // CHECK: llvm.func @__ocml_acos_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_acos_f64(f64) -> f64
@@ -254,17 +236,14 @@ module @test_module {
 
 module @test_module {
   // CHECK: llvm.func @__ocml_exp_f16(f16) -> f16
-  // CHECK: llvm.func @__ocml_exp_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_exp_f64(f64) -> f64
   // CHECK-LABEL: func @math_exp
-  func.func @math_exp(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64) -> (f16, f32, f64) {
+  func.func @math_exp(%arg_f16 : f16, %arg_f64 : f64) -> (f16, f64) {
     %result16 = math.exp %arg_f16 : f16
     // CHECK: llvm.call @__ocml_exp_f16(%{{.*}}) : (f16) -> f16
-    %result32 = math.exp %arg_f32 : f32
-    // CHECK: llvm.call @__ocml_exp_f32(%{{.*}}) : (f32) -> f32
     %result64 = math.exp %arg_f64 : f64
     // CHECK: llvm.call @__ocml_exp_f64(%{{.*}}) : (f64) -> f64
-    func.return %result16, %result32, %result64 : f16, f32, f64
+    func.return %result16, %result64 : f16, f64
   }
 }
 
@@ -326,17 +305,14 @@ module @test_module {
 
 module @test_module {
   // CHECK: llvm.func @__ocml_log_f16(f16) -> f16
-  // CHECK: llvm.func @__ocml_log_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_log_f64(f64) -> f64
   // CHECK-LABEL: func @math_log
-  func.func @math_log(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64) -> (f16, f32, f64) {
+  func.func @math_log(%arg_f16 : f16, %arg_f64 : f64) -> (f16, f64) {
     %result16 = math.log %arg_f16 : f16
     // CHECK: llvm.call @__ocml_log_f16(%{{.*}}) : (f16) -> f16
-    %result32 = math.log %arg_f32 : f32
-    // CHECK: llvm.call @__ocml_log_f32(%{{.*}}) : (f32) -> f32
     %result64 = math.log %arg_f64 : f64
     // CHECK: llvm.call @__ocml_log_f64(%{{.*}}) : (f64) -> f64
-    func.return %result16, %result32, %result64 : f16, f32, f64
+    func.return %result16, %result64 : f16, f64
   }
 }
 
@@ -433,24 +409,6 @@ module @test_module {
 // -----
 
 module @test_module {
-  // CHECK: llvm.func @__ocml_sqrt_f16(f16) -> f16
-  // CHECK: llvm.func @__ocml_sqrt_f32(f32) -> f32
-  // CHECK: llvm.func @__ocml_sqrt_f64(f64) -> f64
-  // CHECK-LABEL: func @math_sqrt
-  func.func @math_sqrt(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64) -> (f16, f32, f64) {
-    %result16 = math.sqrt %arg_f16 : f16
-    // CHECK: llvm.call @__ocml_sqrt_f16(%{{.*}}) : (f16) -> f16
-    %result32 = math.sqrt %arg_f32 : f32
-    // CHECK: llvm.call @__ocml_sqrt_f32(%{{.*}}) : (f32) -> f32
-    %result64 = math.sqrt %arg_f64 : f64
-    // CHECK: llvm.call @__ocml_sqrt_f64(%{{.*}}) : (f64) -> f64
-    func.return %result16, %result32, %result64 : f16, f32, f64
-  }
-}
-
-// -----
-
-module @test_module {
   // CHECK: llvm.func @__ocml_tanh_f16(f16) -> f16
   // CHECK: llvm.func @__ocml_tanh_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_tanh_f64(f64) -> f64
@@ -499,5 +457,27 @@ module @test_module {
     %result64 = math.erf %arg_f64 : f64
     // CHECK: llvm.call @__ocml_erf_f64(%{{.*}}) : (f64) -> f64
     func.return %result16, %result32, %result64 : f16, f32, f64
+  }
+}
+
+// -----
+
+module @test_module {
+  // CHECK: llvm.func @__ocml_sin_f16(f16) -> f16
+  // CHECK: llvm.func @__ocml_sin_f32(f32) -> f32
+  // CHECK: llvm.func @__ocml_sin_f64(f64) -> f64
+  // CHECK-LABEL: func @math_casting
+  func.func @math_casting(%arg_f16 : f16, %arg_f32 : f32, %arg_f64 : f64, %arg_bf16 : bf16) -> (f16, f32, f64, bf16) {
+    %resultf16 = math.sin %arg_f16 : f16
+    // CHECK: llvm.call @__ocml_sin_f16(%{{.*}}) : (f16) -> f16
+    %resultf32 = math.sin %arg_f32 : f32
+    // CHECK: llvm.call @__ocml_sin_f32(%{{.*}}) : (f32) -> f32
+    %resultf64 = math.sin %arg_f64 : f64
+    // CHECK: llvm.call @__ocml_sin_f64(%{{.*}}) : (f64) -> f64
+    %resultbf16 = math.sin %arg_bf16 : bf16
+    // CHECK: llvm.fpext %{{.*}} : bf16 to f32
+    // CHECK-NEXT: llvm.call @__ocml_sin_f32(%{{.*}}) : (f32) -> f32
+    // CHECK-NEXT: llvm.fptrunc %{{.*}} : f32 to bf16
+    func.return %resultf16, %resultf32, %resultf64, %resultbf16 : f16, f32, f64, bf16
   }
 }

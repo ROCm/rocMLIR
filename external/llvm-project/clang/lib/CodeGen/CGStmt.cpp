@@ -74,14 +74,15 @@ llvm::Value *CodeGenFunction::applyNoLoopInc(const Expr *Inc,
 }
 
 std::pair<const VarDecl *, Address>
-CodeGenFunction::EmitBigJumpLoopStartingIndex(const ForStmt &FStmt) {
+CodeGenFunction::EmitBigJumpLoopStartingIndex(const ForStmt &FStmt,
+                                              const FunctionArgList *Args) {
   const CodeGenModule::OptKernelNestDirectives &Directives =
       CGM.isXteamRedKernel(&FStmt) ? CGM.getXteamRedNestDirs(&FStmt)
                                    : CGM.getBigJumpLoopNestDirs(&FStmt);
   assert(Directives.size() > 0 && isa<OMPLoopDirective>(Directives.back()) &&
          "Appropriate directive not found");
   const OMPLoopDirective &LD = *(cast<OMPLoopDirective>(Directives.back()));
-  std::pair<const VarDecl *, Address> IVPair = EmitNoLoopIV(LD);
+  std::pair<const VarDecl *, Address> IVPair = EmitNoLoopIV(LD, Args);
   const VarDecl *LoopVD = IVPair.first;
   Address IvAddr = IVPair.second;
 
@@ -110,7 +111,16 @@ CodeGenFunction::EmitBigJumpLoopStartingIndex(const ForStmt &FStmt) {
   // initialized
   llvm::Value *Gtid =
       Builder.CreateIntCast(GlobalGpuThreadId, IvAddr.getElementType(), false);
-  llvm::Value *Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
+
+  llvm::Value *Iv = nullptr;
+  if (CGM.isMultiDeviceKernel(&FStmt)) {
+    Iv = Builder.CreateAdd(
+        Gtid,
+        Builder.CreateIntCast(Builder.CreateLoad(GetAddrOfLocalVar((*Args)[1])),
+                              IvAddr.getElementType(), false));
+  } else {
+    Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
+  }
 
   if (CGM.isXteamRedKernel(&FStmt)) {
     // Cache the thread specific initial loop iteration value and the number of
@@ -171,7 +181,8 @@ void CodeGenFunction::EmitBigJumpLoopInc(const ForStmt &FStmt,
 }
 
 std::pair<const VarDecl *, Address>
-CodeGenFunction::EmitNoLoopIV(const OMPLoopDirective &LD) {
+CodeGenFunction::EmitNoLoopIV(const OMPLoopDirective &LD,
+                              const FunctionArgList *Args) {
   // Emit the original loop indices
   for (const Expr *CE : LD.counters()) {
     const auto *CEDecl = cast<VarDecl>(cast<DeclRefExpr>(CE)->getDecl());
@@ -206,6 +217,7 @@ CodeGenFunction::EmitNoLoopIV(const OMPLoopDirective &LD) {
   const auto *LBDecl =
       cast<VarDecl>(cast<DeclRefExpr>(LD.getLowerBoundVariable())->getDecl());
   EmitVarDecl(*LBDecl);
+
   const auto *UBDecl =
       cast<VarDecl>(cast<DeclRefExpr>(LD.getUpperBoundVariable())->getDecl());
   EmitVarDecl(*UBDecl);
@@ -217,6 +229,21 @@ CodeGenFunction::EmitNoLoopIV(const OMPLoopDirective &LD) {
 
   // Emit init of the iteration variable
   EmitIgnoredExpr(LD.getInit());
+
+  // If multi-device targets are enabled, overwrite the LB and UB
+  // initialization with the values passed in as arguments in positions 1 and 2
+  // respectively:
+  if (CGM.isMultiDeviceKernel(LD)) {
+    llvm::Value *LBMultiTarget = Builder.CreateIntCast(
+        Builder.CreateLoad(GetAddrOfLocalVar((*Args)[1])),
+        GetAddrOfLocalVar(IVDecl).getElementType(), false);
+    Builder.CreateStore(LBMultiTarget, GetAddrOfLocalVar(LBDecl));
+    Builder.CreateStore(LBMultiTarget, GetAddrOfLocalVar(IVDecl));
+    llvm::Value *UBMultiTarget = Builder.CreateIntCast(
+        Builder.CreateLoad(GetAddrOfLocalVar((*Args)[2])),
+        GetAddrOfLocalVar(IVDecl).getElementType(), false);
+    Builder.CreateStore(UBMultiTarget, GetAddrOfLocalVar(UBDecl));
+  }
 
   return std::make_pair(IVDecl, GetAddrOfLocalVar(IVDecl));
 }
@@ -307,27 +334,31 @@ void CodeGenFunction::EmitOptKernelCode(
              llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_XTEAM_RED);
   if (OptKernelMode ==
       llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_NO_LOOP)
-    EmitNoLoopCode(D, CapturedForStmt, Loc);
+    EmitNoLoopCode(D, CapturedForStmt, Loc, Args);
   else if (OptKernelMode ==
            llvm::omp::OMPTgtExecModeFlags::OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP)
-    EmitBigJumpLoopCode(D, CapturedForStmt, Loc);
+    EmitBigJumpLoopCode(D, CapturedForStmt, Loc, Args);
   else
     EmitXteamRedCode(D, CapturedForStmt, Loc, Args);
 }
 
 void CodeGenFunction::EmitNoLoopCode(const OMPExecutableDirective &D,
                                      const ForStmt *CapturedForStmt,
-                                     SourceLocation Loc) {
+                                     SourceLocation Loc,
+                                     const FunctionArgList *Args) {
   assert(isa<OMPLoopDirective>(D) && "Unexpected directive");
-  const OMPLoopDirective &LD = cast<OMPLoopDirective>(D);
 
-  auto IVPair = EmitNoLoopIV(LD);
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(D);
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+
+  // Initialize a specialized kernel.
+  RT.initSpecializedKernel(*this);
+
+  auto IVPair = EmitNoLoopIV(LD, Args);
   const VarDecl *IVDecl = IVPair.first;
   Address IvAddr = IVPair.second;
 
   // Generate myid = workgroup_id * workgroup_size + workitem_id
-  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
-
   // workitem_id
   llvm::Value *GpuThreadId = RT.getGPUThreadID(*this);
 
@@ -351,8 +382,16 @@ void CodeGenFunction::EmitNoLoopCode(const OMPExecutableDirective &D,
   // initialized
   llvm::Value *Gtid =
       Builder.CreateIntCast(GlobalGpuThreadId, IvAddr.getElementType(), false);
-  llvm::Value *Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
-  Builder.CreateStore(Iv, IvAddr);
+  if (CGM.isMultiDeviceKernel(D)) {
+    llvm::Value *Iv = Builder.CreateAdd(
+        Gtid,
+        Builder.CreateIntCast(Builder.CreateLoad(GetAddrOfLocalVar((*Args)[1])),
+                              IvAddr.getElementType(), false));
+    Builder.CreateStore(Iv, IvAddr);
+  } else {
+    llvm::Value *Iv = Builder.CreateAdd(Gtid, Builder.CreateLoad(IvAddr));
+    Builder.CreateStore(Iv, IvAddr);
+  }
 
   // Emit updates of the original loop indices
   for (const Expr *UE : LD.updates())
@@ -384,8 +423,44 @@ void CodeGenFunction::EmitNoLoopCode(const OMPExecutableDirective &D,
 
 void CodeGenFunction::EmitBigJumpLoopCode(const OMPExecutableDirective &D,
                                           const ForStmt *CapturedForStmt,
-                                          SourceLocation Loc) {
-  EmitStmt(CapturedForStmt);
+                                          SourceLocation Loc,
+                                          const FunctionArgList *Args) {
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+  // Initialize a specialized kernel.
+  RT.initSpecializedKernel(*this);
+
+  // Add pre-processing code from start of EmitStmt function so that the
+  // code path is identical.
+  assert(CapturedForStmt && "Null statement?");
+  PGO.setCurrentStmt(CapturedForStmt);
+
+  // These statements have their own debug info handling.
+  if (EmitSimpleStmt(CapturedForStmt, nullptr))
+    return;
+
+  // Check if we are generating unreachable code.
+  if (!HaveInsertPoint()) {
+    if (!ContainsLabel(CapturedForStmt))
+      return;
+
+    // Otherwise, make a new block to hold the code.
+    EnsureInsertPoint();
+  }
+
+  // Generate a stoppoint if we are emitting debug info.
+  EmitStopPoint(CapturedForStmt);
+
+  // Ignore all OpenMP directives except for simd if OpenMP with Simd is
+  // enabled.
+  if (getLangOpts().OpenMP && getLangOpts().OpenMPSimd) {
+    if (const auto *D = dyn_cast<OMPExecutableDirective>(CapturedForStmt)) {
+      EmitSimpleOMPExecutableDirective(*D);
+      return;
+    }
+  }
+
+  // Call variant with Args:
+  EmitForStmtWithArgs(cast<ForStmt>(*CapturedForStmt), Args);
 }
 
 void CodeGenFunction::EmitXteamRedCode(const OMPExecutableDirective &D,
@@ -396,12 +471,18 @@ void CodeGenFunction::EmitXteamRedCode(const OMPExecutableDirective &D,
   // generated
   CGM.setCurrentXteamRedStmt(CapturedForStmt);
 
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+
+  // Initialize a specialized kernel.
+  RT.initSpecializedKernel(*this);
+
   EmitXteamLocalAggregator(CapturedForStmt);
 
   // Now emit the modified loop. If there is a statement in the loop with a
   // reduction, the reduction variable will be replaced with the local
   // aggregator variable.
-  EmitStmt(CapturedForStmt);
+  EmitForStmtWithArgs(cast<ForStmt>(*CapturedForStmt), Args);
+  // EmitStmt(CapturedForStmt);
 
   // Now emit the calls to xteam_sum, one for each reduction variable
   EmitXteamRedSum(CapturedForStmt, *Args, CGM.getXteamRedBlockSize(D));
@@ -1005,6 +1086,9 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
   case Stmt::OMPParallelMaskedDirectiveClass:
     EmitOMPParallelMaskedDirective(cast<OMPParallelMaskedDirective>(*S));
     break;
+  case Stmt::OMPAssumeDirectiveClass:
+    EmitOMPAssumeDirective(cast<OMPAssumeDirective>(*S));
+    break;
   case Stmt::OpenACCComputeConstructClass:
     EmitOpenACCComputeConstruct(cast<OpenACCComputeConstruct>(*S));
     break;
@@ -1282,6 +1366,7 @@ void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
   bool nomerge = false;
   bool noinline = false;
   bool alwaysinline = false;
+  bool noconvergent = false;
   const CallExpr *musttail = nullptr;
 
   for (const auto *A : S.getAttrs()) {
@@ -1297,6 +1382,9 @@ void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
     case attr::AlwaysInline:
       alwaysinline = true;
       break;
+    case attr::NoConvergent:
+      noconvergent = true;
+      break;
     case attr::MustTail: {
       const Stmt *Sub = S.getSubStmt();
       const ReturnStmt *R = cast<ReturnStmt>(Sub);
@@ -1304,7 +1392,7 @@ void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
     } break;
     case attr::CXXAssume: {
       const Expr *Assumption = cast<CXXAssumeAttr>(A)->getAssumption();
-      if (getLangOpts().CXXAssumptions &&
+      if (getLangOpts().CXXAssumptions && Builder.GetInsertBlock() &&
           !Assumption->HasSideEffects(getContext())) {
         llvm::Value *AssumptionVal = EvaluateExprAsBool(Assumption);
         Builder.CreateAssumption(AssumptionVal);
@@ -1315,6 +1403,7 @@ void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
   SaveAndRestore save_nomerge(InNoMergeAttributedStmt, nomerge);
   SaveAndRestore save_noinline(InNoInlineAttributedStmt, noinline);
   SaveAndRestore save_alwaysinline(InAlwaysInlineAttributedStmt, alwaysinline);
+  SaveAndRestore save_noconvergent(InNoConvergentAttributedStmt, noconvergent);
   SaveAndRestore save_musttail(MustTailCall, musttail);
   EmitStmt(S.getSubStmt(), S.getAttrs());
 }
@@ -1737,8 +1826,9 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
     ConvergenceTokenStack.pop_back();
 }
 
-void CodeGenFunction::EmitForStmt(const ForStmt &S,
-                                  ArrayRef<const Attr *> ForAttrs) {
+void CodeGenFunction::EmitForStmtWithArgs(const ForStmt &S,
+                                          const FunctionArgList *Args,
+                                          ArrayRef<const Attr *> ForAttrs) {
   JumpDest LoopExit = getJumpDestInCurrentScope("for.end");
 
   LexicalScope ForScope(*this, S.getSourceRange());
@@ -1756,7 +1846,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
     BigJumpLoopLD = cast<OMPLoopDirective>(Directives.back());
 
     std::pair<const VarDecl *, Address> LoopVarInfo =
-        EmitBigJumpLoopStartingIndex(S);
+        EmitBigJumpLoopStartingIndex(S, Args);
     LoopVar = LoopVarInfo.first;
     BigJumpLoopIvAddr = LoopVarInfo.second;
   } else {
@@ -1905,6 +1995,11 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
 
   if (CGM.shouldEmitConvergenceTokens())
     ConvergenceTokenStack.pop_back();
+}
+
+void CodeGenFunction::EmitForStmt(const ForStmt &S,
+                                  ArrayRef<const Attr *> ForAttrs) {
+  CodeGenFunction::EmitForStmtWithArgs(S, nullptr, ForAttrs);
 }
 
 void
@@ -3059,7 +3154,8 @@ static llvm::MDNode *getAsmSrcLocInfo(const StringLiteral *Str,
 
 static void UpdateAsmCallInst(llvm::CallBase &Result, bool HasSideEffect,
                               bool HasUnwindClobber, bool ReadOnly,
-                              bool ReadNone, bool NoMerge, const AsmStmt &S,
+                              bool ReadNone, bool NoMerge, bool NoConvergent,
+                              const AsmStmt &S,
                               const std::vector<llvm::Type *> &ResultRegTypes,
                               const std::vector<llvm::Type *> &ArgElemTypes,
                               CodeGenFunction &CGF,
@@ -3100,11 +3196,11 @@ static void UpdateAsmCallInst(llvm::CallBase &Result, bool HasSideEffect,
                                          llvm::ConstantAsMetadata::get(Loc)));
   }
 
-  if (CGF.getLangOpts().assumeFunctionsAreConvergent())
+  if (!NoConvergent && CGF.getLangOpts().assumeFunctionsAreConvergent())
     // Conservatively, mark all inline asm blocks in CUDA or OpenCL as
     // convergent (meaning, they may call an intrinsically convergent op, such
     // as bar.sync, and so can't have certain optimizations applied around
-    // them).
+    // them) unless it's explicitly marked 'noconvergent'.
     Result.addFnAttr(llvm::Attribute::Convergent);
   // Extract all of the register value results from the asm.
   if (ResultRegTypes.size() == 1) {
@@ -3345,7 +3441,10 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
       if (RequiresCast) {
         unsigned Size = getContext().getTypeSize(QTy);
-        Ty = llvm::IntegerType::get(getLLVMContext(), Size);
+        if (Size)
+          Ty = llvm::IntegerType::get(getLLVMContext(), Size);
+        else
+          CGM.Error(OutExpr->getExprLoc(), "output size should not be zero");
       }
       ResultRegTypes.push_back(Ty);
       // If this output is tied to an input, and if the input is larger, then
@@ -3631,9 +3730,10 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   if (IsGCCAsmGoto) {
     CBR = Builder.CreateCallBr(IA, Fallthrough, Transfer, Args);
     EmitBlock(Fallthrough);
-    UpdateAsmCallInst(*CBR, HasSideEffect, false, ReadOnly, ReadNone,
-                      InNoMergeAttributedStmt, S, ResultRegTypes, ArgElemTypes,
-                      *this, RegResults);
+    UpdateAsmCallInst(*CBR, HasSideEffect, /*HasUnwindClobber=*/false, ReadOnly,
+                      ReadNone, InNoMergeAttributedStmt,
+                      InNoConvergentAttributedStmt, S, ResultRegTypes,
+                      ArgElemTypes, *this, RegResults);
     // Because we are emitting code top to bottom, we don't have enough
     // information at this point to know precisely whether we have a critical
     // edge. If we have outputs, split all indirect destinations.
@@ -3661,15 +3761,17 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
     }
   } else if (HasUnwindClobber) {
     llvm::CallBase *Result = EmitCallOrInvoke(IA, Args, "");
-    UpdateAsmCallInst(*Result, HasSideEffect, true, ReadOnly, ReadNone,
-                      InNoMergeAttributedStmt, S, ResultRegTypes, ArgElemTypes,
-                      *this, RegResults);
+    UpdateAsmCallInst(*Result, HasSideEffect, /*HasUnwindClobber=*/true,
+                      ReadOnly, ReadNone, InNoMergeAttributedStmt,
+                      InNoConvergentAttributedStmt, S, ResultRegTypes,
+                      ArgElemTypes, *this, RegResults);
   } else {
     llvm::CallInst *Result =
         Builder.CreateCall(IA, Args, getBundlesForFunclet(IA));
-    UpdateAsmCallInst(*Result, HasSideEffect, false, ReadOnly, ReadNone,
-                      InNoMergeAttributedStmt, S, ResultRegTypes, ArgElemTypes,
-                      *this, RegResults);
+    UpdateAsmCallInst(*Result, HasSideEffect, /*HasUnwindClobber=*/false,
+                      ReadOnly, ReadNone, InNoMergeAttributedStmt,
+                      InNoConvergentAttributedStmt, S, ResultRegTypes,
+                      ArgElemTypes, *this, RegResults);
   }
 
   EmitAsmStores(*this, S, RegResults, ResultRegTypes, ResultTruncRegTypes,
@@ -3817,7 +3919,7 @@ CodeGenFunction::addConvergenceControlToken(llvm::CallBase *Input,
   llvm::Value *bundleArgs[] = {ParentToken};
   llvm::OperandBundleDef OB("convergencectrl", bundleArgs);
   auto Output = llvm::CallBase::addOperandBundle(
-      Input, llvm::LLVMContext::OB_convergencectrl, OB, Input);
+      Input, llvm::LLVMContext::OB_convergencectrl, OB, Input->getIterator());
   Input->replaceAllUsesWith(Output);
   Input->eraseFromParent();
   return Output;

@@ -1835,8 +1835,8 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
       break;
     }
 
-    if (!SrcTy.isScalar()) {
-      report("Source type must be a scalar", MI);
+    if (!SrcTy.isScalar() && !SrcTy.isPointer()) {
+      report("Source type must be a scalar or pointer", MI);
       break;
     }
 
@@ -2062,7 +2062,20 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
   }
   case TargetOpcode::G_LLROUND:
   case TargetOpcode::G_LROUND: {
-    verifyAllRegOpsScalar(*MI, *MRI);
+    LLT DstTy = MRI->getType(MI->getOperand(0).getReg());
+    LLT SrcTy = MRI->getType(MI->getOperand(1).getReg());
+    if (!DstTy.isValid() || !SrcTy.isValid())
+      break;
+    if (SrcTy.isPointer() || DstTy.isPointer()) {
+      StringRef Op = SrcTy.isPointer() ? "Source" : "Destination";
+      report(Twine(Op, " operand must not be a pointer type"), MI);
+    } else if (SrcTy.isScalar()) {
+      verifyAllRegOpsScalar(*MI, *MRI);
+      break;
+    } else if (SrcTy.isVector()) {
+      verifyVectorElementMatch(SrcTy, DstTy, MI);
+      break;
+    }
     break;
   }
   case TargetOpcode::G_IS_FPCLASS: {
@@ -2125,6 +2138,12 @@ void MachineVerifier::verifyPreISelGenericInstruction(const MachineInstr *MI) {
       report("Src operand 1 must be a constant pool index", MI);
     if (!MRI->getType(MI->getOperand(0).getReg()).isPointer())
       report("Dst operand 0 must be a pointer", MI);
+    break;
+  }
+  case TargetOpcode::G_PTRAUTH_GLOBAL_VALUE: {
+    const MachineOperand &AddrOp = MI->getOperand(1);
+    if (!AddrOp.isReg() || !MRI->getType(AddrOp.getReg()).isPointer())
+      report("addr operand must be a pointer", &AddrOp, 1);
     break;
   }
   default:

@@ -14,11 +14,11 @@
 
 #include "Allocator.h"
 #include "Debug.h"
+#include "DeviceTypes.h"
 #include "Interface.h"
 #include "Mapping.h"
 #include "State.h"
 #include "Synchronization.h"
-#include "Types.h"
 #include "Workshare.h"
 
 #include "llvm/Frontend/OpenMP/OMPDeviceConstants.h"
@@ -152,6 +152,8 @@ void __kmpc_target_deinit() {
     ASSERT(WorkFn == nullptr, nullptr);
   }
 }
+
+void __kmpc_specialized_kernel_init() { mapping::init(/*IsSPMD=*/true); }
 
 #ifndef FORTRAN_NO_LONGER_NEEDS
 int32_t __kmpc_target_init_v1(int64_t *, int8_t Mode,

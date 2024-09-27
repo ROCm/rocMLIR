@@ -24,7 +24,7 @@ mlir::mhal::getStoredPrefillAttributes(gpu::BinaryOp binary) {
   // Fail if there are no object properties.
   if (!properties || properties.empty() || !kernels || kernels.size() == 0)
     return storedAttrs;
-  ArrayRef<NamedAttribute> kernelList = kernels.getKernelTable().getValue();
+  ArrayRef<gpu::KernelMetadataAttr> kernelList = kernels.getKernelTable();
   assert(kernelList.size() == 1 &&
          "binaries with multiple kernels are not supported");
   if (auto arrayAttr = properties.getAs<ArrayAttr>(kernelList[0].getName())) {
