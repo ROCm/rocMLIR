@@ -400,6 +400,10 @@ boolean shouldRunBuildAndTest(String codepath) {
     }
 }
 
+boolean isNotNavi3x(String chip) {
+    return "${CHIP}" != 'gfx1100' && "${CHIP}" != 'gfx1101'
+}
+
 
 pipeline {
     agent none
@@ -914,6 +918,11 @@ pipeline {
                         }
                     }
                     stage("Test Attention") {
+                        when {
+                            beforeAgent true;
+                            // gfx110x lacks mfma/wmma necessary for attention.
+                            expression { return isNotNavi3x("${CHIP}") }
+                        }
                         steps {
                             dir('build') {
                                 // Run attention benchmarks
@@ -927,6 +936,9 @@ pipeline {
                         when {
                             beforeAgent true;
                             equals expected: true, actual: params.checkCK;
+                            // ck-benchmark-driver requires CK xdl functions, which are
+                            // only built for gfx9xx.
+                            expression { return isNotNavi3x("${CHIP}") }
                         }
                         steps {
                             catchError (buildResult: null) { // This is an optional stage
