@@ -104,10 +104,8 @@ Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
   auto reverseTransformVec = llvm::reverse(transformsVec);
   Location loc = toBeTransformed.getLoc();
   Value ret = toBeTransformed;
-  llvm::errs() << "transform()::ret=" << ret << "\n";
   for (TransformMapAttr trMap : reverseTransformVec) {
     ret = b.create<TransformOp>(loc, ret, trMap);
-    llvm::errs() << "transform()::ret=" << ret << "\n";
   }
   return ret;
 }

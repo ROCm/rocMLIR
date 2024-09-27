@@ -1050,7 +1050,6 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   for(int64_t i = 0; i < upperRank - 2; i++){
     removeIndicesSet.insert(i);
   }
-  llvm::errs() << "toBeReducedViews = " << toBeReducedViews << "\n";
   FailureOr<ArrayAttr> blockSubTileViews =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   // We only want to keep tid in the maps
