@@ -14,8 +14,6 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
-#include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Location.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -57,7 +55,6 @@ namespace mlir {
 } // namespace mlir
 
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
-
 using namespace mlir;
 
 /// Returns true if the given `gpu.func` can be safely called using the bare
@@ -205,8 +202,11 @@ struct GPUShuffleOpLowering : public ConvertOpToLLVMPattern<gpu::ShuffleOp> {
 struct LowerGpuOpsToROCDLOpsPass
     : public impl::ConvertGpuOpsToROCDLOpsBase<LowerGpuOpsToROCDLOpsPass> {
   LowerGpuOpsToROCDLOpsPass() = default;
-  LowerGpuOpsToROCDLOpsPass(unsigned indexBitwidth, bool useBarePtrCallConv,
+  LowerGpuOpsToROCDLOpsPass(const std::string &chipset, unsigned indexBitwidth,
+                            bool useBarePtrCallConv,
                             gpu::amd::Runtime runtime) {
+    if (this->chipset.getNumOccurrences() == 0)
+      this->chipset = chipset;
     if (this->indexBitwidth.getNumOccurrences() == 0)
       this->indexBitwidth = indexBitwidth;
     if (this->useBarePtrCallConv.getNumOccurrences() == 0)
@@ -220,21 +220,29 @@ struct LowerGpuOpsToROCDLOpsPass
     MLIRContext *ctx = m.getContext();
     ArrayAttr targets = m.getTargetsAttr();
     FailureOr<amdgpu::Chipset> maybeChipset;
-    if (!targets) {
-      emitError(UnknownLoc::get(ctx), "ROCDLTargetAttr is empty on GPU module");
-      return signalPassFailure();
-    }
-    if (targets.size() != 1) {
-      emitError(UnknownLoc::get(ctx), "ROCDLTargetAttrs has more specified "
-                                      "more than one gpu-arch on GPU module");
-      return signalPassFailure();
-    } else {
+    if (chipset == "infer") {
+      if (!targets) {
+        emitError(UnknownLoc::get(ctx),
+                  "ROCDLTargetAttr is empty on GPU module");
+        return signalPassFailure();
+      }
+      if (targets.size() != 1) {
+        emitError(UnknownLoc::get(ctx), "ROCDLTargetAttrs has more specified "
+                                        "more than one gpu-arch on GPU module");
+        return signalPassFailure();
+      }
       const ROCDL::ROCDLTargetAttr targetAttr =
           mlir::dyn_cast<ROCDL::ROCDLTargetAttr>(targets.getValue().front());
       maybeChipset = amdgpu::Chipset::parse(targetAttr.getChip());
       if (failed(maybeChipset)) {
         emitError(UnknownLoc::get(ctx),
                   "Invalid chipset name: " + targetAttr.getChip());
+        return signalPassFailure();
+      }
+    } else {
+      maybeChipset = amdgpu::Chipset::parse(chipset);
+      if (failed(maybeChipset)) {
+        emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
         return signalPassFailure();
       }
     }
@@ -412,9 +420,10 @@ void mlir::populateGpuToROCDLConversionPatterns(
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
-mlir::createLowerGpuOpsToROCDLOpsPass(unsigned indexBitwidth,
+mlir::createLowerGpuOpsToROCDLOpsPass(const std::string &chipset,
+                                      unsigned indexBitwidth,
                                       bool useBarePtrCallConv,
                                       gpu::amd::Runtime runtime) {
   return std::make_unique<LowerGpuOpsToROCDLOpsPass>(
-      indexBitwidth, useBarePtrCallConv, runtime);
+      chipset, indexBitwidth, useBarePtrCallConv, runtime);
 }
