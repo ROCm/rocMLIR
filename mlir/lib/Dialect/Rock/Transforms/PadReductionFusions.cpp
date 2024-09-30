@@ -416,10 +416,11 @@ void RockPadReductionFusionsPass::runOnOperation() {
       auto[views, gemmOp] = res.value();
       MNPerBlock mnPerBlock = getMNPerBlock(gemmOp);
       // views = appendTiledViews(views, mnPerBlock);
-      //llvm::errs() << "views = " << views << "\n";
       IRRewriter rewriter(rOp.getContext());
       ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
-      //llvm::errs() << "inverted_views = " << invertedViews << "\n";
+      if(!invertedViews){
+        return WalkResult::interrupt();
+      }
       FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>> subDimensions = getLowerSubDimensions(rewriter, invertedViews, 2);
       assert(succeeded(subDimensions));
       for(auto [dim, subDimInfos] : subDimensions.value()){

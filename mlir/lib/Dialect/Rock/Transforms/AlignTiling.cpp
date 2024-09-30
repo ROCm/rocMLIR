@@ -1087,6 +1087,11 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
   
   if(succeeded(blockSubTileViews) && succeeded(threadSubTileViews) && succeeded(blockSubTileTidSliceViews) && succeeded(gridOnlyDims)){
+    // llvm::errs() << "toBeReducedViews=" << toBeReducedViews << "\n";
+    // llvm::errs() << "blockSubTileViews=" << blockSubTileViews << "\n";
+    // llvm::errs() << "threadSubTileViews=" << threadSubTileViews << "\n";
+    // llvm::errs() << "blockSubTileTidSliceViews=" << blockSubTileTidSliceViews << "\n";
+    // llvm::errs() << "gridOnlyDims=" << gridOnlyDims.value() << "\n";
     ArrayRef<int64_t> blockLowerShape = getLowerShape(blockSubTileViews.value());
     int64_t partialReductionsPerThread = getLowerShape(blockSubTileTidSliceViews.value())[blockReductionAxis];
     int64_t ldsWorkspaceSize = 1;

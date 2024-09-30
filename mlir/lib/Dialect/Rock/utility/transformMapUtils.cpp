@@ -2077,7 +2077,11 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
               if (removedSubDimInfo.stride * removedSubDimInfo.size >= maxStrideSubDim) {
                 int64_t rhsBoundForRemoval =
                     std::max(removedSubDimInfo.stride, subDimStrides[subDim]);
-                assert(maxStrideSubDim % rhsBoundForRemoval == 0);
+                if(maxStrideSubDim % rhsBoundForRemoval != 0){
+                  LLVM_DEBUG(llvm::dbgs() << "non divisible subDim removal found. aborting..\n");
+                  return failure();
+                }
+                // assert(maxStrideSubDim % rhsBoundForRemoval == 0);
                 diff = maxStrideSubDim /
                        rhsBoundForRemoval;
                 newRemovedSubDimStride =
@@ -2086,12 +2090,16 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
               // The whole of removedSubDim is within the newly created lowDim
               else if (removedSubDimInfo.stride >= subDimStrides[subDim]) {
                 diff = removedSubDimInfo.size;
-                newRemovedSubDimStride = removedSubDimInfo.stride;
+                newRemovedSubDimStride = removedSubDimInfo.stride / subDimStrides[subDim];
               }
               // Overlap is left side of removedSubDim
               else {
                 int64_t maxStrideRemovedSubDim = removedSubDimInfo.stride * removedSubDimInfo.size;
-                assert(maxStrideRemovedSubDim % subDimStrides[subDim] == 0);
+                if(maxStrideRemovedSubDim % subDimStrides[subDim] != 0){
+                  LLVM_DEBUG(llvm::dbgs() << "non divisible subDim removal found. aborting..\n");
+                  return failure();
+                }
+                // assert(maxStrideRemovedSubDim % subDimStrides[subDim] == 0);
                 diff = maxStrideRemovedSubDim /
                        subDimStrides[subDim];
                 newRemovedSubDimStride = 1;
@@ -2106,7 +2114,11 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
               }
               LLVM_DEBUG(llvm::dbgs() << "origLowerBounds[lowDim]=" << origLowerBounds[lowDim] << "\n");
               LLVM_DEBUG(llvm::dbgs() << "diff=" << diff << "\n");
-              assert(origLowerBounds[lowDim] % diff == 0);
+              if(origLowerBounds[lowDim] % diff != 0){
+                  LLVM_DEBUG(llvm::dbgs() << "non divisible subDim removal found. aborting..\n");
+                  return failure();
+              }
+              // assert(origLowerBounds[lowDim] % diff == 0);
               origLowerBounds[lowDim] = origLowerBounds[lowDim] / diff;
             }
           }
@@ -2153,6 +2165,15 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
             const auto lowerDim = tr.getLowerDims()[idx];
             origLowerBounds[lowerDim] = origUpperBounds[upperDim];
             args.params.append({0, 0});
+            LLVM_DEBUG(llvm::dbgs() << "copying removedSubDimInfo from:" << upperDim
+                        << " to:" << lowerDim << "\n");
+            for(const auto& sdIndo : removedSubDims[upperDim]){
+              LLVM_DEBUG(llvm::dbgs()
+                         << "\tcreating newRemovedSubDim /w size = " << sdIndo.size
+                         << ", stride=" << sdIndo.stride << " @ "
+                         << lowerDim << "\n");
+            }
+            newRemovedSubDims[lowerDim] = removedSubDims[upperDim];
           } else {
             args.params.append(
                 {tr.getParams()[idx * 2], tr.getParams()[idx * 2 + 1]});
@@ -2433,6 +2454,7 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_
               break;
             }
             default:
+              assert(false);
               LLVM_DEBUG(llvm::dbgs() << "Unsupported transform type : " << trAttr << "\n");
               return failure();
           }
