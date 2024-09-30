@@ -244,7 +244,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   pm.addPass(createGpuROCDLAttachTarget(opts));
   auto &gpuPm2 = pm.nest<gpu::GPUModuleOp>();
   gpuPm2.addPass(createLowerGpuOpsToROCDLOpsPass(
-      /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
+      /*chipset=*/"infer", /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
       /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP));
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm2.nest<LLVM::LLVMFuncOp>();
