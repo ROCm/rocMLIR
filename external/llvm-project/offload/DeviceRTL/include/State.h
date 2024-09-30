@@ -15,10 +15,10 @@
 #include "Shared/Environment.h"
 
 #include "Debug.h"
+#include "DeviceTypes.h"
+#include "DeviceUtils.h"
 #include "Mapping.h"
 #include "Platform.h"
-#include "Types.h"
-#include "Utils.h"
 
 // Forward declaration.
 struct KernelEnvironmentTy;
@@ -116,7 +116,7 @@ struct ThreadStateTy {
   }
 };
 
-extern ThreadStateTy *ThreadStates[mapping::MaxThreadsPerTeam];
+extern ThreadStateTy **ThreadStates;
 #pragma omp allocate(ThreadStates) allocator(omp_pteam_mem_alloc)
 
 /// Initialize the state machinery. Must be called by all threads.

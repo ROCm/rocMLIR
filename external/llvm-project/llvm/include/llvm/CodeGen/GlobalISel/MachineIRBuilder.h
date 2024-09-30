@@ -886,6 +886,13 @@ public:
   MachineInstrBuilder buildFConstant(const DstOp &Res, double Val);
   MachineInstrBuilder buildFConstant(const DstOp &Res, const APFloat &Val);
 
+  /// Build and insert G_PTRAUTH_GLOBAL_VALUE
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildConstantPtrAuth(const DstOp &Res,
+                                           const ConstantPtrAuth *CPA,
+                                           Register Addr, Register AddrDisc);
+
   /// Build and insert \p Res = COPY Op
   ///
   /// Register-to-register COPY sets \p Res to \p Op.
@@ -1628,6 +1635,41 @@ public:
   MachineInstrBuilder buildAtomicRMWFMin(
         const DstOp &OldValRes, const SrcOp &Addr, const SrcOp &Val,
         MachineMemOperand &MMO);
+
+  /// Build and insert `OldValRes<def> = G_ATOMICRMW_USUB_COND Addr, Val, MMO`.
+  ///
+  /// Atomically replace the value at \p Addr with the original value minus \p
+  /// Val if the original value is greater than or equal to \p Val, or leaves it
+  /// unchanged otherwise. Puts the original value from \p Addr in \p OldValRes.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p OldValRes must be a generic virtual register.
+  /// \pre \p Addr must be a generic virtual register with pointer type.
+  /// \pre \p OldValRes, and \p Val must be generic virtual registers of the
+  ///      same type.
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildAtomicRMWUSubCond(const DstOp &OldValRes,
+                                             const SrcOp &Addr,
+                                             const SrcOp &Val,
+                                             MachineMemOperand &MMO);
+
+  /// Build and insert `OldValRes<def> = G_ATOMICRMW_USUB_SAT Addr, Val, MMO`.
+  ///
+  /// Atomically replace the value at \p Addr with the original value minus \p
+  /// Val, with clamping to zero if the unsigned subtraction would overflow.
+  /// Puts the original value from \p Addr in \p OldValRes.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p OldValRes must be a generic virtual register.
+  /// \pre \p Addr must be a generic virtual register with pointer type.
+  /// \pre \p OldValRes, and \p Val must be generic virtual registers of the
+  ///      same type.
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildAtomicRMWUSubSat(const DstOp &OldValRes,
+                                            const SrcOp &Addr, const SrcOp &Val,
+                                            MachineMemOperand &MMO);
 
   /// Build and insert `G_FENCE Ordering, Scope`.
   MachineInstrBuilder buildFence(unsigned Ordering, unsigned Scope);

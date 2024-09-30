@@ -87,6 +87,9 @@ class CGDebugInfo {
 #include "clang/Basic/WebAssemblyReferenceTypes.def"
 #define AMDGPU_TYPE(Name, Id, SingletonId) llvm::DIType *SingletonId = nullptr;
 #include "clang/Basic/AMDGPUTypes.def"
+#define HLSL_INTANGIBLE_TYPE(Name, Id, SingletonId)                            \
+  llvm::DIType *SingletonId = nullptr;
+#include "clang/Basic/HLSLIntangibleTypes.def"
 
   /// Cache of previously constructed Types.
   llvm::DenseMap<const void *, llvm::TrackingMDRef> TypeCache;
@@ -806,7 +809,20 @@ private:
   /// anonymous decl and create static variables for them. The first
   /// time this is called it needs to be on a union and then from
   /// there we can have additional unnamed fields.
-  llvm::DIGlobalVariable *CollectAnonRecordDeclsForHeterogeneousDwarf(
+  llvm::DIGlobalVariable *CollectAnonRecordDeclsForHeterogeneousDwarfDIExpr(
+      const RecordDecl *RD, llvm::DIFile *Unit, unsigned LineNo,
+      StringRef LinkageName, llvm::dwarf::MemorySpace MS,
+      llvm::GlobalVariable *Var, llvm::DIScope *DContext);
+
+  /// Return a global variable that represents one of the collection of global
+  /// variables created for an anonmyous union (-gheterogeneous-dwarf).
+  ///
+  /// Recursively collect all of the member fields of a global
+  /// anonymous decl and create static variables for them. The first
+  /// time this is called it needs to be on a union and then from
+  /// there we can have additional unnamed fields.
+  llvm::DIGlobalVariableExpression *
+  CollectAnonRecordDeclsForHeterogeneousDwarfDIExpression(
       const RecordDecl *RD, llvm::DIFile *Unit, unsigned LineNo,
       StringRef LinkageName, llvm::dwarf::MemorySpace MS,
       llvm::GlobalVariable *Var, llvm::DIScope *DContext);

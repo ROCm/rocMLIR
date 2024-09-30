@@ -16,8 +16,8 @@
 #include "Mapping.h"
 #include "State.h"
 #include "Synchronization.h"
-#include "Types.h"
-#include "Utils.h"
+#include "DeviceTypes.h"
+#include "DeviceUtils.h"
 
 #define __XTEAM_SHARED_LDS volatile __attribute__((address_space(3)))
 
@@ -317,7 +317,7 @@ __attribute__((flatten, always_inline)) void _xteam_reduction(
 
   if (_IS_FAST) {
     if (omp_thread_num == 0)
-      ompx::atomic::add(r_ptr, xwave_lds[0], ompx::atomic::seq_cst);
+      ompx::atomic::add_system(r_ptr, xwave_lds[0], ompx::atomic::seq_cst);
   } else {
     // No sync needed here from last reduction in LDS loop
     // because we only need xwave_lds[0] correct on thread 0.

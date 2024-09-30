@@ -15,7 +15,6 @@
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "SIMachineFunctionInfo.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include "llvm/CodeGen/MachineCycleAnalysis.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/ScheduleDAG.h"
@@ -46,6 +45,10 @@ static cl::opt<unsigned, false, MFMAPaddingRatioParser>
                      cl::desc("Fill a percentage of the latency between "
                               "neighboring MFMA with s_nops."));
 
+static cl::opt<unsigned> MaxExhaustiveHazardSearch(
+    "amdgpu-max-exhaustive-hazard-search", cl::init(128), cl::Hidden,
+    cl::desc("Maximum function size for exhausive hazard search"));
+
 //===----------------------------------------------------------------------===//
 // Hazard Recognizer Implementation
 //===----------------------------------------------------------------------===//
@@ -53,15 +56,11 @@ static cl::opt<unsigned, false, MFMAPaddingRatioParser>
 static bool shouldRunLdsBranchVmemWARHazardFixup(const MachineFunction &MF,
                                                  const GCNSubtarget &ST);
 
-GCNHazardRecognizer::GCNHazardRecognizer(const MachineFunction &MF) :
-  IsHazardRecognizerMode(false),
-  CurrCycleInstr(nullptr),
-  MF(MF),
-  ST(MF.getSubtarget<GCNSubtarget>()),
-  TII(*ST.getInstrInfo()),
-  TRI(TII.getRegisterInfo()),
-  ClauseUses(TRI.getNumRegUnits()),
-  ClauseDefs(TRI.getNumRegUnits()) {
+GCNHazardRecognizer::GCNHazardRecognizer(const MachineFunction &MF)
+    : IsHazardRecognizerMode(false), CurrCycleInstr(nullptr), MF(MF),
+      ST(MF.getSubtarget<GCNSubtarget>()), TII(*ST.getInstrInfo()),
+      TRI(TII.getRegisterInfo()), UseVALUReadHazardExhaustiveSearch(false),
+      ClauseUses(TRI.getNumRegUnits()), ClauseDefs(TRI.getNumRegUnits()) {
   MaxLookAhead = MF.getRegInfo().isPhysRegUsed(AMDGPU::AGPR0) ? 19 : 5;
   TSchedModel.init(&ST);
   RunLdsBranchVmemWARHazardFixup = shouldRunLdsBranchVmemWARHazardFixup(MF, ST);
@@ -878,11 +877,76 @@ GCNHazardRecognizer::checkVALUHazardsHelper(const MachineOperand &Def,
     return DataIdx >= 0 &&
            TRI->regsOverlap(MI.getOperand(DataIdx).getReg(), Reg);
   };
+
   int WaitStatesNeededForDef =
     VALUWaitStates - getWaitStatesSince(IsHazardFn, VALUWaitStates);
   WaitStatesNeeded = std::max(WaitStatesNeeded, WaitStatesNeededForDef);
 
   return WaitStatesNeeded;
+}
+
+/// Dest sel forwarding issue occurs if additional logic is needed to swizzle /
+/// pack the computed value into correct bit position of the dest register. This
+/// occurs if we have SDWA with dst_sel != DWORD or if we have op_sel with
+/// dst_sel that is not aligned to the register. This function analayzes the \p
+/// MI and \returns an operand with dst forwarding issue, or nullptr if
+/// none exists.
+static const MachineOperand *
+getDstSelForwardingOperand(const MachineInstr &MI, const GCNSubtarget &ST) {
+  if (!SIInstrInfo::isVALU(MI))
+    return nullptr;
+
+  const SIInstrInfo *TII = ST.getInstrInfo();
+
+  unsigned Opcode = MI.getOpcode();
+
+  // There are three different types of instructions
+  // which produce forwarded dest: 1. SDWA with dst_sel != DWORD, 2. VOP3
+  // which write hi bits (e.g. op_sel[3] == 1), and 3. CVR_SR_FP8_F32 and
+  // CVT_SR_BF8_F32 with op_sel[3:2]
+  // != 0
+  if (SIInstrInfo::isSDWA(MI)) {
+    // Type 1: SDWA with dst_sel != DWORD
+    if (auto *DstSel = TII->getNamedOperand(MI, AMDGPU::OpName::dst_sel))
+      if (DstSel->getImm() == AMDGPU::SDWA::DWORD)
+        return nullptr;
+  } else {
+    // Type 2 && Type 3: (VOP3 which write the hi bits) || (CVT_SR_FP8_F32 and
+    // CVT_SR_BF8_F32 with op_sel[3:2] != 0)
+    if (!AMDGPU::hasNamedOperand(Opcode, AMDGPU::OpName::op_sel) ||
+        !(TII->getNamedOperand(MI, AMDGPU::OpName::src0_modifiers)->getImm() &
+              SISrcMods::DST_OP_SEL ||
+          (AMDGPU::isFP8DstSelInst(Opcode) &&
+           (TII->getNamedOperand(MI, AMDGPU::OpName::src2_modifiers)->getImm() &
+            SISrcMods::OP_SEL_0))))
+      return nullptr;
+  }
+
+  return TII->getNamedOperand(MI, AMDGPU::OpName::vdst);
+}
+
+/// Checks whether the provided \p MI "consumes" the operand with a Dest sel
+/// fowarding issue \p Dst . We may "consume" the Dst via a standard explicit
+/// RAW, or through irregular ways (e.g implicit RAW, certain types of WAW)
+static bool consumesDstSelForwardingOperand(const MachineInstr *VALU,
+                                            const MachineOperand *Dst,
+                                            const SIRegisterInfo *TRI) {
+  // We must consider implicit reads of the VALU. SDWA with dst_sel and
+  // UNUSED_PRESERVE will implicitly read the result from forwarded dest,
+  // and we must account for that hazard.
+  // We also must account for WAW hazards. In particular, WAW with dest
+  // preserve semantics (e.g. VOP3 with op_sel, VOP2 &&
+  // !zeroesHigh16BitsOfDest) will read the forwarded dest for parity
+  // check for ECC. Without accounting for this hazard, the ECC will be
+  // wrong.
+  // TODO: limit to RAW (including implicit reads) + problematic WAW (i.e.
+  // complete zeroesHigh16BitsOfDest)
+  for (auto &Operand : VALU->operands()) {
+    if (Operand.isReg() && TRI->regsOverlap(Dst->getReg(), Operand.getReg())) {
+      return true;
+    }
+  }
+  return false;
 }
 
 int GCNHazardRecognizer::checkVALUHazards(MachineInstr *VALU) {
@@ -915,27 +979,18 @@ int GCNHazardRecognizer::checkVALUHazards(MachineInstr *VALU) {
   if (ST.hasDstSelForwardingHazard()) {
     const int Shift16DefWaitstates = 1;
 
-    auto IsShift16BitDefFn = [this, VALU](const MachineInstr &MI) {
-      if (!SIInstrInfo::isVALU(MI))
-        return false;
-      const SIInstrInfo *TII = ST.getInstrInfo();
-      if (SIInstrInfo::isSDWA(MI)) {
-        if (auto *DstSel = TII->getNamedOperand(MI, AMDGPU::OpName::dst_sel))
-          if (DstSel->getImm() == AMDGPU::SDWA::DWORD)
-            return false;
-      } else {
-        if (!AMDGPU::hasNamedOperand(MI.getOpcode(), AMDGPU::OpName::op_sel) ||
-            !(TII->getNamedOperand(MI, AMDGPU::OpName::src0_modifiers)
-                  ->getImm() &
-              SISrcMods::DST_OP_SEL))
-          return false;
-      }
+    auto IsShift16BitDefFn = [this, VALU](const MachineInstr &ProducerMI) {
       const SIRegisterInfo *TRI = ST.getRegisterInfo();
-      if (auto *Dst = TII->getNamedOperand(MI, AMDGPU::OpName::vdst)) {
-        Register Def = Dst->getReg();
+      const MachineOperand *ForwardedDst =
+          getDstSelForwardingOperand(ProducerMI, ST);
+      if (ForwardedDst) {
+        return consumesDstSelForwardingOperand(VALU, ForwardedDst, TRI);
+      }
 
-        for (const MachineOperand &Use : VALU->explicit_uses()) {
-          if (Use.isReg() && TRI->regsOverlap(Def, Use.getReg()))
+      if (ProducerMI.isInlineAsm()) {
+        // Assume inline asm has dst forwarding hazard
+        for (auto &Def : ProducerMI.all_defs()) {
+          if (consumesDstSelForwardingOperand(VALU, &Def, TRI))
             return true;
         }
       }
@@ -1032,7 +1087,7 @@ int GCNHazardRecognizer::checkInlineAsmHazards(MachineInstr *IA) {
   // problematic thus far.
 
   // see checkVALUHazards()
-  if (!ST.has12DWordStoreHazard())
+  if (!ST.has12DWordStoreHazard() && !ST.hasDstSelForwardingHazard())
     return 0;
 
   const MachineRegisterInfo &MRI = MF.getRegInfo();
@@ -1041,9 +1096,43 @@ int GCNHazardRecognizer::checkInlineAsmHazards(MachineInstr *IA) {
   for (const MachineOperand &Op :
        llvm::drop_begin(IA->operands(), InlineAsm::MIOp_FirstOperand)) {
     if (Op.isReg() && Op.isDef()) {
-      WaitStatesNeeded =
-          std::max(WaitStatesNeeded, checkVALUHazardsHelper(Op, MRI));
+      if (!TRI.isVectorRegister(MRI, Op.getReg()))
+        continue;
+
+      if (ST.has12DWordStoreHazard()) {
+        WaitStatesNeeded =
+            std::max(WaitStatesNeeded, checkVALUHazardsHelper(Op, MRI));
+      }
     }
+  }
+
+  if (ST.hasDstSelForwardingHazard()) {
+    const int Shift16DefWaitstates = 1;
+
+    auto IsShift16BitDefFn = [this, &IA](const MachineInstr &ProducerMI) {
+      const MachineOperand *Dst = getDstSelForwardingOperand(ProducerMI, ST);
+      // Assume inline asm reads the dst
+      if (Dst)
+        return IA->modifiesRegister(Dst->getReg(), &TRI) ||
+               IA->readsRegister(Dst->getReg(), &TRI);
+
+      if (ProducerMI.isInlineAsm()) {
+        // If MI is inline asm, assume it has dst forwarding hazard
+        for (auto &Def : ProducerMI.all_defs()) {
+          if (IA->modifiesRegister(Def.getReg(), &TRI) ||
+              IA->readsRegister(Def.getReg(), &TRI)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    };
+
+    int WaitStatesNeededForDef =
+        Shift16DefWaitstates -
+        getWaitStatesSince(IsShift16BitDefFn, Shift16DefWaitstates);
+    WaitStatesNeeded = std::max(WaitStatesNeeded, WaitStatesNeededForDef);
   }
 
   return WaitStatesNeeded;
@@ -2782,7 +2871,9 @@ static void updateGetPCBundle(MachineInstr *NewMI) {
     return;
 
   // Update offsets of any references in the bundle.
-  const unsigned NewBytes = NewMI->getDesc().getSize();
+  const unsigned NewBytes = 4;
+  assert(NewMI->getOpcode() == AMDGPU::S_WAITCNT_DEPCTR &&
+         "Unexpected instruction insertion in bundle");
   auto NextMI = std::next(NewMI->getIterator());
   auto End = NewMI->getParent()->end();
   while (NextMI != End && NextMI->isBundledWithPred()) {
@@ -2921,9 +3012,24 @@ bool GCNHazardRecognizer::fixVALUMaskWriteHazard(MachineInstr *MI) {
   return true;
 }
 
-static unsigned baseSGPRNumber(Register Reg, const SIRegisterInfo &TRI) {
+// Return the numeric ID 0-63 of an 64b SGPR pair for a given SGPR.
+// i.e. SGPR0 = SGPR0_SGPR1 = 0, SGPR3 = SGPR2_SGPR3 = 1, etc
+static std::optional<unsigned> sgprPairNumber(Register Reg,
+                                              const SIRegisterInfo &TRI) {
+  switch (Reg) {
+  case AMDGPU::M0:
+  case AMDGPU::EXEC:
+  case AMDGPU::EXEC_LO:
+  case AMDGPU::EXEC_HI:
+  case AMDGPU::SGPR_NULL:
+  case AMDGPU::SGPR_NULL64:
+    return {};
+  default:
+    break;
+  }
   unsigned RegN = TRI.getEncodingValue(Reg);
-  assert(RegN <= 127);
+  if (RegN > 127)
+    return {};
   return (RegN >> 1) & 0x3f;
 }
 
@@ -2935,13 +3041,19 @@ void GCNHazardRecognizer::computeVALUHazardSGPRs(MachineFunction *MMF) {
   if (!VALUReadHazardSGPRs.empty())
     return;
 
-  // Consider all SGPRs hazards if the shader uses function calls or is callee.
   auto CallingConv = MF.getFunction().getCallingConv();
-  bool UseVALUUseCache = AMDGPU::isShader(CallingConv) &&
-                         !AMDGPU::isChainCC(CallingConv) &&
-                         !MF.getFrameInfo().hasCalls() &&
-                         MF.getTarget().getOptLevel() > CodeGenOptLevel::None;
+  bool IsCallFree =
+      AMDGPU::isEntryFunctionCC(CallingConv) && !MF.getFrameInfo().hasCalls();
 
+  // Exhaustive search is only viable in non-caller/callee functions where
+  // VALUs will be exposed to the hazard recognizer.
+  UseVALUReadHazardExhaustiveSearch =
+      IsCallFree && MF.getTarget().getOptLevel() > CodeGenOptLevel::None &&
+      MF.getInstructionCount() <= MaxExhaustiveHazardSearch;
+
+  // Consider all SGPRs hazards if the shader uses function calls or is callee.
+  bool UseVALUUseCache =
+      IsCallFree && MF.getTarget().getOptLevel() > CodeGenOptLevel::None;
   VALUReadHazardSGPRs.resize(64, !UseVALUUseCache);
   if (!UseVALUUseCache)
     return;
@@ -2960,30 +3072,33 @@ void GCNHazardRecognizer::computeVALUHazardSGPRs(MachineFunction *MMF) {
     for (auto &MI : reverse(MBB->instrs())) {
       bool IsVALU = SIInstrInfo::isVALU(MI);
       bool IsSALU = SIInstrInfo::isSALU(MI);
-      if (!(IsVALU || IsSALU))
+      if (!IsVALU && !IsSALU)
         continue;
 
       for (const MachineOperand &Op : MI.operands()) {
         if (!Op.isReg())
           continue;
         Register Reg = Op.getReg();
+        assert(!Op.getSubReg());
         // Only consider implicit operands of VCC.
         if (Op.isImplicit() && !(Reg == AMDGPU::VCC_LO ||
                                  Reg == AMDGPU::VCC_HI || Reg == AMDGPU::VCC))
           continue;
         if (!TRI.isSGPRReg(MRI, Reg))
           continue;
-        unsigned RegN = baseSGPRNumber(Reg, TRI);
+        auto RegN = sgprPairNumber(Reg, TRI);
+        if (!RegN)
+          continue;
         if (IsVALU && Op.isUse()) {
           // Note: any access within a cycle must be considered a hazard.
-          if (InCycle || (ReadSGPRs[RegN] && SALUWriteSGPRs[RegN]))
-            VALUReadHazardSGPRs.set(RegN);
-          ReadSGPRs.set(RegN);
+          if (InCycle || (ReadSGPRs[*RegN] && SALUWriteSGPRs[*RegN]))
+            VALUReadHazardSGPRs.set(*RegN);
+          ReadSGPRs.set(*RegN);
         } else if (IsSALU) {
           if (Op.isDef())
-            SALUWriteSGPRs.set(RegN);
+            SALUWriteSGPRs.set(*RegN);
           else
-            ReadSGPRs.set(RegN);
+            ReadSGPRs.set(*RegN);
         }
       }
     }
@@ -2998,10 +3113,9 @@ bool GCNHazardRecognizer::fixVALUReadSGPRHazard(MachineInstr *MI) {
   //   1. VALU reads SGPR
   //   2. SALU writes SGPR
   //   3. VALU/SALU reads SGPR
-  // We do not search for (1) because the expiry point of the hazard
-  // is indeterminate; however, the hazard between (2) and (3) can
-  // expire if the gap contains sufficient SALU instructions with no
-  // usage of SGPR from (1).
+  // Try to avoid searching for (1) because the expiry point of the hazard is
+  // indeterminate; however, the hazard between (2) and (3) can expire if the
+  // gap contains sufficient SALU instructions with no usage of SGPR from (1).
   // Note: SGPRs must be considered as 64-bit pairs as hazard exists
   // even if individual SGPRs are accessed.
 
@@ -3009,18 +3123,6 @@ bool GCNHazardRecognizer::fixVALUReadSGPRHazard(MachineInstr *MI) {
   bool MIIsVALU = SIInstrInfo::isVALU(*MI);
   if (!(MIIsSALU || MIIsVALU))
     return false;
-
-  // Always mitigate before a call/return as the callee/caller will not
-  // see the hazard chain, i.e. (2) to (3) described above.
-  if (MI->getOpcode() == AMDGPU::S_SETPC_B64 ||
-      MI->getOpcode() == AMDGPU::S_SETPC_B64_return ||
-      MI->getOpcode() == AMDGPU::S_SWAPPC_B64 ||
-      MI->getOpcode() == AMDGPU::S_CALL_B64) {
-    BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),
-            TII.get(AMDGPU::S_WAITCNT_DEPCTR))
-        .addImm(AMDGPU::DepCtr::encodeFieldSaSdst(0));
-    return true;
-  }
 
   // Avoid expensive search when compile time is priority by
   // mitigating every SALU which writes an SGPR.
@@ -3058,44 +3160,53 @@ bool GCNHazardRecognizer::fixVALUReadSGPRHazard(MachineInstr *MI) {
   if (VALUReadHazardSGPRs.none())
     return false;
 
+  // All SGPR writes before a call/return must be flushed as the callee/caller
+  // will not will not see the hazard chain, i.e. (2) to (3) described above.
+  const bool IsSetPC = (MI->isCall() || MI->isReturn()) &&
+                       !(MI->getOpcode() == AMDGPU::S_ENDPGM ||
+                         MI->getOpcode() == AMDGPU::S_ENDPGM_SAVED);
+
   // Collect all SGPR sources for MI which are read by a VALU.
   const MachineRegisterInfo &MRI = MF.getRegInfo();
   SmallSet<Register, 4> SGPRsUsed;
 
-  for (const MachineOperand &Op : MI->all_uses()) {
-    Register OpReg = Op.getReg();
+  if (!IsSetPC) {
+    for (const MachineOperand &Op : MI->all_uses()) {
+      Register OpReg = Op.getReg();
 
-    // Only consider VCC implicit uses on VALUs.
-    // The only expected SALU implicit access is SCC which is no hazard.
-    if (MIIsSALU && Op.isImplicit())
-      continue;
+      // Only consider VCC implicit uses on VALUs.
+      // The only expected SALU implicit access is SCC which is no hazard.
+      if (MIIsSALU && Op.isImplicit())
+        continue;
 
-    // Ignore EXEC and M0
-    if (OpReg == AMDGPU::EXEC || OpReg == AMDGPU::EXEC_LO ||
-        OpReg == AMDGPU::EXEC_HI || OpReg == AMDGPU::M0 ||
-        OpReg == AMDGPU::SGPR_NULL)
-      continue;
+      if (!TRI.isSGPRReg(MRI, OpReg))
+        continue;
 
-    if (!TRI.isSGPRReg(MRI, OpReg))
-      continue;
+      auto RegN = sgprPairNumber(OpReg, TRI);
+      if (!RegN)
+        continue;
 
-    unsigned RegN = baseSGPRNumber(OpReg, TRI);
-    if (!VALUReadHazardSGPRs[RegN])
-      continue;
+      if (!VALUReadHazardSGPRs[*RegN])
+        continue;
 
-    SGPRsUsed.insert(OpReg);
+      SGPRsUsed.insert(OpReg);
+    }
+
+    // No SGPRs -> nothing to do.
+    if (SGPRsUsed.empty())
+      return false;
   }
 
-  // No SGPRs -> nothing to do.
-  if (SGPRsUsed.empty())
-    return false;
-
   // A hazard is any SALU which writes one of the SGPRs read by MI.
-  auto IsHazardFn = [this, &SGPRsUsed](const MachineInstr &I) {
+  auto IsHazardFn = [this, IsSetPC, &SGPRsUsed](const MachineInstr &I) {
     if (!SIInstrInfo::isSALU(I))
       return false;
+    // Ensure SGPR flush before call/return by conservatively assuming every
+    // SALU writes an SGPR.
+    if (IsSetPC && I.getNumDefs() > 0)
+      return true;
     // Check for any register writes.
-    return llvm::any_of(SGPRsUsed, [this, &I](Register Reg) {
+    return any_of(SGPRsUsed, [this, &I](Register Reg) {
       return I.modifiesRegister(Reg, &TRI);
     });
   };
@@ -3116,9 +3227,8 @@ bool GCNHazardRecognizer::fixVALUReadSGPRHazard(MachineInstr *MI) {
     if (!SIInstrInfo::isSALU(I) || SIInstrInfo::isSOPP(I))
       return 0;
     // SALU must be unrelated to any hazard registers.
-    if (llvm::any_of(SGPRsUsed, [this, &I](Register Reg) {
-          return I.readsRegister(Reg, &TRI);
-        }))
+    if (any_of(SGPRsUsed,
+               [this, &I](Register Reg) { return I.readsRegister(Reg, &TRI); }))
       return 0;
     return 1;
   };
@@ -3131,6 +3241,33 @@ bool GCNHazardRecognizer::fixVALUReadSGPRHazard(MachineInstr *MI) {
 
   if (WaitStates >= SALUExpiryCount)
     return false;
+
+  // Validate hazard through an exhaustive search.
+  if (UseVALUReadHazardExhaustiveSearch) {
+    // A hazard is any VALU which reads one of the paired SGPRs read by MI.
+    // This is searching for (1) in the hazard description.
+    auto hazardPair = [this](Register Reg) {
+      if (Reg == AMDGPU::VCC || Reg == AMDGPU::VCC_LO || Reg == AMDGPU::VCC_HI)
+        return Register(AMDGPU::VCC);
+      auto RegN = sgprPairNumber(Reg, TRI);
+      return Register(AMDGPU::SGPR0_SGPR1 + *RegN);
+    };
+    auto SearchHazardFn = [this, hazardPair,
+                           &SGPRsUsed](const MachineInstr &I) {
+      if (!SIInstrInfo::isVALU(I))
+        return false;
+      // Check for any register reads.
+      return any_of(SGPRsUsed, [this, hazardPair, &I](Register Reg) {
+        return I.readsRegister(hazardPair(Reg), &TRI);
+      });
+    };
+    auto SearchExpiredFn = [&](const MachineInstr &I, int Count) {
+      return false;
+    };
+    if (::getWaitStatesSince(SearchHazardFn, MI, SearchExpiredFn) ==
+        std::numeric_limits<int>::max())
+      return false;
+  }
 
   // Add s_wait_alu sa_sdst(0) before SALU read.
   auto NewMI = BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),

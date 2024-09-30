@@ -1110,8 +1110,7 @@ typename std::enable_if_t<
 
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
   func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
-  func.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
-                     rw.getUnitAttr());
+  func.setResultAttr(0, "mhal.read_access", rw.getUnitAttr());
   // The original function also need the read access attr for the output.
   if (func->hasAttr("original_func")) {
     if (ModuleOp rootMod =
@@ -1121,8 +1120,7 @@ typename std::enable_if_t<
           func->getAttrOfType<SymbolRefAttr>("original_func");
       if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
               symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
-        originalFunc.setResultAttr(0, func::FuncOp::getReadAccessAttrName(),
-                                   rw.getUnitAttr());
+        originalFunc.setResultAttr(0, "mhal.read_access", rw.getUnitAttr());
       }
     }
   }

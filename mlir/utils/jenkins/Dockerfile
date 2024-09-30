@@ -115,6 +115,8 @@ RUN apt-get update && \
   rocprofiler-dev \
   rocblas \
   rocblas-dev \
+  hipblas-dev \
+  hipblaslt-dev \
   miopen-hip \
   miopen-hip-dev \
   libelf1 \
@@ -136,7 +138,7 @@ RUN wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2
 
 # python setup for tuna
 # --ignore-installed because of problems upgrading PyYAML.  See also -U.
-ADD "https://raw.githubusercontent.com/ROCm/MITuna/develop/requirements.txt" tuna-requirements.txt
+ADD "https://raw.githubusercontent.com/ROCm/MITuna/pf-tuna-rocmlir-3/requirements.txt" tuna-requirements.txt
 RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
     python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
     python3 -m pip install scipy pandas

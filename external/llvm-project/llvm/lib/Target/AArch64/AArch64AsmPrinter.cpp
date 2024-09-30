@@ -113,6 +113,8 @@ public:
 
   void emitFunctionEntryLabel() override;
 
+  void emitXXStructor(const DataLayout &DL, const Constant *CV) override;
+
   void LowerJumpTableDest(MCStreamer &OutStreamer, const MachineInstr &MI);
 
   void LowerHardenedBRJumpTable(const MachineInstr &MI);
@@ -151,10 +153,16 @@ public:
   unsigned emitPtrauthDiscriminator(uint16_t Disc, unsigned AddrDisc,
                                     unsigned &InstsEmitted);
 
+  // Emit the sequence for LOADauthptrstatic
+  void LowerLOADauthptrstatic(const MachineInstr &MI);
+
+  // Emit the sequence for LOADgotPAC/MOVaddrPAC (either GOT adrp-ldr or
+  // adrp-add followed by PAC sign)
+  void LowerMOVaddrPAC(const MachineInstr &MI);
+
   /// tblgen'erated driver function for lowering simple MI->MC
   /// pseudo instructions.
-  bool emitPseudoExpansionLowering(MCStreamer &OutStreamer,
-                                   const MachineInstr *MI);
+  bool lowerPseudoInstExpansion(const MachineInstr *MI, MCInst &Inst);
 
   void emitInstruction(const MachineInstr *MI) override;
 
@@ -859,12 +867,13 @@ void AArch64AsmPrinter::emitHwasanMemaccessSymbols(Module &M) {
   }
 }
 
-static void emitAuthenticatedPointer(MCStreamer &OutStreamer,
-                                     MCSymbol *StubLabel,
-                                     const MCExpr *StubAuthPtrRef) {
+template <typename MachineModuleInfoTarget>
+static void emitAuthenticatedPointer(
+    MCStreamer &OutStreamer, MCSymbol *StubLabel,
+    const typename MachineModuleInfoTarget::AuthStubInfo &StubInfo) {
   // sym$auth_ptr$key$disc:
   OutStreamer.emitLabel(StubLabel);
-  OutStreamer.emitValue(StubAuthPtrRef, /*size=*/8);
+  OutStreamer.emitValue(StubInfo.AuthPtrRef, /*size=*/8);
 }
 
 void AArch64AsmPrinter::emitEndOfAsmFile(Module &M) {
@@ -899,7 +908,6 @@ void AArch64AsmPrinter::emitEndOfAsmFile(Module &M) {
     OutStreamer->emitAssemblerFlag(MCAF_SubsectionsViaSymbols);
   }
 
-
   if (TT.isOSBinFormatELF()) {
     // Output authenticated pointers as indirect symbols, if we have any.
     MachineModuleInfoELF &MMIELF = MMI->getObjFileInfo<MachineModuleInfoELF>();
@@ -912,7 +920,8 @@ void AArch64AsmPrinter::emitEndOfAsmFile(Module &M) {
       emitAlignment(Align(8));
 
       for (const auto &Stub : Stubs)
-        emitAuthenticatedPointer(*OutStreamer, Stub.first, Stub.second);
+        emitAuthenticatedPointer<MachineModuleInfoELF>(*OutStreamer, Stub.first,
+                                                       Stub.second);
 
       OutStreamer->addBlankLine();
     }
@@ -1275,6 +1284,23 @@ void AArch64AsmPrinter::emitFunctionEntryLabel() {
   }
 }
 
+void AArch64AsmPrinter::emitXXStructor(const DataLayout &DL,
+                                       const Constant *CV) {
+  if (const auto *CPA = dyn_cast<ConstantPtrAuth>(CV))
+    if (CPA->hasAddressDiscriminator() &&
+        !CPA->hasSpecialAddressDiscriminator(
+            ConstantPtrAuth::AddrDiscriminator_CtorsDtors))
+      report_fatal_error(
+          "unexpected address discrimination value for ctors/dtors entry, only "
+          "'ptr inttoptr (i64 1 to ptr)' is allowed");
+  // If we have signed pointers in xxstructors list, they'll be lowered to @AUTH
+  // MCExpr's via AArch64AsmPrinter::lowerConstantPtrAuth. It does not look at
+  // actual address discrimination value and only checks
+  // hasAddressDiscriminator(), so it's OK to leave special address
+  // discrimination value here.
+  AsmPrinter::emitXXStructor(DL, CV);
+}
+
 void AArch64AsmPrinter::emitGlobalAlias(const Module &M,
                                         const GlobalAlias &GA) {
   if (auto F = dyn_cast_or_null<Function>(GA.getAliasee())) {
@@ -1286,6 +1312,13 @@ void AArch64AsmPrinter::emitGlobalAlias(const Module &M,
       StringRef ExpStr = cast<MDString>(Node->getOperand(0))->getString();
       MCSymbol *ExpSym = MMI->getContext().getOrCreateSymbol(ExpStr);
       MCSymbol *Sym = MMI->getContext().getOrCreateSymbol(GA.getName());
+
+      OutStreamer->beginCOFFSymbolDef(ExpSym);
+      OutStreamer->emitCOFFSymbolStorageClass(COFF::IMAGE_SYM_CLASS_EXTERNAL);
+      OutStreamer->emitCOFFSymbolType(COFF::IMAGE_SYM_DTYPE_FUNCTION
+                                      << COFF::SCT_COMPLEX_TYPE_SHIFT);
+      OutStreamer->endCOFFSymbolDef();
+
       OutStreamer->beginCOFFSymbolDef(Sym);
       OutStreamer->emitCOFFSymbolStorageClass(COFF::IMAGE_SYM_CLASS_EXTERNAL);
       OutStreamer->emitCOFFSymbolType(COFF::IMAGE_SYM_DTYPE_FUNCTION
@@ -2088,27 +2121,16 @@ void AArch64AsmPrinter::LowerLOADauthptrstatic(const MachineInstr &MI) {
   //
   // Where the $auth_ptr$ symbol is the stub slot containing the signed pointer
   // to symbol.
-  MCSymbol *AuthPtrStubSym;
-  if (TM.getTargetTriple().isOSBinFormatELF()) {
-    const auto &TLOF =
-        static_cast<const AArch64_ELFTargetObjectFile &>(getObjFileLowering());
+  assert(TM.getTargetTriple().isOSBinFormatELF() &&
+         "LOADauthptrstatic is implemented only for ELF");
+  const auto &TLOF =
+      static_cast<const AArch64_ELFTargetObjectFile &>(getObjFileLowering());
 
-    assert(GAOp.getOffset() == 0 &&
-           "non-zero offset for $auth_ptr$ stub slots is not supported");
-    const MCSymbol *GASym = TM.getSymbol(GAOp.getGlobal());
-    AuthPtrStubSym = TLOF.getAuthPtrSlotSymbol(TM, MMI, GASym, Key, Disc);
-  } else {
-    assert(TM.getTargetTriple().isOSBinFormatMachO() &&
-           "LOADauthptrstatic is implemented only for MachO/ELF");
-
-    const auto &TLOF = static_cast<const AArch64_MachoTargetObjectFile &>(
-        getObjFileLowering());
-
-    assert(GAOp.getOffset() == 0 &&
-           "non-zero offset for $auth_ptr$ stub slots is not supported");
-    const MCSymbol *GASym = TM.getSymbol(GAOp.getGlobal());
-    AuthPtrStubSym = TLOF.getAuthPtrSlotSymbol(TM, MMI, GASym, Key, Disc);
-  }
+  assert(GAOp.getOffset() == 0 &&
+         "non-zero offset for $auth_ptr$ stub slots is not supported");
+  const MCSymbol *GASym = TM.getSymbol(GAOp.getGlobal());
+  MCSymbol *AuthPtrStubSym =
+      TLOF.getAuthPtrSlotSymbol(TM, &MF->getMMI(), GASym, Key, Disc);
 
   MachineOperand StubMOHi =
       MachineOperand::CreateMCSymbol(AuthPtrStubSym, AArch64II::MO_PAGE);
@@ -2289,19 +2311,6 @@ void AArch64AsmPrinter::LowerMOVaddrPAC(const MachineInstr &MI) {
   assert(STI->getInstrInfo()->getInstSizeInBytes(MI) >= InstsEmitted * 4);
 }
 
-const MCExpr *
-AArch64AsmPrinter::lowerBlockAddressConstant(const BlockAddress &BA) {
-  const MCExpr *BAE = AsmPrinter::lowerBlockAddressConstant(BA);
-  const Function &Fn = *BA.getFunction();
-
-  if (std::optional<uint16_t> BADisc =
-          STI->getPtrAuthBlockAddressDiscriminatorIfEnabled(Fn))
-    return AArch64AuthMCExpr::create(BAE, *BADisc, AArch64PACKey::IA,
-                                     /*HasAddressDiversity=*/false, OutContext);
-
-  return BAE;
-}
-
 // Simple pseudo-instructions have their lowering (with expansion to real
 // instructions) auto-generated.
 #include "AArch64GenMCPseudoLowering.inc"
@@ -2310,8 +2319,10 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
   AArch64_MC::verifyInstructionPredicates(MI->getOpcode(), STI->getFeatureBits());
 
   // Do any auto-generated pseudo lowerings.
-  if (emitPseudoExpansionLowering(*OutStreamer, MI))
+  if (MCInst OutInst; lowerPseudoInstExpansion(MI, OutInst)) {
+    EmitToStreamer(*OutStreamer, OutInst);
     return;
+  }
 
   if (MI->getOpcode() == AArch64::ADRP) {
     for (auto &Opd : MI->operands()) {
@@ -2437,11 +2448,6 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     return;
   }
 
-  case AArch64::AUT:
-  case AArch64::AUTPAC:
-    emitPtrauthAuthResign(MI);
-    return;
-
   case AArch64::LOADauthptrstatic:
     LowerLOADauthptrstatic(*MI);
     return;
@@ -2451,7 +2457,6 @@ void AArch64AsmPrinter::emitInstruction(const MachineInstr *MI) {
     LowerMOVaddrPAC(*MI);
     return;
 
-  case AArch64::BRA:
   case AArch64::BLRA:
     emitPtrauthBranch(MI);
     return;

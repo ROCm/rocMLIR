@@ -50,7 +50,10 @@ def ConvertToSPIRVPass : Pass<"convert-to-spirv"> {
     "Run function signature conversion to convert vector types">,
     Option<"runVectorUnrolling", "run-vector-unrolling", "bool",
     /*default=*/"true",
-    "Run vector unrolling to convert vector types in function bodies">
+    "Run vector unrolling to convert vector types in function bodies">,
+    Option<"convertGPUModules", "convert-gpu-modules", "bool",
+    /*default=*/"false",
+    "Clone and convert GPU modules">
   ];
 }
 
@@ -1306,7 +1309,9 @@ def ConvertVectorToSCF : Pass<"convert-vector-to-scf"> {
     Option<"targetRank", "target-rank", "unsigned", /*default=*/"1",
            "Target vector rank to which transfer ops should be lowered">,
     Option<"lowerTensors", "lower-tensors", "bool", /*default=*/"false",
-           "Lower transfer ops that operate on tensors">
+           "Lower transfer ops that operate on tensors">,
+    Option<"lowerScalable", "lower-scalable", "bool", /*default=*/"false",
+           "Add scalable vector specific lowerings (that introduce loops)">
   ];
 }
 

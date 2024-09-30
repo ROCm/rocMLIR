@@ -39,6 +39,8 @@ static_library("Analysis") {
     "CycleAnalysis.cpp",
     "DDG.cpp",
     "DDGPrinter.cpp",
+    "DXILMetadataAnalysis.cpp",
+    "DXILResource.cpp",
     "Delinearization.cpp",
     "DemandedBits.cpp",
     "DependenceAnalysis.cpp",

@@ -264,11 +264,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert(bidGridOrder[0]);
-    dimensionsToRemove.insert(bidGridOrder[1]);
-    dimensionsToRemove.insert(bidGridOrder[2]);
+    StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                   bidGridOrder[2]};
     FailureOr<ArrayAttr> maybeBlockSubTile =
         removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
 
@@ -278,12 +275,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     gpuViews.blockSubTile = maybeBlockSubTile.value();
   }
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert(bidGridOrder[0]);
-    dimensionsToRemove.insert(bidGridOrder[1]);
-    dimensionsToRemove.insert(bidGridOrder[2]);
-    dimensionsToRemove.insert("tid");
+    StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                   bidGridOrder[2], "tid"};
     FailureOr<ArrayAttr> maybeThreadSubTile =
         removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
 
@@ -362,11 +355,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
   }
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert(bidGridOrder[0]);
-    dimensionsToRemove.insert(bidGridOrder[1]);
-    dimensionsToRemove.insert(bidGridOrder[2]);
+    StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                   bidGridOrder[2]};
     FailureOr<ArrayAttr> maybeBlockSubTile =
         removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
 
@@ -376,12 +366,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     gpuViews.blockSubTile = maybeBlockSubTile.value();
   }
   {
-    SetVector<StringRef> dimensionsToRemove;
-    dimensionsToRemove.insert("k_loop");
-    dimensionsToRemove.insert(bidGridOrder[0]);
-    dimensionsToRemove.insert(bidGridOrder[1]);
-    dimensionsToRemove.insert(bidGridOrder[2]);
-    dimensionsToRemove.insert("tid");
+    StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                   bidGridOrder[2], "tid"};
     FailureOr<ArrayAttr> maybeThreadSubTile =
         removeUpperDims(b, gpuViews.gridSubTile, dimensionsToRemove);
 
@@ -774,6 +760,14 @@ Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
   auto memoryAddressSpaceAttr =
       b.getAttr<gpu::AddressSpaceAttr>(memoryAddressSpace);
 
+  // Note: we don't need to create views for register buffers, since those won't
+  // have real memory accesses at the end of the day. This is important when
+  // dealing with booleans and sub-byte types.
+  if (memoryAddressSpace == gpu::AddressSpace::Private) {
+    auto memType = MemRefType::get({bufferDim}, elementType, AffineMap{},
+                                   memoryAddressSpaceAttr);
+    return b.create<GpuAllocOp>(loc, memType);
+  }
   auto rawMemType =
       MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
                       AffineMap{}, memoryAddressSpaceAttr);

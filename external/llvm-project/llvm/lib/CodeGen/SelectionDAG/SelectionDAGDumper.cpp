@@ -75,6 +75,7 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
     }
     return "<<Unknown Node #" + utostr(getOpcode()) + ">>";
 
+    // clang-format off
 #ifndef NDEBUG
   case ISD::DELETED_NODE:               return "<<Deleted Node!>>";
 #endif
@@ -96,12 +97,17 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::ATOMIC_LOAD_UMIN:           return "AtomicLoadUMin";
   case ISD::ATOMIC_LOAD_UMAX:           return "AtomicLoadUMax";
   case ISD::ATOMIC_LOAD_FADD:           return "AtomicLoadFAdd";
+  case ISD::ATOMIC_LOAD_FSUB:           return "AtomicLoadFSub";
   case ISD::ATOMIC_LOAD_FMIN:           return "AtomicLoadFMin";
   case ISD::ATOMIC_LOAD_FMAX:           return "AtomicLoadFMax";
   case ISD::ATOMIC_LOAD_UINC_WRAP:
     return "AtomicLoadUIncWrap";
   case ISD::ATOMIC_LOAD_UDEC_WRAP:
     return "AtomicLoadUDecWrap";
+  case ISD::ATOMIC_LOAD_USUB_COND:
+    return "AtomicLoadUSubCond";
+  case ISD::ATOMIC_LOAD_USUB_SAT:
+    return "AtomicLoadUSubSat";
   case ISD::ATOMIC_LOAD:                return "AtomicLoad";
   case ISD::ATOMIC_STORE:               return "AtomicStore";
   case ISD::PCMARKER:                   return "PCMarker";
@@ -126,6 +132,7 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::ConstantFP:                 return "ConstantFP";
   case ISD::GlobalAddress:              return "GlobalAddress";
   case ISD::GlobalTLSAddress:           return "GlobalTLSAddress";
+  case ISD::PtrAuthGlobalAddress:       return "PtrAuthGlobalAddress";
   case ISD::FrameIndex:                 return "FrameIndex";
   case ISD::JumpTable:                  return "JumpTable";
   case ISD::JUMP_TABLE_DEBUG_INFO:
@@ -168,8 +175,6 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
       return "OpaqueTargetConstant";
     return "TargetConstant";
 
-    // clang-format off
-
   case ISD::TargetConstantFP:           return "TargetConstantFP";
   case ISD::TargetGlobalAddress:        return "TargetGlobalAddress";
   case ISD::TargetGlobalTLSAddress:     return "TargetGlobalTLSAddress";
@@ -203,6 +208,8 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::STRICT_FMINIMUM:            return "strict_fminimum";
   case ISD::FMAXIMUM:                   return "fmaximum";
   case ISD::STRICT_FMAXIMUM:            return "strict_fmaximum";
+  case ISD::FMINIMUMNUM:                return "fminimumnum";
+  case ISD::FMAXIMUMNUM:                return "fmaximumnum";
   case ISD::FNEG:                       return "fneg";
   case ISD::FSQRT:                      return "fsqrt";
   case ISD::STRICT_FSQRT:               return "strict_fsqrt";
@@ -380,6 +387,9 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::SIGN_EXTEND_VECTOR_INREG:   return "sign_extend_vector_inreg";
   case ISD::ZERO_EXTEND_VECTOR_INREG:   return "zero_extend_vector_inreg";
   case ISD::TRUNCATE:                   return "truncate";
+  case ISD::TRUNCATE_SSAT_S:            return "truncate_ssat_s";
+  case ISD::TRUNCATE_SSAT_U:            return "truncate_ssat_u";
+  case ISD::TRUNCATE_USAT_U:            return "truncate_usat_u";
   case ISD::FP_ROUND:                   return "fp_round";
   case ISD::STRICT_FP_ROUND:            return "strict_fp_round";
   case ISD::FP_EXTEND:                  return "fp_extend";
@@ -449,6 +459,8 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::UBSANTRAP:                  return "ubsantrap";
   case ISD::LIFETIME_START:             return "lifetime.start";
   case ISD::LIFETIME_END:               return "lifetime.end";
+  case ISD::FAKE_USE:
+    return "fake_use";
   case ISD::PSEUDO_PROBE:
     return "pseudoprobe";
   case ISD::GC_TRANSITION_START:        return "gc_transition.start";

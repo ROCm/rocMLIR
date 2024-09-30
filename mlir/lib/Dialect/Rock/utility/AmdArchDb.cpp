@@ -118,7 +118,7 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   }
   bool isMfma = bitEnumContainsAll(theseFeatures, GemmFeatures::mfma);
   if (isMfma && !hasFp8ConversionInstrs) {
-    if (dataType.isFloat8E4M3FNUZ() || dataType.isFloat8E5M2FNUZ())
+    if (isa<FloatType>(dataType) && dataType.getIntOrFloatBitWidth() == 8)
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::mfma);
   }
   return theseFeatures;

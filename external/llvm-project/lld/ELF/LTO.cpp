@@ -135,6 +135,7 @@ static lto::Config createConfig() {
       config->ltoValidateAllVtablesHaveTypeInfos;
   c.AllVtablesHaveTypeInfos = ctx.ltoAllVtablesHaveTypeInfos;
   c.AlwaysEmitRegularLTOObj = !config->ltoObjPath.empty();
+  c.KeepSymbolNameCopies = false;
 
   for (const llvm::StringRef &name : config->thinLTOModulesToCompile)
     c.ThinLTOModulesToCompile.emplace_back(name);
@@ -157,6 +158,8 @@ static lto::Config createConfig() {
 
   if (config->ltoEmitAsm) {
     c.CGFileType = CodeGenFileType::AssemblyFile;
+  }
+  if (config->ltoEmitAsm || config->saveTempsArgs.contains("asm")) {
     c.Options.MCOptions.AsmVerbose = true;
   }
 

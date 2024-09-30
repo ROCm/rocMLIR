@@ -36,7 +36,6 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "bf16convert.hpp"
 #include <unordered_map>
 
 using namespace llvm;

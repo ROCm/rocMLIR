@@ -45,10 +45,10 @@ list(APPEND CMAKE_MODULE_PATH
   "${ROCM_PATH}/hip/cmake"
 )
 list(APPEND CMAKE_MODULE_PATH
-  "${CMAKE_BINARY_DIR}/lib/cmake/mlir"
+  "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir"
 )
 list(APPEND CMAKE_MODULE_PATH
-  "${LLVM_BINARY_DIR}/llvm/lib/cmake/llvm/"
+  "${LLVM_BINARY_DIR}/llvm/lib${LLVM_LIBDIR_SUFFIX}/cmake/llvm/"
 )
 
 # Include dirs for MLIR and LLVM

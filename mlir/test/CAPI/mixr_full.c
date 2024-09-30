@@ -330,7 +330,7 @@ int main(void) {
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
   mlirRegisterRocMLIRDialects(registry);
   mlirRegisterRocMLIRPasses();
-  mlirRegisterRocMLIROptions();
+  mlirRegisterRocMLIRLibCLOptions();
   mlirContextAppendDialectRegistry(ctx, registry);
   // TODO: this is a emulation of an old behavior, we should load only the
   // dialects we use

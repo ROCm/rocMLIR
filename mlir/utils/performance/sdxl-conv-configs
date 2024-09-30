@@ -1,10 +1,32 @@
 # python3 ./bin/tuningRunner.py --op conv --tuning-space=quick --verify-mode=none --config='<config>'
-convfp16 -F 1 -n 2 -c 1280 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 1920 -H 32 -W 32 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 1920 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 2560 -H 32 -W 32 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 320 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 640 -H 128 -W 128 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 640 -H 32 -W 32 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 960 -H 128 -W 128 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -n 2 -c 960 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1280 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1920 -H 32 -W 32 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1920 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 2560 -H 32 -W 32 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 320 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 640 -H 128 -W 128 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 640 -H 32 -W 32 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 960 -H 128 -W 128 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 960 -H 64 -W 64 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1280 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1280 -H 64 -W 64 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1280 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1920 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 1920 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 2560 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 320 -H 128 -W 128 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 320 -H 128 -W 128 -k 320 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 320 -H 128 -W 128 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 320 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 4 -H 128 -W 128 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 640 -H 128 -W 128 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 640 -H 128 -W 128 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 640 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 960 -H 128 -W 128 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f NHWC -I NHWC -O NHWC -n 2 -c 960 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1

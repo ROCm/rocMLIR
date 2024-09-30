@@ -21,12 +21,12 @@ void mlirRegisterRocMLIRDialects(MlirDialectRegistry registry) {
 
 void mlirRegisterRocMLIRPasses() {
   mlir::registerRocMLIRPasses();
-  // TODO: remove this call once we call mlirRegisterRocMLIROptions()
+  // TODO: remove this call once we call mlirRegisterRocMLIRLibCLOptions()
   // in MIGraphX/src/targets/gpu/mlir.cpp.
-  mlir::registerMLIRCLOptions();
+  mlirRegisterRocMLIRLibCLOptions();
 }
 
-void mlirRegisterRocMLIROptions() {
+void mlirRegisterRocMLIRLibCLOptions() {
   const char *fakeArgv[] = {"rocMLIR-invoked-as-library",
                             "--mlir-print-local-scope"};
   mlir::registerMLIRCLOptions();

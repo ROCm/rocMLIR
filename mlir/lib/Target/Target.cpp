@@ -115,13 +115,19 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
 #ifdef ROCMLIR_DEVICE_LIBS_PACKAGED
   const llvm::StringMap<StringRef> &packagedLibs = getDeviceLibraries();
   for (auto [file, lib] : libraries) {
-    llvm::SMDiagnostic error;
     std::unique_ptr<llvm::Module> library;
     if (packagedLibs.contains(file)) {
       std::unique_ptr<llvm::MemoryBuffer> fileBc =
           llvm::MemoryBuffer::getMemBuffer(packagedLibs.at(file), file);
+
+      llvm::SMDiagnostic error;
       library =
           llvm::getLazyIRModule(std::move(fileBc), error, module.getContext());
+      if (!library) {
+        getOperation().emitError("Error loading library: " + file +
+                                 ", error message:" + error.getMessage());
+        return std::nullopt;
+      }
       // Unset the lib so we don't add it with `appendStandardLibs`.
       libs = libs & ~lib;
       bcFiles.push_back(std::move(library));
@@ -235,7 +241,7 @@ static gpu::KernelTableAttr getRockKernelMetadata(Operation *gpuModule,
                                                   ArrayRef<char> elfData) {
   auto module = cast<gpu::GPUModuleOp>(gpuModule);
   Builder builder(module.getContext());
-  NamedAttrList moduleAttrs;
+  SmallVector<gpu::KernelMetadataAttr> kernels;
   std::optional<DenseMap<StringAttr, NamedAttrList>> mdMapOrNull =
       getAMDHSAKernelsELFMetadata(builder, elfData);
   auto getMD = [&](StringAttr attr) -> NamedAttrList {
@@ -255,12 +261,12 @@ static gpu::KernelTableAttr getRockKernelMetadata(Operation *gpuModule,
     addFuncAttr(funcOp, attrs, "grid_size");
     addFuncAttr(funcOp, attrs, "block_size");
     addFuncAttr(funcOp, attrs, "original_func");
-    moduleAttrs.append(
-        funcOp.getName(),
-        gpu::KernelAttr::get(funcOp, builder.getDictionaryAttr(attrs)));
+    kernels.push_back(
+        gpu::KernelMetadataAttr::get(funcOp, builder.getDictionaryAttr(attrs)));
   }
-  return gpu::KernelTableAttr::get(
-      moduleAttrs.getDictionary(module.getContext()));
+  SmallVector<gpu::KernelMetadataAttr> sortedKernels(kernels);
+  llvm::array_pod_sort(sortedKernels.begin(), sortedKernels.end());
+  return gpu::KernelTableAttr::get(module.getContext(), sortedKernels, true);
 }
 
 Attribute
@@ -285,7 +291,8 @@ ROCDLTargetAttrImpl::createObject(Attribute attribute, Operation *module,
     // TODO(fmora): MHAL appears to be storing prefill attributes in the module,
     // switch them to be function attributes as they are present in
     // `ROCDLObjectMDAttr`.
-    for (auto [key, kernel] : metadata) {
+    for (auto kernel : metadata) {
+      auto key = kernel.getName();
       if (auto attr = module->getDiscardableAttr(key))
         props.append(key, attr);
     }

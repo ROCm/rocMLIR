@@ -19,6 +19,14 @@ def MHALDialect : Dialect {
 
   let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
+
+  let extraClassDeclaration = [{
+    /// Arg attributes for access modes
+    /// These unit attributes may be added to function args to denote how a
+    /// memref pointer is accessed by the function.
+    static StringRef getReadAccessAttrName() { return "mhal.read_access"; }
+    static StringRef getWriteAccessAttrName() { return "mhal.write_access"; }
+  }];
 }
 
 #endif // MHAL_DIALECT

@@ -40,6 +40,9 @@
 #include <string.h>
 
 # undef unsetenv
+#ifdef _WIN32
+#define unsetenv(name) _putenv_s(name, "")
+#else
 # if !HAVE_DECL_UNSETENV
 #  if VOID_UNSETENV
 extern void unsetenv (const char *);
@@ -47,6 +50,7 @@ extern void unsetenv (const char *);
 extern int unsetenv (const char *);
 #  endif
 # endif
+#endif
 
 int main(int argc, char *argv[]) {
 
@@ -226,7 +230,7 @@ int main(int argc, char *argv[]) {
 
   Status = amd_comgr_do_action(AMD_COMGR_ACTION_LINK_RELOCATABLE_TO_EXECUTABLE,
                                DataAction, DataSetReloc, DataSetOut);
-  checkLogs("LINK_RELOCATABLE_TO_EXECUTABLE", DataSetOut, "unexpected EOF");
+  checkLogs("LINK_RELOCATABLE_TO_EXECUTABLE", DataSetOut, "unknown directive");
 
   Status =
       amd_comgr_action_data_count(DataSetOut, AMD_COMGR_DATA_KIND_LOG, &Count);

@@ -108,10 +108,7 @@ static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
 static std::optional<std::tuple<int64_t, int64_t, ArrayAttr>>
 getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
   ArrayAttr srcTransform = op.getExtraViewsAttr();
-  SetVector<StringRef> dimensionsToRemove;
-  dimensionsToRemove.insert("g_block");
-  dimensionsToRemove.insert("m_block");
-  dimensionsToRemove.insert("n_block");
+  StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block"};
   FailureOr<ArrayAttr> maybeIdToLDS =
       removeUpperDims(b, srcTransform, dimensionsToRemove);
   if (failed(maybeIdToLDS)) {

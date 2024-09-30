@@ -856,7 +856,7 @@ def Rock_IndexDiffUpdateOp :
   let hasVerifier = 1;
 }
 
-defvar SupportedMemoryElems = [F32, F16, BF16, I<4>, I8, I16, I32,
+defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
                                F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
 defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
                            F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN,
@@ -987,19 +987,34 @@ def Rock_GlobalStoreOp :
   let hasVerifier = 1;
 }
 
+defvar SameShapeVectorOfI1 = [{
+  ::mlir::VectorType::get(::llvm::cast<::mlir::ShapedType>($_self).getShape(), ::mlir::IntegerType::get($_ctxt, 1))
+}];
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp :
     Rock_Op<"threadwise_read_into",
     [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-     DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
-    AllElementTypesMatch<["source", "dest"]>,
+     DeclareOpInterfaceMethods<RockWriterOpInterface>, AttrSizedOperandSegments,
+     // This wasn't being enforced and broke buffers of vectors.
+     //AllElementTypesMatch<["source", "dest"]>,
+     OptionalTypesMatchWith<"validity record is a vector of one boolean per dest entry",
+      "dest", "validityRecord", SameShapeVectorOfI1>,
+     TypesMatchWith<"all dynamic validities are a vector of one boolean per dest entry",
+      "dest", "dynamicValidities", SameShapeVectorOfI1,
+      [{
+        [](::mlir::Type lhs, ::mlir::TypeRange rhs) -> bool {
+          return llvm::all_of(rhs, [lhs](::mlir::Type t) { return t == lhs; });
+        }
+      }]>]>,
     Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view", [MemRead]>:$source,
       Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers", [MemWrite]>:$dest,
+      Variadic<VectorOf<[I1]>>:$dynamicValidities,
       TransformMapArrayAttr:$extraViews,
       Variadic<Index>:$extraIndices,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
-    )> {
+    )>,
+    Results<(outs Optional<VectorOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
   let description = [{
@@ -1040,13 +1055,40 @@ def Rock_ThreadwiseReadIntoOp :
     If extraIndices are used, the [extraViews]source must have the form
     (extraIdx0, ... , extraIdxN, iteration_number).
 
-    This is used during fusion to represent loads from addition arguments like
-    bias tensors.
+    If any `dynamicValidities` are passed in, they must have the same shape
+    as the output registers, and the booleans in each of these validities will be
+    ANDed together with the validity implied by the coordinate transformations
+    to determine whether the read is to actually be performed.
+
+    Note that using dynamic validities forces the vectorization width to 1 (but
+    that merely requesting a validity vector does not). There isn't any inherent
+    reason for this limitation other than that support for post-vectorization
+    masking wasn't needed in the initial usecase for this feature.
+
+    If `validityRecord` is specified, it will be filled with a boolean indicating
+    whether each of the values in `dest` was actually read from memory or if it
+    fell into some padded or otherwise invalid (ex. a coordinate went negative)
+    region. This is used to allow manually applying re-applying padding after
+    an input fusion that could cause the padded region to be non-zero.
+
+    This operation is also used during fusion to represent loads from additional
+    arguments like bias tensors.
   }];
+
+  let builders = [
+    // Alias for the common case where we aren't filling a buffer of validity checks
+    OpBuilder<(ins "Value":$source, "Value":$dest,
+                   "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                   "bool":$forceUnroll, "bool":$useIndexDiffs),
+      [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs);
+      }]>
+  ];
 
   let assemblyFormat = [{
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
-    `:` type($source) `->` type($dest)
+    (`if` ` ` `[` $dynamicValidities^ `]`)?
+    `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
   }];
   let hasVerifier = 1;
 }

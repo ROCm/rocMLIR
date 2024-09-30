@@ -3,13 +3,13 @@
 // CHECK: [1 1 1]
 
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xi8, 21x3x1> {func.read_access},
-                                    %arg1: !migraphx.shaped<1x3x7xi8, 21x7x1> {func.read_access},
-                                    %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {func.read_access},
-                                    %arg3: !migraphx.shaped<1x7x7xf32, 49x7x1> {func.read_access},
-                                    %qscale: !migraphx.shaped<1x7x7xf32, 49x7x1> {func.read_access},
-                                    %qbias: !migraphx.shaped<1x7x7xi8, 49x7x1> {func.read_access}) 
-                                    -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {func.write_access})
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xi8, 21x3x1> {mhal.read_access},
+                                    %arg1: !migraphx.shaped<1x3x7xi8, 21x7x1> {mhal.read_access},
+                                    %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.read_access},
+                                    %arg3: !migraphx.shaped<1x7x7xf32, 49x7x1> {mhal.read_access},
+                                    %qscale: !migraphx.shaped<1x7x7xf32, 49x7x1> {mhal.read_access},
+                                    %qbias: !migraphx.shaped<1x7x7xi8, 49x7x1> {mhal.read_access}) 
+                                    -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.write_access})
                                     {
     %0 = migraphx.quant_dot %arg0, %arg1: <1x7x3xi8, 21x3x1>, <1x3x7xi8, 21x7x1> -> <1x7x7xi32, 49x7x1>
     %1 = migraphx.dequantizelinear %0, %qscale, %qbias : <1x7x7xi32, 49x7x1>, <1x7x7xf32, 49x7x1>, !migraphx.shaped<1x7x7xi8, 49x7x1> -> <1x7x7xf32, 49x7x1>

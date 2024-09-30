@@ -16,6 +16,7 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
 #include "llvm/Support/TypeSize.h"
 #include <vector>
 
@@ -327,6 +328,11 @@ public:
   insertFrameLocation(const MachineFunction &MF, DIExprBuilder &Builder,
                       DIExprBuilder::Iterator BI, Type *ResultType) const;
 
+  virtual DIExpression *lowerFIArgToFPArg(const MachineFunction &MF,
+                                          const DIExpression *Expr,
+                                          uint64_t ArgIndex,
+                                          StackOffset Offset) const;
+
   /// Same as \c getFrameIndexReference, except that the stack pointer (as
   /// opposed to the frame pointer) will be the preferred value for \p
   /// FrameReg. This is generally used for emitting statepoint or EH tables that
@@ -351,6 +357,13 @@ public:
     Register FrameReg;
     return getFrameIndexReference(MF, FI, FrameReg);
   }
+
+  /// getFrameIndexReferenceFromSP - This method returns the offset from the
+  /// stack pointer to the slot of the specified index. This function serves to
+  /// provide a comparable offset from a single reference point (the value of
+  /// the stack-pointer at function entry) that can be used for analysis.
+  virtual StackOffset getFrameIndexReferenceFromSP(const MachineFunction &MF,
+                                                   int FI) const;
 
   /// Returns the callee-saved registers as computed by determineCalleeSaves
   /// in the BitVector \p SavedRegs.
@@ -475,6 +488,15 @@ public:
   /// Return the frame base information to be encoded in the DWARF subprogram
   /// debug info.
   virtual DwarfFrameBase getDwarfFrameBase(const MachineFunction &MF) const;
+
+  /// If frame pointer or base pointer is clobbered by an instruction, we should
+  /// spill/restore it around that instruction.
+  virtual void spillFPBP(MachineFunction &MF) const {}
+
+  /// This method is called at the end of prolog/epilog code insertion, so
+  /// targets can emit remarks based on the final frame layout.
+  virtual void emitRemarks(const MachineFunction &MF,
+                           MachineOptimizationRemarkEmitter *ORE) const {};
 };
 
 } // End llvm namespace

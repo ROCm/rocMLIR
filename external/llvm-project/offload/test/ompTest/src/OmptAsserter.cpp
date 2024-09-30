@@ -1,4 +1,5 @@
 #include "OmptAsserter.h"
+#include "Logging.h"
 
 #include <algorithm>
 
@@ -29,24 +30,6 @@ void OmptAsserter::notify(OmptAssertEvent &&AE) {
     return;
 
   this->notifyImpl(std::move(AE));
-}
-
-void OmptAsserter::reportError(const OmptAssertEvent &OffendingEvent,
-                               const std::string &Message) {
-  std::cerr << "[Error] " << Message << "\nOffending Event: name='"
-            << OffendingEvent.getEventName() << "' toString='"
-            << OffendingEvent.toString() << "'" << std::endl;
-}
-
-void OmptAsserter::reportError(const OmptAssertEvent &AwaitedEvent,
-                               const OmptAssertEvent &OffendingEvent,
-                               const std::string &Message) {
-  std::cerr << "[Assert Error]: Awaited event name='"
-            << AwaitedEvent.getEventName() << "' toString='"
-            << AwaitedEvent.toString() << "'\nGot: name='"
-            << OffendingEvent.getEventName() << "' toString='"
-            << OffendingEvent.toString() << "'\n"
-            << Message << std::endl;
 }
 
 AssertState OmptAsserter::getState() { return State; }
@@ -128,15 +111,27 @@ bool OmptAsserter::verifyEventGroups(const OmptAssertEvent &ExpectedEvent,
   case EventTy::ThreadEnd:
   case EventTy::ParallelBegin:
   case EventTy::ParallelEnd:
+  case EventTy::Work:
+  case EventTy::Dispatch:
   case EventTy::TaskCreate:
+  case EventTy::Dependences:
+  case EventTy::TaskDependence:
   case EventTy::TaskSchedule:
   case EventTy::ImplicitTask:
+  case EventTy::Masked:
+  case EventTy::SyncRegion:
+  case EventTy::MutexAcquire:
+  case EventTy::Mutex:
+  case EventTy::NestLock:
+  case EventTy::Flush:
+  case EventTy::Cancel:
   case EventTy::DeviceInitialize:
   case EventTy::DeviceFinalize:
   case EventTy::DeviceLoad:
   case EventTy::DeviceUnload:
   case EventTy::BufferRequest:
   case EventTy::BufferComplete:
+  case EventTy::BufferRecordDeallocation:
     return true;
   // Observed events should be part of the OpenMP spec
   case EventTy::None:
@@ -164,15 +159,16 @@ void OmptSequencedAsserter::notifyImpl(OmptAssertEvent &&AE) {
 
   if (AE.getEventType() == EventTy::AssertionSyncPoint) {
     auto NumRemainingEvents = getRemainingEventCount();
-    // Upon encountering a marker, all events should have been processed
+    // Upon encountering a SyncPoint, all events should have been processed
     if (NumRemainingEvents == 0)
       return;
 
-    reportError(
-        AE, "[OmptSequencedAsserter] Encountered marker while still awaiting " +
-                std::to_string(NumRemainingEvents) + " events. Asserted " +
-                std::to_string(NumAssertSuccesses) + "/" +
-                std::to_string(Events.size()) + " events successfully.");
+    Log->eventMismatch(
+        AE,
+        "[OmptSequencedAsserter] Encountered SyncPoint while still awaiting " +
+            std::to_string(NumRemainingEvents) + " events. Asserted " +
+            std::to_string(NumAssertSuccesses) + "/" +
+            std::to_string(Events.size()) + " events successfully.");
     State = AssertState::fail;
     return;
   }
@@ -182,11 +178,11 @@ void OmptSequencedAsserter::notifyImpl(OmptAssertEvent &&AE) {
     if (AssertionSuspended)
       return;
 
-    reportError(AE, "[OmptSequencedAsserter] Too many events to check (" +
-                        std::to_string(NumNotifications) + "). Asserted " +
-                        std::to_string(NumAssertSuccesses) + "/" +
-                        std::to_string(Events.size()) +
-                        " events successfully.");
+    Log->eventMismatch(
+        AE, "[OmptSequencedAsserter] Too many events to check (" +
+                std::to_string(NumNotifications) + "). Asserted " +
+                std::to_string(NumAssertSuccesses) + "/" +
+                std::to_string(Events.size()) + " events successfully.");
     State = AssertState::fail;
     return;
   }
@@ -208,7 +204,8 @@ void OmptSequencedAsserter::notifyImpl(OmptAssertEvent &&AE) {
     if (E.getEventExpectedState() == ObserveState::always) {
       ++NumAssertSuccesses;
     } else if (E.getEventExpectedState() == ObserveState::never) {
-      reportError(E, AE, "[OmptSequencedAsserter] Encountered forbidden event");
+      Log->eventMismatch(E, AE,
+                         "[OmptSequencedAsserter] Encountered forbidden event");
       State = AssertState::fail;
     }
 
@@ -224,7 +221,7 @@ void OmptSequencedAsserter::notifyImpl(OmptAssertEvent &&AE) {
   if (AssertionSuspended || OperationMode == AssertMode::relaxed)
     return;
 
-  reportError(E, AE, "[OmptSequencedAsserter] The events are not equal");
+  Log->eventMismatch(E, AE, "[OmptSequencedAsserter] The events are not equal");
   State = AssertState::fail;
 }
 
@@ -246,9 +243,9 @@ AssertState OmptSequencedAsserter::getState() {
     auto &E = Events[i];
     if (E.getEventExpectedState() == ObserveState::always) {
       State = AssertState::fail;
-      reportError(E, "[OmptSequencedAsserter] Expected event was not "
-                     "encountered (Remaining events: " +
-                         std::to_string(getRemainingEventCount()) + ")");
+      Log->eventMismatch(E, "[OmptSequencedAsserter] Expected event was not "
+                            "encountered (Remaining events: " +
+                                std::to_string(getRemainingEventCount()) + ")");
       break;
     }
   }
@@ -273,12 +270,12 @@ void OmptEventAsserter::notifyImpl(OmptAssertEvent &&AE) {
 
   if (AE.getEventType() == EventTy::AssertionSyncPoint) {
     auto NumRemainingEvents = getRemainingEventCount();
-    // Upon encountering a marker, all events should have been processed
+    // Upon encountering a SyncPoint, all events should have been processed
     if (NumRemainingEvents == 0)
       return;
 
-    reportError(
-        AE, "[OmptEventAsserter] Encountered marker while still awaiting " +
+    Log->eventMismatch(
+        AE, "[OmptEventAsserter] Encountered SyncPoint while still awaiting " +
                 std::to_string(NumRemainingEvents) + " events. Asserted " +
                 std::to_string(NumAssertSuccesses) + " events successfully.");
     State = AssertState::fail;
@@ -292,7 +289,8 @@ void OmptEventAsserter::notifyImpl(OmptAssertEvent &&AE) {
         Events.erase(Events.begin() + i);
         ++NumAssertSuccesses;
       } else if (E.getEventExpectedState() == ObserveState::never) {
-        reportError(E, AE, "[OmptEventAsserter] Encountered forbidden event");
+        Log->eventMismatch(E, AE,
+                           "[OmptEventAsserter] Encountered forbidden event");
         State = AssertState::fail;
       }
       return;
@@ -300,11 +298,12 @@ void OmptEventAsserter::notifyImpl(OmptAssertEvent &&AE) {
   }
 
   if (OperationMode == AssertMode::strict) {
-    reportError(AE, "[OmptEventAsserter] Too many events to check (" +
-                        std::to_string(NumNotifications) + "). Asserted " +
-                        std::to_string(NumAssertSuccesses) +
-                        " events successfully. (Remaining events: " +
-                        std::to_string(getRemainingEventCount()) + ")");
+    Log->eventMismatch(AE, "[OmptEventAsserter] Too many events to check (" +
+                               std::to_string(NumNotifications) +
+                               "). Asserted " +
+                               std::to_string(NumAssertSuccesses) +
+                               " events successfully. (Remaining events: " +
+                               std::to_string(getRemainingEventCount()) + ")");
     State = AssertState::fail;
     return;
   }
@@ -327,9 +326,9 @@ AssertState OmptEventAsserter::getState() {
     // Check if any of the remaining events were expected to be observed
     if (E.getEventExpectedState() == ObserveState::always) {
       State = AssertState::fail;
-      reportError(E, "[OmptEventAsserter] Expected event was not "
-                     "encountered (Remaining events: " +
-                         std::to_string(getRemainingEventCount()) + ")");
+      Log->eventMismatch(E, "[OmptEventAsserter] Expected event was not "
+                            "encountered (Remaining events: " +
+                                std::to_string(getRemainingEventCount()) + ")");
       break;
     }
   }

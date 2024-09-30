@@ -39,7 +39,9 @@ struct ArithToAMDGPUConversionPass final
 };
 
 struct ExtFOnFloat8RewritePattern final : OpRewritePattern<arith::ExtFOp> {
-  using OpRewritePattern::OpRewritePattern;
+  Chipset chipset;
+  ExtFOnFloat8RewritePattern(MLIRContext *ctx, Chipset chipset)
+      : OpRewritePattern::OpRewritePattern(ctx), chipset(chipset) {}
 
   LogicalResult match(arith::ExtFOp op) const override;
   void rewrite(arith::ExtFOp op, PatternRewriter &rewriter) const override;
@@ -68,6 +70,15 @@ struct TruncfToFloat16RewritePattern final
 
 } // end namespace
 
+static LogicalResult isSupportedFp8(Type elementType, Chipset chipset) {
+  if (chipset.isGfx940())
+    return success(elementType.isFloat8E5M2FNUZ() ||
+                   elementType.isFloat8E4M3FNUZ());
+  if (chipset.hasOcpFp8())
+    return success(elementType.isFloat8E5M2() || elementType.isFloat8E4M3FN());
+  return failure();
+}
+
 static Value castF32To(Type elementType, Value f32, Location loc,
                        PatternRewriter &rewriter) {
   if (elementType.isF32())
@@ -86,8 +97,7 @@ LogicalResult ExtFOnFloat8RewritePattern::match(arith::ExtFOp op) const {
       return failure();
     inType = inVecType.getElementType();
   }
-  return success(inType.isFloat8E5M2FNUZ() || inType.isFloat8E4M3FNUZ() ||
-                 inType.isFloat8E5M2() || inType.isFloat8E4M3FN());
+  return isSupportedFp8(inType, chipset);
 }
 
 void ExtFOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
@@ -218,10 +228,7 @@ LogicalResult TruncFToFloat8RewritePattern::match(arith::TruncFOp op) const {
     // Conversion between 8-bit floats is not supported with truncation enabled.
     return failure();
 
-  return success((((outType.isFloat8E5M2FNUZ() || outType.isFloat8E4M3FNUZ()) &&
-                   chipset.isGfx940()) ||
-                  ((outType.isFloat8E5M2() || outType.isFloat8E4M3FN()) &&
-                   chipset.hasOcpFp8())));
+  return isSupportedFp8(outType, chipset);
 }
 
 void TruncFToFloat8RewritePattern::rewrite(arith::TruncFOp op,
@@ -300,9 +307,6 @@ LogicalResult TruncfToFloat16RewritePattern::match(arith::TruncFOp op) const {
   if (auto outVecType = dyn_cast<VectorType>(outType)) {
     if (outVecType.isScalable())
       return failure();
-    if (outVecType.getShape().size() > 1)
-      // Multi-dimensional vectors are currently unsupported.
-      return failure();
     outType = outVecType.getElementType();
   }
   return success(outType.isF16() && inputType.isF32());
@@ -314,9 +318,10 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
   Value in = op.getIn();
   Type outElemType = getElementTypeOrSelf(op.getOut().getType());
   VectorType truncResType = VectorType::get(2, outElemType);
+  auto inVectorTy = dyn_cast<VectorType>(in.getType());
 
   // Handle the case where input type is not a vector type
-  if (!isa<VectorType>(in.getType())) {
+  if (!inVectorTy) {
     auto sourceB = rewriter.create<LLVM::PoisonOp>(loc, rewriter.getF32Type());
     Value asF16s =
         rewriter.create<ROCDL::CvtPkRtz>(loc, truncResType, in, sourceB);
@@ -329,6 +334,12 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
   Value zero = rewriter.createOrFold<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));
   Value result = rewriter.createOrFold<vector::SplatOp>(loc, outType, zero);
+
+  if (inVectorTy.getRank() > 1) {
+    inVectorTy = VectorType::get(SmallVector<int64_t>{numElements},
+                                 inVectorTy.getElementType());
+    in = rewriter.create<vector::ShapeCastOp>(loc, inVectorTy, in);
+  }
 
   // Handle the vector case. We also handle the (uncommon) case where the vector
   // length is odd
@@ -353,6 +364,11 @@ void TruncfToFloat16RewritePattern::rewrite(arith::TruncFOp op,
     result = rewriter.create<vector::InsertStridedSliceOp>(loc, thisResult,
                                                            result, i, 1);
   }
+
+  if (inVectorTy.getRank() != outType.getRank()) {
+    result = rewriter.create<vector::ShapeCastOp>(loc, outType, result);
+  }
+
   rewriter.replaceOp(op, result);
 }
 
@@ -361,7 +377,7 @@ void mlir::arith::populateArithToAMDGPUConversionPatterns(
     bool saturateFP8Truncf, bool allowPackedF16Rtz, Chipset chipset) {
 
   if (convertFP8Arithmetic) {
-    patterns.add<ExtFOnFloat8RewritePattern>(patterns.getContext());
+    patterns.add<ExtFOnFloat8RewritePattern>(patterns.getContext(), chipset);
     patterns.add<TruncFToFloat8RewritePattern>(patterns.getContext(),
                                                saturateFP8Truncf, chipset);
   }
@@ -380,7 +396,7 @@ void ArithToAMDGPUConversionPass::runOnOperation() {
   }
 
   bool convertFP8Arithmetic =
-      (*maybeChipset).majorVersion == 9 && (*maybeChipset).minorVersion >= 0x40;
+      maybeChipset->isGfx940() || maybeChipset->hasOcpFp8();
   arith::populateArithToAMDGPUConversionPatterns(
       patterns, convertFP8Arithmetic, saturateFP8Truncf, allowPackedF16Rtz,
       *maybeChipset);

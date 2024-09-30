@@ -26,7 +26,7 @@ mlirRegisterRocMLIRDialects(MlirDialectRegistry registry);
 MLIR_CAPI_EXPORTED void mlirRegisterRocMLIRPasses(void);
 
 /// Register command-line options read from ROCMLIR_DEBUG_FLAGS.
-MLIR_CAPI_EXPORTED void mlirRegisterRocMLIROptions(void);
+MLIR_CAPI_EXPORTED void mlirRegisterRocMLIRLibCLOptions(void);
 
 #ifdef __cplusplus
 }

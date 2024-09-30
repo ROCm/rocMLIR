@@ -1,6 +1,21 @@
 #include "OmptAssertEvent.h"
+#include <omp-tools.h>
 
 using namespace omptest;
+
+const char *omptest::to_string(ObserveState State) {
+  switch (State) {
+  case ObserveState::generated:
+    return "generated";
+  case ObserveState::always:
+    return "always";
+  case ObserveState::never:
+    return "never";
+  default:
+    assert(false && "Requested string representation for unknown ObserveState");
+    return "UNKNOWN";
+  }
+}
 
 OmptAssertEvent::OmptAssertEvent(const std::string &Name,
                                  const std::string &Group,
@@ -10,11 +25,11 @@ OmptAssertEvent::OmptAssertEvent(const std::string &Name,
 
 OmptAssertEvent OmptAssertEvent::AssertionSyncPoint(
     const std::string &Name, const std::string &Group,
-    const ObserveState &Expected, const std::string &MarkerName) {
+    const ObserveState &Expected, const std::string &SyncPointName) {
   auto EName = getName(Name);
   auto EGroup = getGroup(Group);
   return OmptAssertEvent(EName, EGroup, Expected,
-                         new internal::AssertionSyncPoint(MarkerName));
+                         new internal::AssertionSyncPoint(SyncPointName));
 }
 
 OmptAssertEvent
@@ -57,18 +72,54 @@ OmptAssertEvent OmptAssertEvent::ParallelBegin(const std::string &Name,
 
 OmptAssertEvent OmptAssertEvent::ParallelEnd(const std::string &Name,
                                              const std::string &Group,
-                                             const ObserveState &Expected) {
+                                             const ObserveState &Expected,
+                                             ompt_data_t *ParallelData,
+                                             ompt_data_t *EncounteringTaskData,
+                                             int Flags, const void *CodeptrRA) {
   auto EName = getName(Name);
   auto EGroup = getGroup(Group);
-  return OmptAssertEvent(EName, EGroup, Expected, new internal::ParallelEnd());
+  return OmptAssertEvent(EName, EGroup, Expected,
+                         new internal::ParallelEnd(ParallelData,
+                                                   EncounteringTaskData, Flags,
+                                                   CodeptrRA));
 }
 
-OmptAssertEvent OmptAssertEvent::TaskCreate(const std::string &Name,
-                                            const std::string &Group,
-                                            const ObserveState &Expected) {
+OmptAssertEvent
+OmptAssertEvent::Work(const std::string &Name, const std::string &Group,
+                      const ObserveState &Expected, ompt_work_t WorkType,
+                      ompt_scope_endpoint_t Endpoint, ompt_data_t *ParallelData,
+                      ompt_data_t *TaskData, uint64_t Count,
+                      const void *CodeptrRA) {
   auto EName = getName(Name);
   auto EGroup = getGroup(Group);
-  return OmptAssertEvent(EName, EGroup, Expected, new internal::TaskCreate());
+  return OmptAssertEvent(EName, EGroup, Expected,
+                         new internal::Work(WorkType, Endpoint, ParallelData,
+                                            TaskData, Count, CodeptrRA));
+}
+
+OmptAssertEvent
+OmptAssertEvent::Dispatch(const std::string &Name, const std::string &Group,
+                          const ObserveState &Expected,
+                          ompt_data_t *ParallelData, ompt_data_t *TaskData,
+                          ompt_dispatch_t Kind, ompt_data_t Instance) {
+  auto EName = getName(Name);
+  auto EGroup = getGroup(Group);
+  return OmptAssertEvent(
+      EName, EGroup, Expected,
+      new internal::Dispatch(ParallelData, TaskData, Kind, Instance));
+}
+
+OmptAssertEvent OmptAssertEvent::TaskCreate(
+    const std::string &Name, const std::string &Group,
+    const ObserveState &Expected, ompt_data_t *EncounteringTaskData,
+    const ompt_frame_t *EncounteringTaskFrame, ompt_data_t *NewTaskData,
+    int Flags, int HasDependences, const void *CodeptrRA) {
+  auto EName = getName(Name);
+  auto EGroup = getGroup(Group);
+  return OmptAssertEvent(
+      EName, EGroup, Expected,
+      new internal::TaskCreate(EncounteringTaskData, EncounteringTaskFrame,
+                               NewTaskData, Flags, HasDependences, CodeptrRA));
 }
 
 OmptAssertEvent OmptAssertEvent::TaskSchedule(const std::string &Name,
@@ -79,12 +130,29 @@ OmptAssertEvent OmptAssertEvent::TaskSchedule(const std::string &Name,
   return OmptAssertEvent(EName, EGroup, Expected, new internal::TaskSchedule());
 }
 
-OmptAssertEvent OmptAssertEvent::ImplicitTask(const std::string &Name,
-                                              const std::string &Group,
-                                              const ObserveState &Expected) {
+OmptAssertEvent OmptAssertEvent::ImplicitTask(
+    const std::string &Name, const std::string &Group,
+    const ObserveState &Expected, ompt_scope_endpoint_t Endpoint,
+    ompt_data_t *ParallelData, ompt_data_t *TaskData,
+    unsigned int ActualParallelism, unsigned int Index, int Flags) {
   auto EName = getName(Name);
   auto EGroup = getGroup(Group);
-  return OmptAssertEvent(EName, EGroup, Expected, new internal::ImplicitTask());
+  return OmptAssertEvent(EName, EGroup, Expected,
+                         new internal::ImplicitTask(Endpoint, ParallelData,
+                                                    TaskData, ActualParallelism,
+                                                    Index, Flags));
+}
+
+OmptAssertEvent OmptAssertEvent::SyncRegion(
+    const std::string &Name, const std::string &Group,
+    const ObserveState &Expected, ompt_sync_region_t Kind,
+    ompt_scope_endpoint_t Endpoint, ompt_data_t *ParallelData,
+    ompt_data_t *TaskData, const void *CodeptrRA) {
+  auto EName = getName(Name);
+  auto EGroup = getGroup(Group);
+  return OmptAssertEvent(EName, EGroup, Expected,
+                         new internal::SyncRegion(Kind, Endpoint, ParallelData,
+                                                  TaskData, CodeptrRA));
 }
 
 OmptAssertEvent
@@ -462,6 +530,15 @@ OmptAssertEvent OmptAssertEvent::BufferRecord(
   return BufferRecord(Name, Group, Expected, Type,
                       {MinimumTimeDelta, expectedDefault(ompt_device_time_t)},
                       RequestedNumTeams, GrantedNumTeams, TargetId, HostOpId);
+}
+
+OmptAssertEvent OmptAssertEvent::BufferRecordDeallocation(
+    const std::string &Name, const std::string &Group,
+    const ObserveState &Expected, ompt_buffer_t *Buffer) {
+  auto EName = getName(Name);
+  auto EGroup = getGroup(Group);
+  return OmptAssertEvent(EName, EGroup, Expected,
+                         new internal::BufferRecordDeallocation(Buffer));
 }
 
 std::string OmptAssertEvent::getEventName() const { return Name; }
