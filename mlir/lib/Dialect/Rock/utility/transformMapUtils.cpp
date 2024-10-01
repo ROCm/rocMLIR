@@ -2414,11 +2414,11 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, ArrayR
                 int64_t upperDim = trAttr.getUpperDims()[0];
                 if(currSubDimInfo.contains(upperDim)){
                   for(const SubDimInfo& sdInfo : currSubDimInfo.at(upperDim)){
-                    if(sdInfo.stride > subDimStrides[subDim] * trAttr.getParams()[subDim]){
-
+                    if(sdInfo.stride >= subDimStrides[subDim] * trAttr.getParams()[subDim]){
+                      LLVM_DEBUG(llvm::dbgs() << "No overlap: stride of analyzed dim is larger than new subdim stride.\n");
                     }
-                    else if(sdInfo.stride * sdInfo.size < subDimStrides[subDim]){
-
+                    else if(sdInfo.stride * sdInfo.size <= subDimStrides[subDim]){
+                      LLVM_DEBUG(llvm::dbgs() << "No overlap: stride of new subdim stride is larger than the analyzed dim.\n");
                     }
                     else{
                       // New sizes and strides for newly annotated subdims
@@ -2472,7 +2472,6 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, ArrayR
             }
             default:
               LLVM_DEBUG(llvm::dbgs() << "Unsupported transform type : " << trAttr << "\n");
-              assert(false);
               return failure();
           }
         }
