@@ -357,16 +357,6 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addLegalOp<gpu::YieldOp, gpu::GPUModuleOp>();
 }
 
-// namespace mlir
-template <typename OpTy>
-static void populateOpPatterns(LLVMTypeConverter &converter,
-                               RewritePatternSet &patterns, StringRef f32Func,
-                               StringRef f64Func, StringRef f16Func) {
-  patterns.add<ScalarizeVectorOpLowering<OpTy>>(converter);
-  patterns.add<OpToFuncCallLowering<OpTy>>(converter, f32Func, f64Func,
-                                           f16Func);
-}
-
 void mlir::populateGpuToROCDLConversionPatterns(
     LLVMTypeConverter &converter, RewritePatternSet &patterns,
     mlir::gpu::amd::Runtime runtime) {
