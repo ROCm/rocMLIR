@@ -173,6 +173,16 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
       splitSizes.push_back(sdInfo.size);
       currSize = sdInfo.stride;
     }
+    if(currSize > 1){
+      {
+        SmallString<8> dimName(Twine("d_nr_end").str());
+        splitNames.push_back(dimName);
+      }
+      splitNamesRefs.push_back(splitNames.back());
+      splitDims.push_back(dimInsertionPoint++);
+      LLVM_DEBUG(llvm::dbgs() << "\tsplitSize = " << currSize << "\n");
+      splitSizes.push_back(currSize);
+    }
     toReductionSplit.unmerge(splitNamesRefs, splitDims, dName, splitSizes);
   }
   TransformMapAttr reduceSplit = toReductionSplit.get();
@@ -301,6 +311,15 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
 
         currSize = sdInfo.stride;
       }
+      if(currSize > 1){
+        mNonReductionSubDimSizes.push_back(currSize);
+        {
+          SmallString<8> dimName("m_nr_last");
+          mNonReductionSubDimNames.push_back(dimName);
+        }
+        mNonReductionSubDimNameRefs.push_back(mNonReductionSubDimNames.back());
+        mNonReductionSubDims.push_back(dimInsertionPoint++);
+      }
       toSplitOriginalSubDims.unmerge(mNonReductionSubDimNameRefs, mNonReductionSubDims, "m_nr", mNonReductionSubDimSizes);
       toSplitOriginalSubDims.unmerge(mReductionSubDimNameRefs, mReductionSubDims, "m_r", mReductionSubDimSizes);
     }
@@ -335,6 +354,15 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
         nReductionSubDims.push_back(dimInsertionPoint++);
 
         currSize = sdInfo.stride;
+      }
+      if(currSize > 1){
+        nNonReductionSubDimSizes.push_back(currSize);
+        {
+          SmallString<8> dimName("n_nr_last");
+          nNonReductionSubDimNames.push_back(dimName);
+        }
+        nNonReductionSubDimNameRefs.push_back(nNonReductionSubDimNames.back());
+        nNonReductionSubDims.push_back(dimInsertionPoint++);
       }
       toSplitOriginalSubDims.unmerge(nNonReductionSubDimNameRefs, nNonReductionSubDims, "n_nr", nNonReductionSubDimSizes);
       toSplitOriginalSubDims.unmerge(nReductionSubDimNameRefs, nReductionSubDims, "n_r", nReductionSubDimSizes);

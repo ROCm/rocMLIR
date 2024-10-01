@@ -1261,7 +1261,6 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
               nameRefs[dim].push_back(names[dim].back());
               upperDims[dim].push_back(dimInsertionPoint++);
               splitSizes.push_back(newSize);
-              currSize = currSize / newSize;
             }
             gridSubDims[dim].push_back(dimInsertionPoint);
             SmallString<8> dimName(Twine("grid_dim" + Twine(dim) + "_" + Twine(dimInsertionPoint)).str());
@@ -1269,7 +1268,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
             nameRefs[dim].push_back(names[dim].back());
             upperDims[dim].push_back(dimInsertionPoint++);
             splitSizes.push_back(subDim.size);
-            currSize = currSize / subDim.size;
+            currSize = subDim.stride;
           }
           if(currSize > 1){
             blockSubDims[dim].push_back(dimInsertionPoint);
