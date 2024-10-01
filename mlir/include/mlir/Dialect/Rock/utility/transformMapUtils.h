@@ -264,6 +264,7 @@ inline raw_ostream &operator<<(raw_ostream &os, const SubDimInfo &sdInfo) {
 }
 
 FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_t dim);
+FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, ArrayRef<int64_t> dims);
                                     
 } // end namespace rock
 } // end namespace mlir

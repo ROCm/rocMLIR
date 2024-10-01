@@ -1078,7 +1078,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   }
   FailureOr<ArrayAttr> gridOnlyDims =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
-
+  
   int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
   int64_t blockReductionAxis = reductionAxis;
   TypedValue<ShapedType> redOut = reduceOp.getOut();
@@ -1224,6 +1224,27 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       llvm::interleaveComma(nameRefs, llvm::dbgs()); llvm::dbgs() << "\n";
       llvm::dbgs() << "currLowerShape = ";
       llvm::interleaveComma(currLowerShape, llvm::dbgs()); llvm::dbgs() << "\n");
+
+      // ArrayRef<int64_t> toBeReducedShape = getLowerShape(toBeReducedViews);
+      // llvm::errs() << "toBeReducedShape="; 
+      // llvm::interleaveComma(toBeReducedShape, llvm::errs()); llvm::errs() << "\n";
+      // ArrayRef<int64_t> gridOnlyDimsShape = getLowerShape(gridOnlyDims.value());
+      // llvm::errs() << "gridOnlyDimsShape="; 
+      // llvm::interleaveComma(gridOnlyDimsShape, llvm::errs()); llvm::errs() << "\n";
+      // ArrayRef<int64_t> blockSubTileShape = getLowerShape(blockSubTileViews.value());
+      // llvm::errs() << "blockSubTileShape="; 
+      // llvm::interleaveComma(blockSubTileShape, llvm::errs()); llvm::errs() << "\n";
+      // {
+      //   llvm::errs() << "subdims for dim:0,1,2\n";
+      //   FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> lowerSubDims = getLowerSubDimensions(rewriter, toBeReducedViews, {0, 1, 2});
+      //   assert(succeeded(lowerSubDims));
+      //   for(auto [dim, subDimInfos] : lowerSubDims.value()){
+      //     llvm::errs() << "\tdim=" << dim << ":";
+      //     llvm::interleaveComma(subDimInfos, llvm::errs());
+      //     llvm::errs() << "\n";
+      //   }
+      // }
+
       TopDownTMBuilder toMatrixView(rewriter, nameRefs, currLowerShape);
       for(size_t i = 0; i < lowerGridOnlyRank; i++){
         toMatrixView.unmerge(nameRefs[i], i, {nameRefs[i], nameRefs[i + lowerGridOnlyRank]}, {currLowerShape[i], currLowerShape[i + lowerGridOnlyRank]});

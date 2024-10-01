@@ -2366,10 +2366,21 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
 
 FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> 
 mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_t dim){
+  return getLowerSubDimensions(b, transformAttrs, ArrayRef<int64_t>{dim});
+}
+
+FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> 
+mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, ArrayRef<int64_t> dims){
   llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> subDimInfo;
   TransformMapAttr topMap = cast<TransformMapAttr>(transformAttrs[0]);
-  LLVM_DEBUG(llvm::dbgs() << "creating subDim of <size=" << topMap.getUpperBounds()[dim] << ",stride=" << 1 << "> @ " << dim << "\n"); 
-  subDimInfo[dim].push_back({topMap.getUpperBounds()[dim], 1});
+  for(int64_t dim : dims){
+    // No point of tracing size 1 dimensions
+    if(topMap.getUpperBounds()[dim] == 1){
+      continue;
+    }
+    LLVM_DEBUG(llvm::dbgs() << "creating subDim of <size=" << topMap.getUpperBounds()[dim] << ",stride=" << 1 << "> @ " << dim << "\n"); 
+    subDimInfo[dim].push_back({topMap.getUpperBounds()[dim], 1});
+  }
 
   for(Attribute attr : transformAttrs){
     TransformMapAttr trMap = cast<TransformMapAttr>(attr);
@@ -2401,37 +2412,41 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_
               for (size_t subDim = 0; subDim < trAttr.getParams().size(); subDim++) {
                 int64_t lowDim = trAttr.getLowerDims()[subDim];
                 int64_t upperDim = trAttr.getUpperDims()[0];
-                for(const SubDimInfo& sdInfo : currSubDimInfo.at(upperDim)){
-                  if(sdInfo.stride > subDimStrides[subDim] * trAttr.getParams()[subDim]){
+                if(currSubDimInfo.contains(upperDim)){
+                  for(const SubDimInfo& sdInfo : currSubDimInfo.at(upperDim)){
+                    if(sdInfo.stride > subDimStrides[subDim] * trAttr.getParams()[subDim]){
 
-                  }
-                  else if(sdInfo.stride * sdInfo.size < subDimStrides[subDim]){
+                    }
+                    else if(sdInfo.stride * sdInfo.size < subDimStrides[subDim]){
 
-                  }
-                  else{
-                    // New sizes and strides for newly annotated subdims
-                    int64_t newSize;
-                    int64_t newStride;
-                    int64_t maxStrideSubDim = subDimStrides[subDim] * trAttr.getParams()[subDim];
-                    // Overlap on the right side of annotated subdim
-                    if(sdInfo.stride * sdInfo.size >= maxStrideSubDim){
-                      int64_t rhsBoundForAnnotate = std::max(sdInfo.stride, subDimStrides[subDim]);
-                      newSize = maxStrideSubDim / rhsBoundForAnnotate;
-                      newStride = rhsBoundForAnnotate / subDimStrides[subDim];
                     }
-                    // The whole of annotatedSubDim is within the newly created lowDim
-                    else if(sdInfo.stride >= subDimStrides[subDim]){
-                      newSize = sdInfo.size;
-                      newStride = sdInfo.stride / subDimStrides[subDim];
-                    }
-                    // Overlap on the left side of annotated subdim
                     else{
-                      int64_t maxStrideRemovedSubDim = sdInfo.stride * sdInfo.size;
-                      newSize = maxStrideRemovedSubDim / subDimStrides[subDim];
-                      newStride = 1;
+                      // New sizes and strides for newly annotated subdims
+                      int64_t newSize;
+                      int64_t newStride;
+                      int64_t maxStrideSubDim = subDimStrides[subDim] * trAttr.getParams()[subDim];
+                      // Overlap on the right side of annotated subdim
+                      if(sdInfo.stride * sdInfo.size >= maxStrideSubDim){
+                        int64_t rhsBoundForAnnotate = std::max(sdInfo.stride, subDimStrides[subDim]);
+                        newSize = maxStrideSubDim / rhsBoundForAnnotate;
+                        newStride = rhsBoundForAnnotate / subDimStrides[subDim];
+                      }
+                      // The whole of annotatedSubDim is within the newly created lowDim
+                      else if(sdInfo.stride >= subDimStrides[subDim]){
+                        newSize = sdInfo.size;
+                        newStride = sdInfo.stride / subDimStrides[subDim];
+                      }
+                      // Overlap on the left side of annotated subdim
+                      else{
+                        int64_t maxStrideRemovedSubDim = sdInfo.stride * sdInfo.size;
+                        newSize = maxStrideRemovedSubDim / subDimStrides[subDim];
+                        newStride = 1;
+                      }
+                      LLVM_DEBUG(llvm::dbgs() << "creating subDim of <size=" << newSize << ",stride=" << newStride << "> @ " << lowDim << "\n"); 
+                      if(newSize > 1){
+                        nextSubDimInfo[lowDim].push_back({newSize, newStride});
+                      }
                     }
-                    LLVM_DEBUG(llvm::dbgs() << "creating subDim of <size=" << newSize << ",stride=" << newStride << "> @ " << lowDim << "\n"); 
-                    nextSubDimInfo[lowDim].push_back({newSize, newStride});
                   }
                 }
               }
@@ -2447,15 +2462,17 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_
                   for(const SubDimInfo& sdInfo : currSubDimInfo.at(upperDim)){
                     int64_t newStride = sdInfo.stride * subDimStrides[subDim];
                     LLVM_DEBUG(llvm::dbgs() << "creating subDim of <size=" << sdInfo.size << ",stride=" << newStride << "> @ " << lowDim << "\n"); 
-                    nextSubDimInfo[lowDim].push_back({sdInfo.size, newStride});
+                    if(sdInfo.size > 1){
+                      nextSubDimInfo[lowDim].push_back({sdInfo.size, newStride});
+                    }
                   }
                 }
               }
               break;
             }
             default:
-              assert(false);
               LLVM_DEBUG(llvm::dbgs() << "Unsupported transform type : " << trAttr << "\n");
+              assert(false);
               return failure();
           }
         }
