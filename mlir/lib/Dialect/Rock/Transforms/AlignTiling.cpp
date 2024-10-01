@@ -1087,11 +1087,6 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
   
   if(succeeded(blockSubTileViews) && succeeded(threadSubTileViews) && succeeded(blockSubTileTidSliceViews) && succeeded(gridOnlyDims)){
-    // llvm::errs() << "toBeReducedViews=" << toBeReducedViews << "\n";
-    // llvm::errs() << "blockSubTileViews=" << blockSubTileViews << "\n";
-    // llvm::errs() << "threadSubTileViews=" << threadSubTileViews << "\n";
-    // llvm::errs() << "blockSubTileTidSliceViews=" << blockSubTileTidSliceViews << "\n";
-    // llvm::errs() << "gridOnlyDims=" << gridOnlyDims.value() << "\n";
     ArrayRef<int64_t> blockLowerShape = getLowerShape(blockSubTileViews.value());
     int64_t partialReductionsPerThread = getLowerShape(blockSubTileTidSliceViews.value())[blockReductionAxis];
     int64_t ldsWorkspaceSize = 1;
@@ -1144,12 +1139,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     }
 
     // Recombine block dimensions
-    ArrayAttr recombinedTrStack;
     {
       SmallVector<TransformMapAttr> transformAttrs;  
       ArrayRef<int64_t> lowerShapeGridOnly = getLowerShape(gridOnlyDims.value());
       size_t lowerGridOnlyRank = lowerShapeGridOnly.size();
-      ArrayRef<int64_t> upperGridView = cast<TransformMapAttr>(toBeReducedViews[0]).getUpperBounds().asArrayRef();
       for(auto [idx, attr] : llvm::enumerate(paddedReducedTrStack)){
         TransformMapAttr trMapAttr = cast<TransformMapAttr>(attr);
         SmallVector<TransformAttr> trAttrs;
@@ -1166,7 +1159,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
           SmallVector<SmallString<8>> names;
           SmallVector<StringRef> nameRefs;
           SmallVector<unsigned> dims;
-          for(int i=0; i < lowerGridOnlyRank; i++){
+          for(unsigned i=0; i < lowerGridOnlyRank; i++){
             SmallString<8> dimName(Twine("dim" + Twine(i)).str());
             names.push_back(dimName);
             nameRefs.push_back(names.back());

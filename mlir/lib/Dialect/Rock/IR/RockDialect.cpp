@@ -2010,7 +2010,7 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   }
   if (blockwiseInputPartialReductionTensorElements > wsShape[0]) {
     return emitError(
-        "workspace should be at least the size of elements per block");
+        "workspace should be at least the size of elements per block ") << blockwiseInputPartialReductionTensorElements << " " << wsShape[0];
   }
   return success();
 }
