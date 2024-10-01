@@ -219,7 +219,6 @@ struct LowerGpuOpsToROCDLOpsPass
     gpu::GPUModuleOp m = getOperation();
     MLIRContext *ctx = m.getContext();
     ArrayAttr targets = m.getTargetsAttr();
-    FailureOr<amdgpu::Chipset> maybeChipset;
     if (chipset == "infer") {
       if (!targets) {
         emitError(UnknownLoc::get(ctx),
@@ -233,18 +232,12 @@ struct LowerGpuOpsToROCDLOpsPass
       }
       const ROCDL::ROCDLTargetAttr targetAttr =
           mlir::dyn_cast<ROCDL::ROCDLTargetAttr>(targets.getValue().front());
-      maybeChipset = amdgpu::Chipset::parse(targetAttr.getChip());
-      if (failed(maybeChipset)) {
-        emitError(UnknownLoc::get(ctx),
-                  "Invalid chipset name: " + targetAttr.getChip());
-        return signalPassFailure();
-      }
-    } else {
-      maybeChipset = amdgpu::Chipset::parse(chipset);
-      if (failed(maybeChipset)) {
-        emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
-        return signalPassFailure();
-      }
+      chipset = targetAttr.getChip().str();
+    }
+    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
+    if (failed(maybeChipset)) {
+      emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
+      return signalPassFailure();
     }
 
     auto llvmDataLayout = m->getAttrOfType<StringAttr>(
