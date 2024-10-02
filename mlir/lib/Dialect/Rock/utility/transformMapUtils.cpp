@@ -2304,7 +2304,7 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
   SmallVector<Attribute> results;
 
   llvm::SmallVector<int64_t> upperBounds = {};
-  llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> preservedSubDims;
+  llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> removedSubDims;
   if (!transformAttrs.empty()) {
     auto first = *(transformAttrs.begin());
     auto trMap = cast<rock::TransformMapAttr>(first);
@@ -2320,7 +2320,7 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
     llvm::SmallVector<int64_t> lowerBounds = {};
     FailureOr<rock::TransformMapAttr> maybeNewTrMapAttr =
         removeUpperDimsFromMap(b, trMap, removeIndicesSet, upperBounds,
-                               lowerBounds, preservedSubDims);
+                               lowerBounds, removedSubDims);
     upperBounds = lowerBounds;
     if (failed(maybeNewTrMapAttr)) {
       return failure();
@@ -2480,6 +2480,9 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, ArrayR
       FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> nextSubDimInfo = getNextSubDimInfo(subDimInfo);
       if(failed(nextSubDimInfo)) return failure();
       subDimInfo = nextSubDimInfo.value();
+  }
+  if(subDimInfo.empty()){
+    return failure();
   }
   return subDimInfo;
 }

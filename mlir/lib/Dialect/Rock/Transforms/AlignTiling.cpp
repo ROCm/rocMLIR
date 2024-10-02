@@ -400,8 +400,10 @@ void LinalgAlignRewriter::notifyMatchFailure(
 
 static Value applyViewsOnDest(LinalgAlignRewriter &rewriter, Location loc,
                               Value dest, ArrayRef<TransformMapAttr> views) {
-  for (TransformMapAttr trMap : llvm::reverse(views)) {
-    dest = rewriter.create<TransformOp>(loc, dest, trMap);
+  if(!views.empty()){
+    for (TransformMapAttr trMap : llvm::reverse(views)) {
+      dest = rewriter.create<TransformOp>(loc, dest, trMap);
+    }
   }
   return dest;
 }
@@ -1082,17 +1084,25 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> lowerSubDims = getLowerSubDimensions(rewriter, toBeReducedViews, {0, 1, 2});
   
   int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
-  int64_t blockReductionAxis = reductionAxis;
   TypedValue<ShapedType> redOut = reduceOp.getOut();
   ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
   TypedValue<ShapedType> redIn = reduceOp.getIn();
   ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
+
+  int64_t blockReductionAxis = reductionAxis;
+  int64_t blockReductionAxisFromLeft = (reduceInShape.size() - 1) - blockReductionAxis;
   
   // Currently, we use blockwise_reductions when fusing with reductions
   // if and only if all sub-tile view creations are successful.
   if(succeeded(blockSubTileViews) && succeeded(threadSubTileViews) && succeeded(blockSubTileTidSliceViews) && succeeded(gridOnlyDims) && succeeded(lowerSubDims)){
     ArrayRef<int64_t> blockLowerShape = getLowerShape(blockSubTileViews.value());
-    int64_t partialReductionsPerThread = getLowerShape(blockSubTileTidSliceViews.value())[blockReductionAxis];
+    ArrayRef<int64_t> blockSubTileTidSliceShape = getLowerShape(blockSubTileTidSliceViews.value());
+    int64_t blockSubTileTidSliceRank = blockSubTileTidSliceShape.size();
+    // The block sub-tile view might not have the slower changing
+    // dimensions in it. Thus, we always keep track of the reduction
+    // dimensions from its distance to fastest changing dimensions.
+    blockReductionAxis = blockSubTileTidSliceRank - 1 - blockReductionAxisFromLeft;
+    int64_t partialReductionsPerThread = blockSubTileTidSliceShape[blockReductionAxis];
     int64_t ldsWorkspaceSize = 1;
     for(auto [idx, size] : llvm::enumerate(blockLowerShape)){
       if(idx == (size_t)blockReductionAxis){
@@ -1208,26 +1218,37 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         transformAttrs.push_back(newTrMap);
       }
       ArrayRef<int64_t> currLowerShape = cast<TransformMapAttr>(transformAttrs.back()).getLowerBounds();
-      // The shape should contain half the dims from grid only tile
-      // and rest of the half is block tile prior to recombine
+      if(currLowerShape.size() < lowerGridOnlyRank * 2){
+        SmallVector<SmallString<8>> names;
+        SmallVector<StringRef> nameRefs;
+        for(size_t i = 0; i < currLowerShape.size(); i++){
+          SmallString<8> dimName(Twine("d" + Twine(i)).str());
+          names.push_back(dimName);
+          nameRefs.push_back(names.back());
+        }
+        TopDownTMBuilder toAddMissingBlockDims(rewriter, nameRefs, currLowerShape);
+        {
+          toAddMissingBlockDims.passThrough({0, 1, 2}, {0, 1, 2});
+          int64_t missingDimCount = lowerGridOnlyRank * 2 - currLowerShape.size();
+          SmallVector<SmallString<8>> names;
+          SmallVector<StringRef> nameRefs;
+          unsigned dimInsertionPoint = 3;
+          for(int64_t md = 0; md < missingDimCount; md++){
+            SmallString<8> dimName(Twine("cd" + Twine(md)).str());
+            names.push_back(dimName);
+            nameRefs.push_back(names.back());
+            toAddMissingBlockDims.constDim(nameRefs.back(), dimInsertionPoint++, 0, 1);
+          }
+          for(unsigned lowerDim = 3; lowerDim < currLowerShape.size(); lowerDim++){
+            toAddMissingBlockDims.passThrough({dimInsertionPoint++}, {lowerDim});
+          }
+          TransformMapAttr addMissingBlockDims = toAddMissingBlockDims.get();
+          LLVM_DEBUG(llvm::dbgs() << "addMissingBlockDims = " << addMissingBlockDims << "\n");
+          transformAttrs.push_back(addMissingBlockDims);
+        }
+      }
+      currLowerShape = cast<TransformMapAttr>(transformAttrs.back()).getLowerBounds();
       assert(currLowerShape.size() == lowerGridOnlyRank * 2);
-      SmallVector<SmallString<8>> names;
-      SmallVector<StringRef> nameRefs;
-      SmallVector<unsigned> dims;
-      for(size_t i = 0; i < lowerGridOnlyRank; i++){
-        SmallString<8> dimName(Twine("grid_dim" + Twine(i)).str());
-        names.push_back(dimName);
-        nameRefs.push_back(names.back());
-      }
-      for(size_t i = 0; i < currLowerShape.size() - lowerGridOnlyRank; i++){
-        SmallString<8> dimName(Twine("block_dim" + Twine(i)).str());
-        names.push_back(dimName);
-        nameRefs.push_back(names.back());
-      }
-      LLVM_DEBUG(llvm::dbgs() << "nameRefs = ";
-      llvm::interleaveComma(nameRefs, llvm::dbgs()); llvm::dbgs() << "\n";
-      llvm::dbgs() << "currLowerShape = ";
-      llvm::interleaveComma(currLowerShape, llvm::dbgs()); llvm::dbgs() << "\n");
 
       // The last two transforms are constructed bottom up as it is easier.
       // where we joint them once we have grid and block tiles coordinates seperated.
@@ -1270,7 +1291,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
             splitSizes.push_back(subDim.size);
             currSize = subDim.stride;
           }
-          if(currSize > 1){
+          if(currSize > 1 || splitSizes.empty()){
             blockSubDims[dim].push_back(dimInsertionPoint);
             SmallString<8> dimName(Twine("block_dim" + Twine(dim) + "_" + Twine(dimInsertionPoint)).str());
             names[dim].push_back(dimName);
@@ -1298,24 +1319,30 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         toGridBlockSeperation.getStartNames(lowerNameRefs);
         SmallVector<std::string> upperGridNames;
         for(unsigned dim = 0; dim < 3; dim++){
+          upperGridNames.push_back(Twine("grid_dim" + Twine(dim)).str());
           if(gridSubDims.contains(dim)){
-            upperGridNames.push_back(Twine("grid_dim" + Twine(dim)).str());
             SmallVector<StringRef, 4> upperGridSubDimNames;
             for(int64_t upperGridSubDim : gridSubDims[dim]){
               upperGridSubDimNames.push_back(lowerNameRefs[upperGridSubDim]);
             }
             toGridBlockSeperation.merge(upperGridNames.back(), dim, upperGridSubDimNames);
           }
+          else{
+            toGridBlockSeperation.addDim(upperGridNames.back(), dim, 1);
+          }
         }
         SmallVector<std::string> upperBlockNames;
         for(unsigned dim = 0; dim < 3; dim++){
+          upperBlockNames.push_back(Twine("block_dim" + Twine(dim)).str());
           if(blockSubDims.contains(dim)){
-            upperBlockNames.push_back(Twine("block_dim" + Twine(dim)).str());
             SmallVector<StringRef, 4> upperBlockSubDimNames;
             for(int64_t upperBlockSubDim : blockSubDims[dim]){
               upperBlockSubDimNames.push_back(lowerNameRefs[upperBlockSubDim]);
             }
             toGridBlockSeperation.merge(upperBlockNames.back(), dim + 3, upperBlockSubDimNames);
+          }
+          else{
+            toGridBlockSeperation.addDim(upperBlockNames.back(), dim + 3, 1);
           }
         }
         gridblockSeperation = toGridBlockSeperation.get();
@@ -1337,8 +1364,6 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       views.clear();
       views.insert(views.begin(), transformAttrs.begin(), transformAttrs.end());
     }
-    LLVM_DEBUG(llvm::dbgs() << "views = " << "\n";
-    llvm::interleaveComma(views, llvm::dbgs()); llvm::dbgs() << "\n");
     threadwiseWriteOp.setExtraViewsAttr(rewriter.getArrayAttr({}));
     threadwiseWriteOp.getSourceMutable().assign(broadcastReducedSrc);
   }
@@ -1355,7 +1380,8 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     views.push_back(trAttr);
   }
 
-
+  LLVM_DEBUG(llvm::dbgs() << "views = " << "\n";
+  llvm::interleaveComma(views, llvm::dbgs()); llvm::dbgs() << "\n");
   TypedValue<ShapedType> reduceOut = reduceOp.getOut();
   reduceOut = cast<TypedValue<ShapedType>>(
       applyViewsOnDest(rewriter, loc, reduceOut, views));

@@ -231,9 +231,15 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
 
 std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(OpBuilder& builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k, int64_t n, int64_t nPerBlock, llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims){
   BottomUpTMBuilder toReductionSplitA(builder, {"G", "K", "M"}, {g, k, m});
-  ArrayAttr additionalViewsA = reorderReductionDims(toReductionSplitA, reductionSubDims[1], "M", m, mPerBlock);
+  ArrayAttr additionalViewsA = builder.getArrayAttr({});
+  if(!reductionSubDims[1].empty()){
+    additionalViewsA = reorderReductionDims(toReductionSplitA, reductionSubDims[1], "M", m, mPerBlock);
+  }
   BottomUpTMBuilder toReductionSplitB(builder, {"G", "K", "N"}, {g, k, n});
-  ArrayAttr additionalViewsB = reorderReductionDims(toReductionSplitB, reductionSubDims[2], "N", n, nPerBlock);
+  ArrayAttr additionalViewsB = builder.getArrayAttr({});
+  if(!reductionSubDims[2].empty()){
+    additionalViewsB = reorderReductionDims(toReductionSplitB, reductionSubDims[2], "N", n, nPerBlock);
+  }
   return {additionalViewsA, additionalViewsB};
 }
 
@@ -280,7 +286,7 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
     SmallVector<SubDimInfo> mReductionSubDimInfo = reductionSubDims[1];
     SmallVector<SubDimInfo> nReductionSubDimInfo = reductionSubDims[2];
 
-    int64_t dimInsertionPoint = 1;
+    unsigned dimInsertionPoint = 1;
     {
       SmallVector<unsigned> mReductionSubDims;
       SmallVector<int64_t> mReductionSubDimSizes;
@@ -311,7 +317,7 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
 
         currSize = sdInfo.stride;
       }
-      if(currSize > 1){
+      if(currSize > 1 || mNonReductionSubDimSizes.empty()){
         mNonReductionSubDimSizes.push_back(currSize);
         {
           SmallString<8> dimName("m_nr_last");
@@ -321,7 +327,12 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
         mNonReductionSubDims.push_back(dimInsertionPoint++);
       }
       toSplitOriginalSubDims.unmerge(mNonReductionSubDimNameRefs, mNonReductionSubDims, "m_nr", mNonReductionSubDimSizes);
-      toSplitOriginalSubDims.unmerge(mReductionSubDimNameRefs, mReductionSubDims, "m_r", mReductionSubDimSizes);
+      if(!mReductionSubDimSizes.empty()){
+        toSplitOriginalSubDims.unmerge(mReductionSubDimNameRefs, mReductionSubDims, "m_r", mReductionSubDimSizes);
+      }
+      else{
+        toSplitOriginalSubDims.passThrough({"m_r"}, {dimInsertionPoint++}, {"m_r"});
+      }
     }
     nSubDimStartPoint = dimInsertionPoint;
 
@@ -355,7 +366,7 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
 
         currSize = sdInfo.stride;
       }
-      if(currSize > 1){
+      if(currSize > 1 || nNonReductionSubDimSizes.empty()){
         nNonReductionSubDimSizes.push_back(currSize);
         {
           SmallString<8> dimName("n_nr_last");
@@ -365,11 +376,16 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
         nNonReductionSubDims.push_back(dimInsertionPoint++);
       }
       toSplitOriginalSubDims.unmerge(nNonReductionSubDimNameRefs, nNonReductionSubDims, "n_nr", nNonReductionSubDimSizes);
-      toSplitOriginalSubDims.unmerge(nReductionSubDimNameRefs, nReductionSubDims, "n_r", nReductionSubDimSizes);
+      if(!nReductionSubDimSizes.empty()){
+        toSplitOriginalSubDims.unmerge(nReductionSubDimNameRefs, nReductionSubDims, "n_r", nReductionSubDimSizes);
+      }
+      else{
+        toSplitOriginalSubDims.passThrough({"n_r"}, {dimInsertionPoint++}, {"n_r"});
+      }
     }
   }
   TransformMapAttr splitOriginalSubDims = toSplitOriginalSubDims.get();
-  LLVM_DEBUG(llvm::errs() << "splitOriginalSubDims = " << splitOriginalSubDims << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "splitOriginalSubDims = " << splitOriginalSubDims << "\n");
 
   // Recombine into original M & N
   auto toRecombineMN = BottomUpTMBuilder::above(toSplitOriginalSubDims, splitOriginalSubDims);
@@ -402,6 +418,11 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
   return builder.getArrayAttr({reductionSplit, combinedReduction, splitOriginalSubDims, recombineMN});
 }
 
+// This function will attempt to shuffle M & N dimensions of the gemm so that reductions
+// sub-dimensions within it could be split to blocks equally. However, for that to work
+// the transform stack needs to be invertible and sub-dimension should be discoverable using
+// "getLowerSubDimensions". If one of those fail, we bail and not attempt to use blockwise_reductions
+// in such fusions.
 static void rearrangeGemmParallelDimsForReduction(ReduceOp rOp, const BufferDependencyAnalysis& deps){
   FailureOr<std::tuple<ArrayAttr,Operation*>> res = obtainGemmToReduceViews(rOp, deps);
     if(succeeded(res)){
@@ -412,11 +433,13 @@ static void rearrangeGemmParallelDimsForReduction(ReduceOp rOp, const BufferDepe
       }
       IRRewriter rewriter(rOp.getContext());
       ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
-      if(!invertedViews){
+      if(!invertedViews || invertedViews.empty()){
         return;
       }
       FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>> subDimensions = getLowerSubDimensions(rewriter, invertedViews, 2);
-      assert(succeeded(subDimensions));
+      if(failed(subDimensions) || subDimensions.value().empty()){
+        return;
+      }
       for(auto [dim, subDimInfos] : subDimensions.value()){
         LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << ":");
         LLVM_DEBUG(llvm::interleaveComma(subDimInfos, llvm::dbgs()));
