@@ -7,12 +7,12 @@
 #map0 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map1 = affine_map<(d0, d1, d2) -> (d1, d2)>
 module {
-  func.func private @zero_init(%arg0: memref<1x250x100xf32> {func.write_access}) {
+  func.func private @zero_init(%arg0: memref<1x250x100xf32> {mhal.write_access}) {
     %cst = arith.constant 0.000000e+00 : f32
     linalg.fill ins(%cst : f32) outs(%arg0 : memref<1x250x100xf32>)
     return
   }
-  func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {func.read_access}, %arg1: memref<1x250x100xf32> {func.read_access, func.write_access}) {
+  func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {mhal.read_access}, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access}) {
     %0 = memref.collapse_shape %arg1 [[0, 1], [2]] : memref<1x250x100xf32> into memref<250x100xf32>
     linalg.generic {indexing_maps = [#map0, #map1], iterator_types = ["reduction", "parallel", "parallel"]} ins(%arg0 : memref<1000x250x100xf32>) outs(%0 : memref<250x100xf32>) {
     ^bb0(%arg2: f32, %arg3: f32):
@@ -28,7 +28,7 @@ module {
     return
   }
   module @__xmodule_gfx90a attributes {mhal.arch = "gfx90a", mhal.module} {
-    func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {func.read_access}, %arg1: memref<1x250x100xf32> {func.read_access, func.write_access}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 16, block_size = 1024} {
+    func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {mhal.read_access}, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 16, block_size = 1024} {
       rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<1000x250x100xf32> into memref<1x250x100xf32>
       return
     }

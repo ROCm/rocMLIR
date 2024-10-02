@@ -2,7 +2,7 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
-  func.func private @mlir_convolution_add_clip(%arg0: !migraphx.shaped<1x4x1x1xf32, 4x1x1x1> {func.read_access}, %arg1: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {func.read_access}, %arg2: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {func.read_access}) -> (!migraphx.shaped<4x4x1x1xf32, 4x1x1x1> {func.write_access}) {
+  func.func private @mlir_convolution_add_clip(%arg0: !migraphx.shaped<1x4x1x1xf32, 4x1x1x1> {mhal.read_access}, %arg1: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {mhal.read_access}, %arg2: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {mhal.read_access}) -> (!migraphx.shaped<4x4x1x1xf32, 4x1x1x1> {mhal.write_access}) {
     %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [4, 4, 1, 1]} : <1x4x1x1xf32, 4x1x1x1> -> <4x4x1x1xf32, 0x1x1x1>
     %1 = migraphx.literal (dense<6.000000e+00> : tensor<1xf32>) : <1xf32, 0>
     %2 = migraphx.literal (dense<0.000000e+00> : tensor<1xf32>) : <1xf32, 0>
@@ -19,7 +19,7 @@ module {
     return %results : !migraphx.shaped<4x4x1x1xf32, 4x1x1x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @mlir_convolution_add_clip(%arg0: !migraphx.shaped<1x4x1x1xf32, 4x1x1x1> {func.read_access}, %arg1: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {func.read_access}, %arg2: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {func.read_access}) -> (!migraphx.shaped<4x4x1x1xf32, 4x1x1x1> {func.write_access}) attributes {kernel, original_func = @mlir_convolution_add_clip} {
+    func.func private @mlir_convolution_add_clip(%arg0: !migraphx.shaped<1x4x1x1xf32, 4x1x1x1> {mhal.read_access}, %arg1: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {mhal.read_access}, %arg2: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1> {mhal.read_access}) -> (!migraphx.shaped<4x4x1x1xf32, 4x1x1x1> {mhal.write_access}) attributes {kernel, original_func = @mlir_convolution_add_clip} {
       %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [4, 4, 1, 1]} : <1x4x1x1xf32, 4x1x1x1> -> <4x4x1x1xf32, 0x1x1x1>
       %1 = migraphx.literal (dense<6.000000e+00> : tensor<1xf32>) : <1xf32, 0>
       %2 = migraphx.literal (dense<0.000000e+00> : tensor<1xf32>) : <1xf32, 0>

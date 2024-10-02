@@ -2,11 +2,11 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {func.read_access}, 
-                            %arg1: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {func.read_access}, 
-                            %arg2: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {func.read_access}, 
-                            %arg3: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {func.read_access}) 
-                            -> (!migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {func.write_access}) {
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {mhal.read_access}, 
+                            %arg1: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {mhal.read_access}, 
+                            %arg2: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {mhal.read_access}, 
+                            %arg3: !migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {mhal.read_access}) 
+                            -> (!migraphx.shaped<1x4x32x32xf32, 4096x1024x32x1> {mhal.write_access}) {
     %0 = migraphx.transpose %arg3 {permutation = [0, 1, 3, 2]} : <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
     %1 = migraphx.dot %arg2, %0 : <1x4x32x32xf32, 4096x1024x32x1>, <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>
     %2 = migraphx.mul %1, %arg1 : <1x4x32x32xf32, 4096x1024x32x1>, <1x4x32x32xf32, 4096x1024x32x1> -> <1x4x32x32xf32, 4096x1024x32x1>

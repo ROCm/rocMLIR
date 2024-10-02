@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/CallGraph.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -65,6 +66,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <tuple>
+#include <unordered_map>
 
 using namespace mlir;
 
@@ -1291,43 +1293,12 @@ llvm::SmallString<32> archChip() {
 
 // Map data type string to MLIR type
 static Type typeFromString(StringRef name, MLIRContext *ctx) {
-  if (name == "fp8") {
-    switch (forceF8Types) {
-    case F8TypesChoice::Arch:
-      // f8E4M3FN for navi4, f8E4M3FNUZ for everyone else
-      if (archChip().substr(0, 5) == "gfx12")
-        name = "f8E4M3FN";
-      else
-        name = "f8E4M3FNUZ";
-      break;
-    case F8TypesChoice::Nanoo:
-      name = "f8E4M3FNUZ";
-      break;
-    case F8TypesChoice::OCP:
-      name = "f8E4M3FN";
-      break;
-    }
-  } else if (name == "bf8") {
-    switch (forceF8Types) {
-    case F8TypesChoice::Arch:
-      // f8E5M2 for navi4, f8E5M2FNUZ for everyone else
-      if (archChip().substr(0, 5) == "gfx12")
-        name = "f8E5M2";
-      else
-        name = "f8E5M2FNUZ";
-      break;
-    case F8TypesChoice::Nanoo:
-      name = "f8E5M2FNUZ";
-      break;
-    case F8TypesChoice::OCP:
-      name = "f8E5M2";
-      break;
-    }
-  }
   std::optional<Type> result =
       llvm::StringSwitch<std::optional<Type>>(name)
           .Case("f32", Float32Type::get(ctx))
+          .Case("fp32", Float32Type::get(ctx))
           .Case("f16", Float16Type::get(ctx))
+          .Case("fp16", Float16Type::get(ctx))
           .Case("bf16", BFloat16Type::get(ctx))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
@@ -1408,29 +1379,11 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
                                              ArrayRef<float> pattern,
                                              Type elemType, Value toFill) {
   // TODO(kdrewnia) Refactor this to create the constant vector up front
-  // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
-  // it here
-  Type i16 = b.getIntegerType(16);
-  Value constantsVec;
-  if (elemType == b.getBF16Type()) {
-    uint16_t init = 0;
-    constantsVec = b.create<arith::ConstantOp>(
-        loc,
-        SplatElementsAttr::get(VectorType::get(pattern.size(), i16), init));
-  } else {
-    constantsVec = rock::createZeroConstantOp(
-        b, loc, VectorType::get(pattern.size(), elemType));
-  }
+  Value constantsVec = rock::createZeroConstantOp(
+      b, loc, VectorType::get(pattern.size(), elemType));
   for (auto v : llvm::enumerate(pattern)) {
     Value vOp;
-    if (elemType == b.getBF16Type()) {
-      llvm::APFloat fl(v.value());
-      bool losesInfo = false;
-      fl.convert(llvm::APFloat::BFloat(), llvm::APFloat::rmNearestTiesToEven,
-                 &losesInfo);
-      llvm::APInt val = fl.bitcastToAPInt();
-      vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
-    } else if (elemType.isIntOrIndex()) {
+    if (elemType.isIntOrIndex()) {
       vOp = rock::createConstantIntOp(b, loc, elemType, elemType,
                                       static_cast<int64_t>(v.value()));
     } else {
@@ -1459,15 +1412,13 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
 
   affine::buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
-      [rowMajorMap, &constantsVec, toFillFlat,
-       elemType](OpBuilder &b, Location loc, ValueRange ivs) {
+      [rowMajorMap, &constantsVec, toFillFlat](OpBuilder &b, Location loc,
+                                               ValueRange ivs) {
         auto selectorOp =
             b.create<affine::AffineApplyOp>(loc, rowMajorMap, ivs);
         Value toStore = b.create<vector::ExtractElementOp>(
                              loc, constantsVec, selectorOp->getResult(0))
                             .getResult();
-        if (elemType == b.getBF16Type())
-          toStore = b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
         b.create<memref::StoreOp>(loc, toStore, toFillFlat, ivs);
       });
   return success();
@@ -2187,7 +2138,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   b.create<func::ReturnOp>(loc);
 
-  // TODO[split-K]: remove after integrating split-K into MIGraphX
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   b.getUnitAttr());
@@ -2543,10 +2493,10 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 }
 
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
-                             ArrayRef<int64_t> perm) {
+                             ArrayRef<int32_t> perm) {
   auto elemType = cast<RankedTensorType>(src.getType()).getElementType();
   auto permutationAttr = DenseIntElementsAttr::get(
-      RankedTensorType::get({(int64_t)perm.size()}, builder.getI64Type()),
+      RankedTensorType::get({(int64_t)perm.size()}, builder.getI32Type()),
       perm);
   Value permutationValue =
       builder.create<arith::ConstantOp>(loc, permutationAttr);
@@ -3601,7 +3551,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       }
 
       convGenerator = rock::ConvGenerator(
-          arch, chip, triple, chipFeatures, perfConfig.getValue(),
+          arch, chip, disableSplitKForTuning, triple, chipFeatures,
+          perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
           reverse_grid, enabledFeatures,
@@ -3697,10 +3648,10 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   StringAttr archAttr = b.getStringAttr(arch);
   if (originalFunc->hasAttr("arch"))
     originalFunc->setAttr("arch", archAttr);
-  auto readAttr =
-      b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
-  auto writeAttr =
-      b.getNamedAttr(func::FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
+  auto readAttr = b.getNamedAttr(mhal::MHALDialect::getReadAccessAttrName(),
+                                 b.getUnitAttr());
+  auto writeAttr = b.getNamedAttr(mhal::MHALDialect::getWriteAccessAttrName(),
+                                  b.getUnitAttr());
   for (size_t index = 0; index < originalFunc.getArguments().size(); index++)
     originalFunc.setArgAttrs(index, readAttr);
   for (size_t index = 0; index < originalFunc.getNumResults(); index++)
@@ -3745,6 +3696,39 @@ int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,
                                     "MLIR Rock Dialect host generation\n");
+
+  amdgpu::Chipset chipset;
+  if (!arch.getValue().empty()) {
+    FailureOr<amdgpu::Chipset> maybeChipset =
+        amdgpu::Chipset::parse(archChip());
+    if (failed(maybeChipset)) {
+      emitError(UnknownLoc::get(&context),
+                "Invalid chipset name: " + archChip());
+      exit(1);
+    }
+    chipset = *maybeChipset;
+    bool archPrefersOCP = chipset.hasOcpFp8();
+    DenseMap<F8TypesChoice, std::string> f8e4m3TypeNames{
+        {F8TypesChoice::Arch, archPrefersOCP ? "f8E4M3FN" : "f8E4M3FNUZ"},
+        {F8TypesChoice::Nanoo, "f8E4M3FNUZ"},
+        {F8TypesChoice::OCP, "f8E4M3FN"}};
+    DenseMap<F8TypesChoice, std::string> f8e5m2TypeNames{
+        {F8TypesChoice::Arch, archPrefersOCP ? "f8E5M2" : "f8E5M2FNUZ"},
+        {F8TypesChoice::Nanoo, "f8E5M2FNUZ"},
+        {F8TypesChoice::OCP, "f8E5M2"}};
+
+    auto canonicaliseF8Type = [&](std::string name) {
+      if (name == "fp8")
+        return f8e4m3TypeNames[forceF8Types.getValue()];
+      if (name == "bf8")
+        return f8e5m2TypeNames[forceF8Types.getValue()];
+      return name;
+    };
+
+    filterDataType = canonicaliseF8Type(filterDataType);
+    inputDataType = canonicaliseF8Type(inputDataType);
+    outputDataType = canonicaliseF8Type(outputDataType);
+  }
 
   if (operation != rock::KernelType::Gemm) {
     verifyConvLayout();

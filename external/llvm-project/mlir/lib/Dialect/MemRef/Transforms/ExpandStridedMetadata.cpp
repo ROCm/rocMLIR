@@ -1121,6 +1121,12 @@ class ExtractStridedMetadataOpMemorySpaceCastFolder
         rewriter.create<memref::ExtractStridedMetadataOp>(
             loc, memSpaceCastOp.getSource());
     SmallVector<Value> results(newExtractStridedMetadata.getResults());
+    // As with most other strided metadata rewrite patterns, don't introduce
+    // a use of the base pointer where non existed. This needs to happen here,
+    // as opposed to in later dead-code elimination, because these patterns are
+    // sometimes used during dialect conversion (see EmulateNarrowType, for
+    // example), so adding spurious usages would cause a pre-legalization value
+    // to be live that would be dead had this pattern not run.
     if (!extractStridedMetadataOp.getBaseBuffer().use_empty()) {
       auto baseBuffer = results[0];
       auto baseBufferType = cast<MemRefType>(baseBuffer.getType());
@@ -1130,7 +1136,6 @@ class ExtractStridedMetadataOpMemorySpaceCastFolder
       results[0] = rewriter.create<memref::MemorySpaceCastOp>(
           loc, Type{newTypeBuilder}, baseBuffer);
     } else {
-      // Don't create spurious casts for values that are going away.
       results[0] = nullptr;
     }
     rewriter.replaceOp(extractStridedMetadataOp, results);

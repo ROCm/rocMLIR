@@ -183,6 +183,7 @@ def CallIndirectOp : Func_Op<"call_indirect", [
 
 def ConstantOp : Func_Op<"constant",
     [ConstantLike, Pure,
+     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
      DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "constant";
   let description = [{
@@ -216,7 +217,6 @@ def ConstantOp : Func_Op<"constant",
   }];
 
   let hasFolder = 1;
-  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -330,16 +330,6 @@ def FuncOp : Func_Op<"func", [
     //===------------------------------------------------------------------===//
 
     bool isDeclaration() { return isExternal(); }
-
-    //===------------------------------------------------------------------===//
-    // FuncOp Methods
-    //===------------------------------------------------------------------===//
-
-    /// Arg attributes for access modes
-    /// These unit attributes may be added to function args to denote how a
-    /// memref pointer is accessed by the function.
-    static StringRef getReadAccessAttrName() { return "func.read_access"; }
-    static StringRef getWriteAccessAttrName() { return "func.write_access"; }
   }];
   let hasCustomAssemblyFormat = 1;
 }

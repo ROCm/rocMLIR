@@ -3,12 +3,12 @@
 // CHECK: [1 1 1]
 
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x64x32xi8, 2048x32x1> {func.read_access},
-                                    %arg1: !migraphx.shaped<1x32x64xi8, 2048x64x1> {func.read_access},
-                                    %arg2: !migraphx.shaped<1x64x32xf32, 2048x32x1> {func.read_access},
-                                    %arg3: !migraphx.shaped<1x64x64xf32, 4096x64x1> {func.read_access},
-                                    %qscale: !migraphx.shaped<1x1x1xf32, 1x1x1> {func.read_access}) 
-                                    -> (!migraphx.shaped<1x64x32xf32, 2048x32x1> {func.write_access}) // attributes {kernel, mhal.arch = "gfx90a"} 
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x64x32xi8, 2048x32x1> {mhal.read_access},
+                                    %arg1: !migraphx.shaped<1x32x64xi8, 2048x64x1> {mhal.read_access},
+                                    %arg2: !migraphx.shaped<1x64x32xf32, 2048x32x1> {mhal.read_access},
+                                    %arg3: !migraphx.shaped<1x64x64xf32, 4096x64x1> {mhal.read_access},
+                                    %qscale: !migraphx.shaped<1x1x1xf32, 1x1x1> {mhal.read_access}) 
+                                    -> (!migraphx.shaped<1x64x32xf32, 2048x32x1> {mhal.write_access}) // attributes {kernel, mhal.arch = "gfx90a"} 
                                     {
     %0 = migraphx.quant_dot %arg0, %arg1: <1x64x32xi8, 2048x32x1>, <1x32x64xi8, 2048x64x1> -> <1x64x64xi32, 4096x64x1>
     %1 = migraphx.dequantizelinear %0, %qscale : <1x64x64xi32, 4096x64x1>, <1x1x1xf32, 1x1x1> -> <1x64x64xf32, 4096x64x1>

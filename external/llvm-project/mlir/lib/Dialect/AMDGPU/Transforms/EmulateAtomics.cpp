@@ -9,15 +9,14 @@
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::amdgpu {
 #define GEN_PASS_DEF_AMDGPUEMULATEATOMICSPASS
@@ -89,21 +88,21 @@ static void patchOperandSegmentSizes(ArrayRef<NamedAttribute> attrs,
   }
 }
 
-// A helper function to flatten a vector element into a integer equivalent
-static Value flattenVecToInt(ConversionPatternRewriter &rewriter, Location loc,
-                             Value val) {
-  if (auto vectorType = dyn_cast_or_null<VectorType>(val.getType())) {
-    int64_t bitwidth =
-        vectorType.getElementTypeBitWidth() * vectorType.getNumElements();
-    Type elemType = rewriter.getIntegerType(bitwidth);
-    SmallVector<int64_t, 2> flatVecTypeShape(1, vectorType.getRank());
-    auto flatVecType = VectorType::get(flatVecTypeShape, elemType);
-    auto bitcast = rewriter.create<vector::BitCastOp>(loc, flatVecType, val);
-    auto zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    auto ret = rewriter.create<vector::ExtractElementOp>(loc, bitcast, zero);
-    return ret;
-  }
-  return val;
+// A helper function to flatten a vector value to a scalar containing its bits,
+// returning the value itself if othetwise.
+static Value flattenVecToBits(ConversionPatternRewriter &rewriter, Location loc,
+                              Value val) {
+  auto vectorType = dyn_cast<VectorType>(val.getType());
+  if (!vectorType)
+    return val;
+
+  int64_t bitwidth =
+      vectorType.getElementTypeBitWidth() * vectorType.getNumElements();
+  Type allBitsType = rewriter.getIntegerType(bitwidth);
+  auto allBitsVecType = VectorType::get({1}, allBitsType);
+  Value bitcast = rewriter.create<vector::BitCastOp>(loc, allBitsVecType, val);
+  Value scalar = rewriter.create<vector::ExtractOp>(loc, bitcast, 0);
+  return scalar;
 }
 
 template <typename AtomicOp, typename ArithOp>
@@ -147,8 +146,8 @@ LogicalResult RawBufferAtomicByCasPattern<AtomicOp, ArithOp>::matchAndRewrite(
   // an int->float bitcast is introduced to account for the fact that cmpswap
   // only takes integer arguments.
 
-  Value prevLoadForCompare = flattenVecToInt(rewriter, loc, prevLoad);
-  Value atomicResForCompare = flattenVecToInt(rewriter, loc, atomicRes);
+  Value prevLoadForCompare = flattenVecToBits(rewriter, loc, prevLoad);
+  Value atomicResForCompare = flattenVecToBits(rewriter, loc, atomicRes);
   if (auto floatDataTy = dyn_cast<FloatType>(dataType)) {
     Type equivInt = rewriter.getIntegerType(floatDataTy.getWidth());
     prevLoadForCompare =
@@ -167,8 +166,7 @@ LogicalResult RawBufferAtomicByCasPattern<AtomicOp, ArithOp>::matchAndRewrite(
 void mlir::amdgpu::populateAmdgpuEmulateAtomicsPatterns(
     ConversionTarget &target, RewritePatternSet &patterns, Chipset chipset) {
   // gfx10 has no atomic adds.
-  if (chipset.majorVersion == 10 || chipset.majorVersion < 9 ||
-      (chipset.majorVersion == 9 && chipset.minorVersion < 0x08)) {
+  if (chipset.majorVersion == 10 || chipset < Chipset(9, 0, 8)) {
     target.addIllegalOp<RawBufferAtomicFaddOp>();
   }
   // gfx11 has no fp16 atomics
@@ -176,12 +174,12 @@ void mlir::amdgpu::populateAmdgpuEmulateAtomicsPatterns(
     target.addDynamicallyLegalOp<RawBufferAtomicFaddOp>(
         [](RawBufferAtomicFaddOp op) -> bool {
           Type elemType = getElementTypeOrSelf(op.getValue().getType());
-          return !elemType.isF16();
+          return !isa<Float16Type, BFloat16Type>(elemType);
         });
   }
   // gfx9 has no to a very limited support for floating-point min and max.
   if (chipset.majorVersion == 9) {
-    if (chipset.minorVersion >= 0x0a && chipset.minorVersion != 0x41) {
+    if (chipset >= Chipset(9, 0, 0xa) && chipset != Chipset(9, 4, 1)) {
       // gfx90a supports f64 max (and min, but we don't have a min wrapper right
       // now) but all other types need to be emulated.
       target.addDynamicallyLegalOp<RawBufferAtomicFmaxOp>(
@@ -191,7 +189,7 @@ void mlir::amdgpu::populateAmdgpuEmulateAtomicsPatterns(
     } else {
       target.addIllegalOp<RawBufferAtomicFmaxOp>();
     }
-    if (chipset.minorVersion == 0x41) {
+    if (chipset == Chipset(9, 4, 1)) {
       // gfx941 requires non-CAS atomics to be implemented with CAS loops.
       // The workaround here mirrors HIP and OpenMP.
       target.addIllegalOp<RawBufferAtomicFaddOp, RawBufferAtomicFmaxOp,

@@ -39,8 +39,8 @@ func.func private @mlir_dot_transpose_add(%arg0: tensor<20xf32>, %arg1: tensor<2
   %2 = "tosa.reshape"(%arg1) {new_shape = array<i64: 1, 4, 5>} : (tensor<20xf32>) -> tensor<1x4x5xf32>
   %3 = "tosa.matmul"(%2, %1) : (tensor<1x4x5xf32>, tensor<1x5x5xf32>) -> tensor<1x4x5xf32>
   %4 = "tosa.reshape"(%3) {new_shape = array<i64: 20>} : (tensor<1x4x5xf32>) -> tensor<20xf32>
-  %5 = "tosa.const"() <{value = dense<[0, 2, 1]> : tensor<3xi64>}> : () -> tensor<3xi64>
-  %6 = "tosa.transpose"(%3, %5) : (tensor<1x4x5xf32>, tensor<3xi64>) -> tensor<1x5x4xf32>
+  %5 = "tosa.const"() <{value = dense<[0, 2, 1]> : tensor<3xi32>}> : () -> tensor<3xi32>
+  %6 = "tosa.transpose"(%3, %5) : (tensor<1x4x5xf32>, tensor<3xi32>) -> tensor<1x5x4xf32>
   %7 = "tosa.add"(%6, %0) : (tensor<1x5x4xf32>, tensor<1x5x4xf32>) -> tensor<1x5x4xf32>
   %8 = "tosa.reshape"(%7) {new_shape = array<i64: 20>} : (tensor<1x5x4xf32>) -> tensor<20xf32>
   return %4, %8 : tensor<20xf32>, tensor<20xf32>
@@ -58,8 +58,8 @@ func.func @mlir_conv_transpose_add(%arg0: tensor<128x8x32x32xf32>, %arg1: tensor
   %zero = arith.constant dense<0.0> : tensor<128xf32>
   %0 = "tosa.conv2d"(%arg0, %arg1, %zero) {dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x8x32x32xf32>, tensor<128x8x3x3xf32>, tensor<128xf32>) -> tensor<128x128x30x30xf32>
   %1 = "tosa.reshape"(%0) {new_shape = array<i64: 14745600>} : (tensor<128x128x30x30xf32>) -> tensor<14745600xf32>
-  %5 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi64>}> : () -> tensor<4xi64>
-  %6 = "tosa.transpose"(%0, %5) : (tensor<128x128x30x30xf32>, tensor<4xi64>) -> tensor<128x30x128x30xf32>
+  %5 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %6 = "tosa.transpose"(%0, %5) : (tensor<128x128x30x30xf32>, tensor<4xi32>) -> tensor<128x30x128x30xf32>
   %7 = "tosa.add"(%6, %arg2) : (tensor<128x30x128x30xf32>, tensor<128x30x128x30xf32>) -> tensor<128x30x128x30xf32>
   %8 = "tosa.reshape"(%7) {new_shape = array<i64: 14745600>} : (tensor<128x30x128x30xf32>) -> tensor<14745600xf32>
 

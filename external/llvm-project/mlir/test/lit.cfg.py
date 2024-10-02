@@ -18,12 +18,15 @@ from lit.llvm.subst import FindTool
 # name: The name of this test suite.
 config.name = "MLIR"
 
+# TODO: Consolidate the logic for turning on the internal shell by default for all LLVM test suites.
+# See https://github.com/llvm/llvm-project/issues/106636 for more details.
+#
 # We prefer the lit internal shell which provides a better user experience on failures
 # unless the user explicitly disables it with LIT_USE_INTERNAL_SHELL=0 env var.
 use_lit_shell = True
 lit_shell_env = os.environ.get("LIT_USE_INTERNAL_SHELL")
 if lit_shell_env:
-  use_lit_shell = not lit.util.pythonize_bool(lit_shell_env)
+    use_lit_shell = lit.util.pythonize_bool(lit_shell_env)
 
 config.test_format = lit.formats.ShTest(execute_external=not use_lit_shell)
 
@@ -75,6 +78,7 @@ def add_runtime(name):
 
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
+llvm_config.with_environment("AMD_LOG_LEVEL", "4")
 
 llvm_config.use_default_substitutions()
 

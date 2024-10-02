@@ -532,6 +532,10 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
+static bool isFloat8Type(Type type) {
+  return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
+}
+
 static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
@@ -541,10 +545,12 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
       if (isGfx11)
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8 data types");
-      if (!elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2())
+      if (!isFloat8Type(elemTypeA))
         return op->emitOpError(
             "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
+    if (elemTypeA != elemTypeB)
+      return op->emitOpError("Wmma gridwise does not support mixed types");
   }
   if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
     return op->emitOpError("floating-point input type ")
@@ -901,7 +907,7 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
-  if ((aElem.isFloat8E4M3FNUZ() || aElem.isFloat8E5M2FNUZ()) && !cElem.isF32())
+  if (isFloat8Type(aElem) && !cElem.isF32())
     return op.emitOpError("8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
@@ -1000,21 +1006,21 @@ LogicalResult InsertSliceOp::verify() {
 // GpuAllocOp
 //===-----------------------------------------------------===//
 
-static int64_t getSize(MemRefType memref) {
-  int64_t elementSize;
+static int64_t getByteSize(MemRefType memref) {
+  int64_t elementBitWidth = 0;
   Type type = memref.getElementType();
   if (auto vecType = dyn_cast<VectorType>(type)) {
-    elementSize =
-        (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
+    elementBitWidth =
+        (vecType.getElementTypeBitWidth() * vecType.getNumElements());
   } else {
-    elementSize = type.getIntOrFloatBitWidth() / 8;
+    elementBitWidth = type.getIntOrFloatBitWidth();
   }
-  return memref.getNumElements() * elementSize;
+  return (memref.getNumElements() * elementBitWidth) / 8;
 }
 
 LogicalResult GpuAllocOp::verify() {
   // Make sure the size is bigger than 0
-  if (getSize(getOutput().getType()) > 0) {
+  if (getByteSize(getOutput().getType()) > 0) {
     return success();
   }
   return emitError("The size of rock.alloc should be greather than zero.");
@@ -1028,7 +1034,7 @@ LogicalResult GpuDeallocOp::verify() {
   // Make sure the input memref defining operation is a GpuAllocOp
   if (auto gpuAlloc = dyn_cast<GpuAllocOp>(getMemref().getDefiningOp())) {
     // Make sure the size is bigger than 0
-    if (getSize(getMemref().getType()) > 0) {
+    if (getByteSize(getMemref().getType()) > 0) {
       return success();
     }
     return emitError("The size of rock.dealloc should be greather than zero.");
@@ -1661,6 +1667,23 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
           "Vector buffers vector's lengths need to be evenly divisible");
   }
 
+  if (!getDynamicValidities().empty()) {
+    if (srcType.getElementType() != destType.getElementType()) {
+      return emitOpError("dynamic validities applied where the "
+                         "source and destination have different types are "
+                         "currently unimplemented");
+    }
+    if (srcVectorType) {
+      return emitOpError(
+          "dynamic validities with vector buffers are unimplemented");
+    }
+    if (!gpuSrcMemSpaceAttr ||
+        gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitOpError(
+          "it's currently expeccted that dynamic validities will only be used "
+          "in register-to-register reads produced by input fusion");
+    }
+  }
   return success();
 }
 

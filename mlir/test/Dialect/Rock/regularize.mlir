@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt --rock-regularize %s | FileCheck %s
 
 // -----// IR Dump After RockGemmToGridwisePass (rock-gemm-to-gridwise) //----- //
-func.func private @bert_part_11__part_0(%arg0: memref<1x12x12x32xf32> {func.read_access}, %arg1: memref<1x12x32x12xf32> {func.read_access}, %arg2: memref<1x1x1x1xf32> {func.read_access}, %arg3: memref<1x1x1x12xf32> {func.read_access}, %arg4: memref<1x12x12x12xf32> {func.write_access}) attributes {block_size = 64 : i32, grid_size = 12 : i32, kernel, original_func = @bert_part_11__part_0} {
+func.func private @bert_part_11__part_0(%arg0: memref<1x12x12x32xf32> {mhal.read_access}, %arg1: memref<1x12x32x12xf32> {mhal.read_access}, %arg2: memref<1x1x1x1xf32> {mhal.read_access}, %arg3: memref<1x1x1x12xf32> {mhal.read_access}, %arg4: memref<1x12x12x12xf32> {mhal.write_access}) attributes {block_size = 64 : i32, grid_size = 12 : i32, kernel, original_func = @bert_part_11__part_0} {
   %0 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d0 floordiv 12, d0 mod 12, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 32, 12] -> [1, 12, 32, 12]> : memref<1x12x32x12xf32> to memref<12x32x12xf32>
   %1 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0 floordiv 12, d0 mod 12, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 12, 32] -> [1, 12, 12, 32]> : memref<1x12x12x32xf32> to memref<12x12x32xf32>
   %2 = memref.alloc() {alignment = 128 : i64} : memref<12x12x12xf32>
@@ -26,7 +26,7 @@ func.func private @bert_part_11__part_0(%arg0: memref<1x12x12x32xf32> {func.read
   return
 }
 // CHECK: [[MAP0:#.*]] = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
-// CHECK: func.func private @bert_part_11__part_0([[ARG0:%arg.*]]: memref<1x12x12x32xf32> {func.read_access}, [[ARG1:%arg.*]]: memref<1x12x32x12xf32> {func.read_access}, [[ARG2:%arg.*]]: memref<1x1x1x1xf32> {func.read_access}, [[ARG3:%arg.*]]: memref<1x1x1x12xf32> {func.read_access}, [[ARG4:%arg.*]]: memref<1x12x12x12xf32> {func.write_access})
+// CHECK: func.func private @bert_part_11__part_0([[ARG0:%arg.*]]: memref<1x12x12x32xf32> {mhal.read_access}, [[ARG1:%arg.*]]: memref<1x12x32x12xf32> {mhal.read_access}, [[ARG2:%arg.*]]: memref<1x1x1x1xf32> {mhal.read_access}, [[ARG3:%arg.*]]: memref<1x1x1x12xf32> {mhal.read_access}, [[ARG4:%arg.*]]: memref<1x12x12x12xf32> {mhal.write_access})
 // CHECK: [[ALLOC0:%.*]] = memref.alloc() : memref<12x12x12xf32>
 
 // CHECK: [[ARG2_TR0:%.*]] = rock.transform [[ARG2]] by {{.*}} : memref<1x1x1x1xf32> to memref<f32>

@@ -16,6 +16,7 @@ LLVMBitReader
 LLVMBitWriter
 LLVMBitstreamReader
 LLVMCFGuard
+LLVMCGData
 LLVMCodeGen
 LLVMCodeGenTypes
 LLVMCore
@@ -47,6 +48,7 @@ LLVMOption
 LLVMPasses
 LLVMProfileData
 LLVMRemarks
+LLVMSandboxIR
 LLVMScalarOpts
 LLVMSelectionDAG
 LLVMSupport
@@ -203,7 +205,6 @@ MLIRVectorTransforms
 MLIRVectorUtils
 MLIRViewLikeInterface
 MLIRX86VectorDialect
-MLIRX86VectorTransforms
 lldCommon
 lldELF
 )
@@ -223,7 +224,7 @@ MLIRMIGraphXToTosa
 MLIRMIGraphXTransforms
 MLIRRocTarget
 MLIRRockAnalysis
-MLIRRockConv2dGenerator
+MLIRRockConvGenerator
 MLIRRockOps
 MLIRRockPipeline
 MLIRRockThin

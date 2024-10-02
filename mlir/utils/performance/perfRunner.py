@@ -209,6 +209,26 @@ def getMilliseconds(output):
 
     return float(result.group(1))
 
+def runPipeline(proc_specs):
+    procs = []
+    for proc in proc_specs:
+        prev_stdout = procs[-1].stdout if procs else subprocess.DEVNULL
+        po = subprocess.Popen(proc, stdin=prev_stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        procs.append(po)
+    try:
+        for p in procs:
+            p.wait()
+            if p.returncode != 0:
+                raise OSError(str(p.stderr))
+        outs, errs = p.communicate()
+        return outs, errs
+    except Exception as err:
+        print(f"Error:  {err}")
+        print(f"Failing command:  {' '.join(p.args)}")
+        print(f"Failing pipeline:  {' | '.join([' '.join(proc) for proc in proc_specs])}")
+        outs, errs = p.communicate()
+    return outs, errs
+
 class PerfConfiguration:
     TABLE_COLUMNS = []
 
@@ -232,7 +252,7 @@ class PerfConfiguration:
         raise NotImplementedError()
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
         raise NotImplementedError()
 
     EXTERNAL_NAME = "unknown"
@@ -504,33 +524,23 @@ class ConvConfiguration(PerfConfiguration):
         self.perfConfig = ''
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
         os.system("rm -f "+BENCHMARKING_METRICS_FILE_NAME)
         config = cls.fromCommandLine(commandLine, arch, numCU)
         MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(commandLine))
         # invoke MIOpenDriver.
-        p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
-        # get output.
-        nanoSeconds = np.nan
-        try:
-            outs, errs = p1.communicate(timeout=300)
-            if len(errs) > 0:
-                print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
-                if p1.returncode != 0:
-                    raise OSError(errs.decode('utf-8'))
-            else:
-                # convert bytes to str
-                outs = outs.decode('utf-8')
-                # Extract Elapsed time in ms from the output of MIOpenDriver
-                # Use regular expression to match the contents between
-                # "Elasped: " (note the space at the end) and "ms"
-                elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
-                nanoSeconds = float(elapsedTimeInMs)*1.0e6
-        except subprocess.TimeoutExpired:
-            p1.kill()
-            print("MIOpen benchmark timed out")
-            outs, errs = p1.communicate()
+        outs,errs = runPipeline([MIOpenDriverCommand])
+        if len(errs) == 0:
+            # convert bytes to str
+            outs = outs.decode('utf-8')
+            # Extract Elapsed time in ms from the output of MIOpenDriver
+            # Use regular expression to match the contents between
+            # "Elasped: " (note the space at the end) and "ms"
+            elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
+            nanoSeconds = float(elapsedTimeInMs)*1.0e6
+        else:
+            nanoSeconds = np.nan
         return config.tableEntry(nanoSeconds)
 
 def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OUTPUT_DATA_TYPES_MAP):
@@ -877,7 +887,7 @@ class RocBLASGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "rocBLAS"
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
         config = cls.fromCommandLine(commandLine, arch, numCU)
         if not paths.mlir_paths.rocblas_benchmark_driver_path:
             raise ValueError("rocblas-benchmark-driver not built")
@@ -887,20 +897,7 @@ class RocBLASGemmConfig(GemmConfiguration):
         print(f"Running rocBLAS benchmark {config!r}")
         profilerCommand = [paths.mlir_paths.rocblas_benchmark_driver_path] + \
             benchmarkArgs.split()
-        p = subprocess.Popen(profilerCommand, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # get output.
-        try:
-            outs, errs = p.communicate(timeout=60)
-            if len(errs) > 0:
-                print("Test printed errors: ", errs.decode('utf-8'))
-                print("Failing command line: ", profilerCommand)
-                if p.returncode != 0:
-                    raise OSError(errs.decode('utf-8'))
-        except subprocess.TimeoutExpired:
-            print("Test timed out: ", profilerCommand)
-            p.kill()
-            outs, errs = p.communicate()
+        outs,errs = runPipeline([profilerCommand])
         milliSeconds = getMilliseconds(outs)
         nanoSeconds = milliSeconds*1e6
         return config.tableEntry(nanoSeconds)
@@ -908,7 +905,7 @@ class RocBLASGemmConfig(GemmConfiguration):
 class CKGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "CK"
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, envs={}):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
         config = cls.fromCommandLine(commandLine, arch, numCU)
         if not paths.mlir_paths.ck_gemm_benchmark_driver_path:
             raise ValueError("ck-gemm-benchmark-driver not built")
@@ -921,20 +918,7 @@ class CKGemmConfig(GemmConfiguration):
 
         profilerCommand = [paths.mlir_paths.ck_gemm_benchmark_driver_path] + \
             benchmarkArgs.split()
-        p = subprocess.Popen(profilerCommand, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # get output.
-        try:
-            outs, errs = p.communicate(timeout=60)
-            if len(errs) > 0:
-                print("Test printed errors: ", errs.decode('utf-8'))
-                print("Failing command line: ", profilerCommand)
-                if p.returncode != 0:
-                    raise OSError(errs.decode('utf-8'))
-        except subprocess.TimeoutExpired:
-            print("Test timed out: ", profilerCommand)
-            p.kill()
-            outs, errs = p.communicate()
+        outs,errs = runPipeline([profilerCommand])
         milliSeconds = getMilliseconds(outs)
         nanoSeconds = milliSeconds*1e6
         return config.tableEntry(nanoSeconds)
@@ -950,26 +934,7 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF] +  getMetricArgsForRocprof(arch) + ['--stats', '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
 
-    # invoke rocmlir-gen.
-    p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    # pipe to rocmlir-driver
-    p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
-    # pipe to rocprof + mlir-cpu-runner.
-    p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    p2.stdout.close() # Allow p2 to receive a SIGPIPE if p3 exits.
-    # get output.
-    try:
-        _, errs = p3.communicate(timeout=60)
-        if len(errs) > 0:
-            print("Test printed errors: ", errs.decode('utf-8'))
-            print("Failing command line: ", rocmlirGenCommand)
-            if p1.returncode != 0:
-                raise OSError(errs.decode('utf-8'))
-    except subprocess.TimeoutExpired:
-        print("Test timed out: ", rocmlirGenCommand)
-        p3.kill()
-        _, errs = p3.communicate()
+    runPipeline([rocmlirGenCommand.split(), rocmlirDriverCommand, profilerCommand])
 
 # Benchmarking function.
 def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
@@ -1008,6 +973,8 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
                            suffixes=('', f" ({externalName})"))
     externalTFlopsCol = f"{externalName} TFlops (no MLIR Kernels)"
     df.rename(columns={'TFlops': 'MLIR TFlops', f"TFlops ({externalName})": externalTFlopsCol}, inplace=True)
+#     if tuned_df is None and quick_tuned_df is None:
+#         df.drop(columns=['PerfConfig'], inplace=True)
     if tuned_df is not None:
         # No need for suffixes, the conflicting columns have been renamed
         # Also note that we're ignoring PerfConfig with the -3
@@ -1127,52 +1094,29 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
 
     # rocmlir-gen -fut test -arch gfx90a --clone-harness
     rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', getChip(), '--clone-harness', filename]
-    p0 = subprocess.Popen(rocmlirgenCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    commands = [rocmlirgenCommand]
     if "-migraphx-to-tosa" in rocmlirCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
+        commands.append(rocmlirOptCommand)
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
-        # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
-        p1 = subprocess.Popen(rocmlirOptCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        p1.stdout.close()
+        commands.append(rocmlirDriverCommand)
     elif "migraphx" in rocmlirCommand:
         rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx']
+        commands.append(rocmlirMigraphxCommand)
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', getChip()]
-        # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
-        p1 = subprocess.Popen(rocmlirMigraphxCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        p1.stdout.close()
+        commands.append(rocmlirDriverCommand)
     else:
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
-        # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        commands.append(rocmlirDriverCommand)
 
     rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
+    commands.append(rocmlirGenCommand)
     kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline','full']
+    commands.append(kernelPipelineCommand)
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
-    # pipe to rocmlir-gen -ph --perf_config
-    p3 = subprocess.Popen(rocmlirGenCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    p2.stdout.close()
-    # pipe to rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full
-    p4 = subprocess.Popen(kernelPipelineCommand, stdin=p3.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    p3.stdout.close()
-    profiling = subprocess.Popen(profilerCommand, stdin=p4.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    p4.stdout.close()
-
-    # Get output.
-    try:
-        _, errs = profiling.communicate(timeout=60)
-        if len(errs) > 0:
-            print("Test printed errors: ", errs.decode('utf-8'))
-            print("Failing: ", filename)
-    except subprocess.TimeoutExpired:
-        print("Test timed out: ", filename)
-        profiling.kill()
-        _, errs = profiling.communicate()
-
+    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(getChip()) + ['--stats', '-o', BENCHMARKING_METRICS_FILE_NAME] + [paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    commands.append(profilerCommand)
+    runPipeline(commands)
 
 # Generate fusion vs. gemm/conv performance results
 def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb):
@@ -1185,6 +1129,16 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         testEntry = getFusionTestInfo(filename, paths)
         if testEntry:
             allTests.append(testEntry)
+
+    if tuningDb:
+        # Force all split-K factors to 1, to avoid trouble because fusion
+        # and split-K aren't compatible.  Crude parser approximating
+        # InitParamsAccel::visit().
+        for (arch,config),perfConfig in tuningDb.items():
+            splitPerf = perfConfig.split(',')
+            if perfConfig[0:3] == 'v2:' and int(splitPerf[6]) > 1:
+                splitPerf[6] = '1'
+                tuningDb[arch,config] = ','.join(splitPerf)
 
     # Profile each test case
     for test in allTests:
@@ -1212,15 +1166,16 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         # Find the best perf_config
         bestPerf =""
         if tuningDb:
-            if (arch, testVector) in tuningDb:
-                bestPerf = tuningDb[arch, testVector]
+            configStr = config.toCommandLine()
+            if (arch, configStr) in tuningDb:
+                bestPerf = tuningDb[arch, configStr]
                 config.setPerfConfig(bestPerf)
             else: # Tuning DB present but doesn't contain config, add a NaN entry
                 if not testVector in perfResults:
                     oneEntry = config.tableEntry(np.nan)
-                    oneEntry['FileName'] = filename
                     oneEntry['MLIR TFlops'] = np.nan
                     oneEntry['Fusion/MLIR'] = np.nan
+                    oneEntry['FileName'] = filename
                     perfResults[testVector] = oneEntry
                 continue
 
@@ -1295,9 +1250,8 @@ def getArch():
     p = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator", "-name"], check=True,
                        stdout=subprocess.PIPE)
     agents = set(x.decode("utf-8") for x in p.stdout.split())
-    if not agents:
-        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
-        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
+    if not agents or not all(agent.startswith("gfx") for agent in agents):
+        # "rocm_agent_enumerator -name" may time out or fail.
         q = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator"],
                               check=True, stdout=subprocess.PIPE)
         agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")

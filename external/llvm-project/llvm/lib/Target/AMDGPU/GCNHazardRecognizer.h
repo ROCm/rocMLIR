@@ -49,6 +49,7 @@ private:
   TargetSchedModel TSchedModel;
   bool RunLdsBranchVmemWARHazardFixup;
   BitVector VALUReadHazardSGPRs;
+  bool UseVALUReadHazardExhaustiveSearch;
 
   /// RegUnits of uses in the current soft memory clause.
   BitVector ClauseUses;
