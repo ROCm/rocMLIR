@@ -156,7 +156,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   // We want to delay blockwise lowering in the fusion cases
   // until after linalg align pass because with reduction fusion
   // it may introduce blockwise_reductions.
-  if(!options.enableFusion){
+  if (!options.enableFusion) {
     funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
   }
 

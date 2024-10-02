@@ -24,14 +24,14 @@
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Analysis/BufferDependencyAnalysis.h"
 
 namespace mlir {
 namespace rock {
@@ -48,21 +48,22 @@ using namespace mlir::rock;
 
 namespace {
 struct RockShuffleGemmForReductionsPass
-    : public rock::impl::RockShuffleGemmForReductionsBase<RockShuffleGemmForReductionsPass> {
+    : public rock::impl::RockShuffleGemmForReductionsBase<
+          RockShuffleGemmForReductionsPass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
 
-ArrayAttr reverse(ArrayAttr attrs){
+ArrayAttr reverse(ArrayAttr attrs) {
   SmallVector<Attribute> attrsReversed = llvm::to_vector(llvm::reverse(attrs));
   IRRewriter rewriter(attrs.getContext());
   return rewriter.getArrayAttr(attrsReversed);
 }
 
-ArrayAttr getAllViewsFromSource(OpOperand* operand){
+ArrayAttr getAllViewsFromSource(OpOperand *operand) {
   Value val = operand->get();
   SmallVector<Attribute> attrs;
-  while(TransformOp trOp = dyn_cast<TransformOp>(val.getDefiningOp())){
+  while (TransformOp trOp = dyn_cast<TransformOp>(val.getDefiningOp())) {
     attrs.push_back(trOp.getTransformAttr());
     val = trOp.getViewSource();
   }
@@ -71,39 +72,46 @@ ArrayAttr getAllViewsFromSource(OpOperand* operand){
   return reverse(arrAttrs);
 }
 
-FailureOr<std::tuple<ArrayAttr,Operation*>> obtainViewsFromReaderToWriter(memref::AllocOp buffer, const BufferDependencyAnalysis& deps, ArrayAttr currViews){
+FailureOr<std::tuple<ArrayAttr, Operation *>>
+obtainViewsFromReaderToWriter(memref::AllocOp buffer,
+                              const BufferDependencyAnalysis &deps,
+                              ArrayAttr currViews) {
   LLVM_DEBUG(llvm::dbgs() << "buffer = " << buffer << "\n");
   IRRewriter rewriter(buffer.getContext());
-  std::optional<llvm::SmallVector<OpOperand *>> writersOperands = deps.getWriters(buffer);
-  if(!writersOperands.has_value()) return failure();
-  for(OpOperand* writerOperand : writersOperands.value()){
+  std::optional<llvm::SmallVector<OpOperand *>> writersOperands =
+      deps.getWriters(buffer);
+  if (!writersOperands.has_value())
+    return failure();
+  for (OpOperand *writerOperand : writersOperands.value()) {
     ArrayAttr viewsFromAllocOp = getAllViewsFromSource(writerOperand);
     currViews = prependUpperViews(rewriter, currViews, viewsFromAllocOp);
-    if(isa<GridwiseGemmAccelOp,GridwiseGemmOp>(writerOperand->getOwner())){
+    if (isa<GridwiseGemmAccelOp, GridwiseGemmOp>(writerOperand->getOwner())) {
       return std::make_tuple(reverse(currViews), writerOperand->getOwner());
     }
-    LLVM_DEBUG(llvm::dbgs() << "write op = " << *writerOperand->getOwner() << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "write op = " << *writerOperand->getOwner() << "\n");
     auto writeOp = dyn_cast<MemoryEffectOpInterface>(writerOperand->getOwner());
-    if (!writeOp){
+    if (!writeOp) {
       LLVM_DEBUG(llvm::dbgs() << "\tit is not a memory effect interface op\n");
       continue;
     }
     SmallVector<MemoryEffects::EffectInstance> effects;
     writeOp.getEffects(effects);
-    for (const MemoryEffects::EffectInstance& effect : effects){
-      OpOperand *readOperand =
-          effect.getEffectValue<OpOperand *>();
-      LLVM_DEBUG(llvm::dbgs() << "readOperand = " << readOperand->get() << "\n");
+    for (const MemoryEffects::EffectInstance &effect : effects) {
+      OpOperand *readOperand = effect.getEffectValue<OpOperand *>();
+      LLVM_DEBUG(llvm::dbgs()
+                 << "readOperand = " << readOperand->get() << "\n");
       // Test against the write operand to guard against [MemRead, MemWrite]
-      if (readOperand &&
-          readOperand != writerOperand &&
+      if (readOperand && readOperand != writerOperand &&
           isa<MemoryEffects::Read>(effect.getEffect())) {
-          if(memref::AllocOp readBuffer = dyn_cast<memref::AllocOp>(readOperand->get().getDefiningOp())){
-            FailureOr<std::tuple<ArrayAttr,Operation*>> mayBeViewsAndGemmOp = obtainViewsFromReaderToWriter(readBuffer, deps, currViews);
-            if(succeeded(mayBeViewsAndGemmOp)){
-              return mayBeViewsAndGemmOp;
-            }
+        if (memref::AllocOp readBuffer =
+                dyn_cast<memref::AllocOp>(readOperand->get().getDefiningOp())) {
+          FailureOr<std::tuple<ArrayAttr, Operation *>> mayBeViewsAndGemmOp =
+              obtainViewsFromReaderToWriter(readBuffer, deps, currViews);
+          if (succeeded(mayBeViewsAndGemmOp)) {
+            return mayBeViewsAndGemmOp;
           }
+        }
       }
     }
   }
@@ -111,10 +119,12 @@ FailureOr<std::tuple<ArrayAttr,Operation*>> obtainViewsFromReaderToWriter(memref
   return failure();
 }
 
-FailureOr<std::tuple<ArrayAttr,Operation*>> obtainGemmToReduceViews(ReduceOp rOp, const BufferDependencyAnalysis& deps){
+FailureOr<std::tuple<ArrayAttr, Operation *>>
+obtainGemmToReduceViews(ReduceOp rOp, const BufferDependencyAnalysis &deps) {
   IRRewriter rewriter(rOp.getContext());
   memref::AllocOp rSrc = rOp.getIn().getDefiningOp<memref::AllocOp>();
-  if(!rSrc) return failure();
+  if (!rSrc)
+    return failure();
   ArrayAttr views = rewriter.getArrayAttr({});
   return obtainViewsFromReaderToWriter(rSrc, deps, views);
 }
@@ -124,28 +134,33 @@ struct MNPerBlock {
   int64_t NPerBlock;
 };
 
-static FailureOr<MNPerBlock> getMNPerBlock(Operation* gemmOp){
+static FailureOr<MNPerBlock> getMNPerBlock(Operation *gemmOp) {
   MNPerBlock ret;
-  if(auto xdlGemmOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)){
+  if (auto xdlGemmOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
     ret.MPerBlock = xdlGemmOp.getParams().getMPerBlock();
     ret.NPerBlock = xdlGemmOp.getParams().getNPerBlock();
-  }
-  else if (auto nonxdlGemmOp = dyn_cast<GridwiseGemmOp>(gemmOp)){
+  } else if (auto nonxdlGemmOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
     ret.MPerBlock = nonxdlGemmOp.getParams().getMPerBlock();
     ret.NPerBlock = nonxdlGemmOp.getParams().getNPerBlock();
-  }
-  else{
+  } else {
     return failure();
   }
   return ret;
 }
 
-ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<SubDimInfo> reductionSubDims, StringRef dName, int64_t dLen, int64_t dPerBlock){
-  SmallVector<SubDimInfo> reductionSubDimsVec = llvm::to_vector(reductionSubDims);
-  llvm::sort(reductionSubDimsVec, [](const SubDimInfo& L, const SubDimInfo& R){return L.stride > R.stride;});
+ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
+                               ArrayRef<SubDimInfo> reductionSubDims,
+                               StringRef dName, int64_t dLen,
+                               int64_t dPerBlock) {
+  SmallVector<SubDimInfo> reductionSubDimsVec =
+      llvm::to_vector(reductionSubDims);
+  llvm::sort(reductionSubDimsVec, [](const SubDimInfo &L, const SubDimInfo &R) {
+    return L.stride > R.stride;
+  });
   llvm::SmallDenseMap<int64_t, int64_t> reductionDims;
   {
-    toReductionSplit.passThrough(ArrayRef<unsigned>{0, 1}, ArrayRef<unsigned>{0, 1});
+    toReductionSplit.passThrough(ArrayRef<unsigned>{0, 1},
+                                 ArrayRef<unsigned>{0, 1});
     SmallVector<int64_t> splitSizes;
     SmallVector<SmallString<8>> splitNames;
     SmallVector<StringRef> splitNamesRefs;
@@ -153,14 +168,16 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
     int64_t dimInsertionPoint = 2;
     int64_t currSize = dLen;
     LLVM_DEBUG(llvm::dbgs() << "dLen = " << dLen << "\n");
-    for (auto [idx, sdInfo] : enumerate(reductionSubDimsVec)){
+    for (auto [idx, sdInfo] : enumerate(reductionSubDimsVec)) {
       {
         SmallString<8> dimName(Twine("d_nr" + Twine(idx)).str());
         splitNames.push_back(dimName);
       }
       splitNamesRefs.push_back(splitNames.back());
       splitDims.push_back(dimInsertionPoint++);
-      LLVM_DEBUG(llvm::dbgs() << "\tsplitSize = " << currSize / (sdInfo.size * sdInfo.stride) << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tsplitSize = " << currSize / (sdInfo.size * sdInfo.stride)
+                 << "\n");
       splitSizes.push_back(currSize / (sdInfo.size * sdInfo.stride));
       {
         SmallString<8> dimName(Twine("d_r" + Twine(idx)).str());
@@ -173,7 +190,7 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
       splitSizes.push_back(sdInfo.size);
       currSize = sdInfo.stride;
     }
-    if(currSize > 1){
+    if (currSize > 1) {
       {
         SmallString<8> dimName(Twine("d_nr_end").str());
         splitNames.push_back(dimName);
@@ -187,19 +204,20 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
   }
   TransformMapAttr reduceSplit = toReductionSplit.get();
   LLVM_DEBUG(llvm::dbgs() << "reduceSplit = " << reduceSplit << "\n");
-  auto toCommonReductionDim = BottomUpTMBuilder::above(toReductionSplit, reduceSplit);
+  auto toCommonReductionDim =
+      BottomUpTMBuilder::above(toReductionSplit, reduceSplit);
   {
-    toCommonReductionDim.passThrough(ArrayRef<unsigned>{0, 1}, ArrayRef<unsigned>{0, 1});
+    toCommonReductionDim.passThrough(ArrayRef<unsigned>{0, 1},
+                                     ArrayRef<unsigned>{0, 1});
     SmallVector<StringRef, 4> startNames;
     toCommonReductionDim.getStartNames(startNames);
     SmallVector<StringRef, 4> reduceDimNames;
     SmallVector<StringRef, 4> nonReduceDimNames;
     unsigned dimInsertionPoint = 2;
-    for(unsigned dim = 2; dim < reduceSplit.getUpperBounds().size(); dim++){
-      if(!reductionDims.contains(dim)){
+    for (unsigned dim = 2; dim < reduceSplit.getUpperBounds().size(); dim++) {
+      if (!reductionDims.contains(dim)) {
         nonReduceDimNames.push_back(startNames[dim]);
-      }
-      else {
+      } else {
         reduceDimNames.push_back(startNames[dim]);
       }
     }
@@ -208,66 +226,91 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder& toReductionSplit, ArrayRef<Sub
   }
   TransformMapAttr commonReduction = toCommonReductionDim.get();
   LLVM_DEBUG(llvm::dbgs() << "commonReduction = " << commonReduction << "\n");
-  auto toResplitReduction = BottomUpTMBuilder::above(toCommonReductionDim, commonReduction);
+  auto toResplitReduction =
+      BottomUpTMBuilder::above(toCommonReductionDim, commonReduction);
   {
     unsigned upperDimCount = commonReduction.getUpperBounds().size();
-    int64_t commonReduceSize = commonReduction.getUpperBounds().asArrayRef().back();
+    int64_t commonReduceSize =
+        commonReduction.getUpperBounds().asArrayRef().back();
     int64_t commonFactor = math_util::gcd(commonReduceSize, dPerBlock);
-    toResplitReduction.passThrough(ArrayRef<unsigned>{0, 1, 3}, ArrayRef<unsigned>{0, 1, 2});
-    toResplitReduction.unmerge({"d_rh", "d_rl"}, {2, upperDimCount}, "d_r", {commonReduceSize / commonFactor, commonFactor});
+    toResplitReduction.passThrough(ArrayRef<unsigned>{0, 1, 3},
+                                   ArrayRef<unsigned>{0, 1, 2});
+    toResplitReduction.unmerge({"d_rh", "d_rl"}, {2, upperDimCount}, "d_r",
+                               {commonReduceSize / commonFactor, commonFactor});
   }
   TransformMapAttr resplitReduction = toResplitReduction.get();
-  LLVM_DEBUG(llvm::dbgs() << "resplitReductionAttr = " << resplitReduction << "\n");
-  auto toRecombined = BottomUpTMBuilder::above(toResplitReduction, resplitReduction);
+  LLVM_DEBUG(llvm::dbgs() << "resplitReductionAttr = " << resplitReduction
+                          << "\n");
+  auto toRecombined =
+      BottomUpTMBuilder::above(toResplitReduction, resplitReduction);
   {
-    toRecombined.passThrough(ArrayRef<unsigned>{0, 1}, ArrayRef<unsigned>{0, 1});
+    toRecombined.passThrough(ArrayRef<unsigned>{0, 1},
+                             ArrayRef<unsigned>{0, 1});
     toRecombined.merge("d", 2, {"d_rh", "d_nr", "d_rl"});
   }
   TransformMapAttr recombined = toRecombined.get();
   LLVM_DEBUG(llvm::dbgs() << "recombined = " << recombined << "\n");
   OpBuilder builder(recombined.getContext());
-  return builder.getArrayAttr({reduceSplit, commonReduction, resplitReduction, recombined});
+  return builder.getArrayAttr(
+      {reduceSplit, commonReduction, resplitReduction, recombined});
 }
 
-std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(OpBuilder& builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k, int64_t n, int64_t nPerBlock, llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims){
+std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(
+    OpBuilder &builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k,
+    int64_t n, int64_t nPerBlock,
+    llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims) {
   BottomUpTMBuilder toReductionSplitA(builder, {"G", "K", "M"}, {g, k, m});
   ArrayAttr additionalViewsA = builder.getArrayAttr({});
-  if(!reductionSubDims[1].empty()){
-    additionalViewsA = reorderReductionDims(toReductionSplitA, reductionSubDims[1], "M", m, mPerBlock);
+  if (!reductionSubDims[1].empty()) {
+    additionalViewsA = reorderReductionDims(
+        toReductionSplitA, reductionSubDims[1], "M", m, mPerBlock);
   }
   BottomUpTMBuilder toReductionSplitB(builder, {"G", "K", "N"}, {g, k, n});
   ArrayAttr additionalViewsB = builder.getArrayAttr({});
-  if(!reductionSubDims[2].empty()){
-    additionalViewsB = reorderReductionDims(toReductionSplitB, reductionSubDims[2], "N", n, nPerBlock);
+  if (!reductionSubDims[2].empty()) {
+    additionalViewsB = reorderReductionDims(
+        toReductionSplitB, reductionSubDims[2], "N", n, nPerBlock);
   }
   return {additionalViewsA, additionalViewsB};
 }
 
-ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t n, int64_t nPerBlock, llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims){
-  //Split the reduction and non-reduction splits
+ArrayAttr generateShuffledGemmOutputViews(
+    OpBuilder &builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t n,
+    int64_t nPerBlock,
+    llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims) {
+  // Split the reduction and non-reduction splits
   int64_t totalReductionSizeM = 1;
-  for(const SubDimInfo& sdInfo : reductionSubDims[1]){
+  for (const SubDimInfo &sdInfo : reductionSubDims[1]) {
     totalReductionSizeM *= sdInfo.size;
   }
   int64_t totalReductionSizeN = 1;
-  for(const SubDimInfo& sdInfo : reductionSubDims[2]){
+  for (const SubDimInfo &sdInfo : reductionSubDims[2]) {
     totalReductionSizeN *= sdInfo.size;
   }
-  int64_t commonMPerBlockReductionFactor = math_util::gcd(totalReductionSizeM, mPerBlock);
-  int64_t commonNPerBlockReductionFactor = math_util::gcd(totalReductionSizeN, nPerBlock);
-  
-  //Split the reduction and non-reduction splits
+  int64_t commonMPerBlockReductionFactor =
+      math_util::gcd(totalReductionSizeM, mPerBlock);
+  int64_t commonNPerBlockReductionFactor =
+      math_util::gcd(totalReductionSizeN, nPerBlock);
+
+  // Split the reduction and non-reduction splits
   BottomUpTMBuilder toReductionSplit(builder, {"G", "M", "N"}, {g, m, n});
   {
     toReductionSplit.passThrough("G");
-    toReductionSplit.unmerge({"m_rh", "m_nr", "m_rl"}, {1, 2, 3}, "M", {totalReductionSizeM/commonMPerBlockReductionFactor, m / totalReductionSizeM, commonMPerBlockReductionFactor});
-    toReductionSplit.unmerge({"n_rh", "n_nr", "n_rl"}, {4, 5, 6}, "N", {totalReductionSizeN/commonNPerBlockReductionFactor, n / totalReductionSizeN, commonNPerBlockReductionFactor});
+    toReductionSplit.unmerge(
+        {"m_rh", "m_nr", "m_rl"}, {1, 2, 3}, "M",
+        {totalReductionSizeM / commonMPerBlockReductionFactor,
+         m / totalReductionSizeM, commonMPerBlockReductionFactor});
+    toReductionSplit.unmerge(
+        {"n_rh", "n_nr", "n_rl"}, {4, 5, 6}, "N",
+        {totalReductionSizeN / commonNPerBlockReductionFactor,
+         n / totalReductionSizeN, commonNPerBlockReductionFactor});
   }
   TransformMapAttr reductionSplit = toReductionSplit.get();
   LLVM_DEBUG(llvm::dbgs() << "reductionSplit = " << reductionSplit << "\n");
 
-  //combine reduction dimension
-  auto toCombinedReductionDim = BottomUpTMBuilder::above(toReductionSplit, reductionSplit);
+  // combine reduction dimension
+  auto toCombinedReductionDim =
+      BottomUpTMBuilder::above(toReductionSplit, reductionSplit);
   {
     toCombinedReductionDim.passThrough("G");
     toCombinedReductionDim.passThrough({1}, {2});
@@ -276,10 +319,12 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
     toCombinedReductionDim.merge("n_r", 4, {"n_rh", "n_rl"});
   }
   TransformMapAttr combinedReduction = toCombinedReductionDim.get();
-  LLVM_DEBUG(llvm::dbgs() << "combinedReduction = " << combinedReduction << "\n");
-  
-  //Split to original sub dimensions
-  auto toSplitOriginalSubDims = BottomUpTMBuilder::above(toCombinedReductionDim, combinedReduction);
+  LLVM_DEBUG(llvm::dbgs() << "combinedReduction = " << combinedReduction
+                          << "\n");
+
+  // Split to original sub dimensions
+  auto toSplitOriginalSubDims =
+      BottomUpTMBuilder::above(toCombinedReductionDim, combinedReduction);
   int64_t nSubDimStartPoint = -1;
   {
     toSplitOriginalSubDims.passThrough("G");
@@ -298,8 +343,9 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
       SmallVector<SmallString<8>> mNonReductionSubDimNames;
       SmallVector<StringRef> mNonReductionSubDimNameRefs;
       int64_t currSize = m;
-      for(const auto& [idx,sdInfo] : enumerate(mReductionSubDimInfo)){
-        mNonReductionSubDimSizes.push_back(currSize / (sdInfo.size * sdInfo.stride));
+      for (const auto &[idx, sdInfo] : enumerate(mReductionSubDimInfo)) {
+        mNonReductionSubDimSizes.push_back(currSize /
+                                           (sdInfo.size * sdInfo.stride));
         {
           SmallString<8> dimName(Twine("m_nr" + Twine(idx)).str());
           mNonReductionSubDimNames.push_back(dimName);
@@ -317,7 +363,7 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
 
         currSize = sdInfo.stride;
       }
-      if(currSize > 1 || mNonReductionSubDimSizes.empty()){
+      if (currSize > 1 || mNonReductionSubDimSizes.empty()) {
         mNonReductionSubDimSizes.push_back(currSize);
         {
           SmallString<8> dimName("m_nr_last");
@@ -326,12 +372,16 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
         mNonReductionSubDimNameRefs.push_back(mNonReductionSubDimNames.back());
         mNonReductionSubDims.push_back(dimInsertionPoint++);
       }
-      toSplitOriginalSubDims.unmerge(mNonReductionSubDimNameRefs, mNonReductionSubDims, "m_nr", mNonReductionSubDimSizes);
-      if(!mReductionSubDimSizes.empty()){
-        toSplitOriginalSubDims.unmerge(mReductionSubDimNameRefs, mReductionSubDims, "m_r", mReductionSubDimSizes);
-      }
-      else{
-        toSplitOriginalSubDims.passThrough({"m_r"}, {dimInsertionPoint++}, {"m_r"});
+      toSplitOriginalSubDims.unmerge(mNonReductionSubDimNameRefs,
+                                     mNonReductionSubDims, "m_nr",
+                                     mNonReductionSubDimSizes);
+      if (!mReductionSubDimSizes.empty()) {
+        toSplitOriginalSubDims.unmerge(mReductionSubDimNameRefs,
+                                       mReductionSubDims, "m_r",
+                                       mReductionSubDimSizes);
+      } else {
+        toSplitOriginalSubDims.passThrough({"m_r"}, {dimInsertionPoint++},
+                                           {"m_r"});
       }
     }
     nSubDimStartPoint = dimInsertionPoint;
@@ -347,8 +397,9 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
       SmallVector<SmallString<8>> nNonReductionSubDimNames;
       SmallVector<StringRef> nNonReductionSubDimNameRefs;
       int64_t currSize = n;
-      for(const auto& [idx,sdInfo] : enumerate(nReductionSubDimInfo)){
-        nNonReductionSubDimSizes.push_back(currSize / (sdInfo.size * sdInfo.stride));
+      for (const auto &[idx, sdInfo] : enumerate(nReductionSubDimInfo)) {
+        nNonReductionSubDimSizes.push_back(currSize /
+                                           (sdInfo.size * sdInfo.stride));
         {
           SmallString<8> dimName(Twine("n_nr" + Twine(idx)).str());
           nNonReductionSubDimNames.push_back(dimName);
@@ -366,7 +417,7 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
 
         currSize = sdInfo.stride;
       }
-      if(currSize > 1 || nNonReductionSubDimSizes.empty()){
+      if (currSize > 1 || nNonReductionSubDimSizes.empty()) {
         nNonReductionSubDimSizes.push_back(currSize);
         {
           SmallString<8> dimName("n_nr_last");
@@ -375,38 +426,44 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
         nNonReductionSubDimNameRefs.push_back(nNonReductionSubDimNames.back());
         nNonReductionSubDims.push_back(dimInsertionPoint++);
       }
-      toSplitOriginalSubDims.unmerge(nNonReductionSubDimNameRefs, nNonReductionSubDims, "n_nr", nNonReductionSubDimSizes);
-      if(!nReductionSubDimSizes.empty()){
-        toSplitOriginalSubDims.unmerge(nReductionSubDimNameRefs, nReductionSubDims, "n_r", nReductionSubDimSizes);
-      }
-      else{
-        toSplitOriginalSubDims.passThrough({"n_r"}, {dimInsertionPoint++}, {"n_r"});
+      toSplitOriginalSubDims.unmerge(nNonReductionSubDimNameRefs,
+                                     nNonReductionSubDims, "n_nr",
+                                     nNonReductionSubDimSizes);
+      if (!nReductionSubDimSizes.empty()) {
+        toSplitOriginalSubDims.unmerge(nReductionSubDimNameRefs,
+                                       nReductionSubDims, "n_r",
+                                       nReductionSubDimSizes);
+      } else {
+        toSplitOriginalSubDims.passThrough({"n_r"}, {dimInsertionPoint++},
+                                           {"n_r"});
       }
     }
   }
   TransformMapAttr splitOriginalSubDims = toSplitOriginalSubDims.get();
-  LLVM_DEBUG(llvm::dbgs() << "splitOriginalSubDims = " << splitOriginalSubDims << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "splitOriginalSubDims = " << splitOriginalSubDims
+                          << "\n");
 
   // Recombine into original M & N
-  auto toRecombineMN = BottomUpTMBuilder::above(toSplitOriginalSubDims, splitOriginalSubDims);
+  auto toRecombineMN =
+      BottomUpTMBuilder::above(toSplitOriginalSubDims, splitOriginalSubDims);
   {
     toRecombineMN.passThrough("G");
     SmallVector<StringRef, 4> startNames;
     toRecombineMN.getStartNames(startNames);
 
-    //M
+    // M
     {
       SmallVector<StringRef, 4> mSubDimNames;
-      for(int dim = 1; dim < nSubDimStartPoint; dim++){
+      for (int dim = 1; dim < nSubDimStartPoint; dim++) {
         mSubDimNames.push_back(startNames[dim]);
       }
       toRecombineMN.merge("M", 1, mSubDimNames);
     }
 
-    //N
+    // N
     {
       SmallVector<StringRef, 4> nSubDimNames;
-      for(unsigned dim = nSubDimStartPoint; dim < startNames.size(); dim++){
+      for (unsigned dim = nSubDimStartPoint; dim < startNames.size(); dim++) {
         nSubDimNames.push_back(startNames[dim]);
       }
       toRecombineMN.merge("N", 2, nSubDimNames);
@@ -415,94 +472,113 @@ ArrayAttr generateShuffledGemmOutputViews(OpBuilder& builder, int64_t g, int64_t
   TransformMapAttr recombineMN = toRecombineMN.get();
   LLVM_DEBUG(llvm::dbgs() << "recombineMN = " << recombineMN << "\n");
 
-  return builder.getArrayAttr({reductionSplit, combinedReduction, splitOriginalSubDims, recombineMN});
+  return builder.getArrayAttr(
+      {reductionSplit, combinedReduction, splitOriginalSubDims, recombineMN});
 }
 
-// This function will attempt to shuffle M & N dimensions of the gemm so that reductions
-// sub-dimensions within it could be split to blocks equally. However, for that to work
-// the transform stack needs to be invertible and sub-dimension should be discoverable using
-// "getLowerSubDimensions". If one of those fail, we bail and not attempt to use blockwise_reductions
-// in such fusions.
-static void rearrangeGemmParallelDimsForReduction(ReduceOp rOp, const BufferDependencyAnalysis& deps){
-  FailureOr<std::tuple<ArrayAttr,Operation*>> res = obtainGemmToReduceViews(rOp, deps);
-    if(succeeded(res)){
-      auto[views, gemmOp] = res.value();
-      FailureOr<MNPerBlock> mnPerBlock = getMNPerBlock(gemmOp);
-      if(failed(mnPerBlock)){
-        return;
-      }
-      IRRewriter rewriter(rOp.getContext());
-      ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
-      if(!invertedViews || invertedViews.empty()){
-        return;
-      }
-      FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>> subDimensions = getLowerSubDimensions(rewriter, invertedViews, 2);
-      if(failed(subDimensions) || subDimensions.value().empty()){
-        return;
-      }
-      for(auto [dim, subDimInfos] : subDimensions.value()){
-        LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << ":");
-        LLVM_DEBUG(llvm::interleaveComma(subDimInfos, llvm::dbgs()));
-        LLVM_DEBUG(llvm::dbgs() << "\n");
-      }
-
-      TypedValue<MemRefType> gemmInA;
-      TypedValue<MemRefType> gemmInB;
-      TypedValue<MemRefType> gemmOut;
-      if(GridwiseGemmAccelOp gemmAccelOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)){
-        gemmInA = gemmAccelOp.getA();
-        gemmInB = gemmAccelOp.getB();
-        gemmOut = gemmAccelOp.getC();
-      }
-      int64_t g = gemmInA.getType().getShape()[0];
-      int64_t k = gemmInA.getType().getShape()[1];
-      int64_t m = gemmInA.getType().getShape()[2];
-      int64_t n = gemmInB.getType().getShape()[2];
-      auto[additionalViewsA, additionalViewsB] = generateShuffledGemmInputViews(rewriter, g, m, mnPerBlock.value().MPerBlock, k, n, mnPerBlock.value().NPerBlock, subDimensions.value());
-      Value trGemmInA = gemmInA;
-      rewriter.setInsertionPointAfterValue(gemmInA);
-      for (Attribute trMap : additionalViewsA) {
-        trGemmInA = rewriter.create<TransformOp>(rOp.getLoc(), trGemmInA, cast<TransformMapAttr>(trMap));
-      }
-      Value trGemmInB = gemmInB;
-      rewriter.setInsertionPointAfterValue(gemmInB);
-      for (Attribute trMap : additionalViewsB) {
-        trGemmInB = rewriter.create<TransformOp>(rOp.getLoc(), trGemmInB, cast<TransformMapAttr>(trMap));
-      }
-      if(GridwiseGemmAccelOp gemmAccelOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)){
-        gemmAccelOp.getAMutable().assign(trGemmInA);
-        gemmAccelOp.getBMutable().assign(trGemmInB);
-      }
-      ArrayAttr additionalOutputViews = generateShuffledGemmOutputViews(rewriter, g, m, mnPerBlock.value().MPerBlock, n, mnPerBlock.value().NPerBlock, subDimensions.value());
-      rewriter.setInsertionPointAfterValue(gemmOut);
-      Value trGemmOut = gemmOut;
-      Value firstUse = nullptr;
-      ArrayAttr invertedOutViews = invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
-      for (Attribute trMap : invertedOutViews) {
-        trGemmOut = rewriter.create<TransformOp>(rOp.getLoc(), trGemmOut, cast<TransformMapAttr>(trMap));
-        if (!firstUse) firstUse = trGemmOut;
-      }
-      rewriter.replaceAllUsesExcept({gemmOut}, {trGemmOut}, firstUse.getDefiningOp());
+// This function will attempt to shuffle M & N dimensions of the gemm so that
+// reductions sub-dimensions within it could be split to blocks equally.
+// However, for that to work the transform stack needs to be invertible and
+// sub-dimension should be discoverable using "getLowerSubDimensions". If one of
+// those fail, we bail and not attempt to use blockwise_reductions in such
+// fusions.
+static void
+rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
+                                      const BufferDependencyAnalysis &deps) {
+  FailureOr<std::tuple<ArrayAttr, Operation *>> res =
+      obtainGemmToReduceViews(rOp, deps);
+  if (succeeded(res)) {
+    auto [views, gemmOp] = res.value();
+    FailureOr<MNPerBlock> mnPerBlock = getMNPerBlock(gemmOp);
+    if (failed(mnPerBlock)) {
+      return;
     }
+    IRRewriter rewriter(rOp.getContext());
+    ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
+    if (!invertedViews || invertedViews.empty()) {
+      return;
+    }
+    FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>>
+        subDimensions = getLowerSubDimensions(rewriter, invertedViews, 2);
+    if (failed(subDimensions) || subDimensions.value().empty()) {
+      return;
+    }
+    for (auto [dim, subDimInfos] : subDimensions.value()) {
+      LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << ":");
+      LLVM_DEBUG(llvm::interleaveComma(subDimInfos, llvm::dbgs()));
+      LLVM_DEBUG(llvm::dbgs() << "\n");
+    }
+
+    TypedValue<MemRefType> gemmInA;
+    TypedValue<MemRefType> gemmInB;
+    TypedValue<MemRefType> gemmOut;
+    if (GridwiseGemmAccelOp gemmAccelOp =
+            dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
+      gemmInA = gemmAccelOp.getA();
+      gemmInB = gemmAccelOp.getB();
+      gemmOut = gemmAccelOp.getC();
+    }
+    int64_t g = gemmInA.getType().getShape()[0];
+    int64_t k = gemmInA.getType().getShape()[1];
+    int64_t m = gemmInA.getType().getShape()[2];
+    int64_t n = gemmInB.getType().getShape()[2];
+    auto [additionalViewsA, additionalViewsB] = generateShuffledGemmInputViews(
+        rewriter, g, m, mnPerBlock.value().MPerBlock, k, n,
+        mnPerBlock.value().NPerBlock, subDimensions.value());
+    Value trGemmInA = gemmInA;
+    rewriter.setInsertionPointAfterValue(gemmInA);
+    for (Attribute trMap : additionalViewsA) {
+      trGemmInA = rewriter.create<TransformOp>(rOp.getLoc(), trGemmInA,
+                                               cast<TransformMapAttr>(trMap));
+    }
+    Value trGemmInB = gemmInB;
+    rewriter.setInsertionPointAfterValue(gemmInB);
+    for (Attribute trMap : additionalViewsB) {
+      trGemmInB = rewriter.create<TransformOp>(rOp.getLoc(), trGemmInB,
+                                               cast<TransformMapAttr>(trMap));
+    }
+    if (GridwiseGemmAccelOp gemmAccelOp =
+            dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
+      gemmAccelOp.getAMutable().assign(trGemmInA);
+      gemmAccelOp.getBMutable().assign(trGemmInB);
+    }
+    ArrayAttr additionalOutputViews = generateShuffledGemmOutputViews(
+        rewriter, g, m, mnPerBlock.value().MPerBlock, n,
+        mnPerBlock.value().NPerBlock, subDimensions.value());
+    rewriter.setInsertionPointAfterValue(gemmOut);
+    Value trGemmOut = gemmOut;
+    Value firstUse = nullptr;
+    ArrayAttr invertedOutViews =
+        invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
+    for (Attribute trMap : invertedOutViews) {
+      trGemmOut = rewriter.create<TransformOp>(rOp.getLoc(), trGemmOut,
+                                               cast<TransformMapAttr>(trMap));
+      if (!firstUse)
+        firstUse = trGemmOut;
+    }
+    rewriter.replaceAllUsesExcept({gemmOut}, {trGemmOut},
+                                  firstUse.getDefiningOp());
+  }
 }
 
 void RockShuffleGemmForReductionsPass::runOnOperation() {
   func::FuncOp func = getOperation();
   // Only run this pass on GPU kernel functions.
-  if (!func->hasAttr("kernel")){
+  if (!func->hasAttr("kernel")) {
     return;
   }
   ReduceOp largestReductionOp;
   int64_t currReductionDimSize = 0;
   func.walk([&](ReduceOp rOp) -> WalkResult {
     TypedValue<ShapedType> rIn = rOp.getIn();
-    int64_t reduceDimSize = rIn.getType().getShape()[rOp.getAxis().getZExtValue()];
-    if(reduceDimSize > currReductionDimSize){
+    int64_t reduceDimSize =
+        rIn.getType().getShape()[rOp.getAxis().getZExtValue()];
+    if (reduceDimSize > currReductionDimSize) {
       largestReductionOp = rOp;
     }
     return WalkResult::advance();
   });
-  if(largestReductionOp){
+  if (largestReductionOp) {
     auto &bufferDeps = getAnalysis<BufferDependencyAnalysis>();
     rearrangeGemmParallelDimsForReduction(largestReductionOp, bufferDeps);
   }
