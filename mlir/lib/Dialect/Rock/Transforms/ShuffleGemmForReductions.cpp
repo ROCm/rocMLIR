@@ -518,9 +518,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmInA = gemmAccelOp.getA();
       gemmInB = gemmAccelOp.getB();
       gemmOut = gemmAccelOp.getC();
-    }
-    else if(GridwiseGemmOp gemmNonAccelOp =
-            dyn_cast<GridwiseGemmOp>(gemmOp)){
+    } else if (GridwiseGemmOp gemmNonAccelOp =
+                   dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmInA = gemmNonAccelOp.getA();
       gemmInB = gemmNonAccelOp.getB();
       gemmOut = gemmNonAccelOp.getC();
@@ -563,9 +562,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmAccelOp.getAMutable().assign(trGemmInA);
       gemmAccelOp.getBMutable().assign(trGemmInB);
       gemmAccelOp.getCMutable().assign(trGemmOut);
-    }
-    else if(GridwiseGemmOp gemmNonAccelOp =
-            dyn_cast<GridwiseGemmOp>(gemmOp)) {
+    } else if (GridwiseGemmOp gemmNonAccelOp =
+                   dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmNonAccelOp.getAMutable().assign(trGemmInA);
       gemmNonAccelOp.getBMutable().assign(trGemmInB);
       gemmNonAccelOp.getCMutable().assign(trGemmOut);

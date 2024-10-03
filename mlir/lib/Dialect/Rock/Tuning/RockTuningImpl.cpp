@@ -198,13 +198,13 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
 // in reduction fusion cases. This is done because currently reduction fusions
 // will not generate blockwise reductions if there is padding on M or N. Thus,
 // such configs can be 2 orders of magnitude slower.
-bool canSkipConfigForReductionFusion(RockGemmWrapperInterface gemmOp, int64_t mPerBlock, int64_t nPerBlock){
+bool canSkipConfigForReductionFusion(RockGemmWrapperInterface gemmOp,
+                                     int64_t mPerBlock, int64_t nPerBlock) {
   func::FuncOp func = gemmOp->getParentOfType<func::FuncOp>();
-  WalkResult wRes = func.walk([&](ReduceOp rOp) -> WalkResult {
-    return WalkResult::interrupt();
-  });
+  WalkResult wRes = func.walk(
+      [&](ReduceOp rOp) -> WalkResult { return WalkResult::interrupt(); });
   // No reduction found.
-  if(!wRes.wasInterrupted()){
+  if (!wRes.wasInterrupted()) {
     return false;
   }
   GemmSize gemmSize = gemmOp.getGemmSize();
@@ -212,18 +212,18 @@ bool canSkipConfigForReductionFusion(RockGemmWrapperInterface gemmOp, int64_t mP
   // that could be performant. If the gemm sizes
   // are not divisible by that, then we definitely
   // need padding.
-  if(gemmSize.m % 16 != 0){
+  if (gemmSize.m % 16 != 0) {
     return false;
   }
-  if(gemmSize.n % 16 != 0){
+  if (gemmSize.n % 16 != 0) {
     return false;
   }
   // We can skip knowing that dPerBlock=16
   // is there on the tuning space.
-  if(gemmSize.m % mPerBlock != 0){
+  if (gemmSize.m % mPerBlock != 0) {
     return true;
   }
-  if(gemmSize.n % nPerBlock != 0){
+  if (gemmSize.n % nPerBlock != 0) {
     return true;
   }
   return false;
@@ -299,13 +299,16 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                gemmKPerBlock, gemmMPerWave,
                                                gemmMnPerXdl, gemmKPack,
                                                splitKFactor, forceUnroll, true);
-                    bool nonExhaustiveSkipCondition = canSkipConfigForReductionFusion(gemmOp, gemmMPerBlock, gemmNPerBlock) || failed(
-                               tuningInfo.couldBePerformant(info, gemmParams));
+                    bool nonExhaustiveSkipCondition =
+                        canSkipConfigForReductionFusion(gemmOp, gemmMPerBlock,
+                                                        gemmNPerBlock) ||
+                        failed(tuningInfo.couldBePerformant(info, gemmParams));
                     if (gemmMPerBlock >= gemmMPerWave &&
                         gemmNPerBlock >= gemmMnPerXdl) {
                       if (succeeded(tuningInfo.paramsProbablyValid(
                               b, info, gemmParams)) &&
-                          (kind == TuningParamSetKind::Exhaustive || !nonExhaustiveSkipCondition))
+                          (kind == TuningParamSetKind::Exhaustive ||
+                           !nonExhaustiveSkipCondition))
                         newSpace->tuningRange.push_back(
                             cast<RockTuningParamAttrInterface>(
                                 tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -338,11 +341,14 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                gemmKPerBlock, gemmMPerWave,
                                                gemmNPerWave, gemmKPack,
                                                splitKFactor, forceUnroll, true);
-                    bool nonExhaustiveSkipCondition = canSkipConfigForReductionFusion(gemmOp, gemmMPerBlock, gemmNPerBlock) || failed(
-                               tuningInfo.couldBePerformant(info, gemmParams));
+                    bool nonExhaustiveSkipCondition =
+                        canSkipConfigForReductionFusion(gemmOp, gemmMPerBlock,
+                                                        gemmNPerBlock) ||
+                        failed(tuningInfo.couldBePerformant(info, gemmParams));
                     if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                  gemmParams)) &&
-                        (kind == TuningParamSetKind::Exhaustive || !nonExhaustiveSkipCondition))
+                        (kind == TuningParamSetKind::Exhaustive ||
+                         !nonExhaustiveSkipCondition))
                       newSpace->tuningRange.push_back(
                           cast<RockTuningParamAttrInterface>(
                               tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -369,11 +375,14 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   InitParamsNonAccel gemmParams(
                       blockSize, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                       gemmMPerThread, gemmNPerThread, splitKFactor);
-                  bool nonExhaustiveSkipCondition = canSkipConfigForReductionFusion(gemmOp, gemmMPerBlock, gemmNPerBlock) || failed(
-                               tuningInfo.couldBePerformant(info, gemmParams));
+                  bool nonExhaustiveSkipCondition =
+                      canSkipConfigForReductionFusion(gemmOp, gemmMPerBlock,
+                                                      gemmNPerBlock) ||
+                      failed(tuningInfo.couldBePerformant(info, gemmParams));
                   if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                gemmParams)) &&
-                      (kind == TuningParamSetKind::Exhaustive || !nonExhaustiveSkipCondition))
+                      (kind == TuningParamSetKind::Exhaustive ||
+                       !nonExhaustiveSkipCondition))
                     newSpace->tuningRange.push_back(
                         cast<RockTuningParamAttrInterface>(
                             tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -399,8 +408,10 @@ void createQuickTuningRange(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
-      bool skipCondition = canSkipConfigForReductionFusion(gemmOp, param.gemmMPerBlock, param.gemmNPerBlock) || failed(
-                               tuningInfo.couldBePerformant(info, param));
+      bool skipCondition =
+          canSkipConfigForReductionFusion(gemmOp, param.gemmMPerBlock,
+                                          param.gemmNPerBlock) ||
+          failed(tuningInfo.couldBePerformant(info, param));
       if (!skipCondition)
         newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
             tuningInfo.getGemmParamsAttr(b, param)));
@@ -412,8 +423,10 @@ void createQuickTuningRange(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
-      bool skipCondition = canSkipConfigForReductionFusion(gemmOp, param.gemmMPerBlock, param.gemmNPerBlock) || failed(
-                               tuningInfo.couldBePerformant(info, param));
+      bool skipCondition =
+          canSkipConfigForReductionFusion(gemmOp, param.gemmMPerBlock,
+                                          param.gemmNPerBlock) ||
+          failed(tuningInfo.couldBePerformant(info, param));
       if (!skipCondition)
         newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
             tuningInfo.getGemmParamsAttr(b, param)));
@@ -425,8 +438,10 @@ void createQuickTuningRange(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
                                             info.gemmBType),
              info.gemmSize)) {
-      bool skipCondition = canSkipConfigForReductionFusion(gemmOp, param.gemmMPerBlock, param.gemmNPerBlock) || failed(
-                               tuningInfo.couldBePerformant(info, param));
+      bool skipCondition =
+          canSkipConfigForReductionFusion(gemmOp, param.gemmMPerBlock,
+                                          param.gemmNPerBlock) ||
+          failed(tuningInfo.couldBePerformant(info, param));
       if (!skipCondition)
         newSpace->tuningRange.push_back(cast<RockTuningParamAttrInterface>(
             tuningInfo.getGemmParamsAttr(b, param)));
