@@ -489,6 +489,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       obtainGemmToReduceViews(rOp, deps);
   if (succeeded(res)) {
     auto [views, gemmOp] = res.value();
+    LLVM_DEBUG(llvm::dbgs() << "gemmToReduceViews=" << views << "\n");
     FailureOr<MNPerBlock> mnPerBlock = getMNPerBlock(gemmOp);
     if (failed(mnPerBlock)) {
       return;
@@ -518,6 +519,12 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmInB = gemmAccelOp.getB();
       gemmOut = gemmAccelOp.getC();
     }
+    else if(GridwiseGemmOp gemmNonAccelOp =
+            dyn_cast<GridwiseGemmOp>(gemmOp)){
+      gemmInA = gemmNonAccelOp.getA();
+      gemmInB = gemmNonAccelOp.getB();
+      gemmOut = gemmNonAccelOp.getC();
+    }
     int64_t g = gemmInA.getType().getShape()[0];
     int64_t k = gemmInA.getType().getShape()[1];
     int64_t m = gemmInA.getType().getShape()[2];
@@ -537,11 +544,6 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       trGemmInB = rewriter.create<TransformOp>(rOp.getLoc(), trGemmInB,
                                                cast<TransformMapAttr>(trMap));
     }
-    if (GridwiseGemmAccelOp gemmAccelOp =
-            dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
-      gemmAccelOp.getAMutable().assign(trGemmInA);
-      gemmAccelOp.getBMutable().assign(trGemmInB);
-    }
     ArrayAttr additionalOutputViews = generateShuffledGemmOutputViews(
         rewriter, g, m, mnPerBlock.value().MPerBlock, n,
         mnPerBlock.value().NPerBlock, subDimensions.value());
@@ -556,8 +558,18 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       if (!firstUse)
         firstUse = trGemmOut;
     }
-    rewriter.replaceAllUsesExcept({gemmOut}, {trGemmOut},
-                                  firstUse.getDefiningOp());
+    if (GridwiseGemmAccelOp gemmAccelOp =
+            dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
+      gemmAccelOp.getAMutable().assign(trGemmInA);
+      gemmAccelOp.getBMutable().assign(trGemmInB);
+      gemmAccelOp.getCMutable().assign(trGemmOut);
+    }
+    else if(GridwiseGemmOp gemmNonAccelOp =
+            dyn_cast<GridwiseGemmOp>(gemmOp)) {
+      gemmNonAccelOp.getAMutable().assign(trGemmInA);
+      gemmNonAccelOp.getBMutable().assign(trGemmInB);
+      gemmNonAccelOp.getCMutable().assign(trGemmOut);
+    }
   }
 }
 
