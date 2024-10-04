@@ -3,11 +3,11 @@
 """
 quickTuner preprocessor script to combine .debug output files from tuningRunner.py or tuna-script.sh
 
-Usage: quickTunerPreprocess.py [-h] --input-dir INPUT_DIR --output OUTPUT [--op {gemm,conv}] [-d] [--file-ext FILE_EXT]
+Usage: quickTunerPreproc.py [-h] --input-dir INPUT_DIR --output OUTPUT [--op {gemm,conv}] [-d] [--file-ext FILE_EXT]
 
 Example Usage:
 
-python3 quickTunerPreprocess.py --input_dir /path/to/debug/files --ouput combined_data 
+python3 quickTunerPreproc.py --input-dir /path/to/debug/files --no-splitK --output combined_data
 
 
 Note:
@@ -106,7 +106,7 @@ class qtPreprocessor():
 
         
     @staticmethod
-    def process(input_dir, output_name=None, op='gemm', file_ext="debug", debug=False, normalize=True):
+    def process(input_dir, output_name=None, op='gemm', file_ext="debug", debug=False, normalize=True, no_splitK=False):
         """
         staticmethod process() function that compiles output files into a single dataframe and saves to tsv file
         """
@@ -125,6 +125,11 @@ class qtPreprocessor():
         if not dfs:
             return None
         new_df = pd.concat(dfs, ignore_index=True)
+
+        # Remove splitK from tuning data
+        if no_splitK:
+            df_filtered = new_df[new_df['PerfConfig'].str.extract(r'.*,(\d+),\d+,\d+')[0] == '1']
+            new_df = df_filtered
 
         if output_name:
             new_df.to_csv(output_name, sep='\t', index=False)
@@ -176,11 +181,16 @@ def main(args=None):
                         default=True,
                         action='store_true',
                         help='Normalize on a per-file basis, necessary for quickTunerGen to work')
+
+    parser.add_argument('--no-splitK',
+                        default=False,
+                        action='store_true',
+                        help='Removing the spliK factor from the generated list')
     
     pargs = parser.parse_args()
 
 
-    qtPreprocessor.process(pargs.input_dir, pargs.output, pargs.op, pargs.file_ext, pargs.debug)
+    qtPreprocessor.process(pargs.input_dir, pargs.output, pargs.op, pargs.file_ext, pargs.debug, pargs.normalize, pargs.no_splitK)
     
 if __name__ == '__main__':
     main(sys.argv[1:])
