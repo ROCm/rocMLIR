@@ -28,6 +28,12 @@ def ConvertToLLVMPass : Pass<"convert-to-llvm"> {
   let options = [
     ListOption<"filterDialects", "filter-dialects", "std::string",
                "Test conversion patterns of only the specified dialects">,
+    Option<"useBarePtrCallConv", "use-bare-ptr-call-conv", "bool", "false", "Whether memrefs can be converted to bare ptr">,
+    Option<"dataLayout", "data-layout", "std::string", "", "Data-layout for the llvm module">,
+    Option<"indexBitwidth", "index-bitwidth", "unsigned",
+           /*default=kDeriveIndexBitwidthFromDataLayout*/"0",
+           "Bitwidth of the index type, 0 to use size of machine word">,
+
   ];
 }
 

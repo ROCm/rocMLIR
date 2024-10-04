@@ -23,8 +23,11 @@ add_mlir_conversion_library(MLIRConvertToLLVMPass
   MLIRConvertToLLVMInterface
   MLIRIR
   MLIRLLVMCommonConversion
+  MLIRVectorToLLVM
   MLIRLLVMDialect
   MLIRPass
+  MLIRGPUDialect
+  MLIRROCDLDialect
   MLIRRewrite
   MLIRSupport
   MLIRTransformUtils

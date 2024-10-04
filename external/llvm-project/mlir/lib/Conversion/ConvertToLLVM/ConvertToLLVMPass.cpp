@@ -6,12 +6,22 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMPass.h"
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+#include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -25,6 +35,16 @@ namespace mlir {
 } // namespace mlir
 
 using namespace mlir;
+
+/// Returns true if the given `func.funcop` can be safely called using the bare
+/// pointer calling convention.
+static bool canBeCalledWithBarePointers(func::FuncOp func) {
+  bool canBeBare = true;
+  for (Type type : func.getArgumentTypes())
+    if (auto memrefTy = dyn_cast<BaseMemRefType>(type))
+      canBeBare &= LLVMTypeConverter::canConvertToBarePtr(memrefTy);
+  return canBeBare;
+}
 
 namespace {
 
@@ -69,16 +89,87 @@ class ConvertToLLVMPass
 
 public:
   using impl::ConvertToLLVMPassBase<ConvertToLLVMPass>::ConvertToLLVMPassBase;
+  ConvertToLLVMPass() = default;
+  ConvertToLLVMPass(unsigned indexBitwidth, bool useBarePtrCallConv,
+                    const std::string &dataLayout) {
+    if (this->indexBitwidth.getNumOccurrences() == 0)
+      this->indexBitwidth = indexBitwidth;
+    if (this->useBarePtrCallConv.getNumOccurrences() == 0)
+      this->useBarePtrCallConv = useBarePtrCallConv;
+    if (this->dataLayout.getNumOccurrences() == 0)
+      this->dataLayout = dataLayout;
+  }
+
   void getDependentDialects(DialectRegistry &registry) const final {
     registry.insert<LLVM::LLVMDialect>();
     registry.addExtensions<LoadDependentDialectExtension>();
   }
 
-  LogicalResult initialize(MLIRContext *context) final {
+  LogicalResult initialize(MLIRContext *context) final { return success(); }
+
+  void runOnOperation() final {
+    auto *op = getOperation();
+    auto *context = op->getContext();
     RewritePatternSet tempPatterns(context);
     auto target = std::make_shared<ConversionTarget>(*context);
     target->addLegalDialect<LLVM::LLVMDialect>();
-    auto typeConverter = std::make_shared<LLVMTypeConverter>(context);
+    gpu::GPUModuleOp gpuMod;
+    for (Region &region : getOperation()->getRegions())
+      for (Block &block : region.getBlocks())
+        for (auto module : block.getOps<gpu::GPUModuleOp>()) {
+          gpuMod = module;
+          // Check if the name of the module matches.
+          llvm::errs() << "Found GPU Mod\n";
+          auto llvmDataLayout = module->getAttrOfType<StringAttr>(
+              LLVM::LLVMDialect::getDataLayoutAttrName());
+          if (!llvmDataLayout) {
+            llvmDataLayout = StringAttr::get(context, dataLayout);
+            module->setAttr(LLVM::LLVMDialect::getDataLayoutAttrName(),
+                            llvmDataLayout);
+          }
+        }
+
+    DataLayout dl = DataLayoutAnalysis{getOperation()}.getAtOrAbove(gpuMod);
+    LowerToLLVMOptions options(context, dl);
+    options.dataLayout = llvm::DataLayout(StringRef{dataLayout});
+    if (indexBitwidth != kDeriveIndexBitwidthFromDataLayout)
+      options.overrideIndexBitwidth(indexBitwidth);
+
+    if (useBarePtrCallConv) {
+      options.useBarePtrCallConv = true;
+      WalkResult canUseBarePointers =
+          op->walk([](func::FuncOp func) -> WalkResult {
+            if (canBeCalledWithBarePointers(func))
+              return WalkResult::advance();
+            return WalkResult::interrupt();
+          });
+      if (canUseBarePointers.wasInterrupted()) {
+        emitError(UnknownLoc::get(context),
+                  "bare pointer calling convention requires all memrefs to "
+                  "have static shape and use the identity map");
+        signalPassFailure();
+      }
+    }
+    auto typeConverter = std::make_shared<LLVMTypeConverter>(context, options);
+    auto mapping = [](gpu::AddressSpace space) {
+      switch (space) {
+      case gpu::AddressSpace::Global:
+        return 1;
+      case gpu::AddressSpace::Workgroup:
+        return 3;
+      case gpu::AddressSpace::Private:
+        return 5;
+      }
+      llvm_unreachable("unknown address space enum value");
+      return 0;
+    };
+    typeConverter->addTypeAttributeConversion(
+        [mapping](BaseMemRefType type, gpu::AddressSpaceAttr memorySpaceAttr) {
+          gpu::AddressSpace memorySpace = memorySpaceAttr.getValue();
+          unsigned addressSpace = mapping(memorySpace);
+          return IntegerAttr::get(
+              IntegerType::get(memorySpaceAttr.getContext(), 64), addressSpace);
+        });
 
     if (!filterDialects.empty()) {
       // Test mode: Populate only patterns from the specified dialects. Produce
@@ -86,14 +177,19 @@ public:
       // interface.
       for (std::string &dialectName : filterDialects) {
         Dialect *dialect = context->getLoadedDialect(dialectName);
-        if (!dialect)
-          return emitError(UnknownLoc::get(context))
-                 << "dialect not loaded: " << dialectName << "\n";
+        if (!dialect) {
+          emitError(UnknownLoc::get(context))
+              << "dialect not loaded: " << dialectName << "\n";
+          signalPassFailure();
+        }
         auto *iface = dyn_cast<ConvertToLLVMPatternInterface>(dialect);
-        if (!iface)
-          return emitError(UnknownLoc::get(context))
-                 << "dialect does not implement ConvertToLLVMPatternInterface: "
-                 << dialectName << "\n";
+        if (!iface) {
+          emitError(UnknownLoc::get(context))
+              << "dialect does not implement ConvertToLLVMPatternInterface: "
+              << dialectName << "\n";
+          signalPassFailure();
+        }
+
         iface->populateConvertToLLVMConversionPatterns(*target, *typeConverter,
                                                        tempPatterns);
       }
@@ -110,17 +206,35 @@ public:
                                                        tempPatterns);
       }
     }
+    populateVectorToLLVMConversionPatterns(*typeConverter, tempPatterns);
 
     this->patterns =
         std::make_unique<FrozenRewritePatternSet>(std::move(tempPatterns));
     this->target = target;
     this->typeConverter = typeConverter;
-    return success();
-  }
-
-  void runOnOperation() final {
     if (failed(applyPartialConversion(getOperation(), *target, *patterns)))
       signalPassFailure();
+    auto *rocdlDialect = getContext().getLoadedDialect<ROCDL::ROCDLDialect>();
+    auto reqdWorkGroupSizeAttrHelper =
+        rocdlDialect->getReqdWorkGroupSizeAttrHelper();
+    auto flatWorkGroupSizeAttrHelper =
+        rocdlDialect->getFlatWorkGroupSizeAttrHelper();
+    // Manually rewrite known block size attributes so the LLVMIR translation
+    // infrastructure can pick them up.
+    gpuMod.walk([&](LLVM::LLVMFuncOp op) {
+      if (reqdWorkGroupSizeAttrHelper.isAttrPresent(op)) {
+        auto blockSizes = reqdWorkGroupSizeAttrHelper.getAttr(op);
+        // Also set up the rocdl.flat_work_group_size attribute to prevent
+        // conflicting metadata.
+        uint32_t flatSize = 1;
+        for (uint32_t size : blockSizes.asArrayRef()) {
+          flatSize *= size;
+        }
+        StringAttr flatSizeAttr =
+            StringAttr::get(context, Twine(flatSize) + "," + Twine(flatSize));
+        flatWorkGroupSizeAttrHelper.setAttr(op, flatSizeAttr);
+      }
+    });
   }
 };
 
@@ -133,4 +247,11 @@ void mlir::registerConvertToLLVMDependentDialectLoading(
 
 std::unique_ptr<Pass> mlir::createConvertToLLVMPass() {
   return std::make_unique<ConvertToLLVMPass>();
+}
+
+std::unique_ptr<Pass>
+mlir::createConvertToLLVMPass(unsigned indexBitwidth, bool useBarePtrCallConv,
+                              const std::string &dataLayout) {
+  return std::make_unique<ConvertToLLVMPass>(indexBitwidth, useBarePtrCallConv,
+                                             dataLayout);
 }

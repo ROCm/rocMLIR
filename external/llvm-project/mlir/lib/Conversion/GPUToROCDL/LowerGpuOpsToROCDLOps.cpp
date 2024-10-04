@@ -302,14 +302,17 @@ struct LowerGpuOpsToROCDLOpsPass
 
     RewritePatternSet llvmPatterns(ctx);
 
-    mlir::arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
+    // mlir::arith::populateArithToLLVMConversionPatterns(converter,
+    // llvmPatterns);
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
-    populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
-    populateMathToLLVMConversionPatterns(converter, llvmPatterns);
-    cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
-    populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
-    populateFinalizeMemRefToLLVMConversionPatterns(converter, llvmPatterns);
+    // populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
+    //   populateMathToLLVMConversionPatterns(converter, llvmPatterns);
+    //   cf::populateControlFlowToLLVMConversionPatterns(converter,
+    //   llvmPatterns);
+    //  populateFuncToLLVMConversionPatterns(converter,
+    //   llvmPatterns);
+    // populateFinalizeMemRefToLLVMConversionPatterns(converter, llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
     LLVMConversionTarget target(getContext());
     configureGpuToROCDLConversionLegality(target);
