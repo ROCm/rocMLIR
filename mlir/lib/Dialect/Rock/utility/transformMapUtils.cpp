@@ -2519,3 +2519,22 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
   }
   return subDimInfo;
 }
+
+SmallVector<SmallString<8>> mlir::rock::createDimNames(int64_t len,
+                                                       StringRef prefix) {
+  SmallVector<SmallString<8>> names;
+  for (unsigned d = 0; d < len; d++) {
+    SmallString<8> dimName(prefix.str() + Twine(d).str());
+    names.push_back(dimName);
+  }
+  return names;
+}
+
+SmallVector<StringRef>
+mlir::rock::getStringRefsFor(ArrayRef<SmallString<8>> strings) {
+  SmallVector<StringRef> nameRefs;
+  for (const SmallString<8> &str : strings) {
+    nameRefs.push_back(str);
+  }
+  return nameRefs;
+}

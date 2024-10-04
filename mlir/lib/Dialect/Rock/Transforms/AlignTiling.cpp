@@ -1398,7 +1398,11 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       // where we joint them once we have grid and block tiles coordinates
       // seperated.
       ArrayRef<int64_t> toBeReducedShape = getLowerShape(toBeReducedViews);
-      BottomUpTMBuilder toMatrixView(rewriter, {"d0", "d1", "d2"},
+      SmallVector<SmallString<8>> reduceLowerShapeNames =
+          createDimNames(toBeReducedShape.size(), "d");
+      SmallVector<StringRef> reduceLowerShapeNameRefs =
+          getStringRefsFor(reduceLowerShapeNames);
+      BottomUpTMBuilder toMatrixView(rewriter, reduceLowerShapeNameRefs,
                                      toBeReducedShape);
       llvm::SmallDenseMap<int64_t, SmallVector<int64_t>> gridSubDims;
       llvm::SmallDenseMap<int64_t, SmallVector<int64_t>> blockSubDims;
@@ -1408,8 +1412,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         llvm::SmallDenseMap<int64_t, SmallVector<StringRef>> nameRefs;
         llvm::SmallDenseMap<int64_t, SmallVector<unsigned>> upperDims;
         int64_t dimInsertionPoint = 0;
-        // The three dimensions correspond to G, M and N here.
-        for (unsigned dim = 0; dim < 3; dim++) {
+        for (unsigned dim = 0; dim < toBeReducedShape.size(); dim++) {
           // The lower subDims contain sub-dimensions where blocking
           // indices -- namesly g_block, m_block and n_block -- maps to
           // in the matrix coordinates. Here we split out matrix dims
@@ -1457,9 +1460,8 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
           LLVM_DEBUG(llvm::dbgs() << "\tsplits=";
                      llvm::interleaveComma(splitSizes, llvm::dbgs());
                      llvm::dbgs() << "\n");
-          SmallString<8> lowerName(Twine("d" + Twine(dim)).str());
-          toMatrixView.unmerge(nameRefs[dim], upperDims[dim], lowerName,
-                               splitSizes);
+          toMatrixView.unmerge(nameRefs[dim], upperDims[dim],
+                               reduceLowerShapeNameRefs[dim], splitSizes);
         }
         lastMerge = toMatrixView.get();
       }
@@ -1475,7 +1477,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         SmallVector<StringRef, 4> lowerNameRefs;
         toGridBlockSeperation.getStartNames(lowerNameRefs);
         SmallVector<std::string> upperGridNames;
-        for (unsigned dim = 0; dim < 3; dim++) {
+        for (unsigned dim = 0; dim < toBeReducedShape.size(); dim++) {
           upperGridNames.push_back(Twine("grid_dim" + Twine(dim)).str());
           if (gridSubDims.contains(dim)) {
             SmallVector<StringRef, 4> upperGridSubDimNames;
@@ -1489,17 +1491,19 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
           }
         }
         SmallVector<std::string> upperBlockNames;
-        for (unsigned dim = 0; dim < 3; dim++) {
+        for (unsigned dim = 0; dim < toBeReducedShape.size(); dim++) {
           upperBlockNames.push_back(Twine("block_dim" + Twine(dim)).str());
           if (blockSubDims.contains(dim)) {
             SmallVector<StringRef, 4> upperBlockSubDimNames;
             for (int64_t upperBlockSubDim : blockSubDims[dim]) {
               upperBlockSubDimNames.push_back(lowerNameRefs[upperBlockSubDim]);
             }
-            toGridBlockSeperation.merge(upperBlockNames.back(), dim + 3,
+            toGridBlockSeperation.merge(upperBlockNames.back(),
+                                        dim + toBeReducedShape.size(),
                                         upperBlockSubDimNames);
           } else {
-            toGridBlockSeperation.addDim(upperBlockNames.back(), dim + 3, 1);
+            toGridBlockSeperation.addDim(upperBlockNames.back(),
+                                         dim + toBeReducedShape.size(), 1);
           }
         }
         gridblockSeperation = toGridBlockSeperation.get();
