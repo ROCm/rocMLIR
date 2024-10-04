@@ -1189,7 +1189,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
 
   // Extract grid-only dims
   removeIndicesSet.clear();
-  for (int64_t i = 3; i < upperRank; i++) {
+  for (int64_t i = upperRank - 2; i < upperRank; i++) {
     removeIndicesSet.insert(i);
   }
   FailureOr<ArrayAttr> gridOnlyDims =
