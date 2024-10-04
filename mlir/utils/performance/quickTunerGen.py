@@ -5,11 +5,9 @@ quickTuner script to generate quick tuner perf configs. Uses single input file f
 as input.
 Needs the input to be a combined normalized dataframe (default from quickTunerPreproc.py)
 
-Usage: clusterConfigs.py [-h] --input-file INPUT_FILE [--method {default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} [{default,topNSelect,topMode,takeNEach,fairSelect,hardcoded} ...]] [--save] [--debug] [--num NUM] [--perfconfig--format]
-
 Example Usage:
 
-python3 quickTunerGen.py --input-file TESTFILE.out --method fairSelect --save --debug --num 20
+python3 quickTunerGen.py --input-file TESTFILE.out --method fairSelect --save --debug --top 20
 
 Will read TESTFILE.out then generate a quick tune list of length 20 for each datatype in TESTFILE.out. Will print these lists and save them to METHODNAME.DTYPE.qt.
 """
@@ -36,7 +34,7 @@ import re
 import glob
 import traceback
 
-class quickTunerMethod(object):
+class quickTunerMethod():
     """
     base class for creating quick tuner methods, implement the getConfig() method.
     """
@@ -55,7 +53,6 @@ class quickTunerMethod(object):
         """
         df.iloc[:, 0] = prefix + df.iloc[:, 0].astype(str)
         return df
-        
 
     def setN(self, N):
         """
@@ -119,14 +116,14 @@ class quickTunerMethod(object):
         raise NotImplementedError()
 
 
-class quickTuner(object):
+class quickTuner():
     """
     quickTuner class to run quick tuning methods from, requires user to instantiate quickTuner object
     then register quickTunerMethod child classes, finally run tune()
     """
     def __init__(self, pargs):
         self.methods = {}
-        self.N = pargs.num
+        self.N = pargs.top
         self.directory = pargs.directory
         self.op = pargs.op
         self.input_file = pargs.input_file
@@ -313,11 +310,9 @@ def parseDir(input_file: str, normalize=True):
     final_df = input_file
 
     trans_cols = ['TransA', 'TransB']
-
     param_cols = [ 'G', 'M', 'N','K']
 
     final_df = final_df.astype({entry: bool for entry in trans_cols})
-
     final_df = final_df.astype({entry: int for entry in param_cols})
         
     target_cols = trans_cols + param_cols
@@ -346,11 +341,9 @@ def orderByGemmType(combined_df: str, normalize=True):
     final_df = combined_df
     
     trans_cols = ['TransA', 'TransB']
-
     param_cols = [ 'G', 'M', 'N','K']
 
     final_df = final_df.astype({entry: bool for entry in trans_cols})
-
     final_df = final_df.astype({entry: int for entry in param_cols})
         
     target_cols = trans_cols + param_cols
@@ -369,16 +362,16 @@ def orderByConvType(combined_df: str, normalize=True):
 
     final_df = combined_df
 
-    cols = ['N', 'C', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW']
+    target_cols = ['InputLayout','N', 'C', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW']
     
-    final_df = final_df.astype({entry: int for entry in cols})
+    final_df = final_df.astype({entry: str for entry in target_cols})
 
     final_df['performance'] = final_df['NormalizedTFlops']
 
     grouped = {dtype[0]: df.drop('DataType', axis=1) for dtype, df in final_df.groupby(['DataType'])}
 
     for k in grouped:
-        group = {cols: df.drop(target_cols, axis=1) for cols, df in grouped[k].groupby(cols)}
+        group = {cols: df.drop(target_cols, axis=1) for cols, df in grouped[k].groupby(target_cols)}
         grouped[k] = group
         
     return grouped
@@ -926,7 +919,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    parser = argparse.ArgumentParser(prog='clusterConfigs.py',
+    parser = argparse.ArgumentParser(prog='quickTunerGen.py',
                                      description='Bunch together runs into a parallel dir named ../{DIR_NAME}-bunch')
 
     parser.add_argument('--input-file',
@@ -955,7 +948,7 @@ def main(args=None):
                         default=False,
                         help='Print debug info, print config files to stdout')
 
-    parser.add_argument('--num', '-n',
+    parser.add_argument('--top', '-n',
                         type=int,
                         default=40,
                         help='Number of perf configs to include')
