@@ -431,6 +431,7 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t nRepeats = params.nRepeats;
     int64_t kBase = params.kBase;
     int64_t kBasePerThread = params.kBasePerThread;
+    assert(mRepeats > 0 && nRepeats > 0 && kBasePerThread > 0);
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
