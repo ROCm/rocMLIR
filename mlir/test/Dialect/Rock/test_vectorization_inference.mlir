@@ -845,3 +845,23 @@ func.func @input_fusion_true_max_length(%buf: memref<8xf16>) {
   "get_length"(%alloc1) {in_dim = 0 : index, traverseFusions} : (memref<8xf32>) -> ()
   func.return
 }
+
+// CHECK-LABEL: @issue_1643_embed_alignment
+#issue_1643_split_iter = #rock.transform_map<affine_map<(d0) -> (d0 floordiv 4, d0 mod 4)>
+by [<Merge{3, 8} ["iter"] at [0] -> ["k", "n"] at [0, 1]>]
+bounds = [24] -> [3, 8]>
+#issue_1643_embed = #rock.transform_map<affine_map<(d0, d1) -> (2 * d0 + d1)>
+by [<Embed{2, 1} ["k", "n"] at [0, 1] -> ["ipad"] at [0]>]
+bounds = [3, 8] -> [12]>
+#issue_1643_pad = #rock.transform_map<affine_map<(d0) -> (d0 - 4)>
+by [<Pad{4, 4} ["ipad"] at [0] -> ["i"] at [0]>]
+bounds = [12] -> [4]>
+func.func @issue_1643_embed_alignment(%buf: memref<4xf32>) {
+  %0 = rock.transform %buf by #issue_1643_pad : memref<4xf32> to memref<12xf32>
+  %1 = rock.transform %0 by #issue_1643_embed : memref<12xf32> to memref<3x8xf32>
+  %2 = rock.transform %1 by #issue_1643_split_iter : memref<3x8xf32> to memref<24xf32>
+  // CHECK: get_length
+  // CHECK-SAME: result = 2
+  "get_length"(%2) {in_dim = 0 : index} : (memref<24xf32>) -> ()
+  func.return
+}

@@ -666,21 +666,18 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
       // of 1
       bool hasNegativeCoefficients = false;
       std::optional<VectorizationInfo> ourResult;
-
-      // When there are equal embed coefficients
-      // we should always refer to the one with lowest
-      // alignment as the alignment
-      llvm::SmallDenseMap<int64_t, int64_t> coeffToAlignment;
-      for (auto [coefficient, upperDim] : data) {
-        if (input[upperDim].has_value()) {
-          if (coeffToAlignment.count(coefficient)) {
-            coeffToAlignment[coefficient] = math_util::gcd(
-                coeffToAlignment[coefficient], input[upperDim]->alignment);
-          } else {
-            coeffToAlignment[coefficient] = input[upperDim]->alignment;
-          }
-        }
-      }
+      // Record the dimensions whose alignments have been incorporated into
+      // `ourResult`. This then allows us to make sure that if a dimension
+      // wasn't processed for forming the result, its alignment constaints are
+      // still respected.
+      //
+      // Consider the case: `Embed{2, 1}(1@4 align(1), 4@1 align(4))`.
+      // Here, we'll never look at the coefficient-2 argument because its
+      // coefficient isn't the 4 it needs to be. However, we do know that
+      // 2 * [an arbitrary value] will be added to the 1 * [a thing divisible by
+      // 4] as part of executing te Embed{}, so the maximum possible alignment
+      // is 2, which requires post-processing.
+      llvm::SmallSetVector<uint32_t, 4> alignmentHandled;
 
       // We first compute the alignment assuming the held constant dimensions
       // don't matter, then we take the gcd of that result with the coefficients
@@ -696,11 +693,12 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
 
           int64_t upperLen = input[upperDim]->maxLength;
           int64_t needsCoeff = input[upperDim]->needsCoefficient;
-          int64_t thisAlignment = coeffToAlignment[coefficient];
+          int64_t thisAlignment = input[upperDim]->alignment;
 
           if (!ourResult.has_value()) {
             ourResult =
                 VectorizationInfo(1, coefficient, thisAlignment * coefficient);
+            alignmentHandled.insert(upperDim);
             if (hasNegativeCoefficients) {
               ourResult->alignment = 1;
               break;
@@ -711,6 +709,7 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
               coefficient ==
                   (ourResult->maxLength * ourResult->needsCoefficient)) {
             ourResult->maxLength *= upperLen;
+            alignmentHandled.insert(upperDim);
             ourResult->alignment = math_util::gcd(ourResult->alignment,
                                                   thisAlignment * coefficient);
           } else {
@@ -726,10 +725,13 @@ propagateVectorizationInfo(TransformMapAttr map, const VectorizationData &input,
           int64_t upperDim = std::get<1>(pair);
           if (coefficient <= 0)
             continue;
-          if (input[upperDim].has_value())
+          if (alignmentHandled.contains(upperDim))
             continue;
+          int64_t thatAlignment = 1;
+          if (input[upperDim].has_value())
+            thatAlignment = input[upperDim]->alignment;
           ourResult->alignment =
-              math_util::gcd(ourResult->alignment, coefficient);
+              math_util::gcd(ourResult->alignment, thatAlignment * coefficient);
         }
       }
       result[lowerDims[0]] = ourResult;
