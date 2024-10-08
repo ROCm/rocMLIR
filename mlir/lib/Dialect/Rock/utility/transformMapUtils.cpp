@@ -2500,6 +2500,11 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
           }
           break;
         }
+        case TransformType::ConstDim:
+        case TransformType::AddDim: {
+          // Nothing to do
+          break;
+        }
         default:
           LLVM_DEBUG(llvm::dbgs()
                      << "Unsupported transform type : " << trAttr << "\n");

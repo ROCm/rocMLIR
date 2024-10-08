@@ -496,6 +496,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     }
     IRRewriter rewriter(rOp.getContext());
     ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
+    LLVM_DEBUG(llvm::dbgs()
+               << "inv(gemmToReduceViews)=" << invertedViews << "\n");
     if (!invertedViews || invertedViews.empty()) {
       return;
     }
