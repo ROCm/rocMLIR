@@ -14,9 +14,7 @@
 #ifndef MLIR_INTERFACES_CONTROLFLOWINTERFACES_H
 #define MLIR_INTERFACES_CONTROLFLOWINTERFACES_H
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
-#include "mlir/Support/LLVM.h"
 
 namespace mlir {
 class BranchOpInterface;
