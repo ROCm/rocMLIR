@@ -82,7 +82,8 @@ struct PopulateParamsInfo {
                      GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,
                      KernelType kernelType)
       : gemmSize(gemmSize), arch(arch), gemmFeatures(gemmFeatures),
-        gemmAType(gemmAType), gemmBType(gemmBType), kernelType(kernelType), hasFusedReduction(false) {}
+        gemmAType(gemmAType), gemmBType(gemmBType), kernelType(kernelType),
+        hasFusedReduction(false) {}
 
   PopulateParamsInfo(GemmSize gemmSize, StringRef arch,
                      GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,

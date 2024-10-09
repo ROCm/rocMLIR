@@ -1542,8 +1542,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     views.push_back(trAttr);
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "views = "
-                          << "\n";
+  LLVM_DEBUG(llvm::dbgs() << "views = " << "\n";
              llvm::interleaveComma(views, llvm::dbgs()); llvm::dbgs() << "\n");
   TypedValue<ShapedType> reduceOut = reduceOp.getOut();
   reduceOut = cast<TypedValue<ShapedType>>(

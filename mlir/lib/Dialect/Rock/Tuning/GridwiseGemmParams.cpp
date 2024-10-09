@@ -215,7 +215,9 @@ PopulateParams::paramsProbablyValid(OpBuilder &b,
   return populateDerived(params);
 }
 
-static LogicalResult couldFusedReductionBePerformant(const GemmSize& gemmSize, int64_t mPerBlock, int64_t nPerBlock){
+static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,
+                                                     int64_t mPerBlock,
+                                                     int64_t nPerBlock) {
   // 16 is practically lowest m in MFMAs/WMMAs
   // that could be performant. If the gemm sizes
   // are not divisible by that, then we definitely
@@ -229,7 +231,7 @@ static LogicalResult couldFusedReductionBePerformant(const GemmSize& gemmSize, i
     return success();
   }
   // We can skip knowing that dPerBlock=16
-  // is there on the tuning space that should 
+  // is there on the tuning space that should
   // be faster than anyone that use m or n
   // padding.
   if (gemmSize.m % mPerBlock != 0) {
@@ -244,8 +246,9 @@ static LogicalResult couldFusedReductionBePerformant(const GemmSize& gemmSize, i
 LogicalResult
 PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
                                   const InitParamsNonAccel &params) {
-  if(info.hasFusedReduction){
-    return couldFusedReductionBePerformant(info.gemmSize, params.gemmMPerBlock, params.gemmNPerBlock);
+  if (info.hasFusedReduction) {
+    return couldFusedReductionBePerformant(info.gemmSize, params.gemmMPerBlock,
+                                           params.gemmNPerBlock);
   }
   return success();
 }
@@ -368,8 +371,9 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
 LogicalResult
 PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
                                        const InitParamsAccel &params) {
-  if(info.hasFusedReduction){
-    return couldFusedReductionBePerformant(info.gemmSize, params.gemmMPerBlock, params.gemmNPerBlock);
+  if (info.hasFusedReduction) {
+    return couldFusedReductionBePerformant(info.gemmSize, params.gemmMPerBlock,
+                                           params.gemmNPerBlock);
   }
   return specificCouldBePerformant(params, info.gemmAType, info.gemmBType);
 }

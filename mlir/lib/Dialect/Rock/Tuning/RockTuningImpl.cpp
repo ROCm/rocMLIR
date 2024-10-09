@@ -268,7 +268,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                         gemmNPerBlock >= gemmMnPerXdl) {
                       if (succeeded(tuningInfo.paramsProbablyValid(
                               b, info, gemmParams)) &&
-                          (kind == TuningParamSetKind::Exhaustive || succeeded(tuningInfo.couldBePerformant(info, gemmParams))))
+                          (kind == TuningParamSetKind::Exhaustive ||
+                           succeeded(
+                               tuningInfo.couldBePerformant(info, gemmParams))))
                         newSpace->tuningRange.push_back(
                             cast<RockTuningParamAttrInterface>(
                                 tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -303,7 +305,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                splitKFactor, forceUnroll, true);
                     if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                  gemmParams)) &&
-                        (kind == TuningParamSetKind::Exhaustive || succeeded(tuningInfo.couldBePerformant(info, gemmParams))))
+                        (kind == TuningParamSetKind::Exhaustive ||
+                         succeeded(
+                             tuningInfo.couldBePerformant(info, gemmParams))))
                       newSpace->tuningRange.push_back(
                           cast<RockTuningParamAttrInterface>(
                               tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -332,7 +336,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                       gemmMPerThread, gemmNPerThread, splitKFactor);
                   if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                gemmParams)) &&
-                      (kind == TuningParamSetKind::Exhaustive || succeeded(tuningInfo.couldBePerformant(info, gemmParams))))
+                      (kind == TuningParamSetKind::Exhaustive ||
+                       succeeded(
+                           tuningInfo.couldBePerformant(info, gemmParams))))
                     newSpace->tuningRange.push_back(
                         cast<RockTuningParamAttrInterface>(
                             tuningInfo.getGemmParamsAttr(b, gemmParams)));
