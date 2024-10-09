@@ -385,19 +385,32 @@ protected:
 // Xdlops interface
 //
 class PopulateParamsXDL : public PopulateParamsAccel {
-  static constexpr size_t nInitParameters = 40;
+  static constexpr size_t nInitParametersConv = 20;
   // Initial tuning parameters for forward convolution and backward
   // convolution.
-  static const InitParamsAccel initParameters[nInitParameters];
+  static const InitParamsAccel initParametersConv[nInitParametersConv];
 
-  static constexpr size_t nInitParametersFp16 = 40;
+  static constexpr size_t nInitParametersFp16Conv = 20;
   // Tuning parameters for fp16/bf16 convolutions.
-  static const InitParamsAccel initParametersFp16[nInitParametersFp16];
+  static const InitParamsAccel initParametersFp16Conv[nInitParametersFp16Conv];
 
-  static constexpr size_t nInitParametersForward8Bit = 40;
+  static constexpr size_t nInitParametersForward8BitConv = 20;
   // Tuning parameters for i8 convolutions.
   static const InitParamsAccel
-      initParametersForward8Bit[nInitParametersForward8Bit];
+      initParametersForward8BitConv[nInitParametersForward8BitConv];
+  
+  static constexpr size_t nInitParametersGemm = 20;
+  // Initial tuning parameters for gemm.
+  static const InitParamsAccel initParametersGemm[nInitParametersGemm];
+
+  static constexpr size_t nInitParametersFp16Gemm = 20;
+  // Tuning parameters for fp16/bf16 gemm.
+  static const InitParamsAccel initParametersFp16Gemm[nInitParametersFp16Gemm];
+
+  static constexpr size_t nInitParametersForward8BitGemm = 20;
+  // Tuning parameters for i8 gemm.
+  static const InitParamsAccel
+      initParametersForward8BitGemm[nInitParametersForward8BitGemm];
 
 public:
   std::vector<InitParamsAccel>
