@@ -59,7 +59,12 @@ def ROCDL_Dialect : Dialect {
      "::mlir::StringAttr":$flat_work_group_size,
      "::mlir::IntegerAttr":$max_flat_work_group_size,
      "::mlir::IntegerAttr":$waves_per_eu,
-     "::mlir::BoolAttr":$unsafe_fp_atomics
+     "::mlir::BoolAttr":$unsafe_fp_atomics,
+     // Correspond to LLVM metadata of the same name
+     "::mlir::UnitAttr":$last_use,
+     "::mlir::UnitAttr":$no_remote_memory,
+     "::mlir::UnitAttr":$no_fine_grained_memory,
+     "::mlir::UnitAttr":$ignore_denormal_mode
   );
 
   let useDefaultAttributePrinterParser = 1;
