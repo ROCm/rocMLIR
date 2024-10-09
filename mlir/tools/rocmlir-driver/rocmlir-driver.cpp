@@ -15,7 +15,6 @@
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 #include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
-#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
