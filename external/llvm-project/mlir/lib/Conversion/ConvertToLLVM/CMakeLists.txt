@@ -25,6 +25,7 @@ add_mlir_conversion_library(MLIRConvertToLLVMPass
   MLIRLLVMCommonConversion
   MLIRVectorToLLVM
   MLIRLLVMDialect
+  MLIRPtrDialect
   MLIRPass
   MLIRGPUDialect
   MLIRROCDLDialect

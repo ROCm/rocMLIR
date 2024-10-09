@@ -22,8 +22,7 @@ namespace mlir {
 /// implementing `ConvertToLLVMPatternInterface`.
 std::unique_ptr<Pass> createConvertToLLVMPass();
 std::unique_ptr<Pass> createConvertToLLVMPass(unsigned indexBitwidth,
-                                              bool useBarePtrCallConv,
-                                              const std::string &dataLayout);
+                                              bool useBarePtrCallConv);
 
 /// Register the extension that will load dependent dialects for LLVM
 /// conversion. This is useful to implement a pass similar to "convert-to-llvm".

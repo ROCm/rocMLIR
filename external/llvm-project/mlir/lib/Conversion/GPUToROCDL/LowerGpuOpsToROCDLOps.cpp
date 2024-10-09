@@ -14,6 +14,10 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
+#include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -218,6 +222,7 @@ struct LowerGpuOpsToROCDLOpsPass
   void runOnOperation() override {
     gpu::GPUModuleOp m = getOperation();
     MLIRContext *ctx = m.getContext();
+    OpBuilder b(ctx);
     ArrayAttr targets = m.getTargetsAttr();
     if (chipset == "infer") {
       if (!targets) {
@@ -286,6 +291,30 @@ struct LowerGpuOpsToROCDLOpsPass
     }
 
     LLVMTypeConverter converter(ctx, options);
+    // auto unrealizedCastConverter =
+    //     [&](OpBuilder &builder, IntegerType resultType, ValueRange inputs,
+    //         Location loc) -> std::optional<Value> {
+    //   if (inputs.size() != 1)
+    //     return std::nullopt;
+    //   return builder
+    //       .create<UnrealizedConversionCastOp>(
+    //           loc, IndexType::get(builder.getContext()), inputs)
+    //       .getResult(0);
+    // };
+    // auto unrealizedCastConverterTarget =
+    //     [&](OpBuilder &builder, IndexType resultType, ValueRange inputs,
+    //         Location loc) -> std::optional<Value> {
+    //   if (inputs.size() != 1)
+    //     return std::nullopt;
+    //   return builder
+    //       .create<UnrealizedConversionCastOp>(
+    //           loc, IntegerType::get(builder.getContext(), 32), inputs)
+    //       .getResult(0);
+    // };
+    // converter.addConversion([](IndexType type) { return type; });
+    // converter.addSourceMaterialization(unrealizedCastConverter);
+    // converter.addArgumentMaterialization(unrealizedCastConverter);
+    // converter.addTargetMaterialization(unrealizedCastConverterTarget);
     populateGpuMemorySpaceAttributeConversions(
         converter, [](gpu::AddressSpace space) {
           switch (space) {
@@ -306,14 +335,37 @@ struct LowerGpuOpsToROCDLOpsPass
     // llvmPatterns);
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
-    // populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
-    //   populateMathToLLVMConversionPatterns(converter, llvmPatterns);
-    //   cf::populateControlFlowToLLVMConversionPatterns(converter,
-    //   llvmPatterns);
-    //  populateFuncToLLVMConversionPatterns(converter,
-    //   llvmPatterns);
-    // populateFinalizeMemRefToLLVMConversionPatterns(converter, llvmPatterns);
+    populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
+    //      populateMathToLLVMConversionPatterns(converter, llvmPatterns);
+    //      cf::populateControlFlowToLLVMConversionPatterns(converter,
+    //      llvmPatterns);
+    //     populateFuncToLLVMConversionPatterns(converter,
+    //      llvmPatterns);
+    //    populateFinalizeMemRefToLLVMConversionPatterns(converter,
+    //    llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
+    DataLayoutEntryInterface ptrProgramMemoryAttr = DataLayoutEntryAttr::get(
+        b.getType<mlir::ptr::PtrType>(
+            b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Workgroup)),
+        b.getAttr<mlir::ptr::SpecAttr>(32, 32, 32, 32, 3));
+    DataLayoutEntryInterface ptrGlobalMemoryAttr = DataLayoutEntryAttr::get(
+        b.getType<mlir::ptr::PtrType>(
+            b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Global)),
+        b.getAttr<mlir::ptr::SpecAttr>(32, 32, 32, 32, 1));
+    DataLayoutEntryInterface ptrAllocaMemoryAttr = DataLayoutEntryAttr::get(
+        b.getType<mlir::ptr::PtrType>(
+            b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Private)),
+        b.getAttr<mlir::ptr::SpecAttr>(32, 32, 32, 32, 5));
+
+    llvm::ArrayRef dltiAddressSpaceAttrs = {
+        ptrAllocaMemoryAttr, ptrGlobalMemoryAttr, ptrProgramMemoryAttr};
+    DataLayoutSpecAttr dltiSpec =
+        b.getAttr<DataLayoutSpecAttr>(dltiAddressSpaceAttrs);
+    if (auto previousDltiSpec = m.getDataLayoutSpec()) {
+      dltiSpec = dltiSpec.combineWith(previousDltiSpec);
+    }
+    m->setAttr(DLTIDialect::kDataLayoutAttrName, dltiSpec);
+
     LLVMConversionTarget target(getContext());
     configureGpuToROCDLConversionLegality(target);
     if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))

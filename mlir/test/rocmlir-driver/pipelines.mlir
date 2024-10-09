@@ -55,7 +55,9 @@
 // BINARY-NEXT:gpu.module(convert-gpu-to-rocdl{chipset=infer index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
 // BINARY-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY-NEXT:cse,
-// BINARY-NEXT:rock-prepare-llvm)),
+// BINARY-NEXT:rock-prepare-llvm),
+// BINARY-NEXT:convert-to-llvm{ index-bitwidth=0 use-bare-ptr-call-conv=true}),
+// BINARY-NEXT:reconcile-unrealized-casts,
 // BINARY-NEXT:gpu-module-to-binary{format=fatbin  opts= toolkit=},
 // BINARY-NEXT:rock-check-residency,
 // BINARY-NEXT:emulate-fp8-ext-trunc)
@@ -74,7 +76,9 @@
 // BINARY_MI300-NEXT:gpu.module(convert-gpu-to-rocdl{chipset=infer index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
 // BINARY_MI300-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI300-NEXT:cse,
-// BINARY_MI300-NEXT:rock-prepare-llvm)),
+// BINARY_MI300-NEXT:rock-prepare-llvm),
+// BINARY_MI300-NEXT:convert-to-llvm{ index-bitwidth=0 use-bare-ptr-call-conv=true}),
+// BINARY_MI300-NEXT:reconcile-unrealized-casts,
 // BINARY_MI300-NEXT:gpu-module-to-binary{format=fatbin  opts= toolkit=},
 // BINARY_MI300-NEXT:rock-check-residency,
 // BINARY_MI300-NEXT:emulate-fp8-ext-trunc)

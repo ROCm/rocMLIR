@@ -3690,7 +3690,7 @@ int main(int argc, char **argv) {
                       affine::AffineDialect, memref::MemRefDialect,
                       math::MathDialect, arith::ArithDialect,
                       vector::VectorDialect, gpu::GPUDialect,
-                      linalg::LinalgDialect, mhal::MHALDialect,
+                      linalg::LinalgDialect, mhal::MHALDialect, ptr::PtrDialect,
                       bufferization::BufferizationDialect, tosa::TosaDialect>();
 
   // Parse pass names in main to ensure static initialization completed.

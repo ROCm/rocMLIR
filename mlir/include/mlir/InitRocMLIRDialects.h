@@ -17,6 +17,7 @@
 // rocMLIR includes
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/InitRocMLIRTarget.h"
@@ -80,6 +81,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   math::MathDialect,
                   memref::MemRefDialect,
                   scf::SCFDialect,
+                  ptr::PtrDialect,
                   vector::VectorDialect,
                   ROCDL::ROCDLDialect,
                   tensor::TensorDialect,

@@ -24,7 +24,7 @@ constexpr const static unsigned kBitsInByte = 8;
 
 LogicalResult SpecAttr::verify(function_ref<InFlightDiagnostic()> emitError,
                                uint32_t size, uint32_t abi, uint32_t preferred,
-                               uint32_t index) {
+                               uint32_t index, uint32_t llvmAddressSpace) {
   if (size % kBitsInByte != 0)
     return emitError() << "size entry must be divisible by 8";
   if (abi % kBitsInByte != 0)

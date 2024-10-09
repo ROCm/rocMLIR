@@ -20,6 +20,7 @@ add_mlir_conversion_library(MLIRGPUToROCDLTransforms
   MLIRGPUToGPURuntimeTransforms
   MLIRLLVMCommonConversion
   MLIRLLVMDialect
+  MLIRPtrDialect
   MLIRMemRefToLLVM
   MLIRROCDLDialect
   MLIRPass

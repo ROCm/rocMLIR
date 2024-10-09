@@ -15,6 +15,7 @@
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 #include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
@@ -429,7 +430,7 @@ int main(int argc, char **argv) {
   context.loadDialect<mhal::MHALDialect, rock::RockDialect, func::FuncDialect,
                       scf::SCFDialect, affine::AffineDialect,
                       memref::MemRefDialect, math::MathDialect,
-                      arith::ArithDialect, gpu::GPUDialect,
+                      arith::ArithDialect, gpu::GPUDialect, ptr::PtrDialect,
                       bufferization::BufferizationDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);

@@ -29,7 +29,6 @@ def ConvertToLLVMPass : Pass<"convert-to-llvm"> {
     ListOption<"filterDialects", "filter-dialects", "std::string",
                "Test conversion patterns of only the specified dialects">,
     Option<"useBarePtrCallConv", "use-bare-ptr-call-conv", "bool", "false", "Whether memrefs can be converted to bare ptr">,
-    Option<"dataLayout", "data-layout", "std::string", "", "Data-layout for the llvm module">,
     Option<"indexBitwidth", "index-bitwidth", "unsigned",
            /*default=kDeriveIndexBitwidthFromDataLayout*/"0",
            "Bitwidth of the index type, 0 to use size of machine word">,
@@ -137,7 +136,8 @@ def ConvertAMDGPUToROCDL : Pass<"convert-amdgpu-to-rocdl"> {
   let constructor = "mlir::createConvertAMDGPUToROCDLPass()";
   let dependentDialects = [
     "LLVM::LLVMDialect",
-    "ROCDL::ROCDLDialect",
+    "ptr::PtrDialect",
+    "ROCDL::ROCDLDialect"
   ];
   let options = [Option<"chipset", "chipset", "std::string",
                         /*default=*/"\"gfx000\"",
@@ -595,6 +595,7 @@ def ConvertGpuOpsToROCDLOps : Pass<"convert-gpu-to-rocdl", "gpu::GPUModuleOp"> {
     "ROCDL::ROCDLDialect",
     "cf::ControlFlowDialect",
     "memref::MemRefDialect",
+    "ptr::PtrDialect"
   ];
   let options = [
     Option<"chipset", "chipset", "std::string",
