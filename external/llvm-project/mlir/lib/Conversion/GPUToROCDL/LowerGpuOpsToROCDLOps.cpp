@@ -291,30 +291,6 @@ struct LowerGpuOpsToROCDLOpsPass
     }
 
     LLVMTypeConverter converter(ctx, options);
-    // auto unrealizedCastConverter =
-    //     [&](OpBuilder &builder, IntegerType resultType, ValueRange inputs,
-    //         Location loc) -> std::optional<Value> {
-    //   if (inputs.size() != 1)
-    //     return std::nullopt;
-    //   return builder
-    //       .create<UnrealizedConversionCastOp>(
-    //           loc, IndexType::get(builder.getContext()), inputs)
-    //       .getResult(0);
-    // };
-    // auto unrealizedCastConverterTarget =
-    //     [&](OpBuilder &builder, IndexType resultType, ValueRange inputs,
-    //         Location loc) -> std::optional<Value> {
-    //   if (inputs.size() != 1)
-    //     return std::nullopt;
-    //   return builder
-    //       .create<UnrealizedConversionCastOp>(
-    //           loc, IntegerType::get(builder.getContext(), 32), inputs)
-    //       .getResult(0);
-    // };
-    // converter.addConversion([](IndexType type) { return type; });
-    // converter.addSourceMaterialization(unrealizedCastConverter);
-    // converter.addArgumentMaterialization(unrealizedCastConverter);
-    // converter.addTargetMaterialization(unrealizedCastConverterTarget);
     populateGpuMemorySpaceAttributeConversions(
         converter, [](gpu::AddressSpace space) {
           switch (space) {
@@ -331,19 +307,13 @@ struct LowerGpuOpsToROCDLOpsPass
 
     RewritePatternSet llvmPatterns(ctx);
 
-    // mlir::arith::populateArithToLLVMConversionPatterns(converter,
-    // llvmPatterns);
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
-    //      populateMathToLLVMConversionPatterns(converter, llvmPatterns);
-    //      cf::populateControlFlowToLLVMConversionPatterns(converter,
-    //      llvmPatterns);
-    //     populateFuncToLLVMConversionPatterns(converter,
-    //      llvmPatterns);
-    //    populateFinalizeMemRefToLLVMConversionPatterns(converter,
-    //    llvmPatterns);
+    cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
+    // ABI, PreferredAlignment, Size etc are set arbitarily here for now for the
+    // SpecAttr, SpecAttr is used for mapping to LLVM addressSpace
     DataLayoutEntryInterface ptrProgramMemoryAttr = DataLayoutEntryAttr::get(
         b.getType<mlir::ptr::PtrType>(
             b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Workgroup)),

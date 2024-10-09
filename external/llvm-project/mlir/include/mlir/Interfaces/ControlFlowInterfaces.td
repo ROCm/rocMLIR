@@ -96,14 +96,7 @@ def BranchOpInterface : OpInterface<"BranchOpInterface"> {
       }],
       "bool", "areTypesCompatible",
       (ins "::mlir::Type":$lhs, "::mlir::Type":$rhs), [{}],
-       [{ 
-        if (lhs.isIndex() and dyn_cast<IntegerType>(rhs)) {
-            return dyn_cast<IntegerType>(rhs).getWidth() == 32;
-        } else if(rhs.isIndex() and dyn_cast<IntegerType>(lhs)) {
-            return dyn_cast<IntegerType>(lhs).getWidth() == 32;
-        }
-        return lhs == rhs; 
-       }]
+       [{ return lhs == rhs; }]
     >,
   ];
 

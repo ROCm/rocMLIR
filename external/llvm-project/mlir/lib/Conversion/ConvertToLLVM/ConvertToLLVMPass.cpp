@@ -199,7 +199,6 @@ public:
                                                        tempPatterns);
       }
     }
-    // populateVectorToLLVMConversionPatterns(*typeConverter, tempPatterns);
     this->patterns =
         std::make_unique<FrozenRewritePatternSet>(std::move(tempPatterns));
     this->target = target;
