@@ -16,6 +16,7 @@ add_mlir_translation_library(GpuModuleToRocdlirTranslation
   MLIRIR
   MLIRLLVMDialect
   MLIRROCDLDialect
+  MLIRPtrDialect
   MLIRSupport
   MLIRTargetLLVMIRExport
 )
