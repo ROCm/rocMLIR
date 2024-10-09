@@ -406,10 +406,8 @@ void LinalgAlignRewriter::notifyMatchFailure(
 
 static Value applyViewsOnDest(LinalgAlignRewriter &rewriter, Location loc,
                               Value dest, ArrayRef<TransformMapAttr> views) {
-  if (!views.empty()) {
-    for (TransformMapAttr trMap : llvm::reverse(views)) {
-      dest = rewriter.create<TransformOp>(loc, dest, trMap);
-    }
+  for (TransformMapAttr trMap : llvm::reverse(views)) {
+    dest = rewriter.create<TransformOp>(loc, dest, trMap);
   }
   return dest;
 }
@@ -1159,7 +1157,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   ArrayAttr toBeReducedViews = prependUpperViews(rewriter, extraViews, destTrs);
   TransformMapAttr firstCoordTransform =
       cast<TransformMapAttr>(toBeReducedViews[0]);
-  int upperRank = firstCoordTransform.getUpperBounds().size();
+  int64_t upperRank = firstCoordTransform.getUpperBounds().size();
   SetVector<int64_t> removeIndicesSet;
   // We only want to keep tid x iter in the maps
   // which is the last two for block subtile
@@ -1267,6 +1265,12 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       TopDownTMBuilder toReducedView(rewriter, nameRefs, blockTileShape);
       for (unsigned i = 0; i < blockTileShape.size(); i++) {
         if (blockReductionAxis == i) {
+          // The blockwise_broadcast_reduce will populate
+          // all indices of pre-reduction space with the
+          // reduced value. However, for the write back
+          // we only want one of the reduced values to be
+          // written. Therefore, we keep the 0th and declare
+          // rest as padding.
           toReducedView.pad({nameRefs[i]}, {0, blockTileShape[i] - 1});
         } else {
           toReducedView.passThrough({nameRefs[i]}, {i}, {nameRefs[i]});
@@ -1287,17 +1291,15 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       for (auto [idx, attr] : llvm::enumerate(paddedReducedTrStack)) {
         TransformMapAttr trMapAttr = cast<TransformMapAttr>(attr);
         SmallVector<TransformAttr> trAttrs;
-        SmallVector<int64_t> gridUpperShape;
-        SmallVector<int64_t> gridLowerShape;
+        ArrayRef<int64_t> gridUpperShape;
+        ArrayRef<int64_t> gridLowerShape;
         if (idx < gridOnlyDims.value().size()) {
           TransformMapAttr gridOnlyAttr =
               cast<TransformMapAttr>(gridOnlyDims.value()[idx]);
           ArrayRef<TransformAttr> ops = gridOnlyAttr.getOps();
           trAttrs.insert(trAttrs.end(), ops.begin(), ops.end());
-          gridUpperShape =
-              llvm::to_vector(gridOnlyAttr.getUpperBounds().asArrayRef());
-          gridLowerShape =
-              llvm::to_vector(gridOnlyAttr.getLowerBounds().asArrayRef());
+          gridUpperShape = gridOnlyAttr.getUpperBounds().asArrayRef();
+          gridLowerShape = gridOnlyAttr.getLowerBounds().asArrayRef();
         } else {
           SmallVector<SmallString<8>> names;
           SmallVector<StringRef> nameRefs;
@@ -1308,8 +1310,8 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
             nameRefs.push_back(names.back());
             dims.push_back(i);
           }
-          gridUpperShape = llvm::to_vector(lowerShapeGridOnly);
-          gridLowerShape = llvm::to_vector(lowerShapeGridOnly);
+          gridUpperShape = lowerShapeGridOnly;
+          gridLowerShape = lowerShapeGridOnly;
           TransformAttr blockPt = TransformAttr::get(
               rewriter.getContext(), TransformType::PassThrough, {}, nameRefs,
               dims, nameRefs, dims);
@@ -1331,12 +1333,12 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
           trAttrs.push_back(newTrAttr);
         }
         // set the bounds
-        SmallVector<int64_t> upperBounds = gridUpperShape;
+        SmallVector<int64_t> upperBounds = llvm::to_vector(gridUpperShape);
         ArrayRef<int64_t> origUpperBounds =
             trMapAttr.getUpperBounds().asArrayRef();
         upperBounds.insert(upperBounds.end(), origUpperBounds.begin(),
                            origUpperBounds.end());
-        SmallVector<int64_t> lowerBounds = gridLowerShape;
+        SmallVector<int64_t> lowerBounds = llvm::to_vector(gridLowerShape);
         ArrayRef<int64_t> origLowerBounds =
             trMapAttr.getLowerBounds().asArrayRef();
         lowerBounds.insert(lowerBounds.end(), origLowerBounds.begin(),
