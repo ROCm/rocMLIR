@@ -14,21 +14,21 @@
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
+#include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
-#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
-#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MathToROCDL/MathToROCDL.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -36,18 +36,14 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
-#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/Support/FormatVariadic.h"
 
 #include "../GPUCommon/GPUOpsLowering.h"
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
-#include "../GPUCommon/OpToFuncCallLowering.h"
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTGPUOPSTOROCDLOPS
@@ -218,6 +214,7 @@ struct LowerGpuOpsToROCDLOpsPass
   void runOnOperation() override {
     gpu::GPUModuleOp m = getOperation();
     MLIRContext *ctx = m.getContext();
+    OpBuilder b(ctx);
     ArrayAttr targets = m.getTargetsAttr();
     if (chipset == "infer") {
       if (!targets) {
@@ -302,15 +299,35 @@ struct LowerGpuOpsToROCDLOpsPass
 
     RewritePatternSet llvmPatterns(ctx);
 
-    mlir::arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
-    populateMathToLLVMConversionPatterns(converter, llvmPatterns);
     cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
-    populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
-    populateFinalizeMemRefToLLVMConversionPatterns(converter, llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
+    // ABI, PreferredAlignment, Size etc are set arbitarily here for now for the
+    // SpecAttr, SpecAttr is used for mapping to LLVM addressSpace
+    DataLayoutEntryInterface ptrProgramMemoryAttr = DataLayoutEntryAttr::get(
+        b.getType<mlir::ptr::PtrType>(
+            b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Workgroup)),
+        b.getAttr<mlir::ptr::SpecAttr>(32, 32, 32, 32, 3));
+    DataLayoutEntryInterface ptrGlobalMemoryAttr = DataLayoutEntryAttr::get(
+        b.getType<mlir::ptr::PtrType>(
+            b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Global)),
+        b.getAttr<mlir::ptr::SpecAttr>(32, 32, 32, 32, 1));
+    DataLayoutEntryInterface ptrAllocaMemoryAttr = DataLayoutEntryAttr::get(
+        b.getType<mlir::ptr::PtrType>(
+            b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Private)),
+        b.getAttr<mlir::ptr::SpecAttr>(32, 32, 32, 32, 5));
+
+    llvm::ArrayRef dltiAddressSpaceAttrs = {
+        ptrAllocaMemoryAttr, ptrGlobalMemoryAttr, ptrProgramMemoryAttr};
+    DataLayoutSpecAttr dltiSpec =
+        b.getAttr<DataLayoutSpecAttr>(dltiAddressSpaceAttrs);
+    if (auto previousDltiSpec = m.getDataLayoutSpec()) {
+      dltiSpec = dltiSpec.combineWith(previousDltiSpec);
+    }
+    m->setAttr(DLTIDialect::kDataLayoutAttrName, dltiSpec);
+
     LLVMConversionTarget target(getContext());
     configureGpuToROCDLConversionLegality(target);
     if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))
@@ -355,16 +372,6 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   });
   // TODO: Remove once we support replacing non-root ops.
   target.addLegalOp<gpu::YieldOp, gpu::GPUModuleOp>();
-}
-
-// namespace mlir
-template <typename OpTy>
-static void populateOpPatterns(LLVMTypeConverter &converter,
-                               RewritePatternSet &patterns, StringRef f32Func,
-                               StringRef f64Func, StringRef f16Func) {
-  patterns.add<ScalarizeVectorOpLowering<OpTy>>(converter);
-  patterns.add<OpToFuncCallLowering<OpTy>>(converter, f32Func, f64Func,
-                                           f16Func);
 }
 
 void mlir::populateGpuToROCDLConversionPatterns(

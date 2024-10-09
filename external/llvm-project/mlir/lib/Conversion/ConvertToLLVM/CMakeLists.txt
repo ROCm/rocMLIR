@@ -24,6 +24,7 @@ add_mlir_conversion_library(MLIRConvertToLLVMPass
   MLIRIR
   MLIRLLVMCommonConversion
   MLIRLLVMDialect
+  MLIRPtrDialect
   MLIRPass
   MLIRRewrite
   MLIRSupport

@@ -6,12 +6,18 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMPass.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+#include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrTypes.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -69,16 +75,82 @@ class ConvertToLLVMPass
 
 public:
   using impl::ConvertToLLVMPassBase<ConvertToLLVMPass>::ConvertToLLVMPassBase;
+  ConvertToLLVMPass() = default;
+  ConvertToLLVMPass(unsigned indexBitwidth, bool useBarePtrCallConv) {
+    if (this->indexBitwidth.getNumOccurrences() == 0)
+      this->indexBitwidth = indexBitwidth;
+    if (this->useBarePtrCallConv.getNumOccurrences() == 0)
+      this->useBarePtrCallConv = useBarePtrCallConv;
+  }
+
   void getDependentDialects(DialectRegistry &registry) const final {
     registry.insert<LLVM::LLVMDialect>();
+    registry.insert<ptr::PtrDialect>();
     registry.addExtensions<LoadDependentDialectExtension>();
   }
 
-  LogicalResult initialize(MLIRContext *context) final {
+  LogicalResult initialize(MLIRContext *context) final { return success(); }
+
+  void runOnOperation() final {
+    auto *op = getOperation();
+    auto *context = op->getContext();
+    StringRef dataLayout;
+    auto dataLayoutAttr = dyn_cast_or_null<StringAttr>(
+        op->getAttr(LLVM::LLVMDialect::getDataLayoutAttrName()));
+    if (dataLayoutAttr)
+      dataLayout = dataLayoutAttr.getValue();
+
+    if (failed(LLVM::LLVMDialect::verifyDataLayoutString(
+            dataLayout, [this](const Twine &message) {
+              getOperation()->emitError() << message.str();
+            }))) {
+      signalPassFailure();
+      return;
+    }
+
+    const DataLayoutAnalysis &dataLayoutAnalysis =
+        getAnalysis<DataLayoutAnalysis>();
+    LowerToLLVMOptions options(context,
+                               dataLayoutAnalysis.getAtOrAbove(op));
+    options.useBarePtrCallConv = useBarePtrCallConv;
+    if (indexBitwidth != kDeriveIndexBitwidthFromDataLayout)
+      options.overrideIndexBitwidth(indexBitwidth);
+    options.dataLayout = llvm::DataLayout(dataLayout);
+    if (useBarePtrCallConv) {
+      options.useBarePtrCallConv = true;
+    }
+
     RewritePatternSet tempPatterns(context);
     auto target = std::make_shared<ConversionTarget>(*context);
     target->addLegalDialect<LLVM::LLVMDialect>();
-    auto typeConverter = std::make_shared<LLVMTypeConverter>(context);
+    auto typeConverter = std::make_shared<LLVMTypeConverter>(context, options);
+
+    DenseMap<Attribute, uint64_t> addressSpaceMap;
+    if (DataLayoutOpInterface iface = dyn_cast<DataLayoutOpInterface>(op)) {
+      if (DataLayoutSpecInterface dlSpec = iface.getDataLayoutSpec()) {
+        for (DataLayoutEntryInterface entry : dlSpec.getEntries()) {
+          ptr::PtrType ptrKey = llvm::dyn_cast_or_null<mlir::ptr::PtrType>(
+              entry.getKey().get<mlir::Type>());
+          if (!ptrKey) {
+            continue;
+          }
+          Attribute addressSpace = ptrKey.getMemorySpace();
+          auto value =
+              cast<mlir::ptr::SpecAttr>(entry.getValue()).getLlvmAddressSpace();
+          addressSpaceMap.insert({addressSpace, value});
+        }
+      }
+      typeConverter->addTypeAttributeConversion(
+          [addressSpaceMap](BaseMemRefType type, Attribute memorySpaceAttr) {
+            unsigned llvmAddressSpace = 0;
+            if (addressSpaceMap.contains(memorySpaceAttr)) {
+              llvmAddressSpace = addressSpaceMap.at(memorySpaceAttr);
+            }
+            return IntegerAttr::get(
+                IntegerType::get(memorySpaceAttr.getContext(), 64),
+                llvmAddressSpace);
+          });
+    }
 
     if (!filterDialects.empty()) {
       // Test mode: Populate only patterns from the specified dialects. Produce
@@ -86,14 +158,19 @@ public:
       // interface.
       for (std::string &dialectName : filterDialects) {
         Dialect *dialect = context->getLoadedDialect(dialectName);
-        if (!dialect)
-          return emitError(UnknownLoc::get(context))
-                 << "dialect not loaded: " << dialectName << "\n";
+        if (!dialect) {
+          emitError(UnknownLoc::get(context))
+              << "dialect not loaded: " << dialectName << "\n";
+          signalPassFailure();
+        }
         auto *iface = dyn_cast<ConvertToLLVMPatternInterface>(dialect);
-        if (!iface)
-          return emitError(UnknownLoc::get(context))
-                 << "dialect does not implement ConvertToLLVMPatternInterface: "
-                 << dialectName << "\n";
+        if (!iface) {
+          emitError(UnknownLoc::get(context))
+              << "dialect does not implement ConvertToLLVMPatternInterface: "
+              << dialectName << "\n";
+          signalPassFailure();
+        }
+
         iface->populateConvertToLLVMConversionPatterns(*target, *typeConverter,
                                                        tempPatterns);
       }
@@ -110,15 +187,10 @@ public:
                                                        tempPatterns);
       }
     }
-
     this->patterns =
         std::make_unique<FrozenRewritePatternSet>(std::move(tempPatterns));
     this->target = target;
     this->typeConverter = typeConverter;
-    return success();
-  }
-
-  void runOnOperation() final {
     if (failed(applyPartialConversion(getOperation(), *target, *patterns)))
       signalPassFailure();
   }
@@ -133,4 +205,9 @@ void mlir::registerConvertToLLVMDependentDialectLoading(
 
 std::unique_ptr<Pass> mlir::createConvertToLLVMPass() {
   return std::make_unique<ConvertToLLVMPass>();
+}
+
+std::unique_ptr<Pass> mlir::createConvertToLLVMPass(unsigned indexBitwidth,
+                                                    bool useBarePtrCallConv) {
+  return std::make_unique<ConvertToLLVMPass>(indexBitwidth, useBarePtrCallConv);
 }

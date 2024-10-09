@@ -15,7 +15,9 @@
 #define MLIR_INITROCMLIRDIALECTS_H_
 
 // rocMLIR includes
+#include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/InitRocMLIRTarget.h"
@@ -72,12 +74,14 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   cf::ControlFlowDialect,
                   DLTIDialect,
                   gpu::GPUDialect,
+                  index::IndexDialect,
                   func::FuncDialect,
                   LLVM::LLVMDialect,
                   linalg::LinalgDialect,
                   math::MathDialect,
                   memref::MemRefDialect,
                   scf::SCFDialect,
+                  ptr::PtrDialect,
                   vector::VectorDialect,
                   ROCDL::ROCDLDialect,
                   tensor::TensorDialect,
@@ -97,6 +101,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
   registerConvertFuncToLLVMInterface(registry);
   registerConvertMathToLLVMInterface(registry);
   registerConvertMemRefToLLVMInterface(registry);
+  index::registerConvertIndexToLLVMInterface(registry);
   ub::registerConvertUBToLLVMInterface(registry);
 
   // Register all external models.

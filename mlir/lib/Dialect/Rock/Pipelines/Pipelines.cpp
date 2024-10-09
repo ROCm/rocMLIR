@@ -22,9 +22,11 @@
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
+#include "mlir/Conversion/ConvertToLLVM/ToLLVMPass.h"
 #include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/Passes.h"
@@ -253,6 +255,12 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   llvmFuncPm.addPass(createCanonicalizerPass());
   llvmFuncPm.addPass(createCSEPass());
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
+  gpuPm2.addPass(
+      createConvertToLLVMPass(kDeriveIndexBitwidthFromDataLayout, true));
+  auto &llvmFuncPm2 = gpuPm2.nest<LLVM::LLVMFuncOp>();
+  llvmFuncPm2.addPass(createCanonicalizerPass());
+  llvmFuncPm2.addPass(createCSEPass());
+  pm.addPass(createReconcileUnrealizedCastsPass());
   if (options.compile) {
     pm.addPass(createGpuModuleToBinaryPass());
     pm.addPass(createRockCheckResidencyPass());

@@ -14,6 +14,7 @@
 
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Translation/GpuModuleToRocdir.h"
 
@@ -56,7 +57,7 @@ void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
         return success();
       },
       [](DialectRegistry &registry) {
-        registry.insert<mlir::gpu::GPUDialect, mlir::DLTIDialect>();
+        registry.insert<mlir::gpu::GPUDialect, mlir::DLTIDialect, ptr::PtrDialect>();
         mlir::registerGPUDialectTranslation(registry);
         mlir::registerROCDLDialectTranslation(registry);
         mlir::registerLLVMDialectTranslation(registry);

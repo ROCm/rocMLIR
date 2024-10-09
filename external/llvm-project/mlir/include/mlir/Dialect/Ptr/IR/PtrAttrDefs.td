@@ -35,6 +35,8 @@ def Ptr_SpecAttr : Ptr_Attr<"Spec", "spec"> {
      - [Optional] index: bitwidth that should be used when performing index
      computations for the type. Setting the field to `kOptionalSpecValue`, means
      the field is optional.
+     - [Optional] llvmAddressSpace : Mapping from AddressSpace of ptr.PtrType's adddress Space to LLVM's address space. 
+     Setting the field to 'kOptionalLLVMAddressSpaceValue`, means the field is optional.
     
     Furthermore, the attribute will verify that all present values are divisible
     by 8 (number of bits in a byte), and that `preferred` > `abi`.
@@ -43,26 +45,28 @@ def Ptr_SpecAttr : Ptr_Attr<"Spec", "spec"> {
     ```mlir
     // Spec for a 64 bit ptr, with a required alignment of 64 bits, but with
     // a preferred alignment of 128 bits and an index bitwidth of 64 bits.
-    #ptr.spec<size = 64, abi = 64, preferred = 128, index = 64>
+    #ptr.spec<size = 64, abi = 64, preferred = 128, index = 64, llvmAddressSpace = 0>
     ```
   }];
   let parameters = (ins
     "uint32_t":$size,
     "uint32_t":$abi,
     "uint32_t":$preferred,
-    DefaultValuedParameter<"uint32_t", "kOptionalSpecValue">:$index
+    DefaultValuedParameter<"uint32_t", "kOptionalSpecValue">:$index,
+    DefaultValuedParameter<"uint32_t", "kOptionalLLVMAddressSpaceValue">:$llvmAddressSpace
   );
   let skipDefaultBuilders = 1;
   let builders = [
     AttrBuilder<(ins "uint32_t":$size, "uint32_t":$abi, "uint32_t":$preferred,
-                     CArg<"uint32_t", "kOptionalSpecValue">:$index), [{
-      return $_get($_ctxt, size, abi, preferred, index);
+                     CArg<"uint32_t", "kOptionalSpecValue">:$index, CArg<"uint32_t", "kOptionalLLVMAddressSpaceValue">:$llvmAddressSpace), [{
+      return $_get($_ctxt, size, abi, preferred, index, llvmAddressSpace);
     }]>
   ];
   let assemblyFormat = "`<` struct(params) `>`";
   let extraClassDeclaration = [{
     /// Constant for specifying a spec entry is optional.
     static constexpr uint32_t kOptionalSpecValue = std::numeric_limits<uint32_t>::max();
+    static constexpr uint32_t kOptionalLLVMAddressSpaceValue = 0;
   }];
   let genVerifyDecl = 1;
 }
