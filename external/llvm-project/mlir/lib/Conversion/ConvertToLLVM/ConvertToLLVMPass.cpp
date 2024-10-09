@@ -9,24 +9,17 @@
 #include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMPass.h"
-#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
-#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/DLTI/Traits.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Ptr/IR/PtrAttrs.h"
 #include "mlir/Dialect/Ptr/IR/PtrDialect.h"
 #include "mlir/Dialect/Ptr/IR/PtrTypes.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
@@ -118,8 +111,8 @@ public:
       return;
     }
 
-    const auto &dataLayoutAnalysis = getAnalysis<DataLayoutAnalysis>();
-
+    const DataLayoutAnalysis &dataLayoutAnalysis =
+        getAnalysis<DataLayoutAnalysis>();
     LowerToLLVMOptions options(context,
                                dataLayoutAnalysis.getAtOrAbove(op));
     options.useBarePtrCallConv = useBarePtrCallConv;
@@ -134,19 +127,17 @@ public:
     auto target = std::make_shared<ConversionTarget>(*context);
     target->addLegalDialect<LLVM::LLVMDialect>();
     auto typeConverter = std::make_shared<LLVMTypeConverter>(context, options);
+
     DenseMap<Attribute, uint64_t> addressSpaceMap;
     if (DataLayoutOpInterface iface = dyn_cast<DataLayoutOpInterface>(op)) {
       if (DataLayoutSpecInterface dlSpec = iface.getDataLayoutSpec()) {
         for (DataLayoutEntryInterface entry : dlSpec.getEntries()) {
-          if (!entry.isTypeEntry()) {
-            continue;
-          }
-          auto ptrKey = llvm::dyn_cast<mlir::ptr::PtrType>(
+          ptr::PtrType ptrKey = llvm::dyn_cast_or_null<mlir::ptr::PtrType>(
               entry.getKey().get<mlir::Type>());
           if (!ptrKey) {
             continue;
           }
-          auto addressSpace = ptrKey.getMemorySpace();
+          Attribute addressSpace = ptrKey.getMemorySpace();
           auto value =
               cast<mlir::ptr::SpecAttr>(entry.getValue()).getLlvmAddressSpace();
           addressSpaceMap.insert({addressSpace, value});
