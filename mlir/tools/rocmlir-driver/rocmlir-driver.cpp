@@ -430,7 +430,7 @@ int main(int argc, char **argv) {
   context.loadDialect<mhal::MHALDialect, rock::RockDialect, func::FuncDialect,
                       scf::SCFDialect, affine::AffineDialect,
                       memref::MemRefDialect, math::MathDialect,
-                      arith::ArithDialect, gpu::GPUDialect, ptr::PtrDialect,
+                      arith::ArithDialect, gpu::GPUDialect,
                       bufferization::BufferizationDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
