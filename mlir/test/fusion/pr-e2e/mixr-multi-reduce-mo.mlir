@@ -6,7 +6,7 @@
 // CHECK: [1 1 1]
 // CHECK: [1 1 1]
 module {
-  func.func @mlir_convolution_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf32, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x4x64x64xf32, 16384x4096x64x1>, %arg2: !migraphx.shaped<320x4x3x3xf32, 36x9x3x1>) -> (!migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf32, 1310720x40960x4096x64x1>)  attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} 
+  func.func @mlir_convolution_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf32, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x4x64x64xf32, 16384x4096x64x1>, %arg2: !migraphx.shaped<320x4x3x3xf32, 36x9x3x1>) -> (!migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf32, 1310720x40960x4096x64x1>) // attributes {arch = "gfx942:sramecc+:xnack-", kernel = "mixr"} 
   {
     %0 = migraphx.literal(dense<2.44140629E-5> : tensor<1xf32>) : <1xf32, 0>
     %1 = migraphx.literal(dense<2.44140629E-5> : tensor<1xf32>) : <1xf32, 0>
