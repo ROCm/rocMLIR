@@ -673,12 +673,20 @@ LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
     assert(convDims.fil.size() == convDims.out.size());
-    for (size_t i = 0; i < convDims.fil.size(); i++) {
+    for (auto [i, filLen] : llvm::enumerate(convDims.fil)) {
       StringAttr val1 = b.getStringAttr(Twine(i));
       StringAttr val2 = b.getStringAttr(Twine(i) + "o");
       StringAttr val3 = b.getStringAttr(Twine(i) + "ipad");
-      embedWrap.embed({val1, val2}, {convDims.fil[i], convDims.out[i]}, val3,
-                      {dilations[i], strides[i]});
+      if (filLen != 1) {
+        embedWrap.embed({val1, val2}, {filLen, convDims.out[i]}, val3,
+                        {dilations[i], strides[i]});
+      } else if (strides[i] != 1) {
+        embedWrap.addDim(val1, filLen);
+        embedWrap.embed({val2}, {convDims.out[i]}, val3, {strides[i]});
+      } else {
+        embedWrap.addDim(val1, filLen);
+        embedWrap.passThrough(val2, val3);
+      }
     }
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
@@ -1270,12 +1278,20 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
     assert(convDims.fil.size() == convDims.out.size());
-    for (size_t i = 0; i < convDims.fil.size(); i++) {
+    for (auto [i, filLen] : llvm::enumerate(convDims.fil)) {
       StringAttr val1 = b.getStringAttr(Twine(i));
       StringAttr val2 = b.getStringAttr(Twine(i) + "o");
       StringAttr val3 = b.getStringAttr(Twine(i) + "ipad");
-      embedInputWrap.embed({val1, val2}, {convDims.fil[i], convDims.out[i]},
-                           val3, {dilations[i], strides[i]});
+      if (filLen != 1) {
+        embedInputWrap.embed({val1, val2}, {filLen, convDims.out[i]}, val3,
+                             {dilations[i], strides[i]});
+      } else if (strides[i] != 1) {
+        embedInputWrap.addDim(val1, filLen);
+        embedInputWrap.embed({val2}, {convDims.out[i]}, val3, {strides[i]});
+      } else {
+        embedInputWrap.addDim(val1, filLen);
+        embedInputWrap.passThrough(val2, val3);
+      }
     }
 
     TransformMapAttr embedInputTransformAttr = embedInputTransform.get();

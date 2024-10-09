@@ -58,7 +58,7 @@ static constexpr AmdArchInfo
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32, /*maxWavesPerEU*/ 20, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
-              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/48,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
