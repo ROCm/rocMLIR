@@ -136,7 +136,7 @@ def ConvertAMDGPUToROCDL : Pass<"convert-amdgpu-to-rocdl"> {
   let constructor = "mlir::createConvertAMDGPUToROCDLPass()";
   let dependentDialects = [
     "LLVM::LLVMDialect",
-    "ROCDL::ROCDLDialect"
+    "ROCDL::ROCDLDialect",
   ];
   let options = [Option<"chipset", "chipset", "std::string",
                         /*default=*/"\"gfx000\"",
@@ -594,7 +594,7 @@ def ConvertGpuOpsToROCDLOps : Pass<"convert-gpu-to-rocdl", "gpu::GPUModuleOp"> {
     "ROCDL::ROCDLDialect",
     "cf::ControlFlowDialect",
     "memref::MemRefDialect",
-    "ptr::PtrDialect"
+    "ptr::PtrDialect",
   ];
   let options = [
     Option<"chipset", "chipset", "std::string",
