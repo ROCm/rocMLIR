@@ -257,6 +257,9 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   gpuPm2.addPass(
       createConvertToLLVMPass(kDeriveIndexBitwidthFromDataLayout, true));
+  auto &llvmFuncPm2 = gpuPm2.nest<LLVM::LLVMFuncOp>();
+  llvmFuncPm2.addPass(createCanonicalizerPass());
+  llvmFuncPm2.addPass(createCSEPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
   if (options.compile) {
     pm.addPass(createGpuModuleToBinaryPass());
