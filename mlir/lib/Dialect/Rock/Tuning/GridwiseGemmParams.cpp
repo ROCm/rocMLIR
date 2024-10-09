@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/Support/Debug.h"
@@ -212,9 +213,11 @@ PopulateParams::paramsProbablyValid(OpBuilder &b,
 }
 
 LogicalResult
-PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
+PopulateParams::couldBePerformant(OpBuilder &b,
+				  const PopulateParamsInfo &info,
                                   const InitParamsNonAccel &params) {
   // Implement this if needed.
+  (void)b;
   (void)info;
   (void)params;
   return success();
@@ -336,9 +339,9 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
 }
 
 LogicalResult
-PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
+PopulateParamsAccel::couldBePerformant(OpBuilder &b, const PopulateParamsInfo &info,
                                        const InitParamsAccel &params) {
-  return specificCouldBePerformant(params, info.gemmAType, info.gemmBType);
+  return specificCouldBePerformant(b, info, params);
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
@@ -691,12 +694,33 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
 }
 
 LogicalResult
-PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
-                                             Type dataTypeA, Type dataTypeB) {
-  // Implement this if needed.
-  (void)params;
-  (void)dataTypeA;
-  (void)dataTypeB;
+PopulateParamsXDL::specificCouldBePerformant(OpBuilder &b,
+					     const PopulateParamsInfo &info,
+					     const InitParamsAccel &params) {
+  Attribute params0 = getGemmParamsAttr(b, params);
+  RockAccelTuningParamAttrInterface accelParams0;
+  if (auto xdlopsParams0 = dyn_cast<XdlopsGemmParamsAttr>(params0)) {
+    auto xdlopsDerivedParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
+    accelParams0 = xdlopsDerivedParams0;
+  } else {
+    accelParams0 = cast<RockAccelTuningParamAttrInterface>(params0);
+  }
+  auto accelEmitterPtr = accel::AccelEmitter::select(
+						     info.gemmFeatures, info.gemmAType, info.gemmBType, StringRef(info.arch), accelParams0);
+
+  if (!accelEmitterPtr)
+    return failure();
+
+  rock::accel::AccelEmitterParams accelParams = accelEmitterPtr->getParams();
+
+  int64_t numOutputVectorElements = accelParams.numOutputVectorElements();
+
+  // would be best to have register count be a part of arch, is not necessarily totalVGPRPerEu
+  if(numOutputVectorElements > 256) {
+    return failure();
+  }
+       
+  
   return success();
 }
 
@@ -912,12 +936,13 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
 }
 
 LogicalResult
-PopulateParamsWmma::specificCouldBePerformant(const InitParamsAccel &params,
-                                              Type dataTypeA, Type dataTypeB) {
+PopulateParamsWmma::specificCouldBePerformant(OpBuilder &b,
+					     const PopulateParamsInfo &info,
+					     const InitParamsAccel &params) {
   // Implement this if needed.
+  (void)b;
+  (void)info;
   (void)params;
-  (void)dataTypeA;
-  (void)dataTypeB;
   return success();
 }
 
