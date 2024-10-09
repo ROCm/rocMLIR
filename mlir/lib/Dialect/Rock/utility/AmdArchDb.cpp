@@ -58,7 +58,7 @@ static constexpr AmdArchInfo
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32, /*maxWavesPerEU*/ 20, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
-              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/48,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false, /*maxNumXCC=*/1);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
@@ -111,8 +111,10 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
   Type elementType = getElementTypeOrSelf(dataType);
   if (isWmma) {
-    if (!elementType.isF16() && !elementType.isBF16() &&
-        !elementType.isInteger(8)) {
+    if (!(isa<Float16Type, BFloat16Type>(elementType) ||
+          elementType.isInteger(8) ||
+          (hasFp8ConversionInstrs &&
+           isa<Float8E5M2Type, Float8E4M3FNType>(elementType)))) {
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
     }
   }

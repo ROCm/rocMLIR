@@ -251,6 +251,8 @@ RankedTensorType MIXRShapedType::asMemoryLayoutTensor() const {
 
 RankedTensorType MIXRShapedType::asFlatMemoryTensor() const {
   RankedTensorType memoryTensorType = asMemoryLayoutTensor();
+  if (!memoryTensorType)
+    return nullptr;
   return memoryTensorType.clone(memoryTensorType.getNumElements());
 }
 

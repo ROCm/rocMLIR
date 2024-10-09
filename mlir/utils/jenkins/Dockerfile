@@ -1,8 +1,8 @@
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.2/
-ARG ROCM_BUILD_NAME=focal
+ARG ROCM_BUILD_NAME=jammy
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm-6.2
 
@@ -23,7 +23,7 @@ RUN echo 'install build dependencies'; \
         libelf-dev libffi-dev gcc-multilib libmpfr-dev libpfm4-dev \
         python3 python3-psutil python3-pip python3-setuptools \
         lsb-release software-properties-common \
-        swig python3-dev libedit-dev libncurses5-dev libxml2-dev liblzma-dev golang rsync jq \
+        swig python3-dev libedit-dev libncurses5-dev libxml2-dev libxslt-dev liblzma-dev golang rsync jq \
         # for libc++ tests that use the timezone database of the chrono header
         tzdata \
         # for llvm installation script
@@ -100,6 +100,9 @@ RUN groupadd -g 109 render
 # Add ROCm build distribution
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
 RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/rocm.list
+RUN echo 'Package: *' > /etc/apt/preferences.d/repo-radeon-pin-600 && \
+    echo 'Pin: release o=repo.radeon.com' >> /etc/apt/preferences.d/repo-radeon-pin-600 && \
+    echo 'Pin-Priority: 600' >> /etc/apt/preferences.d/repo-radeon-pin-600
 
 # Note instead of installing the latest, we should always manually bump cmake version when necessary.
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.

@@ -624,6 +624,11 @@ void TopDownTMBottomDimsWrapper::passThrough(ArrayRef<StringRef> names) {
   b.passThrough(names, toBottomDims(names), names);
 }
 
+void TopDownTMBottomDimsWrapper::passThrough(StringRef outName,
+                                             StringRef inName) {
+  b.passThrough(outName, toBottomDims(outName), inName);
+}
+
 void TopDownTMBottomDimsWrapper::pad(ArrayRef<StringRef> outNames,
                                      ArrayRef<StringRef> inNames,
                                      ArrayRef<int64_t> params) {
@@ -840,6 +845,11 @@ void BottomUpTMTopDimsWrapper::passThrough(StringRef name) {
 
 void BottomUpTMTopDimsWrapper::passThrough(ArrayRef<StringRef> names) {
   b.passThrough(names, toTopDims(names), names);
+}
+
+void BottomUpTMTopDimsWrapper::passThrough(StringRef outName,
+                                           StringRef inName) {
+  b.passThrough(outName, toTopDims(outName), inName);
 }
 
 void BottomUpTMTopDimsWrapper::pad(ArrayRef<StringRef> outNames,

@@ -196,6 +196,7 @@ struct TopDownTMBottomDimsWrapper {
       : b(b), bottomDims(bottomDims) {}
   void passThrough(StringRef name);
   void passThrough(ArrayRef<StringRef> names);
+  void passThrough(StringRef outName, StringRef inName);
 
   void pad(ArrayRef<StringRef> outNames, ArrayRef<StringRef> inNames,
            ArrayRef<int64_t> params);
@@ -293,6 +294,7 @@ struct BottomUpTMTopDimsWrapper {
       : b(b), topDims(topDims) {}
   void passThrough(StringRef name);
   void passThrough(ArrayRef<StringRef> names);
+  void passThrough(StringRef outName, StringRef inName);
 
   void pad(ArrayRef<StringRef> outNames, ArrayRef<StringRef> inNames,
            ArrayRef<int64_t> params);
