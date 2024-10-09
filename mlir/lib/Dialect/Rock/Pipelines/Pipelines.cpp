@@ -144,6 +144,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
    *   --rock-fold-broadcast --rock-affix-params --rock-gemm-to-gridwise
    *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
+   *   --rock-blockwise-gemm-to-threadwise --rock-output-swizzle
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
@@ -153,31 +154,29 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
   funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-
-  if (options.enableFusion) {
-    // align linalg tiling
-    /* rocmlir-opt --rock-linalg-align --canonicalize
-     * --convert-linalg-to-affine-loops
-     */
-    funcPm.addPass(rock::createRockLinalgAlignPass());
-    funcPm.addPass(rock::createRockPipelinePass());
-    funcPm.addPass(createCanonicalizerPass());
-    funcPm.addPass(createConvertLinalgToAffineLoopsPass());
-    funcPm.addPass(rock::createRockVectorizeFusionsPass());
-  }
-  funcPm.addPass(rock::createRockReuseLDSPass());
   funcPm.addPass(rock::createRockOutputSwizzlePass());
-  funcPm.addPass(rock::createRockReuseLDSPass());
 
   if (!options.enableApplicability) {
+    if (options.enableFusion) {
+      // align linalg tiling
+      /* rocmlir-opt --rock-linalg-align --rock-pipeline --canonicalize
+       * --convert-linalg-to-affine-loops --rock-vectorize-fusions
+       */
+      funcPm.addPass(rock::createRockLinalgAlignPass());
+      funcPm.addPass(rock::createRockPipelinePass());
+      funcPm.addPass(createCanonicalizerPass());
+      funcPm.addPass(createConvertLinalgToAffineLoopsPass());
+      funcPm.addPass(rock::createRockVectorizeFusionsPass());
+    }
+    funcPm.addPass(rock::createRockReuseLDSPass());
+
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
     funcPm.addPass(rock::createRockLowerReducePass());
 
-    // rock lowering (block to thread)
-    /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
-     *   --canonicalize --rock-threadwise-gemm-lowering
+    // rock lowering (thread down)
+    /* rocmlir-opt --rock-threadwise-gemm-lowering
      *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
      *   --math-extend-to-supported-types="source-types=f64,f32,f16
      * target-type=f32"

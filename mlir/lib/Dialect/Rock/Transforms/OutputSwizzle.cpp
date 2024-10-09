@@ -22,7 +22,6 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -32,6 +31,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/memoryUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
@@ -80,31 +80,6 @@ static bool hasGlobalMemoryAddressSpace(MemRefType type) {
          !hasPrivateMemoryAddressSpace(type);
 }
 
-static int64_t getLDSTotalSize(func::FuncOp &func) {
-  int64_t totalSize = 0;
-  func.walk([&](GpuAllocOp gpuAlloc) {
-    mlir::MemRefType type = gpuAlloc.getOutput().getType();
-    auto memSpaceValue =
-        dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace())
-            .getValue();
-    if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-      totalSize += type.getNumElements() * getByteWidth(type.getElementType());
-    }
-  });
-  return totalSize;
-}
-
-static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
-  // Check for arch limitations exceeded
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (succeeded(maybeArch)) {
-    StringAttr arch = maybeArch.value();
-    const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-    return success(ldsBytes <= ldsSize);
-  }
-  return success();
-}
-
 static std::optional<std::tuple<int64_t, int64_t, ArrayAttr>>
 getIdToLDS(ThreadwiseWriteAllOp &op, OpBuilder &b) {
   ArrayAttr srcTransform = op.getExtraViewsAttr();
@@ -136,6 +111,9 @@ struct ThreadwiseWriteAllRewritePattern
   LogicalResult matchAndRewrite(ThreadwiseWriteAllOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
+
+    if (!hasGlobalMemoryAddressSpace(op.getDest().getType()))
+      return b.notifyMatchFailure(op, "isn't writing to global memory");
 
     // Prepare some useful constants.
     Value convertedC = op.getSource();
@@ -206,8 +184,9 @@ struct ThreadwiseWriteAllRewritePattern
       return success();
     }
     size_t extraIdxCount = op.getExtraIndices().size();
-    VectorizationResult vectorRes =
-        getMaxVectorization(destView, extraIdxCount);
+    VectorizationResult vectorRes = getMaxVectorization(
+        destView, extraIdxCount, /*inputDimLen=*/std::nullopt,
+        destView.getDefiningOp());
     int64_t originalVectorLen = vectorRes.max;
 
     if (vectorLen <= originalVectorLen) {
@@ -409,12 +388,24 @@ void RockOutputSwizzlePass::runOnOperation() {
   if (!func->hasAttr("kernel"))
     return;
 
-  // Get total LDS memory allocated
-  int64_t ldsAllocated = getLDSTotalSize(func);
+  // Get allocated LDS after "reuse LDS" pass
+  FailureOr<int64_t> maybeAllocatedLDS = getAllocatedLDSAfterReuse(func);
+  if (failed(maybeAllocatedLDS)) {
+    LLVM_DEBUG(llvm::dbgs() << "Failed calling getAllocatedLDS\n");
+    return signalPassFailure();
+  }
+  int64_t allocatedLDS = maybeAllocatedLDS.value();
+
+  // not enough LDS memory
+  if (failed(checkLDSSize(func, allocatedLDS))) {
+    LLVM_DEBUG(llvm::dbgs() << "We require too much LDS memory: "
+                            << allocatedLDS << " bytes\n");
+    return signalPassFailure();
+  }
 
   SmallVector<Operation *, 4> writes;
   func.walk([&writes, &rewriter,
-             ldsAllocated](ThreadwiseWriteAllOp threadwiseWriteAll) {
+             allocatedLDS](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
 
@@ -442,10 +433,10 @@ void RockOutputSwizzlePass::runOnOperation() {
         return;
       }
       // heuristic: if we need more LDS, skip this pass
-      if (ldsRequiredBytes > ldsAllocated) {
+      if (ldsRequiredBytes > allocatedLDS) {
         LLVM_DEBUG(llvm::dbgs()
                    << "OutputSwizzle requires more LDS memory, current usage: "
-                   << ldsAllocated << " bytes, required: " << ldsRequiredBytes
+                   << allocatedLDS << " bytes, required: " << ldsRequiredBytes
                    << " bytes, skipping pass\n");
         return;
       }
