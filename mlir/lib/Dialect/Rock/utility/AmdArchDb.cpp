@@ -111,8 +111,10 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
   Type elementType = getElementTypeOrSelf(dataType);
   if (isWmma) {
-    if (!elementType.isF16() && !elementType.isBF16() &&
-        !elementType.isInteger(8)) {
+    if (!(isa<Float16Type, BFloat16Type>(elementType) ||
+          elementType.isInteger(8) ||
+          (hasFp8ConversionInstrs &&
+           isa<Float8E5M2Type, Float8E4M3FNType>(elementType)))) {
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
     }
   }
