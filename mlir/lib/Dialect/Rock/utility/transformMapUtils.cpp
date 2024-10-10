@@ -2001,8 +2001,8 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
                 LLVM_DEBUG(llvm::dbgs()
                            << "1:creating newRemovedSubDim /w size = "
                            << remSubDimInfo.size << ", stride=" << newStride
-                           << ",upperdim=" << upperDim << " " << " @ "
-                           << preservedLowerDims[0] << "\n");
+                           << ",upperdim=" << upperDim << " "
+                           << " @ " << preservedLowerDims[0] << "\n");
                 newRemovedSubDims[preservedLowerDims[0]].push_back(
                     {remSubDimInfo.size, newStride});
               }
