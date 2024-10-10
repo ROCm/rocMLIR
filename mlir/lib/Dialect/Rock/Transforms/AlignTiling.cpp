@@ -1098,62 +1098,20 @@ MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   return failure();
 }
 
-LogicalResult
-ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
-                                      LinalgAlignRewriter &rewriter) const {
-  Location loc = reduceOp.getLoc();
-  SmallVector<TransformMapAttr, 4> views;
-  auto threadwiseWriteOp = dyn_cast_if_present<ThreadwiseWriteAllOp>(
-      traceToWriter(reduceOp.getIn(), views));
-  if (!threadwiseWriteOp) {
-    LLVM_DEBUG(llvm::dbgs() << "Not fusing reduction " << reduceOp
-                            << " as it's not tied directly to a gemm\n");
-    return success();
-  }
-
-  StoreMethodAttr stMethod;
-  if (reduceOp.getReduceMethod() == ReduceMethod::Sum) {
-    stMethod =
-        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd);
-  } else if (reduceOp.getReduceMethod() == ReduceMethod::Max) {
-    stMethod =
-        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicMax);
-  } else {
-    // We are failing the pass here because rock.reduce appearing here means
-    // we are committed to fusion and this is case, we cant handle (so far) in
-    // this or a later pass.
-    return reduceOp.emitError()
-           << "Unsupported reduction type : " << reduceOp.getReduceMethodAttr();
-  }
-
-  if (threadwiseWriteOp.getStoreMethod() != rock::StoreMethod::Set) {
-    // We are failing the pass here because another rock.reduce appearing here
-    // means we are committed to fusion and this is case, we cant handle (so
-    // far) in this or a later pass.
-    return reduceOp.emitError("Another reduction op is not able to be fused "
-                              "with a prior reduction op.");
-  }
-
-  bool isUniqueReader;
-  LogicalResult checkResult = checkUniqueReader(
-      reduceOp.getIn().getDefiningOp(), reduceOp, isUniqueReader);
-  if (checkResult.failed()) {
-    return checkResult;
-  }
-  if (!isUniqueReader) {
-    threadwiseWriteOp = static_cast<ThreadwiseWriteAllOp>(
-        rewriter.clone(*threadwiseWriteOp.getOperation()));
-  }
-  rewriter.moveAfterIfNeeded(threadwiseWriteOp, reduceOp);
-
-  // Obtain blockwise subtile.
-
+// This function will attempt to add blockwise reductions when fusing
+// in reduction to the write back of the core kernel.
+static LogicalResult insertBlockwiseReduction (LinalgAlignRewriter &rewriter,
+                                                Location loc, 
+                                                rock::ReduceOp reduceOp,
+                                                ThreadwiseWriteAllOp threadwiseWriteOp,
+                                                StoreMethodAttr stMethod){
   // This has < block dimensions ... > x tid x iter to Gemm Dimensions.
   ArrayAttr extraViews = threadwiseWriteOp.getExtraViews();
   ArrayAttr destTrs;
   Value dest;
   std::tie(dest, destTrs, std::ignore) =
       untransform(rewriter, threadwiseWriteOp.getDest());
+
   ArrayAttr toBeReducedViews = prependUpperViews(rewriter, extraViews, destTrs);
   TransformMapAttr firstCoordTransform =
       cast<TransformMapAttr>(toBeReducedViews[0]);
@@ -1166,6 +1124,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   }
   FailureOr<ArrayAttr> blockSubTileViews =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
+  if(failed(blockSubTileViews)){
+    LLVM_DEBUG(llvm::dbgs() << "blockSubTileViews creation using removeUpperDims is unsuccesful.\n");
+    return failure();
+  }
   // We only want to keep tid in the maps
   // which is the last two for block subtile tid
   removeIndicesSet.clear();
@@ -1176,6 +1138,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   }
   FailureOr<ArrayAttr> blockSubTileTidSliceViews =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
+  if(failed(blockSubTileTidSliceViews)){
+    LLVM_DEBUG(llvm::dbgs() << "blockSubTileTidSliceViews creation using removeUpperDims is unsuccesful.\n");
+    return failure();
+  }
   // We only want to keep iter in the maps
   // which is the last one.
   removeIndicesSet.clear();
@@ -1184,6 +1150,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   }
   FailureOr<ArrayAttr> threadSubTileViews =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
+  if(failed(threadSubTileViews)){
+    LLVM_DEBUG(llvm::dbgs() << "threadSubTileViews creation using removeUpperDims is unsuccesful.\n");
+    return failure();
+  }
 
   // Extract grid-only dims
   removeIndicesSet.clear();
@@ -1192,10 +1162,18 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   }
   FailureOr<ArrayAttr> gridOnlyDims =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
+  if(failed(gridOnlyDims)){
+    LLVM_DEBUG(llvm::dbgs() << "gridOnlyDims creation using removeUpperDims is unsuccesful.\n");
+    return failure();
+  }
 
   FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
       lowerSubDims =
           getLowerSubDimensions(rewriter, toBeReducedViews, {0, 1, 2});
+  if(failed(lowerSubDims)){
+    LLVM_DEBUG(llvm::dbgs() << "lowerSubDims creation using getLowerSubDimensions is unsuccesful.\n");
+    return failure();
+  }
 
   int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
   TypedValue<ShapedType> redOut = reduceOp.getOut();
@@ -1207,11 +1185,6 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
   int64_t blockReductionAxisFromLeft =
       (reduceInShape.size() - 1) - blockReductionAxis;
 
-  // Currently, we use blockwise_reductions when fusing with reductions
-  // if and only if all sub-tile view creations are successful.
-  if (succeeded(blockSubTileViews) && succeeded(threadSubTileViews) &&
-      succeeded(blockSubTileTidSliceViews) && succeeded(gridOnlyDims) &&
-      succeeded(lowerSubDims)) {
     ArrayRef<int64_t> blockLowerShape =
         getLowerShape(blockSubTileViews.value());
     ArrayRef<int64_t> blockSubTileTidSliceShape =
@@ -1328,8 +1301,8 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
               [&](unsigned idx) { return idx + gridLowerShape.size(); });
           TransformAttr newTrAttr =
               TransformAttr::get(rewriter.getContext(), trAttr.getType(),
-                                 trAttr.getParams(), trAttr.getUpperNames(),
-                                 upperDims, trAttr.getLowerNames(), lowerDims);
+                                  trAttr.getParams(), trAttr.getUpperNames(),
+                                  upperDims, trAttr.getLowerNames(), lowerDims);
           trAttrs.push_back(newTrAttr);
         }
         // set the bounds
@@ -1337,20 +1310,20 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         ArrayRef<int64_t> origUpperBounds =
             trMapAttr.getUpperBounds().asArrayRef();
         upperBounds.insert(upperBounds.end(), origUpperBounds.begin(),
-                           origUpperBounds.end());
+                            origUpperBounds.end());
         SmallVector<int64_t> lowerBounds = llvm::to_vector(gridLowerShape);
         ArrayRef<int64_t> origLowerBounds =
             trMapAttr.getLowerBounds().asArrayRef();
         lowerBounds.insert(lowerBounds.end(), origLowerBounds.begin(),
-                           origLowerBounds.end());
+                            origLowerBounds.end());
         // create new trMapAttr
         LLVM_DEBUG(llvm::dbgs() << "trAttrs = ";
-                   llvm::interleaveComma(trAttrs, llvm::dbgs());
-                   llvm::dbgs() << "\n"; llvm::dbgs() << "upperBounds = ";
-                   llvm::interleaveComma(upperBounds, llvm::dbgs());
-                   llvm::dbgs() << "\n"; llvm::dbgs() << "lowerBounds = ";
-                   llvm::interleaveComma(lowerBounds, llvm::dbgs());
-                   llvm::dbgs() << "\n");
+                    llvm::interleaveComma(trAttrs, llvm::dbgs());
+                    llvm::dbgs() << "\n"; llvm::dbgs() << "upperBounds = ";
+                    llvm::interleaveComma(upperBounds, llvm::dbgs());
+                    llvm::dbgs() << "\n"; llvm::dbgs() << "lowerBounds = ";
+                    llvm::interleaveComma(lowerBounds, llvm::dbgs());
+                    llvm::dbgs() << "\n");
         TransformMapAttr newTrMap =
             TransformMapAttr::get(trAttrs, upperBounds, lowerBounds);
         transformAttrs.push_back(newTrMap);
@@ -1366,7 +1339,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
           nameRefs.push_back(names.back());
         }
         TopDownTMBuilder toAddMissingBlockDims(rewriter, nameRefs,
-                                               currLowerShape);
+                                                currLowerShape);
         {
           toAddMissingBlockDims.passThrough({0, 1, 2}, {0, 1, 2});
           int64_t missingDimCount =
@@ -1379,10 +1352,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
             names.push_back(dimName);
             nameRefs.push_back(names.back());
             toAddMissingBlockDims.constDim(nameRefs.back(), dimInsertionPoint++,
-                                           0, 1);
+                                            0, 1);
           }
           for (unsigned lowerDim = 3; lowerDim < currLowerShape.size();
-               lowerDim++) {
+                lowerDim++) {
             toAddMissingBlockDims.passThrough({dimInsertionPoint++},
                                               {lowerDim});
           }
@@ -1394,7 +1367,12 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       }
       currLowerShape =
           cast<TransformMapAttr>(transformAttrs.back()).getLowerBounds();
-      assert(currLowerShape.size() == lowerGridOnlyRank * 2);
+      if(currLowerShape.size() != lowerGridOnlyRank * 2){
+        LLVM_DEBUG(llvm::dbgs() << "Recombine: currLowerRank=" << currLowerShape.size() << "\n");
+        LLVM_DEBUG(llvm::dbgs() << "Recombine: lowerGridOnlyRank=" << lowerGridOnlyRank << "\n");
+        LLVM_DEBUG(llvm::dbgs() << "Recombine: current lower rank should be 2x as the grid only rank\n");
+        return failure();
+      }
 
       // The last two transforms are constructed bottom up as it is easier.
       // where we joint them once we have grid and block tiles coordinates
@@ -1405,7 +1383,7 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
       SmallVector<StringRef> reduceLowerShapeNameRefs =
           getStringRefsFor(reduceLowerShapeNames);
       BottomUpTMBuilder toMatrixView(rewriter, reduceLowerShapeNameRefs,
-                                     toBeReducedShape);
+                                      toBeReducedShape);
       llvm::SmallDenseMap<int64_t, SmallVector<int64_t>> gridSubDims;
       llvm::SmallDenseMap<int64_t, SmallVector<int64_t>> blockSubDims;
       TransformMapAttr lastMerge;
@@ -1426,13 +1404,19 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
           SmallVector<int64_t> splitSizes;
           int64_t currSize = toBeReducedShape[dim];
           for (const SubDimInfo &subDim : subDims) {
-            assert(currSize % (subDim.size * subDim.stride) == 0);
+            if(currSize % (subDim.size * subDim.stride) != 0){
+              LLVM_DEBUG(llvm::dbgs() << "Recombine: currSize=" << currSize << "\n");
+              LLVM_DEBUG(llvm::dbgs() << "Recombine: subDim.size=" << subDim.size << "\n");
+              LLVM_DEBUG(llvm::dbgs() << "Recombine: subDim.stride=" << subDim.stride << "\n");
+              LLVM_DEBUG(llvm::dbgs() << "Recombine: subDims should equally divide current dims\n");
+              return failure();
+            }
             int64_t newSize = currSize / (subDim.size * subDim.stride);
             if (newSize > 1) {
               blockSubDims[dim].push_back(dimInsertionPoint);
               SmallString<8> dimName(Twine("block_dim" + Twine(dim) + "_" +
-                                           Twine(dimInsertionPoint))
-                                         .str());
+                                            Twine(dimInsertionPoint))
+                                          .str());
               names[dim].push_back(dimName);
               nameRefs[dim].push_back(names[dim].back());
               upperDims[dim].push_back(dimInsertionPoint++);
@@ -1460,10 +1444,10 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
           }
           LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << "\n");
           LLVM_DEBUG(llvm::dbgs() << "\tsplits=";
-                     llvm::interleaveComma(splitSizes, llvm::dbgs());
-                     llvm::dbgs() << "\n");
+                      llvm::interleaveComma(splitSizes, llvm::dbgs());
+                      llvm::dbgs() << "\n");
           toMatrixView.unmerge(nameRefs[dim], upperDims[dim],
-                               reduceLowerShapeNameRefs[dim], splitSizes);
+                                reduceLowerShapeNameRefs[dim], splitSizes);
         }
         lastMerge = toMatrixView.get();
       }
@@ -1505,13 +1489,13 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
                                         upperBlockSubDimNames);
           } else {
             toGridBlockSeperation.addDim(upperBlockNames.back(),
-                                         dim + toBeReducedShape.size(), 1);
+                                          dim + toBeReducedShape.size(), 1);
           }
         }
         gridblockSeperation = toGridBlockSeperation.get();
       }
       LLVM_DEBUG(llvm::dbgs()
-                 << "gridblockSeperation=" << gridblockSeperation << "\n");
+                  << "gridblockSeperation=" << gridblockSeperation << "\n");
       // Now we join them to finish the recombination.
       transformAttrs.push_back(gridblockSeperation);
       transformAttrs.push_back(lastMerge);
@@ -1526,12 +1510,76 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
         }
       }
       transformAttrs.push_back(dropReductionDim.get());
-      views.clear();
-      views.insert(views.begin(), transformAttrs.begin(), transformAttrs.end());
+      threadwiseWriteOp.setExtraViewsAttr(rewriter.getArrayAttr({}));
+      threadwiseWriteOp.getSourceMutable().assign(broadcastReducedSrc);
+      LLVM_DEBUG(llvm::dbgs() << "transformAttrs = " << "\n";
+              llvm::interleaveComma(transformAttrs, llvm::dbgs()); llvm::dbgs() << "\n");
+      TypedValue<ShapedType> reduceOut = reduceOp.getOut();
+      reduceOut = cast<TypedValue<ShapedType>>(
+          applyViewsOnDest(rewriter, loc, reduceOut, transformAttrs));
+      threadwiseWriteOp.getDestMutable().assign(reduceOut);
+      threadwiseWriteOp.setStoreMethodAttr(stMethod);
     }
-    threadwiseWriteOp.setExtraViewsAttr(rewriter.getArrayAttr({}));
-    threadwiseWriteOp.getSourceMutable().assign(broadcastReducedSrc);
+    return success();
+}
+ 
+LogicalResult
+ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
+                                      LinalgAlignRewriter &rewriter) const {
+  Location loc = reduceOp.getLoc();
+  SmallVector<TransformMapAttr, 4> views;
+  auto threadwiseWriteOp = dyn_cast_if_present<ThreadwiseWriteAllOp>(
+      traceToWriter(reduceOp.getIn(), views));
+  if (!threadwiseWriteOp) {
+    LLVM_DEBUG(llvm::dbgs() << "Not fusing reduction " << reduceOp
+                            << " as it's not tied directly to a gemm\n");
+    return success();
+  }
+
+  StoreMethodAttr stMethod;
+  if (reduceOp.getReduceMethod() == ReduceMethod::Sum) {
+    stMethod =
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicAdd);
+  } else if (reduceOp.getReduceMethod() == ReduceMethod::Max) {
+    stMethod =
+        StoreMethodAttr::get(rewriter.getContext(), StoreMethod::AtomicMax);
   } else {
+    // We are failing the pass here because rock.reduce appearing here means
+    // we are committed to fusion and this is case, we cant handle (so far) in
+    // this or a later pass.
+    return reduceOp.emitError()
+           << "Unsupported reduction type : " << reduceOp.getReduceMethodAttr();
+  }
+
+  if (threadwiseWriteOp.getStoreMethod() != rock::StoreMethod::Set) {
+    // We are failing the pass here because another rock.reduce appearing here
+    // means we are committed to fusion and this is case, we cant handle (so
+    // far) in this or a later pass.
+    return reduceOp.emitError("Another reduction op is not able to be fused "
+                              "with a prior reduction op.");
+  }
+
+  bool isUniqueReader;
+  LogicalResult checkResult = checkUniqueReader(
+      reduceOp.getIn().getDefiningOp(), reduceOp, isUniqueReader);
+  if (checkResult.failed()) {
+    return checkResult;
+  }
+  if (!isUniqueReader) {
+    threadwiseWriteOp = static_cast<ThreadwiseWriteAllOp>(
+        rewriter.clone(*threadwiseWriteOp.getOperation()));
+  }
+  rewriter.moveAfterIfNeeded(threadwiseWriteOp, reduceOp);
+
+  LogicalResult canUseBlockwiseReductions = insertBlockwiseReduction(rewriter, loc, reduceOp, threadwiseWriteOp, stMethod);
+  // fallback to doing pure atomics based reductions
+  if(failed(canUseBlockwiseReductions)) {
+    LLVM_DEBUG(llvm::dbgs() << "Unable to add blockwise reductions for this reduction fusion case.\n");
+    int64_t reductionAxis = reduceOp.getAxisAttr().getInt();
+    TypedValue<ShapedType> redOut = reduceOp.getOut();
+    ArrayRef<int64_t> reduceOutShape = redOut.getType().getShape();
+    TypedValue<ShapedType> redIn = reduceOp.getIn();
+    ArrayRef<int64_t> reduceInShape = redIn.getType().getShape();
     BottomUpTMBuilder dropReductionDim(rewriter, reduceOutShape, loc);
     for (uint32_t i = 0; i < reduceOutShape.size(); ++i) {
       if (i == reductionAxis) {
@@ -1542,16 +1590,14 @@ ReduceRewritePattern::matchAndRewrite(rock::ReduceOp reduceOp,
     }
     TransformMapAttr trAttr = dropReductionDim.get();
     views.push_back(trAttr);
+    LLVM_DEBUG(llvm::dbgs() << "views = " << "\n";
+            llvm::interleaveComma(views, llvm::dbgs()); llvm::dbgs() << "\n");
+    TypedValue<ShapedType> reduceOut = reduceOp.getOut();
+    reduceOut = cast<TypedValue<ShapedType>>(
+        applyViewsOnDest(rewriter, loc, reduceOut, views));
+    threadwiseWriteOp.getDestMutable().assign(reduceOut);
+    threadwiseWriteOp.setStoreMethodAttr(stMethod);
   }
-
-  LLVM_DEBUG(llvm::dbgs() << "views = " << "\n";
-             llvm::interleaveComma(views, llvm::dbgs()); llvm::dbgs() << "\n");
-  TypedValue<ShapedType> reduceOut = reduceOp.getOut();
-  reduceOut = cast<TypedValue<ShapedType>>(
-      applyViewsOnDest(rewriter, loc, reduceOut, views));
-  threadwiseWriteOp.getDestMutable().assign(reduceOut);
-  threadwiseWriteOp.setStoreMethodAttr(stMethod);
-
   rewriter.eraseOp(reduceOp);
   return success();
 }
