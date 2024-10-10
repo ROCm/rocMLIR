@@ -62,14 +62,11 @@ ArrayAttr reverse(ArrayAttr attrs) {
 
 ArrayAttr getAllViewsFromSource(OpOperand *operand) {
   Value val = operand->get();
-  SmallVector<Attribute> attrs;
-  while (TransformOp trOp = dyn_cast<TransformOp>(val.getDefiningOp())) {
-    attrs.push_back(trOp.getTransformAttr());
-    val = trOp.getViewSource();
-  }
   IRRewriter rewriter(val.getContext());
-  ArrayAttr arrAttrs = rewriter.getArrayAttr({attrs});
-  return reverse(arrAttrs);
+  ArrayAttr trs;
+  Value untransformed;
+  std::tie(untransformed, trs, std::ignore) = untransform(rewriter, val);
+  return reverse(trs);
 }
 
 FailureOr<std::tuple<ArrayAttr, Operation *>>
