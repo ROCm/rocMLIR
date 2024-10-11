@@ -1344,7 +1344,7 @@ static LogicalResult insertBlockwiseReduction(
         for (unsigned i = 0; i < upperRank - 2; i++) {
           gridOnlyDimIdxs.push_back(i);
         }
-        toAddMissingBlockDims.passThrough(gridOnlyDimIdxs, {0, 1, 2});
+        toAddMissingBlockDims.passThrough(gridOnlyDimIdxs, gridOnlyDimIdxs);
         int64_t missingDimCount = lowerGridOnlyRank * 2 - currLowerShape.size();
         SmallVector<SmallString<8>> names =
             createDimNames(missingDimCount, "cd");

@@ -253,23 +253,24 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
 }
 
 // This function will shuffle the M & N dimensions so that the
-// reductions are uniforms split across block tiles. Note that
+// reductions are uniformly split across block tiles. Note that
 // we dont consider G as we dont block tile across G dimension.
 std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(
     OpBuilder &builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k,
     int64_t n, int64_t nPerBlock,
-    llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims) {
+    const llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>
+        &reductionSubDims) {
   BottomUpTMBuilder toReductionSplitA(builder, {"G", "K", "M"}, {g, k, m});
   ArrayAttr additionalViewsA = builder.getArrayAttr({});
-  if (!reductionSubDims[1].empty()) {
+  if (reductionSubDims.contains(1) && !reductionSubDims.at(1).empty()) {
     additionalViewsA = reorderReductionDims(
-        toReductionSplitA, reductionSubDims[1], "M", m, mPerBlock);
+        toReductionSplitA, reductionSubDims.at(1), "M", m, mPerBlock);
   }
   BottomUpTMBuilder toReductionSplitB(builder, {"G", "K", "N"}, {g, k, n});
   ArrayAttr additionalViewsB = builder.getArrayAttr({});
-  if (!reductionSubDims[2].empty()) {
+  if (reductionSubDims.contains(2) && !reductionSubDims.at(2).empty()) {
     additionalViewsB = reorderReductionDims(
-        toReductionSplitB, reductionSubDims[2], "N", n, nPerBlock);
+        toReductionSplitB, reductionSubDims.at(2), "N", n, nPerBlock);
   }
   return {additionalViewsA, additionalViewsB};
 }
