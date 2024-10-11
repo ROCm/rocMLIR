@@ -222,8 +222,8 @@ static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,
   // that could be performant. If the gemm sizes
   // are not divisible by that, then we definitely
   // need padding. Therefore, it can't use blockwise
-  // reductions. 
-  
+  // reductions.
+
   // Thus, it becomes a competition among
   // atomic_store based reduction kernels.
   // So basically, all configs could be performant.

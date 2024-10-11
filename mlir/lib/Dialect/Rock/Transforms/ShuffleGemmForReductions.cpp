@@ -252,9 +252,9 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
       {reduceSplit, commonReduction, resplitReduction, recombined});
 }
 
-//This function will shuffle the M & N dimensions so that the
-//reductions are uniforms split across block tiles. Note that
-//we dont consider G as we dont block tile across G dimension.
+// This function will shuffle the M & N dimensions so that the
+// reductions are uniforms split across block tiles. Note that
+// we dont consider G as we dont block tile across G dimension.
 std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(
     OpBuilder &builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k,
     int64_t n, int64_t nPerBlock,
@@ -277,16 +277,17 @@ std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(
 ArrayAttr generateShuffledGemmOutputViews(
     OpBuilder &builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t n,
     int64_t nPerBlock,
-    const llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>& reductionSubDims) {
+    const llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>
+        &reductionSubDims) {
   // Split the reduction and non-reduction splits
   int64_t totalReductionSizeM = 1;
-  if(reductionSubDims.contains(1)){
+  if (reductionSubDims.contains(1)) {
     for (const SubDimInfo &sdInfo : reductionSubDims.at(1)) {
       totalReductionSizeM *= sdInfo.size;
     }
   }
   int64_t totalReductionSizeN = 1;
-  if(reductionSubDims.contains(2)){
+  if (reductionSubDims.contains(2)) {
     for (const SubDimInfo &sdInfo : reductionSubDims.at(2)) {
       totalReductionSizeN *= sdInfo.size;
     }
@@ -333,11 +334,11 @@ ArrayAttr generateShuffledGemmOutputViews(
   {
     toSplitOriginalSubDims.passThrough("G");
     SmallVector<SubDimInfo> mReductionSubDimInfo;
-    if(reductionSubDims.contains(1)){
+    if (reductionSubDims.contains(1)) {
       mReductionSubDimInfo = reductionSubDims.at(1);
     }
     SmallVector<SubDimInfo> nReductionSubDimInfo;
-    if(reductionSubDims.contains(2)){
+    if (reductionSubDims.contains(2)) {
       nReductionSubDimInfo = reductionSubDims.at(2);
     }
 
@@ -502,7 +503,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     LLVM_DEBUG(llvm::dbgs() << "gemmToReduceViews=" << views << "\n");
     FailureOr<MNPerBlock> mnPerBlock = getMNPerBlock(gemmOp);
     if (failed(mnPerBlock)) {
-      LLVM_DEBUG(llvm::dbgs() << "m/n per block extraction failed from gemm op.\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "m/n per block extraction failed from gemm op.\n");
       return failure();
     }
     IRRewriter rewriter(rOp.getContext());
@@ -514,9 +516,12 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       return failure();
     }
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>>
-        reductionSubDimsinGemmSpace = getLowerSubDimensions(rewriter, invertedViews, rOp.getAxis().getZExtValue());
-    if (failed(reductionSubDimsinGemmSpace) || reductionSubDimsinGemmSpace.value().empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "reduce to gemm lower subdimension tracing failed.\n");
+        reductionSubDimsinGemmSpace = getLowerSubDimensions(
+            rewriter, invertedViews, rOp.getAxis().getZExtValue());
+    if (failed(reductionSubDimsinGemmSpace) ||
+        reductionSubDimsinGemmSpace.value().empty()) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "reduce to gemm lower subdimension tracing failed.\n");
       return failure();
     }
     for (auto [dim, subDimInfos] : reductionSubDimsinGemmSpace.value()) {
@@ -538,8 +543,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmInA = gemmNonAccelOp.getA();
       gemmInB = gemmNonAccelOp.getB();
       gemmOut = gemmNonAccelOp.getC();
-    }
-    else{
+    } else {
       LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
       return failure();
     }
@@ -583,13 +587,11 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmNonAccelOp.getAMutable().assign(trGemmInA);
       gemmNonAccelOp.getBMutable().assign(trGemmInB);
       gemmNonAccelOp.getCMutable().assign(trGemmOut);
-    }
-    else{
+    } else {
       LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
       return failure();
     }
-  }
-  else{
+  } else {
     LLVM_DEBUG(llvm::dbgs() << "failed to obtain gemm to reduce views.\n");
     return failure();
   }
@@ -615,9 +617,12 @@ void RockShuffleGemmForReductionsPass::runOnOperation() {
   });
   if (largestReductionOp) {
     auto &bufferDeps = getAnalysis<BufferDependencyAnalysis>();
-    LogicalResult res = rearrangeGemmParallelDimsForReduction(largestReductionOp, bufferDeps);
-    if(failed(res)){
-      LLVM_DEBUG(llvm::dbgs() << "unable to shuffle the gemm dims for blockwise reductions.\n");
+    LogicalResult res =
+        rearrangeGemmParallelDimsForReduction(largestReductionOp, bufferDeps);
+    if (failed(res)) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "unable to shuffle the gemm dims for blockwise reductions.\n");
     }
   }
 }

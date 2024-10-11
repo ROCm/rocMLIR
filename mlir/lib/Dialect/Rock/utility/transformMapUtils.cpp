@@ -2382,7 +2382,7 @@ FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
 mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
                                   ArrayRef<int64_t> dims) {
   llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> subDimInfo;
-  if(transformAttrs.empty()){
+  if (transformAttrs.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "transformAttrs is empty.\n");
     return failure();
   }

@@ -1209,9 +1209,10 @@ static LogicalResult insertBlockwiseReduction(
     }
   }
   auto maybeArch = getArch(reduceOp);
-  if(succeeded(maybeArch)){
-    if(failed(checkLDSSize(maybeArch.value(), ldsWorkspaceSize))){
-      LLVM_DEBUG(llvm::dbgs() << "lds size for blockwise reduction does not fit.\n");
+  if (succeeded(maybeArch)) {
+    if (failed(checkLDSSize(maybeArch.value(), ldsWorkspaceSize))) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "lds size for blockwise reduction does not fit.\n");
       return failure();
     }
   }
@@ -1237,7 +1238,8 @@ static LogicalResult insertBlockwiseReduction(
   {
     SmallVector<Attribute> transformAttrs;
     ArrayRef<int64_t> blockTileShape = getLowerShape(blockSubTileViews.value());
-    SmallVector<SmallString<8>> names = createDimNames(blockTileShape.size(), "dim");
+    SmallVector<SmallString<8>> names =
+        createDimNames(blockTileShape.size(), "dim");
     SmallVector<StringRef> nameRefs = getStringRefsFor(names);
     TopDownTMBuilder toReducedView(rewriter, nameRefs, blockTileShape);
     for (unsigned i = 0; i < blockTileShape.size(); i++) {
@@ -1277,7 +1279,8 @@ static LogicalResult insertBlockwiseReduction(
         gridUpperShape = gridOnlyAttr.getUpperBounds().asArrayRef();
         gridLowerShape = gridOnlyAttr.getLowerBounds().asArrayRef();
       } else {
-        SmallVector<SmallString<8>> names = createDimNames(lowerGridOnlyRank, "dim");
+        SmallVector<SmallString<8>> names =
+            createDimNames(lowerGridOnlyRank, "dim");
         SmallVector<StringRef> nameRefs = getStringRefsFor(names);
         SmallVector<unsigned> dims;
         for (unsigned i = 0; i < lowerGridOnlyRank; i++) {
@@ -1331,7 +1334,8 @@ static LogicalResult insertBlockwiseReduction(
     ArrayRef<int64_t> currLowerShape =
         cast<TransformMapAttr>(transformAttrs.back()).getLowerBounds();
     if (currLowerShape.size() < lowerGridOnlyRank * 2) {
-      SmallVector<SmallString<8>> names = createDimNames(currLowerShape.size(), "d");
+      SmallVector<SmallString<8>> names =
+          createDimNames(currLowerShape.size(), "d");
       SmallVector<StringRef> nameRefs = getStringRefsFor(names);
       TopDownTMBuilder toAddMissingBlockDims(rewriter, nameRefs,
                                              currLowerShape);
@@ -1342,7 +1346,8 @@ static LogicalResult insertBlockwiseReduction(
         }
         toAddMissingBlockDims.passThrough(gridOnlyDimIdxs, {0, 1, 2});
         int64_t missingDimCount = lowerGridOnlyRank * 2 - currLowerShape.size();
-        SmallVector<SmallString<8>> names = createDimNames(missingDimCount, "cd");
+        SmallVector<SmallString<8>> names =
+            createDimNames(missingDimCount, "cd");
         SmallVector<StringRef> nameRefs = getStringRefsFor(names);
         unsigned dimInsertionPoint = 3;
         for (int64_t md = 0; md < missingDimCount; md++) {
@@ -1522,8 +1527,8 @@ static LogicalResult insertBlockwiseReduction(
     reduceOut = cast<TypedValue<ShapedType>>(
         applyViewsOnDest(rewriter, loc, reduceOut, transformAttrs));
     threadwiseWriteOp.getDestMutable().assign(reduceOut);
-    //TODO : in future if all reductions are done within the block
-    //we can revert this back to a non-atomic store.
+    // TODO : in future if all reductions are done within the block
+    // we can revert this back to a non-atomic store.
     threadwiseWriteOp.setStoreMethodAttr(stMethod);
   }
   return success();
