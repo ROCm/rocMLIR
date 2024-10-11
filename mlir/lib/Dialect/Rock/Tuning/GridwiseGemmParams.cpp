@@ -226,7 +226,7 @@ static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,
 
   // Thus, it becomes a competition among
   // atomic_store based reduction kernels.
-  // So basically, all configs could be performant.
+  // So basically, all configs could be performant relative to each other.
   if (gemmSize.m % 16 != 0) {
     return success();
   }
