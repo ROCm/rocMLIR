@@ -252,6 +252,9 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
       {reduceSplit, commonReduction, resplitReduction, recombined});
 }
 
+//This function will shuffle the M & N dimensions so that the
+//reductions are uniforms split across block tiles. Note that
+//we dont consider G as we dont block tile across G dimension.
 std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(
     OpBuilder &builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t k,
     int64_t n, int64_t nPerBlock,
@@ -274,15 +277,19 @@ std::tuple<ArrayAttr, ArrayAttr> generateShuffledGemmInputViews(
 ArrayAttr generateShuffledGemmOutputViews(
     OpBuilder &builder, int64_t g, int64_t m, int64_t mPerBlock, int64_t n,
     int64_t nPerBlock,
-    llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> reductionSubDims) {
+    const llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>& reductionSubDims) {
   // Split the reduction and non-reduction splits
   int64_t totalReductionSizeM = 1;
-  for (const SubDimInfo &sdInfo : reductionSubDims[1]) {
-    totalReductionSizeM *= sdInfo.size;
+  if(reductionSubDims.contains(1)){
+    for (const SubDimInfo &sdInfo : reductionSubDims.at(1)) {
+      totalReductionSizeM *= sdInfo.size;
+    }
   }
   int64_t totalReductionSizeN = 1;
-  for (const SubDimInfo &sdInfo : reductionSubDims[2]) {
-    totalReductionSizeN *= sdInfo.size;
+  if(reductionSubDims.contains(2)){
+    for (const SubDimInfo &sdInfo : reductionSubDims.at(2)) {
+      totalReductionSizeN *= sdInfo.size;
+    }
   }
   int64_t commonMPerBlockReductionFactor =
       math_util::gcd(totalReductionSizeM, mPerBlock);
@@ -325,8 +332,14 @@ ArrayAttr generateShuffledGemmOutputViews(
   int64_t nSubDimStartPoint = -1;
   {
     toSplitOriginalSubDims.passThrough("G");
-    SmallVector<SubDimInfo> mReductionSubDimInfo = reductionSubDims[1];
-    SmallVector<SubDimInfo> nReductionSubDimInfo = reductionSubDims[2];
+    SmallVector<SubDimInfo> mReductionSubDimInfo;
+    if(reductionSubDims.contains(1)){
+      mReductionSubDimInfo = reductionSubDims.at(1);
+    }
+    SmallVector<SubDimInfo> nReductionSubDimInfo;
+    if(reductionSubDims.contains(2)){
+      nReductionSubDimInfo = reductionSubDims.at(2);
+    }
 
     unsigned dimInsertionPoint = 1;
     {
@@ -479,31 +492,34 @@ ArrayAttr generateShuffledGemmOutputViews(
 // sub-dimension should be discoverable using "getLowerSubDimensions". If one of
 // those fail, we bail and not attempt to use blockwise_reductions in such
 // fusions.
-static void
+static LogicalResult
 rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
                                       const BufferDependencyAnalysis &deps) {
-  FailureOr<std::tuple<ArrayAttr, Operation *>> res =
+  FailureOr<std::tuple<ArrayAttr, Operation *>> maybeViewsAndGemmOp =
       obtainGemmToReduceViews(rOp, deps);
-  if (succeeded(res)) {
-    auto [views, gemmOp] = res.value();
+  if (succeeded(maybeViewsAndGemmOp)) {
+    auto [views, gemmOp] = maybeViewsAndGemmOp.value();
     LLVM_DEBUG(llvm::dbgs() << "gemmToReduceViews=" << views << "\n");
     FailureOr<MNPerBlock> mnPerBlock = getMNPerBlock(gemmOp);
     if (failed(mnPerBlock)) {
-      return;
+      LLVM_DEBUG(llvm::dbgs() << "m/n per block extraction failed from gemm op.\n");
+      return failure();
     }
     IRRewriter rewriter(rOp.getContext());
     ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
     LLVM_DEBUG(llvm::dbgs()
                << "inv(gemmToReduceViews)=" << invertedViews << "\n");
     if (!invertedViews || invertedViews.empty()) {
-      return;
+      LLVM_DEBUG(llvm::dbgs() << "gemm to reduce view inversion failed.\n");
+      return failure();
     }
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>>
-        subDimensions = getLowerSubDimensions(rewriter, invertedViews, 2);
-    if (failed(subDimensions) || subDimensions.value().empty()) {
-      return;
+        reductionSubDimsinGemmSpace = getLowerSubDimensions(rewriter, invertedViews, rOp.getAxis().getZExtValue());
+    if (failed(reductionSubDimsinGemmSpace) || reductionSubDimsinGemmSpace.value().empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "reduce to gemm lower subdimension tracing failed.\n");
+      return failure();
     }
-    for (auto [dim, subDimInfos] : subDimensions.value()) {
+    for (auto [dim, subDimInfos] : reductionSubDimsinGemmSpace.value()) {
       LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << ":");
       LLVM_DEBUG(llvm::interleaveComma(subDimInfos, llvm::dbgs()));
       LLVM_DEBUG(llvm::dbgs() << "\n");
@@ -523,13 +539,17 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmInB = gemmNonAccelOp.getB();
       gemmOut = gemmNonAccelOp.getC();
     }
+    else{
+      LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
+      return failure();
+    }
     int64_t g = gemmInA.getType().getShape()[0];
     int64_t k = gemmInA.getType().getShape()[1];
     int64_t m = gemmInA.getType().getShape()[2];
     int64_t n = gemmInB.getType().getShape()[2];
     auto [additionalViewsA, additionalViewsB] = generateShuffledGemmInputViews(
         rewriter, g, m, mnPerBlock.value().MPerBlock, k, n,
-        mnPerBlock.value().NPerBlock, subDimensions.value());
+        mnPerBlock.value().NPerBlock, reductionSubDimsinGemmSpace.value());
     Value trGemmInA = gemmInA;
     rewriter.setInsertionPointAfterValue(gemmInA);
     for (Attribute trMap : additionalViewsA) {
@@ -544,17 +564,14 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     }
     ArrayAttr additionalOutputViews = generateShuffledGemmOutputViews(
         rewriter, g, m, mnPerBlock.value().MPerBlock, n,
-        mnPerBlock.value().NPerBlock, subDimensions.value());
+        mnPerBlock.value().NPerBlock, reductionSubDimsinGemmSpace.value());
     rewriter.setInsertionPointAfterValue(gemmOut);
     Value trGemmOut = gemmOut;
-    Value firstUse = nullptr;
     ArrayAttr invertedOutViews =
         invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
     for (Attribute trMap : invertedOutViews) {
       trGemmOut = rewriter.create<TransformOp>(rOp.getLoc(), trGemmOut,
                                                cast<TransformMapAttr>(trMap));
-      if (!firstUse)
-        firstUse = trGemmOut;
     }
     if (GridwiseGemmAccelOp gemmAccelOp =
             dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
@@ -567,7 +584,16 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmNonAccelOp.getBMutable().assign(trGemmInB);
       gemmNonAccelOp.getCMutable().assign(trGemmOut);
     }
+    else{
+      LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
+      return failure();
+    }
   }
+  else{
+    LLVM_DEBUG(llvm::dbgs() << "failed to obtain gemm to reduce views.\n");
+    return failure();
+  }
+  return success();
 }
 
 void RockShuffleGemmForReductionsPass::runOnOperation() {
@@ -589,6 +615,9 @@ void RockShuffleGemmForReductionsPass::runOnOperation() {
   });
   if (largestReductionOp) {
     auto &bufferDeps = getAnalysis<BufferDependencyAnalysis>();
-    rearrangeGemmParallelDimsForReduction(largestReductionOp, bufferDeps);
+    LogicalResult res = rearrangeGemmParallelDimsForReduction(largestReductionOp, bufferDeps);
+    if(failed(res)){
+      LLVM_DEBUG(llvm::dbgs() << "unable to shuffle the gemm dims for blockwise reductions.\n");
+    }
   }
 }

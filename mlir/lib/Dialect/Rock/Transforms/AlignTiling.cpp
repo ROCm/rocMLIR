@@ -1129,12 +1129,9 @@ static LogicalResult insertBlockwiseReduction(
   }
   // We only want to keep tid in the maps
   // which is the last two for block subtile tid
-  removeIndicesSet.clear();
-  for (int64_t i = 0; i < upperRank; i++) {
-    if (i != upperRank - 2) {
-      removeIndicesSet.insert(i);
-    }
-  }
+  // hence, add back iter to remove indices.
+  removeIndicesSet.insert(upperRank - 1);
+
   FailureOr<ArrayAttr> blockSubTileTidSliceViews =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(blockSubTileTidSliceViews)) {
@@ -1144,10 +1141,9 @@ static LogicalResult insertBlockwiseReduction(
   }
   // We only want to keep iter in the maps
   // which is the last one.
-  removeIndicesSet.clear();
-  for (int64_t i = 0; i < upperRank - 1; i++) {
-    removeIndicesSet.insert(i);
-  }
+  removeIndicesSet.remove(upperRank - 1);
+  removeIndicesSet.insert(upperRank - 2);
+
   FailureOr<ArrayAttr> threadSubTileViews =
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(threadSubTileViews)) {
@@ -1170,9 +1166,13 @@ static LogicalResult insertBlockwiseReduction(
     return failure();
   }
 
+  SmallVector<int64_t> gridOnlyDimIdxs;
+  for (int64_t i = 0; i < upperRank - 2; i++) {
+    gridOnlyDimIdxs.push_back(i);
+  }
   FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
       lowerSubDims =
-          getLowerSubDimensions(rewriter, toBeReducedViews, {0, 1, 2});
+          getLowerSubDimensions(rewriter, toBeReducedViews, gridOnlyDimIdxs);
   if (failed(lowerSubDims)) {
     LLVM_DEBUG(llvm::dbgs() << "lowerSubDims creation using "
                                "getLowerSubDimensions is unsuccesful.\n");
@@ -1208,6 +1208,13 @@ static LogicalResult insertBlockwiseReduction(
       ldsWorkspaceSize *= size;
     }
   }
+  auto maybeArch = getArch(reduceOp);
+  if(succeeded(maybeArch)){
+    if(failed(checkLDSSize(maybeArch.value(), ldsWorkspaceSize))){
+      LLVM_DEBUG(llvm::dbgs() << "lds size for blockwise reduction does not fit.\n");
+      return failure();
+    }
+  }
   TypedValue<MemRefType> src = threadwiseWriteOp.getSource();
   auto broadcastReducedSrc = rewriter.create<GpuAllocOp>(loc, src.getType());
   Value ldsWorkspace = rock::gpuAlloc(rewriter, loc, ldsWorkspaceSize,
@@ -1230,13 +1237,8 @@ static LogicalResult insertBlockwiseReduction(
   {
     SmallVector<Attribute> transformAttrs;
     ArrayRef<int64_t> blockTileShape = getLowerShape(blockSubTileViews.value());
-    SmallVector<SmallString<8>> names;
-    SmallVector<StringRef> nameRefs;
-    for (size_t i = 0; i < blockTileShape.size(); i++) {
-      SmallString<8> dimName(Twine("dim" + Twine(i)).str());
-      names.push_back(dimName);
-      nameRefs.push_back(names.back());
-    }
+    SmallVector<SmallString<8>> names = createDimNames(blockTileShape.size(), "dim");
+    SmallVector<StringRef> nameRefs = getStringRefsFor(names);
     TopDownTMBuilder toReducedView(rewriter, nameRefs, blockTileShape);
     for (unsigned i = 0; i < blockTileShape.size(); i++) {
       if (blockReductionAxis == i) {
@@ -1275,13 +1277,10 @@ static LogicalResult insertBlockwiseReduction(
         gridUpperShape = gridOnlyAttr.getUpperBounds().asArrayRef();
         gridLowerShape = gridOnlyAttr.getLowerBounds().asArrayRef();
       } else {
-        SmallVector<SmallString<8>> names;
-        SmallVector<StringRef> nameRefs;
+        SmallVector<SmallString<8>> names = createDimNames(lowerGridOnlyRank, "dim");
+        SmallVector<StringRef> nameRefs = getStringRefsFor(names);
         SmallVector<unsigned> dims;
         for (unsigned i = 0; i < lowerGridOnlyRank; i++) {
-          SmallString<8> dimName(Twine("dim" + Twine(i)).str());
-          names.push_back(dimName);
-          nameRefs.push_back(names.back());
           dims.push_back(i);
         }
         gridUpperShape = lowerShapeGridOnly;
@@ -1332,25 +1331,21 @@ static LogicalResult insertBlockwiseReduction(
     ArrayRef<int64_t> currLowerShape =
         cast<TransformMapAttr>(transformAttrs.back()).getLowerBounds();
     if (currLowerShape.size() < lowerGridOnlyRank * 2) {
-      SmallVector<SmallString<8>> names;
-      SmallVector<StringRef> nameRefs;
-      for (size_t i = 0; i < currLowerShape.size(); i++) {
-        SmallString<8> dimName(Twine("d" + Twine(i)).str());
-        names.push_back(dimName);
-        nameRefs.push_back(names.back());
-      }
+      SmallVector<SmallString<8>> names = createDimNames(currLowerShape.size(), "d");
+      SmallVector<StringRef> nameRefs = getStringRefsFor(names);
       TopDownTMBuilder toAddMissingBlockDims(rewriter, nameRefs,
                                              currLowerShape);
       {
-        toAddMissingBlockDims.passThrough({0, 1, 2}, {0, 1, 2});
+        SmallVector<unsigned> gridOnlyDimIdxs;
+        for (unsigned i = 0; i < upperRank - 2; i++) {
+          gridOnlyDimIdxs.push_back(i);
+        }
+        toAddMissingBlockDims.passThrough(gridOnlyDimIdxs, {0, 1, 2});
         int64_t missingDimCount = lowerGridOnlyRank * 2 - currLowerShape.size();
-        SmallVector<SmallString<8>> names;
-        SmallVector<StringRef> nameRefs;
+        SmallVector<SmallString<8>> names = createDimNames(missingDimCount, "cd");
+        SmallVector<StringRef> nameRefs = getStringRefsFor(names);
         unsigned dimInsertionPoint = 3;
         for (int64_t md = 0; md < missingDimCount; md++) {
-          SmallString<8> dimName(Twine("cd" + Twine(md)).str());
-          names.push_back(dimName);
-          nameRefs.push_back(names.back());
           toAddMissingBlockDims.constDim(nameRefs.back(), dimInsertionPoint++,
                                          0, 1);
         }
@@ -1396,7 +1391,7 @@ static LogicalResult insertBlockwiseReduction(
       int64_t dimInsertionPoint = 0;
       for (unsigned dim = 0; dim < toBeReducedShape.size(); dim++) {
         // The lower subDims contain sub-dimensions where blocking
-        // indices -- namesly g_block, m_block and n_block -- maps to
+        // indices -- namely g_block, m_block and n_block -- maps to
         // in the matrix coordinates. Here we split out matrix dims
         // into sub-dims that are related to the said blocking dimensions.
         SmallVector<SubDimInfo> subDims = lowerSubDims.value()[dim];
@@ -1460,9 +1455,9 @@ static LogicalResult insertBlockwiseReduction(
     }
     LLVM_DEBUG(llvm::dbgs() << "lastMerge=" << lastMerge << "\n");
     // The above view contains splitted sub-dims that are either associated
-    // with grid and non-grid dimensions. Then, we concat them into 6
-    // dimensions here: [concat_grid_dim0, concat_grid_dim1, concat_grid_dim2,
-    // concat_blk_dim0, concat_blk_dim1, concat_blk_dim2]
+    // with grid and non-grid dimensions. Then, we concat them as follows:
+    // [concat_grid_dim0, concat_grid_dim1, .. , concat_grid_dimX,
+    // concat_blk_dim0, concat_blk_dim1, .. , concat_blk_dimX]
     BottomUpTMBuilder toGridBlockSeperation =
         BottomUpTMBuilder::above(toMatrixView, lastMerge);
     TransformMapAttr gridblockSeperation;
@@ -1527,6 +1522,8 @@ static LogicalResult insertBlockwiseReduction(
     reduceOut = cast<TypedValue<ShapedType>>(
         applyViewsOnDest(rewriter, loc, reduceOut, transformAttrs));
     threadwiseWriteOp.getDestMutable().assign(reduceOut);
+    //TODO : in future if all reductions are done within the block
+    //we can revert this back to a non-atomic store.
     threadwiseWriteOp.setStoreMethodAttr(stMethod);
   }
   return success();

@@ -2382,6 +2382,10 @@ FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
 mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
                                   ArrayRef<int64_t> dims) {
   llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> subDimInfo;
+  if(transformAttrs.empty()){
+    LLVM_DEBUG(llvm::dbgs() << "transformAttrs is empty.\n");
+    return failure();
+  }
   TransformMapAttr topMap = cast<TransformMapAttr>(transformAttrs[0]);
   for (int64_t dim : dims) {
     // No point of tracing size 1 dimensions
@@ -2422,9 +2426,9 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
         } break;
         case TransformType::Merge: {
           SmallVector<int64_t> subDimStrides = getStrides(trAttr.getParams());
+          int64_t upperDim = trAttr.getUpperDims()[0];
           for (auto [lowDim, subDimStride, param] : llvm::zip(
                    trAttr.getLowerDims(), subDimStrides, trAttr.getParams())) {
-            int64_t upperDim = trAttr.getUpperDims()[0];
             if (currSubDimInfo.contains(upperDim)) {
               for (const SubDimInfo &sdInfo : currSubDimInfo.at(upperDim)) {
                 if (sdInfo.stride >= subDimStride * param) {

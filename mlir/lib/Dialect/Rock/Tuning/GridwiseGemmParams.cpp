@@ -221,9 +221,12 @@ static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,
   // 16 is practically lowest m in MFMAs/WMMAs
   // that could be performant. If the gemm sizes
   // are not divisible by that, then we definitely
-  // need padding. Therefore, it cant use blockwise
-  // reductions. Thus, it becomes a competition among
+  // need padding. Therefore, it can't use blockwise
+  // reductions. 
+  
+  // Thus, it becomes a competition among
   // atomic_store based reduction kernels.
+  // So basically, all configs could be performant.
   if (gemmSize.m % 16 != 0) {
     return success();
   }
