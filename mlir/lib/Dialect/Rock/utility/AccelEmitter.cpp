@@ -436,7 +436,6 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
-  // llvm::errs() << "accelemitter kpackPerThread="<<kpackPerThread<<"\n";
   bool isKReduction = mfmaAttr.isKReduction;
 
   // Extract relevant derived parameters

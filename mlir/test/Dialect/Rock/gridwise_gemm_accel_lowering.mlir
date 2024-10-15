@@ -17,16 +17,17 @@ func.func @fp8_bf8_xdlops(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1: memref<1x1
   // CHECK: %[[viewAStoreTr1:.+]] = rock.transform %[[viewAStoreTr0]]
   // CHECK: %[[viewAStoreTr2:.+]] = rock.transform %[[viewAStoreTr1]]
   // CHECK: %[[viewAStoreTr3:.+]] = rock.transform %[[viewAStoreTr2]]
-  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewAStoreTr3]])
+  // CHECK: %[[viewAStoreTr4:.+]] = rock.transform %[[viewAStoreTr3]]
+  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewAStoreTr4]])
 
   // CHECK: %[[viewBStoreMB:.+]] = rock.extract_multibuffer(%[[viewBStore]])
   // CHECK: %[[viewBStoreTr0:.+]] = rock.transform %[[viewBStoreMB]]
   // CHECK: %[[viewBStoreTr1:.+]] = rock.transform %[[viewBStoreTr0]]
   // CHECK: %[[viewBStoreTr2:.+]] = rock.transform %[[viewBStoreTr1]]
   // CHECK: %[[viewBStoreTr3:.+]] = rock.transform %[[viewBStoreTr2]]
+  // CHECK: %[[viewBStoreTr4:.+]] = rock.transform %[[viewBStoreTr3]]
+  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewBStoreTr4]])
 
-
-  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewBStoreTr3]])
   // CHECK: %[[viewAGemmMB:.+]] = rock.extract_multibuffer(%[[viewAGemm]])
   // CHECK: %[[viewBGemmMB:.+]] = rock.extract_multibuffer(%[[viewBGemm]])
 
@@ -56,16 +57,17 @@ func.func @fp8_bf8_xdlops_ocp(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1
   // CHECK: %[[viewAStoreTr1:.+]] = rock.transform %[[viewAStoreTr0]]
   // CHECK: %[[viewAStoreTr2:.+]] = rock.transform %[[viewAStoreTr1]]
   // CHECK: %[[viewAStoreTr3:.+]] = rock.transform %[[viewAStoreTr2]]
-  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewAStoreTr3]])
+  // CHECK: %[[viewAStoreTr4:.+]] = rock.transform %[[viewAStoreTr3]]
+  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewAStoreTr4]])
 
   // CHECK: %[[viewBStoreMB:.+]] = rock.extract_multibuffer(%[[viewBStore]])
   // CHECK: %[[viewBStoreTr0:.+]] = rock.transform %[[viewBStoreMB]]
   // CHECK: %[[viewBStoreTr1:.+]] = rock.transform %[[viewBStoreTr0]]
   // CHECK: %[[viewBStoreTr2:.+]] = rock.transform %[[viewBStoreTr1]]
   // CHECK: %[[viewBStoreTr3:.+]] = rock.transform %[[viewBStoreTr2]]
+  // CHECK: %[[viewBStoreTr4:.+]] = rock.transform %[[viewBStoreTr3]]
+  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewBStoreTr4]])
 
-
-  // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[viewBStoreTr3]])
   // CHECK: %[[viewAGemmMB:.+]] = rock.extract_multibuffer(%[[viewAGemm]])
   // CHECK: %[[viewBGemmMB:.+]] = rock.extract_multibuffer(%[[viewBGemm]])
 

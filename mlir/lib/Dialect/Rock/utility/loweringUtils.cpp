@@ -258,12 +258,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
         loc);
     gridwiseSplitId.passThrough(
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
-    // llvm::errs() << "dThreads=" << dThreads << " kThreads=" << kThreads << "
-    // blockSize=" << blockSize << "\n";
     makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, prevKThreads,
                          {4, 5}, isKContigousDim);
-    // llvm::errs() << "dPerThread=" << dPerThread << " kPerThread=" <<
-    // kPerThread << " dataPerThread=" << dataPerThread << "\n";
     makeLoadRegsIterMerge(gridwiseSplitId, dIterName, dPerThread, kPerThread,
                           {6, 7}, isKContigousDim);
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
@@ -331,12 +327,6 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     }
     gpuViews.threadSubTile = maybeThreadSubTile.value();
   }
-  // llvm::errs() << "getLoadRegsAsTileViews grid" << gpuViews.gridSubTile <<
-  // "\n"; llvm::errs() << "getLoadRegsAsTileViews block" <<
-  // gpuViews.blockSubTile
-  //              << "\n";
-  // llvm::errs() << "getLoadRegsAsTileViews thread" << gpuViews.threadSubTile
-  //              << "\n";
   return gpuViews;
 }
 
@@ -470,12 +460,6 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     }
     gpuViews.threadSubTile = maybeThreadSubTile.value();
   }
-  // llvm::errs() << "getPackedRegsAsTileViews grid" << gpuViews.gridSubTile
-  //              << "\n";
-  // llvm::errs() << "getPackedRegsAsTileViews block" << gpuViews.blockSubTile
-  //              << "\n";
-  // llvm::errs() << "getPackedRegsAsTileViews thread" << gpuViews.threadSubTile
-  //              << "\n";
   return gpuViews;
 }
 

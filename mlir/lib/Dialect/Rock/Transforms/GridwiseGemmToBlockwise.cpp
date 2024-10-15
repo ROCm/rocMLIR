@@ -60,7 +60,7 @@ namespace rock {
 } // namespace rock
 } // namespace mlir
 
-#define DEBUG_TYPE "rock-gridwise-gemm-to-blockwise"
+#define DEBUG_TYPE "rock-gridwise-to-blockwise"
 
 using namespace mlir;
 using namespace mlir::arith;
