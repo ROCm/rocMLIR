@@ -81,6 +81,10 @@ PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
     info.numCu = convOp.getNumCU();
     info.batchSize = convDims.n;
   }
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  WalkResult wRes = func.walk(
+      [&](ReduceOp rOp) -> WalkResult { return WalkResult::interrupt(); });
+  info.hasFusedReduction = wRes.wasInterrupted();
   return info;
 }
 
@@ -211,12 +215,44 @@ PopulateParams::paramsProbablyValid(OpBuilder &b,
   return populateDerived(params);
 }
 
+static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,
+                                                     int64_t mPerBlock,
+                                                     int64_t nPerBlock) {
+  // 16 is practically lowest m in MFMAs/WMMAs
+  // that could be performant. If the gemm sizes
+  // are not divisible by that, then we definitely
+  // need padding. Therefore, it can't use blockwise
+  // reductions.
+
+  // Thus, it becomes a competition among
+  // atomic_store based reduction kernels.
+  // So basically, all configs could be performant relative to each other.
+  if (gemmSize.m % 16 != 0) {
+    return success();
+  }
+  if (gemmSize.n % 16 != 0) {
+    return success();
+  }
+  // We can skip knowing that dPerBlock=16
+  // is there on the tuning space that should
+  // be faster than anyone that use m or n
+  // padding.
+  if (gemmSize.m % mPerBlock != 0) {
+    return failure();
+  }
+  if (gemmSize.n % nPerBlock != 0) {
+    return failure();
+  }
+  return success();
+}
+
 LogicalResult
 PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
                                   const InitParamsNonAccel &params) {
-  // Implement this if needed.
-  (void)info;
-  (void)params;
+  if (info.hasFusedReduction) {
+    return couldFusedReductionBePerformant(info.gemmSize, params.gemmMPerBlock,
+                                           params.gemmNPerBlock);
+  }
   return success();
 }
 
@@ -338,6 +374,10 @@ PopulateParamsAccel::paramsProbablyValid(OpBuilder &b,
 LogicalResult
 PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
                                        const InitParamsAccel &params) {
+  if (info.hasFusedReduction) {
+    return couldFusedReductionBePerformant(info.gemmSize, params.gemmMPerBlock,
+                                           params.gemmNPerBlock);
+  }
   return specificCouldBePerformant(params, info.gemmAType, info.gemmBType);
 }
 

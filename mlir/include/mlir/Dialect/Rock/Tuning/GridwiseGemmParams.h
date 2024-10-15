@@ -76,19 +76,21 @@ struct PopulateParamsInfo {
   KernelType kernelType;
   int64_t batchSize;
   uint32_t numCu;
+  bool hasFusedReduction;
 
   PopulateParamsInfo(GemmSize gemmSize, StringRef arch,
                      GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,
                      KernelType kernelType)
       : gemmSize(gemmSize), arch(arch), gemmFeatures(gemmFeatures),
-        gemmAType(gemmAType), gemmBType(gemmBType), kernelType(kernelType) {}
+        gemmAType(gemmAType), gemmBType(gemmBType), kernelType(kernelType),
+        hasFusedReduction(false) {}
 
   PopulateParamsInfo(GemmSize gemmSize, StringRef arch,
                      GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,
                      KernelType kernelType, int64_t batchSize, uint32_t numCu)
       : gemmSize(gemmSize), arch(arch), gemmFeatures(gemmFeatures),
         gemmAType(gemmAType), gemmBType(gemmBType), kernelType(kernelType),
-        batchSize(batchSize), numCu(numCu) {}
+        batchSize(batchSize), numCu(numCu), hasFusedReduction(false) {}
 
   /// Extract the relevant information from a RockGemmWrapperInterface operation
   static PopulateParamsInfo fromOp(RockGemmWrapperInterface op);

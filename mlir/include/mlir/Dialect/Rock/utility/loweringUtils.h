@@ -201,6 +201,9 @@ TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer, Type type);
 Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
                gpu::AddressSpace memoryAddressSpace);
 
+// helper to verify a lds allocation fits in the GPU
+LogicalResult checkLDSSize(StringAttr arch, int64_t ldsBytes);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

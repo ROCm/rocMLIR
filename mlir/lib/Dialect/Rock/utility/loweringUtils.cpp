@@ -775,3 +775,9 @@ Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
 
   return viewBufferAs(b, buffer, elementType);
 }
+
+LogicalResult mlir::rock::checkLDSSize(StringAttr arch, int64_t ldsBytes) {
+  // Check for arch limitations exceede
+  const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
+  return success(ldsBytes <= ldsSize);
+}
