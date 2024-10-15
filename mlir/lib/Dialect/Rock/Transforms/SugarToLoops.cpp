@@ -910,8 +910,9 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
   return result;
 }
 
-static Value getConstIntOrIndexValue(OpBuilder &b, Location loc, int64_t value, Type type){
-  if(isa<IndexType>(type)){
+static Value getConstIntOrIndexValue(OpBuilder &b, Location loc, int64_t value,
+                                     Type type) {
+  if (isa<IndexType>(type)) {
     return b.create<ConstantIndexOp>(loc, value);
   }
   return b.create<ConstantIntOp>(loc, value, type);
@@ -928,7 +929,8 @@ static Value flattenCoords(OpBuilder &b, Location loc, ArrayRef<Value> coords,
     flatCoord = b.create<arith::AddIOp>(
         loc, flatCoord,
         b.create<arith::MulIOp>(
-            loc, coords[i], getConstIntOrIndexValue(b, loc, stride, coordType)));
+            loc, coords[i],
+            getConstIntOrIndexValue(b, loc, stride, coordType)));
   }
 
   return flatCoord;
@@ -1095,19 +1097,21 @@ static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
                                                memref, reassociationRef);
 }
 
-std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b, GlobalLoadOp op){
+std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b,
+                                                      GlobalLoadOp op) {
   MemRefType srcType = op.getSource().getType();
   Location loc = op.getLoc();
   SmallVector<Value> coords(op.getSourceCoord());
   Type originalLoadedType = op.getResult().getType();
   int64_t originalLoadVecLen = 1;
-  if(VectorType originalLoadVecType = dyn_cast<VectorType>(originalLoadedType)){
+  if (VectorType originalLoadVecType =
+          dyn_cast<VectorType>(originalLoadedType)) {
     originalLoadVecLen = originalLoadVecType.getNumElements();
   }
-  if(srcType.getElementType().getIntOrFloatBitWidth() >= 8 || originalLoadVecLen != 1){
+  if (srcType.getElementType().getIntOrFloatBitWidth() >= 8 ||
+      originalLoadVecLen != 1) {
     return {coords, originalLoadedType};
-  }
-  else if(srcType.getElementType().getIntOrFloatBitWidth() == 4){
+  } else if (srcType.getElementType().getIntOrFloatBitWidth() == 4) {
     ArrayRef<int64_t> shape = srcType.getShape();
     Value flatAddress = flattenCoords(b, loc, coords, shape);
     Type coordType = flatAddress.getType();
@@ -1118,26 +1122,25 @@ std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b, Global
     unflattenCoords(b, loc, flatAddress, shape, newCoords);
     Type loadedType = VectorType::get({2}, srcType.getElementType());
     return {newCoords, loadedType};
-  }
-  else{
+  } else {
     llvm_unreachable("less than 4 bit element types are not implemented");
   }
 }
 
-Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec){
+Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
   MemRefType srcType = op.getSource().getType();
   Type originalLoadedType = op.getResult().getType();
-  if(srcType.getElementType().getIntOrFloatBitWidth() >= 8){
+  if (srcType.getElementType().getIntOrFloatBitWidth() >= 8) {
     return loadedVec;
   }
   int64_t originalLoadVecLen = 1;
-  if(VectorType originalLoadVecType = dyn_cast_if_present<VectorType>(originalLoadedType)){
+  if (VectorType originalLoadVecType =
+          dyn_cast_if_present<VectorType>(originalLoadedType)) {
     originalLoadVecLen = originalLoadVecType.getNumElements();
   }
-  if(originalLoadVecLen != 1){
+  if (originalLoadVecLen != 1) {
     return loadedVec;
-  }
-  else if(srcType.getElementType().getIntOrFloatBitWidth() == 4){
+  } else if (srcType.getElementType().getIntOrFloatBitWidth() == 4) {
     assert(isa<VectorType>(loadedVec.getType()));
     Location loc = op.getLoc();
     SmallVector<Value, 5> coords(op.getSourceCoord());
@@ -1147,8 +1150,7 @@ Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec){
     Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
     Value lsb = b.createOrFold<arith::AndIOp>(loc, flatAddress, one);
     return b.createOrFold<vector::ExtractElementOp>(loc, loadedVec, lsb);
-  }
-  else{
+  } else {
     llvm_unreachable("less than 4 bit element types are not implemented");
   }
 }
