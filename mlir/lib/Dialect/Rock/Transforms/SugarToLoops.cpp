@@ -1097,6 +1097,9 @@ static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
                                                memref, reassociationRef);
 }
 
+// A helper to obtain coordinates of a global load and loaded type
+// Note if there is scalar i4 load, we still would load vector<2xi4>
+// element and select later on.
 std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b,
                                                       GlobalLoadOp op) {
   MemRefType srcType = op.getSource().getType();
@@ -1111,22 +1114,25 @@ std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b,
   if (srcType.getElementType().getIntOrFloatBitWidth() >= 8 ||
       originalLoadVecLen != 1) {
     return {coords, originalLoadedType};
-  } else if (srcType.getElementType().getIntOrFloatBitWidth() == 4) {
+  } else {
+    assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
+           "we only support 4bits in narrow types");
     ArrayRef<int64_t> shape = srcType.getShape();
     Value flatAddress = flattenCoords(b, loc, coords, shape);
     Type coordType = flatAddress.getType();
+    Value minusOne = getConstIntOrIndexValue(b, loc, -1, coordType);
     Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
-    flatAddress = b.createOrFold<arith::ShRUIOp>(loc, flatAddress, one);
-    flatAddress = b.createOrFold<arith::ShLIOp>(loc, flatAddress, one);
+    Value lsbMask = b.createOrFold<arith::XOrIOp>(loc, minusOne, one);
+    flatAddress = b.createOrFold<arith::AndIOp>(loc, flatAddress, lsbMask);
     SmallVector<Value> newCoords;
     unflattenCoords(b, loc, flatAddress, shape, newCoords);
     Type loadedType = VectorType::get({2}, srcType.getElementType());
     return {newCoords, loadedType};
-  } else {
-    llvm_unreachable("less than 4 bit element types are not implemented");
   }
 }
 
+// A helper to select the right i4 element if it was supposed to
+// be a scalar i4 load.
 Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
   MemRefType srcType = op.getSource().getType();
   Type originalLoadedType = op.getResult().getType();
@@ -1140,7 +1146,9 @@ Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
   }
   if (originalLoadVecLen != 1) {
     return loadedVec;
-  } else if (srcType.getElementType().getIntOrFloatBitWidth() == 4) {
+  } else {
+    assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
+           "we only support 4bits in narrow types");
     assert(isa<VectorType>(loadedVec.getType()));
     Location loc = op.getLoc();
     SmallVector<Value, 5> coords(op.getSourceCoord());
@@ -1150,8 +1158,6 @@ Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
     Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
     Value lsb = b.createOrFold<arith::AndIOp>(loc, flatAddress, one);
     return b.createOrFold<vector::ExtractElementOp>(loc, loadedVec, lsb);
-  } else {
-    llvm_unreachable("less than 4 bit element types are not implemented");
   }
 }
 
