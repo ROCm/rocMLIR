@@ -781,6 +781,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
+
     if (dstAddrSpace == gpu::AddressSpace::Global) {
       b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
                               op.getFeaturesAttr(), op.getStoreMethodAttr(),
@@ -796,7 +797,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
         return b.notifyMatchFailure(
             loc, "non-global address spaces must have 32-bit pointers");
       Type loadType = vectorTypeOrSelf(elementType, vectorLen);
-      TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/0);
+      TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/1);
       scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();

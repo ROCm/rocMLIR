@@ -212,7 +212,13 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, bool isKContigousDim) {
+    int64_t dPerThread, bool isKContigousDim, int64_t padK,
+    int64_t prevKperBlock, int64_t effectiveBlockSize) {
+  if (prevKperBlock == 0)
+    prevKperBlock = kPerBlock;
+  if (effectiveBlockSize == 0)
+    effectiveBlockSize = blockSize;
+
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -222,21 +228,27 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   int64_t kGlobal = matrixShape[1];
+  if (padK > 0) {
+    kGlobal += padK;
+  }
   int64_t dGlobal = matrixShape[2];
 
   int64_t kIters = kGlobal / kPerBlock;
-  int64_t dataPerThread = (kPerBlock * dPerBlock) / blockSize;
+  int64_t dataPerThread = (kPerBlock * dPerBlock) / effectiveBlockSize;
 
   SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
   SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
+
+  int64_t prevKThreads = prevKperBlock / kPerThread;
   int64_t kThreads = kPerBlock / kPerThread;
   int64_t dThreads = dPerBlock / dPerThread;
 
   RegsAsMatrixSubTiles gpuViews;
   {
+
     TopDownTMBuilder gridwiseSplitId(
         b,
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], "tid",
@@ -246,12 +258,30 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
         loc);
     gridwiseSplitId.passThrough(
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
-    makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
+    makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, prevKThreads,
                          {4, 5}, isKContigousDim);
     makeLoadRegsIterMerge(gridwiseSplitId, dIterName, dPerThread, kPerThread,
                           {6, 7}, isKContigousDim);
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+
+    auto padkThreadsLastIter =
+        TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+    if (prevKThreads == kThreads) {
+      padkThreadsLastIter.passThrough(
+          {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2],
+           "k_thread", "k_iter", dThreadName, dIterName});
+
+    } else {
+      padkThreadsLastIter.passThrough({"k_loop", bidGridOrder[0],
+                                       bidGridOrder[1], bidGridOrder[2],
+                                       "k_iter", dThreadName, dIterName});
+      padkThreadsLastIter.pad("k_thread", "k_thread", 0,
+                              prevKThreads - kThreads);
+    }
+    auto padkThreadsLastIterAttr = padkThreadsLastIter.get();
+
+    auto toGlobalIdx =
+        TopDownTMBuilder::below(padkThreadsLastIter, padkThreadsLastIterAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
                         {kGlobal / kPerBlock, kThreads, kPerThread});
@@ -261,7 +291,19 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+
+    if (padK == 0) {
+      gpuViews.gridSubTile = b.getArrayAttr(
+          {splitIdAttr, padkThreadsLastIterAttr, toGlobalIdxAttr});
+    } else {
+      auto padder = TopDownTMBuilder::below(toGlobalIdx, toGlobalIdxAttr);
+      padder.passThrough({"g"}, {0}, {"g"});
+      padder.passThrough({dName}, {2}, {dName});
+      padder.pad("k", "k", 0, padK);
+      gpuViews.gridSubTile =
+          b.getArrayAttr({splitIdAttr, padkThreadsLastIterAttr, toGlobalIdxAttr,
+                          padder.get()});
+    }
   }
   {
     StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
@@ -293,7 +335,13 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
     int64_t dPerThread, int64_t kpack, bool isKContigousDim,
-    bool doSwapThreadIterSubDimsForD) {
+    bool doSwapThreadIterSubDimsForD, int64_t padK, int64_t prevKperBlock,
+    int64_t effectiveBlockSize) {
+  if (prevKperBlock == 0)
+    prevKperBlock = kPerBlock;
+  if (effectiveBlockSize == 0)
+    effectiveBlockSize = blockSize;
+
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -303,16 +351,20 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
   MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   int64_t kGlobal = matrixShape[1];
+  if (padK > 0) {
+    kGlobal += padK;
+  }
   int64_t dGlobal = matrixShape[2];
 
   int64_t kIters = kGlobal / kPerBlock;
-  int64_t dataPerThread = (kPerBlock * dPerBlock) / blockSize;
+  int64_t dataPerThread = (kPerBlock * dPerBlock) / effectiveBlockSize;
 
   SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
   SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
+  int64_t prevKThreads = prevKperBlock / kPerThread;
   int64_t kThreads = kPerBlock / kPerThread;
   int64_t dThreads = dPerBlock / dPerThread;
 
@@ -321,6 +373,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 
   RegsAsMatrixSubTiles gpuViews;
   {
+
     TopDownTMBuilder gridwiseSplitId(
         b,
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], "tid",
@@ -330,13 +383,32 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
         loc);
     gridwiseSplitId.passThrough(
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
-    makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
+    makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, prevKThreads,
                          {4, 5}, isKContigousDim);
     gridwiseSplitId.merge({"kouterPerThread", dIterName, "kpackPerThread"},
                           {6, 7, 8}, "iter",
                           {kOuterPerThread, dPerThread, kpackPerThread});
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+
+    auto padkThreadsLastIter =
+        TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+    if (prevKThreads == kThreads) {
+      padkThreadsLastIter.passThrough(
+          {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2],
+           "k_thread", dThreadName, "kouterPerThread", dIterName,
+           "kpackPerThread"});
+
+    } else {
+      padkThreadsLastIter.passThrough(
+          {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2],
+           dThreadName, "kouterPerThread", dIterName, "kpackPerThread"});
+      padkThreadsLastIter.pad("k_thread", "k_thread", 0,
+                              prevKThreads - kThreads);
+    }
+    auto padkThreadsLastIterAttr = padkThreadsLastIter.get();
+
+    auto toGlobalIdx =
+        TopDownTMBuilder::below(padkThreadsLastIter, padkThreadsLastIterAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge(
         "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
@@ -352,7 +424,19 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+
+    if (padK == 0) {
+      gpuViews.gridSubTile = b.getArrayAttr(
+          {splitIdAttr, padkThreadsLastIterAttr, toGlobalIdxAttr});
+    } else {
+      auto padder = TopDownTMBuilder::below(toGlobalIdx, toGlobalIdxAttr);
+      padder.passThrough({"g"}, {0}, {"g"});
+      padder.passThrough({dName}, {2}, {dName});
+      padder.pad("k", "k", 0, padK);
+      gpuViews.gridSubTile =
+          b.getArrayAttr({splitIdAttr, padkThreadsLastIterAttr, toGlobalIdxAttr,
+                          padder.get()});
+    }
   }
   {
     StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
