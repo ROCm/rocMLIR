@@ -406,6 +406,12 @@ boolean isNotNavi3x(String chip) {
 
 void collectCoverageData(String profdata, String cov, String cpath) {
     sh """
+       rm -f *.profraw
+       # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
+       if [ `df --output=avail -k . | tail -1l` -lt 153600000 ]; then
+          echo Not enough free disk space for profiling.
+          exit 1
+       fi
        ninja check-rocmlir
        # Profile processing.
        ${profdata} merge -sparse ./*.profraw -o ./coverage.profdata
