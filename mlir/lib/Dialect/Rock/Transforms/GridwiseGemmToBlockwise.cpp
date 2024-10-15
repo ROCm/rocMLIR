@@ -2553,10 +2553,6 @@ static GemmParams lastIterK(PatternRewriter &b, GridwiseGemmAccelOp op,
       break;
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "validK=" << validK << "\n"
-                          << "params.kpackMinPerBlock="
-                          << gemmParams.accelParams.kpackMinPerBlock << "\n"
-                          << "kpack=" << gemmParams.kpack << "\n");
   assert(currKpacksPerBlock <= gemmParams.kpacksPerBlock);
   int64_t currKPerBlock = currKpacksPerBlock * gemmParams.kpack;
   assert(currKPerBlock <= gemmParams.kPerBlock);
@@ -2566,9 +2562,6 @@ static GemmParams lastIterK(PatternRewriter &b, GridwiseGemmAccelOp op,
     assert(currKPad > 0);
   }
   assert(currKPad <= gemmParams.kPad);
-  LLVM_DEBUG(llvm::dbgs() << "gemmParams.kPerBlock=" << gemmParams.kPerBlock
-                          << "\n"
-                          << "currKPerBlock=" << currKPerBlock << "\n");
   assert(gemmParams.kPerBlock % currKPerBlock == 0);
   GemmParams lastIterK = gemmParams;
   lastIterK.kPad = currKPad;
@@ -2579,10 +2572,12 @@ static GemmParams lastIterK(PatternRewriter &b, GridwiseGemmAccelOp op,
   assert(lastIterK.lastIterFactor > 0);
   assert(gemmParams.blockSize % lastIterK.lastIterFactor == 0);
   LLVM_DEBUG(
-      llvm::dbgs() << "lastIterFactor=" << lastIterK.lastIterFactor << "\n"
-                   << "currKPerBlock=" << lastIterK.kPerBlock << "\n"
-                   << "currKpacksPerBlock=" << lastIterK.kpacksPerBlock << "\n"
-                   << "currKPad=" << lastIterK.kPad << "\n");
+      llvm::dbgs() << "lastIterK.lastIterFactor=" << lastIterK.lastIterFactor
+                   << "\n"
+                   << "lastIterK.kPerBlock=" << lastIterK.kPerBlock << "\n"
+                   << "lastIterK.kpacksPerBlock=" << lastIterK.kpacksPerBlock
+                   << "\n"
+                   << "lastIterK.kPad=" << lastIterK.kPad << "\n");
 
   // Obtain data types of inputs.
   auto elementTypeA = op.getA().getType().getElementType();
@@ -2645,10 +2640,7 @@ allocation(GridwiseGemmAccelOp op, PatternRewriter &b, Location loc,
 
   int64_t effectiveBlockSize = gemmParams.blockSize / gemmParams.lastIterFactor;
 
-  LLVM_DEBUG(llvm::dbgs() << "blockSize: " << gemmParams.blockSize << "\n"
-                          << "mPerBlock: " << gemmParams.mPerBlock << "\n"
-                          << "nPerBlock: " << gemmParams.nPerBlock << "\n"
-                          << "kPerBlock: " << gemmParams.kPerBlock << "\n"
+  LLVM_DEBUG(llvm::dbgs() << "kPerBlock: " << gemmParams.kPerBlock << "\n"
                           << "prevKperBlock: " << prevKperBlock << "\n"
                           << "effectiveBlockSize: " << effectiveBlockSize
                           << "\n");
@@ -2885,11 +2877,7 @@ struct GridwiseGemmAccelRewritePattern
     }
 
     LLVM_DEBUG(llvm::dbgs() << "gridSize: " << gridSize << "\n"
-                            << "blockSize: " << blockSize << "\n"
-                            << "\n"
-                            << "kPerBlock: " << kPerBlock << "\n"
-                            << "mPerBlock: " << mPerBlock << "\n"
-                            << "nPerBlock: " << nPerBlock << "\n");
+                            << "blockSize: " << blockSize << "\n");
 
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
