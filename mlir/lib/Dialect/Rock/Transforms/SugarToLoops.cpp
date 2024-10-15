@@ -910,17 +910,25 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
   return result;
 }
 
+static Value getConstIntOrIndexValue(OpBuilder &b, Location loc, int64_t value, Type type){
+  if(isa<IndexType>(type)){
+    return b.create<ConstantIndexOp>(loc, value);
+  }
+  return b.create<ConstantIntOp>(loc, value, type);
+}
+
 // Manually flatten a set of coordinates into a single address
 static Value flattenCoords(OpBuilder &b, Location loc, ArrayRef<Value> coords,
                            ArrayRef<int64_t> shape) {
   Value flatCoord = coords.back();
+  Type coordType = flatCoord.getType();
   int64_t stride = 1;
   for (int i = shape.size() - 2; i >= 0; i--) {
     stride *= shape[i + 1];
     flatCoord = b.create<arith::AddIOp>(
         loc, flatCoord,
         b.create<arith::MulIOp>(
-            loc, coords[i], b.create<arith::ConstantIntOp>(loc, stride, 32)));
+            loc, coords[i], getConstIntOrIndexValue(b, loc, stride, coordType)));
   }
 
   return flatCoord;
@@ -931,12 +939,13 @@ static void unflattenCoords(OpBuilder &b, Location loc, Value flatAddress,
                             ArrayRef<int64_t> shape,
                             SmallVector<Value> &unflattenedAddress) {
   unflattenedAddress.resize(shape.size());
+  Type coordType = flatAddress.getType();
   int64_t coeff = 1;
   for (int i = shape.size() - 1; i >= 0; i--) {
     Value thisCoord = b.create<arith::DivUIOp>(
-        loc, flatAddress, b.create<arith::ConstantIntOp>(loc, coeff, 32));
+        loc, flatAddress, getConstIntOrIndexValue(b, loc, coeff, coordType));
     thisCoord = b.create<arith::RemUIOp>(
-        loc, thisCoord, b.create<arith::ConstantIntOp>(loc, shape[i], 32));
+        loc, thisCoord, getConstIntOrIndexValue(b, loc, shape[i], coordType));
     unflattenedAddress[i] = thisCoord;
     coeff *= shape[i];
   }
@@ -996,9 +1005,10 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   }
 
   // Useful consts
-  Value zero = b.create<arith::ConstantIntOp>(loc, 0, 32);
-  Value one = b.create<arith::ConstantIntOp>(loc, 1, 32);
-  Value two = b.create<arith::ConstantIntOp>(loc, 2, 32);
+  Type addressElemType = address.getType();
+  Value zero = getConstIntOrIndexValue(b, loc, 0, addressElemType);
+  Value one = getConstIntOrIndexValue(b, loc, 1, addressElemType);
+  Value two = getConstIntOrIndexValue(b, loc, 2, addressElemType);
 
   // Extended packed data to use with the intrinsic
   Value dataExt = createZeroConstantOp(
@@ -1085,6 +1095,64 @@ static Value zeroDMemrefAsOneD(PatternRewriter &b, Value memref) {
                                                memref, reassociationRef);
 }
 
+std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b, GlobalLoadOp op){
+  MemRefType srcType = op.getSource().getType();
+  Location loc = op.getLoc();
+  SmallVector<Value> coords(op.getSourceCoord());
+  Type originalLoadedType = op.getResult().getType();
+  int64_t originalLoadVecLen = 1;
+  if(VectorType originalLoadVecType = dyn_cast<VectorType>(originalLoadedType)){
+    originalLoadVecLen = originalLoadVecType.getNumElements();
+  }
+  if(srcType.getElementType().getIntOrFloatBitWidth() >= 8 || originalLoadVecLen != 1){
+    return {coords, originalLoadedType};
+  }
+  else if(srcType.getElementType().getIntOrFloatBitWidth() == 4){
+    ArrayRef<int64_t> shape = srcType.getShape();
+    Value flatAddress = flattenCoords(b, loc, coords, shape);
+    Type coordType = flatAddress.getType();
+    Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
+    flatAddress = b.createOrFold<arith::ShRUIOp>(loc, flatAddress, one);
+    flatAddress = b.createOrFold<arith::ShLIOp>(loc, flatAddress, one);
+    SmallVector<Value> newCoords;
+    unflattenCoords(b, loc, flatAddress, shape, newCoords);
+    Type loadedType = VectorType::get({2}, srcType.getElementType());
+    return {newCoords, loadedType};
+  }
+  else{
+    llvm_unreachable("less than 4 bit element types are not implemented");
+  }
+}
+
+Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec){
+  MemRefType srcType = op.getSource().getType();
+  Type originalLoadedType = op.getResult().getType();
+  if(srcType.getElementType().getIntOrFloatBitWidth() >= 8){
+    return loadedVec;
+  }
+  int64_t originalLoadVecLen = 1;
+  if(VectorType originalLoadVecType = dyn_cast_if_present<VectorType>(originalLoadedType)){
+    originalLoadVecLen = originalLoadVecType.getNumElements();
+  }
+  if(originalLoadVecLen != 1){
+    return loadedVec;
+  }
+  else if(srcType.getElementType().getIntOrFloatBitWidth() == 4){
+    assert(isa<VectorType>(loadedVec.getType()));
+    Location loc = op.getLoc();
+    SmallVector<Value, 5> coords(op.getSourceCoord());
+    ArrayRef<int64_t> shape = srcType.getShape();
+    Value flatAddress = flattenCoords(b, loc, coords, shape);
+    Type coordType = flatAddress.getType();
+    Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
+    Value lsb = b.createOrFold<arith::AndIOp>(loc, flatAddress, one);
+    return b.createOrFold<vector::ExtractElementOp>(loc, loadedVec, lsb);
+  }
+  else{
+    llvm_unreachable("less than 4 bit element types are not implemented");
+  }
+}
+
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
   using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(GlobalLoadOp op,
@@ -1093,8 +1161,9 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     Value source = op.getSource();
     Value valid = op.getValid();
 
-    Type loadedType = op.getResult().getType();
-    SmallVector<Value, 5> coords(op.getSourceCoord());
+    Type loadedType;
+    SmallVector<Value> coords;
+    std::tie(coords, loadedType) = getCoordsAndType(b, op);
 
     llvm::APInt validConst = APInt::getZero(1);
     bool hasI64Idx = op.getNeeds64BitIdx();
@@ -1173,6 +1242,7 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         else
           loaded = thisLoad;
       });
+      loaded = selectDataIf4b(b, op, loaded);
       b.replaceOp(op, loaded);
     } else {
       Value loaded;
@@ -1180,6 +1250,7 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         loaded = b.create<vector::LoadOp>(loc, loadedType, source, coords);
       else
         loaded = b.create<memref::LoadOp>(loc, loadedType, source, coords);
+      loaded = selectDataIf4b(b, op, loaded);
       if (emitOobChecks)
         b.create<scf::YieldOp>(loc, loaded);
       else
