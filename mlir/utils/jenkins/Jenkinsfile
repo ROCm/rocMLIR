@@ -264,7 +264,6 @@ void checkRocmlirOnNavi3x(boolean fixed, String testSuite) {
      """)
 }
 
-
 void check_RockE2ETests_Navi3x(boolean fixed) {
 
     // Run PR CI tests; Skip Static Test on Novi3x
@@ -299,17 +298,6 @@ void check_RockE2ETests_Navi3x(boolean fixed) {
         checkRocmlirOnNavi3x(fixed, 'part5')
     }
 }
-
-void check_RockE2ETests_Navi4x(boolean fixed) {
-        sh '[ ! -d build ] || rm -rf build'
-        buildProject('check-mlir check-rock-e2e', """  
-             -DROCK_E2E_TEST_ENABLED=1  
-             -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}  
-             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}  
-             -DLLVM_LIT_ARGS='-v --time-tests -j 1'  
-             -DCMAKE_EXPORT_COMPILE_COMMANDS=1  
-        """) 
-} 
 
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
@@ -557,11 +545,6 @@ pipeline {
                                         check_RockE2ETests_Navi3x(true)
                                     }
                                 }
-                                else if ( "${CODEPATH}" == 'navi4x' ) {  
-                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {  
-                                        check_RockE2ETests_Navi4x(true)  
-                                    }
-                                }  
                                 else {
                                     build_fixedE2ETests("${CODEPATH}")
                                     preMergeCheck("${CODEPATH}")
@@ -578,10 +561,7 @@ pipeline {
                             allOf {
                                 equals expected: true, actual: params.sharedLib;
                                 equals expected: true, actual: params.nightly
-                                not {  
-                                    equals expected: 'navi4x', actual: "${CODEPATH}"  
-                                }
-                            } 
+                            }
                         }
                         steps {
                             script {
