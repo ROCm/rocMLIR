@@ -616,11 +616,15 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   Type dataType = inputDataType;
   config.features = archInfo.getDefaultFeatures(dataType);
   // Disable acceleration for mixed types
-  if (filterElemType.getIntOrFloatBitWidth() !=
-      inputElemType.getIntOrFloatBitWidth()) {
+  bool sameTypeLen = filterElemType.getIntOrFloatBitWidth() ==
+                     inputElemType.getIntOrFloatBitWidth();
+  bool anyI8 = inputElemType.isInteger(8) || filterElemType.isInteger(8);
+  if (!sameTypeLen || (sameTypeLen && anyI8))
     config.features = bitEnumClear(config.features, GemmFeatures::mfma);
+
+  if (filterElemType != inputElemType)
     config.features = bitEnumClear(config.features, GemmFeatures::wmma);
-  }
+
   // Force acceleration if that's what the client wants
   int hasAccel = 0;
   strToInt("x2", hasAccel);

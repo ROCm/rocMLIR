@@ -3451,8 +3451,10 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     // toggle feature list according to llvm::cl::opt inputs
     if (mfmaFeature == FeatureToggle::infer) {
       // Disable acceleration for mixed types
-      if (filterElemType.getIntOrFloatBitWidth() !=
-          inputElemType.getIntOrFloatBitWidth()) {
+      bool sameTypeLen = filterElemType.getIntOrFloatBitWidth() ==
+                         inputElemType.getIntOrFloatBitWidth();
+      bool anyI8 = inputElemType.isInteger(8) || filterElemType.isInteger(8);
+      if (!sameTypeLen || (sameTypeLen && anyI8)) {
         enabledFeatures =
             bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
       }
@@ -3473,8 +3475,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
 
     if (wmmaFeature == FeatureToggle::infer) {
       // Disable acceleration for mixed types
-      if (filterElemType.getIntOrFloatBitWidth() !=
-          inputElemType.getIntOrFloatBitWidth()) {
+      if (filterElemType != inputElemType) {
         enabledFeatures =
             bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
       }
