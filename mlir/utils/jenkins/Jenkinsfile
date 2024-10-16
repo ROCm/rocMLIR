@@ -1150,7 +1150,7 @@ pipeline {
                             // Build with profiling on, and just code-generation tests.
                             script {
                                 try {
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    timeout(time: 2, activity: true, unit: 'MINUTES') {
                                         sh 'rm -f build/CMakeCache.txt'
                                         sh 'rm -f build/*.profraw'
                                         buildProject('check-rocmlir-build-only',
