@@ -1114,21 +1114,20 @@ std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b,
   if (srcType.getElementType().getIntOrFloatBitWidth() >= 8 ||
       originalLoadVecLen != 1) {
     return {coords, originalLoadedType};
-  } else {
-    assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
-           "we only support 4bits in narrow types");
-    ArrayRef<int64_t> shape = srcType.getShape();
-    Value flatAddress = flattenCoords(b, loc, coords, shape);
-    Type coordType = flatAddress.getType();
-    Value minusOne = getConstIntOrIndexValue(b, loc, -1, coordType);
-    Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
-    Value lsbMask = b.createOrFold<arith::XOrIOp>(loc, minusOne, one);
-    flatAddress = b.createOrFold<arith::AndIOp>(loc, flatAddress, lsbMask);
-    SmallVector<Value> newCoords;
-    unflattenCoords(b, loc, flatAddress, shape, newCoords);
-    Type loadedType = VectorType::get({2}, srcType.getElementType());
-    return {newCoords, loadedType};
   }
+  assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
+         "we only support 4bits in narrow types");
+  ArrayRef<int64_t> shape = srcType.getShape();
+  Value flatAddress = flattenCoords(b, loc, coords, shape);
+  Type coordType = flatAddress.getType();
+  Value minusOne = getConstIntOrIndexValue(b, loc, -1, coordType);
+  Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
+  Value lsbMask = b.createOrFold<arith::XOrIOp>(loc, minusOne, one);
+  flatAddress = b.createOrFold<arith::AndIOp>(loc, flatAddress, lsbMask);
+  SmallVector<Value> newCoords;
+  unflattenCoords(b, loc, flatAddress, shape, newCoords);
+  Type loadedType = VectorType::get({2}, srcType.getElementType());
+  return {newCoords, loadedType};
 }
 
 // A helper to select the right i4 element if it was supposed to
@@ -1146,19 +1145,18 @@ Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
   }
   if (originalLoadVecLen != 1) {
     return loadedVec;
-  } else {
-    assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
-           "we only support 4bits in narrow types");
-    assert(isa<VectorType>(loadedVec.getType()));
-    Location loc = op.getLoc();
-    SmallVector<Value, 5> coords(op.getSourceCoord());
-    ArrayRef<int64_t> shape = srcType.getShape();
-    Value flatAddress = flattenCoords(b, loc, coords, shape);
-    Type coordType = flatAddress.getType();
-    Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
-    Value lsb = b.createOrFold<arith::AndIOp>(loc, flatAddress, one);
-    return b.createOrFold<vector::ExtractElementOp>(loc, loadedVec, lsb);
   }
+  assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
+         "we only support 4bits in narrow types");
+  assert(isa<VectorType>(loadedVec.getType()));
+  Location loc = op.getLoc();
+  SmallVector<Value, 5> coords(op.getSourceCoord());
+  ArrayRef<int64_t> shape = srcType.getShape();
+  Value flatAddress = flattenCoords(b, loc, coords, shape);
+  Type coordType = flatAddress.getType();
+  Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
+  Value lsb = b.createOrFold<arith::AndIOp>(loc, flatAddress, one);
+  return b.createOrFold<vector::ExtractElementOp>(loc, loadedVec, lsb);
 }
 
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
