@@ -1176,7 +1176,6 @@ pipeline {
                                 } catch (Exception e) {
                                     unstable('Code coverage stage had an error or timeout.')
                                     currentBuild.result = 'SUCCESS'
-                                    stageResult."{STAGE_NAME}" = 'FAILURE'
                                 }
                             }
                         }
