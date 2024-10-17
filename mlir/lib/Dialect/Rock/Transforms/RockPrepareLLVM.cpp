@@ -213,14 +213,30 @@ void RockPrepareLLVMPass::runOnOperation() {
   // on the GPU, but not with those executing on, say, the host (which is
   // a situation we won't be in). We also guarantee that a pointer won't be
   // accessed through multiple address spaces.
+  //
+  // We also set the metadata for indicating that the arguments to atomics won't
+  // be host memory or fine-grained memory, and that we don't care about
+  // the denormal mode. These are needed to ensure that efficient instructions
+  // (which are unsafe in the abscence of this metadata) are selected,
+  // especially once the old function-level attributes for controlling this go
+  // away.
+  auto noRemoteMemHelper = dialect->getNoRemoteMemoryAttrHelper();
+  auto noFineMemHelper = dialect->getNoFineGrainedMemoryAttrHelper();
+  auto ignoreDenormalModeHelper = dialect->getIgnoreDenormalModeAttrHelper();
+  auto unitAttr = b.getUnitAttr();
   func.walk([&](LLVM::AtomicRMWOp op) {
     op.setSyncscope("agent-one-as");
     op.setOrdering(LLVM::AtomicOrdering::monotonic);
+    noRemoteMemHelper.setAttr(op, unitAttr);
+    noFineMemHelper.setAttr(op, unitAttr);
+    ignoreDenormalModeHelper.setAttr(op, unitAttr);
   });
   func.walk([&](LLVM::AtomicCmpXchgOp op) {
     op.setSyncscope("agent-one-as");
     op.setSuccessOrdering(LLVM::AtomicOrdering::monotonic);
     op.setFailureOrdering(LLVM::AtomicOrdering::monotonic);
+    noRemoteMemHelper.setAttr(op, unitAttr);
+    noFineMemHelper.setAttr(op, unitAttr);
   });
 
   // 4. TODO: add some invariant.start calls once MLIR's got them.

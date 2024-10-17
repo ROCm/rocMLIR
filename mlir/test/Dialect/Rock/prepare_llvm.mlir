@@ -79,9 +79,11 @@ llvm.func @invariant_load(%arg0: f32, %arg1: !llvm.ptr {llvm.noalias, llvm.reado
 llvm.func @atomic_clean(%arg0: !llvm.ptr<1>, %arg1: i32, %arg2: i32) attributes {rocdl.kernel} {
   // CHECK: llvm.atomicrmw
   // CHECK-SAME: syncscope("agent-one-as") monotonic
+  // CHECK-SAME: rocdl.ignore_denormal_mode, rocdl.no_fine_grained_memory, rocdl.no_remote_memory
   %v1 = llvm.atomicrmw add %arg0, %arg1 seq_cst : !llvm.ptr<1>, i32
   // CHECK: llvm.cmpxchg
   // CHECK: syncscope("agent-one-as") monotonic monotonic
+  // CHECK-SAME: rocdl.no_fine_grained_memory, rocdl.no_remote_memory
   %v2 = llvm.cmpxchg %arg0, %v1, %arg2 seq_cst seq_cst : !llvm.ptr<1>, i32
   llvm.return
 }
