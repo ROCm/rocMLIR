@@ -1174,7 +1174,7 @@ pipeline {
                                         archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                     }
                                 } catch (Exception e) {
-                                    echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
+                                    echo "NOTE: Code coverage stage had an error or timeout:\n${e}\n${e.toString()}\n${e.getMessage()}"
                                     //currentBuild.result = 'SUCCESS'
                                 }
                             }
