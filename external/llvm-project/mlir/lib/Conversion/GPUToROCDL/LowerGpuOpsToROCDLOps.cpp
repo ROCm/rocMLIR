@@ -55,7 +55,6 @@ namespace mlir {
 } // namespace mlir
 
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
-
 using namespace mlir;
 
 /// Returns true if the given `gpu.func` can be safely called using the bare
@@ -220,6 +219,27 @@ struct LowerGpuOpsToROCDLOpsPass
     gpu::GPUModuleOp m = getOperation();
     MLIRContext *ctx = m.getContext();
 
+    if (chipset == "infer") {
+      ArrayAttr targets = m.getTargetsAttr();
+      if (!targets) {
+        m->emitError("there are no target attributes to infer");
+        return signalPassFailure();
+      }
+      if (targets.size() != 1) {
+        m->emitError("expected a single target attribute");
+        return signalPassFailure();
+      }
+      ROCDL::ROCDLTargetAttr targetAttr =
+          dyn_cast<ROCDL::ROCDLTargetAttr>(targets[0]);
+      chipset = targetAttr.getChip().str();
+    }
+
+    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
+    if (failed(maybeChipset)) {
+      m->emitError("invalid chipset name: " + chipset);
+      return signalPassFailure();
+    }
+
     auto llvmDataLayout = m->getAttrOfType<StringAttr>(
         LLVM::LLVMDialect::getDataLayoutAttrName());
     if (!llvmDataLayout) {
@@ -230,12 +250,6 @@ struct LowerGpuOpsToROCDLOpsPass
     for (auto func : m.getOps<func::FuncOp>()) {
       func->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
                     UnitAttr::get(ctx));
-    }
-
-    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
-    if (failed(maybeChipset)) {
-      emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
-      return signalPassFailure();
     }
 
     /// Customize the bitwidth used for the device side index computations.
@@ -337,8 +351,7 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
                       LLVM::Log2Op, LLVM::PowOp, LLVM::SinOp>();
   // These ops are legal for f32 type.
   target.addDynamicallyLegalOp<LLVM::ExpOp, LLVM::LogOp>([](Operation *op) {
-    return any_of(op->getOperandTypes(),
-                  llvm::IsaPred<Float32Type>);
+    return any_of(op->getOperandTypes(), llvm::IsaPred<Float32Type>);
   });
   // TODO: Remove once we support replacing non-root ops.
   target.addLegalOp<gpu::YieldOp, gpu::GPUModuleOp>();
@@ -350,7 +363,8 @@ static void populateOpPatterns(LLVMTypeConverter &converter,
                                RewritePatternSet &patterns, StringRef f32Func,
                                StringRef f64Func, StringRef f16Func) {
   patterns.add<ScalarizeVectorOpLowering<OpTy>>(converter);
-  patterns.add<OpToFuncCallLowering<OpTy>>(converter, f32Func, f64Func, f16Func);
+  patterns.add<OpToFuncCallLowering<OpTy>>(converter, f32Func, f64Func,
+                                           f16Func);
 }
 
 void mlir::populateGpuToROCDLConversionPatterns(
