@@ -616,10 +616,8 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   Type dataType = inputDataType;
   config.features = archInfo.getDefaultFeatures(dataType);
   // Disable acceleration for mixed types
-  bool sameTypeLen = filterElemType.getIntOrFloatBitWidth() ==
-                     inputElemType.getIntOrFloatBitWidth();
-  bool anyI8 = inputElemType.isInteger(8) || filterElemType.isInteger(8);
-  if (!sameTypeLen || (sameTypeLen && anyI8))
+  if (filterElemType.getIntOrFloatBitWidth() !=
+      inputElemType.getIntOrFloatBitWidth())
     config.features = bitEnumClear(config.features, GemmFeatures::mfma);
 
   if (filterElemType != inputElemType)
@@ -899,8 +897,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // For backward data convolution, additional processing is needed below.
   int64_t kernelId = rawKernelId;
 
-  // Obtain kernel ID as used by backwards data kernels from the raw, 0-indexed
-  // kernel ID.
+  // Obtain kernel ID as used by backwards data kernels from the raw,
+  // 0-indexed kernel ID.
   if (config.operation.value() == ConvOpType::BwdData) {
     llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
         config.strideDims, config.dilationDims, config.filterDims);
@@ -999,7 +997,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     }
     bool hasUtilities = (kernelCount > 1);
     if (hasUtilities && kernelId == 0) {
-      // If there is a workspace, zero-init it, otherwise fill the filter tensor
+      // If there is a workspace, zero-init it, otherwise fill the filter
+      // tensor
       builder.create<InitKernelOp>(builder.getUnknownLoc(),
                                    /*resultType=*/TypeRange{},
                                    func.getArgument(hasWorkspace ? 3 : 0),
