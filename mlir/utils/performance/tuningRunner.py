@@ -21,6 +21,10 @@ from perfRunner import GemmConfiguration
 from perfRunner import AttentionConfiguration
 from perfRunner import Paths
 from perfRunner import getChip
+from perfRunner import runPipeline
+from perfRunner import makeProfiler
+from perfRunner import profiler
+from perfRunner import cpuRunnerCommand
 from perfCommonUtils import CORRECT_RESULT_RE
 import reportUtils
 
@@ -57,8 +61,7 @@ def verifyKernelWithPerfConfig(perfConfig, config, paths: Paths, options: Option
         ' -print-verify-results=summary ' + \
         config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
-    mlirCpuRunnerArgs = ['-O2', f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
-    profilerCommand = [perfRunner.ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlirCpuRunnerArgs
+    profilerCommand = perfRunner.profiler.profilerCommand(cpuRunnerCommand(paths), getChip())
 
     if options.debug:
         print(rocmlirGenCommand, file=sys.stderr)
@@ -67,29 +70,14 @@ def verifyKernelWithPerfConfig(perfConfig, config, paths: Paths, options: Option
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             os.chdir(tmpdir)
-            # invoke rocmlir-gen.
-            p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            # pipe to rocmlir-driver
-            p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
-            # pipe to rocprof + mlir-cpu-runner.
-            p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            p2.stdout.close() # Allow p2 to receive a SIGPIPE if p3 exits.
-            # get output.
-            try:
-                outs, errs = p3.communicate(timeout=600)
-                outs = outs.decode('utf-8')
-                if len(errs) > 0 or not CORRECT_RESULT_RE.search(outs):
-                    print(f"""Verification failed:
+            outs,errs = runPipeline([rocmlirGenCommand.split(), rocmlirDriverCommand, profilerCommand])
+            outs = outs.decode('utf-8')
+            if not CORRECT_RESULT_RE.search(outs):
+                print(f"""Verification failed:
 Output = {outs}
 Errors = {errs.decode('utf-8')}""", file=sys.stderr)
-                    return np.nan
-            except subprocess.TimeoutExpired:
-                print("Verification timed out", file=sys.stderr)
-                p3.kill()
-                outs, errs = p3.communicate()
                 return np.nan
-            nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_RESULT_FILE_NAME)
+            nanoSeconds = perfRunner.profiler.getNanoSeconds(perfRunner.BENCHMARKING_RESULT_FILE_NAME)
         finally:
             os.chdir(prevdir)
     return nanoSeconds
@@ -327,7 +315,13 @@ def main(args=None):
         default=False,
         help="Print info only when a change happens")
 
+    parser.add_argument("--rv", "--rocprof-version", choices=['1', '2'],
+        default='2',
+        help="Use rocprof (V1) or rocprofv2.")
+
     parsed_args = parser.parse_args(args)
+
+    perfRunner.profiler = makeProfiler(parsed_args.rv)
 
     rocmlir_gen_flags = ''
     if 'rocmlir_gen_flags' in parsed_args:
