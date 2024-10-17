@@ -34,9 +34,14 @@ bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
 
 bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
                                    bool requiredPadding) {
+  // TODO (ravil): do we need `!requiredPadding`?
+  // return isAccel(features) &&
+  //       bitEnumContainsAll(features, GemmFeatures::atomic_add) &&
+  //       (dataType.isF32() || dataType.isF16()) && !requiredPadding;
+
   return isAccel(features) &&
          bitEnumContainsAll(features, GemmFeatures::atomic_add) &&
-         (dataType.isF32() || dataType.isF16()) && !requiredPadding;
+         (dataType.isF32() || dataType.isF16());
 }
 
 bool mlir::rock::isAccel(GemmFeatures features) {
