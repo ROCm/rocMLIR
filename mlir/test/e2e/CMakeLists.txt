@@ -50,6 +50,7 @@ if (ROCK_E2E_TEST_ENABLED)
   if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part3")
     list(APPEND CONFIGS
     Resnext101Config
+    LargeGemm
     PaddedGemmConfig
     )
   endif()
