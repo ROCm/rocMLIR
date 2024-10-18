@@ -20,6 +20,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -124,6 +125,70 @@ static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
     return builder.create<memref::AllocOp>(loc, accumulatorType);
   }
   return c;
+}
+
+// Trace a value back to its alloc.
+static memref::AllocOp traceToAlloc(Value memref, func::FuncOp func,
+                                    DenseMap<Value, memref::AllocOp> &cache) {
+  auto cached = cache.find(memref);
+  if (cached != cache.end())
+    return cached->second;
+
+  memref::AllocOp res = nullptr;
+  if (auto view = memref.getDefiningOp<ViewLikeOpInterface>())
+    res = traceToAlloc(view.getViewSource(), func, cache);
+  else if (auto allocOp = memref.getDefiningOp<memref::AllocOp>()) {
+    res = allocOp;
+  }
+
+  cache.insert({memref, res});
+  return res;
+}
+
+// Trace an arg back to its alloc.
+static FailureOr<memref::AllocOp>
+traceAllocFromUses(BlockArgument arg, func::FuncOp func,
+                   DenseMap<Value, memref::AllocOp> &cache,
+                   memref::AllocOp expectedAlloc) {
+  for (auto *user : arg.getUsers()) {
+    if (auto copyOp = dyn_cast<memref::CopyOp>(user)) {
+      auto argAlloc = traceToAlloc(copyOp.getSource(), func, cache);
+      assert(argAlloc && "can't trace the argument to its alloc");
+      if (expectedAlloc == argAlloc)
+        return expectedAlloc;
+    }
+  }
+  return failure();
+}
+
+// Trace a value back to its function argument.
+static FailureOr<BlockArgument> traceToArg(Value matC, func::FuncOp func,
+                                           OpBuilder &builder) {
+  assert(func.getNumArguments() > 0 && "There are no arguments");
+
+  // 1. some tests set the argument as matC directly
+  for (BlockArgument arg : func.getArguments()) {
+    if (matC == arg)
+      return arg;
+  }
+
+  // 2. try to trace matC and args to the same memref::AllocOp
+  llvm::DenseMap<Value, memref::AllocOp> toAllocCache;
+  // Trace GEMM output to its alloc
+  memref::AllocOp allocOp = traceToAlloc(matC, func, toAllocCache);
+  assert(allocOp && "can't trace the GEMM output to its alloc");
+
+  for (auto arg : func.getArguments()) {
+    // Trace arg to its alloc
+    FailureOr<memref::AllocOp> argAlloc =
+        traceAllocFromUses(arg, func, toAllocCache, allocOp);
+
+    if (succeeded(argAlloc)) {
+      assert(argAlloc.value() == allocOp);
+      return arg;
+    }
+  }
+  return failure();
 }
 } // end namespace
 
@@ -274,9 +339,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
       builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
   op.setStoreMethodAttr(storeMethod);
 
-  // set the prefill attribute
-  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  auto attrName = rock::PrefillAttr::getMnemonic();
+  // initialize to zeros
   auto elementType = cast<MemRefType>(c.getType()).getElementType();
   Attribute zero;
   if (llvm::isa<FloatType>(elementType)) {
@@ -286,7 +349,16 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
            "expecting `int` element type");
     zero = builder.getIntegerAttr(elementType, 0);
   }
-  func.setArgAttrs(2, builder.getNamedAttr(attrName, zero));
+
+  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+  FailureOr<BlockArgument> arg = traceToArg(c, func, builder);
+  // In some cases the GEMM output is not returned
+  if (succeeded(arg)) {
+    // set the prefill attribute
+    auto attrName = rock::PrefillAttr::getMnemonic();
+    func.setArgAttrs(arg.value().getArgNumber(),
+                     builder.getNamedAttr(attrName, zero));
+  }
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
   const int64_t kPad =
