@@ -2899,6 +2899,7 @@ void insertPrefills(func::FuncOp fut) {
     Location loc = launchOp->getLoc();
     DenseMap<int, Attribute> argInitValues;
     StringRef callee = launchOp.getCallee();
+    OpBuilder builder(launchOp);
     for (ModuleOp module : innerModules) {
       if (func::FuncOp calleeFunc = module.lookupSymbol<func::FuncOp>(callee)) {
         size_t argCount = calleeFunc.getArguments().size();
@@ -2906,12 +2907,27 @@ void insertPrefills(func::FuncOp fut) {
           if (Attribute initAttr =
                   calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
             argInitValues[i] = initAttr;
+          } else if (!argInitValues.contains(i) &&
+                     calleeFunc.getArgAttr(i, "mhal.write_access")) {
+            // initialize to 100 by default
+            // This ensures failure if the output tensor requires prefill,
+            // helping to detect uninitialized output in GPU vs CPU execution.
+            auto type = calleeFunc.getArgumentTypes()[i];
+            auto elementType = cast<MemRefType>(type).getElementType();
+            Attribute init;
+            if (llvm::isa<FloatType>(elementType)) {
+              init = builder.getFloatAttr(elementType, 100.0);
+            } else {
+              assert(llvm::isa<IntegerType>(elementType) &&
+                     "expecting `int` element type");
+              init = builder.getIntegerAttr(elementType, 100);
+            }
+            argInitValues[i] = init;
           }
         }
       }
     }
     {
-      OpBuilder builder(launchOp);
       OpBuilder::InsertionGuard guard(builder);
       for (auto argIdxAndValueAttr : argInitValues) {
         int argIdx = argIdxAndValueAttr.first;

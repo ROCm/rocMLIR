@@ -22,6 +22,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 
+#include "llvm/Support/Debug.h"
 using namespace mlir;
 using namespace mlir::rock;
 
@@ -780,4 +781,67 @@ LogicalResult mlir::rock::checkLDSSize(StringAttr arch, int64_t ldsBytes) {
   // Check for arch limitations exceede
   const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
   return success(ldsBytes <= ldsSize);
+}
+
+// Trace an arg back to its alloc.
+static void traceGemmAllocToArgs(memref::AllocOp buffer,
+                                 const BufferDependencyAnalysis &deps,
+                                 SmallVector<BlockArgument> &args) {
+  IRRewriter rewriter(buffer.getContext());
+  std::optional<llvm::SmallVector<OpOperand *>> readersOperands =
+      deps.getReaders(buffer);
+  if (!readersOperands.has_value())
+    return;
+  for (OpOperand *readerOperand : readersOperands.value()) {
+    if (memref::CopyOp copyOp =
+            dyn_cast<memref::CopyOp>(readerOperand->getOwner())) {
+      args.push_back(cast<BlockArgument>(copyOp.getTarget()));
+      continue;
+    }
+
+    auto readOp = dyn_cast<MemoryEffectOpInterface>(readerOperand->getOwner());
+    if (!readOp)
+      continue;
+
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    readOp.getEffects(effects);
+    for (const MemoryEffects::EffectInstance &effect : effects) {
+      OpOperand *writerOperand = effect.getEffectValue<OpOperand *>();
+      // Test against the write operand to guard against [MemRead, MemWrite]
+      if (writerOperand && readerOperand != writerOperand &&
+          isa<MemoryEffects::Write>(effect.getEffect())) {
+        if (memref::AllocOp writeBuffer =
+                dyn_cast<memref::AllocOp>(writerOperand->get().getDefiningOp()))
+          traceGemmAllocToArgs(writeBuffer, deps, args);
+      }
+    }
+  }
+}
+
+FailureOr<SmallVector<BlockArgument>>
+mlir::rock::traceGemmOutputToArgs(Value matC, func::FuncOp func,
+                                  OpBuilder &builder,
+                                  const BufferDependencyAnalysis &deps) {
+  if (func.getNumArguments() == 0)
+    return failure();
+
+  // trace matC to its alloc
+  FailureOr<memref::AllocOp> allocOp = findMemrefAlloc(matC);
+  if (failed(allocOp))
+    return failure();
+
+  // trace gemm alloc to arg
+  SmallVector<BlockArgument> args;
+  traceGemmAllocToArgs(allocOp.value(), deps, args);
+  auto funcArgs = func.getArguments();
+  for (auto arg : args) {
+    bool containsArg =
+        std::find(funcArgs.begin(), funcArgs.end(), arg) != funcArgs.end();
+    assert(containsArg &&
+           "Found BlockArgument does not belong to func.getArguments()");
+  }
+  if (!args.empty())
+    return args;
+
+  return failure();
 }

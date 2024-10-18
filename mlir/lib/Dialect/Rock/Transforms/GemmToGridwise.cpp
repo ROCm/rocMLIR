@@ -19,7 +19,9 @@
 // adding padding and group dimensions if needed.
 //
 //===-----------------------------------------------------===//
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -36,6 +38,7 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -125,6 +128,54 @@ static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
   }
   return c;
 }
+
+static LogicalResult
+setPrefillForSplitK(func::FuncOp &func,
+                    const BufferDependencyAnalysis &bufferDeps) {
+  auto walkRes = func.walk([&bufferDeps](Operation *op) -> WalkResult {
+    Value matC;
+    int64_t splitKFactor = 1;
+    if (auto gemm = dyn_cast<GridwiseGemmAccelOp>(op)) {
+      matC = gemm.getC();
+      splitKFactor = gemm.getParams().getSplitKFactor();
+    } else if (auto gemm = dyn_cast<GridwiseGemmOp>(op)) {
+      matC = gemm.getC();
+      splitKFactor = gemm.getParams().getSplitKFactor();
+    }
+
+    if (matC && splitKFactor > 1) {
+      auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+      OpBuilder builder(func->getContext());
+      FailureOr<SmallVector<BlockArgument>> args =
+          traceGemmOutputToArgs(matC, func, builder, bufferDeps);
+      if (failed(args)) {
+        op->emitError("can't trace gemm output to output argument");
+        return WalkResult::interrupt();
+      }
+
+      // initialize to zeros
+      auto elementType = cast<MemRefType>(matC.getType()).getElementType();
+      Attribute zero;
+      if (llvm::isa<FloatType>(elementType)) {
+        zero = builder.getFloatAttr(elementType, 0.0);
+      } else {
+        assert(llvm::isa<IntegerType>(elementType) &&
+               "expecting `int` element type");
+        zero = builder.getIntegerAttr(elementType, 0);
+      }
+
+      // set the prefill attribute
+      auto attrName = rock::PrefillAttr::getMnemonic();
+      for (auto arg : args.value())
+        func.setArgAttrs(arg.getArgNumber(),
+                         builder.getNamedAttr(attrName, zero));
+    }
+    return WalkResult::advance();
+  });
+  if (walkRes.wasInterrupted())
+    return failure();
+  return success();
+}
 } // end namespace
 
 LogicalResult
@@ -189,6 +240,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       return op.emitError(
           "Split-K `GemmOp` currently supports only f32/f16 element types");
     }
+
     std::tie(a, b, c) =
         arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
   }
@@ -273,20 +325,6 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   auto storeMethod =
       builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
   op.setStoreMethodAttr(storeMethod);
-
-  // set the prefill attribute
-  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  auto attrName = rock::PrefillAttr::getMnemonic();
-  auto elementType = cast<MemRefType>(c.getType()).getElementType();
-  Attribute zero;
-  if (llvm::isa<FloatType>(elementType)) {
-    zero = builder.getFloatAttr(elementType, 0.0);
-  } else {
-    assert(llvm::isa<IntegerType>(elementType) &&
-           "expecting `int` element type");
-    zero = builder.getIntegerAttr(elementType, 0);
-  }
-  func.setArgAttrs(2, builder.getNamedAttr(attrName, zero));
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
   const int64_t kPad =
@@ -581,4 +619,12 @@ void RockGemmToGridwisePass::runOnOperation() {
                                     std::move(patterns)))) {
     signalPassFailure();
   }
-}
+
+  func::FuncOp func = getOperation();
+  BufferDependencyAnalysis &bufferDeps =
+      getAnalysis<BufferDependencyAnalysis>();
+
+  // set prefill flag for splitK
+  if (failed(setPrefillForSplitK(func, bufferDeps)))
+    signalPassFailure();
+} // namespace
