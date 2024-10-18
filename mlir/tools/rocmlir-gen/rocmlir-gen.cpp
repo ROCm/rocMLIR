@@ -3473,8 +3473,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
 
     if (wmmaFeature == FeatureToggle::infer) {
       // Disable acceleration for mixed types
-      if (filterElemType.getIntOrFloatBitWidth() !=
-          inputElemType.getIntOrFloatBitWidth()) {
+      if (filterElemType != inputElemType) {
         enabledFeatures =
             bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
       }
