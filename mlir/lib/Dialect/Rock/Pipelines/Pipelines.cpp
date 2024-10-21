@@ -151,8 +151,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockConvToGemmPass());
   funcPm.addPass(rock::createRockGemmToGridwisePass());
   funcPm.addPass(rock::createRockRegularizePass());
+  funcPm.addPass(rock::createRockShuffleGemmForReductions());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
-  funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
+  // We want to delay blockwise lowering in the fusion cases
+  // until after linalg align pass because with reduction fusion
+  // it may introduce blockwise_reductions.
+  if (!options.enableFusion) {
+    funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
+  }
 
   if (options.enableFusion) {
     // align linalg tiling
@@ -160,6 +166,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      * --convert-linalg-to-affine-loops
      */
     funcPm.addPass(rock::createRockLinalgAlignPass());
+    funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
     funcPm.addPass(rock::createRockPipelinePass());
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());

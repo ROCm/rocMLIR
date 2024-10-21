@@ -161,4 +161,10 @@ def RockReuseLDSPass : Pass<"rock-reuse-lds", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
+def RockShuffleGemmForReductions : Pass<"rock-shuffle-gemm-for-reductions", "::mlir::func::FuncOp"> {
+  let summary = "This pass shuffles parallel gemm dimensions for equally block splits for fused reductions (if any)";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+}
+
+
 #endif // MLIR_DIALECT_ROCK_PASSES
