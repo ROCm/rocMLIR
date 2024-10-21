@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -rock-shuffle-gemm-for-reductions -mlir-print-local-scope -rock-gemm-to-gridwise %s | FileCheck %s
+// RUN: rocmlir-opt -rock-shuffle-gemm-for-reductions -mlir-print-local-scope %s | FileCheck %s
 
 // CHECK-LABEL: @mlir_convolution_multi_reduce
 func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32>, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, kernel = "mixr"} {
