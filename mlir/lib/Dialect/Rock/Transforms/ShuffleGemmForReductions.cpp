@@ -155,6 +155,7 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
     return L.stride > R.stride;
   });
   llvm::SmallDenseMap<int64_t, int64_t> reductionDims;
+  TransformMapAttr reduceSplit;
   {
     toReductionSplit.passThrough(ArrayRef<unsigned>{0, 1},
                                  ArrayRef<unsigned>{0, 1});
@@ -198,11 +199,12 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
       splitSizes.push_back(currSize);
     }
     toReductionSplit.unmerge(splitNamesRefs, splitDims, dName, splitSizes);
+    reduceSplit = toReductionSplit.get();
   }
-  TransformMapAttr reduceSplit = toReductionSplit.get();
   LLVM_DEBUG(llvm::dbgs() << "reduceSplit = " << reduceSplit << "\n");
   auto toCommonReductionDim =
       BottomUpTMBuilder::above(toReductionSplit, reduceSplit);
+  TransformMapAttr commonReduction;
   {
     toCommonReductionDim.passThrough(ArrayRef<unsigned>{0, 1},
                                      ArrayRef<unsigned>{0, 1});
@@ -220,11 +222,12 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
     }
     toCommonReductionDim.merge("d_nr", dimInsertionPoint++, nonReduceDimNames);
     toCommonReductionDim.merge("d_r", dimInsertionPoint++, reduceDimNames);
+    commonReduction = toCommonReductionDim.get();
   }
-  TransformMapAttr commonReduction = toCommonReductionDim.get();
   LLVM_DEBUG(llvm::dbgs() << "commonReduction = " << commonReduction << "\n");
   auto toResplitReduction =
       BottomUpTMBuilder::above(toCommonReductionDim, commonReduction);
+  TransformMapAttr resplitReduction;
   {
     unsigned upperDimCount = commonReduction.getUpperBounds().size();
     int64_t commonReduceSize =
@@ -234,18 +237,19 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
                                    ArrayRef<unsigned>{0, 1, 2});
     toResplitReduction.unmerge({"d_rh", "d_rl"}, {2, upperDimCount}, "d_r",
                                {commonReduceSize / commonFactor, commonFactor});
+    resplitReduction = toResplitReduction.get();
   }
-  TransformMapAttr resplitReduction = toResplitReduction.get();
   LLVM_DEBUG(llvm::dbgs() << "resplitReductionAttr = " << resplitReduction
                           << "\n");
   auto toRecombined =
       BottomUpTMBuilder::above(toResplitReduction, resplitReduction);
+  TransformMapAttr recombined;
   {
     toRecombined.passThrough(ArrayRef<unsigned>{0, 1},
                              ArrayRef<unsigned>{0, 1});
     toRecombined.merge("d", 2, {"d_rh", "d_nr", "d_rl"});
+    recombined = toRecombined.get();
   }
-  TransformMapAttr recombined = toRecombined.get();
   LLVM_DEBUG(llvm::dbgs() << "recombined = " << recombined << "\n");
   OpBuilder builder(recombined.getContext());
   return builder.getArrayAttr(
@@ -300,6 +304,7 @@ ArrayAttr generateShuffledGemmOutputViews(
 
   // Split the reduction and non-reduction splits
   BottomUpTMBuilder toReductionSplit(builder, {"G", "M", "N"}, {g, m, n});
+  TransformMapAttr reductionSplit;
   {
     toReductionSplit.passThrough("G");
     toReductionSplit.unmerge(
@@ -310,21 +315,22 @@ ArrayAttr generateShuffledGemmOutputViews(
         {"n_rh", "n_nr", "n_rl"}, {4, 5, 6}, "N",
         {totalReductionSizeN / commonNPerBlockReductionFactor,
          n / totalReductionSizeN, commonNPerBlockReductionFactor});
+    reductionSplit = toReductionSplit.get();
   }
-  TransformMapAttr reductionSplit = toReductionSplit.get();
   LLVM_DEBUG(llvm::dbgs() << "reductionSplit = " << reductionSplit << "\n");
 
   // combine reduction dimension
   auto toCombinedReductionDim =
       BottomUpTMBuilder::above(toReductionSplit, reductionSplit);
+  TransformMapAttr combinedReduction;
   {
     toCombinedReductionDim.passThrough("G");
     toCombinedReductionDim.passThrough({1}, {2});
     toCombinedReductionDim.merge("m_r", 2, {"m_rh", "m_rl"});
     toCombinedReductionDim.passThrough({3}, {5});
     toCombinedReductionDim.merge("n_r", 4, {"n_rh", "n_rl"});
+    combinedReduction = toCombinedReductionDim.get();
   }
-  TransformMapAttr combinedReduction = toCombinedReductionDim.get();
   LLVM_DEBUG(llvm::dbgs() << "combinedReduction = " << combinedReduction
                           << "\n");
 
@@ -332,6 +338,7 @@ ArrayAttr generateShuffledGemmOutputViews(
   auto toSplitOriginalSubDims =
       BottomUpTMBuilder::above(toCombinedReductionDim, combinedReduction);
   int64_t nSubDimStartPoint = -1;
+  TransformMapAttr splitOriginalSubDims;
   {
     toSplitOriginalSubDims.passThrough("G");
     SmallVector<SubDimInfo> mReductionSubDimInfo;
@@ -450,14 +457,15 @@ ArrayAttr generateShuffledGemmOutputViews(
                                            {"n_r"});
       }
     }
+    splitOriginalSubDims = toSplitOriginalSubDims.get();
   }
-  TransformMapAttr splitOriginalSubDims = toSplitOriginalSubDims.get();
   LLVM_DEBUG(llvm::dbgs() << "splitOriginalSubDims = " << splitOriginalSubDims
                           << "\n");
 
   // Recombine into original M & N
   auto toRecombineMN =
       BottomUpTMBuilder::above(toSplitOriginalSubDims, splitOriginalSubDims);
+  TransformMapAttr recombineMN;
   {
     toRecombineMN.passThrough("G");
     SmallVector<StringRef, 4> startNames;
@@ -480,8 +488,8 @@ ArrayAttr generateShuffledGemmOutputViews(
       }
       toRecombineMN.merge("N", 2, nSubDimNames);
     }
+    recombineMN = toRecombineMN.get();
   }
-  TransformMapAttr recombineMN = toRecombineMN.get();
   LLVM_DEBUG(llvm::dbgs() << "recombineMN = " << recombineMN << "\n");
 
   return builder.getArrayAttr(
