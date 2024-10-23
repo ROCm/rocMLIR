@@ -526,6 +526,7 @@ struct MatchLayoutsToInput final
   }
 };
 
+// TODO (ravil): remove
 /// Lowerings for particular convolution algorithms (TODO, new file?)
 LogicalResult backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   Location loc = op.getLoc();
@@ -1182,11 +1183,6 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
       maybeGemmExtraPad = GemmSize{-1, -1, -1, -1};
     }
 
-    if (ConvOpType::BwdWeight == convOpType &&
-        isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
-      return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
-    }
-
     // Transform filter tensor.
 
     // set layout attribute.
@@ -1383,8 +1379,16 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     gemmB = arguments[fields.gridwiseGemmArgumentPosition[1]];
     gemmC = arguments[fields.gridwiseGemmArgumentPosition[2]];
 
-    // Emit rock.gemm op.
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
+
+    if (ConvOpType::BwdWeight == convOpType &&
+        isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
+      const int64_t splitKFactor = op.getParams()->getSplitKFactor();
+      if (splitKFactor == 1)
+        storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
+    }
+
+    // Emit rock.gemm op.
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                      /*cTransposed=*/nullptr, op.getArchAttr(),
