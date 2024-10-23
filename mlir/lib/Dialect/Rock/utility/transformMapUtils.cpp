@@ -2536,6 +2536,7 @@ SmallVector<SmallString<8>> mlir::rock::createDimNames(int64_t len,
 SmallVector<StringRef>
 mlir::rock::getStringRefsFor(ArrayRef<SmallString<8>> strings) {
   SmallVector<StringRef> nameRefs;
+  nameRefs.reserve(strings.size());
   for (const SmallString<8> &str : strings) {
     nameRefs.push_back(str);
   }
