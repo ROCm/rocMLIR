@@ -194,11 +194,7 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
       LLVM_DEBUG(llvm::dbgs() << "\tsplitSize = " << currSize << "\n");
       splitSizes.push_back(currSize);
     }
-    SmallVector<StringRef> splitNamesRefs;
-    splitNamesRefs.reserve(splitNames.size());
-    for (auto &str : splitNames)
-      splitNamesRefs.push_back(str);
-
+    SmallVector<StringRef> splitNamesRefs = getStringRefsFor(splitNames);
     toReductionSplit.unmerge(splitNamesRefs, splitDims, dName, splitSizes);
     reduceSplit = toReductionSplit.get();
   }
@@ -388,20 +384,14 @@ ArrayAttr generateShuffledGemmOutputViews(
         mNonReductionSubDims.push_back(dimInsertionPoint++);
       }
 
-      SmallVector<StringRef> mNonReductionSubDimNameRefs;
-      mNonReductionSubDimNameRefs.reserve(mNonReductionSubDimNames.size());
-      for (auto &str : mNonReductionSubDimNames)
-        mNonReductionSubDimNameRefs.push_back(str);
-
+      SmallVector<StringRef> mNonReductionSubDimNameRefs =
+          getStringRefsFor(mNonReductionSubDimNames);
       toSplitOriginalSubDims.unmerge(mNonReductionSubDimNameRefs,
                                      mNonReductionSubDims, "m_nr",
                                      mNonReductionSubDimSizes);
       if (!mReductionSubDimSizes.empty()) {
-        SmallVector<StringRef> mReductionSubDimNameRefs;
-        mReductionSubDimNameRefs.reserve(mReductionSubDimNames.size());
-        for (auto &str : mReductionSubDimNames)
-          mReductionSubDimNameRefs.push_back(str);
-
+        SmallVector<StringRef> mReductionSubDimNameRefs =
+            getStringRefsFor(mReductionSubDimNames);
         toSplitOriginalSubDims.unmerge(mReductionSubDimNameRefs,
                                        mReductionSubDims, "m_r",
                                        mReductionSubDimSizes);
@@ -447,21 +437,15 @@ ArrayAttr generateShuffledGemmOutputViews(
         }
         nNonReductionSubDims.push_back(dimInsertionPoint++);
       }
-      SmallVector<StringRef> nNonReductionSubDimNameRefs;
-      nNonReductionSubDimNameRefs.reserve(nNonReductionSubDimNames.size());
-
-      for (auto &str : nNonReductionSubDimNames)
-        nNonReductionSubDimNameRefs.push_back(str);
-
+      SmallVector<StringRef> nNonReductionSubDimNameRefs =
+          getStringRefsFor(nNonReductionSubDimNames);
       toSplitOriginalSubDims.unmerge(nNonReductionSubDimNameRefs,
                                      nNonReductionSubDims, "n_nr",
                                      nNonReductionSubDimSizes);
       if (!nReductionSubDimSizes.empty()) {
 
-        SmallVector<StringRef> nReductionSubDimNameRefs;
-        nReductionSubDimNameRefs.reserve(nReductionSubDimNames.size());
-        for (auto &str : nReductionSubDimNames)
-          nReductionSubDimNameRefs.push_back(str);
+        SmallVector<StringRef> nReductionSubDimNameRefs =
+            getStringRefsFor(nReductionSubDimNames);
         toSplitOriginalSubDims.unmerge(nReductionSubDimNameRefs,
                                        nReductionSubDims, "n_r",
                                        nReductionSubDimSizes);
