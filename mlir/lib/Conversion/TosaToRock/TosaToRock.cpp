@@ -237,12 +237,11 @@ static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
       res = traceToRes(collapse.getSrc(), cache, expectedTensor);
     } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
       for (auto operand : tosaOp->getOperands()) {
-        if (!operand.getDefiningOp())
-          if (llvm::isa<TensorType>(operand.getType())) {
-            res = traceToRes(operand, cache, expectedTensor);
-            if (res)
-              break;
-          }
+        if (llvm::isa<TensorType>(operand.getType())) {
+          res = traceToRes(operand, cache, expectedTensor);
+          if (res)
+            break;
+        }
       }
     }
   }
