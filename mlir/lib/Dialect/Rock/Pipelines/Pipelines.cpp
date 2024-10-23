@@ -243,23 +243,24 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
   gpuPm.addPass(createLowerAffinePass());
-  gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
-      options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
+  GpuROCDLAttachTargetOptions opts;
+  opts.triple = options.triple;
+  opts.chip = options.chip;
+  opts.features = options.features;
+  opts.optLevel = options.optLevel;
+  pm.addPass(createGpuROCDLAttachTarget(opts));
+  auto &gpuPm2 = pm.nest<gpu::GPUModuleOp>();
+  gpuPm2.addPass(createLowerGpuOpsToROCDLOpsPass(
+      /*chipset=*/"infer", /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
       /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP));
   // Ensure we only run passes on LLVM functions inside GPU modules.
-  auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
+  auto &llvmFuncPm = gpuPm2.nest<LLVM::LLVMFuncOp>();
   // -canonicalize -cse so that we don't have to crawl through memref
   // descriptors. (Mainly we want the `extractvalue` fold).
   llvmFuncPm.addPass(createCanonicalizerPass());
   llvmFuncPm.addPass(createCSEPass());
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile) {
-    GpuROCDLAttachTargetOptions opts;
-    opts.triple = options.triple;
-    opts.chip = options.chip;
-    opts.features = options.features;
-    opts.optLevel = options.optLevel;
-    pm.addPass(createGpuROCDLAttachTarget(opts));
     pm.addPass(createGpuModuleToBinaryPass());
     pm.addPass(createRockCheckResidencyPass());
   }
