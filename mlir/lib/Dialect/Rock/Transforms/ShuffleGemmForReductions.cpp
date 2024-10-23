@@ -161,7 +161,6 @@ ArrayAttr reorderReductionDims(BottomUpTMBuilder &toReductionSplit,
                                  ArrayRef<unsigned>{0, 1});
     SmallVector<int64_t> splitSizes;
     SmallVector<SmallString<8>> splitNames;
-    splitNames.reserve(reductionSubDimsVec.size());
     SmallVector<unsigned> splitDims;
     int64_t dimInsertionPoint = 2;
     int64_t currSize = dLen;
