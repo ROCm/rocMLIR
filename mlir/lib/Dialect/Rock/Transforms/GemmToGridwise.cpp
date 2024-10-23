@@ -172,9 +172,7 @@ setPrefillForSplitK(func::FuncOp &func,
     }
     return WalkResult::advance();
   });
-  if (walkRes.wasInterrupted())
-    return failure();
-  return success();
+  return walkRes.wasInterrupted() ? failure() : success();
 }
 } // end namespace
 

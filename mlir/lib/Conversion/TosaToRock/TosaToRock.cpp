@@ -215,73 +215,37 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   return cop;
 }
 
-static bool isTosaConv(Operation *op) {
-  return isa<tosa::Conv2DOp, tosa::Conv3DOp, tosa::DepthwiseConv2DOp,
-             tosa::FullyConnectedOp>(op);
-}
-
-static bool isTosaUnary(Operation *op) {
-  return isa<tosa::AvgPool2dOp, tosa::ArgMaxOp, tosa::MaxPool2dOp,
-             tosa::RFFT2dOp, tosa::ClampOp, tosa::SigmoidOp, tosa::TanhOp,
-             tosa::ErfOp, tosa::AbsOp, tosa::BitwiseNotOp, tosa::CeilOp,
-             tosa::ClzOp, tosa::CosOp, tosa::ExpOp, tosa::FloorOp, tosa::LogOp,
-             tosa::LogicalNotOp, tosa::NegateOp, tosa::ReciprocalOp,
-             tosa::RsqrtOp, tosa::SinOp, tosa::PadOp, tosa::ReshapeOp,
-             tosa::ReverseOp, tosa::SliceOp, tosa::TileOp, tosa::TransposeOp,
-             tosa::GatherOp, tosa::ScatterOp, tosa::ResizeOp, tosa::CastOp,
-             tosa::RescaleOp, tosa::IdentityOp>(op);
-}
-
-static bool isTosaBinary(Operation *op) {
-  return isa<
-      tosa::MatMulOp, tosa::FFT2dOp, tosa::AddOp, tosa::ArithmeticRightShiftOp,
-      tosa::BitwiseAndOp, tosa::BitwiseOrOp, tosa::BitwiseXorOp, tosa::IntDivOp,
-      tosa::LogicalAndOp, tosa::LogicalLeftShiftOp, tosa::LogicalRightShiftOp,
-      tosa::LogicalOrOp, tosa::LogicalXorOp, tosa::MaximumOp, tosa::MinimumOp,
-      tosa::MulOp, tosa::PowOp, tosa::SubOp, tosa::TableOp, tosa::EqualOp,
-      tosa::GreaterOp, tosa::GreaterEqualOp>(op);
-}
-
 static bool isTosaReduction(Operation *op) {
   return isa<tosa::ReduceMaxOp, tosa::ReduceSumOp, tosa::ReduceMinOp,
              tosa::ReduceProdOp, tosa::ReduceAllOp, tosa::ReduceAnyOp>(op);
 }
 
-static Value traceToRes(Value tensor, func::FuncOp func,
-                        DenseMap<Value, Value> &cache, Value expectedTensor) {
+static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
+                        Value expectedTensor) {
   auto cached = cache.find(tensor);
   if (cached != cache.end())
     return cached->second;
 
   Value res = nullptr;
-  if (auto view = tensor.getDefiningOp<ViewLikeOpInterface>())
-    res = traceToRes(view.getViewSource(), func, cache, expectedTensor);
-  else if (auto collapse = tensor.getDefiningOp<tensor::CollapseShapeOp>())
-    res = traceToRes(collapse.getSrc(), func, cache, expectedTensor);
-  else if (isTosaConv(tensor.getDefiningOp())) {
-    auto *op = tensor.getDefiningOp();
-    assert(op->getNumOperands() >= 3 &&
-           "Expected conv operation to have at least three inputs");
-    res = traceToRes(op->getOperand(0), func, cache, expectedTensor);
-    if (!res)
-      res = traceToRes(op->getOperand(1), func, cache, expectedTensor);
-    if (!res)
-      res = traceToRes(op->getOperand(2), func, cache, expectedTensor);
-  } else if (isTosaUnary(tensor.getDefiningOp())) {
-    auto *op = tensor.getDefiningOp();
-    assert(op->getNumOperands() >= 1 &&
-           "Expected unary operation to have at least one input");
-    res = traceToRes(op->getOperand(0), func, cache, expectedTensor);
-  } else if (isTosaBinary(tensor.getDefiningOp())) {
-    auto *op = tensor.getDefiningOp();
-    assert(op->getNumOperands() >= 2 &&
-           "Expected binary operation to have at least two inputs");
-    res = traceToRes(op->getOperand(0), func, cache, expectedTensor);
-    if (!res)
-      res = traceToRes(op->getOperand(1), func, cache, expectedTensor);
-  } else if (isTosaReduction(tensor.getDefiningOp()) &&
-             expectedTensor == tensor)
-    res = tensor;
+  if (tensor.getDefiningOp()) {
+    if (isTosaReduction(tensor.getDefiningOp()) && expectedTensor == tensor) {
+      res = tensor;
+    } else if (auto view = tensor.getDefiningOp<ViewLikeOpInterface>()) {
+      res = traceToRes(view.getViewSource(), cache, expectedTensor);
+    } else if (auto collapse =
+                   tensor.getDefiningOp<tensor::CollapseShapeOp>()) {
+      res = traceToRes(collapse.getSrc(), cache, expectedTensor);
+    } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
+      for (auto operand : tosaOp->getOperands()) {
+        if (!operand.getDefiningOp())
+          if (llvm::isa<TensorType>(operand.getType())) {
+            res = traceToRes(operand, cache, expectedTensor);
+            if (res)
+              break;
+          }
+      }
+    }
+  }
 
   cache.insert({tensor, res});
   return res;
@@ -296,7 +260,7 @@ static FailureOr<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
   func::ReturnOp returnOp = returns[0];
 
   for (auto [i, res] : llvm::enumerate(returnOp->getOperands())) {
-    Value out = traceToRes(res, func, cache, expectedTensor);
+    Value out = traceToRes(res, cache, expectedTensor);
     if (out == expectedTensor) {
       return i;
     }
