@@ -19,7 +19,9 @@
 // adding padding and group dimensions if needed.
 //
 //===-----------------------------------------------------===//
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -36,6 +38,7 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -63,16 +66,22 @@ class RockGemmToGridwisePass
 };
 
 struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
-  using OpConversionPattern<GemmOp>::OpConversionPattern;
+  // Custom constructor taking an additional argument: bufferDeps
+  GemmRewritePattern(MLIRContext *context,
+                     const BufferDependencyAnalysis &bufferDeps)
+      : OpConversionPattern<GemmOp>(context), bufferDeps(bufferDeps) {}
+
   LogicalResult matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override;
 
   LogicalResult computeGridSize(ConversionPatternRewriter &rw, GemmOp op,
                                 Value a, Value b) const;
 
-  std::tuple<Value, Value, Value>
+  FailureOr<std::tuple<Value, Value, Value>>
   arrangeSplitKTransform(OpBuilder &builder, GemmOp op, Location loc,
                          int64_t splitKFactor, Value a, Value b, Value c) const;
+
+  const BufferDependencyAnalysis &bufferDeps;
 };
 
 struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
@@ -189,8 +198,13 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       return op.emitError(
           "Split-K `GemmOp` currently supports only f32/f16 element types");
     }
-    std::tie(a, b, c) =
+
+    auto maybeSplitk =
         arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
+    if (failed(maybeSplitk))
+      return maybeSplitk;
+
+    std::tie(a, b, c) = maybeSplitk.value();
   }
 
   aShape = cast<MemRefType>(a.getType()).getShape();
@@ -265,7 +279,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   return success();
 }
 
-std::tuple<Value, Value, Value>
+FailureOr<std::tuple<Value, Value, Value>>
 GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
                                            Location loc, int64_t splitKFactor,
                                            Value a, Value b, Value c) const {
@@ -275,18 +289,28 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   op.setStoreMethodAttr(storeMethod);
 
   // set the prefill attribute
+  Value matC = op.getC();
   auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  auto attrName = rock::PrefillAttr::getMnemonic();
-  auto elementType = cast<MemRefType>(c.getType()).getElementType();
+  FailureOr<SmallVector<BlockArgument>> args =
+      traceGemmOutputToArgs(matC, func, builder, bufferDeps);
+  if (failed(args)) {
+    return op->emitError("can't trace gemm output to output argument");
+  }
+
+  // initialize to zeros
+  auto elementType = cast<MemRefType>(matC.getType()).getElementType();
   Attribute zero;
   if (llvm::isa<FloatType>(elementType)) {
     zero = builder.getFloatAttr(elementType, 0.0);
-  } else {
-    assert(llvm::isa<IntegerType>(elementType) &&
-           "expecting `int` element type");
+  } else if (llvm::isa<IntegerType>(elementType)) {
     zero = builder.getIntegerAttr(elementType, 0);
+  } else {
+    return op->emitError("expecting `float` or `int` element type");
   }
-  func.setArgAttrs(2, builder.getNamedAttr(attrName, zero));
+
+  auto attrName = rock::PrefillAttr::getMnemonic();
+  for (auto arg : args.value())
+    func.setArgAttrs(arg.getArgNumber(), builder.getNamedAttr(attrName, zero));
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
   const int64_t kPad =
@@ -574,11 +598,15 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect>();
 
+  BufferDependencyAnalysis &bufferDeps =
+      getAnalysis<BufferDependencyAnalysis>();
+
   RewritePatternSet patterns(ctx);
-  patterns.add<GemmRewritePattern, AttentionRewritePattern>(ctx);
+  patterns.add<GemmRewritePattern>(ctx, bufferDeps);
+  patterns.add<AttentionRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
     signalPassFailure();
   }
-}
+} // namespace

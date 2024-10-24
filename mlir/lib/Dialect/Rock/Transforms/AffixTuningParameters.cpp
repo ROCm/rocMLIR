@@ -66,6 +66,7 @@ void AffixTuningParameters::runOnOperation() {
     setUtilityKernelSizes(op.getInput(), op);
   });
 
+  auto &bufferDeps = getAnalysis<BufferDependencyAnalysis>();
   func.walk([&](GemmOp op) {
     if (op.getStoreMethod() == StoreMethod::AtomicAdd) {
       OpBuilder b(op.getContext());
@@ -81,7 +82,12 @@ void AffixTuningParameters::runOnOperation() {
                "expecting `int` element type");
         zero = b.getIntegerAttr(elementType, 0);
       }
-      func.setArgAttrs(2, b.getNamedAttr(attrName, zero));
+      FailureOr<SmallVector<BlockArgument>> args =
+          traceGemmOutputToArgs(c, func, b, bufferDeps);
+      assert(succeeded(args) &&
+             "can't trace the GEMM output to a kernel result");
+      for (auto arg : args.value())
+        func.setArgAttrs(arg.getArgNumber(), b.getNamedAttr(attrName, zero));
     }
   });
 }

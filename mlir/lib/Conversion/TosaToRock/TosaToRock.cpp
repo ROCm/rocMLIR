@@ -215,6 +215,57 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   return cop;
 }
 
+static bool isTosaReduction(Operation *op) {
+  return isa<tosa::ReduceMaxOp, tosa::ReduceSumOp, tosa::ReduceMinOp,
+             tosa::ReduceProdOp, tosa::ReduceAllOp, tosa::ReduceAnyOp>(op);
+}
+
+static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
+                        Value expectedTensor) {
+  if (cache.contains(tensor))
+    return cache.at(tensor);
+
+  Value res = nullptr;
+  if (tensor.getDefiningOp()) {
+    if (isTosaReduction(tensor.getDefiningOp()) && expectedTensor == tensor) {
+      res = tensor;
+    } else if (auto view = tensor.getDefiningOp<ViewLikeOpInterface>()) {
+      res = traceToRes(view.getViewSource(), cache, expectedTensor);
+    } else if (auto collapse =
+                   tensor.getDefiningOp<tensor::CollapseShapeOp>()) {
+      res = traceToRes(collapse.getSrc(), cache, expectedTensor);
+    } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
+      for (auto operand : tosaOp->getOperands()) {
+        if (llvm::isa<TensorType>(operand.getType())) {
+          res = traceToRes(operand, cache, expectedTensor);
+          if (res)
+            break;
+        }
+      }
+    }
+  }
+
+  cache.insert({tensor, res});
+  return res;
+}
+
+static FailureOr<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
+  llvm::DenseMap<Value, Value> cache;
+
+  SmallVector<func::ReturnOp> returns;
+  func.walk([&](func::ReturnOp returnOp) { returns.push_back(returnOp); });
+  assert(returns.size() == 1 && "Number of returns is not one");
+  func::ReturnOp returnOp = returns[0];
+
+  for (auto [i, res] : llvm::enumerate(returnOp->getOperands())) {
+    Value out = traceToRes(res, cache, expectedTensor);
+    if (out == expectedTensor) {
+      return i;
+    }
+  }
+  return failure();
+}
+
 template <typename OpT>
 class ConvConverter final : public OpConversionPattern<OpT> {
 public:
@@ -495,8 +546,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           if (numNonUnitDimsMerged > 1) {
             // Per MIGraphX bug #2692, this transpsoe/collaspe swap logic
             // will be incorrect in cases like the following
-            //   %0 = expand_shape [[0], [1, 2], [3]] %arg0 : tensor<7x6x5xT> to
-            //   tensor<7x3x2x5xT> %1 = transpose %0, [0, 2, 1, 3] :
+            //   %0 = expand_shape [[0], [1, 2], [3]] %arg0 : tensor<7x6x5xT>
+            //   to tensor<7x3x2x5xT> %1 = transpose %0, [0, 2, 1, 3] :
             //   tensor<7x2x3x5xT> %2 = collapse_shape [[0], [1, 2], [2]] %1 :
             //   tensor<7x2x3x5xT> to tensor<7x6x5xT>
             // by way of creating a trivial expand/collapse pair that isn't
@@ -677,9 +728,9 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   }
 };
 
-// In Tosa canonicalize, a transpose of NCHW to NHWC where H==W==1 will convert
-// to a reshape because it does not change memory layout. Then in TosaToTensor
-// conversion, the reshape is replaced by this pattern:
+// In Tosa canonicalize, a transpose of NCHW to NHWC where H==W==1 will
+// convert to a reshape because it does not change memory layout. Then in
+// TosaToTensor conversion, the reshape is replaced by this pattern:
 //     %0 = collapse(filters[KCHW]) -> [KC]
 //     %1 = expand(%0[KC]) -> [KHWC]
 // If this feeds into a conv2d as filter, we will drop the collapse/expand and
@@ -886,11 +937,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val;
   }
 
-  // This function traverse an upward tree where the root is the softmax input.
-  // It traverses the tree until it hit the gemm or last elemwise operation that
-  // may or maynot be interleaved with reshape-like ops. Note there is a TODO to
-  // explore relaxing reshape-like ops constraints to more of rock.transforms.
-  // (See the implementation for the TODO)
+  // This function traverse an upward tree where the root is the softmax
+  // input. It traverses the tree until it hit the gemm or last elemwise
+  // operation that may or maynot be interleaved with reshape-like ops. Note
+  // there is a TODO to explore relaxing reshape-like ops constraints to more
+  // of rock.transforms. (See the implementation for the TODO)
   std::tuple<Value, FailureOr<tosa::MatMulOp>>
   getPreSoftmaxElemwiseRegion(Value input, OpBuilder &regionBuilder,
                               Block *block, SmallVector<Value> &elemwiseArgs,
@@ -1109,8 +1160,15 @@ typename std::enable_if_t<
       /*useDPP=*/nullptr);
 
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-  func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
-  func.setResultAttr(0, "mhal.read_access", rw.getUnitAttr());
+  FailureOr<int64_t> maybeRes = traceToRes(op.getOutput(), func);
+  if (failed(maybeRes))
+    return op.emitOpError(
+        "can't trace the reduction output to a kernel result");
+  int64_t resNumber = maybeRes.value();
+
+  func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
+                     outputInitVal);
+  func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
   // The original function also need the read access attr for the output.
   if (func->hasAttr("original_func")) {
     if (ModuleOp rootMod =
@@ -1120,7 +1178,8 @@ typename std::enable_if_t<
           func->getAttrOfType<SymbolRefAttr>("original_func");
       if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
               symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
-        originalFunc.setResultAttr(0, "mhal.read_access", rw.getUnitAttr());
+        originalFunc.setResultAttr(resNumber, "mhal.read_access",
+                                   rw.getUnitAttr());
       }
     }
   }

@@ -25,6 +25,7 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
 }
 
 // CHECK-LABEL: func.func @gemm_splitk
+// CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32> {rock.prefill = {{.*}} : f32})
 func.func @gemm_splitk(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
   // CHECK: rock.gridwise_gemm
   // CHECK-SAME: storeMethod( atomic_add)
@@ -102,12 +103,64 @@ func.func @gemm_pad_for_split_k(%a: memref<1x128x238xf32>, %b: memref<1x238x512x
   // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x238x512xf32> to memref<1x240x512xf32{{.*}}>
   // CHECK-DAG: %[[splitA:.*]] = rock.transform %[[normalizeA]] by {{.*}} : memref<1x240x128xf32> to memref<1x3x80x128xf32{{.*}}>
   // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
-  rock.gemm %c = %a * %b features = mfma|dot|atomic_add storeMethod = set {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
+  // CHECK: rock.gridwise_gemm
+  // CHECK-SAME: storeMethod( atomic_add)
+  rock.gemm %alloc = %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx906",
     derivedBlockSize = 256 : i32,
     gridSize = 4 : i32,
     params = #xdlops_gemm_params3
   } : memref<1x128x512xf32> = memref<1x128x238xf32> * memref<1x238x512xf32>
+  memref.copy %alloc, %c : memref<1x128x512xf32> to memref<1x128x512xf32>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_reduce_and_split_k
+// CHECK-SAME: (%[[a:.*]]: memref<1x128x238xf32>, %[[b:.*]]: memref<1x238x512xf32>, %[[c:.*]]: memref<1x128x1xf32> {rock.prefill = {{.*}} : f32}, %[[d:.*]]: memref<1x128x512xf32> {rock.prefill = {{.*}} : f32})
+func.func @gemm_reduce_and_split_k(%a: memref<1x128x238xf32>, %b: memref<1x238x512xf32>, %c: memref<1x128x1xf32>, %d: memref<1x128x512xf32>) {
+  // CHECK-DAG: %[[transA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x128x238xf32> to memref<1x238x128xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[transA]] by {{.*}} : memref<1x238x128xf32> to memref<1x240x128xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x238x512xf32> to memref<1x240x512xf32{{.*}}>
+  // CHECK-DAG: %[[splitA:.*]] = rock.transform %[[normalizeA]] by {{.*}} : memref<1x240x128xf32> to memref<1x3x80x128xf32{{.*}}>
+  // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
+  %alloc2 = memref.alloc() {alignment = 64 : i64} : memref<1x128x1xf32>
+  // CHECK: rock.gridwise_gemm
+  // CHECK-SAME: storeMethod( atomic_add)
+  rock.gemm %alloc = %a * %b features = mfma|dot|atomic_add storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx906",
+    derivedBlockSize = 256 : i32,
+    gridSize = 4 : i32,
+    params = #xdlops_gemm_params3
+  } : memref<1x128x512xf32> = memref<1x128x238xf32> * memref<1x238x512xf32>
+  rock.reduce sum %alloc into %alloc2 features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 256 : i32, gridSize = 2 : i32} : memref<1x128x512xf32> into memref<1x128x1xf32>
+  memref.copy %alloc, %d : memref<1x128x512xf32> to memref<1x128x512xf32>
+  memref.copy %alloc2, %c : memref<1x128x1xf32> to memref<1x128x1xf32>
+
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_reduce_and_split_k_return_reduce_directly
+// CHECK-SAME: (%[[a:.*]]: memref<1x128x238xf32>, %[[b:.*]]: memref<1x238x512xf32>, %[[c:.*]]: memref<1x128x1xf32> {rock.prefill = {{.*}} : f32}, %[[d:.*]]: memref<1x128x512xf32> {rock.prefill = {{.*}} : f32})
+func.func @gemm_reduce_and_split_k_return_reduce_directly(%a: memref<1x128x238xf32>, %b: memref<1x238x512xf32>, %c: memref<1x128x1xf32>, %d: memref<1x128x512xf32>) {
+  // CHECK-DAG: %[[transA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x128x238xf32> to memref<1x238x128xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[transA]] by {{.*}} : memref<1x238x128xf32> to memref<1x240x128xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x238x512xf32> to memref<1x240x512xf32{{.*}}>
+  // CHECK-DAG: %[[splitA:.*]] = rock.transform %[[normalizeA]] by {{.*}} : memref<1x240x128xf32> to memref<1x3x80x128xf32{{.*}}>
+  // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
+  // CHECK: rock.gridwise_gemm
+  // CHECK-SAME: storeMethod( atomic_add)
+  rock.gemm %alloc = %a * %b features = mfma|dot|atomic_add storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx906",
+    derivedBlockSize = 256 : i32,
+    gridSize = 4 : i32,
+    params = #xdlops_gemm_params3
+  } : memref<1x128x512xf32> = memref<1x128x238xf32> * memref<1x238x512xf32>
+  rock.reduce sum %alloc into %c features = mfma|dot|atomic_add {axis = 2 : index, blockSize = 256 : i32, gridSize = 2 : i32} : memref<1x128x512xf32> into memref<1x128x1xf32>
+  memref.copy %alloc, %d : memref<1x128x512xf32> to memref<1x128x512xf32>
+
   func.return
 }
 
