@@ -2,176 +2,219 @@ boolean shouldRunOnMachine(String machine){
     switch (machine){
         case "rocm-framework-38.amd.com":
             return (params.MI200 == true)
-        case "aus-navi3x-13.amd.com":
+        case "sh5-1e707-rf06-26.mkm.dcgpu":
+            return (params.MI300 == true)
+        case "supermicro-829":
+            return (params.Navi2x == true)
+        case "aus-navi3x-19.amd.com":
             return (params.Navi3x == true)
+        case "navi4x-hw-31.amd.com":
+            return (params.Navi4x == true)
     }
 }
 
-void clean() {
-sh """ #!/bin/bash -x
-
-if [ \$(docker ps -a -q -f name=migraphx) ]; then
-    docker stop migraphx
-    docker rm migraphx
-    echo "cleanup"
-fi
-"""
+void buildMIGraphX(String cmakeOpts) {
+    dir('AMDMIGraphX') {
+        def gpu_targets = sh(script: "/opt/rocm/bin/rocminfo | grep -o -m1 'gfx.*'", returnStdout: true).trim()
+        cmakeBuild generator: 'Unix Makefiles',\
+            buildDir: 'build',\
+            buildType: 'Release',\
+            installation: 'InSearchPath',\
+            cmakeArgs: """-DMIGRAPHX_ENABLE_MLIR=On
+                        -DCMAKE_PREFIX_PATH=/MIGraphXDeps
+                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                        -DGPU_TARGETS=${gpu_targets}
+                        ${cmakeOpts}
+                        """
+        sh 'cd build && make -j $(nproc) driver test_gpu_mlir'
+    }
 }
 
-void buildAndTest(){
-    sh """#!/bin/bash -x
-# Make the script fail if there is a runtime error when executing piped commands
-# (e.g., if ./a.out fails, ./a.out | ./b.out also fails )
-set -e
-set -o pipefail
-
-# Print parameters
-echo "Parameters:"
-echo "fp32:$fp32"
-echo "fp16:$fp16"
-echo "int8:$int8"
-echo "checkFor:$checkFor"
-
-docker run -itd --device=/dev/kfd --device=/dev/dri  -v /nas/models:/models --group-add video --hostname migraphx --name migraphx rocm/mlir-migraphx-ci:latest
-docker exec migraphx bash -c "git clone -b $mlir_branch https://github.com/ROCm/rocMLIR.git"
-docker exec migraphx bash -c "git clone -b $migraphx_branch https://github.com/ROCm/AMDMIGraphX.git"
-
-docker exec migraphx bash -c "cd rocMLIR/; mkdir build; cd build"
-docker exec -w /rocMLIR/build migraphx bash -c "cmake -G Ninja -DBUILD_FAT_LIBROCKCOMPILER=ON .. && ninja package && cmake --install . --prefix /MIGraphXDeps"
-
-docker exec -w /AMDMIGraphX migraphx bash -c "cmake . -G 'Unix Makefiles' -B build -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_PREFIX_PATH=/MIGraphXDeps -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DGPU_TARGETS=\$(/opt/rocm/bin/rocminfo | grep -o -m1 'gfx.*')"
-docker exec -w /AMDMIGraphX/build migraphx bash -c "make -j driver test_gpu_mlir"
-
-SUMMARY=summary.log
-LOGFILE=generic.log
-rm -f \$LOGFILE
-rm -f \$SUMMARY
-
-echo "###########################################" >>  \$LOGFILE
-echo "New Run \$(pwd)" >>  \$LOGFILE
-date >> \$LOGFILE
-echo "GPU: \$(docker exec migraphx rocminfo |grep -o -m 1 'gfx.*')" >> \$LOGFILE
-echo "MIGX: \$(docker exec migraphx /AMDMIGraphX/build/bin/migraphx-driver version)" >> \$LOGFILE
-echo "MIGX Commit: \$(docker exec migraphx git -C /AMDMIGraphX log -n 1  --pretty=oneline)" >> \$LOGFILE
-docker exec migraphx ls -l /etc/alternatives |grep "rocm ->" >> \$LOGFILE
-echo "###########################################" >>  \$LOGFILE
-
-datatypes=()
-if [ "$fp32" = "true" ]; then
-        datatypes+=(" ")
-fi
-if [ "$fp16" = "true" ]; then
-        datatypes+=("--fp16")
-fi
-if [ "$int8" = "true" ]; then
-        datatypes+=("--int8")
-fi
-
-echo "Data type flags:"
-printf -- '- %s\n' "\${datatypes[@]}"
-echo "$list_tier1_p0"
-echo "Collecting models:"
-tier1_p0_models=()
-tier1_p1_models=()
-other_models=()
-OLD_IFS="\$IFS"
-IFS=\$'\n'
-for model in "$list_tier1_p0"; do
-tier1_p0_models+=(\$model)
-done
-for model in "$list_tier1_p1"; do
-tier1_p1_models+=(\$model)
-done
-for model in "$list_others"; do
-other_models+=(\$model)
-done
-IFS="\$OLD_IFS"
-
-
-# Function to test different list of models
-function test_models(){
-  array_name=\$1[@]
-  models_to_test=("\${!array_name}")
-  out_log_file=\$2
-  for testcase in "\${models_to_test[@]}"; do
-      if [[ \$str =~ ^# ]]; then
-          continue;
-      fi
-
-      for datatype in "\${datatypes[@]}"; do
-          echo "Testing: \$testcase \$datatype" >> \$out_log_file
-          timeout 1h docker exec -e MIGRAPHX_ENABLE_MLIR=0  migraphx /AMDMIGraphX/build/bin/migraphx-driver $checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
-          timeout_status=\$?
-          cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
-          cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
-          result="DONE"
-          if [[ \$timeout_status -eq 124 ]]; then
-                  result="TIMEOUT"
-          fi
-          echo "\$result Testing: \$testcase \$datatype" >> \$out_log_file
-          echo "\$testcase \$datatype \$result" >> \$SUMMARY
-
-          echo "Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
-          timeout 1h docker exec -e MIGRAPHX_ENABLE_MLIR=1 migraphx /AMDMIGraphX/build/bin/migraphx-driver $checkFor \$testcase \$datatype 2>&1 |tee raw_log.txt
-          timeout_status=\$?
-          cat raw_log.txt |sed -n '/Summary:/,\$p'  >>  \$out_log_file
-          cat raw_log.txt |sed -n '/FAILED:/,\$p'  >>  \$out_log_file
-          result="DONE"
-          if [[ \$timeout_status -eq 124 ]]; then
-                  result="TIMEOUT"
-          fi
-          echo "\$result Testing(MLIR ENABLED): \$testcase \$datatype" >> \$out_log_file
-          echo "(MLIR ENABLED) \$testcase \$datatype \$result" >> \$SUMMARY
-      done
-  done
+void buildMLIR(String target, String cmakeOpts) {
+    dir('rocMLIR') {
+        cmakeBuild generator: 'Ninja',
+            buildDir: 'build',
+            buildType: 'RelWithDebInfo',
+            installation: 'InSearchPath',
+            steps: [[args: target]],
+            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                        ${cmakeOpts}"""
+        sh 'cd build && cmake --install . --prefix /MIGraphXDeps'
+    }
 }
-rm -f tier1_p0.log
-rm -f tier1_p1.log
-rm -f other_models.log
 
-if [ "$enable_tier1_p0" = "true" ]; then
-	test_models tier1_p0_models tier1_p0.log
-fi
-if [ "$enable_tier1_p1" = "true" ]; then
-    test_models tier1_p1_models tier1_p1.log
-fi
+void getAndBuildMLIR() {
+    dir('rocMLIR') {
+        git branch: params.mlir_branch, poll: false,\
+            url: 'https://github.com/ROCm/rocMLIR.git'
+    }
+    buildMLIR("package", "-DBUILD_FAT_LIBROCKCOMPILER=ON")
+}
 
-if [ "$enable_others" = "true" ]; then
-    test_models other_models other_models.log
-fi
-"""
+void getAndBuildMIGraphX(String cmakeOpts) {
+    dir('AMDMIGraphX') {
+        git branch: params.migraphx_branch, poll: false,\
+            url: 'https://github.com/ROCm/AMDMIGraphX.git'
+    }
+    buildMIGraphX(cmakeOpts)
+}
+
+String dockerImageCIMIGraphX() {
+    return 'rocm/mlir-migraphx-ci:rocm6.2-latest'
+}
+
+String dockerArgs() {
+    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro -v /mnt/nas_share/migraphx/models:/models -u 0"
+}
+
+void mountModels() {
+    withCredentials([
+        usernamePassword(credentialsId: 'model-mounting-credentials', passwordVariable: 'SSHFS_PASS', usernameVariable: 'SSHFS_USER'),
+        string(credentialsId: 'sshfs_host', variable: 'SSHFS_HOST'),
+        string(credentialsId: 'ssh_public_key', variable: 'SSH_PUBLIC_KEY')
+    ]) {
+
+        echo "Setting variables for SSHFS..."
+        def sshfsRemotePath = "migraphx/models"
+        def sshfsLocalPath = "/mnt/nas_share/migraphx/models"
+        def knownHostsFile = "/tmp/known_hosts"
+
+        def knownHostEntry = "${env.SSH_PUBLIC_KEY}"
+        if (!fileExists(knownHostsFile) || sh(script: "grep -Fxq '${knownHostEntry}' ${knownHostsFile}", returnStatus: true) != 0) {
+            echo "Adding public key to known_hosts..."
+            sh "echo '${knownHostEntry}' >> ${knownHostsFile}"
+        } else {
+            echo "Public key already in known_hosts."
+        }
+
+        def isMounted = sh(script: "mount | grep -q '${sshfsLocalPath}'", returnStatus: true) == 0
+        if (!isMounted) {
+            echo "Directory is not mounted, mounting now..."
+            sh """
+                sudo mkdir -p '${sshfsLocalPath}'
+                sudo sshpass -p '${env.SSHFS_PASS}' sshfs -o ssh_command='ssh -o UserKnownHostsFile=${knownHostsFile}' -o allow_other,ro,debug '${env.SSHFS_USER}@${env.SSHFS_HOST}:${sshfsRemotePath}' '${sshfsLocalPath}' > /dev/null 2>&1 &
+            """
+        } else {
+            echo "Directory ${sshfsLocalPath} is already mounted."
+        }
+    }
+}
+
+def createLogAndSummaryFiles(String arch) {
+    def logfile = "${arch}_generic.log"
+    def summary = "${arch}_summary.log"
+
+    sh """
+    echo "###########################################" >> ${logfile}
+    echo "New Run \$(pwd)" >> ${logfile}
+    date >> ${logfile}
+    echo "GPU: \$(/opt/rocm/bin/rocminfo | grep -o -m 1 'gfx.*')" >> ${logfile}
+    echo "MIGX: \$(\$(pwd)/AMDMIGraphX/build/bin/migraphx-driver --version)" >> ${logfile}
+    git config --global --add safe.directory \$(pwd)/AMDMIGraphX
+    echo "MIGX Commit: \$(git -C \$(pwd)/AMDMIGraphX log -n 1 --pretty=oneline)" >> ${logfile}
+    ls -l /etc/alternatives | grep "rocm ->" >> ${logfile}
+    echo "###########################################" >> ${logfile}
+    """
+}
+
+def testModels(modelsToTest, outLogFile, summary, datatypes) {
+    modelsToTest.each { testcase ->
+        if (testcase.startsWith('#')) {
+            return
+        }
+
+        datatypes.each { datatype ->
+            sh "echo 'Testing(MLIR ENABLED): ${testcase} ${datatype}' >> ${outLogFile}"
+            def command = "\$(pwd)/AMDMIGraphX/build/bin/migraphx-driver ${checkFor} ${testcase} ${datatype}"
+            def commandOutputFile = "command_output.txt"
+            def commandWithTee = "${command} | tee ${commandOutputFile}"
+            def timeoutStatus = sh(script: "timeout 1h ${commandWithTee}", returnStatus: true)
+            def output = readFile commandOutputFile
+
+            sh(script: "sed -n '/Summary:/,\$p; /FAILED:/,\$p' ${commandOutputFile} | tee -a ${outLogFile}")
+            def result = "DONE"
+
+            if (sh(script: "grep -q 'FAILED:' ${commandOutputFile}", returnStatus: true) == 0 ||
+                (sh(script: "grep -q 'Summary:' ${commandOutputFile}", returnStatus: true) != 0 && timeoutStatus != 124)) {
+                result = "FAILED"
+                error "Test case ${testcase} for datatype ${datatype} failed. Stopping execution."
+            } else if (timeoutStatus == 124) {
+                result = "TIMEOUT"
+            }
+            sh "echo '${result} Testing(MLIR ENABLED): ${testcase} ${datatype}\n' >> ${outLogFile}"
+            sh "echo '(MLIR ENABLED): ${testcase} ${datatype} ${result}' >> ${summary}"
+        }
+    }
+}
+
+void buildAndTest(String arch) {
+    def datatypes = []
+    if (fp32 == "true") {
+        datatypes.add(" ")
+    }
+    if (fp16 == "true") {
+        datatypes.add("--fp16")
+    }
+    if (int8 == "true") {
+        datatypes.add("--int8")
+    }
+
+    def tier1P0Models = list_tier1_p0.tokenize('\n')
+    def tier1P1Models = list_tier1_p1.tokenize('\n')
+    def otherModels = list_others.tokenize('\n')
+
+    try {
+        if (enable_tier1_p0 == "true") {
+            testModels(tier1P0Models, "${arch}_tier1_p0.log", "${arch}_summary.log",  datatypes)
+        }
+        if (enable_tier1_p1 == "true") {
+            testModels(tier1P1Models, "${arch}_tier1_p1.log", "${arch}_summary.log",  datatypes)
+        }
+        if (enable_others == "true") {
+            testModels(otherModels, "${arch}_other_models.log", "${arch}_summary.log",  datatypes)
+        }
+    } catch (Exception e) {
+        error "Build and Test failed for architecture: ${arch}. Reason: ${e.message}"
+    }
 }
 
 def list_tier1_p0_default='''\
 /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
 /models/ORT/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
 /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
 /models/ORT/bert_base_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
-/models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 64
-/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
-/models/ORT/distilgpt2_1.onnx  --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
+/models/ORT/bert_large_uncased_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
+/models/ORT/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
 /models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
-/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
-/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
 /models/ORT/onnx_models/bert_base_cased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
 /models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
 /models/ORT/onnx_models/bert_large_uncased_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
-/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
-/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx      --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
+/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 1 384 --batch 1
+/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 32 384 --batch 32
+/models/ORT/onnx_models/distilgpt2_1_fp16_gpu.onnx --fill1 input_ids --input-dim @input_ids 64 384 --batch 64
 /models/onnx-model-zoo/gpt2-10.onnx
 /models/mlperf/resnet50_v1.onnx
 '''
 
 def list_tier1_p1_default= '''\
-/models/sd/stable-diffusion-2-onnx/text_encoder/model.onnx     --input-dim @latent_sample 1 4 64 64 -t 482
-/models/sd/stable-diffusion-2-onnx/vae_decoder/model.onnx      --input-dim @latent_sample 1 4 64 64 -t 482
-/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384
-/models/mlperf/bert_large_mlperf.onnx   --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 64 384
-/models/sd/stable-diffusion-2-onnx/unet/model.onnx      --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024
+/models/mlperf/bert_large_mlperf.onnx --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 1 384
+/models/mlperf/bert_large_mlperf.onnx --fill1 input_ids --fill1 input_ids --fill1 segment_ids --input-dim @input_ids 64 384
+/models/sd21-onnx/text_encoder/model.onnx --input-dim @latent_sample 1 4 64 64 -t 482
+/models/sd21-onnx/vae_decoder/model.onnx --input-dim @latent_sample 1 4 64 64 -t 482
+/models/sd21-onnx/unet/model.onnx --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024
 '''
 
 pipeline {
-    agent any
+    agent none
     parameters{
         booleanParam(name: 'fp32', defaultValue: true, description: 'No quantization')
         booleanParam(name: 'fp16', defaultValue: true, description: 'Quantize for fp16')
@@ -182,20 +225,22 @@ pipeline {
         booleanParam(name: 'enable_tier1_p0', defaultValue: true, description: 'Enable tests for tier1 P0 models')
         booleanParam(name: 'enable_tier1_p1', defaultValue: true, description: 'Enable tests for tier1 P1 models')
         booleanParam(name: 'enable_others', defaultValue: true, description: 'Enable testing for additional models')
-        booleanParam(name: 'MI200', defaultValue: true, description: 'Run the job on a MI210 machine')
+        booleanParam(name: 'MI200', defaultValue: true, description: 'Run the job on a MI200 machine')
+        booleanParam(name: 'MI300', defaultValue: true, description: 'Run the job on a MI300 machine')
+        booleanParam(name: 'Navi2x', defaultValue: true, description: 'Run the job on a Navi2x machine')
         booleanParam(name: 'Navi3x', defaultValue: true, description: 'Run the job on a Navi3x machine')
+        booleanParam(name: 'Navi4x', defaultValue: true, description: 'Run the job on a Navi4x machine')
         text(name: 'list_tier1_p0', defaultValue: list_tier1_p0_default, description: 'List of tier 1 models to test (P0)')
         text(name: 'list_tier1_p1', defaultValue: list_tier1_p1_default, description: 'List of tier 1 models to test (P1)')
         text(name: 'list_others', defaultValue: '', description: 'List of additional models to test')
     }
     stages {
-        stage('BuildAndTest') {
+        stage('Environment') {
             matrix {
-                agent any
                 axes {
                     axis {
                         name 'PLATFORM'
-                        values "rocm-framework-38.amd.com", "aus-navi3x-13.amd.com"
+                        values "rocm-framework-38.amd.com", "sh5-1e707-rf06-26.mkm.dcgpu", "supermicro-829", "aus-navi3x-19.amd.com", "navi4x-hw-31.amd.com"
                     }
                 }
                 when {
@@ -203,29 +248,69 @@ pipeline {
                     expression { return shouldRunOnMachine("${PLATFORM}") }
                 }
                 stages {
-                    stage('BuildAndTest') {
-                        agent {label "${PLATFORM}" }
+                    stage('Mount Models') {
+                        agent { label "${PLATFORM}" }
                         steps {
-                            echo "Do Build And Test for ${PLATFORM}"
-                            clean()
-                            buildAndTest()
-                            archiveArtifacts allowEmptyArchive: false, artifacts: 'generic.log,tier1_p0.log,tier1_p1.log,other_models.log,summary.log', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
+                            script {
+                                echo "Mounting models on ${PLATFORM}"
+                                mountModels()
+                            }
                         }
                     }
                 }
             }
         }
-    }
-    post {
-        success {
-            mail to: "giuseppe.rossini@amd.com,manupa.karunaratne@amd.com,krzysztof.drewniak@amd.com",
-             subject: "MIGraphX integration job passed!",
-             body: "Done"
-        }
-        failure {
-            mail to: "giuseppe.rossini@amd.com,manupa.karunaratne@amd.com,krzysztof.drewniak@amd.com",
-             subject: "Ouch! MIGraphX integration job failed!",
-             body: "Done"
+        stage('Build and Test') {
+            matrix {
+                axes {
+                    axis {
+                        name 'PLATFORM'
+                        values "rocm-framework-38.amd.com", "sh5-1e707-rf06-26.mkm.dcgpu", "supermicro-829", "aus-navi3x-19.amd.com", "navi4x-hw-31.amd.com"
+                    }
+                }
+                agent {
+                    docker {
+                        label "${PLATFORM}"
+                        image dockerImageCIMIGraphX()
+                        args dockerArgs()
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunOnMachine("${PLATFORM}") }
+                }
+                stages {
+                    stage('Build rocMLIR and MIGraphX' ) {
+                        steps {
+                            script {
+                                getAndBuildMLIR()
+                                getAndBuildMIGraphX("")
+                            }
+                        }
+                    }
+                    stage('Run Tests') {
+                        steps {
+                            script {
+                                echo "Running tests for ${PLATFORM}"
+                                def arch = sh(script: "/opt/rocm/bin/rocminfo | { grep -o -m 1 'gfx.*' || true; } | tr -d '[:space:]'", returnStdout: true).trim()
+                                createLogAndSummaryFiles(arch)
+                                buildAndTest(arch)
+                            }
+                        }
+                    }
+                    stage('Archive Artifacts') {
+                        steps {
+                            archiveArtifacts allowEmptyArchive: false, artifacts: '*_generic.log,*_tier1_p0.log,*_tier1_p1.log,*_other_models.log,*_summary.log', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
+                        }
+                    }
+                }
+                post {
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
         }
     }
 }
