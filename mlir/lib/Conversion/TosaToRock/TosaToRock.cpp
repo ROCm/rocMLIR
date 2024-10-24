@@ -223,7 +223,7 @@ static bool isTosaReduction(Operation *op) {
 static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
                         Value expectedTensor) {
   if (cache.contains(tensor))
-    return cache.find(tensor)->second;
+    return cache.at(tensor);
 
   Value res = nullptr;
   if (tensor.getDefiningOp()) {
