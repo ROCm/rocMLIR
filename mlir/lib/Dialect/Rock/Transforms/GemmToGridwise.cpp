@@ -200,8 +200,15 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
                 /*n=*/bShape[2]);
 
+  bool isAccel = rock::isAccel(op.getFeatures());
   GemmSize extraPad =
       requiredPadding(params, size).value_or(GemmSize{0, 0, 0, 0});
+
+  // TODO: last k iteration pelling for accel GEMM only
+  bool isReverseGrid = succeeded(rock::getReverseGrid(op));
+  if (isAccel && !isReverseGrid) {
+    extraPad.k = 0;
+  }
 
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
@@ -217,8 +224,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     int64_t minNumCU = rock::lookupArchInfo(op.getArchAttr()).minNumCU;
     numCUAttr = rw.getI32IntegerAttr(minNumCU);
   }
-
-  bool isAccel = rock::isAccel(op.getFeatures());
 
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");

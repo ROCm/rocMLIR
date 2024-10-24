@@ -62,6 +62,9 @@ struct AccelEmitterParams {
   int64_t kpackPerThread;
   int64_t kBasePerThread;
 
+  // Minimum kpack per block needed
+  int64_t kpackMinPerBlock;
+
   // This takes into account the fact that we might invoke accelerators back to
   // back and generate multiple sets of mRepeats*nRepeats vectors
   int64_t nResultVectors;

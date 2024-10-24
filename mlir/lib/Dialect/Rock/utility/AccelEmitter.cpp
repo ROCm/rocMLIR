@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 using namespace mlir;
@@ -160,6 +161,14 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
   params.kBasePerThread =
       (mfmaAttr.isKReduction ? K / mfmaAttr.inputSpansPerMfmaIn : K) /
       params.kBase;
+  int64_t kMinPerBlock = mfmaAttr.isKReduction
+                             ? params.kBase * mfmaAttr.inputSpansPerMfmaIn
+                             : params.kBase;
+  params.kpackMinPerBlock = math_util::integer_divide_ceil(kMinPerBlock, kPack);
+  if (mfmaAttr.isKReduction)
+    params.kpackMinPerBlock =
+        std::max(params.kpackMinPerBlock, mfmaAttr.inputSpansPerMfmaIn);
+
   params.mRepeats = mfmaGroup.getMRepeats(mPerWave);
   params.nRepeats = mfmaGroup.getNRepeats(nPerWave);
   params.nResultVectors = mfmaGroup.getImms().size();
@@ -774,15 +783,19 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
   // isGfx11 flag is set after call to this function. Therefore can not use
   // isGfx11 flag yet from inside this function.
+  int64_t numReductions;
   if (!arch.contains("gfx11")) {
     // Post-gfx12 each thread is loading a partial set of values
     // to reduce. For instance, with the previous example, each
     // thread is loading a vector of 8 Ks. The first 16 threads are
     // loading k=[0:8] the second 16 threads are loading k=[8:16] threads
-    int64_t numReductions = waveSize / wmmaInsn.dPerAccel;
+    numReductions = waveSize / wmmaInsn.dPerAccel;
     params.kpackPerThread /= numReductions;
   }
   params.kBasePerThread = (params.kpackPerThread * kPack) / params.kBase;
+  int64_t kMinPerBlock =
+      !arch.contains("gfx11") ? params.kBase * numReductions : params.kBase;
+  params.kpackMinPerBlock = math_util::integer_divide_ceil(kMinPerBlock, kPack);
   params.argTypeA = wmmaInsn.argTypeA;
   params.argTypeB = wmmaInsn.argTypeB;
   params.accVectorType = wmmaInsn.retType;

@@ -29,14 +29,17 @@
     // Load G0A tile to regs
     // CHECK-DAG: %[[QTr1:.+]] = rock.transform %[[QTr0]] by
     // CHECK-DAG: %[[QTr2:.+]] = rock.transform %[[QTr1]] by
-    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[QTr2]]) {{.*}} -> %[[G0Aregs:.+]] :
+    // CHECK-DAG: %[[QTr3:.+]] = rock.transform %[[QTr2]] by
+    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[QTr3]]) {{.*}} -> %[[G0Aregs:.+]] :
 
     // Repack G0A tile regs for better LDS store vectorization
     // CHECK-DAG: %[[G0AregsTr0:.+]] = rock.transform %[[G0Aregs]] by
     // CHECK-DAG: %[[G0AregsTr1:.+]] = rock.transform %[[G0AregsTr0]] by
+    // CHECK-DAG: %[[G0AregsTr2:.+]] = rock.transform %[[G0AregsTr1]] by
     // CHECK: %[[G0AregsKpackTr0:.+]] = rock.transform %[[G0AregsKpack:.+]] by
     // CHECK-DAG: %[[G0AregsKpackTr1:.+]] = rock.transform %[[G0AregsKpackTr0:.+]] by
-    // CHECK-DAG: rock.threadwise_copy %[[G0AregsTr1]] -> %[[G0AregsKpackTr1]]
+    // CHECK-DAG: %[[G0AregsKpackTr2:.+]] = rock.transform %[[G0AregsKpackTr1:.+]] by
+    // CHECK-DAG: rock.threadwise_copy %[[G0AregsTr2]] -> %[[G0AregsKpackTr2]]
 
     // Viewing G0 LDS A tile buffer
     // CHECK-DAG: %[[viewG0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
@@ -44,23 +47,27 @@
     // CHECK-DAG: %[[viewG0AStoreTr1:.+]] = rock.transform %[[viewG0AStoreTr0]]
     // CHECK-DAG: %[[viewG0AStoreTr2:.+]] = rock.transform %[[viewG0AStoreTr1]]
     // CHECK-DAG: %[[viewG0AStoreTr3:.+]] = rock.transform %[[viewG0AStoreTr2]]
+    // CHECK-DAG: %[[viewG0AStoreTr4:.+]] = rock.transform %[[viewG0AStoreTr3]]
 
     // Store to LDS G0A tile buffer
-    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0AregsKpack]] -> [](%[[viewG0AStoreTr3]])
+    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0AregsKpack]] -> [](%[[viewG0AStoreTr4]])
     // CHECK-DAG: %[[view2G0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
     // Load G0B tile to regs
     // CHECK-DAG: %[[KTr0:.+]] = rock.transform %[[K]] by
     // CHECK-DAG: %[[KTr1:.+]] = rock.transform %[[KTr0]] by
-    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[KTr1]]) {{.*}} -> %[[G0Bregs:.+]] :
+    // CHECK-DAG: %[[KTr2:.+]] = rock.transform %[[KTr1]] by
+    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[KTr2]]) {{.*}} -> %[[G0Bregs:.+]] :
 
     // Repack G0B tile regs for better LDS store vectorization
     // CHECK-DAG: %[[G0BregsTr0:.+]] = rock.transform %[[G0Bregs]] by
     // CHECK-DAG: %[[G0BregsTr1:.+]] = rock.transform %[[G0BregsTr0]] by
+    // CHECK-DAG: %[[G0BregsTr2:.+]] = rock.transform %[[G0BregsTr1]] by
     // CHECK: %[[G0BregsKpackTr0:.+]] = rock.transform %[[G0BregsKpack:.+]] by
     // CHECK-DAG: %[[G0BregsKpackTr1:.+]] = rock.transform %[[G0BregsKpackTr0:.+]] by
-    // CHECK-DAG: rock.threadwise_copy %[[G0BregsTr1]] -> %[[G0BregsKpackTr1]]
+    // CHECK-DAG: %[[G0BregsKpackTr2:.+]] = rock.transform %[[G0BregsKpackTr1:.+]] by
+    // CHECK-DAG: rock.threadwise_copy %[[G0BregsTr2]] -> %[[G0BregsKpackTr2]]
 
     // Viewing G0 LDS B tile buffer
     // CHECK-DAG: %[[viewG0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
@@ -68,9 +75,10 @@
     // CHECK-DAG: %[[viewG0BStoreTr1:.+]] = rock.transform %[[viewG0BStoreTr0]]
     // CHECK-DAG: %[[viewG0BStoreTr2:.+]] = rock.transform %[[viewG0BStoreTr1]]
     // CHECK-DAG: %[[viewG0BStoreTr3:.+]] = rock.transform %[[viewG0BStoreTr2]]
+    // CHECK-DAG: %[[viewG0BStoreTr4:.+]] = rock.transform %[[viewG0BStoreTr3]]
 
     // Store to LDS G0B tile buffer
-    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0BregsKpack]] -> [](%[[viewG0BStoreTr3]])
+    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0BregsKpack]] -> [](%[[viewG0BStoreTr4]])
     // CHECK-DAG: %[[view2G0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: rock.lds_barrier
 
@@ -194,14 +202,17 @@
     // Load G1B tile from global to regs
     // CHECK-DAG: %[[VTr0:.+]] = rock.transform %[[V]] by
     // CHECK-DAG: %[[VTr1:.+]] = rock.transform %[[VTr0]] by
-    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[VTr1]]) {{.*}} -> %[[G1Bregs:.+]] :
+    // CHECK-DAG: %[[VTr2:.+]] = rock.transform %[[VTr1]] by
+    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[VTr2]]) {{.*}} -> %[[G1Bregs:.+]] :
 
     // Repack G1B tile regs for better LDS store vectorization
     // CHECK-DAG: %[[G1BregsTr0:.+]] = rock.transform %[[G1Bregs]] by
     // CHECK-DAG: %[[G1BregsTr1:.+]] = rock.transform %[[G1BregsTr0]] by
+    // CHECK-DAG: %[[G1BregsTr2:.+]] = rock.transform %[[G1BregsTr1]] by
     // CHECK: %[[G1BregsKpackTr0:.+]] = rock.transform %[[G1BregsKpack:.+]] by
     // CHECK-DAG: %[[G1BregsKpackTr1:.+]] = rock.transform %[[G1BregsKpackTr0:.+]] by
-    // CHECK-DAG: rock.threadwise_copy %[[G1BregsTr1]] -> %[[G1BregsKpackTr1]]
+    // CHECK-DAG: %[[G1BregsKpackTr2:.+]] = rock.transform %[[G1BregsKpackTr1:.+]] by
+    // CHECK-DAG: rock.threadwise_copy %[[G1BregsTr2]] -> %[[G1BregsKpackTr2]]
 
     // Viewing G1 LDS B tile buffer
     // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
@@ -209,9 +220,10 @@
     // CHECK-DAG: %[[viewG1BStoreTr1:.+]] = rock.transform %[[viewG1BStoreTr0]]
     // CHECK-DAG: %[[viewG1BStoreTr2:.+]] = rock.transform %[[viewG1BStoreTr1]]
     // CHECK-DAG: %[[viewG1BStoreTr3:.+]] = rock.transform %[[viewG1BStoreTr2]]
+    // CHECK-DAG: %[[viewG1BStoreTr4:.+]] = rock.transform %[[viewG1BStoreTr3]]
 
     // Store to LDS G1B tile buffer
-    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1BregsKpack]] -> [](%[[viewG1BStoreTr3]])
+    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1BregsKpack]] -> [](%[[viewG1BStoreTr4]])
     // CHECK-DAG: %[[view2G1BStore:.+]] = memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
 
     // Viewing LDS G1B tile buffer in MFMA layout
