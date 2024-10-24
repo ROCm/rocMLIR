@@ -7,6 +7,11 @@
 #map0 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map1 = affine_map<(d0, d1, d2) -> (d1, d2)>
 module {
+  func.func private @init_output(%arg0: memref<1x250x100xf32> {mhal.write_access}) {
+    %cst = arith.constant 0xff800000 : f32
+    linalg.fill ins(%cst : f32) outs(%arg0 : memref<1x250x100xf32>)
+    return
+  }
   func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {mhal.read_access}, %arg1: memref<1x250x100xf32>  {mhal.read_access, mhal.write_access}) {
     %0 = memref.collapse_shape %arg1 [[0, 1], [2]] : memref<1x250x100xf32> into memref<250x100xf32>
     linalg.generic {indexing_maps = [#map0, #map1], iterator_types = ["reduction", "parallel", "parallel"]} ins(%arg0 : memref<1000x250x100xf32>) outs(%0 : memref<250x100xf32>) {
@@ -17,6 +22,7 @@ module {
     return
   }
   func.func @test_reduce(%arg0: memref<1000x250x100xf32>, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access}) attributes {arch = ""} {
+    call @init_output (%arg1) : (memref<1x250x100xf32>) -> ()
     %token1 = mhal.launch @test_reduce__part_1 (%arg0, %arg1) : (memref<1000x250x100xf32>, memref<1x250x100xf32>)
     mhal.await %token1 : !mhal.token
     return
