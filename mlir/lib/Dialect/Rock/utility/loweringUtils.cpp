@@ -793,12 +793,6 @@ static void traceGemmAllocToArgs(memref::AllocOp buffer,
   if (!readersOperands.has_value())
     return;
   for (OpOperand *readerOperand : readersOperands.value()) {
-    if (memref::CopyOp copyOp =
-            dyn_cast<memref::CopyOp>(readerOperand->getOwner())) {
-      args.push_back(cast<BlockArgument>(copyOp.getTarget()));
-      continue;
-    }
-
     auto readOp = dyn_cast<MemoryEffectOpInterface>(readerOperand->getOwner());
     if (!readOp)
       continue;
@@ -810,8 +804,11 @@ static void traceGemmAllocToArgs(memref::AllocOp buffer,
       // Test against the write operand to guard against [MemRead, MemWrite]
       if (writerOperand && readerOperand != writerOperand &&
           isa<MemoryEffects::Write>(effect.getEffect())) {
-        if (memref::AllocOp writeBuffer =
-                dyn_cast<memref::AllocOp>(writerOperand->get().getDefiningOp()))
+        Value writerOperandValue = writerOperand->get();
+        if (auto blockArg = dyn_cast<BlockArgument>(writerOperandValue))
+          args.push_back(blockArg);
+        else if (memref::AllocOp writeBuffer = dyn_cast<memref::AllocOp>(
+                     writerOperandValue.getDefiningOp()))
           traceGemmAllocToArgs(writeBuffer, deps, args);
       }
     }
@@ -825,15 +822,23 @@ mlir::rock::traceGemmOutputToArgs(Value matC, func::FuncOp func,
   if (func.getNumArguments() == 0)
     return failure();
 
+  SmallVector<BlockArgument> args;
+  auto funcArgs = func.getArguments();
+  // check if matC is a kernel argument
+  for (auto arg : funcArgs) {
+    if (matC == arg)
+      args.push_back(arg);
+  }
+  if (!args.empty())
+    return args;
+
   // trace matC to its alloc
   FailureOr<memref::AllocOp> allocOp = findMemrefAlloc(matC);
   if (failed(allocOp))
     return failure();
 
   // trace gemm alloc to arg
-  SmallVector<BlockArgument> args;
   traceGemmAllocToArgs(allocOp.value(), deps, args);
-  auto funcArgs = func.getArguments();
   for (auto arg : args) {
     bool containsArg =
         std::find(funcArgs.begin(), funcArgs.end(), arg) != funcArgs.end();

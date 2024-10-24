@@ -66,16 +66,22 @@ class RockGemmToGridwisePass
 };
 
 struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
-  using OpConversionPattern<GemmOp>::OpConversionPattern;
+  // Custom constructor taking an additional argument: bufferDeps
+  GemmRewritePattern(MLIRContext *context,
+                     const BufferDependencyAnalysis &bufferDeps)
+      : OpConversionPattern<GemmOp>(context), bufferDeps(bufferDeps) {}
+
   LogicalResult matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override;
 
   LogicalResult computeGridSize(ConversionPatternRewriter &rw, GemmOp op,
                                 Value a, Value b) const;
 
-  std::tuple<Value, Value, Value>
+  FailureOr<std::tuple<Value, Value, Value>>
   arrangeSplitKTransform(OpBuilder &builder, GemmOp op, Location loc,
                          int64_t splitKFactor, Value a, Value b, Value c) const;
+
+  const BufferDependencyAnalysis &bufferDeps;
 };
 
 struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
@@ -127,52 +133,6 @@ static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
     return builder.create<memref::AllocOp>(loc, accumulatorType);
   }
   return c;
-}
-
-static LogicalResult
-setPrefillForSplitK(func::FuncOp &func,
-                    const BufferDependencyAnalysis &bufferDeps) {
-  auto walkRes = func.walk([&bufferDeps](Operation *op) -> WalkResult {
-    Value matC;
-    int64_t splitKFactor = 1;
-    if (auto gemm = dyn_cast<GridwiseGemmAccelOp>(op)) {
-      matC = gemm.getC();
-      splitKFactor = gemm.getParams().getSplitKFactor();
-    } else if (auto gemm = dyn_cast<GridwiseGemmOp>(op)) {
-      matC = gemm.getC();
-      splitKFactor = gemm.getParams().getSplitKFactor();
-    }
-
-    if (matC && splitKFactor > 1) {
-      auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-      OpBuilder builder(func->getContext());
-      FailureOr<SmallVector<BlockArgument>> args =
-          traceGemmOutputToArgs(matC, func, builder, bufferDeps);
-      if (failed(args)) {
-        op->emitError("can't trace gemm output to output argument");
-        return WalkResult::interrupt();
-      }
-
-      // initialize to zeros
-      auto elementType = cast<MemRefType>(matC.getType()).getElementType();
-      Attribute zero;
-      if (llvm::isa<FloatType>(elementType)) {
-        zero = builder.getFloatAttr(elementType, 0.0);
-      } else {
-        assert(llvm::isa<IntegerType>(elementType) &&
-               "expecting `int` element type");
-        zero = builder.getIntegerAttr(elementType, 0);
-      }
-
-      // set the prefill attribute
-      auto attrName = rock::PrefillAttr::getMnemonic();
-      for (auto arg : args.value())
-        func.setArgAttrs(arg.getArgNumber(),
-                         builder.getNamedAttr(attrName, zero));
-    }
-    return WalkResult::advance();
-  });
-  return walkRes.wasInterrupted() ? failure() : success();
 }
 } // end namespace
 
@@ -239,8 +199,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
           "Split-K `GemmOp` currently supports only f32/f16 element types");
     }
 
-    std::tie(a, b, c) =
+    auto maybeSplitk =
         arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
+    if (failed(maybeSplitk))
+      return maybeSplitk;
+
+    std::tie(a, b, c) = maybeSplitk.value();
   }
 
   aShape = cast<MemRefType>(a.getType()).getShape();
@@ -315,7 +279,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   return success();
 }
 
-std::tuple<Value, Value, Value>
+FailureOr<std::tuple<Value, Value, Value>>
 GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
                                            Location loc, int64_t splitKFactor,
                                            Value a, Value b, Value c) const {
@@ -323,6 +287,30 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   auto storeMethod =
       builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
   op.setStoreMethodAttr(storeMethod);
+
+  // set the prefill attribute
+  Value matC = op.getC();
+  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+  FailureOr<SmallVector<BlockArgument>> args =
+      traceGemmOutputToArgs(matC, func, builder, bufferDeps);
+  if (failed(args)) {
+    return op->emitError("can't trace gemm output to output argument");
+  }
+
+  // initialize to zeros
+  auto elementType = cast<MemRefType>(matC.getType()).getElementType();
+  Attribute zero;
+  if (llvm::isa<FloatType>(elementType)) {
+    zero = builder.getFloatAttr(elementType, 0.0);
+  } else if (llvm::isa<IntegerType>(elementType)) {
+    zero = builder.getIntegerAttr(elementType, 0);
+  } else {
+    return op->emitError("expecting `float` or `int` element type");
+  }
+
+  auto attrName = rock::PrefillAttr::getMnemonic();
+  for (auto arg : args.value())
+    func.setArgAttrs(arg.getArgNumber(), builder.getNamedAttr(attrName, zero));
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
   const int64_t kPad =
@@ -610,19 +598,15 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect>();
 
+  BufferDependencyAnalysis &bufferDeps =
+      getAnalysis<BufferDependencyAnalysis>();
+
   RewritePatternSet patterns(ctx);
-  patterns.add<GemmRewritePattern, AttentionRewritePattern>(ctx);
+  patterns.add<GemmRewritePattern>(ctx, bufferDeps);
+  patterns.add<AttentionRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
     signalPassFailure();
   }
-
-  func::FuncOp func = getOperation();
-  BufferDependencyAnalysis &bufferDeps =
-      getAnalysis<BufferDependencyAnalysis>();
-
-  // set prefill flag for splitK
-  if (failed(setPrefillForSplitK(func, bufferDeps)))
-    signalPassFailure();
 } // namespace
