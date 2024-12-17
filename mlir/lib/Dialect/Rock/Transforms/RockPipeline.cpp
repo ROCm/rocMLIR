@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -163,7 +164,7 @@ struct PushBarrierDownRewritePattern
       return failure();
 
     // We assume that operations that have a body may modify LDS
-    if (nextOp->getNumRegions() > 0)
+    if (nextOp->getNumRegions() > 0 && !dyn_cast<linalg::GenericOp>(nextOp))
       return failure();
 
     bool moveDown = true;

@@ -288,6 +288,9 @@ getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
 SmallVector<SmallString<8>> createDimNames(int64_t len, StringRef prefix);
 SmallVector<StringRef> getStringRefsFor(ArrayRef<SmallString<8>> strings);
 
+// Find input type of gemm before input fusion is applied
+FailureOr<Type> getGemmInputElementType(Value transformed);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
