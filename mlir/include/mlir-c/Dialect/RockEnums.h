@@ -22,7 +22,7 @@ enum RocmlirTuningParamSetKind {
 };
 typedef enum RocmlirTuningParamSetKind RocmlirTuningParamSetKind;
 
-// TODO (ravil): document
+// Likelihood of Split-K having good performance
 enum RocmlirSplitKSelectionLikelihood { never = 0, maybe = 1, always = 2 };
 typedef enum RocmlirSplitKSelectionLikelihood RocmlirSplitKSelectionLikelihood;
 

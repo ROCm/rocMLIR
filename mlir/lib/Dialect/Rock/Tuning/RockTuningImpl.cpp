@@ -96,97 +96,167 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
   }
 }
 
-static double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
-                                   int32_t gemmNPerBlock, int32_t gemmKPerBlock,
-                                   int32_t kPack, uint32_t numCUs,
-                                   int32_t splitKFactor = 1) {
-  const InitParams params{gemmMPerBlock, gemmNPerBlock, gemmKPerBlock};
-  const GemmSize gemmSize =
-      calculatePaddedGemmSize(params, origGemmSize, kPack);
+static double computeOccupancy(GemmSize gemmSize, int32_t gemmMPerBlock,
+                               int32_t gemmNPerBlock, int32_t gemmMNPerWave,
+                               uint32_t minNumWaves) {
   const auto numMTiles = (gemmSize.m + gemmMPerBlock - 1) / gemmMPerBlock;
   const auto numNTiles = (gemmSize.n + gemmNPerBlock - 1) / gemmNPerBlock;
 
-  const double totalNumWorkGroups =
-      gemmSize.g * numMTiles * numNTiles * splitKFactor;
-  const double maxWorkGroupsPerCU = std::ceil(totalNumWorkGroups / numCUs);
-  // imbalances = max. CU work / average work per CU
-  return (maxWorkGroupsPerCU * numCUs) / totalNumWorkGroups;
+  const int32_t totalNumWorkGroups = gemmSize.g * numMTiles * numNTiles;
+  const int32_t numWavesPerBlock =
+      gemmMPerBlock * gemmNPerBlock / gemmMNPerWave;
+  const int32_t totalNumWaves = totalNumWorkGroups * numWavesPerBlock;
+  return static_cast<double>(totalNumWaves) / static_cast<double>(minNumWaves);
 }
 
-static SmallVector<int64_t>
-computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
-                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
-                            int32_t kPack, uint32_t numCUs) {
-  SmallVector<int64_t> splitKValues = {1};
+static double computeWorkImbalance(GemmSize gemmSize, int32_t gemmMPerBlock,
+                                   int32_t gemmNPerBlock, int32_t gemmMNPerWave,
+                                   uint32_t minNumWaves,
+                                   int32_t splitKFactor = 1) {
+  const auto numMTiles = (gemmSize.m + gemmMPerBlock - 1) / gemmMPerBlock;
+  const auto numNTiles = (gemmSize.n + gemmNPerBlock - 1) / gemmNPerBlock;
 
-  const auto dataParallelGemmImbalance = computeWorkImbalance(
-      origGemmSize, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, kPack, numCUs);
+  const int32_t totalNumWorkGroups =
+      gemmSize.g * numMTiles * numNTiles * splitKFactor;
+  const int32_t numWavesPerBlock =
+      gemmMPerBlock * gemmNPerBlock / gemmMNPerWave;
+  const double totalNumWaves = totalNumWorkGroups * numWavesPerBlock;
+  const double maxWavesPerCU = std::ceil(totalNumWaves / minNumWaves);
+  // imbalances = max. CU work / average work per CU
+  return (maxWavesPerCU * minNumWaves) / totalNumWaves;
+}
 
-  constexpr double imbalaceThreshold = 1.20;
-  if (dataParallelGemmImbalance < imbalaceThreshold) {
-    return splitKValues;
+static int32_t computeNumberKIterations(GemmSize gemmSize,
+                                        int32_t gemmKPerBlock) {
+  return (gemmSize.k + gemmKPerBlock - 1) / gemmKPerBlock;
+}
+
+static GemmSize calculateGemmSplitk(const InitParams &params, GemmSize gemmSize,
+                                    int64_t splitKFactor, int64_t kPack) {
+  int64_t newK = (gemmSize.k + splitKFactor - 1) / splitKFactor;
+  int64_t newG = gemmSize.g * splitKFactor;
+  GemmSize splitKGemm(newG, gemmSize.m, newK, gemmSize.n);
+  return calculatePaddedGemmSize(params, splitKGemm, kPack);
+}
+
+static SmallVector<uint32_t> computeOptimalSplitKFactors(
+    GemmSize origGemmSize, int32_t gemmMPerBlock, int32_t gemmNPerBlock,
+    int32_t gemmKpackPerBlock, int32_t gemmMNPerWave, int32_t kPack,
+    uint32_t numCUs, int32_t numEUPerCU, bool isFullTuning) {
+  const int32_t minNumWaves = numCUs * numEUPerCU;
+  const InitParams params{gemmMPerBlock, gemmNPerBlock, gemmKpackPerBlock};
+  int32_t gemmKPerBlock = gemmKpackPerBlock * kPack;
+  const GemmSize gemmSize =
+      calculatePaddedGemmSize(params, origGemmSize, kPack);
+  int32_t numKIters = computeNumberKIterations(gemmSize, gemmKPerBlock);
+
+  const double dataParallelGemmImbalance = computeWorkImbalance(
+      gemmSize, gemmMPerBlock, gemmNPerBlock, gemmMNPerWave, minNumWaves);
+
+  constexpr double imbalaceThreshold = 1.15;
+  if (dataParallelGemmImbalance < imbalaceThreshold)
+    return {1};
+
+  // heuristic for GEMMs with enough
+  double dataParallelOccupancy = computeOccupancy(
+      origGemmSize, gemmMPerBlock, gemmNPerBlock, gemmMNPerWave, minNumWaves);
+  constexpr double minOccupancy = 1.3;
+  if (isFullTuning && dataParallelOccupancy > minOccupancy)
+    return {1};
+
+  // heuristic to determine splitKFactors
+  SmallVector<uint32_t> splitKFactorsInitial = {3, 4};
+  SmallVector<uint32_t> splitKFactorsHeuristic;
+  constexpr double iterRatioThreshold = 0.95;
+  for (uint32_t splitKFactor : splitKFactorsInitial) {
+    GemmSize gemmSplitK =
+        calculateGemmSplitk(params, origGemmSize, splitKFactor, kPack);
+    int32_t numKItersSplitK =
+        computeNumberKIterations(gemmSplitK, gemmKPerBlock);
+
+    // check if we had to pad K and ended up doing more work
+    int32_t numIntersNew =
+        (numKItersSplitK * static_cast<int32_t>(splitKFactor));
+    double iterRatio =
+        static_cast<double>(numKIters) / static_cast<double>(numIntersNew);
+    if (!isFullTuning || iterRatio > iterRatioThreshold)
+      splitKFactorsHeuristic.push_back(splitKFactor);
   }
 
-  struct LocalData {
-    int64_t splitKValue = 0;
-    double workImbalance = 0.0;
+  struct SplitKCandidate {
+    uint32_t splitKValue = 0;
+    double cost = 0.0;
   };
-  SmallVector<LocalData> factors;
+  SmallVector<SplitKCandidate> candidates;
+  constexpr double costIncrease = 1.05;
   constexpr double minGain = 1.30;
-  // A large set of splitK values significantly increases tuning time,
-  // after analysis, we've determined that using only splitK factors 3 and 4 is
-  // sufficient.
-  for (int64_t splitKFactor : {3, 4}) {
+  for (uint32_t splitKFactor : splitKFactorsHeuristic) {
     const double imbalance =
-        computeWorkImbalance(origGemmSize, gemmMPerBlock, gemmNPerBlock,
-                             gemmKPerBlock, kPack, numCUs, splitKFactor);
+        computeWorkImbalance(gemmSize, gemmMPerBlock, gemmNPerBlock,
+                             gemmMNPerWave, minNumWaves, splitKFactor);
+
     const auto gain = dataParallelGemmImbalance / imbalance;
     if (gain > minGain) {
-      factors.emplace_back(LocalData{splitKFactor, imbalance});
+      // multiply the cost of each consecutive split-k factor by `costIncrease`
+      double costMul = pow(costIncrease, static_cast<double>(splitKFactor - 1));
+      candidates.emplace_back(
+          SplitKCandidate{splitKFactor, costMul * imbalance});
     }
   }
 
-  if (factors.empty()) {
-    return splitKValues;
+  if (candidates.empty())
+    return {1};
+
+  // Add 1 as a candidate
+  candidates.emplace_back(SplitKCandidate{1, dataParallelGemmImbalance});
+
+  // Sort by imbalance (small first), then by split-k factor (small first)
+  constexpr double minDiffCost = 0.02;
+  llvm::sort(candidates.rbegin(), candidates.rend(),
+             [](SplitKCandidate &a, SplitKCandidate &b) {
+               if (std::abs(a.cost - b.cost) > minDiffCost) {
+                 return a.cost > b.cost;
+               }
+               return a.splitKValue > b.splitKValue;
+             });
+
+  // if occupancy is lower than 1.0, return the best only
+  if (isFullTuning && dataParallelOccupancy < 1.0) {
+    return {candidates[0].splitKValue};
   }
 
-  llvm::sort(factors.rbegin(), factors.rend(), [](LocalData &a, LocalData &b) {
-    return a.workImbalance < b.workImbalance;
-  });
-
-  llvm::ArrayRef<LocalData> view(factors.data(), factors.size());
-  llvm::for_each(view, [&](const LocalData &item) {
+  // ocupancy between 1 and 1.3 or !isFullTuning
+  SmallVector<uint32_t> splitKValues;
+  llvm::ArrayRef<SplitKCandidate> view(candidates.data(), candidates.size());
+  llvm::for_each(view, [&](const SplitKCandidate &item) {
     splitKValues.push_back(item.splitKValue);
   });
 
   return splitKValues;
 }
 
-static SmallVector<int64_t>
-computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
-                            int32_t gemmMPerBlock, int32_t gemmNPerBlock,
-                            int32_t gemmKPerBlock, int32_t kPack,
-                            bool isSplitKFusible) {
+static SmallVector<uint32_t> computeOptimalSplitKFactors(
+    RockGemmWrapperInterface gemmOp, int32_t gemmMPerBlock,
+    int32_t gemmNPerBlock, int32_t gemmKpackPerBlock, int32_t gemmMNPerWave,
+    int32_t kPack, bool isSplitKFusible, bool isFullTuning) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
-  SmallVector<int64_t> splitKValues = {1};
 
-  if (!isSplitKFusible) {
-    return splitKValues;
-  }
+  if (!isSplitKFusible)
+    return {1};
 
   auto func = cast<func::FuncOp>(gemmOp->getParentOp());
-  if (!func->hasAttr(rock::EnableSplitKForTuningAttr::getMnemonic())) {
-    return splitKValues;
-  }
+  if (!func->hasAttr(rock::EnableSplitKForTuningAttr::getMnemonic()))
+    return {1};
 
-  uint32_t numCUs = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
-  if (gemmOp.getNumCU().has_value()) {
+  auto archInfo = rock::lookupArchInfo(gemmOp.getArch());
+  int32_t numCUs = archInfo.minNumCU;
+  int32_t numEUPerCU = archInfo.numEUPerCU;
+  if (gemmOp.getNumCU().has_value())
     numCUs = gemmOp.getNumCU().value();
-  }
 
-  return computeOptimalSplitKFactors(info.gemmSize, gemmMPerBlock,
-                                     gemmNPerBlock, gemmKPerBlock, kPack,
-                                     numCUs);
+  return computeOptimalSplitKFactors(
+      info.gemmSize, gemmMPerBlock, gemmNPerBlock, gemmKpackPerBlock,
+      gemmMNPerWave, kPack, numCUs, numEUPerCU, isFullTuning);
 }
 
 // The full space is a brute-force search starting with the configs that have
@@ -247,19 +317,20 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                         : validRangeAccelGemmParams;
     for (uint32_t gemmMPerBlock : xdlopsParams[0]) {
       for (uint32_t gemmNPerBlock : xdlopsParams[1]) {
-        for (uint32_t gemmKPerBlock : xdlopsParams[2]) {
+        for (uint32_t gemmKpackPerBlock : xdlopsParams[2]) {
           for (uint32_t gemmMPerWave : xdlopsParams[3]) {
             for (uint32_t gemmMnPerXdl : xdlopsParams[4]) {
               for (uint32_t gemmKPack : xdlopsParams[5]) {
                 auto optimalSplitKFactors = computeOptimalSplitKFactors(
-                    gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                    gemmKPack, isSplitKFusible);
-                for (int64_t splitKFactor : optimalSplitKFactors) {
+                    gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKpackPerBlock,
+                    gemmMPerWave * gemmMnPerXdl, gemmKPack, isSplitKFusible,
+                    kind == TuningParamSetKind::Full);
+                for (uint32_t splitKFactor : optimalSplitKFactors) {
                   for (uint32_t forceUnroll : xdlopsParams[6]) {
                     // hardcode schedule version to v1 and outputSwizzle to
                     // heuristics = 2
                     InitParamsAccel gemmParams(
-                        gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                        gemmMPerBlock, gemmNPerBlock, gemmKpackPerBlock,
                         gemmMPerWave, gemmMnPerXdl, gemmKPack, splitKFactor, 1,
                         2, forceUnroll, true);
                     if (gemmMPerBlock >= gemmMPerWave &&
@@ -288,19 +359,20 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
     PopulateParamsWmma tuningInfo;
     for (uint32_t gemmMPerBlock : wmmaParams[0]) {
       for (uint32_t gemmNPerBlock : wmmaParams[1]) {
-        for (uint32_t gemmKPerBlock : wmmaParams[2]) {
+        for (uint32_t gemmKpackPerBlock : wmmaParams[2]) {
           for (uint32_t gemmMPerWave : wmmaParams[3]) {
             for (uint32_t gemmNPerWave : wmmaParams[4]) {
               for (uint32_t gemmKPack : wmmaParams[5]) {
                 auto optimalSplitKFactors = computeOptimalSplitKFactors(
-                    gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                    gemmKPack, isSplitKFusible);
-                for (auto splitKFactor : optimalSplitKFactors) {
+                    gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKpackPerBlock,
+                    gemmMPerWave * gemmNPerWave, gemmKPack, isSplitKFusible,
+                    kind == TuningParamSetKind::Full);
+                for (uint32_t splitKFactor : optimalSplitKFactors) {
                   for (uint32_t forceUnroll : wmmaParams[6]) {
                     // hardcode schedule version to v1 and outputSwizzle to
                     // heuristics = 2
                     InitParamsAccel gemmParams(
-                        gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                        gemmMPerBlock, gemmNPerBlock, gemmKpackPerBlock,
                         gemmMPerWave, gemmNPerWave, gemmKPack, splitKFactor, 1,
                         2, forceUnroll, true);
                     if (succeeded(tuningInfo.paramsProbablyValid(b, info,
@@ -320,17 +392,22 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       }
     }
   } else {
+    auto archInfo = rock::lookupArchInfo(gemmOp.getArch());
     // Non-XDLOPS
     PopulateParams tuningInfo;
     for (uint32_t blockSize : validRangeGeneralGemmParams[0]) {
+      int32_t numWavesPerBlock = blockSize / archInfo.waveSize;
       for (uint32_t gemmMPerBlock : validRangeGeneralGemmParams[1]) {
         for (uint32_t gemmNPerBlock : validRangeGeneralGemmParams[2]) {
+          int32_t gemmMNPerWave =
+              gemmNPerBlock * gemmMPerBlock / numWavesPerBlock;
           for (uint32_t gemmKPerBlock : validRangeGeneralGemmParams[3]) {
             for (uint32_t gemmMPerThread : validRangeGeneralGemmParams[4]) {
               auto optimalSplitKFactors = computeOptimalSplitKFactors(
-                  gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, 1,
-                  isSplitKFusible);
-              for (auto splitKFactor : optimalSplitKFactors) {
+                  gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                  gemmMNPerWave, 1, isSplitKFusible,
+                  kind == TuningParamSetKind::Full);
+              for (uint32_t splitKFactor : optimalSplitKFactors) {
                 for (uint32_t gemmNPerThread : validRangeGeneralGemmParams[5]) {
                   // hardcode schedule version to v1 and outputSwizzle to
                   // heuristics = 2
@@ -971,7 +1048,10 @@ bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
 RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
                                                 int64_t nDim, int64_t kDim,
                                                 int64_t numCUs) {
+  // TODO: we need to update this heuristic to replicate more closely what we do
+  // in computeOptimalSplitKFactors
 
+  // TODO: update this list
   // Note, the following values are aggregated from `createGemmTuningRangeBF`,
   // see above.
   // M/block N/block K/block M/wave N/wave kPack
@@ -984,17 +1064,23 @@ RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
   rock::GemmSize gemmSize(gDim, mDim, kDim, nDim);
   llvm::SmallSetVector<int64_t, 10> splitKValues = {};
   double minWorkImbalance = std::numeric_limits<double>::max();
+  // TODO: numEUPerCU is hardcoded
+  int32_t numEUPerCU = 4;
   for (uint32_t mPerBlock : rangeGemmParams[0]) {
     for (uint32_t nPerBlock : rangeGemmParams[1]) {
+      // TODO: 64 is hardcoded, we need to get arch's warpSize
+      int32_t gemmMNPerWave = nPerBlock * mPerBlock / 64;
       for (uint32_t kPerBlock : rangeGemmParams[2]) {
         for (uint32_t kPack : rangeGemmParams[3]) {
-          const double currWorkImbalance = computeWorkImbalance(
-              gemmSize, mPerBlock, nPerBlock, kPerBlock, kPack, numCUs);
+          const double currWorkImbalance =
+              computeWorkImbalance(gemmSize, mPerBlock, nPerBlock,
+                                   gemmMNPerWave, numCUs * numEUPerCU);
           minWorkImbalance = std::min(currWorkImbalance, minWorkImbalance);
 
-          llvm::SmallVector<int64_t> currSplitKValues =
+          llvm::SmallVector<uint32_t> currSplitKValues =
               computeOptimalSplitKFactors(gemmSize, mPerBlock, nPerBlock,
-                                          kPerBlock, kPack, numCUs);
+                                          kPerBlock, gemmMNPerWave, kPack,
+                                          numCUs, numEUPerCU, false);
           llvm::for_each(currSplitKValues, [&splitKValues](int64_t value) {
             splitKValues.insert(value);
           });
