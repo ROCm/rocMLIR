@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Shell script that captures the performance difference between data types to validate expected kernel performance.
+# Usage: /performance-checking --d <model> --p <model_path> [--r <number_of_iterations>]"
+# Arguments:
+#       --d <model>                 Used model, will be the name for the directory with kernels (default: 'resnet50-fp16').
+#       --p <model_path>            Path to .onnx file (default: '/models/mlperf/resnet50_v1.onnx').
+#       --r <number_of_iterations>  Number of times to run each testcase (default: 5).
+
 MODEL_NAME="resnet50-fp16"
 MODEL_PATH="/models/mlperf/resnet50_v1.onnx"
 RUNS=5
@@ -18,6 +25,10 @@ while [[ $# -gt 0 ]]; do
                 RUNS="$2"
                 shift 2
                 ;;
+        --help)
+                echo "Usage: $0 --d <model> --p <model_path> [--r <number_of_iterations>]"
+                exit
+                ;;
         *)
                         echo "Option $1 doesn't exist"
                         exit 1
@@ -25,10 +36,6 @@ while [[ $# -gt 0 ]]; do
         esac
 done
 
-#if [ -z "$MODEL_NAME" ]; then 
-#       echo "Provide model: $0 --m <model_name>"
-#       exit 1
-#fi
 
 mkdir "$MODEL_NAME"
 
@@ -40,20 +47,9 @@ sed -i -e 's/half_type/int8_type/' -e 's/convolution/quant_convolution/' "$MODEL
 
 echo "NEW RUN" >> "$MODEL_NAME/times"
 
-#while read testcase
-#do
-#       MIGRAPHX_DISABLE_PASSES=auto_contiguous migraphx-driver time $testcase --mlir > results.out
-#       awk -F'[/ ]' -v t="$testcase" '/Total time/{k=$3}END{print t "," substr(k, 1, length(k)-2)}' results.out >> times
-#done <<TESTLIST
-
 for testcase in "$MODEL_NAME"/*.py
 do
         test_name=$(basename "$testcase")
-#        MIGRAPHX_DISABLE_PASSES=auto_contiguous migraphx-driver time $testcase --mlir > "$MODEL_NAME/results.out"
-#        awk -F'[/ ]' -v t="$test_name" '/Total time/{k=$3}END{print t "," substr(k, 1, length(k)-2)}' "$MODEL_NAME/results.out" >> "$MODEL_NAME/times"
-#done
-
-#test_name=$(basename "$testcase")
         total_time=0
 
         for ((i = 1; i <= RUNS; i++))
@@ -70,7 +66,3 @@ do
 
 done
 
-
-# <<TESTLIST
-#$(find "$MODEL_NAME" -type f -name "*.py")
-#TESTLIST
