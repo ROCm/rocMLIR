@@ -472,7 +472,7 @@ def main() -> bool:
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
         elif 'gfx12' in arch:
             codepath = 'wmma'
-            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer', '-atomic_add_f16=on']
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer', '-atomic_add_f16=on', '-atomic_add_bf16=on']
         else:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)

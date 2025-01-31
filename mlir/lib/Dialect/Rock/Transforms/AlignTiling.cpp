@@ -830,7 +830,7 @@ static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
                                          linalg::GenericOp laGeneric) {
   auto outElementType =
       cast<ShapedType>(laGeneric.getOutputs()[0].getType()).getElementType();
-  return success(outElementType.isF32() || outElementType.isF16() ||
+  return success(isa<Float32Type, Float16Type, BFloat16Type>(outElementType) ||
                  outElementType.isInteger(32));
 }
 

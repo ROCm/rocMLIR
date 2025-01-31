@@ -37,18 +37,22 @@ bool validOperationGemmOut(Operation &op) {
 }
 
 static LogicalResult validOutputAtomicAdd(Type outType, GemmFeatures features) {
-  // Split-K currently supports only f32/f16 element types
-  if (!isa<Float32Type, Float16Type>(outType))
+  // Split-K currently supports only f32/f16/bf16 element types
+  if (!isa<Float32Type, Float16Type, BFloat16Type>(outType))
     return failure();
 
   if (isa<Float32Type>(outType) &&
-      !bitEnumContainsAll(features, GemmFeatures::atomic_add)) {
+      !bitEnumContainsAll(features, GemmFeatures::atomic_add))
     return failure();
-  }
+
   if (isa<Float16Type>(outType) &&
-      !bitEnumContainsAll(features, GemmFeatures::atomic_add_f16)) {
+      !bitEnumContainsAll(features, GemmFeatures::atomic_add_f16))
     return failure();
-  }
+
+  if (isa<BFloat16Type>(outType) &&
+      !bitEnumContainsAll(features, GemmFeatures::atomic_add_bf16))
+    return failure();
+    
   return success();
 }
 

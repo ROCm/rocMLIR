@@ -1394,9 +1394,9 @@ public:
                                 ConversionPatternRewriter &rw) const final {
     Type elementType =
         cast<ShapedType>(op.getInput().getType()).getElementType();
-    if (!elementType.isF32() && !elementType.isF16()) {
+    if (!isa<Float32Type, Float16Type, BFloat16Type>(elementType)) {
       return rw.notifyMatchFailure(
-          op, "We only support F32 and F16 reductions, yet.");
+          op, "We only support F32, F16 and BF16 reductions, yet.");
     }
     Attribute outputInitVal = rw.getFloatAttr(elementType, 0.0000);
     return matchAndRewriteReductions(op, rock::ReduceMethod::Sum, outputInitVal,

@@ -1,0 +1,15 @@
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -arch %arch -c  | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx | rocmlir-driver -host-pipeline partition,highlevel -targets %arch | rocmlir-gen -ph -print-results -rand 1 -rand_type float -fut dot_splitk_add_trunc --verifier clone - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full -targets %arch | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
+// ALLOW_RETRIES: 2
+module {
+  // CHECK:  [5,     5,     5,  5,     5,     5,  5,     5,     5,  5,     5,     5,  5,     5,     5]
+
+  // CLONE: [1 1 1]
+  // CLONE-NEXT: Unranked Memref base
+
+  func.func @dot_splitk_add_trunc(%arg0: !migraphx.shaped<1x5x4xbf16, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xbf16, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xbf16, 15x3x1>) -> !migraphx.shaped<1x5x3xbf16, 15x3x1> attributes{arch = "##TOKEN_ARCH##", enable_splitk_for_tuning, kernel = "mixr"} {
+    %0 = migraphx.dot %arg0, %arg1 {perf_config="v2:16,32,4,16,16,4,4,1,1"} : <1x5x4xbf16, 20x4x1>, <1x4x3xbf16, 12x3x1> -> <1x5x3xbf16, 15x3x1>
+    %2 = migraphx.add %0, %arg2 {} : <1x5x3xbf16, 15x3x1>, <1x5x3xbf16, 15x3x1> -> <1x5x3xbf16, 15x3x1>
+    return %2 : !migraphx.shaped<1x5x3xbf16, 15x3x1>
+  }
+}

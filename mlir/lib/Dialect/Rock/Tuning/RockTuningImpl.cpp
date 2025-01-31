@@ -168,13 +168,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             bool isSplitKFusible) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
-  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
-  // We dont enable split-k on Navi yet because they dont
-  // still have atomic_add with packed_f16.
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
-    return splitKValues;
-  }
-
+  
   if (!isSplitKFusible) {
     return splitKValues;
   }

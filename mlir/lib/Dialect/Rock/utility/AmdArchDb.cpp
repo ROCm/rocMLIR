@@ -119,6 +119,9 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     gfx12Info.maxSharedMemPerWG = 65536;
     gfx12Info.defaultFeatures =
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_f16);
+    gfx12Info.defaultFeatures =
+        bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
+        
     return gfx12Info;
   }
   if (major == "gfx9" && minor == "50") {
