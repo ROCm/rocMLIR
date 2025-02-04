@@ -195,7 +195,7 @@ void mlir::amdgpu::populateAmdgpuEmulateAtomicsPatterns(
       // The workaround here mirrors HIP and OpenMP.
       target.addIllegalOp<RawBufferAtomicFaddOp, RawBufferAtomicFmaxOp,
                           RawBufferAtomicSmaxOp, RawBufferAtomicUminOp>();
-    } else if(chipset.minorVersion <= 4){
+    } else if (chipset.minorVersion <= 4) {
       target.addDynamicallyLegalOp<RawBufferAtomicFaddOp>(
           [](RawBufferAtomicFaddOp op) -> bool {
             Type elemType = getElementTypeOrSelf(op.getValue().getType());
