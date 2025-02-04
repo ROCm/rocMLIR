@@ -121,7 +121,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_f16);
     gfx12Info.defaultFeatures =
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
-        
+
     return gfx12Info;
   }
   if (major == "gfx9" && minor == "50") {

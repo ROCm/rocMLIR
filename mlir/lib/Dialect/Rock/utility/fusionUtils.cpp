@@ -52,7 +52,7 @@ static LogicalResult validOutputAtomicAdd(Type outType, GemmFeatures features) {
   if (isa<BFloat16Type>(outType) &&
       !bitEnumContainsAll(features, GemmFeatures::atomic_add_bf16))
     return failure();
-    
+
   return success();
 }
 

@@ -953,12 +953,13 @@ static void unflattenCoords(OpBuilder &b, Location loc, Value flatAddress,
   }
 }
 
-/// Atomic add for a scalar fp16 or bf16. Using the CAS loop (atomicRMWOp) alternative
-/// is significantly slower so we extend the scalar in a vector and use the
-/// buffer_atomic_pk_add_{bf16/f16} instead. We have to take care of the alignment
-/// manually
+/// Atomic add for a scalar fp16 or bf16. Using the CAS loop (atomicRMWOp)
+/// alternative is significantly slower so we extend the scalar in a vector and
+/// use the buffer_atomic_pk_add_{bf16/f16} instead. We have to take care of the
+/// alignment manually
 static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
-                                 Value dest, Type elemTy, ArrayRef<Value> coords,
+                                 Value dest, Type elemTy,
+                                 ArrayRef<Value> coords,
                                  bool useBufferOobChecks) {
 
   assert(isa<ShapedType>(dest.getType()) && "Data needs to have a shape!");
@@ -1013,8 +1014,8 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   Value two = getConstIntOrIndexValue(b, loc, 2, addressElemType);
 
   // Extended packed data to use with the intrinsic
-  Value dataExt = createZeroConstantOp(
-      b, loc, vectorTypeOrSelf(elemTy, packedVectorLen));
+  Value dataExt =
+      createZeroConstantOp(b, loc, vectorTypeOrSelf(elemTy, packedVectorLen));
   Value dataExt0 = b.create<vector::InsertElementOp>(loc, data, dataExt, zero);
   Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
 
@@ -1365,7 +1366,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
 
-    bool isAtomicF16add = memoryOp == StoreMethod::AtomicAdd && isa<Float16Type, BFloat16Type>(elemTy);
+    bool isAtomicF16add = memoryOp == StoreMethod::AtomicAdd &&
+                          isa<Float16Type, BFloat16Type>(elemTy);
     bool useBufferOps =
         !hasI64Idx && (numBytes.trunc(32).isNegative() || emitOobChecks ||
                        op.getCanStoreOffEnd() || isAtomicF16add);
@@ -1405,7 +1407,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     Value origLastCoord = coords.empty() ? nullptr : coords.back();
 
     if (isAtomic) {
-      bool usePackedFp16 = (isa<Float16Type, BFloat16Type>(elemTy) && (len % 2 == 0));
+      bool usePackedFp16 =
+          (isa<Float16Type, BFloat16Type>(elemTy) && (len % 2 == 0));
       int inc = (usePackedFp16 ? 2 : 1);
       Type loadType = (usePackedFp16 ? vectorTypeOrSelf(elemTy, inc) : elemTy);
 

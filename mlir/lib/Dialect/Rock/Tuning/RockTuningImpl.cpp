@@ -168,7 +168,7 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             bool isSplitKFusible) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
-  
+
   if (!isSplitKFusible) {
     return splitKValues;
   }

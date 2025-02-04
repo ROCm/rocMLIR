@@ -392,12 +392,13 @@ static llvm::cl::opt<FeatureToggle> atomicAddF16Feature(
 // atomicAddBF16
 static llvm::cl::opt<FeatureToggle> atomicAddBF16Feature(
     "atomic_add_bf16", llvm::cl::desc("toggle feature atomic_add_bf16"),
-    llvm::cl::values(clEnumValN(FeatureToggle::infer, "infer",
-                                "use the default value provided by the chip"),
-                     clEnumValN(FeatureToggle::on, "on",
-                                "force atomic_add_bf16 into the feature list"),
-                     clEnumValN(FeatureToggle::off, "off",
-                                "remove atomic_add_bf16 from the feature list")),
+    llvm::cl::values(
+        clEnumValN(FeatureToggle::infer, "infer",
+                   "use the default value provided by the chip"),
+        clEnumValN(FeatureToggle::on, "on",
+                   "force atomic_add_bf16 into the feature list"),
+        clEnumValN(FeatureToggle::off, "off",
+                   "remove atomic_add_bf16 from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
 // atomicFmaxF32
@@ -3176,8 +3177,9 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   if (isa<FloatType>(testElemType)) {
     constexpr float defaultRMSThreshold(0.00003f);
     constexpr float defaultRMSThresholdFP16(0.001f);
-    float RMSThresholdValue =
-        isa<Float16Type, BFloat16Type>(testElemType) ? defaultRMSThresholdFP16 : defaultRMSThreshold;
+    float RMSThresholdValue = isa<Float16Type, BFloat16Type>(testElemType)
+                                  ? defaultRMSThresholdFP16
+                                  : defaultRMSThreshold;
     if (RMSThreshold)
       RMSThresholdValue = RMSThreshold.getValue();
     Value thr_RMS = getF32Val(RMSThresholdValue);

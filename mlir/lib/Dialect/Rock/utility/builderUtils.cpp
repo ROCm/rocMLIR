@@ -59,8 +59,8 @@ std::pair<APFloat, llvm::detail::opStatus> createAPFloat(Type elemType,
   const llvm::fltSemantics &semantics = cast<FloatType>(elemType).getFloatSemantics();
   APFloat apValue(value);
   bool lostInfo = false;
-  auto status = apValue.convert(semantics,
-                                APFloat::rmNearestTiesToEven, &lostInfo);
+  auto status =
+      apValue.convert(semantics, APFloat::rmNearestTiesToEven, &lostInfo);
 
   return std::make_pair(apValue, status);
 }
