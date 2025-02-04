@@ -130,6 +130,8 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     AmdArchInfo gfx950Info(cdna3Info);
     gfx950Info.hasFp8ConversionInstrs = false;
     gfx950Info.hasOcpFp8ConversionInstrs = true;
+    gfx950Info.defaultFeatures =
+        bitEnumSet(gfx950Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
     return gfx950Info;
   }
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "

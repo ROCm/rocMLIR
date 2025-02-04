@@ -6,6 +6,10 @@
 // RUN: rocmlir-gen --arch gfx942 --store-method atomic_add --operation gemm -t bf16 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=BUFFER_ATOMIC_CMPSWAP
 // RUN: rocmlir-gen --arch gfx942 --store-method atomic_add --operation gemm -t f32 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=GLOBAL_ATOMIC_ADD_F32
 
+// RUN: rocmlir-gen --arch gfx950 --store-method atomic_add --operation gemm -t f16 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=BUFFER_ATOMIC_ADD_F16
+// RUN: rocmlir-gen --arch gfx950 --store-method atomic_add --operation gemm -t bf16 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=BUFFER_ATOMIC_ADD_BF16
+// RUN: rocmlir-gen --arch gfx950 --store-method atomic_add --operation gemm -t f32 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=GLOBAL_ATOMIC_ADD_F32
+
 // RUN: rocmlir-gen --arch gfx1100 --store-method atomic_add --operation gemm -t f16 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=BUFFER_ATOMIC_CMPSWAP
 // RUN: rocmlir-gen --arch gfx1100 --store-method atomic_add --operation gemm -t bf16 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=BUFFER_ATOMIC_CMPSWAP
 // RUN: rocmlir-gen --arch gfx1100 --store-method atomic_add --operation gemm -t f32 -p | rocmlir-driver -c --debug-only=serialize-to-isa 2>&1 | FileCheck %s --check-prefix=GLOBAL_ATOMIC_ADD_F32
