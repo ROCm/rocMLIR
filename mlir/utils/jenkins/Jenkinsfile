@@ -337,6 +337,7 @@ void archivePerfDB() {
         if (params.canXdlops) {
             unstash name: "MLIR-PerfDB-gfx908"
             unstash name: "MLIR-PerfDB-gfx90a"
+            unstash name: "MLIR-PerfDB-gfx942"
             if (!params.disableNavi21)
                 unstash name: "MLIR-PerfDB-gfx1030"
         } else {
