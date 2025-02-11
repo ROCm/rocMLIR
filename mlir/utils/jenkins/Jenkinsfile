@@ -522,11 +522,11 @@ pipeline {
                         }
                         steps {
                             script {
-                                    build_fixedE2ETests("${CODEPATH}")
-                                    preMergeCheck("${CODEPATH}")
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        sh 'cd build; ninja check-mlir check-rocmlir'
-                                    }
+                                build_fixedE2ETests("${CODEPATH}")
+                                preMergeCheck("${CODEPATH}")
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    sh 'cd build; ninja check-mlir check-rocmlir'
+                                }
                             }
                         }
                     }
@@ -540,7 +540,7 @@ pipeline {
                         }
                         steps {
                             script {
-                                    check_randomE2ETests("${CODEPATH}")
+                                check_randomE2ETests("${CODEPATH}")
                             }
                         }
                     }
