@@ -813,7 +813,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'
                     }
                 }
                 when {
