@@ -138,4 +138,21 @@ def EmulateFp8ExtTruncPass : Pass<"emulate-fp8-ext-trunc"> {
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// SortDimensionsMemoryLayout
+//===----------------------------------------------------------------------===//
+
+def SortDimensionsMemoryLayoutPass : Pass<"sort-dimensions-memory-layout", "::mlir::func::FuncOp"> {
+  let summary = "Sort dimensions by stride of the underlying memory layout";
+  let description = [{
+    Pass that adds a transform that sorts the dimensions by actual memory layout.
+  }];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "rock::RockDialect",
+    "arith::ArithDialect",
+    "linalg::LinalgDialect",
+  ];
+}
+
 #endif // ROCMLIR_CONVERSION_PASSES

@@ -15,6 +15,7 @@
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Conversion/RocmlirCustomTosaToLinalg/RocmlirCustomTosaToLinalg.h"
+#include "mlir/Conversion/SortDimensionsMemoryLayout/SortDimensionsMemoryLayout.h"
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
 
 namespace mlir {

@@ -21,6 +21,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRUBToLLVM
   RocmlirCustomTosaToLinalg
   RocmlirEmulateFp8ExtTrunc
+  RocmlirSortDimensionsMemoryLayout
 
   # Upstream dialect libraries we need to load that we don't directly depend on
   MLIRBufferizationTransformOps
