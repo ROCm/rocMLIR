@@ -596,11 +596,11 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
 LogicalResult
 PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
                                              Type dataTypeA, Type dataTypeB) {
-  // Implement this if needed.
-
   if (dataTypeA != dataTypeB)
-    return failure();
+    return success();
 
+  // Pruning kpack based on experiments, see this link:
+  // https://github.com/ROCm/rocMLIR-internal/issues/1505#issuecomment-2662589361
   if (isa<Float32Type>(dataTypeA) && params.gemmKPack == 1)
     return failure();
   if (dataTypeA.isInteger(8) && params.gemmKPack == 4)
@@ -608,9 +608,6 @@ PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
   if (dataTypeA.isInteger(8) && params.gemmKPack == 16)
     return failure();
 
-  (void)params;
-  (void)dataTypeA;
-  (void)dataTypeB;
   return success();
 }
 
