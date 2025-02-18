@@ -296,7 +296,7 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     auto maybeSortedB = sortByMemoryLayout(tensorB, layoutB, b);
 
     if (failed(maybeSortedA) || failed(maybeSortedB))
-      return failure();
+      return op.emitOpError("sortByMemoryLayout failed");
 
     auto sortedA = maybeSortedA.value();
     auto sortedB = maybeSortedB.value();
@@ -370,7 +370,7 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
     auto maybeSortedV = sortByMemoryLayout(v, layoutV, b);
 
     if (failed(maybeSortedQ) || failed(maybeSortedK) || failed(maybeSortedV))
-      return failure();
+      return op.emitOpError("sortByMemoryLayout failed");
 
     auto sortedQ = maybeSortedQ.value();
     auto sortedK = maybeSortedK.value();
