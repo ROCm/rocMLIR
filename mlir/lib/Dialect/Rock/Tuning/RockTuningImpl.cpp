@@ -230,7 +230,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
-      {4, 8, 16},
+      {2, 4, 8},
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());

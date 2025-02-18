@@ -597,6 +597,17 @@ LogicalResult
 PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
                                              Type dataTypeA, Type dataTypeB) {
   // Implement this if needed.
+
+  if (dataTypeA != dataTypeB)
+    return failure();
+
+  if (isa<Float32Type>(dataTypeA) && params.gemmKPack == 1)
+    return failure();
+  if (dataTypeA.isInteger(8) && params.gemmKPack == 4)
+    return failure();
+  if (dataTypeA.isInteger(8) && params.gemmKPack == 16)
+    return failure();
+
   (void)params;
   (void)dataTypeA;
   (void)dataTypeB;
