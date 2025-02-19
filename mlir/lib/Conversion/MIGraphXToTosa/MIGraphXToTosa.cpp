@@ -361,7 +361,10 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     accType = rewriter.getF32Type();
     // accType is not used by rocMLIR when converting tosa to rock.
     // accType for Float8 type is required to be Float16 as per TOSA v1.0 spec
-    // therefore just set it as required, it is being ignored anyways.
+    // therefore just set it as required, it is being ignored anyways for GPU
+    // lowering using rocMLIR. [Risk]: CPU may generate different results
+    // compared to GPU if accType gets used on CPU lowering path. Currently it
+    // seems none of the TosaToXYZ converter uses this attribute.
   } else if (isa<FloatType>(outElementTy) &&
              outElementTy.getIntOrFloatBitWidth() <= 8) {
     accType = rewriter.getF16Type();
