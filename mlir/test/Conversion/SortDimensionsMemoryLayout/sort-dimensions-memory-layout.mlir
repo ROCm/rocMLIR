@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --sort-dimensions-memory-layout %s -verify-diagnostics -o -| FileCheck %s
+// RUN: rocmlir-opt --rock-sort-dimensions-memory-layout %s -verify-diagnostics -o -| FileCheck %s
 
 // CHECK-LABEL: test_conv
 func.func @test_conv(%arg0: memref<2304xf16>, %arg1: memref<1638400xf16>, %arg2: memref<16xf16>, %arg3: memref<819200xf16>) attributes {kernel, arch = ""} {

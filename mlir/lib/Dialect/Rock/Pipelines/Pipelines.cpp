@@ -143,7 +143,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // Sort dimensions according to the underlying memory layout strides
   if (!noRock) {
     auto &funcPm4 = pm.nest<func::FuncOp>();
-    funcPm4.addPass(createSortDimensionsMemoryLayoutPass());
+    funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
   }
 }
 

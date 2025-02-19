@@ -237,5 +237,4 @@ MLIRRockUtility
 MLIRTosaToRock
 RocmlirCustomTosaToLinalg
 RocmlirEmulateFp8ExtTrunc
-RocmlirSortDimensionsMemoryLayout
 )

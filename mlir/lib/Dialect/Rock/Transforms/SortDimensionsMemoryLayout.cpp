@@ -10,8 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/SortDimensionsMemoryLayout/SortDimensionsMemoryLayout.h"
-
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -21,14 +19,29 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <limits>
 #include <numeric>
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Rock/Passes.h"
 
-#define DEBUG_TYPE "sort-dimensions-memory-layout"
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKSORTDIMENSIONSMEMORYLAYOUTPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
+#define DEBUG_TYPE "rock-sort-dimensions-memory-layout"
 
 using namespace mlir;
 
 namespace {
+struct RockSortDimensionsMemoryLayoutPass
+    : public rock::impl::RockSortDimensionsMemoryLayoutPassBase<RockSortDimensionsMemoryLayoutPass> {
+  void runOnOperation() override;
+};
+} // end anonymous namespace
 
 template <typename Container>
 FailureOr<Container> reorderArrayAttr(Container inputArray,
@@ -194,6 +207,14 @@ std::optional<size_t> findIndex(const ContainerTy &container,
   if (it == container.end())
     return std::nullopt;
   return std::distance(container.begin(), it);
+}
+
+template <typename OpT>
+static SmallVector<Operation *> getOperations(func::FuncOp &func) {
+  SmallVector<Operation *, 4> ops;
+  func.walk([&ops](OpT operation) { ops.push_back(operation); });
+
+  return ops;
 }
 
 template <typename T>
@@ -425,29 +446,43 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
   }
 };
 
-} // namespace
+void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
+  auto func = getOperation();
+  if (!func->hasAttr("kernel")) {
+    return;
+  }
+  auto &ctx = getContext();
+  GreedyRewriteConfig config;
+  config.strictMode = GreedyRewriteStrictness::ExistingOps;
 
-void mlir::populateSortConvRewritePatterns(MLIRContext *context,
-                                           RewritePatternSet &patterns) {
-  patterns.add<ConvRewritePattern<rock::ConvOp>>(context);
-}
+  RewritePatternSet patternsConv(&ctx);
+  patternsConv.add<ConvRewritePattern<rock::ConvOp>>(&ctx);
+  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvOp>(func),
+                                     std::move(patternsConv), config)))
+    return signalPassFailure();
 
-void mlir::populateSortConvBwdDataRewritePatterns(MLIRContext *context,
-                                                  RewritePatternSet &patterns) {
-  patterns.add<ConvRewritePattern<rock::ConvBwdDataOp>>(context);
-}
+  RewritePatternSet patternsConvBwdData(&ctx);
+  patternsConvBwdData.add<ConvRewritePattern<rock::ConvBwdDataOp>>(&ctx);
+  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdDataOp>(func),
+                                     std::move(patternsConvBwdData), config)))
+    return signalPassFailure();
 
-void mlir::populateSortConvBwdWeightRewritePatterns(
-    MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(context);
-}
+  RewritePatternSet patternsConvBwdWeight(&ctx);
+  patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
+  if (failed(
+          applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
+                                  std::move(patternsConvBwdWeight), config)))
+    return signalPassFailure();
 
-void mlir::populateSortGemmRewritePatterns(MLIRContext *context,
-                                           RewritePatternSet &patterns) {
-  patterns.add<GemmRewritePattern>(context);
-}
+  RewritePatternSet patternsGemm(&ctx);
+  patternsGemm.add<GemmRewritePattern>(&ctx);
+  if (failed(applyOpPatternsGreedily(getOperations<rock::GemmOp>(func),
+                                     std::move(patternsGemm), config)))
+    return signalPassFailure();
 
-void mlir::populateSortAttentionRewritePatterns(MLIRContext *context,
-                                                RewritePatternSet &patterns) {
-  patterns.add<AttentionRewritePattern>(context);
+  RewritePatternSet patternsAttention(&ctx);
+  patternsAttention.add<AttentionRewritePattern>(&ctx);
+  if (failed(applyOpPatternsGreedily(getOperations<rock::AttentionOp>(func),
+                                     std::move(patternsAttention), config)))
+    return signalPassFailure();
 }
