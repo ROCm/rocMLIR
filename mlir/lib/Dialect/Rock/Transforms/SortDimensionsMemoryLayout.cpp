@@ -11,9 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/PatternMatch.h"
@@ -22,8 +24,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include <limits>
 #include <numeric>
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Rock/Passes.h"
 
 namespace mlir {
 namespace rock {
@@ -38,7 +38,8 @@ using namespace mlir;
 
 namespace {
 struct RockSortDimensionsMemoryLayoutPass
-    : public rock::impl::RockSortDimensionsMemoryLayoutPassBase<RockSortDimensionsMemoryLayoutPass> {
+    : public rock::impl::RockSortDimensionsMemoryLayoutPassBase<
+          RockSortDimensionsMemoryLayoutPass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
@@ -469,9 +470,8 @@ void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
 
   RewritePatternSet patternsConvBwdWeight(&ctx);
   patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
-  if (failed(
-          applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
-                                  std::move(patternsConvBwdWeight), config)))
+  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
+                                     std::move(patternsConvBwdWeight), config)))
     return signalPassFailure();
 
   RewritePatternSet patternsGemm(&ctx);
