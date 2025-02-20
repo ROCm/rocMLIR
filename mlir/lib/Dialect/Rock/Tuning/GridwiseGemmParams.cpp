@@ -547,7 +547,8 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      params = {initParametersI8Gemm, nInitParametersI8Gemm};
+      dataTypeA.isInteger() ?  params = {initParametersI8Gemm, nInitParametersI8Gemm} :
+        params = {initParametersFp8Gemm, nInitParametersFp8Gemm};
       break;
     case 16:
       params = {initParametersFp16Gemm, nInitParametersFp16Gemm};
@@ -558,7 +559,8 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   } else {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      params = {initParametersForward8BitConv, nInitParametersForward8BitConv};
+      dataTypeA.isInteger() ? params = {initParametersForwardI8Conv, nInitParametersForwardI8Conv} :
+        params = {initParametersForwardFp8Conv, nInitParametersForwardFp8Conv};
       break;
     case 16:
       params = {initParametersFp16Conv, nInitParametersFp16Conv};
@@ -715,7 +717,8 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      params = {initParametersI8Gemm, nInitParametersI8Gemm};
+      dataTypeA.isInteger() ?  params = {initParametersI8Gemm, nInitParametersI8Gemm} :
+        params = {initParametersFp8Gemm, nInitParametersFp8Gemm};
       break;
     case 16:
       params = {initParametersFp16Gemm, nInitParametersFp16Gemm};
@@ -726,7 +729,8 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   } else {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      params = {initParametersForward8BitConv, nInitParametersForward8BitConv};
+      dataTypeA.isInteger() ? params = {initParametersForwardI8Conv, nInitParametersForwardI8Conv} :
+        params = {initParametersForwardFp8Conv, nInitParametersForwardFp8Conv};
       break;
     case 16:
       params = {initParametersFp16Conv, nInitParametersFp16Conv};
