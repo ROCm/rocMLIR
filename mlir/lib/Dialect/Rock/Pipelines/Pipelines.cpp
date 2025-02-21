@@ -139,6 +139,12 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   pm.addPass(createOneShotBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
+
+  // Sort dimensions according to the underlying memory layout strides
+  if (!noRock) {
+    auto &funcPm4 = pm.nest<func::FuncOp>();
+    funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
+  }
 }
 
 void rock::buildKernelPipeline(OpPassManager &pm,
