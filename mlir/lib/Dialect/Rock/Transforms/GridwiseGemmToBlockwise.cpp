@@ -1760,6 +1760,11 @@ struct GridwiseAttentionAccelRewritePattern
     if (failed(maybeVectorDimInfoK)) {
       return failure();
     }
+    LLVM_DEBUG(llvm::dbgs()
+               << "qVectorDim: " << maybeVectorDimInfoQ->vectorDim << "\n"
+               << "qVectorLen: " << maybeVectorDimInfoQ->vectorLen << "\n"
+               << "kVectorDim: " << maybeVectorDimInfoK->vectorDim << "\n"
+               << "kVectorLen: " << maybeVectorDimInfoK->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG0 = getLDSLayoutConfigDim(
         elemTypeK, gemm0kpack, maybeVectorDimInfoK.value());
     ldsLayoutCfgMG0.doRotateWithK = false;
@@ -1879,6 +1884,9 @@ struct GridwiseAttentionAccelRewritePattern
     if (failed(maybeVectorDimInfoV)) {
       return failure();
     }
+    LLVM_DEBUG(llvm::dbgs()
+               << "vVectorDim: " << maybeVectorDimInfoV->vectorDim << "\n"
+               << "vVectorLen: " << maybeVectorDimInfoV->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG1 = getLDSLayoutConfigDim(
         elemTypeV, gemm1kpack, maybeVectorDimInfoV.value());
     int64_t gemm1InMPerThread = maybeVectorDimInfoV->inDPerThread;

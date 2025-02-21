@@ -673,6 +673,10 @@ LogicalResult ConvGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                                            int64_t outputChannel,
                                            ArrayRef<int64_t> outputDims,
                                            ArrayRef<int64_t> filterDims) {
+
+  if (outputChannel % groupSize != 0 || inputChannel % groupSize != 0)
+    return failure();
+
   config.filterDims.clear();
   for (auto dim : filterDims)
     config.filterDims.push_back(dim);

@@ -171,4 +171,9 @@ def RockGemmLinalgSplitkNormalizationPass : Pass<"rock-gemm-linalg-splitk-normal
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockSortDimensionsMemoryLayoutPass : Pass<"rock-sort-dimensions-memory-layout", "::mlir::func::FuncOp"> {
+  let summary = "Sort dimensions by stride of the underlying memory layout";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "arith::ArithDialect", "linalg::LinalgDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES
