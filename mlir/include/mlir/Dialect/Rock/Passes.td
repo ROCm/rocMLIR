@@ -171,4 +171,9 @@ def RockGemmLinalgSplitkNormalizationPass : Pass<"rock-gemm-linalg-splitk-normal
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockHoistOutputFusionLoadsPass : Pass<"rock-hoist-output-fusion-loads", "::mlir::func::FuncOp"> {
+  let summary = "This pass modifies hoist loads from output fusions.";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

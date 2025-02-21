@@ -5,6 +5,7 @@ add_rocmlir_dialect_library(MLIRRockUtility
   loweringUtils.cpp
   transformMapUtils.cpp
   fusionUtils.cpp
+  memoryUtils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock

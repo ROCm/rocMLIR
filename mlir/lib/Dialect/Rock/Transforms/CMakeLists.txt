@@ -28,6 +28,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   ReuseLDS.cpp
   ShuffleGemmForReductions.cpp
   GemmLinalgSplitkNormalizationPass.cpp
+  HoistOutputFusionLoads.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
