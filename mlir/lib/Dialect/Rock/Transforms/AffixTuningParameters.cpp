@@ -226,7 +226,8 @@ deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
                                            gemm0TuningParams.getMPerBlock()),
         gemm0XdlDerivedParams.getNPerWave(),
         gemm0XdlDerivedParams.getMnPerXdl(), 1,
-        gemm0XdlDerivedParams.getForceUnroll());
+        gemm0XdlDerivedParams.getForceUnroll(),
+        gemm0XdlDerivedParams.getInitiationInterval());
   }
   return WmmaGemmParamsAttr::get(
       builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
@@ -234,7 +235,8 @@ deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
       gemm0TuningParams.getKpack(),
       gemm0TuningParams.getMPerWave() *
           (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getForceUnroll());
+      gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getForceUnroll(),
+      gemm0TuningParams.getInitiationInterval());
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
@@ -270,14 +272,14 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll(), 2);
     accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
   } else {
     accelParams0 = WmmaGemmParamsAttr::get(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getForceUnroll(), 2);
   }
   op.setParams0Attr(accelParams0);
   if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {

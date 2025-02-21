@@ -80,7 +80,18 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return initiation interval which will be used to decide between pipelines.
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getInitiationInterval",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
       >
+
 
     // TODO: more methods here as needed
   ];

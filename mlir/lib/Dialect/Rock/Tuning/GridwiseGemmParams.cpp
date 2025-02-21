@@ -604,7 +604,8 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
-      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
+      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK,
+      validParams.initiationInterval);
 }
 
 /// Wmma acceleration
@@ -771,5 +772,6 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
-      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
+      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK,
+      validParams.initiationInterval);
 }

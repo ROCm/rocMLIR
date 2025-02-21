@@ -2928,12 +2928,12 @@ struct GridwiseGemmAccelRewritePattern
     // TODO: add an heuristic to decide if the ii should be 1 or 2. This is for
     // now not worth it, since any form of double buffering results in poor
     // assembly begin generated. So we need to stick with II=2
-    int64_t initiationInterval = 1;
+    int64_t initiationInterval = tuningParams.getInitiationInterval();
 
     // Logic to setup buffers for blockwise_gemm_accel.
     int64_t arrayALen = kBasePerThread;
     int64_t arrayBLen = kBasePerThread;
-    if (initiationInterval == 1) {
+    if (initiationInterval == 4) {
       arrayALen *= mRepeats;
       arrayBLen *= nRepeats;
     }
@@ -3023,7 +3023,7 @@ struct GridwiseGemmAccelRewritePattern
         b.create<rock::YieldOp>(loc);
       }
 
-      if (initiationInterval > 1) {
+      if (initiationInterval != 4) {
         // Emit blockwise GEMM. This will load data from LDS and
         // compute the MMA at the same time
         auto stage2 = b.create<StageOp>(loc, "MMA");

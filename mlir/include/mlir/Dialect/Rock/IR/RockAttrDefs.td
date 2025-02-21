@@ -310,7 +310,8 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$mPerWave,
     "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
-    "bool":$forceUnroll
+    "bool":$forceUnroll,
+    "int64_t": $initiationInterval
   );
 
   let extraClassDeclaration = [{
@@ -323,7 +324,8 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
-          + "1") /* *ThreadCopyMore* */
+          + "1" + "," /* *ThreadCopyMore* */
+        + Twine(getInitiationInterval()))
         .toVector(perfStr);
     }
   }];
@@ -347,7 +349,8 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
     "int64_t":$nPerWave,
     "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
-    "bool":$forceUnroll
+    "bool":$forceUnroll,
+    "int64_t": $initiationInterval
   );
 
   let extraClassDeclaration = [{
@@ -360,8 +363,11 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
-          + "1") /* *ThreadCopyMore* */
+          + "1" +"," /* *ThreadCopyMore* */
+        + Twine(getInitiationInterval()))
         .toVector(perfStr);
+
+
     }
   }];
 
@@ -373,7 +379,6 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
       int64_t mnPerXdl = params.getMnPerXdl();
       int64_t mWaves = std::min(mPerBlock / mPerWave, mlir::rock::maxWavesPerWG);
       int64_t nWaves = mlir::rock::maxWavesPerWG / mWaves;
-
       mPerWave = mPerBlock / mWaves;
       int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
       return $_get(
@@ -386,7 +391,8 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
         nPerWave,
         mnPerXdl,
         params.getSplitKFactor(),
-        params.getForceUnroll()
+        params.getForceUnroll(),
+        params.getInitiationInterval()
       );
     }]>
   ];
@@ -409,7 +415,9 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
     "int64_t":$splitKFactor,
-    "bool":$forceUnroll
+    "bool":$forceUnroll,
+    "int64_t":$initiationInterval
+
   );
 
   let extraClassDeclaration = [{
@@ -422,7 +430,8 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
         + Twine(getForceUnroll()) + ","
-          + "1") /* *ThreadCopyMore* */
+          + "1" + "," /* *ThreadCopyMore* */
+          + Twine(getInitiationInterval()))
         .toVector(perfStr);
     }
   }];
