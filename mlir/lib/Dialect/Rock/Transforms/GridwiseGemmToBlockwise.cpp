@@ -2968,7 +2968,7 @@ struct GridwiseGemmAccelRewritePattern
     // Logic to setup buffers for blockwise_gemm_accel.
     int64_t arrayALen = kBasePerThread;
     int64_t arrayBLen = kBasePerThread;
-    if (initiationInterval == 4) {
+    if (initiationInterval == 1) {
       arrayALen *= mRepeats;
       arrayBLen *= nRepeats;
     }
@@ -3060,7 +3060,7 @@ struct GridwiseGemmAccelRewritePattern
         b.create<rock::YieldOp>(loc);
       }
 
-      if (initiationInterval != 4) {
+      if (initiationInterval != 1) {
         // Emit blockwise GEMM. This will load data from LDS and
         // compute the MMA at the same time
         auto stage2 = b.create<StageOp>(loc, "MMA");

@@ -217,7 +217,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 16, 32},
       {1, 4, 8},
       {0, 1},
-      {2, 4}};
+      {2, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   // pipelining/Schedule
@@ -228,7 +228,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                 {4, 8, 16, 32, 64, 128},
                                                 {4, 8, 16, 32, 64, 128},
                                                 {1, 4, 8, 16},
-                                                {2, 4}};
+                                                {2, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
@@ -238,7 +238,7 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16},
-      {2, 4}};
+      {2, 1}};
 
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
