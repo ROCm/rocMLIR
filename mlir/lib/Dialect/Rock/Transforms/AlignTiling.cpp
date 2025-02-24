@@ -1460,7 +1460,7 @@ static LogicalResult insertBlockwiseReduction(
   FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
       lowerSubDims =
           getLowerSubDimensions(rewriter, toBeReducedViews, gridOnlyDimIdxs);
-  if (failed(lowerSubDims)) {
+  if (failed(lowerSubDims) || lowerSubDims.value().empty()) {
     LLVM_DEBUG(llvm::dbgs() << "lowerSubDims creation using "
                                "getLowerSubDimensions is unsuccesful.\n");
     return failure();
