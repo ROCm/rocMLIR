@@ -2582,10 +2582,25 @@ struct GridwiseGemmAccelRewritePattern
         {
           OpBuilder::InsertionGuard guard(b);
           b.setInsertionPointToStart(kLoop.getBody());
-          Value viewA =
-              accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, regsA);
-          Value viewB =
-              accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, regsB);
+          BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
+                                        loc);
+          regsBuilder.unmerge({"iidx", "k"}, {0, 1}, "mk",
+                              {mRepeats, kBasePerThread});
+          regsA =
+              rock::transform(b, regsA, b.getArrayAttr({regsBuilder.get()}));
+          Value regsASlice = rock::createSliceOfFirstDim(b, loc, regsA, i);
+          Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
+              b, loc, regsASlice);
+          BottomUpTMBuilder regsBBuilder(b, {"nk"}, {nRepeats * kBasePerThread},
+                                         loc);
+          regsBBuilder.unmerge({"jidx", "k"}, {0, 1}, "nk",
+                               {nRepeats, kBasePerThread});
+          regsB =
+              rock::transform(b, regsB, b.getArrayAttr({regsBBuilder.get()}));
+
+          Value regsBSlice = rock::createSliceOfFirstDim(b, loc, regsB, j);
+          Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
+              b, loc, regsBSlice);
           Value viewC =
               accelEmitterPtr->generateThreadwiseViewBufferC(b, loc, regsC);
           Value k = kLoop.getInductionVar();
@@ -2602,7 +2617,7 @@ struct GridwiseGemmAccelRewritePattern
   void generateReadLoop(
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
-      Value tid, Value ldsAView, Value ldsBView, Value regsA, Value regsB,
+      Value tid, Value ldsAView, Value ldsBView, Value &regsA, Value &regsB,
       Value regsC, int64_t blockSize, int64_t inMPerThread,
       int64_t inNPerThread, bool rotateMWithK, bool rotateNWithK) const {
 
@@ -2614,11 +2629,6 @@ struct GridwiseGemmAccelRewritePattern
     Value ldsB = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, ldsBView, blockSize, inNPerThread, "n", rotateNWithK);
 
-    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
-    int64_t mRepeats = params.mRepeats;
-    int64_t nRepeats = params.nRepeats;
-    int64_t kBasePerThread = params.kBasePerThread;
-
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
     // tid pass through. We can give those indices to wrapLDSBufferForLoad which should
@@ -2626,34 +2636,51 @@ struct GridwiseGemmAccelRewritePattern
 
     // Read from LDS buffer for A
     {
-        TopDownTMBuilder mkBuilder(b, {"tid", "mk"},
-                                   {blockSize, mRepeats * kBasePerThread}, loc);
-        mkBuilder.passThrough("tid");
-        mkBuilder.merge({"m", "k"}, {1, 2}, "mk", {mRepeats, kBasePerThread});
-
-        auto [ldsBufferA, ldsTransformsA, ignoreA] = rock::untransform(b, ldsA);
-        ldsTransformsA = rock::prependUpperViews(
-            b, b.getArrayAttr({mkBuilder.get()}), ldsTransformsA);
-        ldsA = rock::transform(b, ldsBufferA, ldsTransformsA);
-        b.create<ThreadwiseReadIntoOp>(loc, ldsA, regsA, b.getArrayAttr({}),
-                                       ValueRange{tid}, /*forceUnroll=*/true,
-                                       /*useIndexDiffs=*/true);
+      ArrayRef<int64_t> ldsAShape = cast<ShapedType>(ldsA.getType()).getShape();
+      assert(ldsAShape.size() == 3);
+      assert(ldsAShape[0] == blockSize);
+      TopDownTMBuilder mkBuilder(b, {"tid", "mk"},
+                                 {blockSize, ldsAShape[1] * ldsAShape[2]}, loc);
+      mkBuilder.passThrough("tid");
+      mkBuilder.merge({"m", "k"}, {1, 2}, "mk", {ldsAShape[1], ldsAShape[2]});
+      auto [ldsBufferA, ldsTransformsA, ignoreA] = rock::untransform(b, ldsA);
+      ldsTransformsA = rock::prependUpperViews(
+          b, b.getArrayAttr({mkBuilder.get()}), ldsTransformsA);
+      ldsA = rock::transform(b, ldsBufferA, ldsTransformsA);
+      b.create<ThreadwiseReadIntoOp>(loc, ldsA, regsA, b.getArrayAttr({}),
+                                     ValueRange{tid}, /*forceUnroll=*/true,
+                                     /*useIndexDiffs=*/true);
+      // BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
+      //                               loc);
+      // regsBuilder.unmerge({"iidx", "k"}, {0, 1}, "mk",
+      //                     {mRepeats, kBasePerThread});
+      // regsA = rock::transform(b, regsA,
+      // b.getArrayAttr({regsBuilder.get()}));
     }
 
     // Read from LDS buffer for B
     {
-        TopDownTMBuilder nkBuilder(b, {"tid", "nk"},
-                                   {blockSize, nRepeats * kBasePerThread}, loc);
-        nkBuilder.passThrough("tid");
-        nkBuilder.merge({"n", "k"}, {1, 2}, "nk", {nRepeats, kBasePerThread});
+      ArrayRef<int64_t> ldsBShape = cast<ShapedType>(ldsB.getType()).getShape();
+      assert(ldsBShape.size() == 3);
+      assert(ldsBShape[0] == blockSize);
+      TopDownTMBuilder nkBuilder(b, {"tid", "nk"},
+                                 {blockSize, ldsBShape[1] * ldsBShape[2]}, loc);
+      nkBuilder.passThrough("tid");
+      nkBuilder.merge({"n", "k"}, {1, 2}, "nk", {ldsBShape[1], ldsBShape[2]});
 
-        auto [ldsBufferB, ldsTransformsB, ignoreB] = rock::untransform(b, ldsB);
-        ldsTransformsB = rock::prependUpperViews(
-            b, b.getArrayAttr({nkBuilder.get()}), ldsTransformsB);
-        ldsB = rock::transform(b, ldsBufferB, ldsTransformsB);
-        b.create<ThreadwiseReadIntoOp>(loc, ldsB, regsB, b.getArrayAttr({}),
-                                       ValueRange{tid}, /*forceUnroll=*/true,
-                                       /*useIndexDiffs=*/true);
+      auto [ldsBufferB, ldsTransformsB, ignoreB] = rock::untransform(b, ldsB);
+      ldsTransformsB = rock::prependUpperViews(
+          b, b.getArrayAttr({nkBuilder.get()}), ldsTransformsB);
+      ldsB = rock::transform(b, ldsBufferB, ldsTransformsB);
+      b.create<ThreadwiseReadIntoOp>(loc, ldsB, regsB, b.getArrayAttr({}),
+                                     ValueRange{tid}, /*forceUnroll=*/true,
+                                     /*useIndexDiffs=*/true);
+      // BottomUpTMBuilder regsBuilder(b, {"nk"}, {nRepeats * kBasePerThread},
+      //                               loc);
+      // regsBuilder.unmerge({"jidx", "k"}, {0, 1}, "nk",
+      //                     {nRepeats, kBasePerThread});
+      // regsB = rock::transform(b, regsB,
+      // b.getArrayAttr({regsBuilder.get()}));
     }
   }
 
@@ -3005,6 +3032,7 @@ struct GridwiseGemmAccelRewritePattern
       {
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
+        b.create<LDSBarrierOp>(loc);
 
         // Emit potentially-transposing copies to store buffer. This is here
         // both to enable code motion for fusions and to prevent the accesses to
@@ -3028,6 +3056,7 @@ struct GridwiseGemmAccelRewritePattern
                                        op.getFeatures(), StoreMethod::Set,
                                        /*forceUnroll=*/forceUnroll,
                                        /*useIndexDiffs=*/true);
+        b.create<LDSBarrierOp>(loc);
         b.create<rock::YieldOp>(loc);
       }
 
@@ -3057,10 +3086,13 @@ struct GridwiseGemmAccelRewritePattern
           // Read from LDS into registers
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
+          b.create<LDSBarrierOp>(loc);
           generateReadLoop(loc, b, accelEmitterPtr, tid, ldsViewForGemmA,
                            ldsViewForGemmB, arrayA, arrayB, regCAllocOp,
                            blockSize, copyMPerThread, copyNPerThread,
                            rotateMWithK, rotateNWithK);
+
+          b.create<LDSBarrierOp>(loc);
           b.create<rock::YieldOp>(loc);
         }
         auto stage3 = b.create<StageOp>(loc, "MMA");
@@ -3068,9 +3100,11 @@ struct GridwiseGemmAccelRewritePattern
           // Compute the matrix-multiplication
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
+          b.create<LDSBarrierOp>(loc);
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
                               regCAllocOp, op.getArchAttr(),
                               op.getFeaturesAttr(), tuningParams);
+          b.create<LDSBarrierOp>(loc);
           b.create<rock::YieldOp>(loc);
         }
       }
