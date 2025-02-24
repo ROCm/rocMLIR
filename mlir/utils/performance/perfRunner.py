@@ -29,7 +29,7 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 BENCHMARKING_METRICS_FILE_NAME = 'results.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
-DATA_TYPES = ['conv', 'convfp16', 'convfp8_fp8', 'convint8']
+DATA_TYPES = ['conv', 'convfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'i8', 'fp8']
@@ -273,7 +273,7 @@ def getConvConfigurations(fileName):
                 if len(line) == 0 or line[0] == '#':
                     continue
                 # Skip int8 non-fwd convolutions
-                if (datatype == 'convint8' or datatype == 'convfp8_fp8') and direction != '-F 1':
+                if (datatype == 'convint8' or datatype == 'convfp8') and direction != '-F 1':
                     continue
 
                 # Skip datatype if already in
