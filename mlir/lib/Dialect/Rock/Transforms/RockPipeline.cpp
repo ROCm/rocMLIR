@@ -26,6 +26,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -612,7 +613,24 @@ void RockPipeline::runOnOperation() {
         emitError(loc, "Nested pipelining is not supported yet!\n");
         return signalPassFailure();
       }
-      loopsToPipeline.push_back(forOp);
+      auto upperBoundCst = getConstantIntValue(forOp.getUpperBound());
+      auto lowerBoundCst = getConstantIntValue(forOp.getLowerBound());
+      auto stepCst = getConstantIntValue(forOp.getStep());
+
+      int64_t ubImm = upperBoundCst.value();
+      int64_t lbImm = lowerBoundCst.value();
+      int64_t stepImm = stepCst.value();
+      int64_t numIteration = llvm::divideCeilSigned(ubImm - lbImm, stepImm);
+
+      SmallVector<rock::StageOp> stages;
+
+      forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
+      llvm::errs() << "num iterations: " << numIteration << "\n";
+      llvm::errs() << "numStages :" << stages.size() << "\n";
+
+      if (uint64_t(numIteration) > stages.size()) {
+        loopsToPipeline.push_back(forOp);
+      }
     }
   }
 
