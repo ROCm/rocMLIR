@@ -1646,8 +1646,32 @@ void mlir::rock::expandFlatFunctionArguments(
       logicalVal = arg;
       continue;
     }
-    TopDownTMBuilder flattener(b, nameList, logicalShapedTy.getShape(), loc);
-    flattener.unmerge("raw", 0, nameList, logicalShapedTy.getShape());
+    SmallVector<uint32_t> upperDims(logicalShapedTy.getRank());
+    std::iota(upperDims.begin(), upperDims.end(), 0);
+    SmallVector<uint32_t> nonUnitUpperDim;
+    SmallVector<int64_t> nonUnitUpperSize;
+    SmallVector<StringRef> nonUnitUpperName;
+    for(auto [upperDim, name, dimLen] : llvm::zip(upperDims, nameList, logicalShapedTy.getShape())) {
+      if(dimLen != 1) {
+        nonUnitUpperDim.push_back(upperDim);
+        nonUnitUpperName.push_back(name);
+        nonUnitUpperSize.push_back(dimLen);
+      }
+    }
+    // there has to be at least one dimension that is unmerged
+    if(nonUnitUpperDim.empty()) {
+      nonUnitUpperDim.push_back(upperDims.back());
+      nonUnitUpperName.push_back(nameList.back());
+      nonUnitUpperSize.push_back(logicalShapedTy.getShape().back());
+    }
+
+    BottomUpTMBuilder flattener(b, {"raw"}, logicalShapedTy.getNumElements(), loc);
+    flattener.unmerge(nonUnitUpperName, nonUnitUpperDim, "raw", nonUnitUpperSize);
+    for(auto dim : upperDims) {
+      if(!llvm::is_contained(nonUnitUpperDim, dim)) {
+        flattener.addDim(nameList[dim], dim, logicalShapedTy.getShape()[dim]);
+      }
+    }
     TransformMapAttr expandMap = flattener.get();
     logicalVal = b.create<rock::TransformOp>(loc, arg, expandMap);
   }
