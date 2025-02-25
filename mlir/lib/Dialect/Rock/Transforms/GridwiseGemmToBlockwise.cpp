@@ -3068,6 +3068,7 @@ struct GridwiseGemmAccelRewritePattern
         {
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
+          b.create<LDSBarrierOp>(loc);
           blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
               loc, ldsViewForGemmA, ldsViewForGemmB,
               b.getI32IntegerAttr(copyMPerThread),
