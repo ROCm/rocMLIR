@@ -114,7 +114,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     gfx12Info.hasOcpFp8ConversionInstrs = true;
     gfx12Info.totalVGPRPerEU = 1536;
     gfx12Info.maxWavesPerEU = 16;
-    gfx12Info.totalSGPRPerEU = 800;
+    gfx12Info.totalSGPRPerEU = 512;
     gfx12Info.totalSharedMemPerCU = 65536;
     gfx12Info.maxSharedMemPerWG = 65536;
     gfx12Info.defaultFeatures =
