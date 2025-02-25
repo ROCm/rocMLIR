@@ -238,7 +238,7 @@ func.func @accel_gemm_fp8_bf8_ocp(%matrixA : memref<1x4xvector<8xf8E4M3FN>, #gpu
   %c0 = arith.constant 0 : index
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<16xf32>, #gpu.address_space<private>> to memref<2x2xvector<16xf32>, #gpu.address_space<private>>
   rock.threadwise_accel_gemm %matrixCView += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx940",
+    arch = "amdgcn-amd-amdhsa:gfx950",
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,

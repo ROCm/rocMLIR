@@ -554,31 +554,38 @@ bool SIInstrInfo::shouldClusterMemOps(ArrayRef<const MachineOperand *> BaseOps1,
                                       unsigned NumBytes) const {
   // If the mem ops (to be clustered) do not have the same base ptr, then they
   // should not be clustered
+  unsigned MaxMemoryClusterDWords = DefaultMemoryClusterDWordsLimit;
   if (!BaseOps1.empty() && !BaseOps2.empty()) {
     const MachineInstr &FirstLdSt = *BaseOps1.front()->getParent();
     const MachineInstr &SecondLdSt = *BaseOps2.front()->getParent();
     if (!memOpsHaveSameBasePtr(FirstLdSt, BaseOps1, SecondLdSt, BaseOps2))
       return false;
+
+    const SIMachineFunctionInfo *MFI =
+        FirstLdSt.getMF()->getInfo<SIMachineFunctionInfo>();
+    MaxMemoryClusterDWords = MFI->getMaxMemoryClusterDWords();
   } else if (!BaseOps1.empty() || !BaseOps2.empty()) {
     // If only one base op is empty, they do not have the same base ptr
     return false;
   }
 
   // In order to avoid register pressure, on an average, the number of DWORDS
-  // loaded together by all clustered mem ops should not exceed 8. This is an
-  // empirical value based on certain observations and performance related
-  // experiments.
+  // loaded together by all clustered mem ops should not exceed
+  // MaxMemoryClusterDWords. This is an empirical value based on certain
+  // observations and performance related experiments.
   // The good thing about this heuristic is - it avoids clustering of too many
   // sub-word loads, and also avoids clustering of wide loads. Below is the
-  // brief summary of how the heuristic behaves for various `LoadSize`.
+  // brief summary of how the heuristic behaves for various `LoadSize` when
+  // MaxMemoryClusterDWords is 8.
+  //
   // (1) 1 <= LoadSize <= 4: cluster at max 8 mem ops
   // (2) 5 <= LoadSize <= 8: cluster at max 4 mem ops
   // (3) 9 <= LoadSize <= 12: cluster at max 2 mem ops
   // (4) 13 <= LoadSize <= 16: cluster at max 2 mem ops
   // (5) LoadSize >= 17: do not cluster
   const unsigned LoadSize = NumBytes / ClusterSize;
-  const unsigned NumDWORDs = ((LoadSize + 3) / 4) * ClusterSize;
-  return NumDWORDs <= 8;
+  const unsigned NumDWords = ((LoadSize + 3) / 4) * ClusterSize;
+  return NumDWords <= MaxMemoryClusterDWords;
 }
 
 // FIXME: This behaves strangely. If, for example, you have 32 load + stores,
@@ -3849,6 +3856,36 @@ static void updateLiveVariables(LiveVariables *LV, MachineInstr &MI,
   }
 }
 
+static unsigned getNewFMAInst(const GCNSubtarget &ST, unsigned Opc) {
+  switch (Opc) {
+  case AMDGPU::V_MAC_F16_e32:
+  case AMDGPU::V_MAC_F16_e64:
+    return AMDGPU::V_MAD_F16_e64;
+  case AMDGPU::V_MAC_F32_e32:
+  case AMDGPU::V_MAC_F32_e64:
+    return AMDGPU::V_MAD_F32_e64;
+  case AMDGPU::V_MAC_LEGACY_F32_e32:
+  case AMDGPU::V_MAC_LEGACY_F32_e64:
+    return AMDGPU::V_MAD_LEGACY_F32_e64;
+  case AMDGPU::V_FMAC_LEGACY_F32_e32:
+  case AMDGPU::V_FMAC_LEGACY_F32_e64:
+    return AMDGPU::V_FMA_LEGACY_F32_e64;
+  case AMDGPU::V_FMAC_F16_e32:
+  case AMDGPU::V_FMAC_F16_e64:
+  case AMDGPU::V_FMAC_F16_fake16_e64:
+    return ST.hasTrue16BitInsts() ? AMDGPU::V_FMA_F16_gfx9_fake16_e64
+                                  : AMDGPU::V_FMA_F16_gfx9_e64;
+  case AMDGPU::V_FMAC_F32_e32:
+  case AMDGPU::V_FMAC_F32_e64:
+    return AMDGPU::V_FMA_F32_e64;
+  case AMDGPU::V_FMAC_F64_e32:
+  case AMDGPU::V_FMAC_F64_e64:
+    return AMDGPU::V_FMA_F64_e64;
+  default:
+    llvm_unreachable("invalid instruction");
+  }
+}
+
 MachineInstr *SIInstrInfo::convertToThreeAddress(MachineInstr &MI,
                                                  LiveVariables *LV,
                                                  LiveIntervals *LIS) const {
@@ -4084,14 +4121,8 @@ MachineInstr *SIInstrInfo::convertToThreeAddress(MachineInstr &MI,
   if (Src0Literal && !ST.hasVOP3Literal())
     return nullptr;
 
-  unsigned NewOpc = IsFMA ? IsF16 ? AMDGPU::V_FMA_F16_gfx9_e64
-                                  : IsF64 ? AMDGPU::V_FMA_F64_e64
-                                          : IsLegacy
-                                                ? AMDGPU::V_FMA_LEGACY_F32_e64
-                                                : AMDGPU::V_FMA_F32_e64
-                          : IsF16 ? AMDGPU::V_MAD_F16_e64
-                                  : IsLegacy ? AMDGPU::V_MAD_LEGACY_F32_e64
-                                             : AMDGPU::V_MAD_F32_e64;
+  unsigned NewOpc = getNewFMAInst(ST, Opc);
+
   if (pseudoToMCOpcode(NewOpc) == -1)
     return nullptr;
 
@@ -4544,6 +4575,7 @@ static void copyFlagsToImplicitVCC(MachineInstr &MI,
 MachineInstr *SIInstrInfo::buildShrunkInst(MachineInstr &MI,
                                            unsigned Op32) const {
   MachineBasicBlock *MBB = MI.getParent();
+  MachineFunction *MF = MBB->getParent();
 
   const MCInstrDesc &Op32Desc = get(Op32);
   MachineInstrBuilder Inst32 =
@@ -4555,8 +4587,15 @@ MachineInstr *SIInstrInfo::buildShrunkInst(MachineInstr &MI,
 
   // We assume the defs of the shrunk opcode are in the same order, and the
   // shrunk opcode loses the last def (SGPR def, in the VOP3->VOPC case).
-  for (int I = 0, E = Op32Desc.getNumDefs(); I != E; ++I)
+  for (int I = 0, E = Op32Desc.getNumDefs(); I != E; ++I) {
     Inst32.add(MI.getOperand(I));
+
+    // If this def is used by a DBG_INSTR_REF, create a substitution for the new
+    // instruction.
+    if (unsigned DINum = MI.peekDebugInstrNum())
+      MF->makeDebugValueSubstitution({DINum, I},
+                                     {Inst32->getDebugInstrNum(), I});
+  }
 
   const MachineOperand *Src2 = getNamedOperand(MI, AMDGPU::OpName::src2);
 
@@ -4822,11 +4861,12 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     if (ST.needsAlignedVGPRs()) {
       const TargetRegisterClass *RC = RI.getRegClassForReg(MRI, Reg);
       if (RI.hasVectorRegisters(RC) && MO.getSubReg()) {
-        const TargetRegisterClass *SubRC =
-            RI.getSubRegisterClass(RC, MO.getSubReg());
-        RC = RI.getCompatibleSubRegClass(RC, SubRC, MO.getSubReg());
-        if (RC)
-          RC = SubRC;
+        if (const TargetRegisterClass *SubRC =
+                RI.getSubRegisterClass(RC, MO.getSubReg())) {
+          RC = RI.getCompatibleSubRegClass(RC, SubRC, MO.getSubReg());
+          if (RC)
+            RC = SubRC;
+        }
       }
 
       // Check that this is the aligned version of the class.
@@ -6907,9 +6947,8 @@ SIInstrInfo::legalizeOperands(MachineInstr &MI,
       AMDGPU::getNamedOperandIdx(MI.getOpcode(), AMDGPU::OpName::srsrc);
   if (RsrcIdx != -1) {
     MachineOperand *Rsrc = &MI.getOperand(RsrcIdx);
-    if (Rsrc->isReg() && !RI.isSGPRClass(MRI.getRegClass(Rsrc->getReg()))) {
+    if (Rsrc->isReg() && !RI.isSGPRReg(MRI, Rsrc->getReg()))
       isRsrcLegal = false;
-    }
   }
 
   // The operands are legal.
@@ -9333,7 +9372,9 @@ static bool isRenamedInGFX9(int Opcode) {
     GENERATE_RENAMED_GFX9_CASES(AMDGPU::V_SUB_U32)
   //
   case AMDGPU::V_DIV_FIXUP_F16_gfx9_e64:
+  case AMDGPU::V_DIV_FIXUP_F16_gfx9_fake16_e64:
   case AMDGPU::V_FMA_F16_gfx9_e64:
+  case AMDGPU::V_FMA_F16_gfx9_fake16_e64:
   case AMDGPU::V_INTERP_P2_F16:
   case AMDGPU::V_MAD_F16_e64:
   case AMDGPU::V_MAD_U16_e64:

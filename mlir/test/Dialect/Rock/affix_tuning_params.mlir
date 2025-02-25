@@ -406,7 +406,7 @@ func.func @rock_gemm_xdlops_fp8_bf8_ocp(%a : memref<1x72x128xf8E4M3FN>, %b : mem
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 900
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
-    arch = "amdgcn-amd-amdhsa:gfx940",
+    arch = "amdgcn-amd-amdhsa:gfx950",
     numCU = 120 : i32
   } : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FN> * memref<1x72x115200xf8E5M2>
   return

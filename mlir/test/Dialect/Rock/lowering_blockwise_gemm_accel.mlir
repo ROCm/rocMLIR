@@ -85,7 +85,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp(%matrixA : memref<1024xvector<8
                                           %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
   // CHECK:  rock.threadwise_accel_gemm
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx940",
+    arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,

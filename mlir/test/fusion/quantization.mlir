@@ -10,7 +10,7 @@ func.func @test_conv_with_cast(
     %bias: tensor<8xi32>) -> tensor<1x8x8x8xf32>
 {
     %zero = arith.constant dense<0> : tensor<8xi8>
-    %output = "tosa.conv2d"(%input, %filter, %zero) {quantization_info = #tosa.conv_quant<input_zp = 0, weight_zp = 0>, arch = "gfx906", dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x8x8x4xi8>, tensor<8x1x1x4xi8>, tensor<8xi8>) -> tensor<1x8x8x8xi32>
+    %output = "tosa.conv2d"(%input, %filter, %zero) {quantization_info = #tosa.conv_quant<input_zp = 0, weight_zp = 0>, arch = "gfx906", acc_type = i32, dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x8x8x4xi8>, tensor<8x1x1x4xi8>, tensor<8xi8>) -> tensor<1x8x8x8xi32>
     %output_cast = "tosa.cast"(%output) : (tensor<1x8x8x8xi32>) -> tensor<1x8x8x8xf32>
     return %output_cast : tensor<1x8x8x8xf32>
 }
@@ -24,7 +24,7 @@ func.func @test_dequantization_migraphx(
     %bias: tensor<8xi32>) -> tensor<1x8x8x8xf32>
 {
     %zero = arith.constant dense<0> : tensor<8xi8>
-    %output = "tosa.conv2d"(%input, %filter, %zero) {quantization_info = #tosa.conv_quant<input_zp = 0, weight_zp = 0>, arch = "gfx906", dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x8x8x4xi8>, tensor<8x1x1x4xi8>, tensor<8xi8>) -> tensor<1x8x8x8xi32>
+    %output = "tosa.conv2d"(%input, %filter, %zero) {quantization_info = #tosa.conv_quant<input_zp = 0, weight_zp = 0>, arch = "gfx906", acc_type = i32, dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x8x8x4xi8>, tensor<8x1x1x4xi8>, tensor<8xi8>) -> tensor<1x8x8x8xi32>
 
     %shifted = "tosa.sub"(%output, %bias) {} : (tensor<1x8x8x8xi32>, tensor<8xi32>) -> tensor<1x8x8x8xi32>
     %shifted_cast = "tosa.cast"(%shifted) : (tensor<1x8x8x8xi32>) -> tensor<1x8x8x8xf32>

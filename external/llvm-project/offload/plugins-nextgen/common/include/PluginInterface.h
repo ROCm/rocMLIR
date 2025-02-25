@@ -125,6 +125,7 @@ enum InfoLevelKind { InfoLevel1 = 1, InfoLevel2, InfoLevel3 };
 /// we use the level to determine the indentation of the key-value property at
 /// printing time. See the enum InfoLevelKind for the list of accepted levels.
 class InfoQueueTy {
+public:
   struct InfoQueueEntryTy {
     std::string Key;
     std::string Value;
@@ -132,6 +133,7 @@ class InfoQueueTy {
     uint64_t Level;
   };
 
+private:
   std::deque<InfoQueueEntryTy> Queue;
 
 public:
@@ -153,6 +155,8 @@ public:
     else
       Queue.push_back({Key, Value, Units, L});
   }
+
+  const std::deque<InfoQueueEntryTy> &getQueue() const { return Queue; }
 
   /// Print all info entries added to the queue.
   void print() const {
@@ -266,8 +270,9 @@ struct GenericKernelTy {
   Error launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
                ptrdiff_t *ArgOffsets, KernelArgsTy &KernelArgs,
                AsyncInfoWrapperTy &AsyncInfoWrapper) const;
-  virtual Error launchImpl(GenericDeviceTy &GenericDevice, uint32_t NumThreads,
-                           uint64_t NumBlocks, KernelArgsTy &KernelArgs,
+  virtual Error launchImpl(GenericDeviceTy &GenericDevice,
+                           uint32_t NumThreads[3], uint32_t NumBlocks[3],
+                           KernelArgsTy &KernelArgs,
                            KernelLaunchParamsTy LaunchParams,
                            AsyncInfoWrapperTy &AsyncInfoWrapper) const = 0;
 
@@ -305,6 +310,15 @@ struct GenericKernelTy {
       return true;
     }
     llvm_unreachable("Unknown execution mode!");
+  }
+
+  /// Indicate whether it is a specialized kernel.
+  bool isSpecializedKernel() const {
+    if (ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_NO_LOOP ||
+        ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP ||
+        ExecutionMode == OMP_TGT_EXEC_MODE_XTEAM_RED)
+      return true;
+    return false;
   }
 
   /// Check if kernel is a multi-device kernel.
@@ -355,15 +369,16 @@ protected:
 
   /// Prints generic kernel launch information.
   Error printLaunchInfo(GenericDeviceTy &GenericDevice,
-                        KernelArgsTy &KernelArgs, uint32_t NumThreads,
-                        uint64_t NumBlocks, int64_t MultiDeviceLB,
+                        KernelArgsTy &KernelArgs, uint32_t NumThreads[3],
+                        uint32_t NumBlocks[3], int64_t MultiDeviceLB,
                         int64_t MultiDeviceUB) const;
 
   /// Prints plugin-specific kernel launch information after generic kernel
   /// launch information
   virtual Error printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
                                        KernelArgsTy &KernelArgs,
-                                       uint32_t NumThreads, uint64_t NumBlocks,
+                                       uint32_t NumThreads[3],
+                                       uint32_t NumBlocks[3],
                                        int64_t MultiDeviceLB,
                                        int64_t MultiDeviceUB) const;
 
@@ -392,7 +407,7 @@ private:
   /// The number of threads \p NumThreads can be adjusted by this method.
   /// \p IsNumThreadsFromUser is true is \p NumThreads is defined by user via
   /// thread_limit clause.
-  virtual uint64_t getNumBlocks(GenericDeviceTy &GenericDevice,
+  virtual uint32_t getNumBlocks(GenericDeviceTy &GenericDevice,
                                 uint32_t BlockLimitClause[3],
                                 uint64_t LoopTripCount, uint32_t &NumThreads,
                                 bool IsNumThreadsFromUser) const;
@@ -1086,6 +1101,8 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
 
   uint32_t getNumMultiDevices() const { return OMPX_NumMultiDevices; }
 
+  bool enableRuntimeAutotuning() const { return OMPX_EnableRuntimeAutotuning; }
+
   bool getMultiDeviceKernelValue(void *EntryPtr);
 
   /// Reference to the underlying plugin that created this device.
@@ -1196,6 +1213,9 @@ protected:
 
   /// Specify the number of devices used by multi-device kernels.
   UInt32Envar OMPX_NumMultiDevices;
+
+  /// Envar to enable runtime tuning.
+  BoolEnvar OMPX_EnableRuntimeAutotuning;
 
   /// Array of images loaded into the device. Images are automatically
   /// deallocated by the allocator.

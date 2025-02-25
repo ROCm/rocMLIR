@@ -404,8 +404,8 @@ Error asyncMemCopy(bool UseMultipleSdmaEngines, void *Dst, hsa_agent_t DstAgent,
 #endif
 }
 
-Expected<std::string> getTargetTripleAndFeatures(hsa_agent_t Agent) {
-  std::string Target;
+Error getTargetTripleAndFeatures(hsa_agent_t Agent,
+                                 SmallVector<SmallString<32>> &Targets) {
   auto Err = hsa_utils::iterateAgentISAs(Agent, [&](hsa_isa_t ISA) {
     uint32_t Length;
     hsa_status_t Status;
@@ -419,13 +419,13 @@ Expected<std::string> getTargetTripleAndFeatures(hsa_agent_t Agent) {
       return Status;
 
     llvm::StringRef TripleTarget(ISAName.begin(), Length);
-    if (TripleTarget.consume_front("amdgcn-amd-amdhsa"))
-      Target = TripleTarget.ltrim('-').rtrim('\0').str();
-    return HSA_STATUS_INFO_BREAK;
+    if (TripleTarget.consume_front("amdgcn-amd-amdhsa")) {
+      auto Target = TripleTarget.ltrim('-').rtrim('\0');
+      Targets.push_back(Target);
+    }
+    return HSA_STATUS_SUCCESS;
   });
-  if (Err)
-    return Err;
-  return Target;
+  return Err;
 }
 
 } // namespace hsa_utils
@@ -609,11 +609,22 @@ struct AMDGPUMemoryManagerTy : public DeviceAllocatorTy {
 
   /// Create an empty memory manager.
   AMDGPUMemoryManagerTy(AMDGPUPluginTy &Plugin)
-      : Plugin(Plugin), MemoryPool(nullptr), MemoryManager(nullptr) {}
+      : Plugin(Plugin), MemoryPool(nullptr), MemoryManager(nullptr),
+        OMPX_AMDMemoryMgrThreshold("OMPX_AMD_MEMORY_MANAGER_THRESHOLD_EXP_2",
+                                   30) {}
 
   /// Initialize the memory manager from a memory pool.
   Error init(AMDGPUMemoryPoolTy &MemoryPool) {
-    const uint32_t Threshold = 1 << 30;
+    // Sanity check to ensure user input will not overflow the variable.
+    if (OMPX_AMDMemoryMgrThreshold > sizeof(size_t) * CHAR_BIT - 1) {
+      // if user input is too large, trim it down to the upper limit of size_t.
+      OMPX_AMDMemoryMgrThreshold = sizeof(size_t) * CHAR_BIT - 1;
+      DP("User input for AMDGPUMemoryManager threshhold is too larget and was "
+         "trimmed to: %u\n",
+         OMPX_AMDMemoryMgrThreshold.get());
+    }
+    const size_t Threshold = 1UL << OMPX_AMDMemoryMgrThreshold;
+    DP("AMDGPUMemoryManager threshhold was set to: %zu B\n", Threshold);
     this->MemoryManager = new MemoryManagerTy(*this, Threshold);
     this->MemoryPool = &MemoryPool;
     return Plugin::success();
@@ -675,6 +686,12 @@ private:
 
   /// Reference to the actual memory manager.
   MemoryManagerTy *MemoryManager;
+
+  /// Set the threshold for the size of the allocated memory
+  /// that will be handled by AMDGPUMemoryMangerTy. The input
+  /// value should be the exponent in the expression (2^n).
+  /// e.g input 10 => 2 ^ 10 = 1KB
+  UInt32Envar OMPX_AMDMemoryMgrThreshold;
 };
 
 /// Class implementing the AMDGPU device images' properties.
@@ -741,8 +758,7 @@ struct AMDGPUKernelTy : public GenericKernelTy {
         OMPX_BigJumpLoopOccupancyBasedOpt(
             "OMPX_BIGJUMPLOOP_OCCUPANCY_BASED_OPT", false),
         OMPX_XTeamReductionOccupancyBasedOpt(
-            "OMPX_XTEAMREDUCTION_OCCUPANCY_BASED_OPT", false),
-        OMPX_EnableRuntimeAutotuning("OMPX_ENABLE_RUNTIME_AUTOTUNING", false) {}
+            "OMPX_XTEAMREDUCTION_OCCUPANCY_BASED_OPT", false) {}
 
   /// Initialize the AMDGPU kernel.
   Error initImpl(GenericDeviceTy &Device, DeviceImageTy &Image) override {
@@ -836,21 +852,23 @@ struct AMDGPUKernelTy : public GenericKernelTy {
   }
 
   /// Launch the AMDGPU kernel function.
-  Error launchImpl(GenericDeviceTy &GenericDevice, uint32_t NumThreads,
-                   uint64_t NumBlocks, KernelArgsTy &KernelArgs,
+  Error launchImpl(GenericDeviceTy &GenericDevice, uint32_t NumThreads[3],
+                   uint32_t NumBlocks[3], KernelArgsTy &KernelArgs,
                    KernelLaunchParamsTy LaunchParams,
                    AsyncInfoWrapperTy &AsyncInfoWrapper) const override;
 
   /// Print more elaborate kernel launch info for AMDGPU
   Error printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
-                               KernelArgsTy &KernelArgs, uint32_t NumThreads,
-                               uint64_t NumBlocks, int64_t MultiDeviceLB,
+                               KernelArgsTy &KernelArgs, uint32_t NumThreads[3],
+                               uint32_t NumBlocks[3], int64_t MultiDeviceLB,
                                int64_t MultiDeviceUB) const override;
   /// Print the "old" AMD KernelTrace single-line format
   void printAMDOneLineKernelTrace(GenericDeviceTy &GenericDevice,
-                                  KernelArgsTy &KernelArgs, uint32_t NumThreads,
-                                  uint64_t NumBlocks, int64_t MultiDeviceLB,
+                                  KernelArgsTy &KernelArgs,
+                                  uint32_t NumThreads[3], uint32_t NumBlocks[3],
+                                  int64_t MultiDeviceLB,
                                   int64_t MultiDeviceUB) const;
+
   /// Get group and private segment kernel size.
   uint32_t getGroupSize() const { return GroupSize; }
   uint32_t getPrivateSize() const { return PrivateSize; }
@@ -877,9 +895,6 @@ struct AMDGPUKernelTy : public GenericKernelTy {
 
   /// Envar to enable occupancy-based optimization for cross team reduction.
   BoolEnvar OMPX_XTeamReductionOccupancyBasedOpt;
-
-  /// Envar to enable runtime tuning.
-  BoolEnvar OMPX_EnableRuntimeAutotuning;
 
 private:
   /// The kernel object to execute.
@@ -976,8 +991,11 @@ private:
   /// user-defined threads and block clauses.
   uint32_t getNumThreads(GenericDeviceTy &GenericDevice,
                          uint32_t ThreadLimitClause[3]) const override {
-    assert(ThreadLimitClause[1] == 0 && ThreadLimitClause[2] == 0 &&
-           "Multi dimensional launch not supported yet.");
+    // On amd-staging, bare kernels go through this codepath. Legacy flang
+    // kernels show up as bare kernels since kernel-env is not generated.
+    // In order to accomodate bare ekrnels, disable this assert.
+    // assert(ThreadLimitClause[1] == 1 && ThreadLimitClause[2] == 1 &&
+    //       "Multi dimensional launch not supported yet.");
 
     // Honor OMP_TEAMS_THREAD_LIMIT environment variable and
     // num_threads/thread_limit clause for BigJumpLoop and NoLoop kernel types.
@@ -997,7 +1015,7 @@ private:
           TeamsThreadLimitEnvVar <= static_cast<int32_t>(ConstWGSize))
         return llvm::omp::getBlockSizeAsPowerOfTwo(TeamsThreadLimitEnvVar);
       if (ThreadLimitClause[0] > 0 && ThreadLimitClause[0] != (uint32_t)-1 &&
-          ThreadLimitClause[0] <= static_cast<int32_t>(ConstWGSize))
+          ThreadLimitClause[0] <= static_cast<uint32_t>(ConstWGSize))
         return llvm::omp::getBlockSizeAsPowerOfTwo(ThreadLimitClause[0]);
       assert(((ConstWGSize & (ConstWGSize - 1)) == 0) &&
              "XTeam Reduction blocksize must be a power of two");
@@ -1022,12 +1040,15 @@ private:
                                               ? ThreadLimitClause[0]
                                               : PreferredNumThreads);
   }
-  uint64_t getNumBlocks(GenericDeviceTy &GenericDevice,
+  uint32_t getNumBlocks(GenericDeviceTy &GenericDevice,
                         uint32_t NumTeamsClause[3], uint64_t LoopTripCount,
                         uint32_t &NumThreads,
                         bool IsNumThreadsFromUser) const override {
-    assert(NumTeamsClause[1] == 0 && NumTeamsClause[2] == 0 &&
-           "Multi dimensional launch not supported yet.");
+    // On amd-staging, bare kernels go through this codepath. Legacy flang
+    // kernels show up as bare kernels since kernel-env is not generated.
+    // In order to accomodate bare ekrnels, disable this assert.
+    // assert(NumTeamsClause[1] == 1 && NumTeamsClause[2] == 1 &&
+    //      "Multi dimensional launch not supported yet.");
 
     const auto getNumGroupsFromThreadsAndTripCount =
         [](const uint64_t TripCount, const uint32_t NumThreads) {
@@ -1062,7 +1083,8 @@ private:
             getNumGroupsFromThreadsAndTripCount(LoopTripCount, NumThreads);
 
       // Honor OMP_NUM_TEAMS environment variable for BigJumpLoop kernel type.
-      if (NumTeamsEnvVar > 0 && NumTeamsEnvVar <= GenericDevice.getBlockLimit())
+      if (NumTeamsEnvVar > 0 && static_cast<uint32_t>(NumTeamsEnvVar) <=
+                                    GenericDevice.getBlockLimit())
         NumGroups = std::min(static_cast<uint64_t>(NumTeamsEnvVar), NumGroups);
       // Honor num_teams clause but lower it if tripcount dictates.
       else if (NumTeamsClause[0] > 0 &&
@@ -1145,8 +1167,8 @@ private:
           NumTeamsClause[0] <= GenericDevice.getBlockLimit()) {
         NumGroups =
             std::min(static_cast<uint64_t>(NumTeamsClause[0]), MaxNumGroups);
-      } else if (NumTeamsEnvVar > 0 &&
-                 NumTeamsEnvVar <= GenericDevice.getBlockLimit()) {
+      } else if (NumTeamsEnvVar > 0 && static_cast<uint32_t>(NumTeamsEnvVar) <=
+                                           GenericDevice.getBlockLimit()) {
         NumGroups =
             std::min(static_cast<uint64_t>(NumTeamsEnvVar), MaxNumGroups);
       } else {
@@ -1462,8 +1484,8 @@ struct AMDGPUQueueTy {
   /// Push a kernel launch to the queue. The kernel launch requires an output
   /// signal and can define an optional input signal (nullptr if none).
   Error pushKernelLaunch(const AMDGPUKernelTy &Kernel, void *KernelArgs,
-                         uint32_t NumThreads, uint64_t NumBlocks,
-                         uint32_t GroupSize, uint32_t StackSize,
+                         uint32_t NumThreads[3], uint32_t NumBlocks[3],
+                         uint32_t GroupSize, uint64_t StackSize,
                          AMDGPUSignalTy *OutputSignal,
                          AMDGPUSignalTy *InputSignal) {
     assert(OutputSignal && "Invalid kernel output signal");
@@ -1489,17 +1511,23 @@ struct AMDGPUQueueTy {
     assert(Packet && "Invalid packet");
 
     // The first 32 bits of the packet are written after the other fields
-    uint16_t Setup = UINT16_C(1) << HSA_KERNEL_DISPATCH_PACKET_SETUP_DIMENSIONS;
-    Packet->workgroup_size_x = NumThreads;
-    Packet->workgroup_size_y = 1;
-    Packet->workgroup_size_z = 1;
+    uint16_t Dims = NumBlocks[2] * NumThreads[2] > 1
+                        ? 3
+                        : 1 + (NumBlocks[1] * NumThreads[1] != 1);
+    uint16_t Setup = UINT16_C(Dims)
+                     << HSA_KERNEL_DISPATCH_PACKET_SETUP_DIMENSIONS;
+    Packet->workgroup_size_x = NumThreads[0];
+    Packet->workgroup_size_y = NumThreads[1];
+    Packet->workgroup_size_z = NumThreads[2];
     Packet->reserved0 = 0;
-    Packet->grid_size_x = NumBlocks * NumThreads;
-    Packet->grid_size_y = 1;
-    Packet->grid_size_z = 1;
+    Packet->grid_size_x = NumBlocks[0] * NumThreads[0];
+    Packet->grid_size_y = NumBlocks[1] * NumThreads[1];
+    Packet->grid_size_z = NumBlocks[2] * NumThreads[2];
     Packet->private_segment_size =
-        Kernel.usesDynamicStack() ? std::max(Kernel.getPrivateSize(), StackSize)
-                                  : Kernel.getPrivateSize();
+        Kernel.usesDynamicStack()
+            ? std::max(static_cast<uint64_t>(Kernel.getPrivateSize()),
+                       StackSize)
+            : Kernel.getPrivateSize();
     Packet->group_segment_size = GroupSize;
     Packet->kernel_object = Kernel.getKernelObject();
     Packet->kernarg_address = KernelArgs;
@@ -2117,8 +2145,9 @@ public:
   /// the kernel args buffer to the specified memory manager.
   Error
   pushKernelLaunch(const AMDGPUKernelTy &Kernel, void *KernelArgs,
-                   uint32_t NumThreads, uint64_t NumBlocks, uint32_t GroupSize,
-                   uint32_t StackSize, AMDGPUMemoryManagerTy &MemoryManager,
+                   uint32_t NumThreads[3], uint32_t NumBlocks[3],
+                   uint32_t GroupSize, uint32_t StackSize,
+                   AMDGPUMemoryManagerTy &MemoryManager,
                    std::unique_ptr<ompt::OmptEventInfoTy> OmptInfo = nullptr) {
     if (Queue == nullptr)
       return Plugin::error("Target queue was nullptr");
@@ -2153,7 +2182,7 @@ public:
 
     // If runtime autotuning is enabled, setup the callback functions to process
     // the data after kernel completed.
-    if (Kernel.OMPX_EnableRuntimeAutotuning) {
+    if (Device.enableRuntimeAutotuning()) {
       PostKernelRunProcessingArgs.Agent = Agent;
       PostKernelRunProcessingArgs.Signal = OutputSignal;
       PostKernelRunProcessingArgs.TicksToTime = 1.0;
@@ -2573,7 +2602,13 @@ struct AMDGPUStreamManagerTy final
         OMPX_QueueTracking("LIBOMPTARGET_AMDGPU_HSA_QUEUE_BUSY_TRACKING", true),
         OMPX_EnableQueueProfiling("LIBOMPTARGET_AMDGPU_ENABLE_QUEUE_PROFILING",
                                   false),
-        NextQueue(0), Agent(HSAAgent) {}
+        NextQueue(0), Agent(HSAAgent) {
+    // If OMPX_ENABLE_RUNTIME_AUTOTUNING is enabled,
+    // set queue profiling to true.
+    if (Device.enableRuntimeAutotuning()) {
+      OMPX_EnableQueueProfiling = true;
+    }
+  }
 
   Error init(uint32_t InitialSize, int NumHSAQueues, int HSAQueueSize) {
     Queues = std::vector<AMDGPUQueueTy>(NumHSAQueues);
@@ -2867,7 +2902,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
             "LIBOMPTARGET_AMDGPU_BIG_JUMP_LOOP_TEAMS_PER_CU", 0),
         OMPX_BigJumpLoopMaxTotalTeams(
             "LIBOMPTARGET_AMDGPU_BIG_JUMP_LOOP_MAX_TOTAL_TEAMS", 1024 * 1024),
-        OMPX_LowTripCount("LIBOMPTARGET_AMDGPU_LOW_TRIPCOUNT", 16000),
+        OMPX_LowTripCount("LIBOMPTARGET_AMDGPU_LOW_TRIPCOUNT", 4000),
         OMPX_SmallBlockSize("LIBOMPTARGET_MIN_THREADS_FOR_LOW_TRIP_COUNT", 32),
         OMPX_NumBlocksForLowTripcount("LIBOMPTARGET_BLOCKS_FOR_LOW_TRIP_COUNT",
                                       0),
@@ -3140,12 +3175,10 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
       IsMultiDeviceEnabled = true;
 
     // Detect if XNACK is enabled
-    auto TargeTripleAndFeaturesOrError =
-        hsa_utils::getTargetTripleAndFeatures(Agent);
-    if (!TargeTripleAndFeaturesOrError)
-      return TargeTripleAndFeaturesOrError.takeError();
-    if (static_cast<StringRef>(*TargeTripleAndFeaturesOrError)
-            .contains("xnack+"))
+    SmallVector<SmallString<32>> Targets;
+    if (auto Err = hsa_utils::getTargetTripleAndFeatures(Agent, Targets))
+      return Err;
+    if (!Targets.empty() && Targets[0].str().contains("xnack+"))
       IsXnackEnabled = true;
 
     // detect if device is an APU.
@@ -3722,8 +3755,8 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   Error setCoarseGrainMemoryImpl(void *ptr, int64_t size,
                                  bool set_attr = true) override final {
     // If the table has not yet been created, check if the gpu arch is
-    // MI200 and create it.
-    if (!IsEquippedWithGFX90A)
+    // MI200 and create it, but only if USM Map is enabled.
+    if (!IsEquippedWithGFX90A || OMPX_DisableUsmMaps)
       return Plugin::success();
     if (!CoarseGrainMemoryTable)
       CoarseGrainMemoryTable = new AMDGPUMemTypeBitFieldTable(
@@ -4222,10 +4255,10 @@ private:
     AsyncInfoWrapperTy AsyncInfoWrapper(*this, nullptr);
 
     KernelArgsTy KernelArgs = {};
-    if (auto Err =
-            AMDGPUKernel.launchImpl(*this, /*NumThread=*/1u,
-                                    /*NumBlocks=*/1ul, KernelArgs,
-                                    KernelLaunchParamsTy{}, AsyncInfoWrapper))
+    uint32_t NumBlocksAndThreads[3] = {1u, 1u, 1u};
+    if (auto Err = AMDGPUKernel.launchImpl(
+            *this, NumBlocksAndThreads, NumBlocksAndThreads, KernelArgs,
+            KernelLaunchParamsTy{}, AsyncInfoWrapper))
       return Err;
 
     Error Err = Plugin::success();
@@ -4825,13 +4858,16 @@ struct AMDGPUPluginTy final : public GenericPluginTy {
     if (!Processor)
       return false;
 
-    auto TargeTripleAndFeaturesOrError =
-        hsa_utils::getTargetTripleAndFeatures(getKernelAgent(DeviceId));
-    if (!TargeTripleAndFeaturesOrError)
-      return TargeTripleAndFeaturesOrError.takeError();
-    return offloading::amdgpu::isImageCompatibleWithEnv(
-        Processor ? *Processor : "", ElfOrErr->getPlatformFlags(),
-        *TargeTripleAndFeaturesOrError);
+    SmallVector<SmallString<32>> Targets;
+    if (auto Err = hsa_utils::getTargetTripleAndFeatures(
+            getKernelAgent(DeviceId), Targets))
+      return Err;
+    for (auto &Target : Targets)
+      if (offloading::amdgpu::isImageCompatibleWithEnv(
+              Processor ? *Processor : "", ElfOrErr->getPlatformFlags(),
+              Target.str()))
+        return true;
+    return false;
   }
 
   bool isDataExchangable(int32_t SrcDeviceId, int32_t DstDeviceId) override {
@@ -4960,7 +4996,7 @@ private:
 };
 
 Error AMDGPUKernelTy::launchImpl(GenericDeviceTy &GenericDevice,
-                                 uint32_t NumThreads, uint64_t NumBlocks,
+                                 uint32_t NumThreads[3], uint32_t NumBlocks[3],
                                  KernelArgsTy &KernelArgs,
                                  KernelLaunchParamsTy LaunchParams,
                                  AsyncInfoWrapperTy &AsyncInfoWrapper) const {
@@ -5041,13 +5077,15 @@ Error AMDGPUKernelTy::launchImpl(GenericDeviceTy &GenericDevice,
   if (ImplArgs &&
       getImplicitArgsSize() == sizeof(hsa_utils::AMDGPUImplicitArgsTy)) {
     DP("Setting fields of ImplicitArgs for COV5\n");
-    ImplArgs->BlockCountX = NumBlocks;
-    ImplArgs->BlockCountY = 1;
-    ImplArgs->BlockCountZ = 1;
-    ImplArgs->GroupSizeX = NumThreads;
-    ImplArgs->GroupSizeY = 1;
-    ImplArgs->GroupSizeZ = 1;
-    ImplArgs->GridDims = 1;
+    ImplArgs->BlockCountX = NumBlocks[0];
+    ImplArgs->BlockCountY = NumBlocks[1];
+    ImplArgs->BlockCountZ = NumBlocks[2];
+    ImplArgs->GroupSizeX = NumThreads[0];
+    ImplArgs->GroupSizeY = NumThreads[1];
+    ImplArgs->GroupSizeZ = NumThreads[2];
+    ImplArgs->GridDims = NumBlocks[2] * NumThreads[2] > 1
+                             ? 3
+                             : 1 + (NumBlocks[1] * NumThreads[1] != 1);
     ImplArgs->HeapV1Ptr =
         (uint64_t)AMDGPUDevice.getPreAllocatedDeviceMemoryPool();
     ImplArgs->DynamicLdsSize = KernelArgs.DynCGroupMem;
@@ -5065,8 +5103,8 @@ Error AMDGPUKernelTy::launchImpl(GenericDeviceTy &GenericDevice,
 
 void AMDGPUKernelTy::printAMDOneLineKernelTrace(GenericDeviceTy &GenericDevice,
                                                 KernelArgsTy &KernelArgs,
-                                                uint32_t NumThreads,
-                                                uint64_t NumBlocks,
+                                                uint32_t NumThreads[3],
+                                                uint32_t NumBlocks[3],
                                                 int64_t MultiDeviceLB,
                                                 int64_t MultiDeviceUB) const {
   auto GroupSegmentSize = (*KernelInfo).GroupSegmentList;
@@ -5084,17 +5122,17 @@ void AMDGPUKernelTy::printAMDOneLineKernelTrace(GenericDeviceTy &GenericDevice,
           "md:%d md_LB:%ld md_UB:%ld Max Occupancy: %u Achieved Occupancy: "
           "%d%% n:%s\n",
           GenericDevice.getDeviceId(), getExecutionModeFlags(), ConstWGSize,
-          KernelArgs.NumArgs, NumBlocks, NumThreads, 0, 0, GroupSegmentSize,
-          SGPRCount, VGPRCount, SGPRSpillCount, VGPRSpillCount,
-          KernelArgs.Tripcount, NeedsHostServices, isMultiDeviceKernel(),
-          MultiDeviceLB, MultiDeviceUB, MaxOccupancy, AchievedOccupancy,
-          getName());
+          KernelArgs.NumArgs, NumBlocks[0], NumThreads[0], 0, 0,
+          GroupSegmentSize, SGPRCount, VGPRCount, SGPRSpillCount,
+          VGPRSpillCount, KernelArgs.Tripcount, NeedsHostServices,
+          isMultiDeviceKernel(), MultiDeviceLB, MultiDeviceUB, MaxOccupancy,
+          AchievedOccupancy, getName());
 }
 
 Error AMDGPUKernelTy::printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
                                              KernelArgsTy &KernelArgs,
-                                             uint32_t NumThreads,
-                                             uint64_t NumBlocks,
+                                             uint32_t NumThreads[3],
+                                             uint32_t NumBlocks[3],
                                              int64_t MultiDeviceLB,
                                              int64_t MultiDeviceUB) const {
   // When LIBOMPTARGET_KERNEL_TRACE is set, print the single-line kernel trace
@@ -5140,12 +5178,13 @@ Error AMDGPUKernelTy::printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
   // S/VGPR Spill Count: how many S/VGPRs are spilled by the kernel
   // Tripcount: loop tripcount for the kernel
   INFO(OMP_INFOTYPE_PLUGIN_KERNEL, GenericDevice.getDeviceId(),
-       "#Args: %d Teams x Thrds: %4lux%4u (MaxFlatWorkGroupSize: %u) LDS "
+       "#Args: %d Teams x Thrds: %4ux%4u (MaxFlatWorkGroupSize: %u) LDS "
        "Usage: %uB #SGPRs/VGPRs: %u/%u #SGPR/VGPR Spills: %u/%u Tripcount: "
        "%lu\n",
-       ArgNum, NumGroups, ThreadsPerGroup, MaxFlatWorkgroupSize,
-       GroupSegmentSize, SGPRCount, VGPRCount, SGPRSpillCount, VGPRSpillCount,
-       LoopTripCount);
+       ArgNum, NumGroups[0] * NumGroups[1] * NumGroups[2],
+       ThreadsPerGroup[0] * ThreadsPerGroup[1] * ThreadsPerGroup[2],
+       MaxFlatWorkgroupSize, GroupSegmentSize, SGPRCount, VGPRCount,
+       SGPRSpillCount, VGPRSpillCount, LoopTripCount);
 
   return Plugin::success();
 }

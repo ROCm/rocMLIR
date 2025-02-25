@@ -47,7 +47,7 @@ public:
 
     mlir::tosa::populateTosaToRockTensorConversionPatterns(&ctx,
                                                            tensorPatterns);
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(tensorPatterns))))
+    if (failed(applyPatternsGreedily(func, std::move(tensorPatterns))))
       signalPassFailure();
 
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,

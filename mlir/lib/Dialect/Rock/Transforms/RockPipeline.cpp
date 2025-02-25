@@ -654,7 +654,7 @@ void RockPipeline::runOnOperation() {
     };
 
     scf::populateSCFLoopPipeliningPatterns(patterns, options);
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 
   // Remulti-buffer(if needed). Now we know what all the loops need, hence
@@ -671,7 +671,7 @@ void RockPipeline::runOnOperation() {
       RewritePatternSet patterns(&getContext());
       patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern>(
           &getContext());
-      (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+      (void)applyPatternsGreedily(getOperation(), std::move(patterns));
     }
   }
 }

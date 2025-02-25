@@ -203,7 +203,7 @@ void RockEmulateNarrowTypePass::runOnOperation() {
   // vector patterns go through.
   vector::populateVectorTransferLoweringPatterns(prePatterns,
                                                  /*maxTransferRank=*/1);
-  if (failed(applyPatternsAndFoldGreedily(op, std::move(prePatterns))))
+  if (failed(applyPatternsGreedily(op, std::move(prePatterns))))
     return signalPassFailure();
 
   arith::NarrowTypeEmulationConverter typeConverter(/*targetBitwidth=*/8);
@@ -251,6 +251,6 @@ void RockEmulateNarrowTypePass::runOnOperation() {
 
   RewritePatternSet postPatterns(ctx);
   vector::populateVectorNarrowTypeRewritePatterns(postPatterns);
-  if (failed(applyPatternsAndFoldGreedily(op, std::move(postPatterns))))
+  if (failed(applyPatternsGreedily(op, std::move(postPatterns))))
     return signalPassFailure();
 }

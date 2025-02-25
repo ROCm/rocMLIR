@@ -145,6 +145,7 @@ def getMetricArgsForRocprof(arch):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
     metrics = []
+    # TODO (gfx950): check if gfx950 supports this
     if (chip not in ["gfx942"]):
        metrics = ['-i', metrics_path]
     return metrics
@@ -313,7 +314,9 @@ class ConvConfiguration(PerfConfiguration):
     def computeTFlops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        return (2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
+        assert(self.k % self.group == 0)
+        assert(self.c % self.group == 0)
+        return (2.0 * self.n * (self.c//self.group) * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
@@ -363,6 +366,7 @@ class ConvConfiguration(PerfConfiguration):
                            '--conv_stride_w', str(self.convStrideW),
                            '--padding_h', str(self.paddingH),
                            '--padding_w', str(self.paddingW),
+                           '--groupsize', str(self.group),
                            '--kernel-repeats', str(self.MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
         result += ' '
@@ -1018,7 +1022,7 @@ def getSolverName(testVector, arch, numCU):
         solverName = 'ConvMlirIgemmBwd'
     else:
         solverName = 'ConvMlirIgemmWrW'
-    if config.chip in ['gfx908', 'gfx90a', 'gfx942']:
+    if config.chip in ['gfx908', 'gfx90a', 'gfx942', 'gfx950']:
         solverName+='Xdlops'
     return solverName
 
@@ -1238,7 +1242,7 @@ def tuneMLIRKernels(configs, arch, numCU):
 
 def is_xdlops_present() -> bool:
     """This function checks whether a GPU with xdlops support is present"""
-    xdlop_supported_gpus = ['gfx908', 'gfx90a', 'gfx942']
+    xdlop_supported_gpus = ['gfx908', 'gfx90a', 'gfx942', 'gfx950']
     xdlop_supported_gpus_str = xdlop_supported_gpus[0]
     for gpu in xdlop_supported_gpus[1:]:
         xdlop_supported_gpus_str += '|' + gpu

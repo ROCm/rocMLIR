@@ -457,7 +457,7 @@ def main() -> bool:
     codepath = args.codepath
     rocmlir_gen_flags = []
     if codepath not in supported_codepath:
-        if 'gfx908' in arch or 'gfx90a' in arch or 'gfx94' in arch:
+        if 'gfx908' in arch or 'gfx90a' in arch or 'gfx94' in arch or 'gfx95' in arch:
             codepath = 'mfma'
             rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
         elif 'gfx906' in arch:

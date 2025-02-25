@@ -72,6 +72,7 @@ set(SOURCES
   src/comgr-compiler.cpp
   src/comgr.cpp
   src/comgr-device-libs.cpp
+  src/comgr-diagnostic-handler.cpp
   src/comgr-disassembly.cpp
   src/comgr-elfdump.cpp
   src/comgr-env.cpp
@@ -166,8 +167,13 @@ set(AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS ${LLVM_DEFINITIONS})
 set(AMD_COMGR_PUBLIC_LINKER_OPTIONS)
 set(AMD_COMGR_PRIVATE_LINKER_OPTIONS)
 
-list(APPEND AMD_COMGR_PRIVATE_COMPILE_OPTIONS "-DAMD_COMGR_GIT_COMMIT=${AMD_COMGR_GIT_COMMIT}")
-list(APPEND AMD_COMGR_PRIVATE_COMPILE_OPTIONS "-DAMD_COMGR_GIT_BRANCH=${AMD_COMGR_GIT_BRANCH}")
+option(COMGR_DISABLE_SPIRV "To disable SPIRV in Comgr" OFF)
+if(${COMGR_DISABLE_SPIRV})
+    list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "COMGR_DISABLE_SPIRV")
+endif()
+
+list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "AMD_COMGR_GIT_COMMIT=${AMD_COMGR_GIT_COMMIT}")
+list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "AMD_COMGR_GIT_BRANCH=${AMD_COMGR_GIT_BRANCH}")
 message("----COMGR_GIT_COMMIT: ${AMD_COMGR_GIT_COMMIT}")
 message("----COMGR_GIT_BRANCH: ${AMD_COMGR_GIT_BRANCH}")
 message("")
@@ -383,8 +389,18 @@ set(LLD_LIBS
   lldELF
   lldCommon)
 
+if (${COMGR_DISABLE_SPIRV})
+  message("-- Comgr SPIRV Disabled")
+  set(SPIRV_DYNAMIC_LIB "")
+  set(SPIRV_STATIC_LIB "")
+else()
+  message("-- Comgr SPIRV Enabled")
+  set(SPIRV_DYNAMIC_LIB "LLVMSPIRVAMDLib")
+  set(SPIRV_STATIC_LIB "SPIRVAMDLib")
+endif()
+
 if (LLVM_LINK_LLVM_DYLIB)
-  set(LLVM_LIBS LLVM)
+  set(LLVM_LIBS LLVM ${SPIRV_DYNAMIC_LIB})
 else()
   llvm_map_components_to_libnames(LLVM_LIBS
     ${LLVM_TARGETS_TO_BUILD}
@@ -405,6 +421,7 @@ else()
     Support
     Symbolize
     TargetParser
+    ${SPIRV_STATIC_LIB}
     )
 endif()
 

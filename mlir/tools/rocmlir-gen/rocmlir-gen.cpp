@@ -714,6 +714,12 @@ static llvm::cl::opt<std::string> randomDataType(
                    "e.g. -rand_type float, -rand_type int (default)."),
     llvm::cl::value_desc("type"), llvm::cl::init("int"));
 
+static llvm::cl::list<int> randomTypeIntForInputs(
+    "rand_type_int_for_inputs",
+    llvm::cl::desc(
+        "To specify int type for random number generator for specific inputs."),
+    llvm::cl::value_desc("list of indices"), llvm::cl::CommaSeparated);
+
 static llvm::cl::opt<std::string> randomSide(
     "rand_side",
     llvm::cl::desc(
@@ -732,6 +738,17 @@ static llvm::cl::opt<int>
 static llvm::cl::opt<int>
     randMax("rand_max", llvm::cl::desc("upper bound for float random input"),
             llvm::cl::value_desc("range"), llvm::cl::init(1));
+
+// int random inputs range
+static llvm::cl::opt<int>
+    randMinInt("rand_min_int",
+               llvm::cl::desc("lower bound for int random input"),
+               llvm::cl::value_desc("range"), llvm::cl::init(-5));
+
+static llvm::cl::opt<int>
+    randMaxInt("rand_max_int",
+               llvm::cl::desc("upper bound for int random input"),
+               llvm::cl::value_desc("range"), llvm::cl::init(5));
 
 // Verification function options
 static llvm::cl::opt<float>
@@ -1362,19 +1379,19 @@ static int getRandomSeed() {
   return -1;
 }
 
-static std::tuple<short, short> getRandomTestData(int idx) {
+static std::tuple<short, short> getRandomTestData(int idx, bool isRandFloat) {
   short min = 1, max = 1;
 
-  int32_t idx_spec = -1;
+  int32_t idxSpec = -1;
   switch (randomSide.getValue()[0]) {
   case 'f':
-    idx_spec = 0;
+    idxSpec = 0;
     break;
   case 'i':
-    idx_spec = 1;
+    idxSpec = 1;
     break;
   case 'o':
-    idx_spec = 2;
+    idxSpec = 2;
     break;
   case 'b':
   default:
@@ -1382,25 +1399,29 @@ static std::tuple<short, short> getRandomTestData(int idx) {
   }
 
   if (randomSeed != "none" && randomSeed != "fixed") {
-    if ((idx_spec >= 0) && (idx_spec != idx)) {
-    } else if (randomDataType.getValue() == "int") {
-      // generate random integer in [-5, 5)
-      min = -5;
-      max = 5;
-    } else {
+    if ((idxSpec >= 0) && (idxSpec != idx)) {
+    } else if (isRandFloat) {
       // generate random floats in [rand_min, rand_max)
       min = randMin.getValue();
       max = randMax.getValue();
+    } else {
+      // generate random integer in [rand_min_int, rand_max_int)
+      min = randMinInt.getValue();
+      max = randMaxInt.getValue();
     }
   }
   return std::make_tuple(min, max);
 }
 
-llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType) {
+llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType, int idx) {
   llvm::SmallVector<float, 3> pattern;
   if (randomSeed == "none") {
     float fixedVal = 1.0f;
-    if (randomDataType == "float")
+    bool isRandFloat = (randomDataType == "float");
+    if (llvm::is_contained(randomTypeIntForInputs, idx)) {
+      isRandFloat = false;
+    }
+    if (isRandFloat)
       // Clamp the fixed rondam float by 0.1 to avoid infs in some f16 tests
       fixedVal *= 0.1f;
     pattern = {static_cast<float>(fixedVal)};
@@ -1482,6 +1503,9 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
   auto flatType = cast<MemRefType>(toFillFlat.getType());
 
   bool isRandFloat = (randomDataType == "float");
+  if (llvm::is_contained(randomTypeIntForInputs, idx)) {
+    isRandFloat = false;
+  }
   func::FuncOp randFunc;
   Type i16 = b.getI16Type();
   Type f32 = b.getF32Type();
@@ -1491,7 +1515,7 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
     randFunc = makeFuncDecl(module, "randomIntegerValue", {i16, i16}, {f32});
 
   short min, max;
-  std::tie(min, max) = getRandomTestData(idx);
+  std::tie(min, max) = getRandomTestData(idx, isRandFloat);
   Value minConst = getI16Val(min), maxConst = getI16Val(max);
 
   SmallVector<int64_t, 1> lowerBounds;
@@ -3533,7 +3557,7 @@ static LogicalResult populateHostHarnessLogic(
         b.create<memref::StoreOp>(loc, value, lvar, ValueRange{index});
       }
     } else if (!isRandom) {
-      SmallVector<float, 3> initPattern = getTensorInitPattern(elemType);
+      SmallVector<float, 3> initPattern = getTensorInitPattern(elemType, idx);
       if (failed(populateTensorFillLogic(b, loc, initPattern, elemType, lvar)))
         return failure();
     } else {

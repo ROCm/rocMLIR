@@ -684,7 +684,7 @@ public:
     Register Reg = MTracker->LocIdxToLocID[Num.getLoc()];
     MachineOperand MO = MachineOperand::CreateReg(Reg, false);
     PendingDbgValues.push_back(std::make_pair(
-        VarID, &*emitMOLoc(MO, Var, {NewExpr, Prop.Indirect, false})));
+        VarID, &*emitMOLoc(MO, Var, {NewExpr, Prop.Indirect, false, 1})));
     return true;
   }
 
@@ -1651,7 +1651,7 @@ bool InstrRefBasedLDV::transferDebugInstrRef(MachineInstr &MI,
   // tracker about it. The rest of this LiveDebugValues implementation acts
   // exactly the same for DBG_INSTR_REFs as DBG_VALUEs (just, the former can
   // refer to values that aren't immediately available).
-  DbgValueProperties Properties(Expr, false, true);
+  DbgValueProperties Properties(Expr, false, true, MI.getNumDebugOperands());
   if (VTracker)
     VTracker->defVar(MI, Properties, DbgOpIDs);
 
@@ -1736,8 +1736,9 @@ bool InstrRefBasedLDV::transferDebugInstrRef(MachineInstr &MI,
     }
     if (IsValidUseBeforeDef) {
       DebugVariableID VID = DVMap.insertDVID(V, MI.getDebugLoc().get());
-      TTracker->addUseBeforeDef(VID, {MI.getDebugExpression(), false, true},
-                                DbgOps, LastUseBeforeDef);
+      TTracker->addUseBeforeDef(
+          VID, {MI.getDebugExpression(), false, true, MI.getNumDebugOperands()},
+          DbgOps, LastUseBeforeDef);
     }
   }
 
@@ -2782,7 +2783,7 @@ void InstrRefBasedLDV::BlockPHIPlacement(
   // Apply IDF calculator to the designated set of location defs, storing
   // required PHIs into PHIBlocks. Uses the dominator tree stored in the
   // InstrRefBasedLDV object.
-  IDFCalculatorBase<MachineBasicBlock, false> IDF(DomTree->getBase());
+  IDFCalculatorBase<MachineBasicBlock, false> IDF(*DomTree);
 
   IDF.setLiveInBlocks(AllBlocks);
   IDF.setDefiningBlocks(DefBlocks);

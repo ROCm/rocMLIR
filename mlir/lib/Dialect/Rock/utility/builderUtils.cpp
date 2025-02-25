@@ -39,9 +39,23 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
   return retValue;
 }
 
-Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
-                            Type elemType, float value,
-                            APFloat::opStatus expectedStatus) {
+FailureOr<APInt> createAPInt(Type elemType, int64_t value) {
+  auto bitWidth = elemType.getIntOrFloatBitWidth();
+  bool isSigned = elemType.isSignedInteger();
+
+  if (!isSigned && value < 0)
+    return failure();
+
+  APInt newValue(bitWidth, value, isSigned);
+  APInt extended = isSigned ? newValue.sext(64) : newValue.zext(64);
+  if (extended != APInt(64, value, true))
+    return failure();
+
+  return newValue;
+}
+
+std::pair<APFloat, llvm::detail::opStatus> createAPFloat(Type elemType,
+                                                         float value) {
   auto semantics = static_cast<APFloat::Semantics>(-1);
   if (elemType.isF32()) {
     semantics = APFloat::S_IEEEsingle;
@@ -66,6 +80,16 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
   auto status = apValue.convert(APFloat::EnumToSemantics(semantics),
                                 APFloat::rmNearestTiesToEven, &lostInfo);
 
+  return std::make_pair(apValue, status);
+}
+
+Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
+                            Type elemType, float value,
+                            APFloat::opStatus expectedStatus) {
+  std::pair<APFloat, llvm::detail::opStatus> floatRes =
+      createAPFloat(elemType, value);
+  APFloat apValue = floatRes.first;
+  auto status = floatRes.second;
   assert(status == expectedStatus);
   Value retValue;
 

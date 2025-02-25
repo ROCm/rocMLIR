@@ -15,13 +15,6 @@ import sys
 from pathlib import Path
 from typing import List
 
-def as_signed(byte: int) -> int:
-  """Return the input byte as a signed value, that is, map [128, 255] to
-  [-128, -1]."""
-  if byte >= 128:
-    return byte - 256
-  return byte
-
 def generate(outputPath: Path, rocmPath: Path, libs: List[str]) -> None:
   bcPath = rocmPath / "amdgcn" / "bitcode"
   with outputPath.open("w") as out:
@@ -37,7 +30,7 @@ __declspec(align(4096))
 #endif""", file=out)
       print(f"static constexpr char {lib}_bytes[{lib}_size + 1] = {{", file=out)
       for i, byte in enumerate(bcBytes):
-        print(f"{as_signed(byte):+4},", file=out, end=("\n" if i % 8 == 0 else " "))
+        print(f"static_cast<char>({byte}),", file=out, end=("\n" if i % 8 == 0 else " "))
       # Terminating null pointer needed for
       print("0x00};", file=out)
     print("static constexpr std::initializer_list<std::pair<llvm::StringRef, llvm::StringRef>> allLibList = {", file=out)

@@ -57,6 +57,7 @@ inline void registerUpstreamPasses() {
   registerTosaToLinalg();
   registerTosaToLinalgNamed();
   registerTosaToSCF();
+  registerConvertControlFlowToLLVMPass();
 
   // MLIR passes
   registerTransformsPasses();
@@ -69,6 +70,7 @@ inline void registerUpstreamPasses() {
   LLVM::registerLLVMPasses();
   memref::registerMemRefPasses();
   registerSCFPasses();
+  registerControlFlowSinkPass();
   tensor::registerTensorPasses();
   tosa::registerTosaOptPasses();
   vector::registerVectorPasses();

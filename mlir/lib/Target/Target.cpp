@@ -102,7 +102,7 @@ std::optional<SmallVector<std::unique_ptr<llvm::Module>>>
 AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
   SmallVector<std::unique_ptr<llvm::Module>> bcFiles;
   // Return if there are no libs to load.
-  if (deviceLibs == AMDGCNLibraries::None && fileList.empty())
+  if (deviceLibs == AMDGCNLibraries::None && librariesToLink.empty())
     return bcFiles;
   SmallVector<std::pair<StringRef, AMDGCNLibraries>, 3> libraries;
   AMDGCNLibraries libs = deviceLibs;
@@ -140,8 +140,8 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
   // Try to append any remaining standard device libs.
   if (failed(appendStandardLibs(libs)))
     return std::nullopt;
-  if (failed(loadBitcodeFilesFromList(module.getContext(), fileList, bcFiles,
-                                      true)))
+  if (failed(loadBitcodeFilesFromList(module.getContext(), librariesToLink,
+                                      bcFiles, true)))
     return std::nullopt;
   return std::move(bcFiles);
 }

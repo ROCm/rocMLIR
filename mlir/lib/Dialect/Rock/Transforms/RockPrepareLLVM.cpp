@@ -245,6 +245,6 @@ void RockPrepareLLVMPass::runOnOperation() {
   {
     RewritePatternSet patterns(&getContext());
     patterns.add<SelectExtractRewritePattern>(patterns.getContext());
-    (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
+    (void)applyPatternsGreedily(func, std::move(patterns));
   }
 }

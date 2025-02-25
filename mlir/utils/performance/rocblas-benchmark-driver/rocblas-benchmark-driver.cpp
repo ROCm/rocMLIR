@@ -62,7 +62,8 @@ bool get_compute_fp32_flag() {
   const auto device_name = benchmark::get_device_name();
   return (device_name.find("gfx908") != std::string::npos ||
           device_name.find("gfx90a") != std::string::npos ||
-          device_name.find("gfx94") != std::string::npos);
+          device_name.find("gfx94") != std::string::npos ||
+          device_name.find("gfx95") != std::string::npos);
 }
 
 benchmark::DataType getComputeType(benchmark::DataType inputType,

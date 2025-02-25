@@ -9,6 +9,7 @@ module {{
 
     %zero = arith.constant dense<0.0> : tensor<128x{type}>
     %0 = "tosa.conv2d"(%arg0, %arg1, %zero) {{
+      acc_type = {type},
       dilation = array<i64: 1, 1>,
       pad = array<i64: 0, 0, 0, 0>,
       stride = array<i64: 1, 1>

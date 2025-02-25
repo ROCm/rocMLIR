@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___UTILITY_IS_POINTER_IN_RANGE_H
-#define _LIBCPP___UTILITY_IS_POINTER_IN_RANGE_H
+#ifndef _LIBCPP___CXX03___UTILITY_IS_POINTER_IN_RANGE_H
+#define _LIBCPP___CXX03___UTILITY_IS_POINTER_IN_RANGE_H
 
 #include <__cxx03/__algorithm/comp.h>
 #include <__cxx03/__assert>
@@ -59,4 +59,4 @@ _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI _LIBCPP_NO_SANITIZE("address
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP___UTILITY_IS_POINTER_IN_RANGE_H
+#endif // _LIBCPP___CXX03___UTILITY_IS_POINTER_IN_RANGE_H

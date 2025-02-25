@@ -77,6 +77,8 @@ def MIGraphX_DivOp :
     MIGraphX_ElementwiseBinaryOp<"div">;
 def MIGraphX_PowOp :
     MIGraphX_ElementwiseBinaryOp<"pow">;
+def MIGraphX_GreaterOrEqual :
+    MIGraphX_ElementwiseBinaryOp<"greater_or_equal">;
 
 def MIGraphX_ClipOp :
     MIGraphX_Op<"clip">,
@@ -111,7 +113,6 @@ def MIGraphX_WhereOp :
     `:` type($cond) `,` type($inA) `,` type($inB) `->` type($output)
   }];
 }
-
 
 // Elementwise unary operations
 
@@ -310,7 +311,6 @@ class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> 
     MIGraphX_Op<mnemonic> {
     let arguments = (ins MIXRShapedOf<inputTypes>:$input,
                          MIXRShapedOf<inputTypes>:$filter,
-
                          I64ArrayAttr:$padding,
                          I64ArrayAttr:$stride,
                          I64ArrayAttr:$dilation,

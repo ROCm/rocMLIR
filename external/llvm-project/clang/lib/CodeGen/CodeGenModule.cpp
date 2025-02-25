@@ -401,8 +401,8 @@ CodeGenModule::CodeGenModule(ASTContext &C,
   if (LangOpts.HLSL)
     createHLSLRuntime();
 
-  // Enable TBAA unless it's suppressed. ThreadSanitizer needs TBAA even at O0.
-  if (LangOpts.Sanitize.has(SanitizerKind::Thread) ||
+  // Enable TBAA unless it's suppressed. TSan and TySan need TBAA even at O0.
+  if (LangOpts.Sanitize.hasOneOf(SanitizerKind::Thread | SanitizerKind::Type) ||
       (!CodeGenOpts.RelaxedAliasing && CodeGenOpts.OptimizationLevel > 0))
     TBAA.reset(new CodeGenTBAA(Context, getTypes(), TheModule, CodeGenOpts,
                                getLangOpts()));
@@ -1228,6 +1228,9 @@ void CodeGenModule::Release() {
       getModule().addModuleFlag(llvm::Module::Min, "ptrauth-elf-got", 1);
 
     if (getTriple().isOSLinux()) {
+      if (LangOpts.PointerAuthCalls)
+        getModule().addModuleFlag(llvm::Module::Min, "ptrauth-sign-personality",
+                                  1);
       assert(getTriple().isOSBinFormatELF());
       using namespace llvm::ELF;
       uint64_t PAuthABIVersion =
@@ -2755,7 +2758,21 @@ bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
     Attrs.addAttribute("target-features", llvm::join(Features, ","));
     AddedAttr = true;
   }
-
+  if (getTarget().getTriple().isAArch64()) {
+    llvm::SmallVector<StringRef, 8> Feats;
+    if (TV)
+      TV->getFeatures(Feats);
+    else if (TC)
+      TC->getFeatures(Feats, GD.getMultiVersionIndex());
+    if (!Feats.empty()) {
+      llvm::sort(Feats);
+      std::string FMVFeatures;
+      for (StringRef F : Feats)
+        FMVFeatures.append(",+" + F.str());
+      Attrs.addAttribute("fmv-features", FMVFeatures.substr(1));
+      AddedAttr = true;
+    }
+  }
   return AddedAttr;
 }
 
@@ -4291,7 +4308,7 @@ void CodeGenModule::emitMultiVersionFunctions() {
     getContext().forEachMultiversionedFunctionVersion(
         FD, [&](const FunctionDecl *CurFD) {
           llvm::SmallVector<StringRef, 8> Feats;
-          bool IsDefined = CurFD->doesThisDeclarationHaveABody();
+          bool IsDefined = CurFD->getDefinition() != nullptr;
 
           if (const auto *TA = CurFD->getAttr<TargetAttr>()) {
             assert(getTarget().getTriple().isX86() && "Unsupported target");
@@ -8158,7 +8175,10 @@ public:
       IsAtTopLevel = false;
       // Not a binary operator, so not supported at this point. So ensure no
       // reduction variable is accessed.
-      if (CGM.hasXteamRedVar(cast<DeclRefExpr>(S), RedMap)) {
+      // Disable this check for Xteam scan because the RedVar could be being
+      // read in form of RHS of a binary operator
+      if (CGM.hasXteamRedVar(cast<DeclRefExpr>(S), RedMap) &&
+          !CGM.isXteamScanKernel()) {
         IsSupported = false;
         return;
       }
@@ -8833,6 +8853,8 @@ CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
   // Either we emit Xteam code for all reduction variables or none at all
   for (auto &D : NestDirs) {
     for (const auto *C : D->getClausesOfKind<OMPReductionClause>()) {
+      if (C->getModifier() == OMPC_REDUCTION_inscan)
+        isXteamScanCandidate = true;
       for (const Expr *Ref : C->varlist()) {
         // Only scalar variables supported today
         if (!isa<DeclRefExpr>(Ref))

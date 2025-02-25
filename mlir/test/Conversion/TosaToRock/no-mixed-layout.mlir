@@ -1,6 +1,6 @@
 // RUN: rocmlir-driver -host-pipeline partition,highlevel -targets amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack- %s | FileCheck %s
 
-// CHECK: rock.conv({{.*}}) {{.*}} {{{.*}}, filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"]{{.*}}}
+// CHECK: rock.conv({{.*}}) {{.*}} {{{.*}}, filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["gi", "ni", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"]{{.*}}}
 
 module {
   func.func @test(%arg0: tensor<1x512x1x1xf32>, %arg1: tensor<1x384x28x28xf32>, %arg2: tensor<512x384x1x1xf32>) -> tensor<1x512x28x28xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsagfx90a:sramecc+:xnack-"} {
@@ -8,7 +8,7 @@ module {
     %0 = "tosa.transpose"(%arg1, %cst) : (tensor<1x384x28x28xf32>, tensor<4xi32>) -> tensor<1x28x28x384xf32>
     %1 = "tosa.transpose"(%arg2, %cst) : (tensor<512x384x1x1xf32>, tensor<4xi32>) -> tensor<512x1x1x384xf32>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<512xf32>
-    %2 = "tosa.conv2d"(%0, %1, %cst_0) <{dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>}> : (tensor<1x28x28x384xf32>, tensor<512x1x1x384xf32>, tensor<512xf32>) -> tensor<1x28x28x512xf32>
+    %2 = "tosa.conv2d"(%0, %1, %cst_0) <{acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>}> : (tensor<1x28x28x384xf32>, tensor<512x1x1x384xf32>, tensor<512xf32>) -> tensor<1x28x28x512xf32>
     %cst_1 = arith.constant dense<[0, 3, 1, 2]> : tensor<4xi32>
     %3 = "tosa.transpose"(%2, %cst_1) : (tensor<1x28x28x512xf32>, tensor<4xi32>) -> tensor<1x512x28x28xf32>
     %4 = "tosa.add"(%3, %arg0) : (tensor<1x512x28x28xf32>, tensor<1x512x1x1xf32>) -> tensor<1x512x28x28xf32>

@@ -28,6 +28,7 @@ LLVMDebugInfoMSF
 LLVMDebugInfoPDB
 LLVMDemangle
 LLVMExtensions
+LLVMFrontendAtomic
 LLVMFrontendOffloading
 LLVMFrontendOpenMP
 LLVMGlobalISel
@@ -110,6 +111,7 @@ MLIRGPUToGPURuntimeTransforms
 MLIRGPUToLLVMIRTranslation
 MLIRGPUToROCDLTransforms
 MLIRGPUTransforms
+MLIRGPUUtils
 MLIRIR
 MLIRIndexDialect
 MLIRIndexToLLVM

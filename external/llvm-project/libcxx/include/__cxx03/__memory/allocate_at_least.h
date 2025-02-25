@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___MEMORY_ALLOCATE_AT_LEAST_H
-#define _LIBCPP___MEMORY_ALLOCATE_AT_LEAST_H
+#ifndef _LIBCPP___CXX03___MEMORY_ALLOCATE_AT_LEAST_H
+#define _LIBCPP___CXX03___MEMORY_ALLOCATE_AT_LEAST_H
 
 #include <__cxx03/__config>
 #include <__cxx03/__memory/allocator_traits.h>
@@ -45,4 +45,4 @@ _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP___MEMORY_ALLOCATE_AT_LEAST_H
+#endif // _LIBCPP___CXX03___MEMORY_ALLOCATE_AT_LEAST_H

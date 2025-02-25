@@ -30,6 +30,25 @@ func.func @gpu_gcn_raw_buffer_load_i32(%buf: memref<64xi32>, %idx: i32) -> i32 {
   func.return %0 : i32
 }
 
+// CHECK-LABEL: func @gpu_gcn_raw_buffer_load_i32_strided
+func.func @gpu_gcn_raw_buffer_load_i32_strided(%buf: memref<64xi32, strided<[?], offset: ?>>, %idx: i32) -> i32 {
+  // CHECK-DAG: %[[rstride:.*]] = llvm.mlir.constant(0 : i16)
+  // CHECK-DAG: %[[elem_size:.*]] = llvm.mlir.constant(4 : i32)
+  // CHECK: %[[size:.*]] = llvm.extractvalue %{{.*}}[3, 0] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
+  // CHECK: %[[size32:.*]] = llvm.trunc %[[size]] : i64 to i32
+  // CHECK: %[[stride:.*]] = llvm.extractvalue %{{.*}}[4, 0] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
+  // CHECK: %[[stride32:.*]] = llvm.trunc %[[stride]] : i64 to i32
+  // CHECK: %[[tmp:.*]] = llvm.mul %[[stride32]], %[[elem_size]] : i32
+  // CHECK: %[[numRecords:.*]] = llvm.mul %[[size32]], %[[tmp]] : i32
+  // GFX9:  %[[flags:.*]] = llvm.mlir.constant(159744 : i32)
+  // RDNA:  %[[flags:.*]] = llvm.mlir.constant(822243328 : i32)
+  // CHECK: %[[resource:.*]] = rocdl.make.buffer.rsrc %{{.*}}, %[[rstride]], %[[numRecords]], %[[flags]] : !llvm.ptr to <8>
+  // CHECK: %[[ret:.*]] = rocdl.raw.ptr.buffer.load %[[resource]], %{{.*}}, %{{.*}}, %{{.*}} : i32
+  // CHECK: return %[[ret]]
+  %0 = amdgpu.raw_buffer_load {boundsCheck = true} %buf[%idx] : memref<64xi32, strided<[?], offset: ?>>, i32 -> i32
+  func.return %0 : i32
+}
+
 // CHECK-LABEL: func @gpu_gcn_raw_buffer_load_i32_oob_off
 func.func @gpu_gcn_raw_buffer_load_i32_oob_off(%buf: memref<64xi32>, %idx: i32) -> i32 {
   // GFX9:  %[[flags:.*]] = llvm.mlir.constant(159744 : i32)
@@ -250,15 +269,12 @@ func.func @amdgpu_raw_buffer_atomic_cmpswap_v2f16(%src : vector<2xf16>, %cmp : v
 
 // CHECK-LABEL: func @lds_barrier
 func.func @lds_barrier() {
-  // GFX908: rocdl.sched.barrier 0
   // GFX908: llvm.inline_asm has_side_effects asm_dialect = att
   // GFX908-SAME: ";;;WARNING: BREAKS DEBUG WATCHES\0As_waitcnt lgkmcnt(0)\0As_barrier"
-  // GFX908: rocdl.sched.barrier 0
   // GFX90A: rocdl.waitcnt -7937
   // GFX90A-NEXT: rocdl.s.barrier
   // GFX10:  rocdl.waitcnt -16129
   // GFX10-NEXT: rocdl.s.barrier
-  // GFX11: rocdl.sched.barrier 0
   // GFX11:  llvm.inline_asm has_side_effects asm_dialect = att
   // GFX11-SAME: ";;;WARNING: BREAKS DEBUG WATCHES\0As_waitcnt lgkmcnt(0)\0As_barrier"
   // GFX12:  rocdl.s.wait.dscnt 0

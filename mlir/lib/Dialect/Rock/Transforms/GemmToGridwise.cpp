@@ -152,7 +152,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   MemRefType typeA = cast<MemRefType>(a.getType());
   MemRefType typeB = cast<MemRefType>(b.getType());
-  MemRefType typeC = cast<MemRefType>(c.getType());
   Type elemTypeA = typeA.getElementType();
   Type elemTypeB = typeB.getElementType();
   ArrayRef<int64_t> aShape = typeA.getShape();

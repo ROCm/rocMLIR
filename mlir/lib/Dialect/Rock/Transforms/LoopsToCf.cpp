@@ -46,7 +46,7 @@ void RockLoopsToCfPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   populateAffineToStdConversionPatterns(patterns);
   populateSCFToControlFlowConversionPatterns(patterns);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+  if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
 } // end anonymous namespace

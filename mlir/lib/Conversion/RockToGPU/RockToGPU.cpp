@@ -370,7 +370,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
                  MIIdRewritePattern<rock::WorkitemIdOp, gpu::ThreadIdOp>,
                  MIOpRewritePattern<func::ReturnOp, gpu::ReturnOp>>(ctx);
 
-    if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
+    if (failed(applyPatternsGreedily(gpuMod, std::move(patterns))))
       signalPassFailure();
   });
 

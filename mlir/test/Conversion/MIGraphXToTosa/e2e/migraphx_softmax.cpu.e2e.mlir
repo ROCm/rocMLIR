@@ -1,6 +1,6 @@
 // RUN: rocmlir-driver -kernel-pipeline migraphx,highlevel %s | rocmlir-gen -ph -print-results -rand none -fut test - | \
 // RUN: rocmlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf \
-// RUN: --convert-math-to-llvm --finalize-memref-to-llvm --convert-arith-to-llvm --convert-func-to-llvm -reconcile-unrealized-casts \
+// RUN: --convert-math-to-llvm --finalize-memref-to-llvm --convert-arith-to-llvm --convert-func-to-llvm --convert-cf-to-llvm -reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // ALLOW_RETRIES: 2
 

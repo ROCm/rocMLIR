@@ -1437,8 +1437,8 @@ void RockConvToGemmPass::runOnOperation() {
   RewritePatternSet preConvToGemmPatterns(ctx);
   preConvToGemmPatterns.add<MatchLayoutsToInput>(ctx);
 
-  if (failed(applyPatternsAndFoldGreedily(getOperation(),
-                                          std::move(preConvToGemmPatterns)))) {
+  if (failed(applyPatternsGreedily(getOperation(),
+                                   std::move(preConvToGemmPatterns)))) {
     signalPassFailure();
     return;
   }

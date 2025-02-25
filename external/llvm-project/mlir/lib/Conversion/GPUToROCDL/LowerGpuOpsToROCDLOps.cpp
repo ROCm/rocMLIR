@@ -44,10 +44,10 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 
 #include "../GPUCommon/GPUOpsLowering.h"
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
-#include "../GPUCommon/OpToFuncCallLowering.h"
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTGPUOPSTOROCDLOPS
@@ -272,7 +272,7 @@ struct LowerGpuOpsToROCDLOpsPass
       RewritePatternSet patterns(ctx);
       populateGpuRewritePatterns(patterns);
       arith::populateExpandBFloat16Patterns(patterns);
-      (void)applyPatternsAndFoldGreedily(m, std::move(patterns));
+      (void)applyPatternsGreedily(m, std::move(patterns));
     }
 
     LLVMTypeConverter converter(ctx, options);
@@ -296,8 +296,10 @@ struct LowerGpuOpsToROCDLOpsPass
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
+    mlir::vector::populateVectorInsertExtractStridedSliceTransforms(llvmPatterns);
     populateMathToLLVMConversionPatterns(converter, llvmPatterns);
     cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
+    cf::populateAssertToLLVMConversionPattern(converter, llvmPatterns);
     populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
     populateFinalizeMemRefToLLVMConversionPatterns(converter, llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
@@ -335,7 +337,7 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addIllegalOp<func::FuncOp>();
   target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
   target.addLegalDialect<ROCDL::ROCDLDialect>();
-  target.addIllegalDialect<gpu::GPUDialect>();
+  target.addIllegalDialect<gpu::GPUDialect, vector::VectorDialect>();
   target.addIllegalOp<LLVM::CosOp, LLVM::ExpOp, LLVM::Exp2Op, LLVM::FCeilOp,
                       LLVM::FFloorOp, LLVM::FRemOp, LLVM::LogOp, LLVM::Log10Op,
                       LLVM::Log2Op, LLVM::PowOp, LLVM::SinOp>();
@@ -345,17 +347,6 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   });
   // TODO: Remove once we support replacing non-root ops.
   target.addLegalOp<gpu::YieldOp, gpu::GPUModuleOp>();
-}
-
-// namespace mlir
-template <typename OpTy>
-static void populateOpPatterns(const LLVMTypeConverter &converter,
-                               RewritePatternSet &patterns, StringRef f32Func,
-                               StringRef f64Func, StringRef f32ApproxFunc,
-                               StringRef f16Func) {
-  patterns.add<ScalarizeVectorOpLowering<OpTy>>(converter);
-  patterns.add<OpToFuncCallLowering<OpTy>>(converter, f32Func, f32ApproxFunc,
-                                           f16Func);
 }
 
 void mlir::populateGpuToROCDLConversionPatterns(

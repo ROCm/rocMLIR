@@ -433,6 +433,272 @@ void CodeGenFunction::EmitNoLoopCode(const OMPExecutableDirective &D,
   BreakContinueStack.pop_back();
 }
 
+/// Emit the GlobalGpuThreadId and loop iteration variables using RTL calls and
+/// update the Xteam Scan Kernel info
+void CodeGenFunction::EmitNoLoopXteamScanInit(const OMPLoopDirective &LD,
+                                              const ForStmt *CapturedForStmt,
+                                              const FunctionArgList *Args,
+                                              llvm::Value *&GpuThreadId,
+                                              llvm::Value *&GlobalGpuThreadId,
+                                              llvm::Value *&WorkGroupId) {
+  auto IVPair = EmitNoLoopIV(LD, Args);
+  Address OMPIterationVarAddr = IVPair.second;
+
+  // Generate:
+  // GlobalGpuThreadId = (WorkGroupId * WorkGroupSize) + GpuThreadId
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+  GpuThreadId = RT.getGPUThreadID(*this);
+  llvm::Value *WorkGroupSize = RT.getGPUNumThreads(*this);
+  WorkGroupId = RT.getGPUBlockID(*this);
+  llvm::Value *WorkGroup = Builder.CreateMul(WorkGroupId, WorkGroupSize);
+  GlobalGpuThreadId = Builder.CreateAdd(WorkGroup, GpuThreadId);
+
+  // Generate:
+  // omp.iteration.var = omp.iteration.var + GlobalGpuThreadId
+  // (Note that the omp.iteration.var had been initialized with the lower bound
+  // of iteration space)
+  llvm::Value *CastedGlobalGpuThreadId = Builder.CreateIntCast(
+      GlobalGpuThreadId, OMPIterationVarAddr.getElementType(), false);
+  llvm::Value *OMPIterationVar = Builder.CreateAdd(
+      CastedGlobalGpuThreadId, Builder.CreateLoad(OMPIterationVarAddr));
+
+  // Cache the thread specific initial loop iteration value and the number of
+  // teams
+  llvm::Value *NumTeams = RT.getGPUNumBlocks(*this);
+  CGM.updateXteamRedKernel(
+      CapturedForStmt, Builder.CreateIntCast(OMPIterationVar, Int64Ty, false),
+      NumTeams);
+  Builder.CreateStore(OMPIterationVar, OMPIterationVarAddr);
+
+  // Emit updates of the original loop indices
+  for (const Expr *UE : LD.updates())
+    EmitIgnoredExpr(UE);
+}
+
+/// Emit a NoLoop body for the PhaseOne of Xteam Scan Kernel. This computes
+/// the BeforeScanBlock and then generates a call to the DeviceRTL APIs
+/// kmpc_xteams* which eventually executes the parallelized cross-team scan
+/// algorithm on the GPU.
+void CodeGenFunction::EmitNoLoopXteamScanPhaseOneCode(
+    const OMPExecutableDirective &D, const ForStmt *CapturedForStmt,
+    SourceLocation Loc, const FunctionArgList *Args) {
+  assert(isa<OMPLoopDirective>(D) && "Unexpected directive");
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(D);
+
+  llvm::Value *GpuThreadId = nullptr;
+  llvm::Value *GlobalGpuThreadId = nullptr;
+  llvm::Value *WorkGroupId = nullptr;
+  EmitNoLoopXteamScanInit(LD, CapturedForStmt, Args, GpuThreadId,
+                          GlobalGpuThreadId, WorkGroupId);
+
+  // Branch to end if original loop condition not satisfied
+  llvm::Value *IvCmp = EvaluateExprAsBool(LD.getCond());
+
+  llvm::BasicBlock *ExecBB = createBasicBlock("omp.kernel.body");
+  llvm::BasicBlock *DoneBB = createBasicBlock("omp.kernel.done");
+
+  Builder.CreateCondBr(IvCmp, ExecBB, DoneBB);
+
+  // On a continue in the body, jump to the end.
+  // A break is not allowed in this scope but it would be the end anyways
+  JumpDest Continue = getJumpDestInCurrentScope(DoneBB);
+  BreakContinueStack.push_back(BreakContinue(Continue, Continue));
+
+  // Emit the kernel body block
+  EmitBlock(ExecBB);
+
+  // Generate the BeforeScanBlock
+  CodeGenFunction::ParentLoopDirectiveForScanRegion ScanRegion(*this, LD);
+  {
+    OMPFirstScanLoop = true;
+    CodeGenFunction::OMPLocalDeclMapRAII Scope(*this);
+    EmitOMPXteamScanNoLoopBody(LD);
+  }
+
+  // Generate call to the DeviceRTL calls kmpc_xteams_*
+  EmitXteamScanSum(CapturedForStmt, *Args, CGM.getXteamRedBlockSize(D));
+
+  EmitBranch(DoneBB);
+
+  EmitBlock(DoneBB);
+  Builder.CreateRetVoid();
+  Builder.ClearInsertionPoint();
+  BreakContinueStack.pop_back();
+}
+
+/// Emit a NoLoop body for the PhaseTwo of the Xteam Scan Kernel. This
+/// computes the final 'scanned' values for every team using the intermediate
+/// results computed by the PhaseOne kernel. These results are stored in the
+/// data structures TeamVals[] and Storage[].
+void CodeGenFunction::EmitNoLoopXteamScanPhaseTwoCode(
+    const OMPExecutableDirective &D, const ForStmt *CapturedForStmt,
+    SourceLocation Loc, const FunctionArgList *Args) {
+  assert(isa<OMPLoopDirective>(D) && "Unexpected directive");
+  const OMPLoopDirective &LD = cast<OMPLoopDirective>(D);
+
+  llvm::Value *GpuThreadId = nullptr;
+  llvm::Value *GlobalGpuThreadId = nullptr;
+  llvm::Value *WorkGroupId = nullptr;
+  EmitNoLoopXteamScanInit(LD, CapturedForStmt, Args, GpuThreadId,
+                          GlobalGpuThreadId, WorkGroupId);
+
+  const CodeGenModule::XteamRedVarMap &RedVarMap =
+      CGM.getXteamRedVarMap(CapturedForStmt);
+  for (auto XteamVD : CGM.getXteamOrderedRedVar(CapturedForStmt)) {
+    auto Itr = RedVarMap.find(XteamVD);
+    assert(Itr != RedVarMap.end() && "Metadata not found");
+
+    const CodeGenModule::XteamRedVarInfo &RVI = Itr->second;
+
+    assert(RVI.ArgPos + 1 < Args->size() && "Arg position beyond bounds");
+
+    Address XteamRedSumArg1 = GetAddrOfLocalVar((*Args)[RVI.ArgPos]);
+    llvm::Value *DTeamVals = Builder.CreateLoad(XteamRedSumArg1);
+
+    Address XteamRedSumArg3 = GetAddrOfLocalVar((*Args)[RVI.ArgPos + 2]);
+    llvm::Value *DScanStorage = Builder.CreateLoad(XteamRedSumArg3);
+
+    // TODO: Extract a DeviceRTL function out of the PhaseTwo of Xteam Scan
+    // codegen.
+    if (CGM.OMPPresentScanDirective->hasClausesOfKind<OMPInclusiveClause>()) {
+      // Handle the redistribution of cross-team scan result inside every
+      // constituent team member by emitting this -
+      //   RedVar = Storage[GlobalTID]
+      //   if(TeamID >= 1)
+      //   {
+      //     RedVar += TeamVals[TeamID - 1]
+      //   }
+
+      Address ScanStorageValGEP = Address(
+          Builder.CreateGEP(Int32Ty, DScanStorage, GlobalGpuThreadId), Int32Ty,
+          getContext().getTypeAlignInChars(
+              XteamVD->getType())); // Storage[GlobalTID]
+      Builder.CreateStore(Builder.CreateLoad(ScanStorageValGEP),
+                          RVI.RedVarAddr); // RedVar = Storage[GlobalTID]
+      llvm::Value *IsAfterFirstTeam = Builder.CreateICmpUGE(
+          WorkGroupId, llvm::ConstantInt::get(Int32Ty, 1)); // TeamID >= 1
+      llvm::BasicBlock *IsAfterFirstTeamThenBlock =
+          createBasicBlock("omp.is.after.first.team.then");
+      llvm::BasicBlock *InclusiveScanEndBlock =
+          createBasicBlock("omp.xteam.inclusive.scan.end");
+      Builder.CreateCondBr(IsAfterFirstTeam, IsAfterFirstTeamThenBlock,
+                           InclusiveScanEndBlock);
+      EmitBlock(IsAfterFirstTeamThenBlock);
+      Address PrevTeamValGEP =
+          Address(Builder.CreateGEP(
+                      Int32Ty, DTeamVals,
+                      Builder.CreateSub(WorkGroupId,
+                                        llvm::ConstantInt::get(Int32Ty, 1))),
+                  Int32Ty,
+                  getContext().getTypeAlignInChars(
+                      XteamVD->getType())); // TeamVals[TeamID - 1]
+      Builder.CreateStore(Builder.CreateAdd(Builder.CreateLoad(RVI.RedVarAddr),
+                                            Builder.CreateLoad(PrevTeamValGEP)),
+                          RVI.RedVarAddr); // RedVar += TeamVals[TeamID - 1]
+      EmitBranch(InclusiveScanEndBlock);
+      EmitBlock(InclusiveScanEndBlock);
+    } else {
+      // Redistribution for the 'exclusive' scan is handled differently because
+      // each work-item accesses the temporary output 'Storage' at the index
+      // before it's own global thread id(GlobalTID). Emits the following -
+      //   RedVar = 0
+      //   if(GlobalTID >= 1)
+      //   {
+      //     RedVar = Storage[GlobalTID - 1]
+      //     if(TeamID >= 1)
+      //     {
+      //       if(localTID >= 1)
+      //         RedVar += TeamVals[TeamID - 1];
+      //       else if(TeamID >= 2)
+      //         RedVar += TeamVals[TeamID - 2];
+      //     }
+      //   }
+
+      Builder.CreateStore(llvm::ConstantInt::get(Int32Ty, 0),
+                          RVI.RedVarAddr); // RedVar = 0
+      llvm::Value *IsNotFirstThread = Builder.CreateICmpUGE(
+          GlobalGpuThreadId,
+          llvm::ConstantInt::get(Int32Ty, 1)); // GlobalTID >= 1
+      llvm::BasicBlock *IsNotFirstThreadThenBlock =
+          createBasicBlock("omp.is.not.first.thread.then");
+      llvm::BasicBlock *ExclusiveScanEndBlock =
+          createBasicBlock("omp.xteam.exclusive.scan.end");
+      Builder.CreateCondBr(IsNotFirstThread, IsNotFirstThreadThenBlock,
+                           ExclusiveScanEndBlock);
+      EmitBlock(IsNotFirstThreadThenBlock);
+      llvm::Value *PrevGlobalGpuThreadId = Builder.CreateSub(
+          GlobalGpuThreadId,
+          llvm::ConstantInt::get(Int32Ty, 1)); // GlobalTID - 1
+      Address ScanStoragePrevValGEP = Address(
+          Builder.CreateGEP(Int32Ty, DScanStorage, PrevGlobalGpuThreadId),
+          Int32Ty,
+          getContext().getTypeAlignInChars(
+              XteamVD->getType())); // Storage[GlobalTID - 1]
+      Builder.CreateStore(Builder.CreateLoad(ScanStoragePrevValGEP),
+                          RVI.RedVarAddr); // RedVar = Storage[GlobalTID - 1]
+
+      llvm::Value *IsAfterFirstTeam = Builder.CreateICmpUGE(
+          WorkGroupId, llvm::ConstantInt::get(Int32Ty, 1)); // TeamID >= 1
+      llvm::BasicBlock *IsAfterFirstTeamThenBlock =
+          createBasicBlock("omp.is.after.first.team.then");
+      Builder.CreateCondBr(IsAfterFirstTeam, IsAfterFirstTeamThenBlock,
+                           ExclusiveScanEndBlock);
+      EmitBlock(IsAfterFirstTeamThenBlock);
+      llvm::Value *IsNotFirstThreadInTeam = Builder.CreateICmpUGE(
+          GpuThreadId, llvm::ConstantInt::get(Int32Ty, 1)); // LocalTID >= 1
+      llvm::BasicBlock *IsNotFirstThreadInTeamThenBlock =
+          createBasicBlock("omp.is.not.first.thread.in.team.then");
+      llvm::BasicBlock *IsNotFirstThreadInTeamElseBlock =
+          createBasicBlock("omp.is.not.first.thread.in.team.else");
+      Builder.CreateCondBr(IsNotFirstThreadInTeam,
+                           IsNotFirstThreadInTeamThenBlock,
+                           IsNotFirstThreadInTeamElseBlock);
+      EmitBlock(IsNotFirstThreadInTeamThenBlock);
+      Address PrevTeamValGEP =
+          Address(Builder.CreateGEP(
+                      Int32Ty, DTeamVals,
+                      Builder.CreateSub(WorkGroupId,
+                                        llvm::ConstantInt::get(Int32Ty, 1))),
+                  Int32Ty,
+                  getContext().getTypeAlignInChars(
+                      XteamVD->getType())); // TeamVals[TeamID - 1]
+      Builder.CreateStore(Builder.CreateAdd(Builder.CreateLoad(RVI.RedVarAddr),
+                                            Builder.CreateLoad(PrevTeamValGEP)),
+                          RVI.RedVarAddr); // RedVar += TeamVals[TeamID - 1]
+      EmitBranch(ExclusiveScanEndBlock);
+      EmitBlock(IsNotFirstThreadInTeamElseBlock);
+      llvm::Value *IsAfterSecondTeam = Builder.CreateICmpUGE(
+          WorkGroupId, llvm::ConstantInt::get(Int32Ty, 2)); // TeamID >= 2
+      llvm::BasicBlock *IsAfterSecondTeamThenBlock =
+          createBasicBlock("omp.is.after.second.team.then");
+      Builder.CreateCondBr(IsAfterSecondTeam, IsAfterSecondTeamThenBlock,
+                           ExclusiveScanEndBlock);
+      EmitBlock(IsAfterSecondTeamThenBlock);
+      Address PrevPrevTeamValGEP =
+          Address(Builder.CreateGEP(
+                      Int32Ty, DTeamVals,
+                      Builder.CreateSub(WorkGroupId,
+                                        llvm::ConstantInt::get(Int32Ty, 2))),
+                  Int32Ty,
+                  getContext().getTypeAlignInChars(
+                      XteamVD->getType())); // TeamVals[TeamID - 2]
+      Builder.CreateStore(
+          Builder.CreateAdd(Builder.CreateLoad(RVI.RedVarAddr),
+                            Builder.CreateLoad(PrevPrevTeamValGEP)),
+          RVI.RedVarAddr); // RedVar += TeamVals[TeamID - 2]
+      EmitBranch(ExclusiveScanEndBlock);
+      EmitBlock(ExclusiveScanEndBlock);
+    }
+  }
+
+  // After the 'scanned' results are put in the respective private copies, the
+  // AfterScanBlock can be generated which will consume these results.
+  CodeGenFunction::ParentLoopDirectiveForScanRegion ScanRegion(*this, LD);
+  OMPFirstScanLoop = false;
+  EmitOMPXteamScanNoLoopBody(LD);
+  CGM.OMPPresentScanDirective = nullptr;
+}
+
 void CodeGenFunction::EmitBigJumpLoopCode(const OMPExecutableDirective &D,
                                           const ForStmt *CapturedForStmt,
                                           SourceLocation Loc,
@@ -490,14 +756,24 @@ void CodeGenFunction::EmitXteamRedCode(const OMPExecutableDirective &D,
 
   EmitXteamLocalAggregator(CapturedForStmt);
 
-  // Now emit the modified loop. If there is a statement in the loop with a
-  // reduction, the reduction variable will be replaced with the local
-  // aggregator variable.
-  EmitForStmtWithArgs(cast<ForStmt>(*CapturedForStmt), Args);
-  // EmitStmt(CapturedForStmt);
+  if (CGM.isXteamScanKernel()) {
+    if (CGM.isXteamScanPhaseOne) {
+      EmitNoLoopXteamScanPhaseOneCode(D, CapturedForStmt, Loc, Args);
+      CGM.isXteamScanPhaseOne = false;
+    } else {
+      EmitNoLoopXteamScanPhaseTwoCode(D, CapturedForStmt, Loc, Args);
+      CGM.isXteamScanPhaseOne = true;
+    }
+  } else {
+    // Now emit the modified loop. If there is a statement in the loop with a
+    // reduction, the reduction variable will be replaced with the local
+    // aggregator variable.
+    EmitForStmtWithArgs(cast<ForStmt>(*CapturedForStmt), Args);
+    // EmitStmt(CapturedForStmt);
 
-  // Now emit the calls to xteam_sum, one for each reduction variable
-  EmitXteamRedSum(CapturedForStmt, *Args, CGM.getXteamRedBlockSize(D));
+    // Now emit the calls to xteam_sum, one for each reduction variable
+    EmitXteamRedSum(CapturedForStmt, *Args, CGM.getXteamRedBlockSize(D));
+  }
 
   // Xteam codegen done
   CGM.setCurrentXteamRedStmt(nullptr);
@@ -581,6 +857,48 @@ void CodeGenFunction::EmitXteamRedSum(const ForStmt *FStmt,
   }
 }
 
+void CodeGenFunction::EmitXteamScanSum(const ForStmt *FStmt,
+                                       const FunctionArgList &Args,
+                                       int BlockSize) {
+  auto &RT = static_cast<CGOpenMPRuntimeGPU &>(CGM.getOpenMPRuntime());
+  const CodeGenModule::XteamRedVarMap &RedVarMap = CGM.getXteamRedVarMap(FStmt);
+
+  llvm::Value *ThreadStartIdx = CGM.getXteamRedThreadStartIndex(FStmt);
+  assert(ThreadStartIdx && "Thread start index cannot be null");
+  llvm::Value *NumTeams = CGM.getXteamRedNumTeams(FStmt);
+  assert(NumTeams && "Number of teams cannot be null");
+
+  bool IsFast = CGM.isXteamRedFast(FStmt);
+  auto XteamOrdVars = CGM.getXteamOrderedRedVar(FStmt);
+  // Always emit calls to Xteam device functions in the same order as
+  // user-specified reduction variables.
+  for (auto XteamVD : XteamOrdVars) {
+    auto Itr = RedVarMap.find(XteamVD);
+    assert(Itr != RedVarMap.end() && "Metadata not found");
+
+    const CodeGenModule::XteamRedVarInfo &RVI = Itr->second;
+
+    assert(RVI.ArgPos + 1 < Args.size() && "Arg position beyond bounds");
+
+    Address XteamRedSumArg1 = GetAddrOfLocalVar(Args[RVI.ArgPos]);
+    llvm::Value *DTeamVals = Builder.CreateLoad(XteamRedSumArg1);
+
+    Address XteamRedSumArg2 = GetAddrOfLocalVar(Args[RVI.ArgPos + 1]);
+    llvm::Value *DTeamsDonePtr = Builder.CreateLoad(XteamRedSumArg2);
+
+    Address XteamRedSumArg3 = GetAddrOfLocalVar(Args[RVI.ArgPos + 2]);
+    llvm::Value *DScanStorage = Builder.CreateLoad(XteamRedSumArg3);
+
+    const Expr *OrigRedVarExpr = RVI.RedVarExpr;
+    const DeclRefExpr *DRE = cast<DeclRefExpr>(OrigRedVarExpr);
+    Address OrigRedVarAddr = EmitLValue(DRE).getAddress();
+    RT.getXteamScanSum(*this, Builder.CreateLoad(RVI.RedVarAddr),
+                       OrigRedVarAddr.emitRawPointer(*this), DTeamVals,
+                       DTeamsDonePtr, DScanStorage, ThreadStartIdx, NumTeams,
+                       BlockSize, IsFast);
+  }
+}
+
 // Emit reduction into local aggregator for a statement within the reduced loop
 // where applicable
 bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
@@ -652,6 +970,23 @@ bool CodeGenFunction::EmitXteamRedStmt(const Stmt *S) {
   const VarDecl *RedVarDecl =
       CGM.getXteamRedVarDecl(RedBO->getLHS()->IgnoreImpCasts(), RedVarMap);
   if (RedVarDecl == nullptr) {
+    if (CGM.isXteamScanKernel() && !CGM.isXteamScanPhaseOne) {
+      // For Xteam Scan: check if the RHS has any xteam reduction variable
+      // access
+      const VarDecl *RHSRedVarDecl =
+          CGM.getXteamRedVarDecl(RedBO->getRHS()->IgnoreImpCasts(), RedVarMap);
+      if (RHSRedVarDecl == nullptr)
+        return false; // neither RHS nor LHS has reduction vars
+      assert(RedBO->getOpcode() == BO_Assign &&
+             "Unexpected operator during Xteam Scan CodeGen");
+      auto LHSCodegen = EmitLValue(RedBO->getLHS());
+      Address RHSXteamRedLocalAddr =
+          RedVarMap.find(RHSRedVarDecl)->second.RedVarAddr;
+      Builder.CreateStore(Builder.CreateLoad(RHSXteamRedLocalAddr),
+                          LHSCodegen.getAddress());
+      // Emit: lhs_expr = *xteam_local_red_var_addr
+      return true;
+    }
     // The analysis made sure that the statement did not access the reduction
     // variable, so there is nothing to do.
     return false;
@@ -1110,6 +1445,33 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
   case Stmt::OpenACCCombinedConstructClass:
     EmitOpenACCCombinedConstruct(cast<OpenACCCombinedConstruct>(*S));
     break;
+  case Stmt::OpenACCDataConstructClass:
+    EmitOpenACCDataConstruct(cast<OpenACCDataConstruct>(*S));
+    break;
+  case Stmt::OpenACCEnterDataConstructClass:
+    EmitOpenACCEnterDataConstruct(cast<OpenACCEnterDataConstruct>(*S));
+    break;
+  case Stmt::OpenACCExitDataConstructClass:
+    EmitOpenACCExitDataConstruct(cast<OpenACCExitDataConstruct>(*S));
+    break;
+  case Stmt::OpenACCHostDataConstructClass:
+    EmitOpenACCHostDataConstruct(cast<OpenACCHostDataConstruct>(*S));
+    break;
+  case Stmt::OpenACCWaitConstructClass:
+    EmitOpenACCWaitConstruct(cast<OpenACCWaitConstruct>(*S));
+    break;
+  case Stmt::OpenACCInitConstructClass:
+    EmitOpenACCInitConstruct(cast<OpenACCInitConstruct>(*S));
+    break;
+  case Stmt::OpenACCShutdownConstructClass:
+    EmitOpenACCShutdownConstruct(cast<OpenACCShutdownConstruct>(*S));
+    break;
+  case Stmt::OpenACCSetConstructClass:
+    EmitOpenACCSetConstruct(cast<OpenACCSetConstruct>(*S));
+    break;
+  case Stmt::OpenACCUpdateConstructClass:
+    EmitOpenACCUpdateConstruct(cast<OpenACCUpdateConstruct>(*S));
+    break;
   }
 }
 
@@ -1382,6 +1744,8 @@ void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
   bool noinline = false;
   bool alwaysinline = false;
   bool noconvergent = false;
+  HLSLControlFlowHintAttr::Spelling flattenOrBranch =
+      HLSLControlFlowHintAttr::SpellingNotCalculated;
   const CallExpr *musttail = nullptr;
 
   for (const auto *A : S.getAttrs()) {
@@ -1413,6 +1777,9 @@ void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
         Builder.CreateAssumption(AssumptionVal);
       }
     } break;
+    case attr::HLSLControlFlowHint: {
+      flattenOrBranch = cast<HLSLControlFlowHintAttr>(A)->getSemanticSpelling();
+    } break;
     }
   }
   SaveAndRestore save_nomerge(InNoMergeAttributedStmt, nomerge);
@@ -1420,6 +1787,7 @@ void CodeGenFunction::EmitAttributedStmt(const AttributedStmt &S) {
   SaveAndRestore save_alwaysinline(InAlwaysInlineAttributedStmt, alwaysinline);
   SaveAndRestore save_noconvergent(InNoConvergentAttributedStmt, noconvergent);
   SaveAndRestore save_musttail(MustTailCall, musttail);
+  SaveAndRestore save_flattenOrBranch(HLSLControlFlowAttr, flattenOrBranch);
   EmitStmt(S.getSubStmt(), S.getAttrs());
 }
 
@@ -1655,8 +2023,8 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   EmitBlock(LoopHeader.getBlock());
 
   if (CGM.shouldEmitConvergenceTokens())
-    ConvergenceTokenStack.push_back(emitConvergenceLoopToken(
-        LoopHeader.getBlock(), ConvergenceTokenStack.back()));
+    ConvergenceTokenStack.push_back(
+        emitConvergenceLoopToken(LoopHeader.getBlock()));
 
   // Create an exit block for when the condition fails, which will
   // also become the break target.
@@ -1783,8 +2151,7 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S,
     EmitBlockWithFallThrough(LoopBody, &S);
 
   if (CGM.shouldEmitConvergenceTokens())
-    ConvergenceTokenStack.push_back(
-        emitConvergenceLoopToken(LoopBody, ConvergenceTokenStack.back()));
+    ConvergenceTokenStack.push_back(emitConvergenceLoopToken(LoopBody));
 
   {
     RunCleanupsScope BodyScope(*this);
@@ -1883,8 +2250,7 @@ void CodeGenFunction::EmitForStmtWithArgs(const ForStmt &S,
   EmitBlock(CondBlock);
 
   if (CGM.shouldEmitConvergenceTokens())
-    ConvergenceTokenStack.push_back(
-        emitConvergenceLoopToken(CondBlock, ConvergenceTokenStack.back()));
+    ConvergenceTokenStack.push_back(emitConvergenceLoopToken(CondBlock));
 
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
@@ -2051,8 +2417,7 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   EmitBlock(CondBlock);
 
   if (CGM.shouldEmitConvergenceTokens())
-    ConvergenceTokenStack.push_back(
-        emitConvergenceLoopToken(CondBlock, ConvergenceTokenStack.back()));
+    ConvergenceTokenStack.push_back(emitConvergenceLoopToken(CondBlock));
 
   const SourceRange &R = S.getSourceRange();
   LoopStack.push(CondBlock, CGM.getContext(), CGM.getCodeGenOpts(), ForAttrs,
@@ -3927,35 +4292,32 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedStmt &S) {
   return F;
 }
 
-namespace {
 // Returns the first convergence entry/loop/anchor instruction found in |BB|.
 // std::nullptr otherwise.
-llvm::IntrinsicInst *getConvergenceToken(llvm::BasicBlock *BB) {
+static llvm::ConvergenceControlInst *getConvergenceToken(llvm::BasicBlock *BB) {
   for (auto &I : *BB) {
-    auto *II = dyn_cast<llvm::IntrinsicInst>(&I);
-    if (II && llvm::isConvergenceControlIntrinsic(II->getIntrinsicID()))
-      return II;
+    if (auto *CI = dyn_cast<llvm::ConvergenceControlInst>(&I))
+      return CI;
   }
   return nullptr;
 }
 
-} // namespace
-
 llvm::CallBase *
-CodeGenFunction::addConvergenceControlToken(llvm::CallBase *Input,
-                                            llvm::Value *ParentToken) {
+CodeGenFunction::addConvergenceControlToken(llvm::CallBase *Input) {
+  llvm::ConvergenceControlInst *ParentToken = ConvergenceTokenStack.back();
+  assert(ParentToken);
+
   llvm::Value *bundleArgs[] = {ParentToken};
   llvm::OperandBundleDef OB("convergencectrl", bundleArgs);
-  auto Output = llvm::CallBase::addOperandBundle(
+  auto *Output = llvm::CallBase::addOperandBundle(
       Input, llvm::LLVMContext::OB_convergencectrl, OB, Input->getIterator());
   Input->replaceAllUsesWith(Output);
   Input->eraseFromParent();
   return Output;
 }
 
-llvm::IntrinsicInst *
-CodeGenFunction::emitConvergenceLoopToken(llvm::BasicBlock *BB,
-                                          llvm::Value *ParentToken) {
+llvm::ConvergenceControlInst *
+CodeGenFunction::emitConvergenceLoopToken(llvm::BasicBlock *BB) {
   CGBuilderTy::InsertPoint IP = Builder.saveIP();
   if (BB->empty())
     Builder.SetInsertPoint(BB);
@@ -3966,14 +4328,14 @@ CodeGenFunction::emitConvergenceLoopToken(llvm::BasicBlock *BB,
       llvm::Intrinsic::experimental_convergence_loop, {}, {});
   Builder.restoreIP(IP);
 
-  llvm::CallBase *I = addConvergenceControlToken(CB, ParentToken);
-  return cast<llvm::IntrinsicInst>(I);
+  CB = addConvergenceControlToken(CB);
+  return cast<llvm::ConvergenceControlInst>(CB);
 }
 
-llvm::IntrinsicInst *
+llvm::ConvergenceControlInst *
 CodeGenFunction::getOrEmitConvergenceEntryToken(llvm::Function *F) {
   llvm::BasicBlock *BB = &F->getEntryBlock();
-  llvm::IntrinsicInst *Token = getConvergenceToken(BB);
+  llvm::ConvergenceControlInst *Token = getConvergenceToken(BB);
   if (Token)
     return Token;
 
@@ -3988,5 +4350,5 @@ CodeGenFunction::getOrEmitConvergenceEntryToken(llvm::Function *F) {
   assert(isa<llvm::IntrinsicInst>(I));
   Builder.restoreIP(IP);
 
-  return cast<llvm::IntrinsicInst>(I);
+  return cast<llvm::ConvergenceControlInst>(I);
 }

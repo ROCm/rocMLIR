@@ -105,7 +105,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirValue conv0Operands[] = {funcArg0, filter0Value};
 
   // Set convolution attributes
-  // padding, stride, dilation, group, padding_mode
+  // padding, stride, dilation, group, padding_mode, acc_type
   MlirAttribute conv0PaddingAttr = mlirAttributeParseGet(
       ctx, mlirStringRefCreateFromCString("[0:i64, 0:i64]"));
   MlirAttribute conv0StrideAttr = mlirAttributeParseGet(

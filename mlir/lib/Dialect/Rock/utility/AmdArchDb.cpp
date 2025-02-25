@@ -85,7 +85,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
-  if (major == "gfx9") {
+  if (major == "gfx9" && minor != "50") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
         .Case("08", cdnaInfo)
         .Case("0a", cdna2Info)
@@ -107,14 +107,27 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return gfx11Info;
   }
   if (major == "gfx12") {
-    // TODO: some of those information are not accurate and need to be adjusted
-    // after hardware release
+    // TODO (gfx12): some of those information are not accurate and need to be
+    // adjusted after hardware release
     AmdArchInfo gfx12Info(gfx11Info);
     gfx12Info.hasFp8ConversionInstrs = false;
     gfx12Info.hasOcpFp8ConversionInstrs = true;
+    gfx12Info.totalVGPRPerEU = 1536;
+    gfx12Info.maxWavesPerEU = 16;
+    gfx12Info.totalSGPRPerEU = 800;
+    gfx12Info.totalSharedMemPerCU = 65536;
+    gfx12Info.maxSharedMemPerWG = 65536;
     gfx12Info.defaultFeatures =
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_f16);
     return gfx12Info;
+  }
+  if (major == "gfx9" && minor == "50") {
+    // TODO (gfx950): some of those information are not accurate and need to be
+    // adjusted after hardware release
+    AmdArchInfo gfx950Info(cdna3Info);
+    gfx950Info.hasFp8ConversionInstrs = false;
+    gfx950Info.hasOcpFp8ConversionInstrs = true;
+    return gfx950Info;
   }
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
                << arch << "\n";

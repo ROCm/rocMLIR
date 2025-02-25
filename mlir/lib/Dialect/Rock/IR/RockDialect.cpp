@@ -552,6 +552,21 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
     if (elemTypeA != elemTypeB)
       return op->emitOpError("Wmma gridwise does not support mixed types");
   }
+  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
+    bool isGfx95 = arch.contains("gfx95");
+    if (isGfx95 &&
+        (elemTypeA.isFloat8E4M3FNUZ() || elemTypeA.isFloat8E5M2FNUZ() ||
+         elemTypeB.isFloat8E4M3FNUZ() || elemTypeB.isFloat8E5M2FNUZ())) {
+      return op->emitOpError(
+          "Mfma gridwise does not support E4M3FNUZ/E5M2FNUZ data types");
+    }
+    if (!isGfx95 && arch.contains("gfx9") &&
+        (elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2() ||
+         elemTypeB.isFloat8E4M3FN() || elemTypeB.isFloat8E5M2())) {
+      return op->emitOpError(
+          "Mfma gridwise does not support E4M3/E5M2 data types ");
+    }
+  }
   if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
     return op->emitOpError("floating-point input type ")
            << elemTypeA
@@ -578,26 +593,6 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
   Operation *op = convOp.getOperation();
-  auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
-                          llvm::StringRef dim2) {
-    auto layout = cast<ArrayAttr>(op->getAttr(tensor)).getValue();
-    auto pos1 = -1, pos2 = -1;
-    for (unsigned int i = 0; i < layout.size(); ++i) {
-      if (cast<StringAttr>(layout[i]).getValue() == dim1)
-        pos1 = i;
-      if (cast<StringAttr>(layout[i]).getValue() == dim2)
-        pos2 = i;
-    }
-    return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
-  };
-
-  if ((isDisjointed("filter_layout", "y", "x") &&
-       isDisjointed("filter_layout", "0", "1")) ||
-      (isDisjointed("input_layout", "hi", "wi") &&
-       isDisjointed("input_layout", "0i", "1i") &&
-       isDisjointed("input_layout", "0", "1")))
-    return op->emitError("Disjointed yx or hw!");
-
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
 
   if (failed(verifyGemmTypes(gemmOp)))
