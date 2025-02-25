@@ -593,26 +593,6 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
   Operation *op = convOp.getOperation();
-  auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
-                          llvm::StringRef dim2) {
-    auto layout = cast<ArrayAttr>(op->getAttr(tensor)).getValue();
-    auto pos1 = -1, pos2 = -1;
-    for (unsigned int i = 0; i < layout.size(); ++i) {
-      if (cast<StringAttr>(layout[i]).getValue() == dim1)
-        pos1 = i;
-      if (cast<StringAttr>(layout[i]).getValue() == dim2)
-        pos2 = i;
-    }
-    return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
-  };
-
-  if ((isDisjointed("filter_layout", "y", "x") &&
-       isDisjointed("filter_layout", "0", "1")) ||
-      (isDisjointed("input_layout", "hi", "wi") &&
-       isDisjointed("input_layout", "0i", "1i") &&
-       isDisjointed("input_layout", "0", "1")))
-    return op->emitError("Disjointed yx or hw!");
-
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
 
   if (failed(verifyGemmTypes(gemmOp)))
