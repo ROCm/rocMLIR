@@ -29,12 +29,12 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 BENCHMARKING_METRICS_FILE_NAME = 'results.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
-DATA_TYPES = ['conv', 'convfp16', 'convint8']
+DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-DATA_TYPES_GEMM = ['f32', 'f16', 'i8', 'fp8']
-DATA_TYPES_ATTENTION = ['f32', 'f16']
-OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'i8': 'i32', 'fp8':'f32',
+DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
+DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
+OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8':'f32',
                          'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
                          'bf8_bf8': 'f32'}
 
