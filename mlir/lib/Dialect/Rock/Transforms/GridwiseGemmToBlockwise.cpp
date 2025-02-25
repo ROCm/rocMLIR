@@ -3057,7 +3057,6 @@ struct GridwiseGemmAccelRewritePattern
                                        op.getFeatures(), StoreMethod::Set,
                                        /*forceUnroll=*/forceUnroll,
                                        /*useIndexDiffs=*/true);
-        b.create<LDSBarrierOp>(loc);
         b.create<rock::YieldOp>(loc);
       }
 
@@ -3093,8 +3092,6 @@ struct GridwiseGemmAccelRewritePattern
                            ldsViewForGemmB, arrayA, arrayB, regCAllocOp,
                            blockSize, copyMPerThread, copyNPerThread,
                            rotateMWithK, rotateNWithK);
-
-          b.create<LDSBarrierOp>(loc);
           b.create<rock::YieldOp>(loc);
         }
         auto stage3 = b.create<StageOp>(loc, "MMA");
@@ -3106,7 +3103,6 @@ struct GridwiseGemmAccelRewritePattern
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
                               regCAllocOp, op.getArchAttr(),
                               op.getFeaturesAttr(), tuningParams);
-          b.create<LDSBarrierOp>(loc);
           b.create<rock::YieldOp>(loc);
         }
       }
