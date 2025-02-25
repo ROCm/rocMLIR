@@ -132,7 +132,7 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
       return false;
 
     // No need to fold if the batch size is 1
-    if(cast<ShapedType>(aView.getType()).getShape()[0] == 1)
+    if (cast<ShapedType>(aView.getType()).getShape()[0] == 1)
       return false;
 
     return isBatchDimFoldableInTheTransformStack(views);
