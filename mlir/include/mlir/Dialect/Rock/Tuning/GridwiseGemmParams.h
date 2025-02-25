@@ -160,7 +160,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         splitKFactor(attr.getSplitKFactor()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false),
-        initiationInterval(attr.getInitiationInterval()) {};
+        initiationInterval(attr.getInitiationInterval()){};
 
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -170,7 +170,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         splitKFactor(attr.getSplitKFactor()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false),
-        initiationInterval(attr.getInitiationInterval()) {};
+        initiationInterval(attr.getInitiationInterval()){};
 
   int64_t getKPack() { return gemmKPack; }
 

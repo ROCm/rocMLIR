@@ -2612,8 +2612,9 @@ struct GridwiseGemmAccelRewritePattern
     }
   }
 
-  // Generate the Read loop from LDS.  So we read A[0:mRepeats, 0:kBasePerThread]
-  // and B[0:nRepeats, 0:kBasePerThread] before entering the MMA loop
+  // Generate the Read loop from LDS.  So we read A[0:mRepeats,
+  // 0:kBasePerThread] and B[0:nRepeats, 0:kBasePerThread] before entering the
+  // MMA loop
   void generateReadLoop(
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
@@ -2631,8 +2632,8 @@ struct GridwiseGemmAccelRewritePattern
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
-    // tid pass through. We can give those indices to wrapLDSBufferForLoad which should
-    // compute the right transform
+    // tid pass through. We can give those indices to wrapLDSBufferForLoad which
+    // should compute the right transform
 
     // Read from LDS buffer for A
     {
