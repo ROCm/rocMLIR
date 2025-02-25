@@ -280,10 +280,11 @@ inline raw_ostream &operator<<(raw_ostream &os, const SubDimInfo &sdInfo) {
 // Given a sequence of transform maps, this will obtain the lower sub-dimensions
 // each provided upper dim would map to.
 FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
-getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_t dim);
+getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs, int64_t dim,
+                      bool traceOnes = false);
 FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
 getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
-                      ArrayRef<int64_t> dims);
+                      ArrayRef<int64_t> dims, bool traceOnes = false);
 
 SmallVector<SmallString<8>> createDimNames(int64_t len, StringRef prefix);
 SmallVector<StringRef> getStringRefsFor(ArrayRef<SmallString<8>> strings);
