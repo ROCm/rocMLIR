@@ -625,8 +625,6 @@ void RockPipeline::runOnOperation() {
       SmallVector<rock::StageOp> stages;
 
       forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
-      llvm::errs() << "num iterations: " << numIteration << "\n";
-      llvm::errs() << "numStages :" << stages.size() << "\n";
 
       if (uint64_t(numIteration) > stages.size()) {
         loopsToPipeline.push_back(forOp);
