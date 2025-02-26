@@ -1411,7 +1411,7 @@ static LogicalResult insertBlockwiseReduction(
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(blockSubTileViews)) {
     LLVM_DEBUG(llvm::dbgs() << "blockSubTileViews creation using "
-                               "removeUpperDims is unsuccesful.\n");
+                               "removeUpperDims is unsuccessful.\n");
     return failure();
   }
   // We only want to keep tid in the maps
@@ -1423,7 +1423,7 @@ static LogicalResult insertBlockwiseReduction(
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(blockSubTileTidSliceViews)) {
     LLVM_DEBUG(llvm::dbgs() << "blockSubTileTidSliceViews creation using "
-                               "removeUpperDims is unsuccesful.\n");
+                               "removeUpperDims is unsuccessful.\n");
     return failure();
   }
   // We only want to keep iter in the maps
@@ -1435,7 +1435,7 @@ static LogicalResult insertBlockwiseReduction(
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(threadSubTileViews)) {
     LLVM_DEBUG(llvm::dbgs() << "threadSubTileViews creation using "
-                               "removeUpperDims is unsuccesful.\n");
+                               "removeUpperDims is unsuccessful.\n");
     return failure();
   }
 
@@ -1449,7 +1449,7 @@ static LogicalResult insertBlockwiseReduction(
   if (failed(gridOnlyDims)) {
     LLVM_DEBUG(
         llvm::dbgs()
-        << "gridOnlyDims creation using removeUpperDims is unsuccesful.\n");
+        << "gridOnlyDims creation using removeUpperDims is unsuccessful.\n");
     return failure();
   }
 
@@ -1462,7 +1462,7 @@ static LogicalResult insertBlockwiseReduction(
           getLowerSubDimensions(rewriter, toBeReducedViews, gridOnlyDimIdxs);
   if (failed(lowerSubDims) || lowerSubDims.value().empty()) {
     LLVM_DEBUG(llvm::dbgs() << "lowerSubDims creation using "
-                               "getLowerSubDimensions is unsuccesful.\n");
+                               "getLowerSubDimensions is unsuccessful.\n");
     return failure();
   }
 
