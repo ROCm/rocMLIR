@@ -69,10 +69,11 @@ std::pair<APFloat, llvm::detail::opStatus> createAPFloat(Type elemType,
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elemType, float value,
                             APFloat::opStatus expectedStatus) {
-  std::pair<APFloat, llvm::detail::opStatus> floatRes =
-      createAPFloat(elemType, value);
-  APFloat apValue = floatRes.first;
-  auto status = floatRes.second;
+                              std::pair<APFloat, llvm::detail::opStatus> floatRes =
+                              createAPFloat(elemType, value);
+                          APFloat apValue = floatRes.first;
+                          auto status = floatRes.second;
+
   assert(status == expectedStatus);
   Value retValue;
 
