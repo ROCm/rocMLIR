@@ -73,7 +73,6 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
       createAPFloat(elemType, value);
   APFloat apValue = floatRes.first;
   auto status = floatRes.second;
-
   assert(status == expectedStatus);
   Value retValue;
 
