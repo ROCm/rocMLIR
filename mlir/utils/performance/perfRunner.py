@@ -376,10 +376,10 @@ class ConvConfiguration(PerfConfiguration):
 
     MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NCHWG": "kcyxg", "NHWC": "kyxc", "NHWCG": "kyxcg",
                            "NC01": "kc01", "NC01G": "kc01g", "N01C": "k01c", "N01CG": "k01cg",
-                           "GNC01":"gkc01"}
+                           "GNC01":"gkc01", "GN01C":"gk01c"}
     MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NCHWG": "nkhwg", "NHWC": "nhwk", "NHWCG": "nhwkg",
                            "NC01": "nk01", "NC01G": "nk01g", "N01C": "n01k", "N01CG": "n01kg",
-                           "NGC01":"ngk01"}
+                           "NGC01":"ngk01", "N01GC": "n01gk"}
     filterLayoutMap = {'N':'k', 'C':'c', 'H':'0', 'W':'1', 'G':'g'}
     inputLayoutMap = {'N':'n', 'C':'c', 'H':'0', 'W':'1', 'G':'g'}
     outputLayoutMap = {'N':'n', 'C':'k', 'H':'0', 'W':'1', 'G':'g'}
