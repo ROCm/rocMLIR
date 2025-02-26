@@ -94,7 +94,7 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
             os.chdir(prevdir)
     return nanoSeconds
 
-def getWinningConfig(tuningOutput, config, allData, options: Options):
+def getWinningConfig(tuningOutput, config, allData, options: Options, paths, testVector):
     maxTFlops = -np.inf
     minNs = np.inf
     winningConfig = "None"
@@ -115,6 +115,13 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         entry = config.tableEntry(nanoSeconds)
         allData.append(entry)
         theseTFlops = entry['TFlops']
+        if not np.isnan(nanoSeconds):
+            if options.verifyMode != "none":
+                verifyNs = verifyKernelWithPerfConfig(perfConfig, config, paths, options)
+                if np.isnan(verifyNs):
+                    # Verification failed, abort the loop
+                    print(f"Verification Failed on : {testVector} : {perfConfig}", file=sys.stderr)
+                    return None, None
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
             minNs = nanoSeconds
@@ -159,7 +166,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, config, allData, options)
+        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, config, allData, options, paths, testVector)
 
         if options.verifyMode != "none":
             verifyNs = verifyKernelWithPerfConfig(winningConfig, config, paths, options)
