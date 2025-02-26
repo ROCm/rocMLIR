@@ -26,9 +26,11 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/Debug.h"
 
@@ -127,6 +129,10 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
 
     // There is no batch, hence nothing that can be a broadcast
     if (trMap.getUpperBounds().size() != 3)
+      return false;
+
+    // No need to fold if the batch size is 1
+    if (cast<ShapedType>(aView.getType()).getShape()[0] == 1)
       return false;
 
     return isBatchDimFoldableInTheTransformStack(views);
