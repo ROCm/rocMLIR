@@ -7,7 +7,6 @@ import numpy as np
 import re
 import glob
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 from collections import defaultdict
 
 
@@ -83,8 +82,8 @@ class FileWriter():
         """
         instruction_types_to_datatypes = {
             "NonAccel": ["f32"],
-            "XDL": ["f32", "f16", "i8"],
-            "Wmma": ["f16", "i8"]
+            "XDL": ["f32", "f16", "fp8", "i8"],
+            "Wmma": ["f16", "fp8", "i8"]
         }
         markers = [
             "// BEGIN_GEMM",
@@ -128,9 +127,15 @@ class FileWriter():
         elif dtype == 'f16':
             init_params = f"initParametersFp16{op_cap}"
             n_init_params = f"nInitParametersFp16{op_cap}"
+        elif dtype == 'fp8' and op == 'conv':
+            init_params = f"initParametersForwardFp8{op_cap}"
+            n_init_params = f"nInitParametersForwardFp8{op_cap}"
+        elif dtype == 'fp8' and op == 'gemm':
+            init_params = f"initParametersFp8{op_cap}"
+            n_init_params = f"nInitParametersFp8{op_cap}"
         elif dtype == 'i8' and op == 'conv':
-            init_params = f"initParametersForward8Bit{op_cap}"
-            n_init_params = f"nInitParametersForward8Bit{op_cap}"
+            init_params = f"initParametersForwardI8{op_cap}"
+            n_init_params = f"nInitParametersForwardI8{op_cap}"
         elif dtype == 'i8' and op == 'gemm':
             init_params = f"initParametersI8{op_cap}"
             n_init_params = f"nInitParametersI8{op_cap}"
@@ -152,9 +157,15 @@ class FileWriter():
         elif dtype == 'f16':
             init_params = f"initParametersFp16{op_cap}"
             n_init_params = f"nInitParametersFp16{op_cap}"
+        elif dtype == 'fp8' and op == 'conv':
+            init_params = f"initParametersForwardFp8{op_cap}"
+            n_init_params = f"nInitParametersForwardFp8{op_cap}"
+        elif dtype == 'fp8' and op == 'gemm':
+            init_params = f"initParametersFp8{op_cap}"
+            n_init_params = f"nInitParametersFp8{op_cap}"
         elif dtype == 'i8' and op == 'conv':
-            init_params = f"initParametersForward8Bit{op_cap}"
-            n_init_params = f"nInitParametersForward8Bit{op_cap}"
+            init_params = f"initParametersForwardI8{op_cap}"
+            n_init_params = f"nInitParametersForwardI8{op_cap}"
         elif dtype == 'i8' and op == 'gemm':
             init_params = f"initParametersI8{op_cap}"
             n_init_params = f"nInitParametersI8{op_cap}"
@@ -176,6 +187,7 @@ class FileWriter():
         datatype_names_defs= {
             'f32': self.get_init_params_definitions(self.arch, 'f32', self.op),
             'f16': self.get_init_params_definitions(self.arch, 'f16', self.op),
+            'fp8': self.get_init_params_definitions(self.arch, 'fp8', self.op),
             'i8': self.get_init_params_definitions(self.arch, 'i8', self.op)
         }
 
@@ -201,7 +213,7 @@ class FileWriter():
         datatype_names_decs = {}
         datatype_n_decs = {}
 
-        for dtype in ['f32', 'f16', 'i8']:
+        for dtype in ['f32', 'f16', 'fp8', 'i8']:
             init_params_dec, n_params_dec = self.get_init_params_declaration(self.arch, dtype, self.op)
             datatype_names_decs[dtype] = init_params_dec
             datatype_n_decs[dtype] = n_params_dec
@@ -374,7 +386,7 @@ def print_results(result):
 def main(args=None):
     """
     usage: quickTunerGen.py [-h] --input-dir INPUT_DIR --op {gemm,conv} [--th TH] --arch ARCH [--update] [--no-splitK]
-    usage exsample: python3 quickTunerGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitK
+    usage exsample: python3 quickTuningGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitK
     """
     if args is None:
         args = sys.argv[1:]
