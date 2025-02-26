@@ -5,7 +5,7 @@
 // ALLOW_RETRIES: 2
 // CLONE: [1 1 1]
 
-// EMITKEY: convfp16 -F 1 -f GN01C -I N0GC1 -O NGC01 -n 2 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+// EMITKEY: convfp16 -F 1 -f N01GC -I N0GC1 -O NGC01 -n 2 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 
 // VECTORIZATION: aVectorDim: GemmDimension::K
 // VECTORIZATION-NEXT: aVectorLen: 1
