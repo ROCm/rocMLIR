@@ -56,7 +56,8 @@ FailureOr<APInt> createAPInt(Type elemType, int64_t value) {
 
 std::pair<APFloat, llvm::detail::opStatus> createAPFloat(Type elemType,
                                                          float value) {
-  const llvm::fltSemantics &semantics = cast<FloatType>(elemType).getFloatSemantics();
+  const llvm::fltSemantics &semantics =
+      cast<FloatType>(elemType).getFloatSemantics();
   APFloat apValue(value);
   bool lostInfo = false;
   auto status =
