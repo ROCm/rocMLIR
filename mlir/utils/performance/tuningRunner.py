@@ -116,7 +116,7 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
         entry = config.tableEntry(nanoSeconds)
         allData.append(entry)
         theseTFlops = entry['TFlops']
-        ## verify that each perfConfig passes accuracy verification
+        # verify that each perfConfig passes accuracy verification
         if options.verifyPerfConfigs:
             if options.verifyMode == "None":
                 print(f"Use of `--verify-perf-configs` should happen in conjuction with `--verify-mode`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu` flag")
