@@ -270,7 +270,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
       for (auto attr : inputLayout) {
         if (attr != b.getStringAttr("ni") && attr != b.getStringAttr("gi") &&
             attr != b.getStringAttr("ci"))
-            spatialDims.push_back(attr);
+          spatialDims.push_back(attr);
       }
       LLVM_DEBUG(llvm::dbgs()
                  << "inputStrides (" << inputStrides.size() << ")=");
