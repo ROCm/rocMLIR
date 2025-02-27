@@ -16,7 +16,7 @@ func.func @test_conv(%arg0: memref<2304xf16>, %arg1: memref<1638400xf16>, %arg2:
   %9 = rock.transform %3 by <affine_map<(d0, d1, d2, d3, d4) -> (d0 * 16 + d1, d2, d3, d4)> by [<PassThrough ["y", "x", "c"] at [2, 3, 4] -> ["y", "x", "c"] at [1, 2, 3]>, <Unmerge{1, 16} ["g", "k"] at [0, 1] -> ["k"] at [0]>] bounds = [1, 16, 3, 3, 16] -> [16, 3, 3, 16]> : memref<16x3x3x16xf16> to memref<1x16x3x3x16xf16>
   %10 = rock.transform %alloc by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1 * 16 + d2, d3, d4)> by [<PassThrough ["n", "h", "w"] at [0, 3, 4] -> ["n", "h", "w"] at [0, 2, 3]>, <Unmerge{1, 16} ["g", "k"] at [1, 2] -> ["k"] at [1]>] bounds = [2, 1, 16, 160, 160] -> [2, 16, 160, 160]> : memref<2x16x160x160xf16> to memref<2x1x16x160x160xf16>
 
-  // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<2x1x16x160x160xf16> to memref<2x160x1x160x16xf16>
+  // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<2x1x16x160x160xf16> to memref<2x160x160x1x16xf16>
   // CHECK: rock.conv(%{{.*}}, %[[b]], %{{.*}})
   rock.conv(%9, %8, %10) features =  dot|atomic_add|atomic_fmax_f32|atomic_add_f16|wmma {arch = "gfx1200", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x16x3x3x16xf16>, memref<2x1x16x160x160xf16>, memref<2x1x16x160x160xf16>
   %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x16x160x160xf16>
@@ -47,8 +47,8 @@ func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
   %6 = rock.transform %5 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<Slice{0, 1, 0, 32, 0, 16} ["dim0_sliced", "dim1_sliced", "dim2_sliced"] at [0, 1, 2] -> ["dim0", "dim1", "dim2"] at [0, 1, 2]>] bounds = [1, 32, 16] -> [1, 32, 32]> : memref<1x32x32xf16> to memref<1x32x16xf16>
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x32x8xf16>
 
-  // CHECK: %[[a:.*]] = rock.transform %{{.*}} memref<1x32x16xf16> to memref<1x16x32xf16>
-  // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<1x16x64xf16> to memref<1x64x16xf16>
+  // CHECK: %[[a:.*]] = rock.transform %{{.*}} memref<16x1x32xf16> to memref<1x16x32xf16>
+  // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<64x1x16xf16> to memref<1x64x16xf16>
   // CHECK: rock.attention
   // CHECK-NEXT: qk = tr %[[a]] * tr %[[b]]
   rock.attention{
