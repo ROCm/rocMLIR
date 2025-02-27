@@ -43,8 +43,9 @@ void getAMDGPUTargetFeatures(const Driver &D, const llvm::Triple &Triple,
                              StringRef TcTargetID = StringRef());
 
 namespace dlr {
-llvm::SmallVector<std::string, 12>
-getCommonDeviceLibNames(const llvm::opt::ArgList &DriverArgs, const Driver &D,
+llvm::SmallVector<ToolChain::BitCodeLibraryInfo, 12>
+getCommonDeviceLibNames(const llvm::opt::ArgList &DriverArgs,
+                        const SanitizerArgs &SanArgs, const Driver &D,
                         const std::string &GPUArch, bool isOpenMP,
                         const RocmInstallationDetector &RocmInstallation);
 
@@ -188,12 +189,27 @@ public:
                         Action::OffloadKind DeviceOffloadKind) const override;
 
   // Returns a list of device library names shared by different languages
-  llvm::SmallVector<std::string, 12>
+  llvm::SmallVector<BitCodeLibraryInfo, 12>
   getCommonDeviceLibNames(const llvm::opt::ArgList &DriverArgs,
                           const std::string &GPUArch,
                           bool isOpenMP = false) const;
+
   SanitizerMask getSupportedSanitizers() const override {
     return SanitizerKind::Address;
+  }
+
+  void diagnoseUnsupportedSanitizers(const llvm::opt::ArgList &Args) const {
+    if (!Args.hasFlag(options::OPT_fgpu_sanitize, options::OPT_fno_gpu_sanitize,
+                      true))
+      return;
+    auto &Diags = getDriver().getDiags();
+    for (auto *A : Args.filtered(options::OPT_fsanitize_EQ)) {
+      SanitizerMask K =
+          parseSanitizerValue(A->getValue(), /*Allow Groups*/ false);
+      if (K != SanitizerKind::Address)
+        Diags.Report(clang::diag::warn_drv_unsupported_option_for_target)
+            << A->getAsString(Args) << getTriple().str();
+    }
   }
 };
 

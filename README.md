@@ -1,4 +1,5 @@
-# MLIR-based convolution and GEMM kernel generator for ROCm
+# AMD Fork of The LLVM Compiler Infrastructure
+#
 
 This is the repository for a MLIR-based convolution and GEMM kernel generator
 targetting AMD hardware. This generator is mainly used from

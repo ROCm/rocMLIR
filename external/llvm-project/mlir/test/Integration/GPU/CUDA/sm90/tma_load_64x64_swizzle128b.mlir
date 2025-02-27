@@ -1,6 +1,6 @@
 // RUN: mlir-opt %s \
 // RUN:  -gpu-lower-to-nvvm-pipeline="cubin-chip=sm_90 cubin-features=+ptx80 opt-level=3" \
-// RUN:  | mlir-cpu-runner \
+// RUN:  | mlir-runner \
 // RUN:   --shared-libs=%mlir_cuda_runtime \
 // RUN:   --shared-libs=%mlir_runner_utils \
 // RUN:   --entry-point-result=void \
@@ -129,9 +129,9 @@ module @mymod {
           scf.for %j = %c0 to %c128 step %c1 {
             %lhs0 = memref.load %rhsShmem[%ii, %j] : !shmemrhs
             %lhs032 = arith.extf %lhs0: f16 to f32
-            gpu.printf "%.0f,   " %lhs032 : f32
+            gpu.printf "%.0f,   ", %lhs032 : f32
           }
-          gpu.printf "%d\n" %c-1_i32 : i32
+          gpu.printf "%d\n", %c-1_i32 : i32
         }
         gpu.printf "===----------------=== %d \n", %c-1_i32 : i32
       }

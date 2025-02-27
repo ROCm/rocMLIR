@@ -925,7 +925,7 @@ void DwarfDebug::constructCallSiteEntryDIEs(const DISubprogram &SP,
 
       // Skip instructions which aren't calls. Both calls and tail-calling jump
       // instructions (e.g TAILJMPd64) are classified correctly here.
-      if (!MI.isCandidateForCallSiteEntry())
+      if (!MI.isCandidateForAdditionalCallInfo())
         continue;
 
       // Skip instructions marked as frame setup, as they are not interesting to
@@ -2018,7 +2018,7 @@ void DwarfDebug::collectEntityInfo(DwarfCompileUnit &TheCU,
             if (ProcessedLifetimes.insert(L).second) {
               if (auto *AddCU = dyn_cast<DICompileUnit>(GV->getScope())) {
                 AddCULifetimeMap[AddCU].push_back(L);
-              } else if (auto *AddNS = dyn_cast<DINamespace>(GV->getScope())) {
+              } else if (isa<DINamespace>(GV->getScope())) {
                 // FIXME(KZHURAVL): Properly support DINamespace.
               } else if (auto *AddSP = dyn_cast<DISubprogram>(GV->getScope())) {
                 SPLifetimeMap[AddSP].push_back(L);
@@ -2172,7 +2172,7 @@ void DwarfDebug::beginInstruction(const MachineInstr *MI) {
 
   // When describing calls, we need a label for the call instruction.
   if (!NoDebug && SP->areAllCallsDescribed() &&
-      MI->isCandidateForCallSiteEntry(MachineInstr::AnyInBundle) &&
+      MI->isCandidateForAdditionalCallInfo(MachineInstr::AnyInBundle) &&
       (!MI->hasDelaySlot() || delaySlotSupported(*MI))) {
     const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
     bool IsTail = TII->isTailCall(*MI);
@@ -3957,6 +3957,7 @@ void DwarfDebug::addDwarfTypeUnitType(DwarfCompileUnit &CU,
       // they depend on addresses, throwing them out and rebuilding them.
       setCurrentDWARF5AccelTable(DWARF5AccelTableKind::CU);
       CU.constructTypeDIE(RefDie, cast<DICompositeType>(CTy));
+      CU.updateAcceleratorTables(CTy->getScope(), CTy, RefDie);
       return;
     }
 

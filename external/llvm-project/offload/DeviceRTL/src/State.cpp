@@ -15,20 +15,24 @@
 #include "Debug.h"
 #include "DeviceTypes.h"
 #include "DeviceUtils.h"
+#include "EmissaryIds.h"
 #include "Interface.h"
 #include "LibC.h"
 #include "Mapping.h"
 #include "State.h"
 #include "Synchronization.h"
 
+extern "C" {
+__attribute__((noinline)) void *__alt_libc_malloc(size_t sz);
+__attribute__((noinline)) void __alt_libc_free(void *ptr);
+__attribute__((noinline)) void *__llvm_omp_emissary_premalloc64(size_t sz);
+__attribute__((noinline)) void *__llvm_omp_emissary_premalloc(uint32_t sz32);
+__attribute__((noinline)) void __llvm_omp_emissary_free(void *ptr);
+__attribute__((noinline)) void *internal_malloc(uint64_t Size);
+__attribute__((noinline)) void internal_free(void *Ptr);
+}
+
 using namespace ompx;
-
-#pragma omp begin declare target device_type(host)
-void *internal_malloc(uint64_t Size);
-void internal_free(void *Ptr);
-#pragma omp end declare target
-
-#pragma omp begin declare target device_type(nohost)
 
 /// Memory implementation
 ///
@@ -36,15 +40,16 @@ void internal_free(void *Ptr);
 
 /// External symbol to access dynamic shared memory.
 [[gnu::aligned(
-    allocator::ALIGNMENT)]] extern unsigned char DynamicSharedBuffer[];
-#pragma omp allocate(DynamicSharedBuffer) allocator(omp_pteam_mem_alloc)
+    allocator::ALIGNMENT)]] extern Local<unsigned char> DynamicSharedBuffer[];
 
 /// The kernel environment passed to the init method by the compiler.
-static KernelEnvironmentTy *SHARED(KernelEnvironmentPtr);
+[[clang::loader_uninitialized]] static Local<KernelEnvironmentTy *>
+    KernelEnvironmentPtr;
 
 /// The kernel launch environment passed as argument to the kernel by the
 /// runtime.
-static KernelLaunchEnvironmentTy *SHARED(KernelLaunchEnvironmentPtr);
+[[clang::loader_uninitialized]] static Local<KernelLaunchEnvironmentTy *>
+    KernelLaunchEnvironmentPtr;
 
 ///}
 
@@ -59,20 +64,47 @@ namespace {
 ///
 ///{
 
-// global_allocate uses ockl_dm_alloc to manage a global memory heap
+// global_allocate uses ockl_dm_alloc/asan_malloc_impl to manage a global memory
+// heap
 __attribute__((noinline)) extern "C" uint64_t __ockl_dm_alloc(uint64_t bufsz);
 __attribute__((noinline)) extern "C" void __ockl_dm_dealloc(uint64_t ptr);
-
-#pragma omp begin declare variant match(device = {arch(amdgcn)})
+#if SANITIZER_AMDGPU
+__attribute__((noinline)) extern "C" uint64_t __asan_malloc_impl(uint64_t bufsz,
+                                                                 uint64_t pc);
+__attribute__((noinline)) extern "C" void __asan_free_impl(uint64_t ptr,
+                                                           uint64_t pc);
+#endif
+#ifdef __AMDGPU__
 extern "C" {
-void *internal_malloc(uint64_t Size) {
-  uint64_t ptr = __ockl_dm_alloc(Size);
-  return (void *)ptr;
+__attribute__((noinline)) uint64_t __ockl_devmem_request(uint64_t addr,
+                                                         uint64_t size) {
+  if (size) { // allocation request
+    [[clang::noinline]] return (uint64_t)__alt_libc_malloc((size_t)size);
+  } else { // free request
+    [[clang::noinline]] __alt_libc_free((void *)addr);
+    return 0;
+  }
 }
 
-void internal_free(void *Ptr) { __ockl_dm_dealloc((uint64_t)Ptr); }
+__attribute__((noinline)) void *internal_malloc(uint64_t Size) {
+#if SANITIZER_AMDGPU
+  uint64_t ptr =
+      __asan_malloc_impl(Size, (uint64_t)__builtin_return_address(0));
+  return (void *)ptr;
+#else
+  [[clang::noinline]] return (void *)__ockl_dm_alloc(Size);
+#endif
 }
-#pragma omp end declare variant
+
+__attribute__((noinline)) void internal_free(void *Ptr) {
+#if SANITIZER_AMDGPU
+  __asan_free_impl((uint64_t)Ptr, (uint64_t)__builtin_return_address(0));
+#else
+  [[clang::noinline]] __ockl_dm_dealloc((uint64_t)Ptr);
+#endif
+}
+}
+#endif
 
 extern "C" {
 #ifdef __AMDGCN__
@@ -80,7 +112,7 @@ extern "C" {
 [[gnu::weak]] void *malloc(size_t Size) { return allocator::alloc(Size); }
 [[gnu::weak]] void free(void *Ptr) { allocator::free(Ptr); }
 #else
-void *malloc(uint64_t Size) { return internal_malloc(Size); }
+void *malloc(size_t Size) { return internal_malloc(Size); }
 void free(void *Ptr) { internal_free(Ptr); }
 #endif
 #else
@@ -89,7 +121,7 @@ void free(void *Ptr) { internal_free(Ptr); }
 [[gnu::weak, gnu::leaf]] void *malloc(size_t Size);
 [[gnu::weak, gnu::leaf]] void free(void *Ptr);
 #else
-__attribute__((leaf)) void *malloc(uint64_t Size);
+__attribute__((leaf)) void *malloc(size_t Size);
 __attribute__((leaf)) void free(void *Ptr);
 #endif
 #endif
@@ -99,14 +131,13 @@ __attribute__((leaf)) void free(void *Ptr);
 /// NVPTX implementations of internal mallocs
 ///
 ///{
-#pragma omp begin declare variant match(                                       \
-    device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
+#ifdef __NVPTX__
 extern "C" {
 void *internal_malloc(uint64_t Size) { return malloc(Size); }
 
 void internal_free(void *Ptr) { free(Ptr); }
 }
-#pragma omp end declare variant
+#endif
 
 /// A "smart" stack in shared memory.
 ///
@@ -154,7 +185,8 @@ static_assert(state::SharedScratchpadSize / mapping::MaxThreadsPerTeam <= 256,
               "Shared scratchpad of this size not supported yet.");
 
 /// The allocation of a single shared memory scratchpad.
-static SharedMemorySmartStackTy SHARED(SharedMemorySmartStack);
+[[clang::loader_uninitialized]] static Local<SharedMemorySmartStackTy>
+    SharedMemorySmartStack;
 
 void SharedMemorySmartStackTy::init(bool IsSPMD) {
   Usage[mapping::getThreadIdInBlock()] = 0;
@@ -181,8 +213,8 @@ void *SharedMemorySmartStackTy::push(uint64_t Bytes) {
   }
 
   if (config::isDebugMode(DeviceDebugKind::CommonIssues))
-    PRINT("Shared memory stack full, fallback to dynamic allocation of global "
-          "memory will negatively impact performance.\n");
+    printf("Shared memory stack full, fallback to dynamic allocation of global "
+           "memory will negatively impact performance.\n");
   void *GlobalMemory = memory::allocGlobal(
       AlignedBytes, "Slow path shared memory allocation, insufficient "
                     "shared memory stack memory!");
@@ -216,7 +248,7 @@ void memory::freeShared(void *Ptr, uint64_t Bytes, const char *Reason) {
 void *memory::allocGlobal(uint64_t Bytes, const char *Reason) {
   void *Ptr = malloc(Bytes);
   if (config::isDebugMode(DeviceDebugKind::CommonIssues) && Ptr == nullptr)
-    PRINT("nullptr returned by malloc!\n");
+    printf("nullptr returned by malloc!\n");
   return Ptr;
 }
 
@@ -266,8 +298,10 @@ void state::TeamStateTy::assertEqual(TeamStateTy &Other) const {
   ASSERT(HasThreadState == Other.HasThreadState, nullptr);
 }
 
-state::TeamStateTy SHARED(ompx::state::TeamState);
-state::ThreadStateTy **SHARED(ompx::state::ThreadStates);
+[[clang::loader_uninitialized]] Local<state::TeamStateTy>
+    ompx::state::TeamState;
+[[clang::loader_uninitialized]] Local<state::ThreadStateTy **>
+    ompx::state::ThreadStates;
 
 namespace {
 
@@ -320,7 +354,7 @@ void state::enterDataEnvironment(IdentTy *Ident) {
         sizeof(ThreadStates[0]) * mapping::getNumberOfThreadsInBlock();
     void *ThreadStatesPtr =
         memory::allocGlobal(Bytes, "Thread state array allocation");
-    memset(ThreadStatesPtr, 0, Bytes);
+    __builtin_memset(ThreadStatesPtr, 0, Bytes);
     if (!atomic::cas(ThreadStatesBitsPtr, uintptr_t(0),
                      reinterpret_cast<uintptr_t>(ThreadStatesPtr),
                      atomic::seq_cst, atomic::seq_cst))
@@ -496,13 +530,10 @@ void *llvm_omp_get_dynamic_shared() { return __kmpc_get_dynamic_shared(); }
 /// NUM_SHARED_VARIABLES_IN_SHARED_MEM we will malloc space for communication.
 constexpr uint64_t NUM_SHARED_VARIABLES_IN_SHARED_MEM = 64;
 
-[[clang::loader_uninitialized]] static void
-    *SharedMemVariableSharingSpace[NUM_SHARED_VARIABLES_IN_SHARED_MEM];
-#pragma omp allocate(SharedMemVariableSharingSpace)                            \
-    allocator(omp_pteam_mem_alloc)
-[[clang::loader_uninitialized]] static void **SharedMemVariableSharingSpacePtr;
-#pragma omp allocate(SharedMemVariableSharingSpacePtr)                         \
-    allocator(omp_pteam_mem_alloc)
+[[clang::loader_uninitialized]] static Local<void *>
+    SharedMemVariableSharingSpace[NUM_SHARED_VARIABLES_IN_SHARED_MEM];
+[[clang::loader_uninitialized]] static Local<void **>
+    SharedMemVariableSharingSpacePtr;
 
 void __kmpc_begin_sharing_variables(void ***GlobalArgs, uint64_t nArgs) {
   if (nArgs <= NUM_SHARED_VARIABLES_IN_SHARED_MEM) {
@@ -530,4 +561,3 @@ extern "C" {
 __attribute__((leaf)) void *__kmpc_impl_malloc(uint64_t t) { return malloc(t); }
 __attribute__((leaf)) void __kmpc_impl_free(void *ptr) { free(ptr); }
 }
-#pragma omp end declare target

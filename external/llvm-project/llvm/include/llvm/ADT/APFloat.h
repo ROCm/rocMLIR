@@ -281,6 +281,11 @@ struct APFloatBase {
   /// anything real.
   static const fltSemantics &Bogus() LLVM_READNONE;
 
+  // Returns true if any number described by this semantics can be precisely
+  // represented by the specified semantics. Does not take into account
+  // the value of fltNonfiniteBehavior, hasZero, hasSignedRepr.
+  static bool isRepresentableBy(const fltSemantics &A, const fltSemantics &B);
+
   /// @}
 
   /// IEEE-754R 5.11: Floating Point Comparison Relations.
@@ -348,6 +353,7 @@ struct APFloatBase {
   static bool semanticsHasSignedRepr(const fltSemantics &);
   static bool semanticsHasInf(const fltSemantics &);
   static bool semanticsHasNaN(const fltSemantics &);
+  static bool isIEEELikeFP(const fltSemantics &);
 
   // Returns true if any number described by \p Src can be precisely represented
   // by a normal (not subnormal) value in \p Dst.

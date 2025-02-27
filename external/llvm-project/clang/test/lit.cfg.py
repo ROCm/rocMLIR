@@ -29,10 +29,12 @@ config.suffixes = [
     ".c",
     ".cpp",
     ".i",
+    ".cir",
     ".cppm",
     ".m",
     ".mm",
     ".cu",
+    ".cuh",
     ".hip",
     ".hlsl",
     ".ll",
@@ -56,6 +58,8 @@ config.excludes = [
     "README.txt",
     "LICENSE.txt",
     "debuginfo-tests",
+    "SemaOpenACC",              # unsupported on AMD downstream
+    "ParserOpenACC",            # unsupported on AMD downstream
 ]
 
 # test_source_root: The root path where tests are located.
@@ -84,6 +88,7 @@ tool_dirs = [config.clang_tools_dir, config.llvm_tools_dir]
 tools = [
     "apinotes-test",
     "c-index-test",
+    "cir-opt",
     "clang-diff",
     "clang-format",
     "clang-repl",

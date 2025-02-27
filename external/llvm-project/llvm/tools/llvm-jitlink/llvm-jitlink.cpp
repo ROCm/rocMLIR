@@ -23,11 +23,13 @@
 #include "llvm/ExecutionEngine/Orc/Debugging/DebuggerSupportPlugin.h"
 #include "llvm/ExecutionEngine/Orc/Debugging/PerfSupportPlugin.h"
 #include "llvm/ExecutionEngine/Orc/Debugging/VTuneSupportPlugin.h"
+#include "llvm/ExecutionEngine/Orc/EHFrameRegistrationPlugin.h"
 #include "llvm/ExecutionEngine/Orc/ELFNixPlatform.h"
 #include "llvm/ExecutionEngine/Orc/EPCDebugObjectRegistrar.h"
 #include "llvm/ExecutionEngine/Orc/EPCDynamicLibrarySearchGenerator.h"
 #include "llvm/ExecutionEngine/Orc/EPCEHFrameRegistrar.h"
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
+#include "llvm/ExecutionEngine/Orc/GetDylibInterface.h"
 #include "llvm/ExecutionEngine/Orc/IndirectionUtils.h"
 #include "llvm/ExecutionEngine/Orc/JITLinkRedirectableSymbolManager.h"
 #include "llvm/ExecutionEngine/Orc/JITLinkReentryTrampolines.h"
@@ -43,6 +45,7 @@
 #include "llvm/ExecutionEngine/Orc/TargetProcess/JITLoaderPerf.h"
 #include "llvm/ExecutionEngine/Orc/TargetProcess/JITLoaderVTune.h"
 #include "llvm/ExecutionEngine/Orc/TargetProcess/RegisterEHFrames.h"
+#include "llvm/ExecutionEngine/Orc/UnwindInfoRegistrationPlugin.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
@@ -56,6 +59,7 @@
 #include "llvm/Object/COFF.h"
 #include "llvm/Object/MachO.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Object/TapiUniversal.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/InitLLVM.h"
@@ -83,13 +87,35 @@ using namespace llvm::orc;
 
 static cl::OptionCategory JITLinkCategory("JITLink Options");
 
+static cl::list<std::string> InputFiles(cl::Positional, cl::OneOrMore,
+                                        cl::desc("input files"),
+                                        cl::cat(JITLinkCategory));
+
 static cl::list<bool> LazyLink("lazy",
                                cl::desc("Link the following file lazily"),
                                cl::cat(JITLinkCategory));
 
-static cl::list<std::string> InputFiles(cl::Positional, cl::OneOrMore,
-                                        cl::desc("input files"),
-                                        cl::cat(JITLinkCategory));
+enum class SpeculateKind { None, Simple };
+
+cl::opt<SpeculateKind> Speculate(
+    "speculate", cl::desc("Choose speculation scheme"),
+    cl::init(SpeculateKind::None),
+    cl::values(clEnumValN(SpeculateKind::None, "none", "No speculation"),
+               clEnumValN(SpeculateKind::Simple, "simple",
+                          "Simple speculation")),
+    cl::cat(JITLinkCategory));
+
+cl::opt<std::string> SpeculateOrder(
+    "speculate-order",
+    cl::desc("A CSV file containing (JITDylib, Function) pairs to"
+             "speculatively look up"),
+    cl::cat(JITLinkCategory));
+
+cl::opt<std::string> RecordLazyExecs(
+    "record-lazy-execs",
+    cl::desc("Write lazy-function executions to a CSV file as (JITDylib, "
+             "function) pairs"),
+    cl::cat(JITLinkCategory));
 
 static cl::opt<size_t> MaterializationThreads(
     "num-threads", cl::desc("Number of materialization threads to use"),
@@ -115,6 +141,20 @@ static cl::list<std::string>
     LoadHidden("load_hidden",
                cl::desc("Link against library X with hidden visibility"),
                cl::cat(JITLinkCategory));
+
+static cl::list<std::string>
+    LibrariesWeak("weak-l",
+                  cl::desc("Emulate weak link against library X. Must resolve "
+                           "to a TextAPI file, and all symbols in the "
+                           "interface will resolve to null."),
+                  cl::Prefix, cl::cat(JITLinkCategory));
+
+static cl::list<std::string> WeakLibraries(
+    "weak_library",
+    cl::desc("Emulate weak link against library X. X must point to a "
+             "TextAPI file, and all symbols in the interface will "
+             "resolve to null"),
+    cl::cat(JITLinkCategory));
 
 static cl::opt<bool> SearchSystemLibrary(
     "search-sys-lib",
@@ -401,6 +441,23 @@ bool lazyLinkingRequested() {
     if (LL)
       return true;
   return false;
+}
+
+static Error applyLibraryLinkModifiers(Session &S, LinkGraph &G) {
+  // If there are hidden archives and this graph is an archive
+  // member then apply hidden modifier.
+  if (!S.HiddenArchives.empty()) {
+    StringRef ObjName(G.getName());
+    if (ObjName.ends_with(')')) {
+      auto LibName = ObjName.split('(').first;
+      if (S.HiddenArchives.count(LibName)) {
+        for (auto *Sym : G.defined_symbols())
+          Sym->setScope(std::max(Sym->getScope(), Scope::Hidden));
+      }
+    }
+  }
+
+  return Error::success();
 }
 
 static Error applyHarnessPromotions(Session &S, LinkGraph &G) {
@@ -959,17 +1016,50 @@ public:
 };
 
 Expected<std::unique_ptr<Session::LazyLinkingSupport>>
-createLazyLinkingSupport(ObjectLinkingLayer &OLL, JITDylib &PlatformJD) {
-  auto RSMgr = JITLinkRedirectableSymbolManager::Create(OLL);
+createLazyLinkingSupport(Session &S) {
+  auto RSMgr = JITLinkRedirectableSymbolManager::Create(S.ObjLayer);
   if (!RSMgr)
     return RSMgr.takeError();
 
-  auto LRMgr = createJITLinkLazyReexportsManager(OLL, **RSMgr, PlatformJD);
+  std::shared_ptr<SimpleLazyReexportsSpeculator> Speculator;
+  switch (Speculate) {
+  case SpeculateKind::None:
+    break;
+  case SpeculateKind::Simple:
+    SimpleLazyReexportsSpeculator::RecordExecutionFunction RecordExecs;
+
+    if (!RecordLazyExecs.empty())
+      RecordExecs = [&S](const LazyReexportsManager::CallThroughInfo &CTI) {
+        S.LazyFnExecOrder.push_back({CTI.JD->getName(), CTI.BodyName});
+      };
+
+    Speculator =
+        SimpleLazyReexportsSpeculator::Create(S.ES, std::move(RecordExecs));
+    break;
+  }
+
+  auto LRMgr = createJITLinkLazyReexportsManager(
+      S.ObjLayer, **RSMgr, *S.PlatformJD, Speculator.get());
   if (!LRMgr)
     return LRMgr.takeError();
 
-  return std::make_unique<Session::LazyLinkingSupport>(std::move(*RSMgr),
-                                                       std::move(*LRMgr), OLL);
+  return std::make_unique<Session::LazyLinkingSupport>(
+      std::move(*RSMgr), std::move(Speculator), std::move(*LRMgr), S.ObjLayer);
+}
+
+static Error writeLazyExecOrder(Session &S) {
+  if (RecordLazyExecs.empty())
+    return Error::success();
+
+  std::error_code EC;
+  raw_fd_ostream ExecOrderOut(RecordLazyExecs, EC);
+  if (EC)
+    return createFileError(RecordLazyExecs, EC);
+
+  for (auto &[JDName, FunctionName] : S.LazyFnExecOrder)
+    ExecOrderOut << JDName << ", " << FunctionName << "\n";
+
+  return Error::success();
 }
 
 Expected<std::unique_ptr<Session>> Session::Create(Triple TT,
@@ -1017,8 +1107,7 @@ Expected<std::unique_ptr<Session>> Session::Create(Triple TT,
   S->Features = std::move(Features);
 
   if (lazyLinkingRequested()) {
-    if (auto LazyLinking =
-            createLazyLinkingSupport(S->ObjLayer, *S->PlatformJD))
+    if (auto LazyLinking = createLazyLinkingSupport(*S))
       S->LazyLinking = std::move(*LazyLinking);
     else
       return LazyLinking.takeError();
@@ -1028,6 +1117,9 @@ Expected<std::unique_ptr<Session>> Session::Create(Triple TT,
 }
 
 Session::~Session() {
+  if (auto Err = writeLazyExecOrder(*this))
+    ES.reportError(std::move(Err));
+
   if (auto Err = ES.endSession())
     ES.reportError(std::move(Err));
 }
@@ -1146,6 +1238,19 @@ Session::Session(std::unique_ptr<ExecutorProcessControl> EPC, Error &Err)
           inconvertibleErrorCode());
       return;
     }
+  } else if (TT.isOSBinFormatMachO()) {
+    if (!NoExec) {
+      std::optional<bool> ForceEHFrames;
+      if ((Err = ES.getBootstrapMapValue<bool, bool>("darwin-use-ehframes-only",
+                                                     ForceEHFrames)))
+        return;
+      bool UseEHFrames = ForceEHFrames ? *ForceEHFrames : false;
+      if (!UseEHFrames)
+        ObjLayer.addPlugin(ExitOnErr(UnwindInfoRegistrationPlugin::Create(ES)));
+      else
+        ObjLayer.addPlugin(std::make_unique<EHFrameRegistrationPlugin>(
+            ES, ExitOnErr(EPCEHFrameRegistrar::Create(ES))));
+    }
   } else if (TT.isOSBinFormatELF()) {
     if (!NoExec)
       ObjLayer.addPlugin(std::make_unique<EHFrameRegistrationPlugin>(
@@ -1256,6 +1361,8 @@ void Session::modifyPassConfig(LinkGraph &G, PassConfiguration &PassConfig) {
     ++ActiveLinks;
     return Error::success();
   });
+  PassConfig.PrePrunePasses.push_back(
+      [this](LinkGraph &G) { return applyLibraryLinkModifiers(*this, G); });
   PassConfig.PrePrunePasses.push_back(
       [this](LinkGraph &G) { return applyHarnessPromotions(*this, G); });
 
@@ -1702,6 +1809,23 @@ static Error sanitizeArguments(const Triple &TT, const char *ArgV0) {
       return make_error<StringError>(
           "Lazy linking cannot be used with -harness mode",
           inconvertibleErrorCode());
+  } else if (Speculate != SpeculateKind::None) {
+    errs() << "Warning: -speculate ignored as there are no -lazy inputs\n";
+    Speculate = SpeculateKind::None;
+  }
+
+  if (Speculate == SpeculateKind::None) {
+    if (!SpeculateOrder.empty()) {
+      errs() << "Warning: -speculate-order ignored because speculation is "
+                "disabled\n";
+      SpeculateOrder = "";
+    }
+
+    if (!RecordLazyExecs.empty()) {
+      errs() << "Warning: -record-lazy-execs ignored because speculation is "
+                "disabled\n";
+      RecordLazyExecs = "";
+    }
   }
 
   return Error::success();
@@ -1992,6 +2116,18 @@ static SmallVector<StringRef, 5> getSearchPathsFromEnvVar(Session &S) {
   return PathVec;
 }
 
+static Expected<std::unique_ptr<DefinitionGenerator>>
+LoadLibraryWeak(Session &S, StringRef Path) {
+  auto Symbols = getDylibInterface(S.ES, Path);
+  if (!Symbols)
+    return Symbols.takeError();
+
+  return std::make_unique<EPCDynamicLibrarySearchGenerator>(
+      S.ES, [Symbols = std::move(*Symbols)](const SymbolStringPtr &Sym) {
+        return Symbols.count(Sym);
+      });
+}
+
 static Error addLibraries(Session &S,
                           const std::map<unsigned, JITDylib *> &IdxToJD,
                           const DenseSet<unsigned> &LazyLinkIdxs) {
@@ -2033,12 +2169,13 @@ static Error addLibraries(Session &S,
     std::string LibName;
     bool IsPath = false;
     unsigned Position;
-    StringRef *CandidateExtensions;
-    enum { Standard, Hidden } Modifier;
+    ArrayRef<StringRef> CandidateExtensions;
+    enum { Standard, Hidden, Weak } Modifier;
   };
 
   // Queue to load library as in the order as it appears in the argument list.
   std::deque<LibraryLoad> LibraryLoadQueue;
+
   // Add archive files from the inputs to LibraryLoads.
   for (auto InputFileItr = InputFiles.begin(), InputFileEnd = InputFiles.end();
        InputFileItr != InputFileEnd; ++InputFileItr) {
@@ -2049,7 +2186,7 @@ static Error addLibraries(Session &S,
     LL.LibName = InputFile.str();
     LL.IsPath = true;
     LL.Position = InputFiles.getPosition(InputFileItr - InputFiles.begin());
-    LL.CandidateExtensions = nullptr;
+    LL.CandidateExtensions = {};
     LL.Modifier = LibraryLoad::Standard;
     LibraryLoadQueue.push_back(std::move(LL));
   }
@@ -2061,13 +2198,27 @@ static Error addLibraries(Session &S,
     LL.LibName = *LibItr;
     LL.IsPath = true;
     LL.Position = LoadHidden.getPosition(LibItr - LoadHidden.begin());
-    LL.CandidateExtensions = nullptr;
+    LL.CandidateExtensions = {};
     LL.Modifier = LibraryLoad::Hidden;
     LibraryLoadQueue.push_back(std::move(LL));
   }
+
+  // Add -weak_library arguments to LibraryLoads.
+  for (auto LibItr = WeakLibraries.begin(), LibEnd = WeakLibraries.end();
+       LibItr != LibEnd; ++LibItr) {
+    LibraryLoad LL;
+    LL.LibName = *LibItr;
+    LL.IsPath = true;
+    LL.Position = WeakLibraries.getPosition(LibItr - WeakLibraries.begin());
+    LL.CandidateExtensions = {};
+    LL.Modifier = LibraryLoad::Weak;
+    LibraryLoadQueue.push_back(std::move(LL));
+  }
+
   StringRef StandardExtensions[] = {".so", ".dylib", ".dll", ".a", ".lib"};
   StringRef DynLibExtensionsOnly[] = {".so", ".dylib", ".dll"};
   StringRef ArchiveExtensionsOnly[] = {".a", ".lib"};
+  StringRef WeakLinkExtensionsOnly[] = {".dylib", ".tbd"};
 
   // Add -lx arguments to LibraryLoads.
   for (auto LibItr = Libraries.begin(), LibEnd = Libraries.end();
@@ -2093,10 +2244,17 @@ static Error addLibraries(Session &S,
     LibraryLoadQueue.push_back(std::move(LL));
   }
 
-  // If there are any load-<modified> options then turn on flag overrides
-  // to avoid flag mismatch errors.
-  if (!LibrariesHidden.empty() || !LoadHidden.empty())
-    S.ObjLayer.setOverrideObjectFlagsWithResponsibilityFlags(true);
+  // Add -weak-lx arguments to LibraryLoads.
+  for (auto LibWeakItr = LibrariesWeak.begin(),
+            LibWeakEnd = LibrariesWeak.end();
+       LibWeakItr != LibWeakEnd; ++LibWeakItr) {
+    LibraryLoad LL;
+    LL.LibName = *LibWeakItr;
+    LL.Position = LibrariesWeak.getPosition(LibWeakItr - LibrariesWeak.begin());
+    LL.CandidateExtensions = WeakLinkExtensionsOnly;
+    LL.Modifier = LibraryLoad::Weak;
+    LibraryLoadQueue.push_back(std::move(LL));
+  }
 
   // Sort library loads by position in the argument list.
   llvm::sort(LibraryLoadQueue,
@@ -2115,6 +2273,10 @@ static Error addLibraries(Session &S,
       break;
     case LibraryLoad::Hidden:
       GetObjFileInterface = getObjectFileInterfaceHidden;
+      S.HiddenArchives.insert(Path);
+      break;
+    case LibraryLoad::Weak:
+      llvm_unreachable("Unsupported");
       break;
     }
 
@@ -2162,11 +2324,26 @@ static Error addLibraries(Session &S,
 
     // If this is the name of a JITDylib then link against that.
     if (auto *LJD = S.ES.getJITDylibByName(LL.LibName)) {
+      if (LL.Modifier == LibraryLoad::Weak)
+        return make_error<StringError>(
+            "Can't use -weak-lx or -weak_library to load JITDylib " +
+                LL.LibName,
+            inconvertibleErrorCode());
       JD.addToLinkOrder(*LJD);
       continue;
     }
 
     if (LL.IsPath) {
+      // Must be -weak_library.
+      if (LL.Modifier == LibraryLoad::Weak) {
+        if (auto G = LoadLibraryWeak(S, LL.LibName)) {
+          JD.addGenerator(std::move(*G));
+          continue;
+        } else
+          return G.takeError();
+      }
+
+      // Otherwise handle archive.
       auto G = AddArchive(JD, LL.LibName.c_str(), LL);
       if (!G)
         return createFileError(LL.LibName, G.takeError());
@@ -2182,12 +2359,12 @@ static Error addLibraries(Session &S,
     auto CurJDSearchPaths = JDSearchPaths[&JD];
     for (StringRef SearchPath :
          concat<StringRef>(CurJDSearchPaths, SystemSearchPaths)) {
-      for (const char *LibExt : {".dylib", ".so", ".dll", ".a", ".lib"}) {
+      for (auto LibExt : LL.CandidateExtensions) {
         SmallVector<char, 256> LibPath;
         LibPath.reserve(SearchPath.size() + strlen("lib") + LL.LibName.size() +
-                        strlen(LibExt) + 2); // +2 for pathsep, null term.
+                        LibExt.size() + 2); // +2 for pathsep, null term.
         llvm::copy(SearchPath, std::back_inserter(LibPath));
-        if (StringRef(LibExt) != ".lib" && StringRef(LibExt) != ".dll")
+        if (LibExt != ".lib" && LibExt != ".dll")
           sys::path::append(LibPath, "lib" + LL.LibName + LibExt);
         else
           sys::path::append(LibPath, LL.LibName + LibExt);
@@ -2217,8 +2394,15 @@ static Error addLibraries(Session &S,
         case file_magic::pecoff_executable:
         case file_magic::elf_shared_object:
         case file_magic::macho_dynamically_linked_shared_lib: {
-          if (auto Err = S.loadAndLinkDynamicLibrary(JD, LibPath.data()))
-            return Err;
+          if (LL.Modifier == LibraryLoad::Weak) {
+            if (auto G = LoadLibraryWeak(S, LibPath.data()))
+              JD.addGenerator(std::move(*G));
+            else
+              return G.takeError();
+          } else {
+            if (auto Err = S.loadAndLinkDynamicLibrary(JD, LibPath.data()))
+              return Err;
+          }
           break;
         }
         case file_magic::archive:
@@ -2233,6 +2417,14 @@ static Error addLibraries(Session &S,
           });
           break;
         }
+        case file_magic::tapi_file:
+          assert(LL.Modifier == LibraryLoad::Weak &&
+                 "TextAPI file not being loaded as weak?");
+          if (auto G = LoadLibraryWeak(S, LibPath.data()))
+            JD.addGenerator(std::move(*G));
+          else
+            return G.takeError();
+          break;
         default:
           // This file isn't a recognized library kind.
           LLVM_DEBUG({
@@ -2267,6 +2459,59 @@ static Error addLibraries(Session &S,
   return Error::success();
 }
 
+static Error addSpeculationOrder(Session &S) {
+
+  if (SpeculateOrder.empty())
+    return Error::success();
+
+  assert(S.LazyLinking && "SpeculateOrder set, but lazy linking not enabled");
+  assert(S.LazyLinking->Speculator && "SpeculatoOrder set, but no speculator");
+
+  auto SpecOrderBuffer = getFile(SpeculateOrder);
+  if (!SpecOrderBuffer)
+    return SpecOrderBuffer.takeError();
+
+  StringRef LineStream((*SpecOrderBuffer)->getBuffer());
+  std::vector<std::pair<std::string, SymbolStringPtr>> SpecOrder;
+
+  size_t LineNumber = 0;
+  while (!LineStream.empty()) {
+    ++LineNumber;
+
+    auto MakeSpecOrderErr = [&](StringRef Reason) {
+      return make_error<StringError>("Error in speculation order file \"" +
+                                         SpeculateOrder + "\" on line " +
+                                         Twine(LineNumber) + ": " + Reason,
+                                     inconvertibleErrorCode());
+    };
+
+    StringRef CurLine;
+    std::tie(CurLine, LineStream) = LineStream.split('\n');
+    CurLine = CurLine.trim();
+    if (CurLine.empty())
+      continue;
+
+    auto [JDName, FuncName] = CurLine.split(',');
+
+    if (FuncName.empty())
+      return MakeSpecOrderErr("missing ',' separator");
+
+    JDName = JDName.trim();
+    if (JDName.empty())
+      return MakeSpecOrderErr("no value for column 1 (JIT Dylib name)");
+
+    FuncName = FuncName.trim();
+    if (FuncName.empty())
+      return MakeSpecOrderErr("no value for column 2 (function name)");
+
+    SpecOrder.push_back({JDName.str(), S.ES.intern(FuncName)});
+  }
+
+  S.LazyLinking->Speculator->addSpeculationSuggestions(std::move(SpecOrder));
+
+  return Error::success();
+}
+
 static Error addSessionInputs(Session &S) {
   std::map<unsigned, JITDylib *> IdxToJD;
   DenseSet<unsigned> LazyLinkIdxs;
@@ -2297,6 +2542,9 @@ static Error addSessionInputs(Session &S) {
     return Err;
 
   if (auto Err = addLibraries(S, IdxToJD, LazyLinkIdxs))
+    return Err;
+
+  if (auto Err = addSpeculationOrder(S))
     return Err;
 
   return Error::success();
@@ -2562,6 +2810,7 @@ int main(int argc, char *argv[]) {
     if (Timers)
       Timers->JITLinkTG.printAll(errs());
     reportLLVMJITLinkError(EntryPoint.takeError());
+    ExitOnErr(S->ES.endSession());
     exit(1);
   }
 
