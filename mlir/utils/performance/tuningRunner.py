@@ -309,7 +309,7 @@ def main(args=None):
     parser.add_argument("--verify-mode",
         default="gpu",
         choices=["none", "cpu", "gpu"],
-        help="How to verify the winning tuned kernel")
+        help="Flag to specify if verification of compiled kernel with selected PerfConfig should use CPU based implementation or GPU based implementation")
 
     parser.add_argument("--verify-perf-configs",
         action='store_true',
