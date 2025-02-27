@@ -102,11 +102,11 @@ AddressSpace getAddressSpace(MemrefTypedValue val) {
 MemoryAccessType getOperandAccessType(Operation *op, Value operand) {
   if (hasEffect<MemoryEffects::Write>(op, operand)) {
     return MemoryAccessType::WRITE;
-  } else if (hasEffect<MemoryEffects::Read>(op, operand)) {
-    return MemoryAccessType::READ;
-  } else {
-    return MemoryAccessType::UNKNOWN;
   }
+  if (hasEffect<MemoryEffects::Read>(op, operand)) {
+    return MemoryAccessType::READ;
+  }
+  return MemoryAccessType::UNKNOWN;
 }
 
 // Simple rewrite pass to remove the stages and backward barriers in the
@@ -253,11 +253,13 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   // Create the dependency graph
   DagType dag = createDependencyGraph(stages, resources);
 
-  // Start building the schedules
-  //
-  // Since we accept the stages from the user, we don't need to do any
-  // analysis to determine what goes in each stage. We only have to group things
-  // in set of stages of length II.
+  // Definition of initiation interval (II)
+  // Initiation interval is defind by number of cycles in each iteration of a
+  // loop. Only one cycle is counted for parallel stages. Assume each stage
+  // executes in one cycle. Start building the schedules Since we accept the
+  // stages from the user, we don't need to do any analysis to determine what
+  // goes in each stage. We only have to group things in set of stages of length
+  // II.
   //  For instance, consider the following unpipelined schedule. The column `t`
   //  represents
   // the time slot, and the subsequent columns represents the iterations.
@@ -282,7 +284,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   //  +===+=========+
   // In this case, we reduced the time slots to 3, and we have 2 set of stages
   // runnning in parallel. Please note that conflicts can only happen between S0
-  // and S3. If we increase II, we generate the following pipeline:
+  // and S3. If we decrease II, we generate the following pipeline:
   //  +t\i+=== 0 ===++=== 1 ===+
   //  + 0 +== S0  ==++== S2  ==+
   //  +===+=========++=========+
@@ -385,7 +387,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 
     // Add the parallel stages
     for (auto stage : parallelStages) {
-      schedule.push_back({stage, stageIter[stage]});
+      schedule.emplace_back(stage, stageIter[stage]);
     }
   }
 }
@@ -393,15 +395,15 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 // Prune a dependency graph taking into account multi-buffers. Since
 // multi-buffers are logically different for each iteration, if the dependency
 // on a multi-buffer spans multiple iteration then it can be pruned
-DagType pruneGraph(DagType dag) {
+DagType pruneGraph(const DagType& dag) {
   DagType prunedGraph;
   // Multibuffers have the logical property of being unique for each iteration
   // of the loop Hence, if we know we are dealing with a multi-buffer and the
   // dependency concerns two different iteration. In other words, if stageA
   // accesses LDS in iteration i and stageB accesses LDS in iteration j stageA
   // and stageB have no dependencies as long as i!=j
-  for (auto [sink, edges] : dag) {
-    for (auto [source, deps] : edges) {
+  for (auto [source, edges] : dag) {
+    for (auto [sink, deps] : edges) {
       DenseSet<std::pair<rock::GpuAllocOp, DependencyType>> newDeps;
       for (auto [alloc, type] : deps) {
         if (getAddressSpace(alloc) != gpu::AddressSpace::Workgroup)
@@ -409,7 +411,7 @@ DagType pruneGraph(DagType dag) {
         newDeps.insert({alloc, type});
       }
       if (!newDeps.empty())
-        prunedGraph[sink][source] = newDeps;
+        prunedGraph[source][sink] = newDeps;
     }
   }
   return prunedGraph;
@@ -461,7 +463,7 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
     timeSlot++;
   }
 
-  // Algorithm for barrier placment:
+  // Algorithm for barrier placement:
   // a. Add forward barriers to address the dependency in the basic block
   // b. Add backward barriers to account for loop carried dependency
   // c. Add empty stages to make the pipeline balanced, so that we can double up
@@ -577,6 +579,9 @@ void RockPipeline::runOnOperation() {
 
   // Always (try to) multi-buffer by one and store the new
   // allocs in a set
+  // multiBuffering is only happening on LDS Buffers as "multiBuffer" checks for
+  // "i8" dtype store multibuffers in "multiAllocs" store all buffers including
+  // private and global in "resources"
   llvm::SetVector<rock::GpuAllocOp> multiAllocs;
   llvm::SetVector<rock::GpuAllocOp> resources;
   for (auto alloc : singleAllocs) {
@@ -643,6 +648,8 @@ void RockPipeline::runOnOperation() {
 
     // Insert the barriers as new stages
     SmallVector<rock::StageOp> extendedStages;
+    // use "multiAllocs" to place LDS barriers, no need to explicitly place
+    // barriers for registers or globals
     placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                   ii);
     auto maybeNumIterations =
@@ -657,6 +664,7 @@ void RockPipeline::runOnOperation() {
     }
 
     ScheduleType schedule;
+    // use all "resources" to generate dependency graph and generate schedule
     createSchedule(extendedStages, resources, ii, schedule, multiBufferFactors);
 
     RewritePatternSet patterns(&getContext());
