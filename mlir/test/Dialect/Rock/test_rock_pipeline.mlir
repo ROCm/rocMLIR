@@ -340,26 +340,20 @@ func.func @rock_pipeline_4_stages_ii_1_f16(%input : memref<16xf16, #gpu.address_
     %c16 = arith.constant 16 : index
 
     %rawLds  = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
-    %rawReg0 = rock.alloc() : memref<32xi8, #gpu.address_space<private>>
-    %rawReg1 = rock.alloc() : memref<32xi8, #gpu.address_space<private>>
-    %rawReg2 = rock.alloc() : memref<32xi8, #gpu.address_space<private>>
+    %reg0 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    %reg1 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    %reg2 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
 
     %lds = memref.view %rawLds[%c0][] : memref<32xi8, #gpu.address_space<workgroup>> to memref<16xf16, #gpu.address_space<workgroup>>
-    %reg0 = memref.view %rawReg0[%c0][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
-    %reg1 = memref.view %rawReg1[%c0][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
-    %reg2 = memref.view %rawReg2[%c0][] : memref<32xi8, #gpu.address_space<private>> to memref<16xf16, #gpu.address_space<private>>
     // CHECK: %[[rawLds0:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
     // CHECK: %[[rawLds1:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
-    // CHECK: %[[rawReg0:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<private>>
-    // CHECK: %[[rawReg1:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<private>>
-    // CHECK: %[[rawReg2:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<private>>
+    // CHECK: %[[reg0:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    // CHECK: %[[reg1:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    // CHECK: %[[reg2:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
     // CHECK: %[[ldsView0:.*]] = memref.view %[[rawLds0]]
     // CHECK: %[[ldsView1:.*]] = memref.view %[[rawLds1]]
-    // CHECK: %[[regView0:.*]] = memref.view %[[rawReg0]]
-    // CHECK: %[[regView1:.*]] = memref.view %[[rawReg1]]
-    // CHECK: %[[regView2:.*]] = memref.view %[[rawReg2]]
-
-    // Please note how we swap S0/S1 and S2/S3 to avoid private multi-buffers
+    
+    // No multibuffering on Private buffers
     // CHECK: name = "S0"
     // CHECK: name = "S1"
     // CHECK: name = "S0"
@@ -369,15 +363,11 @@ func.func @rock_pipeline_4_stages_ii_1_f16(%input : memref<16xf16, #gpu.address_
     // CHECK: name = "S2"
     // CHECK: scf.for
       // CHECK: name = "__fwd_barrier__"
-      // CHECK: rock.extract_multibuffer(%[[regView0]])
       // CHECK: rock.extract_multibuffer(%[[ldsView0]], %[[ldsView1]])
       // CHECK: name = "S1"
-      // CHECK: rock.extract_multibuffer(%[[regView0]])
       // CHECK: name = "S0"
-      // CHECK: rock.extract_multibuffer(%[[regView1]])
       // CHECK: name = "S3"
       // CHECK: rock.extract_multibuffer(%[[ldsView0]], %[[ldsView1]])
-      // CHECK: rock.extract_multibuffer(%[[regView1]])
       // CHECK: name = "S2"
     // CHECK: name = "__fwd_barrier__"
     // CHECK: name = "S1"
