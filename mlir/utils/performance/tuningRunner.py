@@ -134,7 +134,7 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
             minNs = nanoSeconds
             winningConfig = perfConfig
             if options.compact_print and not options.quiet:
-                conditional_print(options.compact_print and not options.quiet, f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
+                print(f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
 
     return winningConfig, maxTFlops
 
