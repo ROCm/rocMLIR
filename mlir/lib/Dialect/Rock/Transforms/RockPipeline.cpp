@@ -578,10 +578,15 @@ void RockPipeline::runOnOperation() {
   // Always (try to) multi-buffer by one and store the new
   // allocs in a set
   llvm::SetVector<rock::GpuAllocOp> multiAllocs;
+  llvm::SetVector<rock::GpuAllocOp> resources;
   for (auto alloc : singleAllocs) {
     SmallVector<rock::GpuAllocOp> newAllocs;
-    if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true)))
+    if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true))) {
       multiAllocs.insert(newAllocs.back());
+      resources.insert(newAllocs.back());
+    } else {
+      resources.insert(alloc);
+    }
   }
 
   // Collect the global resources (i.e., the memory allocations)
@@ -640,10 +645,19 @@ void RockPipeline::runOnOperation() {
     SmallVector<rock::StageOp> extendedStages;
     placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                   ii);
+    auto maybeNumIterations =
+        rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
+    if (!maybeNumIterations.has_value()) {
+      continue;
+    }
+    // if number of iterations are less than numStages, skip doing loop
+    // pipelining
+    if (size_t(maybeNumIterations.value()) < stages.size()) {
+      continue;
+    }
 
     ScheduleType schedule;
-    createSchedule(extendedStages, multiAllocs, ii, schedule,
-                   multiBufferFactors);
+    createSchedule(extendedStages, resources, ii, schedule, multiBufferFactors);
 
     RewritePatternSet patterns(&getContext());
     mlir::scf::PipeliningOption options;
