@@ -266,11 +266,11 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // vectorized.
     // TODO: improve this
     if (inputStrides.size() > 1) {
-      SmallVector<Attribute, 3> nonSpatialDims;
+      SmallVector<Attribute, 3> spatialDims;
       for (auto attr : inputLayout) {
         if (attr != b.getStringAttr("ni") && attr != b.getStringAttr("gi") &&
             attr != b.getStringAttr("ci"))
-          nonSpatialDims.push_back(attr);
+            spatialDims.push_back(attr);
       }
       LLVM_DEBUG(llvm::dbgs()
                  << "inputStrides (" << inputStrides.size() << ")=");
@@ -278,7 +278,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
       LLVM_DEBUG(llvm::dbgs() << "\n");
 
       auto ciPos = findIndex(inputLayout, b.getStringAttr("ci")).value();
-      for (auto spatialDim : nonSpatialDims) {
+      for (auto spatialDim : spatialDims) {
         auto spatialDimPos = findIndex(inputLayout, spatialDim).value();
         if (inputStrides[ciPos] > inputStrides[spatialDimPos]) {
           return failure();
