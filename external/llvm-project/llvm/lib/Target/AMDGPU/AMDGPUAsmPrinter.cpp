@@ -1255,6 +1255,11 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
       STM.computeOccupancy(F, ProgInfo.LDSSize).second,
       ProgInfo.NumSGPRsForWavesPerEU, ProgInfo.NumVGPRsForWavesPerEU, STM, Ctx);
 
+  /*
+  // Following lines are commented out as they print unnecessary occupancy unmet warnings for the rocMLIR.
+  // rocDL sets minWavesPerEU in as a guide for AMD GPU Codegen, which is not guranteed to be met always.
+  // DiagnosticInfoOptimizationFailure is always enabled as its severity is "DS_Warning".
+  // Therefore commenting following lines.
   const auto [MinWEU, MaxWEU] =
       AMDGPU::getIntegerPairAttribute(F, "amdgpu-waves-per-eu", {0, 0}, true);
   uint64_t Occupancy;
@@ -1267,6 +1272,7 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
             ", final occupancy is " + Twine(Occupancy));
     F.getContext().diagnose(Diag);
   }
+  */
 }
 
 static unsigned getRsrcReg(CallingConv::ID CallConv) {

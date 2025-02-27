@@ -143,7 +143,7 @@ def Tosa_Conv2DOp : Tosa_ConvOp<"conv2d"> {
     LogicalResult verifyWeightZeroPoint(int64_t zp);
   }];
 
-  let builders = [Tosa_ConvOpQuantInfoBuilder];
+  let builders = [Tosa_ConvOpQuantInfoBuilder, Tosa_ConvOpGroupQuantBuilder];
   let hasVerifier = 1;
 }
 
