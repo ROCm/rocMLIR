@@ -51,7 +51,8 @@ def verifyModeFlags(verifyMode: str) -> str:
 
 #Run a gemm or conv config and verify it
 def verifyKernelWithPerfConfig(perfConfig, config, paths: Paths, options: Options) -> float:
-    print(f"Verifying with perfConfig = {perfConfig}", file=sys.stderr)
+    if not options.compact_print:
+        print(f"Verifying with perfConfig = {perfConfig}", file=sys.stderr)
     config.setPerfConfig(perfConfig.strip())
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + \
         verifyModeFlags(options.verifyMode) + \
@@ -133,7 +134,7 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
             minNs = nanoSeconds
             winningConfig = perfConfig
             if options.compact_print and not options.quiet:
-                print(f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
+                conditional_print(options.compact_print and not options.quiet, f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
 
     return winningConfig, maxTFlops
 
