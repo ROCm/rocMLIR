@@ -3033,8 +3033,6 @@ struct GridwiseGemmAccelRewritePattern
       {
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage1.getRegion().emplaceBlock());
-        b.create<LDSBarrierOp>(loc);
-
         // Emit potentially-transposing copies to store buffer. This is here
         // both to enable code motion for fusions and to prevent the accesses to
         // the memory from breaking software pipelining.
@@ -3057,7 +3055,6 @@ struct GridwiseGemmAccelRewritePattern
                                        op.getFeatures(), StoreMethod::Set,
                                        /*forceUnroll=*/forceUnroll,
                                        /*useIndexDiffs=*/true);
-        b.create<LDSBarrierOp>(loc);
         b.create<rock::YieldOp>(loc);
       }
 
@@ -3068,7 +3065,6 @@ struct GridwiseGemmAccelRewritePattern
         {
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
-          b.create<LDSBarrierOp>(loc);
           blockwiseGemmAccelOp = b.create<BlockwiseGemmAccelOp>(
               loc, ldsViewForGemmA, ldsViewForGemmB,
               b.getI32IntegerAttr(copyMPerThread),
@@ -3088,12 +3084,10 @@ struct GridwiseGemmAccelRewritePattern
           // Read from LDS into registers
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage2.getRegion().emplaceBlock());
-          b.create<LDSBarrierOp>(loc);
           generateReadLoop(loc, b, accelEmitterPtr, tid, ldsViewForGemmA,
                            ldsViewForGemmB, arrayA, arrayB, regCAllocOp,
                            blockSize, copyMPerThread, copyNPerThread,
                            rotateMWithK, rotateNWithK);
-          b.create<LDSBarrierOp>(loc);
           b.create<rock::YieldOp>(loc);
         }
         auto stage3 = b.create<StageOp>(loc, "MMA");
@@ -3101,11 +3095,9 @@ struct GridwiseGemmAccelRewritePattern
           // Compute the matrix-multiplication
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
-          b.create<LDSBarrierOp>(loc);
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
                               regCAllocOp, op.getArchAttr(),
                               op.getFeaturesAttr(), tuningParams);
-          b.create<LDSBarrierOp>(loc);
           b.create<rock::YieldOp>(loc);
         }
       }

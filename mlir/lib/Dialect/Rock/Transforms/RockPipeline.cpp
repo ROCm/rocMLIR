@@ -202,13 +202,28 @@ DagType createDependencyGraph(ArrayRef<rock::StageOp> stages,
   // the only type of resource is memory
   for (auto stage : stages) {
     stage.walk([&](Operation *op) {
+      LLVM_DEBUG(DBGS() << "walking\n");
+      LLVM_DEBUG(DBGS() << "=================\n");
+      // op->dump();
       for (Value operand : op->getOperands()) {
+        LLVM_DEBUG(DBGS() << "=======Operand====\n");
+        // operand.dump();
+
         MemoryAccessType accessType = getOperandAccessType(op, operand);
+        LLVM_DEBUG(DBGS() << "has memory access : " << int(accessType) << "\n");
         auto maybeAlloc = rock::findGpuAlloc(operand);
+        if (failed(maybeAlloc)) {
+          LLVM_DEBUG(DBGS() << "couldn't find alloc\n");
+        } else {
+          LLVM_DEBUG(DBGS() << "Alloc is: \n");
+          // maybeAlloc->dump();
+        }
         if (accessType != MemoryAccessType::UNKNOWN && succeeded(maybeAlloc) &&
             allocs.contains(*maybeAlloc)) {
           resourceMap[stage][*maybeAlloc] = accessType;
           resourceMapR[*maybeAlloc][stage] = accessType;
+        } else {
+          LLVM_DEBUG(DBGS() << "not in allocs\n");
         }
       }
     });
@@ -241,7 +256,11 @@ getDependencies(rock::StageOp stage0, rock::StageOp stage1, DagType &dag) {
       for (auto dep : dag[stage0][stage1]) {
         dependencies.insert(dep);
       }
+    } else {
+      LLVM_DEBUG(DBGS() << "no dependency\n");
     }
+  } else {
+    LLVM_DEBUG(DBGS() << "no dependecy stage\n");
   }
   return dependencies;
 }
@@ -302,7 +321,11 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // The following stages will run in parallel, but each
     // stage needs to start at the right iteration
     SmallVector<rock::StageOp> parallelStages;
+    LLVM_DEBUG(DBGS() << "Parallel stages with iterations are \n");
     for (size_t j = t; j < stages.size(); j += ii) {
+      LLVM_DEBUG(DBGS() << "iteration : " << iteration << "\n");
+      LLVM_DEBUG(DBGS() << "stages[j]\n");
+      // stages[j].dump();
       stageIter[stages[j]] = iteration++;
       parallelStages.push_back(stages[j]);
     }
@@ -327,13 +350,20 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // Go through the stages and take note of the possible swap candidates
     for (size_t i = 0; i < parallelStages.size(); i++) {
       for (size_t j = i + 1; j < parallelStages.size(); j++) {
+        LLVM_DEBUG(DBGS() << "analyzing parallel stages pair\n");
+        // parallelStages[i].dump();
+        // parallelStages[j].dump();
         auto dependencies =
             getDependencies(parallelStages[i], parallelStages[j], dag);
         // Select all register dependencies
         SmallVector<DependencyType> privateDependencyTypes;
-        for (auto [res, type] : dependencies)
+        for (auto [res, type] : dependencies) {
+          LLVM_DEBUG(DBGS() << "type: " << int(type.first) << int(type.second)
+                            << "\n");
           if (getAddressSpace(res) == AddressSpace::Private)
             privateDependencyTypes.push_back(type);
+        }
+
         // If there are no register dependencies, don't bother
         if (privateDependencyTypes.empty())
           continue;
@@ -351,8 +381,13 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // Swap only pairs. If there are more intricate dependency
     // patterns just use multibuffers, since it is safer.
     for (auto [source, sinks] : swapCandidates) {
+      LLVM_DEBUG(DBGS() << "swap candidates\n");
       bool singleSink = (sinks.size() == 1);
       bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
+      LLVM_DEBUG(DBGS() << "source : " << source << "\n");
+      for (auto i : sinks) {
+        LLVM_DEBUG(DBGS() << "sink : " << i << "\n");
+      }
       // Found a pair, now swap it
       if (singleSink && singleSource) {
         int sink = sinks.back();
@@ -579,10 +614,17 @@ void RockPipeline::runOnOperation() {
   // Always (try to) multi-buffer by one and store the new
   // allocs in a set
   llvm::SetVector<rock::GpuAllocOp> multiAllocs;
+  llvm::SetVector<rock::GpuAllocOp> resources;
   for (auto alloc : singleAllocs) {
     SmallVector<rock::GpuAllocOp> newAllocs;
-    if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true)))
+    if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true))) {
+      LLVM_DEBUG(DBGS() << "Multialloc is :\n");
+      // newAllocs.back().dump();
       multiAllocs.insert(newAllocs.back());
+      resources.insert(newAllocs.back());
+    } else {
+      resources.insert(alloc);
+    }
   }
 
   // Collect the global resources (i.e., the memory allocations)
@@ -613,22 +655,7 @@ void RockPipeline::runOnOperation() {
         emitError(loc, "Nested pipelining is not supported yet!\n");
         return signalPassFailure();
       }
-      auto upperBoundCst = getConstantIntValue(forOp.getUpperBound());
-      auto lowerBoundCst = getConstantIntValue(forOp.getLowerBound());
-      auto stepCst = getConstantIntValue(forOp.getStep());
-
-      int64_t ubImm = upperBoundCst.value();
-      int64_t lbImm = lowerBoundCst.value();
-      int64_t stepImm = stepCst.value();
-      int64_t numIteration = llvm::divideCeilSigned(ubImm - lbImm, stepImm);
-
-      SmallVector<rock::StageOp> stages;
-
-      forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
-
-      if (uint64_t(numIteration) > stages.size()) {
-        loopsToPipeline.push_back(forOp);
-      }
+      loopsToPipeline.push_back(forOp);
     }
   }
 
@@ -657,11 +684,24 @@ void RockPipeline::runOnOperation() {
     SmallVector<rock::StageOp> extendedStages;
     placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                   ii);
-
+    LLVM_DEBUG(DBGS() << "After placing barriers\n");
+    // forOp.dump();
     ScheduleType schedule;
-    createSchedule(extendedStages, multiAllocs, ii, schedule,
-                   multiBufferFactors);
+    createSchedule(extendedStages, resources, ii, schedule, multiBufferFactors);
+    LLVM_DEBUG(DBGS() << "Dumping schedule now\n");
+    for (const auto &[op, t] : schedule) {
+      // LLVM_DEBUG(DBGS(), op->dump());
+      LLVM_DEBUG(DBGS() << "happens at time slot t: " << t << "\n");
+    }
 
+    auto maybeNumIterations =
+        rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
+    if (!maybeNumIterations.has_value()) {
+      continue;
+    }
+    if (maybeNumIterations.value() < stages.size()) {
+      continue;
+    }
     RewritePatternSet patterns(&getContext());
     mlir::scf::PipeliningOption options;
     options.getScheduleFn = [&](scf::ForOp curFurOp, ScheduleType &sched) {
@@ -671,6 +711,7 @@ void RockPipeline::runOnOperation() {
 
     scf::populateSCFLoopPipeliningPatterns(patterns, options);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    LLVM_DEBUG(DBGS() << "After calling to pipeliner\n");
   }
 
   // Remulti-buffer(if needed). Now we know what all the loops need, hence
