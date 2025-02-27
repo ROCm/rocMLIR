@@ -26,11 +26,14 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
+#include "llvm/ADT/DynamicAPInt.h"
 #include "llvm/ADT/SetOperations.h"
+#include "llvm/Support/MathExtras.h"
 
 #include <algorithm>
 #include <map>
@@ -654,12 +657,22 @@ void RockPipeline::runOnOperation() {
                   ii);
     auto maybeNumIterations =
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
+    assert(isConstantIntValue(forOp.getStep(), 1) &&
+           "Step size other one is not permitted in rock-pipeline");
     if (!maybeNumIterations.has_value()) {
       continue;
     }
-    // if number of iterations are less than numStages, skip doing loop
-    // pipelining
-    if (size_t(maybeNumIterations.value()) < stages.size()) {
+    size_t numParallelStages = llvm::divideCeil(extendedStages.size(), ii);
+    // calculate number of prologue executions
+    size_t numPrologues = numParallelStages - 1;
+    LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
+                      << "\n");
+    LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
+
+    // if number of iterations are less than number of prologues that are going
+    // to be emitted, it will not result in correct output therefore abort
+    // pipelining in such cases.
+    if (size_t(maybeNumIterations.value()) < numPrologues) {
       continue;
     }
 
