@@ -26,9 +26,11 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/Debug.h"
 
@@ -129,6 +131,10 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     if (trMap.getUpperBounds().size() != 3)
       return false;
 
+    // No need to fold if the batch size is 1
+    if (cast<ShapedType>(aView.getType()).getShape()[0] == 1)
+      return false;
+
     return isBatchDimFoldableInTheTransformStack(views);
   }
 
@@ -173,17 +179,16 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     bool isABatchBroadcast = isBatchDimFoldable(rw, op.getA());
     bool isBBatchBroadcast = isBatchDimFoldable(rw, op.getB());
 
-    if (!isABatchBroadcast && !isBBatchBroadcast)
+    // If A and B are both not batch broadcasted, there's nothing to do
+    // If A and B are both batch broadcasted, there's nothing to do either.
+    // However:
+    // TODO: if we enable slice at the output, then we can check whether C is
+    // batch sliced: unbroadcast A and B and unslice C
+    if (isABatchBroadcast == isBBatchBroadcast)
       return failure();
 
     Value newA, newB, newC;
-    if (isBBatchBroadcast && isABatchBroadcast) {
-      // If both B and C are canonicalizable, simply
-      // remove the broadcast from A,B and C
-      newA = unbroadcastBatch(rw, loc, op.getA());
-      newB = unbroadcastBatch(rw, loc, op.getB());
-      newC = unbroadcastBatch(rw, loc, op.getC());
-    } else if (isBBatchBroadcast) {
+    if (isBBatchBroadcast) {
       newA = mergeBatch(rw, loc, op.getA(), op.getATransposed());
       newB = unbroadcastBatch(rw, loc, op.getB());
       newC = mergeBatch(rw, loc, op.getC(), op.getCTransposed());

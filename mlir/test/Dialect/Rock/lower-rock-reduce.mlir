@@ -46,3 +46,16 @@ func.func @test_reduce_sum_f16(%arg0: memref<2x12x12xf16>, %arg1: memref<2x12x1x
     rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf16> into memref<2x12x1xf16>
     func.return
 }
+
+// CHECK: @test_reduce_sum_bf16
+func.func @test_reduce_sum_bf16(%arg0: memref<2x12x12xbf16>, %arg1: memref<2x12x1xbf16>) attributes {kernel, arch = ""} {
+    // CHECK-DAG: %[[bid:.*]] = rock.workgroup_id : index
+    // CHECK-DAG: %[[tid:.*]] = rock.workitem_id : index
+    // CHECK: rock.transforming_for {{.*}} (%[[loadCoord0:.*]], %[[loadCoord1:.*]], %[[loadCoord2:.*]]) = {{.*}}#[[MAP0]], #[[MAP1]], #[[MAP2]]](%[[bid]], %c0, %[[tid]]) (%[[valid:.*]]) = validity
+    // CHECK: %[[ld:.*]] = rock.global_load %arg0[%[[loadCoord0]], %[[loadCoord1]], %[[loadCoord2]]]
+    // CHECK: %[[ldRed:.*]] = rock.alloc() : memref<1xbf16, #gpu.address_space<private>>
+    // CHECK: rock.in_bounds_store %[[ld]] -> %[[ldRed]][%c0] : bf16 -> memref<1xbf16, #gpu.address_space<private>>, index
+    // CHECK: rock.global_store atomic_add %[[ldRed]][%c0] -> %arg1[%[[loadCoord0]], %[[loadCoord1]], %c0] if %[[valid]]
+    rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xbf16> into memref<2x12x1xbf16>
+    func.return
+}

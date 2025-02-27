@@ -159,6 +159,60 @@ const InitParamsAccel PopulateParamsXDL::initParametersFp16Conv[PopulateParamsXD
 };
 // END_CONV_XDL_f16_DEFS
 
+// BEGIN_GEMM_XDL_fp8_DEFS
+const InitParamsAccel PopulateParamsXDL::initParametersFp8Gemm[PopulateParamsXDL::nInitParametersFp8Gemm] = {
+    {128,128,8,32,16,16,1,true,true},
+    {128,256,4,32,16,16,1,true,true},
+    {128,64,8,32,32,16,1,true,true},
+    {32,32,16,16,16,16,1,true,true},
+    {128,256,4,64,32,16,1,true,true},
+    {64,128,4,32,32,16,1,true,true},
+    {32,32,32,16,16,16,1,true,true},
+    {64,128,4,32,16,16,1,true,true},
+    {64,64,8,32,32,8,1,true,true},
+    {32,64,16,32,16,16,1,true,true},
+    {256,128,4,128,64,16,1,true,true},
+    {64,16,32,16,16,16,1,true,true},
+    {64,64,16,32,32,16,1,true,true},
+    {64,16,16,16,16,16,1,true,true},
+    {64,128,4,16,16,8,1,true,true},
+    {128,32,16,32,16,16,1,true,true},
+    {16,16,8,16,16,16,1,true,true},
+    {64,32,32,32,16,16,1,true,true},
+    {16,16,32,16,16,8,1,true,true},
+    {32,16,4,16,16,16,1,true,true},
+    {16,256,8,16,16,16,1,true,true}
+};
+// END_GEMM_XDL_fp8_DEFS
+
+// BEGIN_CONV_XDL_fp8_DEFS
+const InitParamsAccel PopulateParamsXDL::initParametersForwardFp8Conv[PopulateParamsXDL::nInitParametersForwardFp8Conv] = {
+    {128,128,8,64,16,16,1,true,true},
+    {128,128,8,32,16,8,1,true,true},
+    {32,16,8,16,16,16,1,true,true},
+    {32,32,16,16,16,8,1,true,true},
+    {64,64,16,32,32,16,1,true,true},
+    {32,16,16,16,16,16,1,true,true},
+    {256,128,4,64,16,16,1,true,true},
+    {128,256,4,64,64,16,1,true,true},
+    {32,16,32,16,16,16,1,true,true},
+    {256,64,4,128,64,16,1,true,true},
+    {64,64,8,64,16,8,1,true,true},
+    {64,128,8,32,16,8,1,true,true},
+    {256,32,4,64,32,16,1,true,true},
+    {128,64,8,32,32,16,1,true,true},
+    {128,32,8,32,32,8,1,true,true},
+    {32,32,8,16,16,16,1,true,true},
+    {32,64,8,16,16,16,1,true,true},
+    {128,16,8,32,16,16,1,true,true},
+    {64,256,4,16,16,8,1,true,true},
+    {128,16,8,64,16,16,1,true,true},
+    {64,16,32,16,16,8,1,true,true},
+    {32,32,32,32,16,16,1,true,true},
+    {128,64,4,32,32,16,1,true,true}
+};
+// END_CONV_XDL_fp8_DEFS
+
 // BEGIN_GEMM_XDL_i8_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersI8Gemm[PopulateParamsXDL::nInitParametersI8Gemm] = {
     {64,128,16,64,16,4,1,true,true},
@@ -179,7 +233,7 @@ const InitParamsAccel PopulateParamsXDL::initParametersI8Gemm[PopulateParamsXDL:
 // END_GEMM_XDL_i8_DEFS
 
 // BEGIN_CONV_XDL_i8_DEFS
-const InitParamsAccel PopulateParamsXDL::initParametersForward8BitConv[PopulateParamsXDL::nInitParametersForward8BitConv] = {
+const InitParamsAccel PopulateParamsXDL::initParametersForwardI8Conv[PopulateParamsXDL::nInitParametersForwardI8Conv] = {
     {64,128,4,64,16,16,1,true,true},
     {128,128,4,128,16,16,1,true,true},
     {64,64,8,32,32,16,1,true,true},
@@ -222,14 +276,24 @@ static constexpr size_t nInitParametersFp16Conv = 29;
 static const InitParamsAccel initParametersFp16Conv[nInitParametersFp16Conv];
 // END_CONV_XDL_f16_DECS
 
+// BEGIN_GEMM_XDL_fp8_DECS
+static constexpr size_t nInitParametersFp8Gemm = 21;
+static const InitParamsAccel initParametersFp8Gemm[nInitParametersFp8Gemm];
+// END_GEMM_XDL_fp8_DECS
+
+// BEGIN_CONV_XDL_fp8_DECS
+static constexpr size_t nInitParametersForwardFp8Conv = 23;
+static const InitParamsAccel initParametersForwardFp8Conv[nInitParametersForwardFp8Conv];
+// END_CONV_XDL_fp8_DECS
+
 // BEGIN_GEMM_XDL_i8_DECS
 static constexpr size_t nInitParametersI8Gemm = 14;
 static const InitParamsAccel initParametersI8Gemm[nInitParametersI8Gemm];
 // END_GEMM_XDL_i8_DECS
 
 // BEGIN_CONV_XDL_i8_DECS
-static constexpr size_t nInitParametersForward8BitConv = 15;
-static const InitParamsAccel initParametersForward8BitConv[nInitParametersForward8BitConv];
+static constexpr size_t nInitParametersForwardI8Conv = 15;
+static const InitParamsAccel initParametersForwardI8Conv[nInitParametersForwardI8Conv];
 // END_CONV_XDL_i8_DECS
 
 #endif
@@ -289,6 +353,55 @@ const InitParamsAccel PopulateParamsWmma::initParametersFp16Conv[PopulateParamsW
 };
 // END_CONV_Wmma_f16_DEFS
 
+// BEGIN_GEMM_Wmma_fp8_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersFp8Gemm[PopulateParamsWmma::nInitParametersFp8Gemm] = {
+    {128,128,4,32,64,16,1,true,true},
+    {128,64,4,32,64,16,1,true,true},
+    {128,128,8,32,64,16,1,true,true},
+    {64,128,4,32,32,16,1,true,true},
+    {256,64,8,64,32,16,1,true,true},
+    {128,256,8,128,32,8,1,true,true},
+    {64,32,4,32,16,16,1,true,true},
+    {32,32,8,16,16,16,1,true,true},
+    {16,64,4,16,32,8,1,true,true},
+    {256,128,4,64,64,16,1,true,true},
+    {16,64,8,16,16,16,1,true,true},
+    {64,256,4,32,128,16,1,true,true},
+    {32,32,8,16,16,8,1,true,true},
+    {64,32,8,32,16,16,1,true,true},
+    {256,64,4,64,32,16,1,true,true},
+    {64,128,4,32,128,16,1,true,true},
+    {64,16,8,16,16,16,1,true,true},
+    {128,128,4,32,16,8,1,true,true}
+};
+// END_GEMM_Wmma_fp8_DEFS
+
+// BEGIN_CONV_Wmma_fp8_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersForwardFp8Conv[PopulateParamsWmma::nInitParametersForwardFp8Conv] = {
+    {128,64,8,64,32,16,1,true,true},
+    {128,128,4,32,64,16,1,true,true},
+    {128,128,8,32,64,8,1,true,true},
+    {64,128,8,32,64,16,1,true,true},
+    {256,64,8,64,32,16,1,true,true},
+    {64,128,8,64,32,16,1,true,true},
+    {256,128,8,64,32,16,1,true,true},
+    {256,64,4,64,32,16,1,true,true},
+    {128,64,8,32,32,16,1,true,true},
+    {128,32,8,32,32,16,1,true,true},
+    {128,16,8,32,16,16,1,true,true},
+    {128,128,2,64,32,16,1,true,true},
+    {64,32,8,32,16,16,1,true,true},
+    {64,128,8,64,32,8,1,true,true},
+    {256,64,4,32,64,8,1,true,true},
+    {64,32,8,16,16,16,1,true,true},
+    {64,16,8,16,16,16,1,true,true},
+    {32,64,4,16,32,16,1,true,true},
+    {32,64,2,32,32,8,1,true,true},
+    {16,32,4,16,32,16,1,true,true},
+    {16,64,8,16,64,16,1,true,true}
+};
+// END_CONV_Wmma_fp8_DEFS
+
 // BEGIN_GEMM_Wmma_i8_DEFS
 const InitParamsAccel PopulateParamsWmma::initParametersI8Gemm[PopulateParamsWmma::nInitParametersI8Gemm] = {
     {128,128,4,64,64,16,1,true,true},
@@ -310,7 +423,7 @@ const InitParamsAccel PopulateParamsWmma::initParametersI8Gemm[PopulateParamsWmm
 // END_GEMM_Wmma_i8_DEFS
 
 // BEGIN_CONV_Wmma_i8_DEFS
-const InitParamsAccel PopulateParamsWmma::initParametersForward8BitConv[PopulateParamsWmma::nInitParametersForward8BitConv] = {
+const InitParamsAccel PopulateParamsWmma::initParametersForwardI8Conv[PopulateParamsWmma::nInitParametersForwardI8Conv] = {
     {128,64,8,32,64,16,1,true,true},
     {256,64,8,32,64,16,1,true,true},
     {128,32,4,64,16,16,1,true,true},
@@ -339,14 +452,25 @@ static constexpr size_t nInitParametersFp16Conv = 26;
 static const InitParamsAccel initParametersFp16Conv[nInitParametersFp16Conv];
 // END_CONV_Wmma_f16_DECS
 
+// BEGIN_GEMM_Wmma_fp8_DECS
+static constexpr size_t nInitParametersFp8Gemm = 18;
+static const InitParamsAccel initParametersFp8Gemm[nInitParametersFp8Gemm];
+// END_GEMM_Wmma_fp8_DECS
+
+// BEGIN_CONV_Wmma_fp8_DECS
+static constexpr size_t nInitParametersForwardFp8Conv = 21;
+static const InitParamsAccel initParametersForwardFp8Conv[nInitParametersForwardFp8Conv];
+// END_CONV_Wmma_fp8_DECS
+
 // BEGIN_GEMM_Wmma_i8_DECS
 static constexpr size_t nInitParametersI8Gemm = 15;
 static const InitParamsAccel initParametersI8Gemm[nInitParametersI8Gemm];
 // END_GEMM_Wmma_i8_DECS
 
 // BEGIN_CONV_Wmma_i8_DECS
-static constexpr size_t nInitParametersForward8BitConv = 11;
-static const InitParamsAccel initParametersForward8BitConv[nInitParametersForward8BitConv];
+static constexpr size_t nInitParametersForwardI8Conv = 11;
+static const InitParamsAccel initParametersForwardI8Conv[nInitParametersForwardI8Conv];
 // END_CONV_Wmma_i8_DECS
 
 #endif
+

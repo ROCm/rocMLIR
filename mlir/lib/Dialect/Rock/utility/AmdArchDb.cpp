@@ -112,8 +112,16 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     AmdArchInfo gfx12Info(gfx11Info);
     gfx12Info.hasFp8ConversionInstrs = false;
     gfx12Info.hasOcpFp8ConversionInstrs = true;
+    gfx12Info.totalVGPRPerEU = 1536;
+    gfx12Info.maxWavesPerEU = 16;
+    gfx12Info.totalSGPRPerEU = 800;
+    gfx12Info.totalSharedMemPerCU = 65536;
+    gfx12Info.maxSharedMemPerWG = 65536;
     gfx12Info.defaultFeatures =
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_f16);
+    gfx12Info.defaultFeatures =
+        bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
+
     return gfx12Info;
   }
   if (major == "gfx9" && minor == "50") {
@@ -122,6 +130,8 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     AmdArchInfo gfx950Info(cdna3Info);
     gfx950Info.hasFp8ConversionInstrs = false;
     gfx950Info.hasOcpFp8ConversionInstrs = true;
+    gfx950Info.defaultFeatures =
+        bitEnumSet(gfx950Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
     return gfx950Info;
   }
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "

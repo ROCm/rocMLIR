@@ -168,12 +168,6 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             bool isSplitKFusible) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
-  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
-  // We dont enable split-k on Navi yet because they dont
-  // still have atomic_add with packed_f16.
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
-    return splitKValues;
-  }
 
   if (!isSplitKFusible) {
     return splitKValues;
@@ -785,13 +779,15 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     // N
     problemOS << "-n " << inShape[iLayoutMap["ni"]] << sep;
     // C
-    problemOS << "-c " << inShape[iLayoutMap["ci"]] << sep;
+    problemOS << "-c " << inShape[iLayoutMap["ci"]] * inShape[iLayoutMap["gi"]]
+              << sep;
     // H
     problemOS << "-H " << inShape[iLayoutMap["0i"]] << sep;
     // W
     problemOS << "-W " << inShape[iLayoutMap["1i"]] << sep;
     // K
-    problemOS << "-k " << filShape[fLayoutMap["k"]] << sep;
+    problemOS << "-k " << filShape[fLayoutMap["k"]] * filShape[fLayoutMap["g"]]
+              << sep;
     // Y
     problemOS << "-y " << filShape[fLayoutMap["0"]] << sep;
     // X

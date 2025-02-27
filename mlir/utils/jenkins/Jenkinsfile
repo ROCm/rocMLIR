@@ -234,50 +234,19 @@ void build_fixedE2ETests(String codepath) {
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
     }
-    // Filter out dense_output_bf16.mlir for navi3x codepath as a workaround for issue#1023
-    filter_out_tests = false
-    if ( codepath == 'navi3x') {
+    if (codepath == 'navi3x') {
         // print verbose logs for all the tests on Navi3x for the debugging purposes
         llvm_lit_log_level = '-va'
-        filter_out_tests = true
+        limit_lit_workers = true
     }
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests ${ limit_lit_workers ? '-j 8' : ' ' } ${ filter_out_tests ? '--filter-out=dense_output_bf16.mlir' : ' '}'
+              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
-}
-
-void check_RockE2ETests_Navi3x(boolean fixed) {
-
-    // Run PR CI tests; Skip Static Test on Navi3x
-    if ( params.nightly == false ) {
-        buildProject('check-mlir check-rocmlir', """
-                 -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
-                 -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
-                 -DROCK_E2E_TEST_ENABLED=0
-                 -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                 -DLLVM_LIT_ARGS='-v --time-tests --filter-out=dense_output_bf16.mlir -j 4'
-                 -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-         """)
-         echo "Static Test step skipped"
-    }
-    else {
-        // print verbose logs for all the tests on Navi3x for debugging purposes
-        sh '[ ! -d build ] || rm -rf build'
-        buildProject('check-mlir check-rocmlir', """
-             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
-             -DROCK_E2E_TEST_ENABLED=1
-             -DROCMLIR_DRIVER_RANDOM_DATA_SEED=${fixed ? 'none' : '1'}
-             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=${fixed ? 1 : 0}
-             -DLLVM_LIT_ARGS='-va --time-tests --filter-out=dense_output_bf16.mlir -j 4'
-             -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-        """)
-    }
 }
 
 void check_randomE2ETests(String codepath) {
@@ -552,18 +521,11 @@ pipeline {
                         }
                         steps {
                             script {
-                                if ( "${CODEPATH}" == 'navi3x' ) {
-                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                                        check_RockE2ETests_Navi3x(true)
-                                    }
-                                }
-                                else {
                                     build_fixedE2ETests("${CODEPATH}")
                                     preMergeCheck("${CODEPATH}")
                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
                                         sh 'cd build; ninja check-mlir check-rocmlir'
                                     }
-                                }
                             }
                         }
                     }
@@ -577,12 +539,6 @@ pipeline {
                         }
                         steps {
                             script {
-                                if ( "${CODEPATH}" == 'navi3x') {
-                                    catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                                        check_RockE2ETests_Navi3x(false)
-                                    }
-                                }
-                                else
                                     check_randomE2ETests("${CODEPATH}")
                             }
                         }

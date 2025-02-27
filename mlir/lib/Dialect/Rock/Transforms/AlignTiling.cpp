@@ -830,7 +830,7 @@ static LogicalResult canFuseAcrossAtomic(LinalgAlignRewriter &b,
                                          linalg::GenericOp laGeneric) {
   auto outElementType =
       cast<ShapedType>(laGeneric.getOutputs()[0].getType()).getElementType();
-  return success(outElementType.isF32() || outElementType.isF16() ||
+  return success(isa<Float32Type, Float16Type, BFloat16Type>(outElementType) ||
                  outElementType.isInteger(32));
 }
 
@@ -1411,7 +1411,7 @@ static LogicalResult insertBlockwiseReduction(
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(blockSubTileViews)) {
     LLVM_DEBUG(llvm::dbgs() << "blockSubTileViews creation using "
-                               "removeUpperDims is unsuccesful.\n");
+                               "removeUpperDims is unsuccessful.\n");
     return failure();
   }
   // We only want to keep tid in the maps
@@ -1423,7 +1423,7 @@ static LogicalResult insertBlockwiseReduction(
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(blockSubTileTidSliceViews)) {
     LLVM_DEBUG(llvm::dbgs() << "blockSubTileTidSliceViews creation using "
-                               "removeUpperDims is unsuccesful.\n");
+                               "removeUpperDims is unsuccessful.\n");
     return failure();
   }
   // We only want to keep iter in the maps
@@ -1435,7 +1435,7 @@ static LogicalResult insertBlockwiseReduction(
       removeUpperDims(rewriter, toBeReducedViews, removeIndicesSet);
   if (failed(threadSubTileViews)) {
     LLVM_DEBUG(llvm::dbgs() << "threadSubTileViews creation using "
-                               "removeUpperDims is unsuccesful.\n");
+                               "removeUpperDims is unsuccessful.\n");
     return failure();
   }
 
@@ -1449,7 +1449,7 @@ static LogicalResult insertBlockwiseReduction(
   if (failed(gridOnlyDims)) {
     LLVM_DEBUG(
         llvm::dbgs()
-        << "gridOnlyDims creation using removeUpperDims is unsuccesful.\n");
+        << "gridOnlyDims creation using removeUpperDims is unsuccessful.\n");
     return failure();
   }
 
@@ -1460,9 +1460,9 @@ static LogicalResult insertBlockwiseReduction(
   FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
       lowerSubDims =
           getLowerSubDimensions(rewriter, toBeReducedViews, gridOnlyDimIdxs);
-  if (failed(lowerSubDims)) {
+  if (failed(lowerSubDims) || lowerSubDims.value().empty()) {
     LLVM_DEBUG(llvm::dbgs() << "lowerSubDims creation using "
-                               "getLowerSubDimensions is unsuccesful.\n");
+                               "getLowerSubDimensions is unsuccessful.\n");
     return failure();
   }
 

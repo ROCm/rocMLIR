@@ -29,12 +29,12 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 BENCHMARKING_METRICS_FILE_NAME = 'results.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
-DATA_TYPES = ['conv', 'convfp16', 'convfp8', 'convint8']
+DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-DATA_TYPES_GEMM = ['f32', 'f16', 'i8', 'fp8']
-DATA_TYPES_ATTENTION = ['f32', 'f16']
-OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'i8': 'i32', 'fp8':'f32',
+DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
+DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
+OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8':'f32',
                          'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
                          'bf8_bf8': 'f32'}
 
@@ -314,7 +314,9 @@ class ConvConfiguration(PerfConfiguration):
     def computeTFlops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        return (2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
+        assert(self.k % self.group == 0)
+        assert(self.c % self.group == 0)
+        return (2.0 * self.n * (self.c//self.group) * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
@@ -364,6 +366,7 @@ class ConvConfiguration(PerfConfiguration):
                            '--conv_stride_w', str(self.convStrideW),
                            '--padding_h', str(self.paddingH),
                            '--padding_w', str(self.paddingW),
+                           '--groupsize', str(self.group),
                            '--kernel-repeats', str(self.MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
         result += ' '

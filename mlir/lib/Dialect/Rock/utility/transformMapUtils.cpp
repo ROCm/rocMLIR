@@ -1520,10 +1520,27 @@ TransformMapAttr mlir::rock::transformExpandShape(
           << "Empty reassocation list in expand_shape, shouldn't happen\n");
       return TransformMapAttr();
     } else {
+      // if the output dimension is one, let's skip it and use addDim (next
+      // loop)
+      SmallVector<int64_t> outDimsNonUnit;
+      outDimsNonUnit.reserve(outDims.size());
+      for (int64_t dim : outDims) {
+        if (outShape[dim] == 1)
+          dimDefined[dim] = false;
+        else
+          outDimsNonUnit.push_back(dim);
+      }
+
+      // if we go from [1] to [1,1] or [1,1,1]..., we need one dimension to be
+      // unmerged, the others are addDimed
+      if (outDimsNonUnit.empty()) {
+        dimDefined[outDims.back()] = true;
+        outDimsNonUnit.push_back(outDims.back());
+      }
 
       // Create the name store in advance
       llvm::SmallDenseMap<int64_t, SmallString<8>> unmergeNamesStore;
-      for (int64_t outDim : outDims) {
+      for (int64_t outDim : outDimsNonUnit) {
         SmallString<8> outDimName(Twine("exp" + Twine(outDim)).str());
         unmergeNamesStore[outDim] = outDimName;
       }
@@ -1531,7 +1548,7 @@ TransformMapAttr mlir::rock::transformExpandShape(
       SmallVector<uint32_t> unmergeDims;
       SmallVector<int64_t> unmergeSizes;
       SmallVector<StringRef> unmergeNames;
-      for (int64_t outDim : outDims) {
+      for (int64_t outDim : outDimsNonUnit) {
         unmergeNames.push_back(unmergeNamesStore[outDim]);
         unmergeDims.push_back(outDim);
         unmergeSizes.push_back(outShape[outDim]);
@@ -1629,8 +1646,35 @@ void mlir::rock::expandFlatFunctionArguments(
       logicalVal = arg;
       continue;
     }
-    TopDownTMBuilder flattener(b, nameList, logicalShapedTy.getShape(), loc);
-    flattener.unmerge("raw", 0, nameList, logicalShapedTy.getShape());
+    SmallVector<uint32_t> upperDims(logicalShapedTy.getRank());
+    std::iota(upperDims.begin(), upperDims.end(), 0);
+    SmallVector<uint32_t> nonUnitUpperDim;
+    SmallVector<int64_t> nonUnitUpperSize;
+    SmallVector<StringRef> nonUnitUpperName;
+    for (auto [upperDim, name, dimLen] :
+         llvm::zip(upperDims, nameList, logicalShapedTy.getShape())) {
+      if (dimLen != 1) {
+        nonUnitUpperDim.push_back(upperDim);
+        nonUnitUpperName.push_back(name);
+        nonUnitUpperSize.push_back(dimLen);
+      }
+    }
+    // there has to be at least one dimension that is unmerged
+    if (nonUnitUpperDim.empty()) {
+      nonUnitUpperDim.push_back(upperDims.back());
+      nonUnitUpperName.push_back(nameList.back());
+      nonUnitUpperSize.push_back(logicalShapedTy.getShape().back());
+    }
+
+    BottomUpTMBuilder flattener(b, {"raw"}, logicalShapedTy.getNumElements(),
+                                loc);
+    flattener.unmerge(nonUnitUpperName, nonUnitUpperDim, "raw",
+                      nonUnitUpperSize);
+    for (auto dim : upperDims) {
+      if (!llvm::is_contained(nonUnitUpperDim, dim)) {
+        flattener.addDim(nameList[dim], dim, logicalShapedTy.getShape()[dim]);
+      }
+    }
     TransformMapAttr expandMap = flattener.get();
     logicalVal = b.create<rock::TransformOp>(loc, arg, expandMap);
   }
@@ -2410,7 +2454,11 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
       llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> nextSubDimInfo;
       for (TransformAttr trAttr : trMap.getOps()) {
         switch (trAttr.getType()) {
+        // treating slice as a passthrough, because we don't care about the new
+        // subdim created by slice (it's not used anyway)
+        case TransformType::Slice:
         case TransformType::PassThrough: {
+          bool isSlice = trAttr.getType() == TransformType::Slice;
           llvm::SmallDenseMap<int64_t, int64_t> upperToLower;
           for (auto [idx, upperDim] : llvm::enumerate(trAttr.getUpperDims())) {
             const auto lowerDim = trAttr.getLowerDims()[idx];
@@ -2420,6 +2468,8 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
           };
           for (auto [dim, subDimInfo] : currSubDimInfo) {
             if (upperToLower.contains(dim)) {
+              if (isSlice)
+                LLVM_DEBUG(llvm::dbgs() << "slice ");
               LLVM_DEBUG(llvm::dbgs() << "remapping:" << dim << " to "
                                       << upperToLower[dim] << "\n");
               nextSubDimInfo[upperToLower[dim]] = subDimInfo;
@@ -2433,11 +2483,11 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
                    trAttr.getLowerDims(), subDimStrides, trAttr.getParams())) {
             if (currSubDimInfo.contains(upperDim)) {
               for (const SubDimInfo &sdInfo : currSubDimInfo.at(upperDim)) {
-                if (sdInfo.stride >= subDimStride * param) {
+                if (sdInfo.stride > subDimStride * param) {
                   LLVM_DEBUG(llvm::dbgs()
                              << "No overlap: stride of analyzed dim is larger "
                                 "than new subdim stride.\n");
-                } else if (sdInfo.stride * sdInfo.size <= subDimStride) {
+                } else if (sdInfo.stride * sdInfo.size < subDimStride) {
                   LLVM_DEBUG(llvm::dbgs()
                              << "No overlap: stride of new subdim stride is "
                                 "larger than the analyzed dim.\n");
@@ -2483,6 +2533,7 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
           for (size_t subDim = 0; subDim < trAttr.getParams().size();
                subDim++) {
             int64_t upperDim = trAttr.getUpperDims()[subDim];
+
             if (currSubDimInfo.contains(upperDim)) {
               for (const SubDimInfo &sdInfo : currSubDimInfo.at(upperDim)) {
                 int64_t newStride = sdInfo.stride * subDimStrides[subDim];
@@ -2496,13 +2547,35 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
               }
             }
           }
-          break;
-        }
-        case TransformType::ConstDim:
+        } break;
+        case TransformType::Broadcast: {
+          auto newSize = trAttr.getParams()[0];
+          int64_t lowDim = trAttr.getLowerDims()[0];
+          int64_t upperDim = trAttr.getUpperDims()[0];
+          if (currSubDimInfo.contains(upperDim)) {
+            // size is not used for reduction output (broadcast not supported),
+            // so we can skip this for now
+            // TODO: fix this
+            if (currSubDimInfo.at(upperDim).size() > 1)
+              LLVM_DEBUG(llvm::dbgs()
+                         << "broadcast size info will be incorrect, make sure "
+                            "to fix this if it's ever used for anything\n");
+
+            for (const SubDimInfo &sdInfo : currSubDimInfo.at(upperDim)) {
+              nextSubDimInfo[lowDim].push_back({newSize, sdInfo.stride});
+              LLVM_DEBUG(llvm::dbgs() << "broadcast from size " << sdInfo.size
+                                      << " to " << newSize << ", remapping:"
+                                      << upperDim << " to " << lowDim << "\n");
+            }
+          }
+        } break;
         case TransformType::AddDim: {
-          // Nothing to do
+          LLVM_DEBUG(llvm::dbgs() << "dimension " << trAttr.getUpperDims()[0]
+                                  << " removed (AddDim)\n");
+        } break;
+        // Nothing to do
+        case TransformType::ConstDim:
           break;
-        }
         default:
           LLVM_DEBUG(llvm::dbgs()
                      << "Unsupported transform type : " << trAttr << "\n");
@@ -2516,9 +2589,6 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
     if (failed(nextSubDimInfo))
       return failure();
     subDimInfo = nextSubDimInfo.value();
-  }
-  if (subDimInfo.empty()) {
-    return failure();
   }
   return subDimInfo;
 }
