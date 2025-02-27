@@ -121,13 +121,13 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
         if options.verifyPerfConfigs:
             if options.verifyMode == "none":
                 print(f"Use of `--verify-perf-configs` should happen in conjuction with `--verify-mode`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu` flag")
-                sys.exit()
+                return None, None 
             else:
                 verifyNs = verifyKernelWithPerfConfig(perfConfig, config, paths, options)
                 if np.isnan(verifyNs):
                     # Verification failed, abort the loop
                     print(f"verification failed on : {testVector} : {perfConfig}", file=sys.stderr)
-                return None, None
+                    return None, None
 
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
