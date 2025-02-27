@@ -72,10 +72,9 @@ struct TruncfToFloat16RewritePattern final
 
 static LogicalResult isSupportedFp8(Type elementType, Chipset chipset) {
   if (chipset.isGfx940())
-    return success(elementType.isFloat8E5M2FNUZ() ||
-                   elementType.isFloat8E4M3FNUZ());
+    return success(isa<Float8E5M2FNUZType, Float8E4M3FNUZType>(elementType));
   if (chipset.hasOcpFp8())
-    return success(elementType.isFloat8E5M2() || elementType.isFloat8E4M3FN());
+    return success(isa<Float8E5M2Type, Float8E4M3FNType>(elementType));
   return failure();
 }
 

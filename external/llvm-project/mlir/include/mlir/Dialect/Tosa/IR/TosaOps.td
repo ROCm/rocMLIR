@@ -122,8 +122,8 @@ def Tosa_Conv2DOp : Tosa_ConvOp<"conv2d"> {
     Tosa_IntArrayAttr4:$pad,
     Tosa_IntArrayAttr2:$stride,
     Tosa_IntArrayAttr2:$dilation,
-    OptionalAttr<I64Attr>:$group,
     TypeAttrOf<Tosa_AccType>:$acc_type,
+    OptionalAttr<I64Attr>:$group,
     DefaultValuedOptionalAttr<BoolAttr, "false">:$local_bound
   );
 

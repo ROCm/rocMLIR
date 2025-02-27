@@ -148,11 +148,12 @@ ConvertTosaConv2DOp::matchAndRewrite(Operation *op,
       RankedTensorType::get(outputType.getShape(), rewriter.getIntegerType(32));
 
   auto newTosaConv2DOp = rewriter.create<tosa::Conv2DOp>(
-      op->getLoc(), newTosaConv2DOpType, tosaConv2DOp.getInput(),
-      tosaConv2DOp.getWeight(), tosaConv2DOp.getBias(),
-      tosaConv2DOp.getPadAttr(), tosaConv2DOp.getStrideAttr(),
-      tosaConv2DOp.getDilationAttr(), tosaConv2DOp.getGroupAttr(),
-      tosaConv2DOp.getAccTypeAttr(), tosaConv2DOp.getQuantizationInfoAttr());
+    op->getLoc(), newTosaConv2DOpType, tosaConv2DOp.getInput(),
+    tosaConv2DOp.getWeight(), tosaConv2DOp.getBias(),
+    tosaConv2DOp.getPadAttr(), tosaConv2DOp.getStrideAttr(),
+    tosaConv2DOp.getDilationAttr(), tosaConv2DOp.getAccTypeAttr());
+
+  newTosaConv2DOp.setGroupAttr(tosaConv2DOp.getGroupAttr());
 
   // Create rescale to quantized type
   double inputScale = inputQType.getScale();

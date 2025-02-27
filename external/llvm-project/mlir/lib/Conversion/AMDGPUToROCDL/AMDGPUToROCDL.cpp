@@ -587,15 +587,15 @@ static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
 /// Return true if `type` is the E5M2 variant of an 8-bit float that is
 /// supported by the `_bf8` instructions on the given `chipset`.
 static bool isNativeBf8(Chipset chipset, Type type) {
-  return (chipset.isGfx940() && type.isFloat8E5M2FNUZ()) ||
-         (chipset.hasOcpFp8() && type.isFloat8E5M2());
+  return (chipset.isGfx940() && isa<Float8E5M2FNUZType>(type)) ||
+         (chipset.hasOcpFp8() && isa<Float8E5M2Type>(type));
 }
 
 /// Return true if `type` is the E4M3FN variant of an 8-bit float that is
 /// supported by the `_fp8` instructions on the given `chipset`.
 static bool isNativeFp8(Chipset chipset, Type type) {
-  return (chipset.isGfx940() && type.isFloat8E4M3FNUZ()) ||
-         (chipset.hasOcpFp8() && type.isFloat8E4M3FN());
+  return (chipset.isGfx940() && isa<Float8E4M3FNUZType>(type)) ||
+         (chipset.hasOcpFp8() && isa<Float8E4M3FNType>(type));
 }
 
 /// Return the `rocdl` intrinsic corresponding to a MFMA operation `mfma`
