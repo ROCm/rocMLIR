@@ -36,6 +36,7 @@ class Options:
     numCU: int
     rocmlir_gen_flags: str
     verifyMode: str
+    verifyPerfConfigs: bool
     tflops: bool
     compact_print: bool
 
@@ -94,7 +95,7 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
             os.chdir(prevdir)
     return nanoSeconds
 
-def getWinningConfig(tuningOutput, config, allData, options: Options):
+def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, options: Options):
     maxTFlops = -np.inf
     minNs = np.inf
     winningConfig = "None"
@@ -115,6 +116,14 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         entry = config.tableEntry(nanoSeconds)
         allData.append(entry)
         theseTFlops = entry['TFlops']
+        ## verify that each perfConfig passes accuracy verification
+        if options.verifyMode != "none" and options.verifyPerfConfigs:
+            verifyNs = verifyKernelWithPerfConfig(perfConfig, config, paths, options)
+            if np.isnan(verifyNs):
+                # Verification failed, abort the loop
+                print(f"verification failed on : {testVector} : {perfConfig}", file=sys.stderr)
+                return None, None
+
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
             minNs = nanoSeconds
@@ -159,7 +168,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, config, allData, options)
+        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, testVector, config, allData, paths, options)
 
         if options.verifyMode != "none":
             verifyNs = verifyKernelWithPerfConfig(winningConfig, config, paths, options)
@@ -302,6 +311,11 @@ def main(args=None):
         choices=["none", "cpu", "gpu"],
         help="How to verify the winning tuned kernel")
 
+    parser.add_argument("--verify-perf-configs",
+        action='store_true',
+        default=False,
+        help="Compile and verify given problem with all applicable perf configs")
+
     parser.add_argument("--test_dir",
         default="../mlir/test/fusion/resnet50-e2e",
         type=str,
@@ -348,6 +362,7 @@ def main(args=None):
         tuningSpaceKind=parsed_args.tuning_space,
         rocmlir_gen_flags=rocmlir_gen_flags,
         verifyMode=parsed_args.verify_mode,
+        verifyPerfConfigs = parsed_args.verify_perf_configs,
         tflops=parsed_args.tflops,
         compact_print=parsed_args.compact_print)
 
