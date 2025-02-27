@@ -368,7 +368,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 
     // Whatever resource is shared, we need to select among multiple buffers.
     for (size_t i = 0; i < parallelStages.size(); i++) {
-      // The only resource that can conflict btween different stages is memory
+      // The only resource that can conflict between different stages is memory
       // If there are memory conflicts we can sort them via multibuffers. I.e.,
       // we can (logically) provide a different buffer for different cycles
       for (size_t j = i + 1; j < parallelStages.size(); j++) {
