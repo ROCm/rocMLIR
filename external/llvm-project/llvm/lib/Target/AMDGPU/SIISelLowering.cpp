@@ -10015,18 +10015,18 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
     case 12:
       if (!Subtarget->hasLDSLoadB96_B128())
         return SDValue();
-      Opc = HasVIndex    ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_BOTHEN
-                                      : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_IDXEN
-            : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFEN
-                         : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFSET;
+      Opc = HasVIndex ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_BOTHEN
+                                   : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_IDXEN
+                      : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFEN
+                                   : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFSET;
       break;
     case 16:
       if (!Subtarget->hasLDSLoadB96_B128())
         return SDValue();
-      Opc = HasVIndex    ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_BOTHEN
-                                      : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_IDXEN
-            : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFEN
-                         : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFSET;
+      Opc = HasVIndex ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_BOTHEN
+                                   : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_IDXEN
+                      : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFEN
+                                   : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFSET;
       break;
     }
 
@@ -10056,9 +10056,9 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
         Aux & (IsGFX12Plus ? AMDGPU::CPol::SWZ : AMDGPU::CPol::SWZ_pregfx12)
             ? 1
             : 0,
-        DL, MVT::i8));                // swz
-    Ops.push_back(M0Val.getValue(0)); // Chain
-    Ops.push_back(M0Val.getValue(1)); // Glue
+        DL, MVT::i8));                                           // swz
+    Ops.push_back(M0Val.getValue(0));                            // Chain
+    Ops.push_back(M0Val.getValue(1));                            // Glue
 
     auto *M = cast<MemSDNode>(Op);
     MachineMemOperand *LoadMMO = M->getMemOperand();

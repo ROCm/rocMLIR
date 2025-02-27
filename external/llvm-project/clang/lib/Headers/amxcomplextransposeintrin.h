@@ -45,10 +45,11 @@
 ///	tmp := dst.row[m]
 ///	FOR k := 0 TO a.rows - 1
 ///		FOR n := 0 TO (dst.colsb / 4) - 1
-///			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+0]) *
-///FP32(b.row[k].fp16[2*n+1]) 			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+1]) *
-///FP32(b.row[k].fp16[2*n+0]) 		ENDFOR 	ENDFOR 	write_row_and_zero(dst, m, tmp,
-///dst.colsb)
+///			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+0]) * FP32(b.row[k].fp16[2*n+1])
+///			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+1]) * FP32(b.row[k].fp16[2*n+0])
+///		ENDFOR
+///	ENDFOR
+///	write_row_and_zero(dst, m, tmp, dst.colsb)
 /// ENDFOR
 /// zero_upper_rows(dst, dst.rows)
 /// zero_tileconfig_start()
@@ -90,10 +91,11 @@
 ///	tmp := dst.row[m]
 ///	FOR k := 0 TO a.rows - 1
 ///		FOR n := 0 TO (dst.colsb / 4) - 1
-///			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+0]) *
-///FP32(b.row[k].fp16[2*n+0]) 			tmp.fp32[n] += FP32(-a.row[m].fp16[2*k+1]) *
-///FP32(b.row[k].fp16[2*n+1]) 		ENDFOR 	ENDFOR 	write_row_and_zero(dst, m, tmp,
-///dst.colsb)
+///			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+0]) * FP32(b.row[k].fp16[2*n+0])
+///			tmp.fp32[n] += FP32(-a.row[m].fp16[2*k+1]) * FP32(b.row[k].fp16[2*n+1])
+///		ENDFOR
+///	ENDFOR
+///	write_row_and_zero(dst, m, tmp, dst.colsb)
 /// ENDFOR
 /// zero_upper_rows(dst, dst.rows)
 /// zero_tileconfig_start()
@@ -136,10 +138,11 @@
 ///	tmp := dst.row[m]
 ///	FOR k := 0 TO a.rows - 1
 ///		FOR n := 0 TO (dst.colsb / 4) - 1
-///			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+0]) *
-///FP32(b.row[k].fp16[2*n+1]) 			tmp.fp32[n] += FP32(-a.row[m].fp16[2*k+1]) *
-///FP32(b.row[k].fp16[2*n+0]) 		ENDFOR 	ENDFOR 	write_row_and_zero(dst, m, tmp,
-///dst.colsb)
+///			tmp.fp32[n] += FP32(a.row[m].fp16[2*k+0]) * FP32(b.row[k].fp16[2*n+1])
+///			tmp.fp32[n] += FP32(-a.row[m].fp16[2*k+1]) * FP32(b.row[k].fp16[2*n+0])
+///		ENDFOR
+///	ENDFOR
+///	write_row_and_zero(dst, m, tmp, dst.colsb)
 /// ENDFOR
 /// zero_upper_rows(dst, dst.rows)
 /// zero_tileconfig_start()

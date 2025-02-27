@@ -138,15 +138,15 @@ private:
 public:
   // [flat.map.cons], construct/copy/destroy
   _LIBCPP_HIDE_FROM_ABI flat_map() noexcept(
-      is_nothrow_default_constructible_v<_KeyContainer>&& is_nothrow_default_constructible_v<_MappedContainer>&&
-          is_nothrow_default_constructible_v<_Compare>)
+      is_nothrow_default_constructible_v<_KeyContainer> && is_nothrow_default_constructible_v<_MappedContainer> &&
+      is_nothrow_default_constructible_v<_Compare>)
       : __containers_(), __compare_() {}
 
   _LIBCPP_HIDE_FROM_ABI flat_map(const flat_map&) = default;
 
   _LIBCPP_HIDE_FROM_ABI flat_map(flat_map&& __other) noexcept(
-      is_nothrow_move_constructible_v<_KeyContainer>&& is_nothrow_move_constructible_v<_MappedContainer>&&
-          is_nothrow_move_constructible_v<_Compare>)
+      is_nothrow_move_constructible_v<_KeyContainer> && is_nothrow_move_constructible_v<_MappedContainer> &&
+      is_nothrow_move_constructible_v<_Compare>)
 #  if _LIBCPP_HAS_EXCEPTIONS
       try
 #  endif // _LIBCPP_HAS_EXCEPTIONS
@@ -386,8 +386,8 @@ public:
   _LIBCPP_HIDE_FROM_ABI flat_map& operator=(const flat_map&) = default;
 
   _LIBCPP_HIDE_FROM_ABI flat_map& operator=(flat_map&& __other) noexcept(
-      is_nothrow_move_assignable_v<_KeyContainer>&& is_nothrow_move_assignable_v<_MappedContainer>&&
-          is_nothrow_move_assignable_v<_Compare>) {
+      is_nothrow_move_assignable_v<_KeyContainer> && is_nothrow_move_assignable_v<_MappedContainer> &&
+      is_nothrow_move_assignable_v<_Compare>) {
     // No matter what happens, we always want to clear the other container before returning
     // since we moved from it
     auto __clear_other_guard = std::__make_scope_guard([&]() noexcept { __other.clear() /* noexcept */; });

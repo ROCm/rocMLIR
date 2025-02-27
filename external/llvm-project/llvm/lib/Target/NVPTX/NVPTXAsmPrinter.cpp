@@ -1532,8 +1532,8 @@ void NVPTXAsmPrinter::encodeDebugInfoRegisterNumbers(
 
   for (auto &classMap : VRegMapping) {
     for (auto &registerMapping : classMap.getSecond()) {
-       auto reg = registerMapping.getFirst();
-       registerInfo->addToDebugRegisterMap(reg, getVirtualRegisterName(reg));
+      auto reg = registerMapping.getFirst();
+      registerInfo->addToDebugRegisterMap(reg, getVirtualRegisterName(reg));
     }
   }
 }

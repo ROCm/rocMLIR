@@ -65,7 +65,7 @@ struct __fn {
       _Proj1& __proj1,
       _Proj2& __proj2) {
     if constexpr (std::bidirectional_iterator<_Sent1> && std::bidirectional_iterator<_Sent2> &&
-                  (!std::random_access_iterator<_Sent1>)&&(!std::random_access_iterator<_Sent2>)) {
+                  (!std::random_access_iterator<_Sent1>) && (!std::random_access_iterator<_Sent2>)) {
       return __ends_with_fn_impl_bidirectional(__first1, __last1, __first2, __last2, __pred, __proj1, __proj2);
 
     } else {

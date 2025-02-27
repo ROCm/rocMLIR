@@ -37,8 +37,7 @@
 ///     IF i + row_chunk / 4 >= tsrc.colsb / 4
 ///         dst.dword[i] := 0
 ///     ELSE
-///         dst.f32[i] :=
-///         CONVERT_INT32_TO_FP32(tsrc.row[row_index].dword[row_chunk/4+i], RNE)
+///         dst.f32[i] := CONVERT_INT32_TO_FP32(tsrc.row[row_index].dword[row_chunk/4+i], RNE)
 ///     FI
 /// ENDFOR
 /// dst[MAX_VL-1:VL] := 0
@@ -74,8 +73,7 @@
 ///         dst.dword[i] := 0
 ///     ELSE
 ///         dst.word[2*i+0] := 0
-///         dst.bf16[2*i+1] :=
-///         CONVERT_FP32_TO_BF16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
+///         dst.bf16[2*i+1] := CONVERT_FP32_TO_BF16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
 ///     FI
 /// ENDFOR
 /// dst[MAX_VL-1:VL] := 0
@@ -112,8 +110,7 @@
 ///         dst.dword[i] := 0
 ///     ELSE
 ///         dst.word[2*i+1] := 0
-///         dst.bf16[2*i+0] :=
-///         CONVERT_FP32_TO_BF16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
+///         dst.bf16[2*i+0] := CONVERT_FP32_TO_BF16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
 ///     FI
 /// ENDFOR
 /// dst[MAX_VL-1:VL] := 0
@@ -150,8 +147,7 @@
 ///         dst.dword[i] := 0
 ///     ELSE
 ///         dst.word[2*i+0] := 0
-///         dst.fp16[2*i+1] :=
-///         CONVERT_FP32_TO_FP16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
+///         dst.fp16[2*i+1] := CONVERT_FP32_TO_FP16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
 ///     FI
 /// ENDFOR
 /// dst[MAX_VL-1:VL] := 0
@@ -187,8 +183,7 @@
 ///         dst.dword[i] := 0
 ///     ELSE
 ///         dst.word[2*i+1] := 0
-///         dst.fp16[2*i+0] :=
-///         CONVERT_FP32_TO_FP16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
+///         dst.fp16[2*i+0] := CONVERT_FP32_TO_FP16(tsrc.row[row_index].fp32[row_chunk/4+i], RNE)
 ///     FI
 /// ENDFOR
 /// dst[MAX_VL-1:VL] := 0

@@ -3463,13 +3463,14 @@ std::string RewriteObjC::SynthesizeBlockImpl(BlockExpr *CE, std::string Tag,
     // Initialize all "by ref" arguments.
     for (auto I = BlockByRefDecls.begin(), E = BlockByRefDecls.end(); I != E;
          ++I) {
-        std::string Name = (*I)->getNameAsString();
-        if (firsTime) {
-          Constructor += " : ";
-          firsTime = false;
-        } else
-          Constructor += ", ";
-        Constructor += Name + "(_" + Name + "->__forwarding)";
+      std::string Name = (*I)->getNameAsString();
+      if (firsTime) {
+        Constructor += " : ";
+        firsTime = false;
+      }
+      else
+        Constructor += ", ";
+      Constructor += Name + "(_" + Name + "->__forwarding)";
     }
 
     Constructor += " {\n";
@@ -3551,9 +3552,9 @@ void RewriteObjC::SynthesizeBlockLiterals(SourceLocation FunLocStart,
       ValueDecl *VD = Exp->getDecl();
       BlockDeclRefs.push_back(Exp);
       if (VD->hasAttr<BlocksAttr>())
-          BlockByRefDecls.insert(VD);
+        BlockByRefDecls.insert(VD);
       else
-          BlockByCopyDecls.insert(VD);
+        BlockByCopyDecls.insert(VD);
       // imported objects in the inner blocks not used in the outer
       // blocks must be copied/disposed in the outer block as well.
       if (VD->hasAttr<BlocksAttr>() ||

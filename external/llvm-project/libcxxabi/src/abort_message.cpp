@@ -21,10 +21,11 @@ extern "C" void android_set_abort_message(const char* msg);
 #   define _LIBCXXABI_USE_CRASHREPORTER_CLIENT
 #endif
 
-        void __abort_message(const char* format, ...) {
-          // Write message to stderr. We do this before formatting into a
-          // variable-size buffer so that we still get some information if
-          // formatting into the variable-sized buffer fails.
+void __abort_message(const char* format, ...)
+{
+    // Write message to stderr. We do this before formatting into a
+    // variable-size buffer so that we still get some information if
+    // formatting into the variable-sized buffer fails.
 #if !defined(NDEBUG) || !defined(LIBCXXABI_BAREMETAL)
     {
         fprintf(stderr, "libc++abi: ");
@@ -63,4 +64,4 @@ extern "C" void android_set_abort_message(const char* msg);
 #endif // __BIONIC__
 
     abort();
-        }
+}

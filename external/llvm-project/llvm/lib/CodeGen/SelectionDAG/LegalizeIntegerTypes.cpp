@@ -84,8 +84,8 @@ void DAGTypeLegalizer::PromoteIntegerResult(SDNode *N, unsigned ResNo) {
                          Res = PromoteIntRes_EXTRACT_VECTOR_ELT(N); break;
   case ISD::LOAD:        Res = PromoteIntRes_LOAD(cast<LoadSDNode>(N)); break;
   case ISD::VP_LOAD:
-                         Res = PromoteIntRes_VP_LOAD(cast<VPLoadSDNode>(N));
-                         break;
+    Res = PromoteIntRes_VP_LOAD(cast<VPLoadSDNode>(N));
+    break;
   case ISD::MLOAD:       Res = PromoteIntRes_MLOAD(cast<MaskedLoadSDNode>(N));
     break;
   case ISD::MGATHER:     Res = PromoteIntRes_MGATHER(cast<MaskedGatherSDNode>(N));

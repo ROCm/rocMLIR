@@ -3688,21 +3688,21 @@ static void combineMetadata(Instruction *K, const Instruction *J,
         break;
       case LLVMContext::MD_tbaa:
         if (DoesKMove)
-        K->setMetadata(Kind, MDNode::getMostGenericTBAA(JMD, KMD));
+          K->setMetadata(Kind, MDNode::getMostGenericTBAA(JMD, KMD));
         break;
       case LLVMContext::MD_alias_scope:
         if (DoesKMove)
-        K->setMetadata(Kind, MDNode::getMostGenericAliasScope(JMD, KMD));
+          K->setMetadata(Kind, MDNode::getMostGenericAliasScope(JMD, KMD));
         break;
       case LLVMContext::MD_noalias:
       case LLVMContext::MD_mem_parallel_loop_access:
         if (DoesKMove)
-        K->setMetadata(Kind, MDNode::intersect(JMD, KMD));
+          K->setMetadata(Kind, MDNode::intersect(JMD, KMD));
         break;
       case LLVMContext::MD_access_group:
         if (DoesKMove)
-        K->setMetadata(LLVMContext::MD_access_group,
-                       intersectAccessGroups(K, J));
+          K->setMetadata(LLVMContext::MD_access_group,
+                         intersectAccessGroups(K, J));
         break;
       case LLVMContext::MD_range:
         if (!AAOnly && (DoesKMove || !K->hasMetadata(LLVMContext::MD_noundef)))

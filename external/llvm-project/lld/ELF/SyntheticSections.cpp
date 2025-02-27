@@ -1512,8 +1512,7 @@ DynamicSection<ELFT>::computeContents() {
       addInt(DT_AARCH64_PAC_PLT, 0);
 
     if (hasMemtag(ctx)) {
-      addInt(DT_AARCH64_MEMTAG_MODE,
-             ctx.arg.androidMemtagMode == NT_MEMTAG_LEVEL_ASYNC);
+      addInt(DT_AARCH64_MEMTAG_MODE, ctx.arg.androidMemtagMode == NT_MEMTAG_LEVEL_ASYNC);
       addInt(DT_AARCH64_MEMTAG_HEAP, ctx.arg.androidMemtagHeap);
       addInt(DT_AARCH64_MEMTAG_STACK, ctx.arg.androidMemtagStack);
       if (ctx.mainPart->memtagGlobalDescriptors->isNeeded()) {

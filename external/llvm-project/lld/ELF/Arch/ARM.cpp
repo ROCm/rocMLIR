@@ -540,7 +540,7 @@ static std::pair<uint32_t, uint32_t> getRemAndLZForGroup(unsigned group,
 }
 
 void ARM::encodeAluGroup(uint8_t *loc, const Relocation &rel, uint64_t val,
-                         int group, bool check) const {
+                           int group, bool check) const {
   // ADD/SUB (immediate) add = bit23, sub = bit22
   // immediate field carries is a 12-bit modified immediate, made up of a 4-bit
   // even rotate right and an 8-bit immediate.

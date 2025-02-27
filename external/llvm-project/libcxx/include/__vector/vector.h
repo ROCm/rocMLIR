@@ -453,11 +453,11 @@ public:
   template <class... _Args>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI
 #if _LIBCPP_STD_VER >= 17
-      reference
-      emplace_back(_Args&&... __args);
+  reference
+  emplace_back(_Args&&... __args);
 #else
-      void
-      emplace_back(_Args&&... __args);
+  void
+  emplace_back(_Args&&... __args);
 #endif
 
 #if _LIBCPP_STD_VER >= 23

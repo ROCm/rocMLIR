@@ -2247,10 +2247,12 @@ const SCEV *ScalarEvolution::getAnyExtendExpr(const SCEV *Op,
 /// may be exposed. This helps getAddRecExpr short-circuit extra work in
 /// the common case where no interesting opportunities are present, and
 /// is also used as a check to avoid infinite recursion.
-static bool CollectAddOperandsWithScales(
-    SmallDenseMap<const SCEV *, APInt, 16> &M,
-    SmallVectorImpl<const SCEV *> &NewOps, APInt &AccumulatedConstant,
-    ArrayRef<const SCEV *> Ops, const APInt &Scale, ScalarEvolution &SE) {
+static bool
+CollectAddOperandsWithScales(SmallDenseMap<const SCEV *, APInt, 16> &M,
+                             SmallVectorImpl<const SCEV *> &NewOps,
+                             APInt &AccumulatedConstant,
+                             ArrayRef<const SCEV *> Ops, const APInt &Scale,
+                             ScalarEvolution &SE) {
   bool Interesting = false;
 
   // Iterate over the add operands. They are sorted, with constants first.

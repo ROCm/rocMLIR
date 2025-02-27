@@ -2448,7 +2448,7 @@ static bool exitingDestructor(const ExplodedNode *N) {
   // Need to loop here, as some times the Error node is already outside of the
   // destructor context, and the previous node is an edge that is also outside.
   while (N && !N->getLocation().getAs<StmtPoint>()) {
-      N = N->getFirstPred();
+    N = N->getFirstPred();
   }
   return N && isa<CXXDestructorDecl>(N->getLocationContext()->getDecl());
 }
@@ -2456,12 +2456,12 @@ static bool exitingDestructor(const ExplodedNode *N) {
 static const Stmt *
 findReasonableStmtCloseToFunctionExit(const ExplodedNode *N) {
   if (exitingDestructor(N)) {
-      // If we are exiting a destructor call, it is more useful to point to
-      // the next stmt which is usually the temporary declaration.
-      if (const Stmt *S = N->getNextStmtForDiagnostics())
+    // If we are exiting a destructor call, it is more useful to point to
+    // the next stmt which is usually the temporary declaration.
+    if (const Stmt *S = N->getNextStmtForDiagnostics())
       return S;
-      // If next stmt is not found, it is likely the end of a top-level
-      // function analysis. find the last execution statement then.
+    // If next stmt is not found, it is likely the end of a top-level
+    // function analysis. find the last execution statement then.
   }
   return N->getPreviousStmtForDiagnostics();
 }

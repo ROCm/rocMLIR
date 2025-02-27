@@ -10,7 +10,9 @@
 
 #include <sanitizer/common_interface_defs.h>
 
-static inline void FooBarBaz() { __sanitizer_print_stack_trace(); }
+static inline void FooBarBaz() {
+  __sanitizer_print_stack_trace();
+}
 
 int main() {
   FooBarBaz();

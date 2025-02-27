@@ -29,16 +29,10 @@ int main(int, char**) {
   using M = std::flat_map<int, int>;
 
   TEST_LIBCPP_ASSERT_FAILURE(
-      ([] {
-        M m({1, 2, 3}, {4});
-      }()),
-      "flat_map keys and mapped containers have different size");
+      ([] { M m({1, 2, 3}, {4}); }()), "flat_map keys and mapped containers have different size");
 
   TEST_LIBCPP_ASSERT_FAILURE(
-      ([] {
-        M m({1, 2, 3}, {4}, std::less<int>{});
-      }()),
-      "flat_map keys and mapped containers have different size");
+      ([] { M m({1, 2, 3}, {4}, std::less<int>{}); }()), "flat_map keys and mapped containers have different size");
 
   TEST_LIBCPP_ASSERT_FAILURE(
       ([] {

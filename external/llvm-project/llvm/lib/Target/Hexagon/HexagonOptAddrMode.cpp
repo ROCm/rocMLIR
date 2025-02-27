@@ -1075,7 +1075,7 @@ bool HexagonOptAddrMode::processBlock(NodeAddr<BlockNode *> BA) {
                       << Print<NodeAddr<InstrNode *>>(IA, *DFG) << '\n');
 
     if (MI->getOpcode() == Hexagon::A2_addi)
-    Changed |= processAddBases(SA, MI);
+      Changed |= processAddBases(SA, MI);
     NodeList UNodeList;
     getAllRealUses(SA, UNodeList);
 

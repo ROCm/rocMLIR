@@ -227,15 +227,15 @@ namespace {
     Argument(StringRef Arg, StringRef Attr)
         : lowerName(Arg.str()), upperName(lowerName), attrName(Attr),
           isOpt(false), Fake(false) {
-    if (!lowerName.empty()) {
-      lowerName[0] = std::tolower(lowerName[0]);
-      upperName[0] = std::toupper(upperName[0]);
-    }
-    // Work around MinGW's macro definition of 'interface' to 'struct'. We
-    // have an attribute argument called 'Interface', so only the lower case
-    // name conflicts with the macro definition.
-    if (lowerName == "interface")
-      lowerName = "interface_";
+      if (!lowerName.empty()) {
+        lowerName[0] = std::tolower(lowerName[0]);
+        upperName[0] = std::toupper(upperName[0]);
+      }
+      // Work around MinGW's macro definition of 'interface' to 'struct'. We
+      // have an attribute argument called 'Interface', so only the lower case
+      // name conflicts with the macro definition.
+      if (lowerName == "interface")
+        lowerName = "interface_";
     }
     Argument(const Record &Arg, StringRef Attr)
         : Argument(Arg.getValueAsString("Name"), Attr) {}
@@ -1527,8 +1527,8 @@ createArgument(const Record &Arg, StringRef Attr,
   if (!Ptr) {
     // Search in reverse order so that the most-derived type is handled first.
     for (const auto &[Base, _] : reverse(Search->getSuperClasses())) {
-        if ((Ptr = createArgument(Arg, Attr, Base)))
-          break;
+      if ((Ptr = createArgument(Arg, Attr, Base)))
+        break;
     }
   }
 
@@ -3897,8 +3897,9 @@ void EmitClangAttrSpellingListIndex(const RecordKeeper &Records,
       if (Names.size() > 1) {
         SmallVector<StringRef, 6> SameLenNames;
         StringRef FSName = FS.name();
-        llvm::copy_if(Names, std::back_inserter(SameLenNames),
-                      [&](StringRef N) { return N.size() == FSName.size(); });
+        llvm::copy_if(
+            Names, std::back_inserter(SameLenNames),
+            [&](StringRef N) { return N.size() == FSName.size(); });
 
         if (SameLenNames.size() == 1) {
           OS << "Name.size() == " << FS.name().size() << " && ";

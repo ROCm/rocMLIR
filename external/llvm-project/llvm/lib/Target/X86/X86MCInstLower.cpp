@@ -2063,20 +2063,20 @@ static void addConstantComments(const MachineInstr *MI,
   MASK_AVX512_CASE(X86::VBROADCASTF64X2Z256rm)
   MASK_AVX512_CASE(X86::VBROADCASTI32X4Z256rm)
   MASK_AVX512_CASE(X86::VBROADCASTI64X2Z256rm)
-  printBroadcast(MI, OutStreamer, 2, 128);
-  break;
+    printBroadcast(MI, OutStreamer, 2, 128);
+    break;
   MASK_AVX512_CASE(X86::VBROADCASTF32X4Zrm)
   MASK_AVX512_CASE(X86::VBROADCASTF64X2Zrm)
   MASK_AVX512_CASE(X86::VBROADCASTI32X4Zrm)
   MASK_AVX512_CASE(X86::VBROADCASTI64X2Zrm)
-  printBroadcast(MI, OutStreamer, 4, 128);
-  break;
+    printBroadcast(MI, OutStreamer, 4, 128);
+    break;
   MASK_AVX512_CASE(X86::VBROADCASTF32X8Zrm)
   MASK_AVX512_CASE(X86::VBROADCASTF64X4Zrm)
   MASK_AVX512_CASE(X86::VBROADCASTI32X8Zrm)
   MASK_AVX512_CASE(X86::VBROADCASTI64X4Zrm)
-  printBroadcast(MI, OutStreamer, 2, 256);
-  break;
+    printBroadcast(MI, OutStreamer, 2, 256);
+    break;
 
   // For broadcast loads from a constant pool to a vector register, repeatedly
   // print the constant loaded.

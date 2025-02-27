@@ -6576,9 +6576,11 @@ void SIInstrInfo::legalizeGenericOperand(MachineBasicBlock &InsertMBB,
 // unique value of \p ScalarOps across all lanes. In the best case we execute 1
 // iteration, in the worst case we execute 64 (once per lane).
 static void
-emitLoadScalarOpsFromVGPRLoop(const SIInstrInfo &TII, MachineRegisterInfo &MRI,
+emitLoadScalarOpsFromVGPRLoop(const SIInstrInfo &TII,
+                              MachineRegisterInfo &MRI,
                               MachineBasicBlock &LoopBB,
-                              MachineBasicBlock &BodyBB, const DebugLoc &DL,
+                              MachineBasicBlock &BodyBB,
+                              const DebugLoc &DL,
                               ArrayRef<MachineOperand *> ScalarOps) {
   MachineFunction &MF = *LoopBB.getParent();
   const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();

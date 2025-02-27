@@ -153,29 +153,29 @@ static void groupDiagnostics(ArrayRef<const Record *> Diags,
                              ArrayRef<const Record *> DiagGroups,
                              DiagsInGroupTy &DiagsInGroup) {
   for (const Record *R : Diags) {
-      const auto *DI = dyn_cast<DefInit>(R->getValueInit("Group"));
-      if (!DI)
-        continue;
-      assert(R->getValueAsDef("Class")->getName() != "CLASS_NOTE" &&
-             "Note can't be in a DiagGroup");
-      StringRef GroupName = DI->getDef()->getValueAsString("GroupName");
-      DiagsInGroup[GroupName].DiagsInGroup.push_back(R);
+    const auto *DI = dyn_cast<DefInit>(R->getValueInit("Group"));
+    if (!DI)
+      continue;
+    assert(R->getValueAsDef("Class")->getName() != "CLASS_NOTE" &&
+           "Note can't be in a DiagGroup");
+    StringRef GroupName = DI->getDef()->getValueAsString("GroupName");
+    DiagsInGroup[GroupName].DiagsInGroup.push_back(R);
   }
 
   // Add all DiagGroup's to the DiagsInGroup list to make sure we pick up empty
   // groups (these are warnings that GCC supports that clang never produces).
   for (const Record *Group : DiagGroups) {
-      GroupInfo &GI = DiagsInGroup[Group->getValueAsString("GroupName")];
-      GI.GroupName = Group->getName();
-      GI.Defs.push_back(Group);
+    GroupInfo &GI = DiagsInGroup[Group->getValueAsString("GroupName")];
+    GI.GroupName = Group->getName();
+    GI.Defs.push_back(Group);
 
-      for (const Record *SubGroup : Group->getValueAsListOfDefs("SubGroups"))
-        GI.SubGroups.push_back(SubGroup->getValueAsString("GroupName"));
+    for (const Record *SubGroup : Group->getValueAsListOfDefs("SubGroups"))
+      GI.SubGroups.push_back(SubGroup->getValueAsString("GroupName"));
   }
 
   // Assign unique ID numbers to the groups.
   for (auto [IdNo, Iter] : enumerate(DiagsInGroup))
-      Iter.second.IDNo = IdNo;
+    Iter.second.IDNo = IdNo;
 
   // Warn if the same group is defined more than once (including implicitly).
   for (auto &Group : DiagsInGroup) {

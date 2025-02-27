@@ -1420,8 +1420,7 @@ bool semaCodeComplete(std::unique_ptr<CodeCompleteConsumer> Consumer,
   Clang->setCodeCompletionConsumer(Consumer.release());
 
   if (Input.Preamble.RequiredModules)
-    Input.Preamble.RequiredModules->adjustHeaderSearchOptions(
-        Clang->getHeaderSearchOpts());
+    Input.Preamble.RequiredModules->adjustHeaderSearchOptions(Clang->getHeaderSearchOpts());
 
   SyntaxOnlyAction Action;
   if (!Action.BeginSourceFile(*Clang, Clang->getFrontendOpts().Inputs[0])) {

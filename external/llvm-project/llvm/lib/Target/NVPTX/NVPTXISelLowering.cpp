@@ -5271,7 +5271,7 @@ static void ReplaceBITCAST(SDNode *Node, SelectionDAG &DAG,
   SDValue Op(Node, 0);
   EVT ToVT = Op->getValueType(0);
   if (ToVT != MVT::v2i8) {
-      return;
+    return;
   }
 
   // Bitcast to i16 and unpack elements into a vector

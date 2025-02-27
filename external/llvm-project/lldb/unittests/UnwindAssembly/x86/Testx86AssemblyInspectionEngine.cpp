@@ -2847,29 +2847,29 @@ TEST_F(Testx86AssemblyInspectionEngine, TestDisassemblyMidFunctionEpilogues) {
   std::unique_ptr<x86AssemblyInspectionEngine> engine64 = Getx86_64Inspector();
 
   uint8_t data[] = {
-      0x55,                   // <+0>: pushq %rbp
-      0x48, 0x89, 0xe5,       // <+1>: movq %rsp, %rbp
-      0x48, 0x83, 0xec, 0x70, // <+4>: subq $0x70, %rsp
-      0x90,                   // <+8>: nop               // prologue set up
+    0x55,                   // <+0>: pushq %rbp
+    0x48, 0x89, 0xe5,       // <+1>: movq %rsp, %rbp
+    0x48, 0x83, 0xec, 0x70, // <+4>: subq $0x70, %rsp
+    0x90,                   // <+8>: nop               // prologue set up
 
-      0x74, 0x7,              // <+9>: je 7 <+18>
-      0x48, 0x83, 0xc4, 0x70, // <+11>: addq $0x70, %rsp
-      0x5d,                   // <+15>: popq %rbp
-      0xff, 0xe0,             // <+16>: jmpq *%rax      // epilogue completed
+    0x74, 0x7,              // <+9>: je 7 <+18>
+    0x48, 0x83, 0xc4, 0x70, // <+11>: addq $0x70, %rsp
+    0x5d,                   // <+15>: popq %rbp
+    0xff, 0xe0,             // <+16>: jmpq *%rax      // epilogue completed
 
-      0x90, // <+18>: nop             // prologue setup back
+    0x90,                   // <+18>: nop             // prologue setup back
 
-      0x74, 0x8,              // <+19>: je 7 <+28>
-      0x48, 0x83, 0xc4, 0x70, // <+21>: addq $0x70, %rsp
-      0x5d,                   // <+25>: popq %rbp
-      0x90, // <+26>: nop           // mid-epilogue non-epilogue
-      0xc3, // <+27>: retq            // epilogue completed
+    0x74, 0x8,              // <+19>: je 7 <+28>
+    0x48, 0x83, 0xc4, 0x70, // <+21>: addq $0x70, %rsp
+    0x5d,                   // <+25>: popq %rbp
+    0x90,                   // <+26>: nop           // mid-epilogue non-epilogue
+    0xc3,                   // <+27>: retq            // epilogue completed
 
-      0x90, // <+28>: nop             // prologue setup back
+    0x90,                   // <+28>: nop             // prologue setup back
 
-      0x48, 0x83, 0xc4, 0x70, // <+29>: addq $0x70, %rsp
-      0x5d,                   // <+33>: popq %rbp
-      0xc3,                   // <+34>: retq            // epilogue completed
+    0x48, 0x83, 0xc4, 0x70, // <+29>: addq $0x70, %rsp
+    0x5d,                   // <+33>: popq %rbp
+    0xc3,                   // <+34>: retq            // epilogue completed
 
   };
 

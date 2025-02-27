@@ -532,7 +532,7 @@ TEST(STLExtrasTest, ValueReturn) {
 }
 
 TEST(STLExtrasTest, ReferenceReturn) {
-  RangeWithValueType<const int &> R(1);
+  RangeWithValueType<const int&> R(1);
   auto C = concat<const int>(R, R);
   auto I = C.begin();
   ASSERT_NE(I, C.end());

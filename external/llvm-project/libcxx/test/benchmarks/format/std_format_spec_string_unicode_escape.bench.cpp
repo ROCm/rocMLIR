@@ -12,13 +12,13 @@
 // datasets to give an impression how the amount of multibyte UTF-8 sequences
 // and larger grapheme clusters affect the performance.
 
-#include <concepts>
+#  include <concepts>
 #  include <format>
 #  include <string_view>
 
 #  include "benchmark/benchmark.h"
 #  include "make_string.h"
-#include "test_macros.h"
+#  include "test_macros.h"
 
 #if _LIBCPP_HAS_UNICODE
 

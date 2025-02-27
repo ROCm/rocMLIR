@@ -1139,7 +1139,7 @@ public:
 
   bool VisitAttributedStmt(AttributedStmt *S) override {
     if (asFallThroughAttr(S))
-        FallthroughStmts.insert(S);
+      FallthroughStmts.insert(S);
     return true;
   }
 
@@ -1150,15 +1150,15 @@ public:
 
     // We don't want to traverse local type declarations. We analyze their
     // methods separately.
-  bool TraverseDecl(Decl *D) override { return true; }
+    bool TraverseDecl(Decl *D) override { return true; }
 
-  // We analyze lambda bodies separately. Skip them here.
-  bool TraverseLambdaExpr(LambdaExpr *LE) override {
-    // Traverse the captures, but not the body.
-    for (const auto C : zip(LE->captures(), LE->capture_inits()))
+    // We analyze lambda bodies separately. Skip them here.
+    bool TraverseLambdaExpr(LambdaExpr *LE) override {
+      // Traverse the captures, but not the body.
+      for (const auto C : zip(LE->captures(), LE->capture_inits()))
         TraverseLambdaCapture(LE, &std::get<0>(C), std::get<1>(C));
       return true;
-  }
+    }
 
   private:
 

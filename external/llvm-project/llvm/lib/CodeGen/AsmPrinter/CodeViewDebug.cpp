@@ -918,8 +918,8 @@ void CodeViewDebug::emitBuildInfo() {
       getStringIdTypeIdx(TypeTable, "");
   BuildInfoArgs[BuildInfoRecord::BuildTool] =
       getStringIdTypeIdx(TypeTable, Asm->TM.Options.MCOptions.Argv0);
-  BuildInfoArgs[BuildInfoRecord::CommandLine] =
-      getStringIdTypeIdx(TypeTable, Asm->TM.Options.MCOptions.CommandlineArgs);
+  BuildInfoArgs[BuildInfoRecord::CommandLine] = getStringIdTypeIdx(
+      TypeTable, Asm->TM.Options.MCOptions.CommandlineArgs);
 
   BuildInfoRecord BIR(BuildInfoArgs);
   TypeIndex BuildInfoIndex = TypeTable.writeLeafType(BIR);

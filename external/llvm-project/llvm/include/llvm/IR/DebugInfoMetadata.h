@@ -1058,9 +1058,8 @@ private:
   DIDerivedType(LLVMContext &C, StorageType Storage, unsigned Tag,
                 unsigned Line, uint64_t SizeInBits, uint32_t AlignInBits,
                 uint64_t OffsetInBits,
-                std::optional<unsigned> DWARFAddressSpace,
-                dwarf::MemorySpace MS, std::optional<PtrAuthData> PtrAuthData,
-                DIFlags Flags, ArrayRef<Metadata *> Ops)
+                std::optional<unsigned> DWARFAddressSpace, dwarf::MemorySpace MS, 
+                std::optional<PtrAuthData> PtrAuthData, DIFlags Flags, ArrayRef<Metadata *> Ops)
       : DIType(C, DIDerivedTypeKind, Storage, Tag, Line, SizeInBits,
                AlignInBits, OffsetInBits, 0, Flags, Ops),
         DWARFAddressSpace(DWARFAddressSpace), DWARFMemorySpace(MS) {

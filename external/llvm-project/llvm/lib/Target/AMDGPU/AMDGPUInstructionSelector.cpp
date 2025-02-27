@@ -3385,19 +3385,19 @@ bool AMDGPUInstructionSelector::selectBufferLoadLds(MachineInstr &MI) const {
     if (!Subtarget->hasLDSLoadB96_B128())
       return false;
 
-    Opc = HasVIndex    ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_BOTHEN
-                                    : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_IDXEN
-          : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFEN
-                       : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFSET;
+    Opc = HasVIndex ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_BOTHEN
+                                 : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_IDXEN
+                    : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFEN
+                                 : AMDGPU::BUFFER_LOAD_DWORDX3_LDS_OFFSET;
     break;
   case 16:
     if (!Subtarget->hasLDSLoadB96_B128())
       return false;
 
-    Opc = HasVIndex    ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_BOTHEN
-                                    : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_IDXEN
-          : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFEN
-                       : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFSET;
+    Opc = HasVIndex ? HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_BOTHEN
+                                 : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_IDXEN
+                    : HasVOffset ? AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFEN
+                                 : AMDGPU::BUFFER_LOAD_DWORDX4_LDS_OFFSET;
     break;
   }
 
@@ -3748,7 +3748,7 @@ static std::pair<unsigned, uint8_t> BitOp3_Op(Register R,
     //                          1     0     1
     //                          1     1     0
     //                          1     1     1
-    const uint8_t SrcBits[3] = {0xf0, 0xcc, 0xaa};
+    const uint8_t SrcBits[3] = { 0xf0, 0xcc, 0xaa };
 
     if (mi_match(Op, MRI, m_AllOnesInt())) {
       Bits = 0xff;
@@ -3805,7 +3805,8 @@ static std::pair<unsigned, uint8_t> BitOp3_Op(Register R,
     Register RHS = getSrcRegIgnoringCopies(MI->getOperand(2).getReg(), MRI);
 
     SmallVector<Register, 3> Backup(Src.begin(), Src.end());
-    if (!getOperandBits(LHS, LHSBits) || !getOperandBits(RHS, RHSBits)) {
+    if (!getOperandBits(LHS, LHSBits) ||
+        !getOperandBits(RHS, RHSBits)) {
       Src = Backup;
       return std::make_pair(0, 0);
     }
@@ -3896,8 +3897,9 @@ bool AMDGPUInstructionSelector::selectBITOP3(MachineInstr &MI) const {
       --CBL;
       continue;
     }
-    Register NewReg = MRI->createVirtualRegister(&AMDGPU::VGPR_32RegClass);
-    BuildMI(*MBB, MI, DL, TII.get(AMDGPU::COPY), NewReg).addReg(Src[I]);
+    Register NewReg =  MRI->createVirtualRegister(&AMDGPU::VGPR_32RegClass);
+    BuildMI(*MBB, MI, DL, TII.get(AMDGPU::COPY), NewReg)
+        .addReg(Src[I]);
     Src[I] = NewReg;
   }
 
@@ -3918,7 +3920,8 @@ bool AMDGPUInstructionSelector::selectBITOP3(MachineInstr &MI) const {
   MIB.addReg(Src[1]);
   if (!IsB32)
     MIB.addImm(0); // src_mod2
-  MIB.addReg(Src[2]).addImm(TTbl);
+  MIB.addReg(Src[2])
+     .addImm(TTbl);
   if (!IsB32)
     MIB.addImm(0); // op_sel
 
@@ -6159,9 +6162,8 @@ void AMDGPUInstructionSelector::renderSrcAndDstSelToOpSelXForm_2_0(
 void AMDGPUInstructionSelector::renderDstSelToOpSel3XFormXForm(
     MachineInstrBuilder &MIB, const MachineInstr &MI, int OpIdx) const {
   assert(OpIdx >= 0 && "expected to match an immediate operand");
-  MIB.addImm((MI.getOperand(OpIdx).getImm() & 0x2)
-                 ? (int64_t)SISrcMods::DST_OP_SEL
-                 : 0);
+  MIB.addImm(
+      (MI.getOperand(OpIdx).getImm() & 0x2) ? (int64_t)SISrcMods::DST_OP_SEL  : 0);
 }
 
 void AMDGPUInstructionSelector::renderExtractCPol(MachineInstrBuilder &MIB,

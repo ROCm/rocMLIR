@@ -34,10 +34,16 @@
 
 #define DEFINE_GENERIC_REGISTER_STUB(dwarf_num, generic_num)                   \
   {                                                                            \
-    DEFINE_REG_NAME(dwarf_num), DEFINE_REG_NAME_STR(nullptr), 0, 0,            \
-        eEncodingInvalid, eFormatDefault,                                      \
-        {dwarf_num, dwarf_num, generic_num, LLDB_INVALID_REGNUM, dwarf_num},   \
-        nullptr, nullptr, nullptr,                                             \
+      DEFINE_REG_NAME(dwarf_num),                                              \
+      DEFINE_REG_NAME_STR(nullptr),                                            \
+      0,                                                                       \
+      0,                                                                       \
+      eEncodingInvalid,                                                        \
+      eFormatDefault,                                                          \
+      {dwarf_num, dwarf_num, generic_num, LLDB_INVALID_REGNUM, dwarf_num},     \
+      nullptr,                                                                 \
+      nullptr,                                                                 \
+      nullptr,                                                                 \
   }
 
 #define DEFINE_REGISTER_STUB(dwarf_num)                                        \

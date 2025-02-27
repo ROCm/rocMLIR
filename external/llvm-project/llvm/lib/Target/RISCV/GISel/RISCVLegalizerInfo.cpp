@@ -254,7 +254,8 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
 
   // TODO: transform illegal vector types into legal vector type
   // TODO: Merge with G_FREEZE?
-  getActionDefinitionsBuilder({G_IMPLICIT_DEF, G_CONSTANT_FOLD_BARRIER})
+  getActionDefinitionsBuilder(
+      {G_IMPLICIT_DEF, G_CONSTANT_FOLD_BARRIER})
       .legalFor({s32, sXLen, p0})
       .legalIf(typeIsLegalBoolVec(0, BoolVecTys, ST))
       .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
@@ -395,7 +396,8 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
       .lowerIfMemSizeNotByteSizePow2()
       .clampScalar(0, s16, sXLen)
       .lower();
-  StoreActions.clampScalar(0, s16, sXLen)
+  StoreActions
+      .clampScalar(0, s16, sXLen)
       .lowerIfMemSizeNotByteSizePow2()
       .lower();
 

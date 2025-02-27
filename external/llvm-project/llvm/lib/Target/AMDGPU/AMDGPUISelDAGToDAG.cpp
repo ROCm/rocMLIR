@@ -3691,7 +3691,7 @@ static std::pair<unsigned, uint8_t> BitOp3_Op(SDValue In,
     //                          1     0     1
     //                          1     1     0
     //                          1     1     1
-    const uint8_t SrcBits[3] = {0xf0, 0xcc, 0xaa};
+    const uint8_t SrcBits[3] = { 0xf0, 0xcc, 0xaa };
 
     if (auto *C = dyn_cast<ConstantSDNode>(Op)) {
       if (C->isAllOnes()) {
@@ -3752,7 +3752,8 @@ static std::pair<unsigned, uint8_t> BitOp3_Op(SDValue In,
     SDValue RHS = In.getOperand(1);
 
     SmallVector<SDValue, 3> Backup(Src.begin(), Src.end());
-    if (!getOperandBits(LHS, LHSBits) || !getOperandBits(RHS, RHSBits)) {
+    if (!getOperandBits(LHS, LHSBits) ||
+        !getOperandBits(RHS, RHSBits)) {
       Src = Backup;
       return std::make_pair(0, 0);
     }

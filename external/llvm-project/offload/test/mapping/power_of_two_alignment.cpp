@@ -42,13 +42,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
-template <typename StackPad> void test() {
+template <typename StackPad>
+void test() {
   StackPad stackPad;
-  struct S {
-    char x;
-    char y[7];
-    char z[8];
-  };
+  struct S { char x; char y[7]; char z[8]; };
   struct S collidePre, s, collidePost;
   uintptr_t mod16 = (uintptr_t)&s % 16;
   fprintf(stderr, "&s = %p\n", &s);
@@ -59,8 +56,8 @@ template <typename StackPad> void test() {
   }
   fprintf(stderr, "&collidePre = %p\n", &collidePre);
   fprintf(stderr, "&collidePost = %p\n", &collidePost);
-#pragma omp target data map(to : s.y, s.z)
-#pragma omp target data map(to : collidePre, collidePost)
+  #pragma omp target data map(to:s.y, s.z)
+  #pragma omp target data map(to:collidePre, collidePost)
   ;
 }
 

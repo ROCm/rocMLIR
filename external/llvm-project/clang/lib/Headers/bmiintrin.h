@@ -84,7 +84,8 @@ __tzcnt_u32(unsigned int __X) {
 /// \returns A 32-bit integer containing the number of trailing zero bits in
 ///    the operand.
 /// \see { __tzcnt_u32 _tzcnt_u32 }
-static __inline__ int __RELAXED_FN_ATTRS _mm_tzcnt_32(unsigned int __X) {
+static __inline__ int __RELAXED_FN_ATTRS
+_mm_tzcnt_32(unsigned int __X) {
   return (int)__builtin_ia32_tzcnt_u32(__X);
 }
 
@@ -185,8 +186,8 @@ _mm_tzcnt_64(unsigned long long __X) {
 /// \returns An unsigned integer containing the bitwise AND of the second
 ///    operand with the one's complement of the first operand.
 /// \see _andn_u32
-static __inline__ unsigned int __DEFAULT_FN_ATTRS __andn_u32(unsigned int __X,
-                                                             unsigned int __Y) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+__andn_u32(unsigned int __X, unsigned int __Y) {
   return ~__X & __Y;
 }
 
@@ -251,9 +252,8 @@ __bextr_u32(unsigned int __X, unsigned int __Y) {
 /// \returns An unsigned integer whose least significant bits contain the
 ///    extracted bits.
 /// \see __bextr_u32
-static __inline__ unsigned int __DEFAULT_FN_ATTRS _bextr_u32(unsigned int __X,
-                                                             unsigned int __Y,
-                                                             unsigned int __Z) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+_bextr_u32(unsigned int __X, unsigned int __Y, unsigned int __Z) {
   return __builtin_ia32_bextr_u32(__X, ((__Y & 0xff) | ((__Z & 0xff) << 8)));
 }
 
@@ -291,7 +291,8 @@ _bextr2_u32(unsigned int __X, unsigned int __Y) {
 /// \returns An unsigned integer containing the result of clearing the bits from
 ///    the source operand.
 /// \see _blsi_u32
-static __inline__ unsigned int __DEFAULT_FN_ATTRS __blsi_u32(unsigned int __X) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+__blsi_u32(unsigned int __X) {
   return __X & -__X;
 }
 
@@ -360,7 +361,8 @@ __blsmsk_u32(unsigned int __X) {
 /// \returns An unsigned integer containing the result of clearing the source
 ///    operand.
 /// \see _blsr_u32
-static __inline__ unsigned int __DEFAULT_FN_ATTRS __blsr_u32(unsigned int __X) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+__blsr_u32(unsigned int __X) {
   return __X & (__X - 1);
 }
 
@@ -399,7 +401,7 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS __blsr_u32(unsigned int __X) {
 ///    operand with the one's complement of the first operand.
 /// \see _andn_u64
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__andn_u64(unsigned long long __X, unsigned long long __Y) {
+__andn_u64 (unsigned long long __X, unsigned long long __Y) {
   return ~__X & __Y;
 }
 

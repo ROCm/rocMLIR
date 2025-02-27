@@ -50,16 +50,16 @@ struct __optional_move_base : __optional_copy_base<_Tp> {
   using __optional_copy_base<_Tp>::__optional_copy_base;
 };
 
-template <class _Tp, bool = is_trivially_destructible<_Tp>::value
-                         &&is_trivially_copy_constructible<_Tp>::value
-                             &&is_trivially_copy_assignable<_Tp>::value>
+template <class _Tp, bool = is_trivially_destructible<_Tp>::value &&
+                            is_trivially_copy_constructible<_Tp>::value &&
+                            is_trivially_copy_assignable<_Tp>::value>
 struct __optional_copy_assign_base : __optional_move_base<_Tp> {
   using __optional_move_base<_Tp>::__optional_move_base;
 };
 
-template <class _Tp, bool = is_trivially_destructible<_Tp>::value
-                         &&is_trivially_move_constructible<_Tp>::value
-                             &&is_trivially_move_assignable<_Tp>::value>
+template <class _Tp, bool = is_trivially_destructible<_Tp>::value &&
+                            is_trivially_move_constructible<_Tp>::value &&
+                            is_trivially_move_assignable<_Tp>::value>
 struct __optional_move_assign_base : __optional_copy_assign_base<_Tp> {
   using __optional_copy_assign_base<_Tp>::__optional_copy_assign_base;
 };

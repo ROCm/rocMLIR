@@ -295,30 +295,18 @@ bool X86IntelInstPrinter::printVecCompareInstr(const MCInst *MI, raw_ostream &OS
   case X86::VPCMPWZ128rmik:  case X86::VPCMPWZ128rrik:
   case X86::VPCMPWZ256rmik:  case X86::VPCMPWZ256rrik:
   case X86::VPCMPWZrmik:     case X86::VPCMPWZrrik:
-  case X86::VPCMPDZ128rmbi:
-  case X86::VPCMPDZ128rmbik:
-  case X86::VPCMPDZ256rmbi:
-  case X86::VPCMPDZ256rmbik:
-  case X86::VPCMPDZrmbi:
-  case X86::VPCMPDZrmbik:
-  case X86::VPCMPQZ128rmbi:
-  case X86::VPCMPQZ128rmbik:
-  case X86::VPCMPQZ256rmbi:
-  case X86::VPCMPQZ256rmbik:
-  case X86::VPCMPQZrmbi:
-  case X86::VPCMPQZrmbik:
-  case X86::VPCMPUDZ128rmbi:
-  case X86::VPCMPUDZ128rmbik:
-  case X86::VPCMPUDZ256rmbi:
-  case X86::VPCMPUDZ256rmbik:
-  case X86::VPCMPUDZrmbi:
-  case X86::VPCMPUDZrmbik:
-  case X86::VPCMPUQZ128rmbi:
-  case X86::VPCMPUQZ128rmbik:
-  case X86::VPCMPUQZ256rmbi:
-  case X86::VPCMPUQZ256rmbik:
-  case X86::VPCMPUQZrmbi:
-  case X86::VPCMPUQZrmbik:
+  case X86::VPCMPDZ128rmbi:  case X86::VPCMPDZ128rmbik:
+  case X86::VPCMPDZ256rmbi:  case X86::VPCMPDZ256rmbik:
+  case X86::VPCMPDZrmbi:     case X86::VPCMPDZrmbik:
+  case X86::VPCMPQZ128rmbi:  case X86::VPCMPQZ128rmbik:
+  case X86::VPCMPQZ256rmbi:  case X86::VPCMPQZ256rmbik:
+  case X86::VPCMPQZrmbi:     case X86::VPCMPQZrmbik:
+  case X86::VPCMPUDZ128rmbi: case X86::VPCMPUDZ128rmbik:
+  case X86::VPCMPUDZ256rmbi: case X86::VPCMPUDZ256rmbik:
+  case X86::VPCMPUDZrmbi:    case X86::VPCMPUDZrmbik:
+  case X86::VPCMPUQZ128rmbi: case X86::VPCMPUQZ128rmbik:
+  case X86::VPCMPUQZ256rmbi: case X86::VPCMPUQZ256rmbik:
+  case X86::VPCMPUQZrmbi:    case X86::VPCMPUQZrmbik:
     if ((Imm >= 0 && Imm <= 2) || (Imm >= 4 && Imm <= 6)) {
       OS << '\t';
       printVPCMPMnemonic(MI, OS);

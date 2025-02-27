@@ -18413,9 +18413,10 @@ SDValue DAGCombiner::visitFP_EXTEND(SDNode *N) {
   if (ISD::isNormalLoad(N0.getNode()) && N0.hasOneUse() &&
       TLI.isLoadExtLegalOrCustom(ISD::EXTLOAD, VT, N0.getValueType())) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0);
-    SDValue ExtLoad =
-        DAG.getExtLoad(ISD::EXTLOAD, DL, VT, LN0->getChain(), LN0->getBasePtr(),
-                       N0.getValueType(), LN0->getMemOperand());
+    SDValue ExtLoad = DAG.getExtLoad(ISD::EXTLOAD, DL, VT,
+                                     LN0->getChain(),
+                                     LN0->getBasePtr(), N0.getValueType(),
+                                     LN0->getMemOperand());
     CombineTo(N, ExtLoad);
     CombineTo(
         N0.getNode(),

@@ -2974,7 +2974,7 @@ Instruction *InstCombinerImpl::visitShuffleVectorInst(ShuffleVectorInst &SVI) {
           (isa<PoisonValue>(RHS) ||
            isGuaranteedNotToBePoison(SI->getCondition()))) {
         if (Instruction *I = FoldOpIntoSelect(SVI, SI))
-            return I;
+          return I;
       }
     }
     if (auto *PN = dyn_cast<PHINode>(LHS)) {

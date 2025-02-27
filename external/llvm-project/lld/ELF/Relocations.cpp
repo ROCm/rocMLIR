@@ -1054,7 +1054,7 @@ void RelocationScanner::processAux(RelExpr expr, RelType type, uint64_t offset,
   // indirection.
   const bool isIfunc = sym.isGnuIFunc();
   if (!sym.isPreemptible && (!isIfunc || ctx.arg.zIfuncNoplt)) {
-      if (expr != R_GOT_PC) {
+    if (expr != R_GOT_PC) {
       // The 0x8000 bit of r_addend of R_PPC_PLTREL24 is used to choose call
       // stub type. It should be ignored if optimized to R_PC.
       if (ctx.arg.emachine == EM_PPC && expr == RE_PPC32_PLTREL)

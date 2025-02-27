@@ -3768,42 +3768,42 @@ PathDiagnosticPieceRef MallocBugVisitor::VisitNode(const ExplodedNode *N,
         // This turns on various common false positive suppressions.
         for (const LocationContext *LC = CurrentLC; LC; LC = LC->getParent()) {
           if (const auto *DD = dyn_cast<CXXDestructorDecl>(LC->getDecl())) {
-          if (isReferenceCountingPointerDestructor(DD)) {
-            // This immediately looks like a reference-counting destructor.
-            // We're bad at guessing the original reference count of the
-            // object, so suppress the report for now.
-            BR.markInvalid(getTag(), DD);
+            if (isReferenceCountingPointerDestructor(DD)) {
+              // This immediately looks like a reference-counting destructor.
+              // We're bad at guessing the original reference count of the
+              // object, so suppress the report for now.
+              BR.markInvalid(getTag(), DD);
 
-            // After report is considered invalid there is no need to proceed
-            // futher.
-            return nullptr;
-          }
+              // After report is considered invalid there is no need to proceed
+              // futher.
+              return nullptr;
+            }
 
-          // Switch suspection to outer destructor to catch patterns like:
-          // (note that class name is distorted to bypass
-          // isReferenceCountingPointerDestructor() logic)
-          //
-          // SmartPointr::~SmartPointr() {
-          //  if (refcount.fetch_sub(1) == 1)
-          //    release_resources();
-          // }
-          // void SmartPointr::release_resources() {
-          //   free(buffer);
-          // }
-          //
-          // This way ReleaseFunctionLC will point to outermost destructor and
-          // it would be possible to catch wider range of FP.
-          //
-          // NOTE: it would be great to support smth like that in C, since
-          // currently patterns like following won't be supressed:
-          //
-          // void doFree(struct Data *data) { free(data); }
-          // void putData(struct Data *data)
-          // {
-          //   if (refPut(data))
-          //     doFree(data);
-          // }
-          ReleaseFunctionLC = LC->getStackFrame();
+            // Switch suspection to outer destructor to catch patterns like:
+            // (note that class name is distorted to bypass
+            // isReferenceCountingPointerDestructor() logic)
+            //
+            // SmartPointr::~SmartPointr() {
+            //  if (refcount.fetch_sub(1) == 1)
+            //    release_resources();
+            // }
+            // void SmartPointr::release_resources() {
+            //   free(buffer);
+            // }
+            //
+            // This way ReleaseFunctionLC will point to outermost destructor and
+            // it would be possible to catch wider range of FP.
+            //
+            // NOTE: it would be great to support smth like that in C, since
+            // currently patterns like following won't be supressed:
+            //
+            // void doFree(struct Data *data) { free(data); }
+            // void putData(struct Data *data)
+            // {
+            //   if (refPut(data))
+            //     doFree(data);
+            // }
+            ReleaseFunctionLC = LC->getStackFrame();
           }
         }
 

@@ -57,15 +57,15 @@ public:
     addDirectiveHandler<&ELFAsmParser::parseSectionDirectiveRoData>(".rodata");
     addDirectiveHandler<&ELFAsmParser::parseSectionDirectiveTData>(".tdata");
     addDirectiveHandler<&ELFAsmParser::parseSectionDirectiveTBSS>(".tbss");
-    addDirectiveHandler<&ELFAsmParser::parseSectionDirectiveDataRel>(
-        ".data.rel");
-    addDirectiveHandler<&ELFAsmParser::parseSectionDirectiveDataRelRo>(
-        ".data.rel.ro");
-    addDirectiveHandler<&ELFAsmParser::parseSectionDirectiveEhFrame>(
-        ".eh_frame");
+    addDirectiveHandler<
+      &ELFAsmParser::parseSectionDirectiveDataRel>(".data.rel");
+    addDirectiveHandler<
+      &ELFAsmParser::parseSectionDirectiveDataRelRo>(".data.rel.ro");
+    addDirectiveHandler<
+      &ELFAsmParser::parseSectionDirectiveEhFrame>(".eh_frame");
     addDirectiveHandler<&ELFAsmParser::parseDirectiveSection>(".section");
-    addDirectiveHandler<&ELFAsmParser::parseDirectivePushSection>(
-        ".pushsection");
+    addDirectiveHandler<
+      &ELFAsmParser::parseDirectivePushSection>(".pushsection");
     addDirectiveHandler<&ELFAsmParser::parseDirectivePopSection>(".popsection");
     addDirectiveHandler<&ELFAsmParser::parseDirectiveSize>(".size");
     addDirectiveHandler<&ELFAsmParser::parseDirectivePrevious>(".previous");
@@ -76,12 +76,12 @@ public:
     addDirectiveHandler<&ELFAsmParser::parseDirectiveWeakref>(".weakref");
     addDirectiveHandler<&ELFAsmParser::parseDirectiveSymbolAttribute>(".weak");
     addDirectiveHandler<&ELFAsmParser::parseDirectiveSymbolAttribute>(".local");
-    addDirectiveHandler<&ELFAsmParser::parseDirectiveSymbolAttribute>(
-        ".protected");
-    addDirectiveHandler<&ELFAsmParser::parseDirectiveSymbolAttribute>(
-        ".internal");
-    addDirectiveHandler<&ELFAsmParser::parseDirectiveSymbolAttribute>(
-        ".hidden");
+    addDirectiveHandler<
+      &ELFAsmParser::parseDirectiveSymbolAttribute>(".protected");
+    addDirectiveHandler<
+      &ELFAsmParser::parseDirectiveSymbolAttribute>(".internal");
+    addDirectiveHandler<
+      &ELFAsmParser::parseDirectiveSymbolAttribute>(".hidden");
     addDirectiveHandler<&ELFAsmParser::parseDirectiveSubsection>(".subsection");
     addDirectiveHandler<&ELFAsmParser::parseDirectiveCGProfile>(".cg_profile");
   }
@@ -95,26 +95,29 @@ public:
   }
   bool parseSectionDirectiveText(StringRef, SMLoc) {
     return parseSectionSwitch(".text", ELF::SHT_PROGBITS,
-                              ELF::SHF_EXECINSTR | ELF::SHF_ALLOC,
-                              SectionKind::getText());
+                              ELF::SHF_EXECINSTR |
+                              ELF::SHF_ALLOC, SectionKind::getText());
   }
   bool parseSectionDirectiveBSS(StringRef, SMLoc) {
     return parseSectionSwitch(".bss", ELF::SHT_NOBITS,
-                              ELF::SHF_WRITE | ELF::SHF_ALLOC,
-                              SectionKind::getBSS());
+                              ELF::SHF_WRITE |
+                              ELF::SHF_ALLOC, SectionKind::getBSS());
   }
   bool parseSectionDirectiveRoData(StringRef, SMLoc) {
-    return parseSectionSwitch(".rodata", ELF::SHT_PROGBITS, ELF::SHF_ALLOC,
+    return parseSectionSwitch(".rodata", ELF::SHT_PROGBITS,
+                              ELF::SHF_ALLOC,
                               SectionKind::getReadOnly());
   }
   bool parseSectionDirectiveTData(StringRef, SMLoc) {
     return parseSectionSwitch(".tdata", ELF::SHT_PROGBITS,
-                              ELF::SHF_ALLOC | ELF::SHF_TLS | ELF::SHF_WRITE,
+                              ELF::SHF_ALLOC |
+                              ELF::SHF_TLS | ELF::SHF_WRITE,
                               SectionKind::getThreadData());
   }
   bool parseSectionDirectiveTBSS(StringRef, SMLoc) {
     return parseSectionSwitch(".tbss", ELF::SHT_NOBITS,
-                              ELF::SHF_ALLOC | ELF::SHF_TLS | ELF::SHF_WRITE,
+                              ELF::SHF_ALLOC |
+                              ELF::SHF_TLS | ELF::SHF_WRITE,
                               SectionKind::getThreadBSS());
   }
   bool parseSectionDirectiveDataRel(StringRef, SMLoc) {
@@ -124,7 +127,8 @@ public:
   }
   bool parseSectionDirectiveDataRelRo(StringRef, SMLoc) {
     return parseSectionSwitch(".data.rel.ro", ELF::SHT_PROGBITS,
-                              ELF::SHF_ALLOC | ELF::SHF_WRITE,
+                              ELF::SHF_ALLOC |
+                              ELF::SHF_WRITE,
                               SectionKind::getReadOnlyWithRel());
   }
   bool parseSectionDirectiveEhFrame(StringRef, SMLoc) {
@@ -389,6 +393,7 @@ unsigned ELFAsmParser::parseSunStyleSectionFlags() {
   }
   return flags;
 }
+
 
 bool ELFAsmParser::parseDirectivePushSection(StringRef s, SMLoc loc) {
   getStreamer().pushSection();

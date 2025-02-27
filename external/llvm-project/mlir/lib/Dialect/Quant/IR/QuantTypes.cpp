@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "TypeDetail.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -34,7 +34,7 @@ double getMaxScale(Type expressedType) {
   return APFloat::getLargest(floatType.getFloatSemantics()).convertToDouble();
 }
 
-} // namespace
+}  // namespace
 
 unsigned QuantizedType::getFlags() const {
   return static_cast<ImplType *>(impl)->flags;

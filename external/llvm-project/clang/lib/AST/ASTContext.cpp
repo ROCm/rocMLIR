@@ -3590,9 +3590,10 @@ ASTContext::adjustType(QualType Orig,
   switch (Orig->getTypeClass()) {
   case Type::Attributed: {
     const auto *AT = cast<AttributedType>(Orig);
-    return getAttributedType(
-        AT->getAttrKind(), adjustType(AT->getModifiedType(), Adjust),
-        adjustType(AT->getEquivalentType(), Adjust), AT->getAttr());
+    return getAttributedType(AT->getAttrKind(),
+                             adjustType(AT->getModifiedType(), Adjust),
+                             adjustType(AT->getEquivalentType(), Adjust),
+                             AT->getAttr());
   }
 
   case Type::BTFTagAttributed: {
@@ -5346,7 +5347,7 @@ QualType ASTContext::getAttributedType(attr::Kind attrKind,
   assert(!attr || attr->getKind() == attrKind);
 
   QualType canon = getCanonicalType(equivalentType);
-  type = new (*this, alignof(AttributedType))
+	type = new (*this, alignof(AttributedType))
       AttributedType(canon, attrKind, attr, modifiedType, equivalentType);
 
   Types.push_back(type);

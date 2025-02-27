@@ -4831,8 +4831,7 @@ void DAGTypeLegalizer::WidenVectorResult(SDNode *N, unsigned ResNo) {
   case ISD::CTTZ_ZERO_UNDEF:
   case ISD::VP_CTTZ_ZERO_UNDEF:
   case ISD::FNEG: case ISD::VP_FNEG:
-  case ISD::FABS:
-  case ISD::VP_FABS:
+  case ISD::FABS: case ISD::VP_FABS:
   case ISD::VP_SQRT:
   case ISD::VP_FCEIL:
   case ISD::VP_FFLOOR:

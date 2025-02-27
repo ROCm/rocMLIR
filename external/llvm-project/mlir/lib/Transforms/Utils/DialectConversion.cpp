@@ -3039,7 +3039,7 @@ TypeConverter::convertTypeAttribute(Type type, Attribute attr) const {
 static LogicalResult convertFuncOpTypes(FunctionOpInterface funcOp,
                                         const TypeConverter &typeConverter,
                                         ConversionPatternRewriter &rewriter) {
-  FunctionType type = dyn_cast_or_null<FunctionType>(funcOp.getFunctionType());
+  FunctionType type = dyn_cast<FunctionType>(funcOp.getFunctionType());
   if (!type)
     return failure();
 

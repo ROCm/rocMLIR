@@ -38,8 +38,8 @@ namespace chrono {
 
 class time_zone_link {
 public:
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit time_zone_link(
-      __private_constructor_tag, string_view __name, string_view __target)
+  [[nodiscard]]
+  _LIBCPP_HIDE_FROM_ABI explicit time_zone_link(__private_constructor_tag, string_view __name, string_view __target)
       : __name_{__name}, __target_{__target} {}
 
   _LIBCPP_HIDE_FROM_ABI time_zone_link(time_zone_link&&)            = default;

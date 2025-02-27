@@ -1385,10 +1385,10 @@ void InvalidateRegionsWorker::VisitCluster(const MemRegion *baseR,
     }
   conjure_default:
       // Set the default value of the array to conjured symbol.
-    DefinedOrUnknownSVal V = svalBuilder.conjureSymbolVal(
-        baseR, S, LCtx, AT->getElementType(), Count);
-    B = B.addBinding(baseR, BindingKey::Default, V);
-    return;
+      DefinedOrUnknownSVal V = svalBuilder.conjureSymbolVal(
+          baseR, S, LCtx, AT->getElementType(), Count);
+      B = B.addBinding(baseR, BindingKey::Default, V);
+      return;
   }
 
   DefinedOrUnknownSVal V =

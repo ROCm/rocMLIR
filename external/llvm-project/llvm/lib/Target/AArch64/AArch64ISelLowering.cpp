@@ -6162,24 +6162,26 @@ SDValue AArch64TargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
     return SDValue();
   case Intrinsic::aarch64_neon_sqrshrn:
     if (Op.getValueType().isVector())
-      return DAG.getNode(ISD::TRUNCATE_SSAT_S, dl, Op.getValueType(),
-                         DAG.getNode(AArch64ISD::SRSHR_I, dl,
-                                     Op.getOperand(1).getValueType(),
-                                     Op.getOperand(1), Op.getOperand(2)));
+      return DAG.getNode(
+          ISD::TRUNCATE_SSAT_S, dl, Op.getValueType(),
+          DAG.getNode(
+              AArch64ISD::SRSHR_I, dl, Op.getOperand(1).getValueType(),
+              Op.getOperand(1), Op.getOperand(2)));
     return SDValue();
   case Intrinsic::aarch64_neon_sqrshrun:
     if (Op.getValueType().isVector())
-      return DAG.getNode(ISD::TRUNCATE_SSAT_U, dl, Op.getValueType(),
-                         DAG.getNode(AArch64ISD::SRSHR_I, dl,
-                                     Op.getOperand(1).getValueType(),
-                                     Op.getOperand(1), Op.getOperand(2)));
+      return DAG.getNode(
+          ISD::TRUNCATE_SSAT_U, dl, Op.getValueType(),
+          DAG.getNode(
+              AArch64ISD::SRSHR_I, dl, Op.getOperand(1).getValueType(),
+              Op.getOperand(1), Op.getOperand(2)));
     return SDValue();
   case Intrinsic::aarch64_neon_uqrshrn:
     if (Op.getValueType().isVector())
-      return DAG.getNode(ISD::TRUNCATE_USAT_U, dl, Op.getValueType(),
-                         DAG.getNode(AArch64ISD::URSHR_I, dl,
-                                     Op.getOperand(1).getValueType(),
-                                     Op.getOperand(1), Op.getOperand(2)));
+      return DAG.getNode(
+          ISD::TRUNCATE_USAT_U, dl, Op.getValueType(),
+          DAG.getNode(
+              AArch64ISD::URSHR_I, dl, Op.getOperand(1).getValueType(), Op.getOperand(1), Op.getOperand(2)));
     return SDValue();
   case Intrinsic::aarch64_sve_whilelo:
     return optimizeIncrementingWhile(Op, DAG, /*IsSigned=*/false,
@@ -10349,6 +10351,7 @@ SDValue AArch64TargetLowering::LowerGlobalTLSAddress(SDValue Op,
 
   llvm_unreachable("Unexpected platform trying to use TLS");
 }
+
 
 //===----------------------------------------------------------------------===//
 //                      PtrAuthGlobalAddress lowering

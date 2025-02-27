@@ -55,7 +55,6 @@ def ROCDL_Dialect : Dialect {
   let discardableAttrs = (ins
      "::mlir::UnitAttr":$kernel,
      "::mlir::DenseI32ArrayAttr":$reqd_work_group_size,
-     "::mlir::BoolAttr":$uniform_work_group_size,
      "::mlir::StringAttr":$flat_work_group_size,
      "::mlir::IntegerAttr":$max_flat_work_group_size,
      "::mlir::IntegerAttr":$waves_per_eu,

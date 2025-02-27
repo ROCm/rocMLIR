@@ -1267,7 +1267,6 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
             ", final occupancy is " + Twine(Occupancy));
     F.getContext().diagnose(Diag);
   }
-  */
 }
 
 static unsigned getRsrcReg(CallingConv::ID CallConv) {

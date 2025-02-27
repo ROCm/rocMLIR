@@ -2350,14 +2350,14 @@ ARMTargetLowering::ByValCopyKind ARMTargetLowering::ByValNeedsCopyForTailCall(
 
   // Globals are always safe to copy from.
   if (isa<GlobalAddressSDNode>(Src) || isa<ExternalSymbolSDNode>(Src))
-        return CopyOnce;
+    return CopyOnce;
 
   // Can only analyse frame index nodes, conservatively assume we need a
   // temporary.
   auto *SrcFrameIdxNode = dyn_cast<FrameIndexSDNode>(Src);
   auto *DstFrameIdxNode = dyn_cast<FrameIndexSDNode>(Dst);
   if (!SrcFrameIdxNode || !DstFrameIdxNode)
-        return CopyViaTemp;
+    return CopyViaTemp;
 
   int SrcFI = SrcFrameIdxNode->getIndex();
   int DstFI = DstFrameIdxNode->getIndex();
@@ -2372,7 +2372,7 @@ ARMTargetLowering::ByValCopyKind ARMTargetLowering::ByValNeedsCopyForTailCall(
   bool FixedSrc = MFI.isFixedObjectIndex(SrcFI);
   if (!FixedSrc ||
       (FixedSrc && SrcOffset < -(int64_t)AFI->getArgRegsSaveSize()))
-        return CopyOnce;
+    return CopyOnce;
 
   // In the case of byval arguments split between registers and the stack,
   // computeAddrForCallArg returns a FrameIndex which corresponds only to the
@@ -2385,9 +2385,9 @@ ARMTargetLowering::ByValCopyKind ARMTargetLowering::ByValNeedsCopyForTailCall(
   // If the value is already in the correct location, then no copying is
   // needed. If not, then we need to copy via a temporary.
   if (SrcOffset == DstOffset)
-        return NoCopy;
+    return NoCopy;
   else
-        return CopyViaTemp;
+    return CopyViaTemp;
 }
 
 void ARMTargetLowering::PassF64ArgInRegs(const SDLoc &dl, SelectionDAG &DAG,

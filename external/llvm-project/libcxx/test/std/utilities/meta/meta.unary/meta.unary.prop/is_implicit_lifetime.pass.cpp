@@ -36,7 +36,7 @@ struct EmptyStruct {};
 struct IncompleteStruct;
 
 struct NoEligibleTrivialContructor {
-  NoEligibleTrivialContructor(){};
+  NoEligibleTrivialContructor() {};
   NoEligibleTrivialContructor(const NoEligibleTrivialContructor&) {}
   NoEligibleTrivialContructor(NoEligibleTrivialContructor&&) {}
 };

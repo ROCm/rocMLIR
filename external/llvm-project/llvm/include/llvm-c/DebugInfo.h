@@ -1443,11 +1443,10 @@ void LLVMInstructionSetDebugLoc(LLVMValueRef Inst, LLVMMetadataRef Loc);
  *
  * @see llvm::DIBuilder::createLabel()
  */
-LLVMMetadataRef LLVMDIBuilderCreateLabel(LLVMDIBuilderRef Builder,
-                                         LLVMMetadataRef Context,
-                                         const char *Name, size_t NameLen,
-                                         LLVMMetadataRef File, unsigned LineNo,
-                                         LLVMBool AlwaysPreserve);
+LLVMMetadataRef LLVMDIBuilderCreateLabel(
+    LLVMDIBuilderRef Builder,
+    LLVMMetadataRef Context, const char *Name, size_t NameLen,
+    LLVMMetadataRef File, unsigned LineNo, LLVMBool AlwaysPreserve);
 
 /**
  * Insert a new llvm.dbg.label intrinsic call
@@ -1459,10 +1458,9 @@ LLVMMetadataRef LLVMDIBuilderCreateLabel(LLVMDIBuilderRef Builder,
  *
  * @see llvm::DIBuilder::insertLabel()
  */
-LLVMDbgRecordRef LLVMDIBuilderInsertLabelBefore(LLVMDIBuilderRef Builder,
-                                                LLVMMetadataRef LabelInfo,
-                                                LLVMMetadataRef Location,
-                                                LLVMValueRef InsertBefore);
+LLVMDbgRecordRef LLVMDIBuilderInsertLabelBefore(
+    LLVMDIBuilderRef Builder, LLVMMetadataRef LabelInfo,
+    LLVMMetadataRef Location, LLVMValueRef InsertBefore);
 
 /**
  * Insert a new llvm.dbg.label intrinsic call
@@ -1474,10 +1472,9 @@ LLVMDbgRecordRef LLVMDIBuilderInsertLabelBefore(LLVMDIBuilderRef Builder,
  *
  * @see llvm::DIBuilder::insertLabel()
  */
-LLVMDbgRecordRef LLVMDIBuilderInsertLabelAtEnd(LLVMDIBuilderRef Builder,
-                                               LLVMMetadataRef LabelInfo,
-                                               LLVMMetadataRef Location,
-                                               LLVMBasicBlockRef InsertAtEnd);
+LLVMDbgRecordRef LLVMDIBuilderInsertLabelAtEnd(
+    LLVMDIBuilderRef Builder, LLVMMetadataRef LabelInfo,
+    LLVMMetadataRef Location, LLVMBasicBlockRef InsertAtEnd);
 
 /**
  * Obtain the enumerated type of a Metadata instance.

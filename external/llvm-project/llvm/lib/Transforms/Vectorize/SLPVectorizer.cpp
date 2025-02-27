@@ -2169,8 +2169,8 @@ public:
     /// the order of the operands by just considering the immediate
     /// predecessors.
     int getLookAheadScore(Value *LHS, Value *RHS, ArrayRef<Value *> MainAltOps,
-                          int Lane, unsigned OpIdx, unsigned Idx, bool &IsUsed,
-                          const SmallBitVector &UsedLanes) {
+                          int Lane, unsigned OpIdx, unsigned Idx,
+                          bool &IsUsed, const SmallBitVector &UsedLanes) {
       LookAheadHeuristics LookAhead(TLI, DL, SE, R, getNumLanes(),
                                     LookAheadMaxDepth);
       // Keep track of the instruction stack as we recurse into the operands
@@ -5462,14 +5462,12 @@ static bool clusterSortPtrAccesses(ArrayRef<Value *> VL,
   // Ptr into, sort and return the sorted indices with values next to one
   // another.
   SmallMapVector<std::pair<BasicBlock *, Value *>,
-                 SmallVector<SmallVector<std::tuple<Value *, int, unsigned>>>,
-                 8>
+                 SmallVector<SmallVector<std::tuple<Value *, int, unsigned>>>, 8>
       Bases;
   Bases
       .try_emplace(std::make_pair(
           BBs.front(), getUnderlyingObject(VL.front(), RecursionMaxDepth)))
-      .first->second.emplace_back()
-      .emplace_back(VL.front(), 0U, 0U);
+      .first->second.emplace_back().emplace_back(VL.front(), 0U, 0U);
 
   SortedIndices.clear();
   for (auto [Cnt, Ptr] : enumerate(VL.drop_front())) {
@@ -5477,10 +5475,10 @@ static bool clusterSortPtrAccesses(ArrayRef<Value *> VL,
                               getUnderlyingObject(Ptr, RecursionMaxDepth));
     bool Found = any_of(Bases.try_emplace(Key).first->second,
                         [&, &Cnt = Cnt, &Ptr = Ptr](auto &Base) {
-                          std::optional<int> Diff =
-                              getPointersDiff(ElemTy, std::get<0>(Base.front()),
-                                              ElemTy, Ptr, DL, SE,
-                                              /*StrictCheck=*/true);
+                          std::optional<int> Diff = getPointersDiff(
+                              ElemTy, std::get<0>(Base.front()), ElemTy,
+                              Ptr, DL, SE,
+                              /*StrictCheck=*/true);
                           if (!Diff)
                             return false;
 
@@ -7220,7 +7218,8 @@ void BoUpSLP::tryToVectorizeGatheredLoads(
       if (Final && NumElts > BestVF)
         continue;
       SmallVector<unsigned> MaskedGatherVectorized;
-      for (unsigned Cnt = StartIdx, E = Loads.size(); Cnt < E; ++Cnt) {
+      for (unsigned Cnt = StartIdx, E = Loads.size(); Cnt < E;
+           ++Cnt) {
         ArrayRef<LoadInst *> Slice =
             ArrayRef(Loads).slice(Cnt, std::min(NumElts, E - Cnt));
         if (VectorizedLoads.count(Slice.front()) ||
@@ -7574,200 +7573,8 @@ void BoUpSLP::tryToVectorizeGatheredLoads(
           }
           NonVectorized.append(SortedNonVectorized);
         }
-        if (!AllowMaskedGather && CurrentConsecutiveDist == 1 && !Loads.empty())
-          Loads.pop_back();
-        CurrentConsecutiveDist = 1;
-        LastDist = L.second;
-        Loads.push_back(L.first);
-      }
-      if (Loads.size() <= 1)
-        continue;
-      if (AllowMaskedGather)
-        MaxConsecutiveDistance = Loads.size();
-      else if (MaxConsecutiveDistance < 2)
-        continue;
-      BoUpSLP::ValueSet VectorizedLoads;
-      SmallVector<LoadInst *> SortedNonVectorized;
-      SmallVector<std::pair<ArrayRef<Value *>, LoadsState>> Results =
-          GetVectorizedRanges(Loads, VectorizedLoads, SortedNonVectorized,
-                              Final, MaxConsecutiveDistance);
-      if (!Results.empty() && !SortedNonVectorized.empty() &&
-          OriginalLoads.size() == Loads.size() &&
-          MaxConsecutiveDistance == Loads.size() &&
-          all_of(Results,
-                 [](const std::pair<ArrayRef<Value *>, LoadsState> &P) {
-                   return P.second == LoadsState::ScatterVectorize;
-                 })) {
-        VectorizedLoads.clear();
-        SmallVector<LoadInst *> UnsortedNonVectorized;
-        SmallVector<std::pair<ArrayRef<Value *>, LoadsState>> UnsortedResults =
-            GetVectorizedRanges(OriginalLoads, VectorizedLoads,
-                                UnsortedNonVectorized, Final,
-                                OriginalLoads.size());
-        if (SortedNonVectorized.size() >= UnsortedNonVectorized.size()) {
-          SortedNonVectorized.swap(UnsortedNonVectorized);
-          Results.swap(UnsortedResults);
-        }
-      }
-      for (auto [Slice, _] : Results) {
-        LLVM_DEBUG(dbgs() << "SLP: Trying to vectorize gathered loads ("
-                          << Slice.size() << ")\n");
-        if (any_of(Slice, [&](Value *V) { return getTreeEntry(V); })) {
-          for (Value *L : Slice)
-            if (!getTreeEntry(L))
-              SortedNonVectorized.push_back(cast<LoadInst>(L));
-          continue;
-        }
-
-        // Select maximum VF as a maximum of user gathered nodes and
-        // distance between scalar loads in these nodes.
-        unsigned MaxVF = Slice.size();
-        unsigned UserMaxVF = 0;
-        unsigned InterleaveFactor = 0;
-        if (MaxVF == 2) {
-          UserMaxVF = MaxVF;
-        } else {
-          // Found distance between segments of the interleaved loads.
-          std::optional<unsigned> InterleavedLoadsDistance = 0;
-          unsigned Order = 0;
-          std::optional<unsigned> CommonVF = 0;
-          DenseMap<const TreeEntry *, unsigned> EntryToPosition;
-          SmallPtrSet<const TreeEntry *, 8> DeinterleavedNodes;
-          for (auto [Idx, V] : enumerate(Slice)) {
-            for (const TreeEntry *E : ValueToGatherNodes.at(V)) {
-              UserMaxVF = std::max<unsigned>(UserMaxVF, E->Scalars.size());
-              unsigned Pos = EntryToPosition.try_emplace(E, Idx).first->second;
-              UserMaxVF = std::max<unsigned>(UserMaxVF, Idx - Pos + 1);
-              if (CommonVF) {
-                if (*CommonVF == 0) {
-                  CommonVF = E->Scalars.size();
-                  continue;
-                }
-                if (*CommonVF != E->Scalars.size())
-                  CommonVF.reset();
-              }
-              // Check if the load is the part of the interleaved load.
-              if (Pos != Idx && InterleavedLoadsDistance) {
-                if (!DeinterleavedNodes.contains(E) &&
-                    any_of(E->Scalars, [&, Slice = Slice](Value *V) {
-                      if (isa<Constant>(V))
-                        return false;
-                      if (getTreeEntry(V))
-                        return true;
-                      const auto &Nodes = ValueToGatherNodes.at(V);
-                      return (Nodes.size() != 1 || !Nodes.contains(E)) &&
-                             !is_contained(Slice, V);
-                    })) {
-                  InterleavedLoadsDistance.reset();
-                  continue;
-                }
-                DeinterleavedNodes.insert(E);
-                if (*InterleavedLoadsDistance == 0) {
-                  InterleavedLoadsDistance = Idx - Pos;
-                  continue;
-                }
-                if ((Idx - Pos) % *InterleavedLoadsDistance != 0 ||
-                    (Idx - Pos) / *InterleavedLoadsDistance < Order)
-                  InterleavedLoadsDistance.reset();
-                Order = (Idx - Pos) / InterleavedLoadsDistance.value_or(1);
-              }
-            }
-          }
-          DeinterleavedNodes.clear();
-          // Check if the large load represents interleaved load operation.
-          if (InterleavedLoadsDistance.value_or(0) > 1 &&
-              CommonVF.value_or(0) != 0) {
-            InterleaveFactor = bit_ceil(*InterleavedLoadsDistance);
-            unsigned VF = *CommonVF;
-            OrdersType Order;
-            SmallVector<Value *> PointerOps;
-            // Segmented load detected - vectorize at maximum vector factor.
-            if (InterleaveFactor <= Slice.size() &&
-                TTI.isLegalInterleavedAccessType(
-                    getWidenedType(Slice.front()->getType(), VF),
-                    InterleaveFactor, cast<LoadInst>(Slice.front())->getAlign(),
-                    cast<LoadInst>(Slice.front())->getPointerAddressSpace()) &&
-                canVectorizeLoads(Slice, Slice.front(), Order, PointerOps) ==
-                    LoadsState::Vectorize) {
-              UserMaxVF = InterleaveFactor * VF;
-            } else {
-              InterleaveFactor = 0;
-            }
-          }
-          // Cannot represent the loads as consecutive vectorizable nodes -
-          // just exit.
-          unsigned ConsecutiveNodesSize = 0;
-          if (!LoadEntriesToVectorize.empty() && InterleaveFactor == 0 &&
-              any_of(zip(LoadEntriesToVectorize, LoadSetsToVectorize),
-                     [&, Slice = Slice](const auto &P) {
-                       const auto *It = find_if(Slice, [&](Value *V) {
-                         return std::get<1>(P).contains(V);
-                       });
-                       if (It == Slice.end())
-                         return false;
-                       ArrayRef<Value *> VL =
-                           VectorizableTree[std::get<0>(P)]->Scalars;
-                       ConsecutiveNodesSize += VL.size();
-                       unsigned Start = std::distance(Slice.begin(), It);
-                       unsigned Sz = Slice.size() - Start;
-                       return Sz < VL.size() ||
-                              Slice.slice(std::distance(Slice.begin(), It),
-                                          VL.size()) != VL;
-                     }))
-            continue;
-          // Try to build long masked gather loads.
-          UserMaxVF = bit_ceil(UserMaxVF);
-          if (InterleaveFactor == 0 &&
-              any_of(seq<unsigned>(Slice.size() / UserMaxVF),
-                     [&, Slice = Slice](unsigned Idx) {
-                       OrdersType Order;
-                       SmallVector<Value *> PointerOps;
-                       return canVectorizeLoads(
-                                  Slice.slice(Idx * UserMaxVF, UserMaxVF),
-                                  Slice[Idx * UserMaxVF], Order,
-                                  PointerOps) == LoadsState::ScatterVectorize;
-                     }))
-            UserMaxVF = MaxVF;
-          if (Slice.size() != ConsecutiveNodesSize)
-            MaxVF = std::min<unsigned>(MaxVF, UserMaxVF);
-        }
-        for (unsigned VF = MaxVF; VF >= 2; VF /= 2) {
-          bool IsVectorized = true;
-          for (unsigned I = 0, E = Slice.size(); I < E; I += VF) {
-            ArrayRef<Value *> SubSlice = Slice.slice(I, std::min(VF, E - I));
-            if (getTreeEntry(SubSlice.front()))
-              continue;
-            // Check if the subslice is to be-vectorized entry, which is not
-            // equal to entry.
-            if (any_of(
-                    zip(LoadEntriesToVectorize, LoadSetsToVectorize),
-                    [&](const auto &P) {
-                      return !SubSlice.equals(
-                                 VectorizableTree[std::get<0>(P)]->Scalars) &&
-                             set_is_subset(SubSlice, std::get<1>(P));
-                    }))
-              continue;
-            unsigned Sz = VectorizableTree.size();
-            buildTree_rec(SubSlice, 0, EdgeInfo(), InterleaveFactor);
-            if (Sz == VectorizableTree.size()) {
-              IsVectorized = false;
-              // Try non-interleaved vectorization with smaller vector
-              // factor.
-              if (InterleaveFactor > 0) {
-                VF = 2 * (MaxVF / InterleaveFactor);
-                InterleaveFactor = 0;
-              }
-              continue;
-            }
-          }
-          if (IsVectorized)
-            break;
-        }
-      }
-      NonVectorized.append(SortedNonVectorized);
-    }
-    return NonVectorized;
-  };
+        return NonVectorized;
+      };
   for (const auto &GLs : GatheredLoads) {
     const auto &Ref = GLs.second;
     SmallVector<LoadInst *> NonVectorized = ProcessGatheredLoads(Ref);
@@ -9146,9 +8953,9 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth,
         // Collect operands - commute if it uses the swapped predicate.
         for (Value *V : VL) {
           if (isa<PoisonValue>(V)) {
-          Left.push_back(PoisonValue::get(VL0->getOperand(0)->getType()));
-          Right.push_back(PoisonValue::get(VL0->getOperand(1)->getType()));
-          continue;
+            Left.push_back(PoisonValue::get(VL0->getOperand(0)->getType()));
+            Right.push_back(PoisonValue::get(VL0->getOperand(1)->getType()));
+            continue;
           }
           auto *Cmp = cast<CmpInst>(V);
           Value *LHS = Cmp->getOperand(0);

@@ -431,8 +431,8 @@ bool TGLexer::LexInclude() {
   tgtok::TokKind Tok = LexToken();
   if (Tok == tgtok::Error) return true;
   if (Tok != tgtok::StrVal) {
-      PrintError(getLoc(), "expected filename after include");
-      return true;
+    PrintError(getLoc(), "expected filename after include");
+    return true;
   }
 
   // Get the string.
@@ -442,8 +442,8 @@ bool TGLexer::LexInclude() {
   CurBuffer = SrcMgr.AddIncludeFile(Filename, SMLoc::getFromPointer(CurPtr),
                                     IncludedFile);
   if (!CurBuffer) {
-      PrintError(getLoc(), "could not find include file '" + Filename + "'");
-      return true;
+    PrintError(getLoc(), "could not find include file '" + Filename + "'");
+    return true;
   }
 
   Dependencies.insert(IncludedFile);

@@ -284,7 +284,8 @@ namespace {
     /// object so that we can attach it to the AttributedTypeLoc.
     QualType getAttributedType(Attr *A, QualType ModifiedType,
                                QualType EquivType) {
-      QualType T = sema.Context.getAttributedType(A, ModifiedType, EquivType);
+      QualType T =
+          sema.Context.getAttributedType(A, ModifiedType, EquivType);
       AttrsForTypes.push_back({cast<AttributedType>(T.getTypePtr()), A});
       AttrsForTypesSorted = false;
       return T;
@@ -2648,8 +2649,7 @@ QualType Sema::BuildFunctionType(QualType T,
     if (ParamType->isVoidType()) {
       Diag(Loc, diag::err_param_with_void_type);
       Invalid = true;
-    } else if (ParamType->isHalfType() &&
-               !getLangOpts().NativeHalfArgsAndReturns &&
+    } else if (ParamType->isHalfType() && !getLangOpts().NativeHalfArgsAndReturns &&
                !Context.getTargetInfo().allowHalfArgsAndReturns()) {
       // Disallow half FP arguments.
       Diag(Loc, diag::err_parameters_retval_cannot_have_fp16_type) << 0 <<
@@ -6279,7 +6279,9 @@ namespace {
     void VisitExtVectorTypeLoc(ExtVectorTypeLoc TL) {
       TL.setNameLoc(Chunk.Loc);
     }
-    void VisitAtomicTypeLoc(AtomicTypeLoc TL) { fillAtomicQualLoc(TL, Chunk); }
+    void VisitAtomicTypeLoc(AtomicTypeLoc TL) {
+      fillAtomicQualLoc(TL, Chunk);
+    }
     void
     VisitDependentSizedExtVectorTypeLoc(DependentSizedExtVectorTypeLoc TL) {
       TL.setNameLoc(Chunk.Loc);

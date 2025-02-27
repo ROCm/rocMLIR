@@ -2326,50 +2326,48 @@ bool isHi16Reg(MCRegister Reg, const MCRegisterInfo &MRI) {
   return MRI.getEncodingValue(Reg) & AMDGPU::HWEncoding::IS_HI16;
 }
 
-#define MAP_REG2REG                                                                                            \
-  using namespace AMDGPU;                                                                                      \
-  switch (Reg.id()) {                                                                                          \
-  default:                                                                                                     \
-    return Reg;                                                                                                \
-    CASE_CI_VI(FLAT_SCR)                                                                                       \
-    CASE_CI_VI(FLAT_SCR_LO)                                                                                    \
-    CASE_CI_VI(FLAT_SCR_HI)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP0)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP1)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP2)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP3)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP4)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP5)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP6)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP7)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP8)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP9)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP10)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP11)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP12)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP13)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP14)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP15)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP0_TTMP1)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP2_TTMP3)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP4_TTMP5)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP6_TTMP7)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP8_TTMP9)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP10_TTMP11)                                                                            \
-    CASE_VI_GFX9PLUS(TTMP12_TTMP13)                                                                            \
-    CASE_VI_GFX9PLUS(TTMP14_TTMP15)                                                                            \
-    CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3)                                                                  \
-    CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7)                                                                  \
-    CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11)                                                                \
-    CASE_VI_GFX9PLUS(TTMP12_TTMP13_TTMP14_TTMP15)                                                              \
-    CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7)                                          \
-    CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11)                                        \
-    CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15)                                    \
-    CASE_VI_GFX9PLUS(                                                                                          \
-        TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15) \
-    CASE_GFXPRE11_GFX11PLUS(M0)                                                                                \
-    CASE_GFXPRE11_GFX11PLUS(SGPR_NULL)                                                                         \
-    CASE_GFXPRE11_GFX11PLUS_TO(SGPR_NULL64, SGPR_NULL)                                                         \
+#define MAP_REG2REG \
+  using namespace AMDGPU; \
+  switch(Reg.id()) { \
+  default: return Reg; \
+  CASE_CI_VI(FLAT_SCR) \
+  CASE_CI_VI(FLAT_SCR_LO) \
+  CASE_CI_VI(FLAT_SCR_HI) \
+  CASE_VI_GFX9PLUS(TTMP0) \
+  CASE_VI_GFX9PLUS(TTMP1) \
+  CASE_VI_GFX9PLUS(TTMP2) \
+  CASE_VI_GFX9PLUS(TTMP3) \
+  CASE_VI_GFX9PLUS(TTMP4) \
+  CASE_VI_GFX9PLUS(TTMP5) \
+  CASE_VI_GFX9PLUS(TTMP6) \
+  CASE_VI_GFX9PLUS(TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP8) \
+  CASE_VI_GFX9PLUS(TTMP9) \
+  CASE_VI_GFX9PLUS(TTMP10) \
+  CASE_VI_GFX9PLUS(TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP12) \
+  CASE_VI_GFX9PLUS(TTMP13) \
+  CASE_VI_GFX9PLUS(TTMP14) \
+  CASE_VI_GFX9PLUS(TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1) \
+  CASE_VI_GFX9PLUS(TTMP2_TTMP3) \
+  CASE_VI_GFX9PLUS(TTMP4_TTMP5) \
+  CASE_VI_GFX9PLUS(TTMP6_TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP8_TTMP9) \
+  CASE_VI_GFX9PLUS(TTMP10_TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP12_TTMP13) \
+  CASE_VI_GFX9PLUS(TTMP14_TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3) \
+  CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP12_TTMP13_TTMP14_TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15) \
+  CASE_GFXPRE11_GFX11PLUS(M0) \
+  CASE_GFXPRE11_GFX11PLUS(SGPR_NULL) \
+  CASE_GFXPRE11_GFX11PLUS_TO(SGPR_NULL64, SGPR_NULL) \
   }
 
 #define CASE_CI_VI(node) \

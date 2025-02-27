@@ -38,7 +38,7 @@ class CollectUnexpandedParameterPacksVisitor
   unsigned DepthLimit = (unsigned)-1;
 
 #ifndef NDEBUG
-  bool ContainsIntermediatePacks = false;
+    bool ContainsIntermediatePacks = false;
 #endif
 
     void addUnexpanded(NamedDecl *ND, SourceLocation Loc = SourceLocation()) {
@@ -377,7 +377,7 @@ Sema::DiagnoseUnexpandedParameterPacks(SourceLocation Loc,
         return declaresSameEntity(cast<NamedDecl *>(Pack.first), LocalPack);
       };
       if (llvm::any_of(CSI->LocalPacks, DeclaresThisPack))
-          ParamPackReferences.push_back(Pack);
+        ParamPackReferences.push_back(Pack);
     }
 
     if (ParamPackReferences.empty()) {

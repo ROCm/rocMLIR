@@ -499,10 +499,10 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction(
         ISD::FNEARBYINT, MVT::f16,
         Subtarget.hasStdExtZfh() && Subtarget.hasStdExtZfa() ? Legal : Promote);
-    setOperationAction({ISD::FREM, ISD::FPOW, ISD::FPOWI, ISD::FCOS, ISD::FSIN,
-                        ISD::FSINCOS, ISD::FEXP, ISD::FEXP2, ISD::FEXP10,
-                        ISD::FLOG, ISD::FLOG2, ISD::FLOG10, ISD::FLDEXP,
-                        ISD::FFREXP},
+    setOperationAction({ISD::FREM, ISD::FPOW, ISD::FPOWI,
+                        ISD::FCOS, ISD::FSIN, ISD::FSINCOS, ISD::FEXP,
+                        ISD::FEXP2, ISD::FEXP10, ISD::FLOG, ISD::FLOG2,
+                        ISD::FLOG10, ISD::FLDEXP, ISD::FFREXP},
                        MVT::f16, Promote);
 
     // FIXME: Need to promote f16 STRICT_* to f32 libcalls, but we don't have
@@ -969,13 +969,27 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
 
     // TODO: support more vp ops.
     static const unsigned ZvfhminZvfbfminPromoteVPOps[] = {
-        ISD::VP_FADD,           ISD::VP_FSUB,       ISD::VP_FMUL,
-        ISD::VP_FDIV,           ISD::VP_FMA,        ISD::VP_REDUCE_FMIN,
-        ISD::VP_REDUCE_FMAX,    ISD::VP_SQRT,       ISD::VP_FMINNUM,
-        ISD::VP_FMAXNUM,        ISD::VP_FCEIL,      ISD::VP_FFLOOR,
-        ISD::VP_FROUND,         ISD::VP_FROUNDEVEN, ISD::VP_FROUNDTOZERO,
-        ISD::VP_FRINT,          ISD::VP_FNEARBYINT, ISD::VP_SETCC,
-        ISD::VP_FMINIMUM,       ISD::VP_FMAXIMUM,   ISD::VP_REDUCE_FMINIMUM,
+        ISD::VP_FADD,
+        ISD::VP_FSUB,
+        ISD::VP_FMUL,
+        ISD::VP_FDIV,
+        ISD::VP_FMA,
+        ISD::VP_REDUCE_FMIN,
+        ISD::VP_REDUCE_FMAX,
+        ISD::VP_SQRT,
+        ISD::VP_FMINNUM,
+        ISD::VP_FMAXNUM,
+        ISD::VP_FCEIL,
+        ISD::VP_FFLOOR,
+        ISD::VP_FROUND,
+        ISD::VP_FROUNDEVEN,
+        ISD::VP_FROUNDTOZERO,
+        ISD::VP_FRINT,
+        ISD::VP_FNEARBYINT,
+        ISD::VP_SETCC,
+        ISD::VP_FMINIMUM,
+        ISD::VP_FMAXIMUM,
+        ISD::VP_REDUCE_FMINIMUM,
         ISD::VP_REDUCE_FMAXIMUM};
 
     // Sets common operation actions on RVV floating-point vector types.

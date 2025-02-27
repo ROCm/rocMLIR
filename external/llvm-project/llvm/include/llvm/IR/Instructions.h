@@ -1206,24 +1206,24 @@ public:
 
   /// @returns the predicate along with samesign information.
   CmpPredicate getCmpPredicate() const {
-  return {getPredicate(), hasSameSign()};
+    return {getPredicate(), hasSameSign()};
   }
 
   /// @returns the inverse predicate along with samesign information: static
   /// variant.
   static CmpPredicate getInverseCmpPredicate(CmpPredicate Pred) {
-  return {getInversePredicate(Pred), Pred.hasSameSign()};
+    return {getInversePredicate(Pred), Pred.hasSameSign()};
   }
 
   /// @returns the inverse predicate along with samesign information.
   CmpPredicate getInverseCmpPredicate() const {
-  return getInverseCmpPredicate(getCmpPredicate());
+    return getInverseCmpPredicate(getCmpPredicate());
   }
 
   /// @returns the swapped predicate along with samesign information: static
   /// variant.
   static CmpPredicate getSwappedCmpPredicate(CmpPredicate Pred) {
-  return {getSwappedPredicate(Pred), Pred.hasSameSign()};
+    return {getSwappedPredicate(Pred), Pred.hasSameSign()};
   }
 
   /// @returns the swapped predicate along with samesign information.

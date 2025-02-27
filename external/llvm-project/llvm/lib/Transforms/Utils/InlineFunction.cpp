@@ -190,7 +190,6 @@ static IntrinsicInst *getConvergenceEntry(BasicBlock &BB) {
       if (IntrinsicCall->isEntry()) {
         return IntrinsicCall;
       }
-      I = I->getNextNode();
     }
     It = std::next(It);
   }

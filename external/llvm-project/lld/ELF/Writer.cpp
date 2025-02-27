@@ -2305,8 +2305,7 @@ Writer<ELFT>::createPhdrs(Partition &part) {
         relRo->add(sec);
       else
         ErrAlways(ctx) << "section: " << sec->name
-                       << " is not contiguous with other relro"
-                       << " sections";
+                       << " is not contiguous with other relro" << " sections";
     } else if (inRelroPhdr) {
       inRelroPhdr = false;
       relroEnd = sec;

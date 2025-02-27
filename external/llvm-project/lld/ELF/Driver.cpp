@@ -56,13 +56,13 @@
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Remarks/HotnessThresholdParser.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/GlobPattern.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/Parallel.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/TarWriter.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -1702,13 +1702,7 @@ static void readConfigs(Ctx &ctx, opt::InputArgList &args) {
       ErrAlways(ctx) << errPrefix << pat.takeError() << ": " << kv.first;
   }
 
-  // This was added by https://reviews.llvm.org/D88461 to address a problem
-  // we rocMlir do not care about in cmd options. However, the side effect
-  // of this is it will reset and corrupt global static cl::cmd options,
-  // causing issues in rocm and xmir runner. Since there is no easy way to
-  // back up the cl::cmd hidden state in JitRunner, the most straightforward
-  // fix is to undo this global reset in lld invokation.
-  // cl::ResetAllOptionOccurrences();
+  cl::ResetAllOptionOccurrences();
 
   // Parse LTO options.
   if (auto *arg = args.getLastArg(OPT_plugin_opt_mcpu_eq))

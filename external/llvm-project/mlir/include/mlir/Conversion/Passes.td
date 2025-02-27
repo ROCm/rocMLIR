@@ -901,8 +901,8 @@ def ConvertMeshToMPIPass : Pass<"convert-mesh-to-mpi"> {
 def ConvertNVVMToLLVMPass : Pass<"convert-nvvm-to-llvm"> {
   let summary = "Convert NVVM to PTX with Inline Assembly in LLVM dialect";
   let description = [{
-    This pass generates inline assembly for the NVVM ops which is not
-    implemented in LLVM core.
+    This pass generates PTX instructions using inline assembly for NVVM
+    operations implements `BasicPtxBuilderInterface`.
   }];
   let dependentDialects = [
     "NVVM::NVVMDialect",

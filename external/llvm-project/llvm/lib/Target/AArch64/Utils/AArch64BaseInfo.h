@@ -654,10 +654,10 @@ struct PHint {
   unsigned Encoding;
   FeatureBitset FeaturesRequired;
 
-    bool haveFeatures(FeatureBitset ActiveFeatures) const {
+  bool haveFeatures(FeatureBitset ActiveFeatures) const {
     return ActiveFeatures[llvm::AArch64::FeatureAll] ||
            (FeaturesRequired & ActiveFeatures) == FeaturesRequired;
-    }
+  }
 };
 
 #define GET_PHintValues_DECL

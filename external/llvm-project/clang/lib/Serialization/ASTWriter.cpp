@@ -1562,13 +1562,13 @@ void ASTWriter::WriteControlBlock(Preprocessor &PP, StringRef isysroot) {
     auto Abbrev = std::make_shared<BitCodeAbbrev>();
     Abbrev->Add(BitCodeAbbrevOp(IMPORT));
     Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 3)); // Kind
-    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));   // ImportLoc
-    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));   // Module name len
+    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // ImportLoc
+    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // Module name len
     Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // Standard C++ mod
-    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));   // File size
-    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));   // File timestamp
-    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));   // File name len
-    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob));     // Strings
+    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // File size
+    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // File timestamp
+    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // File name len
+    Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob)); // Strings
     unsigned AbbrevCode = Stream.EmitAbbrev(std::move(Abbrev));
 
     SmallString<128> Blob;
@@ -2088,11 +2088,11 @@ namespace {
       endian::Writer LE(Out, llvm::endianness::little);
       uint64_t Start = Out.tell(); (void)Start;
 
-      unsigned char Flags =
-          (Data.AlreadyIncluded << 6) | (Data.HFI.isImport << 5) |
-          (Writer.isWritingStdCXXNamedModules() ? 0
-                                                : Data.HFI.isPragmaOnce << 4) |
-          (Data.HFI.DirInfo << 1);
+      unsigned char Flags = (Data.AlreadyIncluded << 6)
+                          | (Data.HFI.isImport << 5)
+                          | (Writer.isWritingStdCXXNamedModules() ? 0 :
+                             Data.HFI.isPragmaOnce << 4)
+                          | (Data.HFI.DirInfo << 1);
       LE.write<uint8_t>(Flags);
 
       if (Data.HFI.LazyControllingMacro.isID())

@@ -50,7 +50,8 @@
 /// \returns An unsigned 32-bit integer containing the number of leading zero
 ///    bits in the operand.
 /// \see _lzcnt_u32
-static __inline__ unsigned int __DEFAULT_FN_ATTRS __lzcnt32(unsigned int __X) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+__lzcnt32(unsigned int __X) {
   return __builtin_ia32_lzcnt_u32(__X);
 }
 
@@ -65,7 +66,8 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS __lzcnt32(unsigned int __X) {
 /// \returns An unsigned 32-bit integer containing the number of leading zero
 ///    bits in the operand.
 /// \see __lzcnt32
-static __inline__ unsigned int __DEFAULT_FN_ATTRS _lzcnt_u32(unsigned int __X) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+_lzcnt_u32(unsigned int __X) {
   return __builtin_ia32_lzcnt_u32(__X);
 }
 

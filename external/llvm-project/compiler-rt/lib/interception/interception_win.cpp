@@ -129,8 +129,8 @@
 #if SANITIZER_WINDOWS
 #include "sanitizer_common/sanitizer_platform.h"
 #define WIN32_LEAN_AND_MEAN
-#  include <psapi.h>
-#  include <windows.h>
+#include <windows.h>
+#include <psapi.h>
 
 namespace __interception {
 
@@ -465,11 +465,11 @@ static uptr AllocateMemoryForTrampoline(uptr func_address, size_t size) {
   // stay within 2GB of func_address.
   HMODULE module;
   if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                            (LPCWSTR)func_address, &module)) {
     MODULEINFO module_info;
-    if (::GetModuleInformation(::GetCurrentProcess(), module, &module_info,
-                               sizeof(module_info))) {
+    if (::GetModuleInformation(::GetCurrentProcess(), module,
+                                &module_info, sizeof(module_info))) {
       min_addr = (uptr)module_info.lpBaseOfDll + module_info.SizeOfImage -
                  kTrampolineRangeLimit;
       max_addr = (uptr)module_info.lpBaseOfDll + kTrampolineRangeLimit - size;
@@ -690,17 +690,17 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
       return 9;
     case 0xF2:
       switch (*(u32 *)(address + 1)) {
-        case 0x2444110f:  //  f2 0f 11 44 24 XX       movsd  QWORD PTR
-                          //  [rsp + XX], xmm0
-        case 0x244c110f:  //  f2 0f 11 4c 24 XX       movsd  QWORD PTR
-                          //  [rsp + XX], xmm1
-        case 0x2454110f:  //  f2 0f 11 54 24 XX       movsd  QWORD PTR
-                          //  [rsp + XX], xmm2
-        case 0x245c110f:  //  f2 0f 11 5c 24 XX       movsd  QWORD PTR
-                          //  [rsp + XX], xmm3
-        case 0x2464110f:  //  f2 0f 11 64 24 XX       movsd  QWORD PTR
-                          //  [rsp + XX], xmm4
-          return 6;
+          case 0x2444110f:  //  f2 0f 11 44 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm0
+          case 0x244c110f:  //  f2 0f 11 4c 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm1
+          case 0x2454110f:  //  f2 0f 11 54 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm2
+          case 0x245c110f:  //  f2 0f 11 5c 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm3
+          case 0x2464110f:  //  f2 0f 11 64 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm4
+            return 6;
       }
       break;
 

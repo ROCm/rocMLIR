@@ -371,8 +371,8 @@ void DwarfCompileUnit::addLocationAttribute(
       }
       DwarfExpr->addFragmentOffset(Expr);
 
-      std::optional<DIExpression::NewElementsRef> NewElementsRef =
-          Expr ? Expr->getNewElementsRef() : std::nullopt;
+      std::optional<DIExpression::NewElementsRef> NewElementsRef
+          = Expr ? Expr->getNewElementsRef() : std::nullopt;
       if (NewElementsRef) {
         SmallVector<DbgValueLocEntry> ArgLocEntries;
         if (Global)

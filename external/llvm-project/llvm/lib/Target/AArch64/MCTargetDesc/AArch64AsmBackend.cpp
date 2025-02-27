@@ -63,7 +63,7 @@ public:
         {"fixup_aarch64_ldst_imm12_scale16", 10, 12, 0},
         {"fixup_aarch64_ldr_pcrel_imm19", 5, 19, PCRelFlagVal},
         {"fixup_aarch64_movw", 5, 16, 0},
-        {"fixup_aarch64_pcrel_branch9", 5, 9, PCRelFlagVal},
+        {"fixup_aarch64_pcrel_branch9", 5, 9,  PCRelFlagVal},
         {"fixup_aarch64_pcrel_branch14", 5, 14, PCRelFlagVal},
         {"fixup_aarch64_pcrel_branch16", 5, 16, PCRelFlagVal},
         {"fixup_aarch64_pcrel_branch19", 5, 19, PCRelFlagVal},

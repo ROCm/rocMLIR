@@ -163,10 +163,10 @@ int llvm_test_dibuilder(void) {
 
   LLVMSetSubprogram(FooFunction, FunctionMetadata);
 
-  LLVMMetadataRef FooLabel1 = LLVMDIBuilderCreateLabel(
-      DIB, FunctionMetadata, "label1", 6, File, 42, false);
+  LLVMMetadataRef FooLabel1 = LLVMDIBuilderCreateLabel(DIB, FunctionMetadata,
+    "label1", 6, File, 42, false);
   LLVMDIBuilderInsertLabelAtEnd(DIB, FooLabel1, FooParamLocation,
-                                FooEntryBlock);
+    FooEntryBlock);
 
   LLVMMetadataRef FooLexicalBlock =
     LLVMDIBuilderCreateLexicalBlock(DIB, FunctionMetadata, File, 42, 0);
@@ -225,14 +225,16 @@ int llvm_test_dibuilder(void) {
   LLVMBuildBr(Builder, FooVarBlock);
 
   // Build another br for the sake of testing labels.
-  LLVMMetadataRef FooLabel2 = LLVMDIBuilderCreateLabel(
-      DIB, FunctionMetadata, "label2", 6, File, 42, false);
+  LLVMMetadataRef FooLabel2 = LLVMDIBuilderCreateLabel(DIB, FunctionMetadata,
+    "label2", 6, File, 42, false);
   LLVMDIBuilderInsertLabelBefore(DIB, FooLabel2, FooParamLocation,
-                                 LLVMBuildBr(Builder, FooVarBlock));
+    LLVMBuildBr(Builder, FooVarBlock));
   // label3 will be emitted, but label4 won't be emitted
   // because label3 is AlwaysPreserve and label4 is not.
-  LLVMDIBuilderCreateLabel(DIB, FunctionMetadata, "label3", 6, File, 42, true);
-  LLVMDIBuilderCreateLabel(DIB, FunctionMetadata, "label4", 6, File, 42, false);
+  LLVMDIBuilderCreateLabel(DIB, FunctionMetadata,
+    "label3", 6, File, 42, true);
+  LLVMDIBuilderCreateLabel(DIB, FunctionMetadata,
+    "label4", 6, File, 42, false);
   LLVMDIBuilderFinalize(DIB);
 
   // Build `ret i64 0` in vars.

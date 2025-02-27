@@ -4538,18 +4538,19 @@ namespace {
         ObjCCategoryDecl *&Existing = NameCategoryMap[Cat->getDeclName()];
         if (Existing && Reader.getOwningModuleFile(Existing) !=
                             Reader.getOwningModuleFile(Cat)) {
-        StructuralEquivalenceContext::NonEquivalentDeclSet NonEquivalentDecls;
-        StructuralEquivalenceContext Ctx(
-            Cat->getASTContext(), Existing->getASTContext(), NonEquivalentDecls,
-            StructuralEquivalenceKind::Default,
-            /*StrictTypeSpelling =*/false,
-            /*Complain =*/false,
-            /*ErrorOnTagTypeMismatch =*/true);
-        if (!Ctx.IsEquivalent(Cat, Existing)) {
-          // Warn only if the categories with the same name are different.
-          Reader.Diag(Cat->getLocation(), diag::warn_dup_category_def)
-              << Interface->getDeclName() << Cat->getDeclName();
-          Reader.Diag(Existing->getLocation(), diag::note_previous_definition);
+          StructuralEquivalenceContext::NonEquivalentDeclSet NonEquivalentDecls;
+          StructuralEquivalenceContext Ctx(
+              Cat->getASTContext(), Existing->getASTContext(),
+              NonEquivalentDecls, StructuralEquivalenceKind::Default,
+              /*StrictTypeSpelling =*/false,
+              /*Complain =*/false,
+              /*ErrorOnTagTypeMismatch =*/true);
+          if (!Ctx.IsEquivalent(Cat, Existing)) {
+            // Warn only if the categories with the same name are different.
+            Reader.Diag(Cat->getLocation(), diag::warn_dup_category_def)
+                << Interface->getDeclName() << Cat->getDeclName();
+            Reader.Diag(Existing->getLocation(),
+                        diag::note_previous_definition);
           }
         } else if (!Existing) {
           // Record this category.

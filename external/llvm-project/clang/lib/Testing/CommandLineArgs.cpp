@@ -37,10 +37,10 @@ std::vector<std::string> getCommandLineArgsForTesting(TestLanguage Lang) {
   switch (Lang) {
 #define TESTLANGUAGE_C(lang, version, std_flag, version_index)                 \
   case Lang_##lang##version:                                                   \
-    return {"-x", "c", "-std=" #std_flag};
+    return { "-x", "c", "-std=" #std_flag };
 #define TESTLANGUAGE_CXX(lang, version, std_flag, version_index)               \
   case Lang_##lang##version:                                                   \
-    return {"-std=" #std_flag, "-frtti"};
+    return { "-std=" #std_flag, "-frtti" };
 #include "clang/Testing/TestLanguage.def"
 
   case Lang_OBJC:
@@ -57,10 +57,10 @@ std::vector<std::string> getCC1ArgsForTesting(TestLanguage Lang) {
   switch (Lang) {
 #define TESTLANGUAGE_C(lang, version, std_flag, version_index)                 \
   case Lang_##lang##version:                                                   \
-    return {"-xc", "-std=" #std_flag};
+    return { "-xc", "-std=" #std_flag };
 #define TESTLANGUAGE_CXX(lang, version, std_flag, version_index)               \
   case Lang_##lang##version:                                                   \
-    return {"-std=" #std_flag};
+    return { "-std=" #std_flag };
 #include "clang/Testing/TestLanguage.def"
 
   case Lang_OBJC:

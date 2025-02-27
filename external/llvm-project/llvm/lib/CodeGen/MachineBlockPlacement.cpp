@@ -3671,8 +3671,7 @@ void MachineBlockPlacement::applyExtTsp(bool OptForSize) {
 
   LLVM_DEBUG(dbgs() << "Applying ext-tsp layout for |V| = " << F->size()
                     << " with profile = " << F->getFunction().hasProfileData()
-                    << " (" << F->getName() << ")"
-                    << "\n");
+                    << " (" << F->getName() << ")" << "\n");
 
   const double OrgScore = calcExtTspScore(BlockSizes, JumpCounts);
   LLVM_DEBUG(dbgs() << format("  original  layout score: %0.2f\n", OrgScore));

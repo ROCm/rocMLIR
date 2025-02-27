@@ -827,9 +827,13 @@ public:
     return HasDot11Insts;
   }
 
-  bool hasDot12Insts() const { return HasDot12Insts; }
+  bool hasDot12Insts() const {
+    return HasDot12Insts;
+  }
 
-  bool hasDot13Insts() const { return HasDot13Insts; }
+  bool hasDot13Insts() const {
+    return HasDot13Insts;
+  }
 
   bool hasMAIInsts() const {
     return HasMAIInsts;
@@ -1303,7 +1307,9 @@ public:
   /// Returns true if the target supports
   /// global_load_lds_dwordx3/global_load_lds_dwordx4 or
   /// buffer_load_dwordx3/buffer_load_dwordx4 with the lds bit.
-  bool hasLDSLoadB96_B128() const { return hasGFX950Insts(); }
+  bool hasLDSLoadB96_B128() const {
+    return hasGFX950Insts();
+  }
 
   bool hasSALUFloatInsts() const { return HasSALUFloatInsts; }
 
@@ -1334,11 +1340,17 @@ public:
   bool hasPermlane32Swap() const { return HasPermlane32Swap; }
   bool hasAshrPkInsts() const { return HasAshrPkInsts; }
 
-  bool hasMinimum3Maximum3F32() const { return HasMinimum3Maximum3F32; }
+  bool hasMinimum3Maximum3F32() const {
+    return HasMinimum3Maximum3F32;
+  }
 
-  bool hasMinimum3Maximum3F16() const { return HasMinimum3Maximum3F16; }
+  bool hasMinimum3Maximum3F16() const {
+    return HasMinimum3Maximum3F16;
+  }
 
-  bool hasMinimum3Maximum3PKF16() const { return HasMinimum3Maximum3PKF16; }
+  bool hasMinimum3Maximum3PKF16() const {
+    return HasMinimum3Maximum3PKF16;
+  }
 
   /// \returns The maximum number of instructions that can be enclosed in an
   /// S_CLAUSE on the given subtarget, or 0 for targets that do not support that

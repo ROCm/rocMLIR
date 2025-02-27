@@ -31,29 +31,17 @@
 int main(int, char**) {
   using M = std::flat_map<int, int>;
 
-  TEST_LIBCPP_ASSERT_FAILURE(
-      ([] {
-        M m(std::sorted_unique, {2, 2, 3}, {4, 5, 6});
-      }()),
-      "Either the key container is not sorted or it contains duplicates");
+  TEST_LIBCPP_ASSERT_FAILURE(([] { M m(std::sorted_unique, {2, 2, 3}, {4, 5, 6}); }()),
+                             "Either the key container is not sorted or it contains duplicates");
 
-  TEST_LIBCPP_ASSERT_FAILURE(
-      ([] {
-        M m(std::sorted_unique, {4, 2, 3}, {4, 5, 6});
-      }()),
-      "Either the key container is not sorted or it contains duplicates");
+  TEST_LIBCPP_ASSERT_FAILURE(([] { M m(std::sorted_unique, {4, 2, 3}, {4, 5, 6}); }()),
+                             "Either the key container is not sorted or it contains duplicates");
 
-  TEST_LIBCPP_ASSERT_FAILURE(
-      ([] {
-        M m(std::sorted_unique, {2, 2, 3}, {4, 5, 6}, std::less<int>{});
-      }()),
-      "Either the key container is not sorted or it contains duplicates");
+  TEST_LIBCPP_ASSERT_FAILURE(([] { M m(std::sorted_unique, {2, 2, 3}, {4, 5, 6}, std::less<int>{}); }()),
+                             "Either the key container is not sorted or it contains duplicates");
 
-  TEST_LIBCPP_ASSERT_FAILURE(
-      ([] {
-        M m(std::sorted_unique, {4, 2, 3}, {4, 5, 6}, std::less<int>{});
-      }()),
-      "Either the key container is not sorted or it contains duplicates");
+  TEST_LIBCPP_ASSERT_FAILURE(([] { M m(std::sorted_unique, {4, 2, 3}, {4, 5, 6}, std::less<int>{}); }()),
+                             "Either the key container is not sorted or it contains duplicates");
 
   TEST_LIBCPP_ASSERT_FAILURE(
       ([] {

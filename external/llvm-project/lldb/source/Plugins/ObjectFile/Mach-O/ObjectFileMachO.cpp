@@ -4639,24 +4639,21 @@ void ObjectFileMachO::ParseSymtab(Symtab &symtab) {
             SectionSP symbol_section(symbol_addr.GetSection());
             uint32_t symbol_byte_size = 0;
             if (symbol_section) {
-                        const addr_t section_file_addr =
-                            symbol_section->GetFileAddress();
-                        const FunctionStarts::Entry *next_func_start_entry =
-                            function_starts.FindNextEntry(func_start_entry);
-                        const addr_t section_end_file_addr =
-                            section_file_addr + symbol_section->GetByteSize();
-                        if (next_func_start_entry) {
-                          addr_t next_symbol_file_addr =
-                              next_func_start_entry->addr;
-                          if (is_arm)
-                            next_symbol_file_addr &= THUMB_ADDRESS_BIT_MASK;
-                          symbol_byte_size = std::min<lldb::addr_t>(
-                              next_symbol_file_addr - symbol_file_addr,
-                              section_end_file_addr - symbol_file_addr);
-                        } else {
-                          symbol_byte_size =
-                              section_end_file_addr - symbol_file_addr;
-                        }
+              const addr_t section_file_addr = symbol_section->GetFileAddress();
+              const FunctionStarts::Entry *next_func_start_entry =
+                  function_starts.FindNextEntry(func_start_entry);
+              const addr_t section_end_file_addr =
+                  section_file_addr + symbol_section->GetByteSize();
+              if (next_func_start_entry) {
+                addr_t next_symbol_file_addr = next_func_start_entry->addr;
+                if (is_arm)
+                  next_symbol_file_addr &= THUMB_ADDRESS_BIT_MASK;
+                symbol_byte_size = std::min<lldb::addr_t>(
+                    next_symbol_file_addr - symbol_file_addr,
+                    section_end_file_addr - symbol_file_addr);
+              } else {
+                symbol_byte_size = section_end_file_addr - symbol_file_addr;
+              }
               sym[sym_idx].SetID(synthetic_sym_id++);
               // Don't set the name for any synthetic symbols, the Symbol
               // object will generate one if needed when the name is accessed

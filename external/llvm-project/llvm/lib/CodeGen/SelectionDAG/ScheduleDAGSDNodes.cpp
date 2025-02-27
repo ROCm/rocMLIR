@@ -736,7 +736,7 @@ void ScheduleDAGSDNodes::VerifyScheduledSequence(bool isBottomUp) {
 /// ProcessSDDbgValues - Process SDDbgValues associated with this node.
 static void
 ProcessSDDbgValues(SDNode *N, SelectionDAG *DAG, InstrEmitter &Emitter,
-                   SmallVectorImpl<std::pair<unsigned, MachineInstr *>> &Orders,
+                   SmallVectorImpl<std::pair<unsigned, MachineInstr*> > &Orders,
                    InstrEmitter::VRBaseMapType &VRBaseMap, unsigned Order) {
   if (!N->getHasDebugValue())
     return;
@@ -807,9 +807,9 @@ ProcessSourceNode(SDNode *N, SelectionDAG *DAG, InstrEmitter &Emitter,
   ProcessSDDbgValues(N, DAG, Emitter, Orders, VRBaseMap, Order);
 }
 
-void ScheduleDAGSDNodes::EmitPhysRegCopy(
-    SUnit *SU, SmallDenseMap<SUnit *, Register, 16> &VRBaseMap,
-    MachineBasicBlock::iterator InsertPos) {
+void ScheduleDAGSDNodes::
+EmitPhysRegCopy(SUnit *SU, SmallDenseMap<SUnit *, Register, 16> &VRBaseMap,
+                MachineBasicBlock::iterator InsertPos) {
   for (const SDep &Pred : SU->Preds) {
     if (Pred.isCtrl())
       continue; // ignore chain preds

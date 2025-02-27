@@ -366,7 +366,7 @@ private:
                                           int OpIdx) const;
 
   void renderDstSelToOpSel3XFormXForm(MachineInstrBuilder &MIB,
-                                      const MachineInstr &MI, int OpIdx) const;
+                                const MachineInstr &MI, int OpIdx) const;
 
   void renderNegateImm(MachineInstrBuilder &MIB, const MachineInstr &MI,
                        int OpIdx) const;

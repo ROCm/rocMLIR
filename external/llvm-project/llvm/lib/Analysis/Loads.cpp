@@ -98,7 +98,8 @@ static bool isDereferenceableAndAlignedPointer(
                                                     CheckForFreed)) ||
         CheckForFreed)
       return false;
-    if (CheckForNonNull && !isKnownNonZero(V, SimplifyQuery(DL, DT, AC, CtxI)))
+    if (CheckForNonNull &&
+        !isKnownNonZero(V, SimplifyQuery(DL, DT, AC, CtxI)))
       return false;
     // When using something like !dereferenceable on a load, the
     // dereferenceability may only be valid on a specific control-flow path.

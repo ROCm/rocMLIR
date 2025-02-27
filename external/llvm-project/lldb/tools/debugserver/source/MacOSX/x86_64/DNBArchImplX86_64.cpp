@@ -184,10 +184,10 @@ kern_return_t DNBArchImplX86_64::GetGPRState(bool force) {
 #else
     mach_msg_type_number_t count = e_regSetWordSizeGPRFull;
     int flavor = __x86_64_THREAD_FULL_STATE;
-    m_state.SetError(e_regSetGPR, Read,
-                     ::thread_get_state(m_thread->MachPortNumber(), flavor,
-                                        (thread_state_t)&m_state.context.gpr,
-                                        &count));
+    m_state.SetError(
+        e_regSetGPR, Read,
+        ::thread_get_state(m_thread->MachPortNumber(), flavor,
+                           (thread_state_t)&m_state.context.gpr, &count));
 
     if (!m_state.GetError(e_regSetGPR, Read)) {
       m_state.hasFullGPRState = true;
@@ -195,10 +195,10 @@ kern_return_t DNBArchImplX86_64::GetGPRState(bool force) {
       m_state.hasFullGPRState = false;
       count = e_regSetWordSizeGPR;
       flavor = __x86_64_THREAD_STATE;
-      m_state.SetError(e_regSetGPR, Read,
-                       ::thread_get_state(m_thread->MachPortNumber(), flavor,
-                                          (thread_state_t)&m_state.context.gpr,
-                                          &count));
+      m_state.SetError(
+          e_regSetGPR, Read,
+          ::thread_get_state(m_thread->MachPortNumber(), flavor,
+                             (thread_state_t)&m_state.context.gpr, &count));
     }
     DNBLogThreadedIf(
         LOG_THREAD,
@@ -212,20 +212,22 @@ kern_return_t DNBArchImplX86_64::GetGPRState(bool force) {
         "\n\t ds = %16.16llx  es = %16.16llx  ss = %16.16llx gsB = %16.16llx",
         m_thread->MachPortNumber(), flavor,
         m_state.hasFullGPRState ? "full" : "non-full",
-        m_state.hasFullGPRState ? e_regSetWordSizeGPRFull : e_regSetWordSizeGPR,
-        m_state.GetError(e_regSetGPR, Read), m_state.context.gpr.__rax,
-        m_state.context.gpr.__rbx, m_state.context.gpr.__rcx,
-        m_state.context.gpr.__rdx, m_state.context.gpr.__rdi,
-        m_state.context.gpr.__rsi, m_state.context.gpr.__rbp,
-        m_state.context.gpr.__rsp, m_state.context.gpr.__r8,
-        m_state.context.gpr.__r9, m_state.context.gpr.__r10,
-        m_state.context.gpr.__r11, m_state.context.gpr.__r12,
-        m_state.context.gpr.__r13, m_state.context.gpr.__r14,
-        m_state.context.gpr.__r15, m_state.context.gpr.__rip,
-        m_state.context.gpr.__rflags, m_state.context.gpr.__cs,
-        m_state.context.gpr.__fs, m_state.context.gpr.__gs,
-        m_state.context.gpr.__ds, m_state.context.gpr.__es,
-        m_state.context.gpr.__ss, m_state.context.gpr.__gsbase);
+        m_state.hasFullGPRState ? e_regSetWordSizeGPRFull
+                                : e_regSetWordSizeGPR,
+        m_state.GetError(e_regSetGPR, Read),
+        m_state.context.gpr.__rax, m_state.context.gpr.__rbx,
+        m_state.context.gpr.__rcx, m_state.context.gpr.__rdx,
+        m_state.context.gpr.__rdi, m_state.context.gpr.__rsi,
+        m_state.context.gpr.__rbp, m_state.context.gpr.__rsp,
+        m_state.context.gpr.__r8, m_state.context.gpr.__r9,
+        m_state.context.gpr.__r10, m_state.context.gpr.__r11,
+        m_state.context.gpr.__r12, m_state.context.gpr.__r13,
+        m_state.context.gpr.__r14, m_state.context.gpr.__r15,
+        m_state.context.gpr.__rip, m_state.context.gpr.__rflags,
+        m_state.context.gpr.__cs, m_state.context.gpr.__fs,
+        m_state.context.gpr.__gs, m_state.context.gpr.__ds,
+        m_state.context.gpr.__es, m_state.context.gpr.__ss,
+        m_state.context.gpr.__gsbase );
 
 //      DNBLogThreadedIf (LOG_THREAD, "thread_get_state(0x%4.4x, %u, &gpr, %u)
 //      => 0x%8.8x"
