@@ -406,3 +406,61 @@ func.func @rock_pipeline_4_stages_ii_1_f16(%input : memref<16xf16, #gpu.address_
     memref.store %out, %output[%c0] : memref<16xf16, #gpu.address_space<global>>
     return
 }
+
+// This test shouldn't pipeline the loop but it should add barriers and multibuffer by factor 1
+// CHECK-LABEL: rock_pipeline_4_stages_ii_1_f16_less_iterations
+func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>){
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2.0 : f16
+    %c2_0 = arith.constant 2 : index
+
+    %rawLds  = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
+    %reg0 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    %reg1 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    %reg2 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+
+    %lds = memref.view %rawLds[%c0][] : memref<32xi8, #gpu.address_space<workgroup>> to memref<16xf16, #gpu.address_space<workgroup>>
+    // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
+    // CHECK: %[[reg0:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    // CHECK: %[[reg1:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    // CHECK: %[[reg2:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+    // CHECK: %[[ldsView:.*]] = memref.view %[[rawLds]]
+    
+    // CHECK: scf.for
+      // CHECK: name = "S0"
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
+      // CHECK: name = "S1"
+      // CHECK: name = "__fwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
+      // CHECK: name = "S2"
+      // CHECK: name = "S3"
+    scf.for %arg3 = %c0 to %c2_0 step %c1 {
+      rock.stage {
+        %tmp = memref.load %input[%arg3] : memref<16xf16, #gpu.address_space<global>>
+        memref.store %tmp, %reg0[%arg3] : memref<16xf16, #gpu.address_space<private>>
+        rock.yield
+      }{name="S0"}
+      rock.stage {
+        %tmp = memref.load %reg0[%arg3] : memref<16xf16, #gpu.address_space<private>>
+        memref.store %tmp, %lds[%arg3] : memref<16xf16, #gpu.address_space<workgroup>>
+        rock.yield
+      }{name="S1"}
+      rock.stage {
+        %tmp = memref.load %lds[%arg3] : memref<16xf16, #gpu.address_space<workgroup>>
+        %comp = arith.addf %tmp, %c2 : f16
+        memref.store %tmp, %reg1[%arg3] : memref<16xf16, #gpu.address_space<private>>
+        rock.yield
+      }{name="S2"}
+      rock.stage {
+        %tmp = memref.load %reg1[%arg3] : memref<16xf16, #gpu.address_space<private>>
+        %comp = arith.addf %tmp, %c2 : f16
+        memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
+        rock.yield
+      }{name="S3"}
+    }{pipeline = #rock.pipeline<1>}
+
+    %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
+    memref.store %out, %output[%c0] : memref<16xf16, #gpu.address_space<global>>
+    return
+}
