@@ -589,7 +589,6 @@ void RockPipeline::runOnOperation() {
   // - Registers
   // - LDS
   DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
-  llvm::MapVector<scf::ForOp, ScheduleType> scheduleMap;
   for (auto res : multiAllocs)
     multiBufferFactors[res] = 1;
 
@@ -632,7 +631,7 @@ void RockPipeline::runOnOperation() {
     });
 
     if (stages.empty())
-      WalkResult::advance();
+      continue;
 
     LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
     LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
