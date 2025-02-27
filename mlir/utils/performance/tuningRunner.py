@@ -117,11 +117,15 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
         allData.append(entry)
         theseTFlops = entry['TFlops']
         ## verify that each perfConfig passes accuracy verification
-        if options.verifyMode != "none" and options.verifyPerfConfigs:
-            verifyNs = verifyKernelWithPerfConfig(perfConfig, config, paths, options)
-            if np.isnan(verifyNs):
-                # Verification failed, abort the loop
-                print(f"verification failed on : {testVector} : {perfConfig}", file=sys.stderr)
+        if options.verifyPerfConfigs:
+            if options.verifyMode == "None":
+                print(f"Use of `--verify-perf-configs` should happen in conjuction with `--verify-mode`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu` flag")
+                sys.exit()
+            else:
+                verifyNs = verifyKernelWithPerfConfig(perfConfig, config, paths, options)
+                if np.isnan(verifyNs):
+                    # Verification failed, abort the loop
+                    print(f"verification failed on : {testVector} : {perfConfig}", file=sys.stderr)
                 return None, None
 
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
@@ -314,7 +318,7 @@ def main(args=None):
     parser.add_argument("--verify-perf-configs",
         action='store_true',
         default=False,
-        help="Compile and verify given problem with all applicable perf configs")
+        help="Compile and verify given problem with all applicable perf configs. Whether it would use CPU or GPU based verification is controlled by `--verify-mode`. Should be used in conjunction with `--verify-mode`")
 
     parser.add_argument("--test_dir",
         default="../mlir/test/fusion/resnet50-e2e",
