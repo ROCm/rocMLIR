@@ -74,3 +74,4 @@ pythonenv*
 /.ccls-cache
 .ipynb_checkpoints
 /MIOpenDeps
+CMakePresets.json
