@@ -2570,37 +2570,33 @@ struct GridwiseGemmAccelRewritePattern
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(mLoop.getBody());
       Value i = mLoop.getInductionVar();
-
+      BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
+                                    loc);
+      regsBuilder.unmerge({"iidx", "k"}, {0, 1}, "mk",
+                          {mRepeats, kBasePerThread});
+      regsA = rock::transform(b, regsA, b.getArrayAttr({regsBuilder.get()}));
+      Value regsASlice = rock::createSliceOfFirstDim(b, loc, regsA, i);
+      Value viewA =
+          accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, regsASlice);
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(nLoop.getBody());
         Value j = nLoop.getInductionVar();
+        BottomUpTMBuilder regsBBuilder(b, {"nk"}, {nRepeats * kBasePerThread},
+                                       loc);
+        regsBBuilder.unmerge({"jidx", "k"}, {0, 1}, "nk",
+                             {nRepeats, kBasePerThread});
+        regsB = rock::transform(b, regsB, b.getArrayAttr({regsBBuilder.get()}));
 
+        Value regsBSlice = rock::createSliceOfFirstDim(b, loc, regsB, j);
+        Value viewB =
+            accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, regsBSlice);
         // regsC += regsA * regsB
         auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
         {
           OpBuilder::InsertionGuard guard(b);
           b.setInsertionPointToStart(kLoop.getBody());
-          BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
-                                        loc);
-          regsBuilder.unmerge({"iidx", "k"}, {0, 1}, "mk",
-                              {mRepeats, kBasePerThread});
-          regsA =
-              rock::transform(b, regsA, b.getArrayAttr({regsBuilder.get()}));
-          Value regsASlice = rock::createSliceOfFirstDim(b, loc, regsA, i);
-          Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
-              b, loc, regsASlice);
-          BottomUpTMBuilder regsBBuilder(b, {"nk"}, {nRepeats * kBasePerThread},
-                                         loc);
-          regsBBuilder.unmerge({"jidx", "k"}, {0, 1}, "nk",
-                               {nRepeats, kBasePerThread});
-          regsB =
-              rock::transform(b, regsB, b.getArrayAttr({regsBBuilder.get()}));
-
-          Value regsBSlice = rock::createSliceOfFirstDim(b, loc, regsB, j);
-          Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
-              b, loc, regsBSlice);
           Value viewC =
               accelEmitterPtr->generateThreadwiseViewBufferC(b, loc, regsC);
           Value k = kLoop.getInductionVar();
@@ -2644,19 +2640,10 @@ struct GridwiseGemmAccelRewritePattern
                                  {blockSize, ldsAShape[1] * ldsAShape[2]}, loc);
       mkBuilder.passThrough("tid");
       mkBuilder.merge({"m", "k"}, {1, 2}, "mk", {ldsAShape[1], ldsAShape[2]});
-      auto [ldsBufferA, ldsTransformsA, ignoreA] = rock::untransform(b, ldsA);
-      ldsTransformsA = rock::prependUpperViews(
-          b, b.getArrayAttr({mkBuilder.get()}), ldsTransformsA);
-      ldsA = rock::transform(b, ldsBufferA, ldsTransformsA);
+      ldsA = rock::transform(b, ldsA, b.getArrayAttr({mkBuilder.get()}));
       b.create<ThreadwiseReadIntoOp>(loc, ldsA, regsA, b.getArrayAttr({}),
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
-      // BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
-      //                               loc);
-      // regsBuilder.unmerge({"iidx", "k"}, {0, 1}, "mk",
-      //                     {mRepeats, kBasePerThread});
-      // regsA = rock::transform(b, regsA,
-      // b.getArrayAttr({regsBuilder.get()}));
     }
 
     // Read from LDS buffer for B
@@ -2668,20 +2655,10 @@ struct GridwiseGemmAccelRewritePattern
                                  {blockSize, ldsBShape[1] * ldsBShape[2]}, loc);
       nkBuilder.passThrough("tid");
       nkBuilder.merge({"n", "k"}, {1, 2}, "nk", {ldsBShape[1], ldsBShape[2]});
-
-      auto [ldsBufferB, ldsTransformsB, ignoreB] = rock::untransform(b, ldsB);
-      ldsTransformsB = rock::prependUpperViews(
-          b, b.getArrayAttr({nkBuilder.get()}), ldsTransformsB);
-      ldsB = rock::transform(b, ldsBufferB, ldsTransformsB);
+      ldsB = rock::transform(b, ldsB, b.getArrayAttr({nkBuilder.get()}));
       b.create<ThreadwiseReadIntoOp>(loc, ldsB, regsB, b.getArrayAttr({}),
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
-      // BottomUpTMBuilder regsBuilder(b, {"nk"}, {nRepeats * kBasePerThread},
-      //                               loc);
-      // regsBuilder.unmerge({"jidx", "k"}, {0, 1}, "nk",
-      //                     {nRepeats, kBasePerThread});
-      // regsB = rock::transform(b, regsB,
-      // b.getArrayAttr({regsBuilder.get()}));
     }
   }
 
