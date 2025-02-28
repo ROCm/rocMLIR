@@ -561,6 +561,26 @@ SmallVector<scf::ForOp> collectLoopLevels(mlir::func::FuncOp func) {
   return loops;
 }
 
+void adjustInitiationInterval(int64_t numIterations, size_t numStages,
+                              int64_t &ii) {
+  int64_t numParallelStages = llvm::divideCeil(numStages, ii);
+  // calculate number of prologue executions
+  int64_t numPrologues = numParallelStages - 1;
+  // if number of iterations are less than number of prologues that are going
+  // to be emitted, it will not result in correct output therefore increase II
+  // untill that condition becomes false. This can help achieve maximum loop
+  // pipelining
+  while (numIterations < numPrologues) {
+    ii++;
+    LLVM_DEBUG(DBGS() << "Adjusted II to  " << ii << "\n");
+    numParallelStages = llvm::divideCeil(numStages, ii);
+    numPrologues = numParallelStages - 1;
+  }
+  LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
+                    << "\n");
+  LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
+}
+
 struct RockPipeline : public rock::impl::RockPipelinePassBase<RockPipeline> {
   using rock::impl::RockPipelinePassBase<RockPipeline>::RockPipelinePassBase;
   void runOnOperation() override;
@@ -647,12 +667,6 @@ void RockPipeline::runOnOperation() {
     LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
     LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
     size_t numStages = stages.size();
-    size_t numParallelStages = llvm::divideCeil(numStages, ii);
-    // calculate number of prologue executions
-    size_t numPrologues = numParallelStages - 1;
-    LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
-                      << "\n");
-    LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
     auto maybeNumIterations =
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
     assert(isConstantIntValue(forOp.getStep(), 1) &&
@@ -660,13 +674,7 @@ void RockPipeline::runOnOperation() {
     if (!maybeNumIterations.has_value()) {
       continue;
     }
-    // if number of iterations are less than number of prologues that are going
-    // to be emitted, it will not result in correct output therefore do not do
-    // any loop pipelining this is achieved by setting II=numStages as we still
-    // want to correctly place forward and backward barriers
-    if (size_t(maybeNumIterations.value()) < numPrologues) {
-      ii = numStages;
-    }
+    adjustInitiationInterval(maybeNumIterations.value(), numStages, ii);
 
     // Insert the barriers as new stages
     SmallVector<rock::StageOp> extendedStages;
