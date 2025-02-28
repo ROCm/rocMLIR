@@ -396,7 +396,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 // Prune a dependency graph taking into account multi-buffers. Since
 // multi-buffers are logically different for each iteration, if the dependency
 // on a multi-buffer spans multiple iteration then it can be pruned
-DagType pruneGraph(const DagType& dag) {
+DagType pruneGraph(const DagType &dag) {
   DagType prunedGraph;
   // Multibuffers have the logical property of being unique for each iteration
   // of the loop Hence, if we know we are dealing with a multi-buffer and the
