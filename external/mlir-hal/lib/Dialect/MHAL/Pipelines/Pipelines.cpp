@@ -125,7 +125,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   // Narrow type emulation can generate new affine appli ops
   funcPm1.addPass(createLowerAffinePass());
 
-  funcPm1.addPass(createConvertSCFToCFPass());
+  funcPm1.addPass(createSCFToControlFlowPass());
 
   // Make gpu ops async if they didn't come from the async world
   pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
