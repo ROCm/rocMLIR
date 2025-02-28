@@ -26,12 +26,12 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
-#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/SetOperations.h"
+#include "llvm/Support/MathExtras.h"
 
 #include <algorithm>
 #include <map>
@@ -103,11 +103,11 @@ AddressSpace getAddressSpace(MemrefTypedValue val) {
 MemoryAccessType getOperandAccessType(Operation *op, Value operand) {
   if (hasEffect<MemoryEffects::Write>(op, operand)) {
     return MemoryAccessType::WRITE;
-  } else if (hasEffect<MemoryEffects::Read>(op, operand)) {
-    return MemoryAccessType::READ;
-  } else {
-    return MemoryAccessType::UNKNOWN;
   }
+  if (hasEffect<MemoryEffects::Read>(op, operand)) {
+    return MemoryAccessType::READ;
+  }
+  return MemoryAccessType::UNKNOWN;
 }
 
 // Simple rewrite pass to remove the stages and backward barriers in the
@@ -202,28 +202,13 @@ DagType createDependencyGraph(ArrayRef<rock::StageOp> stages,
   // the only type of resource is memory
   for (auto stage : stages) {
     stage.walk([&](Operation *op) {
-      LLVM_DEBUG(DBGS() << "walking\n");
-      LLVM_DEBUG(DBGS() << "=================\n");
-      // op->dump();
       for (Value operand : op->getOperands()) {
-        LLVM_DEBUG(DBGS() << "=======Operand====\n");
-        // operand.dump();
-
         MemoryAccessType accessType = getOperandAccessType(op, operand);
-        LLVM_DEBUG(DBGS() << "has memory access : " << int(accessType) << "\n");
         auto maybeAlloc = rock::findGpuAlloc(operand);
-        if (failed(maybeAlloc)) {
-          LLVM_DEBUG(DBGS() << "couldn't find alloc\n");
-        } else {
-          LLVM_DEBUG(DBGS() << "Alloc is: \n");
-          // maybeAlloc->dump();
-        }
         if (accessType != MemoryAccessType::UNKNOWN && succeeded(maybeAlloc) &&
             allocs.contains(*maybeAlloc)) {
           resourceMap[stage][*maybeAlloc] = accessType;
           resourceMapR[*maybeAlloc][stage] = accessType;
-        } else {
-          LLVM_DEBUG(DBGS() << "not in allocs\n");
         }
       }
     });
@@ -256,11 +241,7 @@ getDependencies(rock::StageOp stage0, rock::StageOp stage1, DagType &dag) {
       for (auto dep : dag[stage0][stage1]) {
         dependencies.insert(dep);
       }
-    } else {
-      LLVM_DEBUG(DBGS() << "no dependency\n");
     }
-  } else {
-    LLVM_DEBUG(DBGS() << "no dependecy stage\n");
   }
   return dependencies;
 }
@@ -273,11 +254,13 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   // Create the dependency graph
   DagType dag = createDependencyGraph(stages, resources);
 
-  // Start building the schedules
-  //
-  // Since we accept the stages from the user, we don't need to do any
-  // analysis to determine what goes in each stage. We only have to group things
-  // in set of stages of length II.
+  // Definition of initiation interval (II)
+  // Initiation interval is defind by number of cycles in each iteration of a
+  // loop. Only one cycle is counted for parallel stages. Assume each stage
+  // executes in one cycle. Start building the schedules Since we accept the
+  // stages from the user, we don't need to do any analysis to determine what
+  // goes in each stage. We only have to group things in set of stages of length
+  // II.
   //  For instance, consider the following unpipelined schedule. The column `t`
   //  represents
   // the time slot, and the subsequent columns represents the iterations.
@@ -302,7 +285,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   //  +===+=========+
   // In this case, we reduced the time slots to 3, and we have 2 set of stages
   // runnning in parallel. Please note that conflicts can only happen between S0
-  // and S3. If we increase II, we generate the following pipeline:
+  // and S3. If we decrease II, we generate the following pipeline:
   //  +t\i+=== 0 ===++=== 1 ===+
   //  + 0 +== S0  ==++== S2  ==+
   //  +===+=========++=========+
@@ -321,11 +304,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // The following stages will run in parallel, but each
     // stage needs to start at the right iteration
     SmallVector<rock::StageOp> parallelStages;
-    LLVM_DEBUG(DBGS() << "Parallel stages with iterations are \n");
     for (size_t j = t; j < stages.size(); j += ii) {
-      LLVM_DEBUG(DBGS() << "iteration : " << iteration << "\n");
-      LLVM_DEBUG(DBGS() << "stages[j]\n");
-      // stages[j].dump();
       stageIter[stages[j]] = iteration++;
       parallelStages.push_back(stages[j]);
     }
@@ -350,20 +329,13 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // Go through the stages and take note of the possible swap candidates
     for (size_t i = 0; i < parallelStages.size(); i++) {
       for (size_t j = i + 1; j < parallelStages.size(); j++) {
-        LLVM_DEBUG(DBGS() << "analyzing parallel stages pair\n");
-        // parallelStages[i].dump();
-        // parallelStages[j].dump();
         auto dependencies =
             getDependencies(parallelStages[i], parallelStages[j], dag);
         // Select all register dependencies
         SmallVector<DependencyType> privateDependencyTypes;
-        for (auto [res, type] : dependencies) {
-          LLVM_DEBUG(DBGS() << "type: " << int(type.first) << int(type.second)
-                            << "\n");
+        for (auto [res, type] : dependencies)
           if (getAddressSpace(res) == AddressSpace::Private)
             privateDependencyTypes.push_back(type);
-        }
-
         // If there are no register dependencies, don't bother
         if (privateDependencyTypes.empty())
           continue;
@@ -381,13 +353,8 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // Swap only pairs. If there are more intricate dependency
     // patterns just use multibuffers, since it is safer.
     for (auto [source, sinks] : swapCandidates) {
-      LLVM_DEBUG(DBGS() << "swap candidates\n");
       bool singleSink = (sinks.size() == 1);
       bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
-      LLVM_DEBUG(DBGS() << "source : " << source << "\n");
-      for (auto i : sinks) {
-        LLVM_DEBUG(DBGS() << "sink : " << i << "\n");
-      }
       // Found a pair, now swap it
       if (singleSink && singleSource) {
         int sink = sinks.back();
@@ -399,7 +366,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 
     // Whatever resource is shared, we need to select among multiple buffers.
     for (size_t i = 0; i < parallelStages.size(); i++) {
-      // The only resource that can conflict btween different stages is memory
+      // The only resource that can conflict between different stages is memory
       // If there are memory conflicts we can sort them via multibuffers. I.e.,
       // we can (logically) provide a different buffer for different cycles
       for (size_t j = i + 1; j < parallelStages.size(); j++) {
@@ -421,7 +388,7 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 
     // Add the parallel stages
     for (auto stage : parallelStages) {
-      schedule.push_back({stage, stageIter[stage]});
+      schedule.emplace_back(stage, stageIter[stage]);
     }
   }
 }
@@ -429,15 +396,15 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
 // Prune a dependency graph taking into account multi-buffers. Since
 // multi-buffers are logically different for each iteration, if the dependency
 // on a multi-buffer spans multiple iteration then it can be pruned
-DagType pruneGraph(DagType dag) {
+DagType pruneGraph(const DagType &dag) {
   DagType prunedGraph;
   // Multibuffers have the logical property of being unique for each iteration
   // of the loop Hence, if we know we are dealing with a multi-buffer and the
   // dependency concerns two different iteration. In other words, if stageA
   // accesses LDS in iteration i and stageB accesses LDS in iteration j stageA
   // and stageB have no dependencies as long as i!=j
-  for (auto [sink, edges] : dag) {
-    for (auto [source, deps] : edges) {
+  for (auto [source, edges] : dag) {
+    for (auto [sink, deps] : edges) {
       DenseSet<std::pair<rock::GpuAllocOp, DependencyType>> newDeps;
       for (auto [alloc, type] : deps) {
         if (getAddressSpace(alloc) != gpu::AddressSpace::Workgroup)
@@ -445,7 +412,7 @@ DagType pruneGraph(DagType dag) {
         newDeps.insert({alloc, type});
       }
       if (!newDeps.empty())
-        prunedGraph[sink][source] = newDeps;
+        prunedGraph[source][sink] = newDeps;
     }
   }
   return prunedGraph;
@@ -497,7 +464,7 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
     timeSlot++;
   }
 
-  // Algorithm for barrier placment:
+  // Algorithm for barrier placement:
   // a. Add forward barriers to address the dependency in the basic block
   // b. Add backward barriers to account for loop carried dependency
   // c. Add empty stages to make the pipeline balanced, so that we can double up
@@ -613,13 +580,14 @@ void RockPipeline::runOnOperation() {
 
   // Always (try to) multi-buffer by one and store the new
   // allocs in a set
+  // multiBuffering is only happening on LDS Buffers as "multiBuffer" checks for
+  // "i8" dtype store multibuffers in "multiAllocs" store all buffers including
+  // private and global in "resources"
   llvm::SetVector<rock::GpuAllocOp> multiAllocs;
   llvm::SetVector<rock::GpuAllocOp> resources;
   for (auto alloc : singleAllocs) {
     SmallVector<rock::GpuAllocOp> newAllocs;
     if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true))) {
-      LLVM_DEBUG(DBGS() << "Multialloc is :\n");
-      // newAllocs.back().dump();
       multiAllocs.insert(newAllocs.back());
       resources.insert(newAllocs.back());
     } else {
@@ -632,7 +600,6 @@ void RockPipeline::runOnOperation() {
   // - Registers
   // - LDS
   DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
-  llvm::MapVector<scf::ForOp, ScheduleType> scheduleMap;
   for (auto res : multiAllocs)
     multiBufferFactors[res] = 1;
 
@@ -675,33 +642,43 @@ void RockPipeline::runOnOperation() {
     });
 
     if (stages.empty())
-      WalkResult::advance();
+      continue;
 
     LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
     LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
-
-    // Insert the barriers as new stages
-    SmallVector<rock::StageOp> extendedStages;
-    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
-                  ii);
-    LLVM_DEBUG(DBGS() << "After placing barriers\n");
-    // forOp.dump();
-    ScheduleType schedule;
-    createSchedule(extendedStages, resources, ii, schedule, multiBufferFactors);
-    LLVM_DEBUG(DBGS() << "Dumping schedule now\n");
-    for (const auto &[op, t] : schedule) {
-      // LLVM_DEBUG(DBGS(), op->dump());
-      LLVM_DEBUG(DBGS() << "happens at time slot t: " << t << "\n");
-    }
-
+    size_t numStages = stages.size();
+    size_t numParallelStages = llvm::divideCeil(numStages, ii);
+    // calculate number of prologue executions
+    size_t numPrologues = numParallelStages - 1;
+    LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
+                      << "\n");
+    LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
     auto maybeNumIterations =
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
+    assert(isConstantIntValue(forOp.getStep(), 1) &&
+           "Step size other one is not permitted in rock-pipeline");
     if (!maybeNumIterations.has_value()) {
       continue;
     }
-    if (maybeNumIterations.value() < stages.size()) {
-      continue;
+    // if number of iterations are less than number of prologues that are going
+    // to be emitted, it will not result in correct output therefore do not do
+    // any loop pipelining this is achieved by setting II=numStages as we still
+    // want to correctly place forward and backward barriers
+    if (size_t(maybeNumIterations.value()) < numPrologues) {
+      ii = numStages;
     }
+
+    // Insert the barriers as new stages
+    SmallVector<rock::StageOp> extendedStages;
+    // use "multiAllocs" to place LDS barriers, no need to explicitly place
+    // barriers for registers or globals
+    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
+                  ii);
+
+    ScheduleType schedule;
+    // use all "resources" to generate dependency graph and generate schedule
+    createSchedule(extendedStages, resources, ii, schedule, multiBufferFactors);
+
     RewritePatternSet patterns(&getContext());
     mlir::scf::PipeliningOption options;
     options.getScheduleFn = [&](scf::ForOp curFurOp, ScheduleType &sched) {
@@ -711,7 +688,6 @@ void RockPipeline::runOnOperation() {
 
     scf::populateSCFLoopPipeliningPatterns(patterns, options);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
-    LLVM_DEBUG(DBGS() << "After calling to pipeliner\n");
   }
 
   // Remulti-buffer(if needed). Now we know what all the loops need, hence
