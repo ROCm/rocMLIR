@@ -15,8 +15,10 @@ def get_arch_features(arch: str):
     major = chip_name[:-2]
     minor = chip_name[-2:]
     if major == 'gfx9':
-        if minor in ['08', '0a', '40', '41', '42', '50']:
+        if minor in ['08', '0a', '40', '41', '42']:
             arch_features = 'mfma|dot|atomic_add|atomic_add_f16'
+        elif minor == '50':
+            arch_features = 'mfma|dot|atomic_add|atomic_add_f16|atomic_add_bf16'
         elif minor == '06':
             arch_features = 'dot'
         else:
@@ -31,7 +33,7 @@ def get_arch_features(arch: str):
     elif major == 'gfx11':
         arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
     elif major == 'gfx12':
-        arch_features = 'dot|atomic_add|atomic_add_f16|atomic_fmax_f32|wmma'
+        arch_features = 'dot|atomic_add|atomic_add_f16|atomic_add_bf16|atomic_fmax_f32|wmma'
     if arch_features and 'mfma' in arch_features:
         support_mfma = True
         pass

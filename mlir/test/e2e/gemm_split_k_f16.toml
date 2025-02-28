@@ -1,6 +1,6 @@
 directory = "gemm_split_k_f16"
 prefix = "rocmlir-gen"
-suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+suffix = "--operation gemm -t f16 --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
 name = "splitKFactor"
@@ -11,11 +11,6 @@ values = ["v2:64,64,16,32,32,4,1,1,1",
           "v2:64,64,16,32,32,4,5,1,1",
           "v2:64,64,16,32,32,4,6,1,1"]
 prefix = "-perf_config="
-
-[[axis]]
-name = "data type"
-values = ["f16"]
-prefix = "-t "
 
 ## Gemm variants
 [[suite]]

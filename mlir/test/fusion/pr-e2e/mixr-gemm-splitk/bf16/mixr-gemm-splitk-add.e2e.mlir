@@ -7,10 +7,9 @@ module {
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
 
-  func.func @dot_splitk_add_trunc(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x5x3xf16, 15x3x1> attributes{arch = "##TOKEN_ARCH##", enable_splitk_for_tuning, kernel = "mixr"} {
-    %0 = migraphx.dot %arg0, %arg1 {perf_config="v2:16,32,4,16,16,4,4,1,1"} : <1x5x4xf32, 20x4x1>, <1x4x3xf32, 12x3x1> -> <1x5x3xf32, 15x3x1>
-    %2 = migraphx.add %0, %arg2 {} : <1x5x3xf32, 15x3x1>, <1x5x3xf32, 15x3x1> -> <1x5x3xf32, 15x3x1>
-    %3 = migraphx.convert %2 : <1x5x3xf32, 15x3x1> to <1x5x3xf16, 15x3x1>
-    return %3 : !migraphx.shaped<1x5x3xf16, 15x3x1>
+  func.func @dot_splitk_add_trunc(%arg0: !migraphx.shaped<1x5x4xbf16, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xbf16, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xbf16, 15x3x1>) -> !migraphx.shaped<1x5x3xbf16, 15x3x1> attributes{arch = "##TOKEN_ARCH##", enable_splitk_for_tuning, kernel = "mixr"} {
+    %0 = migraphx.dot %arg0, %arg1 {perf_config="v2:16,32,4,16,16,4,4,1,1"} : <1x5x4xbf16, 20x4x1>, <1x4x3xbf16, 12x3x1> -> <1x5x3xbf16, 15x3x1>
+    %2 = migraphx.add %0, %arg2 {} : <1x5x3xbf16, 15x3x1>, <1x5x3xbf16, 15x3x1> -> <1x5x3xbf16, 15x3x1>
+    return %2 : !migraphx.shaped<1x5x3xbf16, 15x3x1>
   }
 }

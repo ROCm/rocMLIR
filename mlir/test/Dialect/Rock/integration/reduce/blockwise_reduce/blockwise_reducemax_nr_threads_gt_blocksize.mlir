@@ -15,13 +15,15 @@
 func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input : memref<1x20x160xf32>,  %output : memref<1x1x160xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
   %input_reg = rock.alloc() : memref<20xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<20xf32, #gpu.address_space<private>>
-  %ws_lds = rock.alloc() : memref<400xf32, #gpu.address_space<workgroup>>
+  %ws_lds_bytes = rock.alloc() : memref<1600xi8, #gpu.address_space<workgroup>>
+  %c0 = arith.constant 0 : index
+  %ws_lds = memref.view %ws_lds_bytes[%c0][] : memref<1600xi8, #gpu.address_space<workgroup>> to memref<400xf32, #gpu.address_space<workgroup>>
   %bid = rock.workgroup_id : index
   %tid = rock.workitem_id : index
   rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map2, #transform_map1, #transform_map0](%input)[%bid, %tid] -> %input_reg : memref<1x20x160xf32> ->  memref<20xf32, #gpu.address_space<private>>
   rock.blockwise_broadcast_reduce max [#transform_map5][#transform_map5_tid][#transform_map5_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32} : memref<20xf32, #gpu.address_space<private>> using memref<400xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>
-  rock.dealloc %ws_lds : memref<400xf32, #gpu.address_space<workgroup>>
+  rock.dealloc %ws_lds_bytes : memref<1600xi8, #gpu.address_space<workgroup>>
   rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map3](%output)[%bid, %tid] by set : memref<20xf32, #gpu.address_space<private>> -> memref<1x1x160xf32>
   return
 }

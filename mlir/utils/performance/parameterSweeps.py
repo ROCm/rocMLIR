@@ -457,9 +457,12 @@ def main() -> bool:
     codepath = args.codepath
     rocmlir_gen_flags = []
     if codepath not in supported_codepath:
-        if 'gfx908' in arch or 'gfx90a' in arch or 'gfx94' in arch or 'gfx95' in arch:
+        if 'gfx908' in arch or 'gfx90a' in arch or 'gfx94' in arch:
             codepath = 'mfma'
             rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
+        elif 'gfx95' in arch:
+            codepath = 'mfma'
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on', '-atomic_add_bf16=on']
         elif 'gfx906' in arch:
             codepath = 'vanilla'
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
@@ -472,7 +475,7 @@ def main() -> bool:
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
         elif 'gfx12' in arch:
             codepath = 'wmma'
-            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer', '-atomic_add_f16=on']
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer', '-atomic_add_f16=on', '-atomic_add_bf16=on']
         else:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)
