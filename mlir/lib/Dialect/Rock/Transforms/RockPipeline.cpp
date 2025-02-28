@@ -646,13 +646,13 @@ void RockPipeline::runOnOperation() {
 
     LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
     LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
-
-    // Insert the barriers as new stages
-    SmallVector<rock::StageOp> extendedStages;
-    // use "multiAllocs" to place LDS barriers, no need to explicitly place
-    // barriers for registers or globals
-    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
-                  ii);
+    size_t numStages = stages.size();
+    size_t numParallelStages = llvm::divideCeil(numStages, ii);
+    // calculate number of prologue executions
+    size_t numPrologues = numParallelStages - 1;
+    LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
+                      << "\n");
+    LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
     auto maybeNumIterations =
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
     assert(isConstantIntValue(forOp.getStep(), 1) &&
@@ -660,19 +660,20 @@ void RockPipeline::runOnOperation() {
     if (!maybeNumIterations.has_value()) {
       continue;
     }
-    size_t numParallelStages = llvm::divideCeil(extendedStages.size(), ii);
-    // calculate number of prologue executions
-    size_t numPrologues = numParallelStages - 1;
-    LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
-                      << "\n");
-    LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
-
     // if number of iterations are less than number of prologues that are going
-    // to be emitted, it will not result in correct output therefore abort
-    // pipelining in such cases.
+    // to be emitted, it will not result in correct output therefore do not do
+    // any loop pipelining this is achieved by setting II=numStages as we still
+    // want to correctly place forward and backward barriers
     if (size_t(maybeNumIterations.value()) < numPrologues) {
-      continue;
+      ii = numStages;
     }
+
+    // Insert the barriers as new stages
+    SmallVector<rock::StageOp> extendedStages;
+    // use "multiAllocs" to place LDS barriers, no need to explicitly place
+    // barriers for registers or globals
+    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
+                  ii);
 
     ScheduleType schedule;
     // use all "resources" to generate dependency graph and generate schedule

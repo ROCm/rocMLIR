@@ -483,6 +483,7 @@ func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations(%input : memref<16xf1
     // CHECK: %[[ldsView:.*]] = memref.view %[[rawLds]]
     
     // CHECK: scf.for
+      // CHECK: name = "__bwd_barrier__"
       // CHECK: name = "S0"
       // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK: name = "S1"
