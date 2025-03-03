@@ -148,7 +148,6 @@ void registerTestSPIRVFuncSignatureConversion();
 void registerTestSPIRVVectorUnrolling();
 void registerTestTensorCopyInsertionPass();
 void registerTestTensorTransforms();
-void registerTestTosaPartitionOptionsPass();
 void registerTestTopologicalSortAnalysisPass();
 void registerTestTransformDialectEraseSchedulePass();
 void registerTestPassStateExtensionCommunication();
@@ -288,7 +287,6 @@ void registerTestPasses() {
   mlir::test::registerTestSPIRVVectorUnrolling();
   mlir::test::registerTestTensorCopyInsertionPass();
   mlir::test::registerTestTensorTransforms();
-  mlir::test::registerTestTosaPartitionOptionsPass();
   mlir::test::registerTestTopologicalSortAnalysisPass();
   mlir::test::registerTestTransformDialectEraseSchedulePass();
   mlir::test::registerTestPassStateExtensionCommunication();
