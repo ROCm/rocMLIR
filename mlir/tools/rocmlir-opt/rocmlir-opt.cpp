@@ -27,6 +27,9 @@ void registerBufferDependencyAnalysisTestPass();
 void registerFusibilityTestPass();
 void registerTransformMapsUtilsTestPass();
 } // end namespace rock
+namespace mhal {
+void registerTestMHALTosaPartitionOptionsPass();
+} // end namespace mhal
 } // end namespace mlir
 
 #ifdef MLIR_INCLUDE_TESTS
@@ -38,6 +41,9 @@ void registerRockTestPasses() {
   rock::registerFusibilityTestPass();
   rock::registerTransformMapsUtilsTestPass();
 }
+void registerMHALTestPasses() {
+  mhal::registerTestMHALTosaPartitionOptionsPass();
+}
 #endif
 
 int main(int argc, char **argv) {
@@ -45,6 +51,7 @@ int main(int argc, char **argv) {
 
 #ifdef MLIR_INCLUDE_TESTS
   registerRockTestPasses();
+  registerMHALTestPasses();
 #endif
 
   DialectRegistry registry;
