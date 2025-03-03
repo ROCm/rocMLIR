@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRMHALTransforms
   SelectTargets.cpp
   TargetKernels.cpp
   Prefill.cpp
+  TosaPartition.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MHAL
@@ -30,4 +31,5 @@ add_mlir_dialect_library(MLIRMHALTransforms
   MLIRLLVMDialect
   MLIRSupport
   MLIRTransformUtils
+  MLIRTosaDialect
 )

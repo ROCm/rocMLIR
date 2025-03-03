@@ -73,4 +73,26 @@ def MHALDropBinaryMetadataPass : Pass<"mhal-drop-binary-metadata", "ModuleOp"> {
   let summary = "drops all metadata stored in GPU binaries";
 }
 
+def MHALTosaPartition : Pass<"mhal-tosa-partition", "ModuleOp"> {
+  let summary = "Outline TOSA Conv2D ops and adjacent element-wise ops";
+  let description = [{
+    Outline kernels of tosa::Conv2D and surrounding elementwise ops.
+  }];
+
+  let options = [
+    ListOption<"anchorOps", "anchor-ops", "std::string",
+               "One or more operations to be used as focus of partitioned "
+               "kernels",
+               "llvm::cl::ZeroOrMore">,
+    ListOption<"terminalOps", "terminal-ops", "std::string",
+               "One or more operations that terminal a fusion chain",
+               "llvm::cl::ZeroOrMore">,
+    Option<"partitionTagOpt", "partition-tag", "std::string",
+           /*default=*/"\"kernel\"", "Attribute for outlined functions">,
+    Option<"trailingOnly", "trailing-only", "bool", /*default=*/"true",
+           "Don't gather ops ahead of anchor op">
+  ];
+  let dependentDialects = ["tosa::TosaDialect"];
+}
+
 #endif // MLIR_DIALECT_MHAL_PASSES
