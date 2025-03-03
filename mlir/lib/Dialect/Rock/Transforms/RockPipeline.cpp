@@ -473,8 +473,8 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
   DenseSet<rock::StageOp> forwardStages;
 
   // a. Place forward barriers
-  for (auto [source, edges] : dag) {
-    for (auto [sink, deps] : edges) {
+  for (const auto &[source, edges] : dag) {
+    for (const auto &[sink, deps] : edges) {
       if (!forwardStages.contains(sink)) {
         forwardStages.insert(sink);
       }

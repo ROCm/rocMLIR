@@ -481,16 +481,21 @@ func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations(%input : memref<16xf1
     // CHECK: %[[reg1:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
     // CHECK: %[[reg2:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
     // CHECK: %[[ldsView:.*]] = memref.view %[[rawLds]]
-    
+    // CHECK: name = "S0" 
+    // CHECK: name = "__bwd_barrier__"
+    // CHECK: name = "S1"
     // CHECK: scf.for
-      // CHECK: name = "__bwd_barrier__"
+      // CHECK: name = "__fwd_barrier__"
       // CHECK: name = "S0"
       // CHECK: rock.extract_multibuffer(%[[ldsView]])
-      // CHECK: name = "S1"
-      // CHECK: name = "__fwd_barrier__"
-      // CHECK: rock.extract_multibuffer(%[[ldsView]])
       // CHECK: name = "S2"
+      // CHECK: name = "__bwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[ldsView]])
+      // CHECK: name = "S1"
       // CHECK: name = "S3"
+    // CHECK: name = "__fwd_barrier__"
+    // CHECK: name = "S2"
+    // CHECK: name = "S3"
     scf.for %arg3 = %c0 to %c2_0 step %c1 {
       rock.stage {
         %tmp = memref.load %input[%arg3] : memref<16xf16, #gpu.address_space<global>>
