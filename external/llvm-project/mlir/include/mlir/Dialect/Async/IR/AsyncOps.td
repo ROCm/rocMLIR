@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/Async/IR/AsyncDialect.td"
 include "mlir/Dialect/Async/IR/AsyncTypes.td"
+include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -245,6 +246,10 @@ def Async_CallOp : Async_Op<"call",
 
     /// Get the argument operands to the called function.
     operand_range getArgOperands() {
+      return {arg_operand_begin(), arg_operand_end()};
+    }
+    
+    operand_range getCallOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
 

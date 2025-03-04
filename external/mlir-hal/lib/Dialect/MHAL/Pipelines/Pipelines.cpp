@@ -140,7 +140,7 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   funcPm2.addPass(createArithToLLVMConversionPass());
   funcPm2.addPass(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
-  pm.addPass(createConvertVectorToLLVMPass());
+  pm.addPass(createConvertVectorToLLVMPass(ConvertVectorToLLVMPassOptions{}));
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
 
   pm.addPass(createAsyncToAsyncRuntimePass());
@@ -169,11 +169,6 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 //===----------------------------------------------------------------------===//
 
 void mhal::registerPipelines() {
-  PassPipelineRegistration<mhal::GraphOptions>(
-      "mhal-graph-pipeline",
-      "The MHAL graph pipeline optimizes and partitions TOSA dataflow "
-      "graphs.",
-      buildGraphPipeline);
   PassPipelineRegistration<mhal::PackageOptions>(
       "mhal-package-pipeline",
       "The MHAL package pipeline collects implementations and applies them"
