@@ -1,6 +1,5 @@
 // RUN: rocmlir-opt %s --rock-pipeline="rock-pipeline-remove-stages=false" | FileCheck %s
 
-
 // CHECK-LABEL: rock_pipeline_3_stages_ii_1
 func.func @rock_pipeline_3_stages_ii_1(%input : memref<16xi8, #gpu.address_space<global>>, %output : memref<16xi8, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index
@@ -295,16 +294,18 @@ func.func @rock_pipeline_4_stages_ii_2(%input : memref<16xi8, #gpu.address_space
     // CHECK: %[[lds0View:.*]] = memref.view %[[rawLds0]]
     // CHECK: %[[lds1View:.*]] = memref.view %[[rawLds1]]
     // CHECK: memref.view %[[rawReg]]
-
+    // CHECK: name = "__bwd_barrier__"
     // CHECK: name = "S0"
     // CHECK: name = "__fwd_barrier__"
     // CHECK: name = "S1"
     // CHECK: scf.for
+      // CHECK: name = "__bwd_barrier__"
       // CHECK: name = "__fwd_barrier__"
       // CHECK:  rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])
       // CHECK: name = "S0"
       // CHECK:  rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])
       // CHECK: name = "S2"
+      // CHECK: name = "__fwd_barrier__"
       // CHECK: name = "__fwd_barrier__"
       // CHECK: name = "S1"
       // CHECK:  rock.extract_multibuffer(%[[lds0View]], %[[lds1View]])

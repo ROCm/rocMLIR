@@ -469,8 +469,8 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
   // a. Add forward barriers to address the dependency in the basic block
   // b. Add backward barriers to account for loop carried dependency
   // c. Add empty stages to make the pipeline balanced, so that we can double up
-  //    the initiation interval and let the pipeline transformation automaticall
-  //    do the work for us
+  //    the initiation interval and let the pipeline transformation
+  //    automatically do the work for us
   DenseSet<rock::StageOp> forwardStages;
 
   // a. Place forward barriers
@@ -601,8 +601,7 @@ void RockPipeline::runOnOperation() {
 
   // Always (try to) multi-buffer by one and store the new
   // allocs in a set
-  // multiBuffering is only happening on LDS Buffers as "multiBuffer" checks for
-  // "i8" dtype. Store multibuffers in "multiAllocs" and store all buffers
+  // Store multibuffers in "multiAllocs" and store all buffers
   // including private and global in "resources"
   llvm::SetVector<rock::GpuAllocOp> multiAllocs;
   llvm::SetVector<rock::GpuAllocOp> resources;
