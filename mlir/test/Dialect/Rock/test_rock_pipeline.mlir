@@ -235,6 +235,49 @@ func.func @rock_pipeline_3_stages_ii_3(%input : memref<16xi8, #gpu.address_space
     return
 }
 
+// This test shouldn't do any pipelining as it doesn't have any stages but it should still multibuffer by 1
+// CHECK-LABEL: rock_pipeline_no_stages_ii_1
+func.func @rock_pipeline_no_stages_ii_1(%input : memref<16xi8, #gpu.address_space<global>>, %output : memref<16xi8, #gpu.address_space<global>>){
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : i8
+    %c16 = arith.constant 16 : index
+
+    %rawLds  = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
+    %rawRegA = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
+    %rawRegB = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
+
+    %lds = memref.view %rawLds[%c0][] : memref<16xi8, #gpu.address_space<workgroup>> to memref<16xi8, #gpu.address_space<workgroup>>
+    %regA = memref.view %rawRegA[%c0][] : memref<16xi8, #gpu.address_space<private>> to memref<16xi8, #gpu.address_space<private>>
+    %regB = memref.view %rawRegB[%c0][] : memref<16xi8, #gpu.address_space<private>> to memref<16xi8, #gpu.address_space<private>>
+    // CHECK: %[[c0:.*]] = arith.constant 0 : index
+    // CHECK: %[[c16:.*]] = arith.constant 16 : index
+    // CHECK: %[[lds0:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
+    // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
+    // CHECK: %[[rawRegB:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
+
+    // CHECK: %[[lds0View:.*]] = memref.view {{.*}}
+    // CHECK: %[[rawRegAView:.*]] = memref.view {{.*}}
+    // CHECK: %[[rawRegBView:.*]] = memref.view {{.*}}
+
+    // CHECK: scf.for
+    // CHECK-SAME: %[[c0]] to %[[c16]]
+      // CHECK-NOT: name = "__fwd_barrier__"
+      // CHECK: rock.extract_multibuffer(%[[lds0View]])
+      // CHECK: rock.extract_multibuffer(%[[lds0View]])
+    scf.for %arg3 = %c0 to %c16 step %c1 {
+        %a = memref.load %input[%arg3] : memref<16xi8, #gpu.address_space<global>>
+        memref.store %a, %regA[%arg3] : memref<16xi8, #gpu.address_space<private>>
+        %b = memref.load %regA[%arg3] : memref<16xi8, #gpu.address_space<private>>
+        memref.store %b, %lds[%arg3] : memref<16xi8, #gpu.address_space<workgroup>>
+        %c = memref.load %lds[%arg3] : memref<16xi8, #gpu.address_space<workgroup>>
+        %d = arith.addi %c, %c2 : i8
+        memref.store %d, %regB[%arg3] : memref<16xi8, #gpu.address_space<private>>
+    }{pipeline = #rock.pipeline<1>}
+    %out = memref.load %regB[%c0] : memref<16xi8, #gpu.address_space<private>>
+    memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
+    return
+}
 // CHECK-LABEL: rock_pipeline_4_stages_ii_2
 func.func @rock_pipeline_4_stages_ii_2(%input : memref<16xi8, #gpu.address_space<global>>, %output : memref<16xi8, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index
