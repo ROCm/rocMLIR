@@ -276,6 +276,7 @@ func.func @rock_pipeline_no_stages_ii_1(%input : memref<16xi8, #gpu.address_spac
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
     return
 }
+
 // CHECK-LABEL: rock_pipeline_4_stages_ii_2
 func.func @rock_pipeline_4_stages_ii_2(%input : memref<16xi8, #gpu.address_space<global>>, %output : memref<16xi8, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index

@@ -710,8 +710,8 @@ void RockPipeline::runOnOperation() {
   {
     if (removeStages) {
       RewritePatternSet patterns(&getContext());
-      patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern>(
-          &getContext());
+      patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern,
+                   RemoveBackToBackBarriersRewritePattern>(&getContext());
       (void)applyPatternsGreedily(getOperation(), std::move(patterns));
     }
   }
