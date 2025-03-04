@@ -23,6 +23,7 @@ from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar,
 import perfRunner
 from perfRunner import ConvConfiguration
 from perfRunner import Paths
+from perfRunner import getArch
 from perfCommonUtils import CORRECT_RESULT_RE
 
 @dataclass(frozen=True)
@@ -405,17 +406,6 @@ async def runConfig(paramIter: Iterable[IterType],
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
 
-def getArch():
-    p = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator", "-name"], check=True,
-                       stdout=subprocess.PIPE)
-    agents = set(x.decode("utf-8") for x in p.stdout.split())
-    if not agents:
-        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
-        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-        q = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator"],
-                              check=True, stdout=subprocess.PIPE)
-        agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
-    return agents
 
 def main() -> bool:
     parser = argparse.ArgumentParser(

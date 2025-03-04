@@ -79,7 +79,7 @@ config.arch_support_wmma = False
 config.features = None
 if config.rocm_path:
     try:
-        agents = get_agents(config.rocm_path)
+        agents = get_agents()
         config.arch = ','.join(agents)
         for x in agents:
             if not config.features:
