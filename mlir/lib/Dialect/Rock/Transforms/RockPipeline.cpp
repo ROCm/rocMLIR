@@ -130,14 +130,17 @@ struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
 };
 
 // Simple rewrite pass to remove back-to-back barriers
-struct RemoveBarriersRewritePattern
+struct RemoveBackToBackBarriersRewritePattern
     : public OpRewritePattern<rock::LDSBarrierOp> {
   using OpRewritePattern<rock::LDSBarrierOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
                                 PatternRewriter &rw) const override {
-    op->erase();
-    return success();
+    if (dyn_cast_or_null<rock::LDSBarrierOp>(op->getNextNode())) {
+      op->getNextNode()->erase();
+      return success();
+    }
+    return failure();
   }
 };
 
@@ -699,12 +702,8 @@ void RockPipeline::runOnOperation() {
   // we can safely allocate the right amount of resources in the function
   for (auto [alloc, factor] : multiBufferFactors) {
     SmallVector<rock::GpuAllocOp> newAllocs;
-    if (factor > 1) {
+    if (factor > 1)
       (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs, factor);
-      RewritePatternSet patterns(&getContext());
-      patterns.add<RemoveBarriersRewritePattern>(&getContext());
-      (void)applyPatternsGreedily(getOperation(), std::move(patterns));
-    }
   }
 
   // Cleanup the stages
