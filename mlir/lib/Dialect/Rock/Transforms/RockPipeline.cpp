@@ -130,17 +130,14 @@ struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
 };
 
 // Simple rewrite pass to remove back-to-back barriers
-struct RemoveBackToBackBarriersRewritePattern
+struct RemoveBarriersRewritePattern
     : public OpRewritePattern<rock::LDSBarrierOp> {
   using OpRewritePattern<rock::LDSBarrierOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
                                 PatternRewriter &rw) const override {
-    if (dyn_cast_or_null<rock::LDSBarrierOp>(op->getNextNode())) {
-      op->getNextNode()->erase();
-      return success();
-    }
-    return failure();
+    op->erase();
+    return success();
   }
 };
 
@@ -257,7 +254,8 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   // Definition of initiation interval (II)
   // Initiation interval is defind by number of cycles in each iteration of a
   // loop. Only one cycle is counted for parallel stages. Assume each stage
-  // executes in one cycle. Start building the schedules Since we accept the
+  // executes in one cycle.
+  // Start building the schedules. Since we accept the
   // stages from the user, we don't need to do any analysis to determine what
   // goes in each stage. We only have to group things in set of stages of length
   // II.
@@ -468,13 +466,13 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
   // a. Add forward barriers to address the dependency in the basic block
   // b. Add backward barriers to account for loop carried dependency
   // c. Add empty stages to make the pipeline balanced, so that we can double up
-  //    the initiation interval and let the pipeline transformation automaticall
-  //    do the work for us
+  //    the initiation interval and let the pipeline transformation
+  //    automatically do the work for us
   DenseSet<rock::StageOp> forwardStages;
 
   // a. Place forward barriers
-  for (auto [source, edges] : dag) {
-    for (auto [sink, deps] : edges) {
+  for (const auto &[source, edges] : dag) {
+    for (const auto &[sink, deps] : edges) {
       if (!forwardStages.contains(sink)) {
         forwardStages.insert(sink);
       }
@@ -561,6 +559,26 @@ SmallVector<scf::ForOp> collectLoopLevels(mlir::func::FuncOp func) {
   return loops;
 }
 
+void adjustInitiationInterval(int64_t numIterations, size_t numStages,
+                              int64_t &ii) {
+  int64_t numParallelStages = llvm::divideCeil(numStages, ii);
+  // calculate number of prologue executions
+  int64_t numPrologues = numParallelStages - 1;
+  // if number of iterations are less than number of prologues that are going
+  // to be emitted, it will not result in correct output therefore increase II
+  // untill that condition becomes false. This can help achieve maximum loop
+  // pipelining
+  while (numIterations < numPrologues) {
+    ii++;
+    LLVM_DEBUG(DBGS() << "Adjusted II to  " << ii << "\n");
+    numParallelStages = llvm::divideCeil(numStages, ii);
+    numPrologues = numParallelStages - 1;
+  }
+  LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
+                    << "\n");
+  LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
+}
+
 struct RockPipeline : public rock::impl::RockPipelinePassBase<RockPipeline> {
   using rock::impl::RockPipelinePassBase<RockPipeline>::RockPipelinePassBase;
   void runOnOperation() override;
@@ -580,9 +598,8 @@ void RockPipeline::runOnOperation() {
 
   // Always (try to) multi-buffer by one and store the new
   // allocs in a set
-  // multiBuffering is only happening on LDS Buffers as "multiBuffer" checks for
-  // "i8" dtype store multibuffers in "multiAllocs" store all buffers including
-  // private and global in "resources"
+  // Store multibuffers in "multiAllocs" and store all buffers
+  // including private and global in "resources"
   llvm::SetVector<rock::GpuAllocOp> multiAllocs;
   llvm::SetVector<rock::GpuAllocOp> resources;
   for (auto alloc : singleAllocs) {
@@ -647,26 +664,14 @@ void RockPipeline::runOnOperation() {
     LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
     LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
     size_t numStages = stages.size();
-    size_t numParallelStages = llvm::divideCeil(numStages, ii);
-    // calculate number of prologue executions
-    size_t numPrologues = numParallelStages - 1;
-    LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
-                      << "\n");
-    LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
     auto maybeNumIterations =
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
     assert(isConstantIntValue(forOp.getStep(), 1) &&
            "Step size other one is not permitted in rock-pipeline");
-    if (!maybeNumIterations.has_value()) {
+    if (!maybeNumIterations.has_value())
       continue;
-    }
-    // if number of iterations are less than number of prologues that are going
-    // to be emitted, it will not result in correct output therefore do not do
-    // any loop pipelining this is achieved by setting II=numStages as we still
-    // want to correctly place forward and backward barriers
-    if (size_t(maybeNumIterations.value()) < numPrologues) {
-      ii = numStages;
-    }
+
+    adjustInitiationInterval(maybeNumIterations.value(), numStages, ii);
 
     // Insert the barriers as new stages
     SmallVector<rock::StageOp> extendedStages;
@@ -694,8 +699,12 @@ void RockPipeline::runOnOperation() {
   // we can safely allocate the right amount of resources in the function
   for (auto [alloc, factor] : multiBufferFactors) {
     SmallVector<rock::GpuAllocOp> newAllocs;
-    if (factor > 1)
+    if (factor > 1) {
       (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs, factor);
+      RewritePatternSet patterns(&getContext());
+      patterns.add<RemoveBarriersRewritePattern>(&getContext());
+      (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    }
   }
 
   // Cleanup the stages
