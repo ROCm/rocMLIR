@@ -125,7 +125,7 @@ func.func @rock_pipeline_3_stages_ii_2(%input : memref<16xi8, #gpu.address_space
     return
 }
 
-// this test shouldn't pipeline loop but it would should add barriers and multibuffer by 1
+// this test shouldn't pipeline loop but it would add barriers and multibuffer by 1
 // CHECK-LABEL: rock_pipeline_3_stages_ii_2_less_iterations
 func.func @rock_pipeline_3_stages_ii_2_less_iterations(%input : memref<16xi8, #gpu.address_space<global>>, %output : memref<16xi8, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index
@@ -476,8 +476,8 @@ func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations(%input : memref<16xf1
     %reg2 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
 
     %lds = memref.view %rawLds[%c0][] : memref<32xi8, #gpu.address_space<workgroup>> to memref<16xf16, #gpu.address_space<workgroup>>
-    // CHECK: %[[C0:.*]] = arith.constant 0 : index
-    // CHECK: %[[C1:.*]] = arith.constant 1 : index
+    // CHECK: %[[c0:.*]] = arith.constant 0 : index
+    // CHECK: %[[c1:.*]] = arith.constant 1 : index
     // CHECK: %[[rawLds:.*]] = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
     // CHECK: %[[reg0:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
     // CHECK: %[[reg1:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
@@ -487,7 +487,7 @@ func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations(%input : memref<16xf1
     // CHECK: name = "__bwd_barrier__"
     // CHECK: name = "S1"
     // CHECK: scf.for
-    // CHECK-SAME: %[[C0]] to %[[C1]]
+    // CHECK-SAME: %[[c0]] to %[[c1]]
       // CHECK: name = "__fwd_barrier__"
       // CHECK: name = "S0"
       // CHECK: rock.extract_multibuffer(%[[ldsView]])
@@ -529,7 +529,7 @@ func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations(%input : memref<16xf1
     return
 }
 
-// This test should adjust II to 2 to enable loop pipelining
+// this test should do loop pipelining without adjust II but notice that it emits scf.for loop with zero iterations. 
 // CHECK-LABEL: rock_pipeline_4_stages_ii_1_f16_less_iterations_2
 func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations_2(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index

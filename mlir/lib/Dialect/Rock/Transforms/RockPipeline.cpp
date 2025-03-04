@@ -257,7 +257,8 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   // Definition of initiation interval (II)
   // Initiation interval is defind by number of cycles in each iteration of a
   // loop. Only one cycle is counted for parallel stages. Assume each stage
-  // executes in one cycle. Start building the schedules Since we accept the
+  // executes in one cycle.
+  // Start building the schedules. Since we accept the
   // stages from the user, we don't need to do any analysis to determine what
   // goes in each stage. We only have to group things in set of stages of length
   // II.
@@ -601,8 +602,8 @@ void RockPipeline::runOnOperation() {
   // Always (try to) multi-buffer by one and store the new
   // allocs in a set
   // multiBuffering is only happening on LDS Buffers as "multiBuffer" checks for
-  // "i8" dtype store multibuffers in "multiAllocs" store all buffers including
-  // private and global in "resources"
+  // "i8" dtype. Store multibuffers in "multiAllocs" and store all buffers
+  // including private and global in "resources"
   llvm::SetVector<rock::GpuAllocOp> multiAllocs;
   llvm::SetVector<rock::GpuAllocOp> resources;
   for (auto alloc : singleAllocs) {
@@ -671,9 +672,9 @@ void RockPipeline::runOnOperation() {
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
     assert(isConstantIntValue(forOp.getStep(), 1) &&
            "Step size other one is not permitted in rock-pipeline");
-    if (!maybeNumIterations.has_value()) {
+    if (!maybeNumIterations.has_value())
       continue;
-    }
+
     adjustInitiationInterval(maybeNumIterations.value(), numStages, ii);
 
     // Insert the barriers as new stages
