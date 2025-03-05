@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -2360,8 +2361,11 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   ArrayRef<int64_t> origShape = origType.getShape();
   SmallVector<int64_t, 4> newShape = {origShape[0] / numHeadsQ, numHeadsQ,
                                       origShape[1], origShape[2]};
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto newShapeValue = tosa::getTosaConstShape(
+    implicitBuilder, newShape);
   inputTensor = createOpAndInfer<tosa::ReshapeOp>(
-      builder, loc, origType.getElementType(), inputTensor, newShape);
+      builder, loc, origType.getElementType(), inputTensor, newShapeValue);
 
   auto inpType = cast<RankedTensorType>(inputTensor.getType());
   ArrayRef<int64_t> inpShape = inpType.getShape();
@@ -2380,12 +2384,17 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   Value rangeVal =
       builder.create<tosa::ConstOp>(loc, rangeAttr.getType(), rangeAttr);
 
+  // reshape
+  auto shapeValue = tosa::getTosaConstShape(implicitBuilder, {1, 1, 1, inpShape[3]});
+  auto rangeValReshaped = createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, builder.getI32Type(), rangeVal, shapeValue);
+
   // broadcast range to inputTensor shape
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
   auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
   auto zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
   auto rangeBroadcast = createOpAndInfer<tosa::AddOp>(
-      builder, loc, builder.getI32Type(), zeroTensor, rangeVal);
+      builder, loc, builder.getI32Type(), zeroTensor, rangeValReshaped);
 
   // broadcast currentSeqLen
   auto currentSeqLenBroadcast = createOpAndInfer<tosa::AddOp>(
@@ -2415,8 +2424,10 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
       builder, loc, inpType.getElementType(), mask, initVal, inputTensor);
 
   // reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
+  auto origShapeValue = tosa::getTosaConstShape(
+    implicitBuilder, origShape);
   auto resultReshaped = createOpAndInfer<tosa::ReshapeOp>(
-      builder, loc, inpType.getElementType(), result, origShape);
+      builder, loc, inpType.getElementType(), result, origShapeValue);
 
   return resultReshaped;
 }
@@ -2635,17 +2646,27 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
           builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
       qkTensor = createOpAndInfer<tosa::CastOp>(
           builder, loc, Float16Type::get(ctx), qkTensor);
+      auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+      auto shiftZeroAttr = DenseElementsAttr::get(
+          shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+      Value constZero =
+          builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
       qkTensor =
           createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
-                                        qkTensor, quantScaleF16, /*shift=*/0);
+                                        qkTensor, quantScaleF16, /*shift=*/constZero);
     }
     if (hasAttnScale) {
       Value scaleTensor =
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
+      auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+      auto shiftZeroAttr = DenseElementsAttr::get(
+          shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+      Value constZero =
+          builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
       qkTensor = createOpAndInfer<tosa::MulOp>(
           builder, loc,
           cast<ShapedType>(scaleTensor.getType()).getElementType(), qkTensor,
-          scaleTensor, /*shift=*/0);
+          scaleTensor, /*shift=*/constZero);
     }
     if (hasAttnBias) {
       Value biasTensor =
@@ -2769,13 +2790,8 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
                              ArrayRef<int32_t> perm) {
   auto elemType = cast<RankedTensorType>(src.getType()).getElementType();
-  auto permutationAttr = DenseIntElementsAttr::get(
-      RankedTensorType::get({(int64_t)perm.size()}, builder.getI32Type()),
-      perm);
-  Value permutationValue =
-      builder.create<arith::ConstantOp>(loc, permutationAttr);
   return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src,
-                                             permutationValue);
+    perm);
 }
 
 static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
@@ -2807,15 +2823,20 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
         cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
     Value reshapedTensor;
+    ImplicitLocOpBuilder implicitBuilder(loc, builder);
     if (origShape.size() == 2) {
       SmallVector<int64_t, 3> expShape(origShape.size() + 1, 0);
       expShape[0] = 1;
       llvm::copy(origShape, expShape.begin() + 1);
+      auto shapeValue = tosa::getTosaConstShape(
+        implicitBuilder, expShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, expShape);
+          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
     } else {
+      auto shapeValue = tosa::getTosaConstShape(
+        implicitBuilder, origShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, origShape);
+          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
     }
     return reshapedTensor;
   };
@@ -2868,9 +2889,12 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     ArrayRef<int64_t> shape = type.getShape();
     assert(shape.size() == 1);
 
+    ImplicitLocOpBuilder implicitBuilder(loc, builder);
+    auto shapeValue = tosa::getTosaConstShape(
+      implicitBuilder, {shape[0], 1, 1, 1});
     currentSeqLenTensor = createOpAndInfer<tosa::ReshapeOp>(
         builder, loc, type.getElementType(), currentSeqLenTensorRaw,
-        builder.getDenseI64ArrayAttr({shape[0], 1, 1, 1}));
+        shapeValue);
   }
 
   unsigned optionalArgsCounter = 3;
@@ -2883,9 +2907,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc,
                                               Float16Type::get(ctx), qkTensor);
     auto quantScaleF16 = getTensorForBlockArg(optionalArgsCounter++);
+    auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+    auto shiftZeroAttr = DenseElementsAttr::get(
+        shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+    Value constZero =
+        builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
     qkTensor =
         createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
-                                      qkTensor, quantScaleF16, /*shift=*/0);
+                                      qkTensor, quantScaleF16, /*shift=*/constZero);
   }
   if (hasAttnScale) {
     auto scaleTensor = getTensorForBlockArg(optionalArgsCounter++);
@@ -2893,9 +2922,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       scaleTensor =
           maskKVCacheTosa(builder, loc, scaleTensor, currentSeqLenTensor, 1.0f);
 
+    auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+    auto shiftZeroAttr = DenseElementsAttr::get(
+        shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+    Value constZero =
+        builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
     qkTensor = createOpAndInfer<tosa::MulOp>(
         builder, loc, cast<ShapedType>(scaleTensor.getType()).getElementType(),
-        qkTensor, scaleTensor, /*shift=*/0);
+        qkTensor, scaleTensor, /*shift=*/constZero);
   }
 
   if (hasAttnBias) {
@@ -2931,9 +2965,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(
       builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
       expsSums);
+      
+  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+  Value constZero =
+      builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
       builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
-      expsTensor, invExpsSums, /*shift=*/0);
+      expsTensor, invExpsSums, /*shift=*/constZero);
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
   softmaxTensor = qkTensor;
 #endif
@@ -2958,8 +2998,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   Value output = block->getArguments().back();
   auto outputType = cast<MemRefType>(output.getType());
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto shapeValue = tosa::getTosaConstShape(
+    implicitBuilder, outputType.getShape());
   auto flatResultTensor =
-      builder.create<tosa::ReshapeOp>(loc, resultTensor, outputType.getShape());
+      builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
   auto flatResultMemref = builder.create<bufferization::ToMemrefOp>(
       loc, outputType, flatResultTensor);

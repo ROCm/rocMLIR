@@ -53,12 +53,15 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/IR/TensorInferTypeOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/IR/TensorTilingInterfaceImpl.h"
+#include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/InitMHALDialects.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+
 
 namespace mlir {
 
@@ -72,6 +75,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   cf::ControlFlowDialect,
                   DLTIDialect,
                   gpu::GPUDialect,
+                  index::IndexDialect,
                   func::FuncDialect,
                   LLVM::LLVMDialect,
                   linalg::LinalgDialect,
@@ -110,6 +114,8 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
   tensor::registerInferTypeOpInterfaceExternalModels(registry);
   tensor::registerTilingInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
+  vector::registerConvertVectorToLLVMInterface(registry);
+  index::registerConvertIndexToLLVMInterface(registry);
 }
 
 // Add all the MLIR dialects to the provided registry.

@@ -89,7 +89,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return llvm::StringSwitch<AmdArchInfo>(minor)
         .Case("08", cdnaInfo)
         .Case("0a", cdna2Info)
-        .Cases("40", "41", "42", cdna3Info)
+        .Case("42", cdna3Info)
         // gfx906 has the dot product instructions, uniquely
         .Case("06", cdna50Info)
         .Default(gcnInfo);

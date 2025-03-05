@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -31,6 +32,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using mlir::migraphx::MIXRShapedType;
@@ -154,24 +156,16 @@ static Value getZeroTensor(Location loc, Type elemType, ArrayRef<int64_t> shape,
 static tosa::TransposeOp getTransposeOp(Location loc, Value input,
                                         ConversionPatternRewriter &rewriter,
                                         ArrayRef<int32_t> permutation) {
-  int64_t len = permutation.size();
-
-  auto permutationAttrType =
-      RankedTensorType::get({len}, rewriter.getI32Type());
-  auto permutationAttr =
-      DenseIntElementsAttr::get(permutationAttrType, permutation);
-  Value permutationValue =
-      rewriter.create<tosa::ConstOp>(loc, permutationAttrType, permutationAttr);
   ShapedType inputTy = cast<ShapedType>(input.getType());
   auto inputShape = inputTy.getShape();
   SmallVector<int64_t> newShape;
-  newShape.reserve(len);
+  newShape.reserve(permutation.size());
   for (int32_t fromIdx : permutation)
     newShape.push_back(inputShape[fromIdx]);
   Type newTy = RankedTensorType::get(newShape, inputTy.getElementType());
 
   auto newOp =
-      rewriter.create<tosa::TransposeOp>(loc, newTy, input, permutationValue);
+      rewriter.create<tosa::TransposeOp>(loc, newTy, input, permutation);
   return newOp;
 }
 
@@ -251,8 +245,6 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto outputTy = cast<MIXRShapedType>(results[0].getType());
   Type outElementTy = outputTy.getElementType();
   Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
-  SmallVector<int64_t> NCHW2NHWC{0, 2, 3, 1};
-  SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
   if (outElementTy.isUnsignedInteger())
     return op.emitError("No support for unsigned convolution.\n");
@@ -285,14 +277,17 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     SmallVector<int64_t> expShape(origShape.drop_back());
     expShape.push_back(1);
     expShape.push_back(origShape.back());
+    auto expShapeValue = tosa::getTosaConstShape(
+        rewriter, loc, expShape);
     Value reshaped = rewriter.create<tosa::ReshapeOp>(
-        loc, value, rewriter.getDenseI64ArrayAttr(expShape));
+        loc, value, expShapeValue);
     return reshaped;
   };
 
   // Construct a new Conv2DOp.
   Operation *cop;
   Type new1DOutTy;
+  Value inputZp, weightZp;
   switch (dims) {
   case 1:
     // Expand to do a conv2d, because there's no conv1d op.
@@ -300,33 +295,39 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     new1DOutTy = RankedTensorType::get(newShape, newOutElementTy);
     input = expandTo2D(input);
     filter = expandTo2D(filter);
-
+    inputZp = tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
+    weightZp = tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
+      
     cop = rewriter.create<tosa::Conv2DOp>(
         loc, new1DOutTy,
         ValueRange{
             input, filter,
             getZeroTensor(loc, newOutElementTy,
                           cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter)});
+                          rewriter), inputZp, weightZp});
     break;
 
   case 2:
+    inputZp = tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
+    weightZp = tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
     cop = rewriter.create<tosa::Conv2DOp>(
         loc, newOutTy,
         ValueRange{
             input, filter,
             getZeroTensor(loc, newOutElementTy,
                           cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter)});
+                          rewriter), inputZp, weightZp});
     break;
   case 3:
+  inputZp = tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
+  weightZp = tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
     cop = rewriter.create<tosa::Conv3DOp>(
         loc, newOutTy,
         ValueRange{
             input, filter,
             getZeroTensor(loc, newOutElementTy,
                           cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter)});
+                          rewriter), inputZp, weightZp});
     break;
   default:
     return op->emitError("Only 1-D, 2-D, and 3-D have been implemented.");
@@ -408,9 +409,11 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   }
 
   if (dims == 1) {
+    auto shapeValue = tosa::getTosaConstShape(
+        rewriter, loc, cast<ShapedType>(newOutTy).getShape());
     cop = rewriter.create<tosa::ReshapeOp>(
         loc, cop->getResult(0),
-        rewriter.getDenseI64ArrayAttr(cast<ShapedType>(newOutTy).getShape()));
+        shapeValue);
   }
 
   // transpose the output back to NCHW so that it can match following
@@ -484,10 +487,14 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
     RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
     RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
     newOutType = RankedTensorType::get(newDimsOut, newOutElementTy);
+    auto newDimsAValue = tosa::getTosaConstShape(
+        rewriter, loc, newDimsA);
     auto reshapeAOp = rewriter.create<tosa::ReshapeOp>(
-        loc, newAType, inA, rewriter.getDenseI64ArrayAttr(newDimsA));
+        loc, newAType, inA, newDimsAValue);
+    auto newDimsBValue = tosa::getTosaConstShape(
+        rewriter, loc, newDimsB);
     auto reshapeBOp = rewriter.create<tosa::ReshapeOp>(
-        loc, newBType, inB, rewriter.getDenseI64ArrayAttr(newDimsB));
+        loc, newBType, inB, newDimsBValue);
 
     // reassign inputs.
     inA = cast<TypedValue<RankedTensorType>>(reshapeAOp.getResult());
@@ -516,9 +523,11 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
 
   if (outRank != 3 || rankA != rankB ||
       (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
+    auto origOutDimsValue = tosa::getTosaConstShape(
+        rewriter, loc, origOutDims);
     auto rop = rewriter.create<tosa::ReshapeOp>(
         loc, getTypeConverter()->convertType(origOutputTy), mop,
-        rewriter.getDenseI64ArrayAttr(origOutDims));
+        origOutDimsValue);
     rewriter.replaceOp(op, rop);
     return success();
   }
@@ -595,9 +604,11 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
       newShape.push_back(1);
     }
   }
+  auto newShapeValue = tosa::getTosaConstShape(
+      rewriter, loc, newShape);
   tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
       rewriter, loc, newOutElementTy, adaptor.getInput(),
-      rewriter.getDenseI64ArrayAttr(newShape));
+      newShapeValue);
 
   auto outType = RankedTensorType::get(outShape, newOutElementTy);
   // We create a dummy zero addition with implicit broadcasting
@@ -648,9 +659,12 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
     newShape.reserve(outRank);
     for (auto [len, stride] : llvm::zip_equal(outShape, outStrides))
       newShape.push_back(stride == 0 ? 1 : len);
+    
+    auto newShapeValue = tosa::getTosaConstShape(
+      rewriter, loc, newShape);
     tosa::ReshapeOp sameRankReshapedOp = createOpAndInfer<tosa::ReshapeOp>(
         rewriter, loc, elemType, adaptor.getInput(),
-        rewriter.getDenseI64ArrayAttr(newShape));
+        newShapeValue);
     replacingValue = sameRankReshapedOp.getResult();
   }
 
@@ -689,8 +703,10 @@ ReshapeConverter::matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
     newShape.push_back(dyn_cast<IntegerAttr>(dim).getInt());
   }
 
+  auto newShapeValue = tosa::getTosaConstShape(
+    rewriter, loc, newShape);
   auto rop = rewriter.create<tosa::ReshapeOp>(
-      loc, outputTy, input, rewriter.getDenseI64ArrayAttr(newShape));
+      loc, outputTy, input, newShapeValue);
 
   rewriter.replaceOp(op, rop);
   return success();
@@ -722,10 +738,14 @@ SliceConverter::matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
     size[axisInt] = axisEInt - axisSInt;
   }
 
+  auto startValue =
+    tosa::getTosaConstShape(rewriter, loc, start);
+  auto sizeValue =
+    tosa::getTosaConstShape(rewriter, loc, size);
   auto sliceOp = createOpAndInfer<tosa::SliceOp>(
       rewriter, loc, newInType.getElementType(), input,
-      rewriter.getDenseI64ArrayAttr(start),
-      rewriter.getDenseI64ArrayAttr(size));
+      startValue,
+      sizeValue);
   rewriter.replaceOp(op, sliceOp);
   return success();
 }
@@ -793,9 +813,20 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
       createNumElementsTosaConst(loc, input, axis, rewriter);
   auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
       rewriter, loc, elementType, tosaConstantNumElements);
+  
+  // reshape tosaReciprocal to have same number of dimensions as the input
+  llvm::SmallVector<int64_t> newShape(input.getType().getRank(), 1);
+  auto shapeValue = tosa::getTosaConstShape(rewriter, loc, newShape);
+  Value tosaReciprocalReshaped = createOpAndInfer<tosa::ReshapeOp>(rewriter, loc, elementType, tosaReciprocal, shapeValue);
+
+  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+  Value constZero =
+  rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   auto tosaMul = createOpAndInfer<tosa::MulOp>(rewriter, loc, elementType,
                                                adaptor.getInput(),
-                                               tosaReciprocal, /*shift=*/0);
+                                               tosaReciprocalReshaped, /*shift=*/constZero);
   auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
       rewriter, loc, elementType, tosaMul, axis);
   rewriter.replaceOp(op, tosaReduceSum);
@@ -869,8 +900,14 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
   }
   Value recip = createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc, elementType,
                                                      inBTensor);
+                                                     
+  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+  Value constZero =
+  rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   Value mul = createOpAndInfer<tosa::MulOp>(rewriter, loc, elementType,
-                                            inATensor, recip, /*shift=*/0);
+                                            inATensor, recip, /*shift=*/constZero);
   rewriter.replaceOp(op, mul);
   return success();
 }
@@ -878,9 +915,14 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
 LogicalResult
 MulConverter::matchAndRewrite(migraphx::MulOp op, OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
+  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+  Value constZero =
+  rewriter.create<tosa::ConstOp>(op->getLoc(), shiftType, shiftZeroAttr);
   rewriter.replaceOpWithNewOp<tosa::MulOp>(
       op, getTypeConverter()->convertType(op.getResult().getType()),
-      adaptor.getInA(), adaptor.getInB(), /*shift=*/0);
+      adaptor.getInA(), adaptor.getInB(), /*shift=*/constZero);
   return success();
 }
 
@@ -969,8 +1011,13 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
                                             upcastInput, upcastBias);
   }
 
+  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+  Value constZero =
+  rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   Value scaled = createOpAndInfer<tosa::MulOp>(rewriter, loc, outputType,
-                                               shifted, scale, /*shift=*/0);
+                                               shifted, scale, /*shift=*/constZero);
 
   rewriter.replaceOp(op, scaled);
   return success();
@@ -992,8 +1039,14 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   Type elementType = getShapedElementTy(input);
   Value inverseScale =
       createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc, elementType, scale);
+  
+  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+  Value constZero =
+  rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   Value scaled = createOpAndInfer<tosa::MulOp>(
-      rewriter, loc, elementType, input, inverseScale, /*shift=*/0);
+      rewriter, loc, elementType, input, inverseScale, /*shift=*/constZero);
 
   Type origOutputType = getShapedElementTy(output);
   Type outputType = getTypeConverter()->convertType(origOutputType);
@@ -1052,14 +1105,21 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                             APFloat::rmNearestTiesToEven);
     }
 
-    FloatAttr minFatt = rewriter.getFloatAttr(rewriter.getF32Type(), minF);
-    FloatAttr maxFatt = rewriter.getFloatAttr(rewriter.getF32Type(), maxF);
-    auto minVal = origOutputType.isUnsignedInteger() ? minI.getZExtValue()
-                                                     : minI.getSExtValue();
-    auto maxVal = origOutputType.isUnsignedInteger() ? maxI.getZExtValue()
-                                                     : maxI.getSExtValue();
-    result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result,
-                                             minVal, maxVal, minFatt, maxFatt);
+    Attribute minVal, maxVal;
+    if(isa<IntegerType>(biasType)) {
+      auto minValUI64 = origOutputType.isUnsignedInteger() ? minI.getZExtValue()
+                                                       : minI.getSExtValue();
+      auto maxValUI64 = origOutputType.isUnsignedInteger() ? maxI.getZExtValue()
+                                                       : maxI.getSExtValue();
+      minVal = rewriter.getIntegerAttr(biasType, minValUI64);
+      maxVal = rewriter.getIntegerAttr(biasType, maxValUI64);
+    } else if(isa<FloatType>(biasType)) {
+      minVal = rewriter.getFloatAttr(biasType, minF);
+      maxVal = rewriter.getFloatAttr(biasType, maxF);
+    } else {
+      llvm_unreachable("unknown type for QuantizeLinearConverter");
+    }
+    result = createOpAndInfer<tosa::ClampOp>(rewriter, loc, biasType, result, minVal, maxVal);
     result = createCastOp(rewriter, loc, outputType, result, biasType,
                           origOutputType);
   }
@@ -1096,7 +1156,7 @@ NegConverter::matchAndRewrite(migraphx::NegOp op, OpAdaptor adaptor,
 
   rewriter.replaceOpWithNewOp<tosa::NegateOp>(
       op, getTypeConverter()->convertType(op.getResult().getType()),
-      adaptor.getInA(), nullptr);
+      adaptor.getInA());
   return success();
 }
 
@@ -1131,8 +1191,15 @@ SoftmaxConverter::matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
       rewriter, loc, elementType, tosaExp, axisAttr);
   auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
       rewriter, loc, elementType, tosaReduceSum);
+
+  
+  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+  Value constZero =
+  rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   auto tosaMul = createOpAndInfer<tosa::MulOp>(
-      rewriter, loc, elementType, tosaExp, tosaReciprocal, /*shift=*/0);
+      rewriter, loc, elementType, tosaExp, tosaReciprocal, /*shift=*/constZero);
 
   rewriter.replaceOp(op, tosaMul);
   return success();
@@ -1326,9 +1393,12 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   // working with in memory.
   RankedTensorType memoryLayoutType = inType.asMemoryLayoutTensor();
   Value expanded = in;
-  if (in.getType() != memoryLayoutType)
+  if (in.getType() != memoryLayoutType) {
+    auto shapeValue = tosa::getTosaConstShape(
+      rewriter, loc, memoryLayoutType.getShape());
     expanded =
-        rewriter.create<tosa::ReshapeOp>(loc, in, memoryLayoutType.getShape());
+        rewriter.create<tosa::ReshapeOp>(loc, in, shapeValue);
+  }
 
   // This is the permutation that reorders the strides into standard shape.
   // Equivalently, it is the permutation that, when applied to a standard
@@ -1363,9 +1433,13 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   if (transposedType.getShape() != ArrayRef(slicingShape)) {
     SmallVector<int64_t, 4> starts(permutation.size(), 0);
     RankedTensorType sliceType = resultType.clone(slicingShape);
+    auto startsValue =
+        tosa::getTosaConstShape(rewriter, loc, starts);
+    auto slicingShapeValue =
+        tosa::getTosaConstShape(rewriter, loc, slicingShape);
     maybeSliced = rewriter.create<tosa::SliceOp>(
-        loc, sliceType, transposed, rewriter.getDenseI64ArrayAttr(starts),
-        rewriter.getDenseI64ArrayAttr(slicingShape));
+        loc, sliceType, transposed, startsValue,
+        slicingShapeValue);
   }
   Value maybeBroadcast = maybeSliced;
   if (maybeSliced.getType() != resultType) {
@@ -1410,9 +1484,12 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   }
 
   Value collapsed = transposed;
-  if (transposed.getType() != resultTensorType)
+  if (transposed.getType() != resultTensorType) {
+    auto shapeValue = tosa::getTosaConstShape(
+      rewriter, loc, resultTensorType.getShape());
     collapsed = rewriter.create<tosa::ReshapeOp>(loc, transposed,
-                                                 resultTensorType.getShape());
+      shapeValue);
+  }
   rewriter.replaceOp(op, collapsed);
   return success();
 }

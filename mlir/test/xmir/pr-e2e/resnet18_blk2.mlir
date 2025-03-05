@@ -4,6 +4,7 @@
 // CHECK: RMS = {{.*}}e-07
 // CHECK: [1 1 0]
 module attributes {torch.debug_module_name = "ResNet"} {
+  // mhal.arch
   func.func @forward(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<64x64x3x3xf32>, %arg2: tensor<64x64x3x3xf32>) -> tensor<1x64x56x56xf32> {
     %24 = "tosa.const"() {value = dense<0.000000e+00> : tensor<64xf32>} : () -> tensor<64xf32>
     %25 = "tosa.const"() {value = dense<[0, 2, 3, 1]> : tensor<4xi32>} : () -> tensor<4xi32>

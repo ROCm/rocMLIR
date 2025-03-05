@@ -114,7 +114,7 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
         mlir_paths = MLIRPaths(rocmlir_gen_path = mlir_bin_dir + '/rocmlir-gen',
             rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
             rocmlir_opt_path = mlir_bin_dir + '/rocmlir-opt',
-            cpu_runner_path = llvm_bin_dir + '/mlir-cpu-runner',
+            cpu_runner_path = llvm_bin_dir + '/mlir-runner',
             libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
             libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
             libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
@@ -1068,7 +1068,7 @@ def getFusionTestInfo(filename, paths: Paths):
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirOptCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
     elif "migraphx" in rocmlirCommand:
@@ -1076,12 +1076,12 @@ def getFusionTestInfo(filename, paths: Paths):
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', getChip()]
         # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirMigraphxCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
     else:
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
-        # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        # rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     # pipe to rocmlir_gen --emit-tuning-key

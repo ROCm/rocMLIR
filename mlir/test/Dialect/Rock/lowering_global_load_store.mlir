@@ -111,6 +111,26 @@ func.func @load_scalar_oob_large(%mem: memref<1073741825xf32>, %valid: i1) -> f3
     return %ret : f32
 }
 
+// CHECK-LABEL: func.func @load_scalar_oob_large_i4
+// CHECK-SAME: (%[[mem:.*]]: memref<1073741825xi4>, %[[valid:.*]]: i1)
+func.func @load_scalar_oob_large_i4(%mem: memref<1073741825xi4>, %valid: i1) -> i4 {
+    %c0 = arith.constant 0 : index
+    // CHECK: %[[zero:.*]] = arith.constant 0 : i4
+    // CHECK: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
+    // CHECK-SAME: #gpu.address_space<global>
+    // CHECK: %[[ret:.*]] = scf.if %[[valid]] -> (i4)
+    // CHECK: %[[load:.*]] = vector.load %[[cast]]
+    // CHECK-SAME: memref<1073741825xi4, #gpu.address_space<global>>, vector<2xi4>
+    // CHECK: %[[element:.*]] = vector.extractelement %[[load]]
+    // CHECK: scf.yield %[[element]]
+    // CHECK: } else {
+    // CHECK: scf.yield %[[zero]] : i4
+    %ret = rock.global_load %mem[%c0] if %valid {needs64BitIdx}
+        : memref<1073741825xi4> -> i4
+    // CHECK: return %[[ret]]
+    return %ret : i4
+}
+
 // CHECK-LABEL: func.func @store_scalar_in_bounds
 // CHECK-SAME: (%[[source:.*]]: memref<5xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
 func.func @store_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) {

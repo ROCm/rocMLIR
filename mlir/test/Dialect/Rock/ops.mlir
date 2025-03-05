@@ -35,7 +35,7 @@ func.func @rock_conv_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x
 
 func.func @rock_conv_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input : memref<?x?x?x?x?xf8E5M2FNUZ>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv(%filter, %input, %output) features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx940",
+    arch = "amdgcn-amd-amdhsa:gfx942",
     filter_layout = ["g", "k", "c", "0", "1"],
     input_layout = ["n", "gi", "c", "0i", "1i"],
     output_layout = ["n", "go", "k", "0o", "1o"],

@@ -30,6 +30,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
@@ -58,7 +59,7 @@ static cl::opt<std::string> kernelPipeline(
 static cl::opt<std::string>
     hostPipeline("host-pipeline", cl::desc("rocmlir-driver host pipeline list"),
                  cl::value_desc("comma separated list of rock pipelines: "
-                                "partition,highlevel,execmodel or full"),
+                                "migraphx,highlevel,mhal,runner or full"),
                  cl::init(""));
 
 static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
@@ -237,11 +238,12 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       "applicability", "migraphx", "highlevel", "gpu", "rocdl", "binary"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
-  if (failed(parsePipeline(kernelPipeline.getValue(), kernelPipelineSet,
+  std::string kernelPipelineStr = kernelPipeline.getValue();
+  if (failed(parsePipeline(kernelPipelineStr, kernelPipelineSet,
                            kernelPipelineOptions, kernelFullPipeline))) {
     return failure();
   }
-  if (kernelPipelineSet.size()) {
+  if (!kernelPipelineSet.empty()) {
     if (kernelPipelineSet.contains("applicability") &&
         kernelPipelineSet.size() != 1) {
       llvm::errs() << "The `applicability` pipeline cannot be combined with "
@@ -251,9 +253,10 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> hostPipelineOptions{
-      "migraphx", "partition", "highlevel", "mhal", "runner"};
+      "migraphx", "highlevel", "mhal", "runner"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
-  if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
+  std::string hostPipelineStr = hostPipeline.getValue();
+  if (failed(parsePipeline(hostPipelineStr, hostPipelineSet,
                            hostPipelineOptions, hostPipelineOptions))) {
     return failure();
   }
@@ -266,31 +269,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  // Run partitioning pipeline.
-  if (hostPipelineSet.contains("partition")) {
-    PassManager pm(module->getName(), PassManager::Nesting::Implicit);
-    if (failed(applyPassManagerCLOptions(pm)))
-      return failure();
-    pm.enableVerifier(verifyPasses);
-    mhal::GraphOptions opts;
-    opts.targets = targetList;
-    mhal::buildGraphPipeline(pm, opts);
-
-    if (dumpPipelines) {
-      llvm::errs() << "Partitioner pipeline:\n";
-      pm.printAsTextualPipeline(llvm::errs());
-      llvm::errs() << "\n";
-    }
-    if (failed(pm.run(module))) {
-      return failure();
-    }
-  }
-
   bool isHighLevel = hostPipelineSet.contains("highlevel") ||
                      kernelPipelineSet.contains("highlevel");
 
   StringRef onlyArch;
-  if (targetList.size())
+  if (!targetList.empty())
     onlyArch = targetList.front();
   else
     onlyArch = arch;
@@ -298,7 +281,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   StringRef targetArch = onlyArch;
   bool hasKernels = false;
   // Find kernel module, defaults to top module
-  if (kernelPipelineSet.size() || isHighLevel) {
+  if (!kernelPipelineSet.empty() || isHighLevel) {
     LogicalResult kernelResult = success();
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
@@ -386,7 +369,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   // Run host code lowering that makes the result of this operation accetable
-  // to mlir-cpu-runner. Explicitly aborts in the case of multiple mhal
+  // to mlir-runner. Explicitly aborts in the case of multiple mhal
   // targets to prevent confusing behavior.
   if (hostPipelineSet.contains("runner")) {
     if (targetList.size() > 1) {

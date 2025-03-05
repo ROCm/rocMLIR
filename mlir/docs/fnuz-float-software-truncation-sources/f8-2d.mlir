@@ -77,7 +77,7 @@ module attributes {dlti.dl_spec = #dlti.dl_spec<#dlti.dl_entry<i16, dense<16> : 
   ^bb4:  // pred: ^bb0
     llvm.switch %21 : i32, ^bb6 [
       0: ^bb20(%9 : i8),
-      2147483648: ^bb5
+      2147483647: ^bb5
     ]
   ^bb5:  // pred: ^bb4
     llvm.br ^bb20(%10 : i8)

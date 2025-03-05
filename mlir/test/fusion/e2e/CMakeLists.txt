@@ -4,7 +4,7 @@ set(FUSION_E2E_DEPENDS
   rocmlir-opt
   rocmlir-gen
   rocmlir-driver
-  mlir-cpu-runner
+  mlir-runner
   xmir-runner
   mlir_rocm_runtime
   mlir_runner_utils
