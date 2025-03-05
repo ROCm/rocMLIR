@@ -2,8 +2,7 @@
 
 // ALLOW_RETRIES: 2 
 
-// CHECK: RMS = {{.*}}e-07
-// CHECK: [1 1 0]
+// CHECK: [1 1 1]
 
 module {
   func.func private @forward__part_1(%arg0: tensor<1x56x56x64xf32> {mhal.read_access}, %arg1: tensor<64x64x3x3xf32> {mhal.read_access}, %arg2: tensor<1x64x1x1xf32> {mhal.read_access}, %arg3: tensor<64x1x1xf32> {mhal.read_access}, %arg4: tensor<1x64x1x1xf32> {mhal.read_access}, %arg5: tensor<1x64x1x1xf32> {mhal.read_access}) -> (tensor<1x64x56x56xf32> {mhal.write_access}) {
