@@ -3696,7 +3696,7 @@ static LogicalResult populateHostHarnessLogic(
   for (auto &vvar : valVars) {
     // print vvar
     for (int32_t outIdx : outIndices) {
-      if ((vvar == valVars[outIdx]) && printValidationResults.getValue()) {
+      if (printValidationResults.getValue() && vvar == valVars[outIdx]) {
         emitPrintTensor(b, vvar);
       }
     }
