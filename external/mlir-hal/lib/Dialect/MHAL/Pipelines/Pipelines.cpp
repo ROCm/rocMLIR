@@ -59,42 +59,6 @@
 
 using namespace mlir;
 
-//===- Consolidate the MHAL Pipelines here ---------------------===//
-
-void mhal::buildGraphPipeline(OpPassManager &pm,
-                              const mhal::GraphOptions &options) {
-  // TOSA partitioning pass
-  // make 'kernel' funcs with tosa dataflow
-  /* mlir-opt --tosa-make-broadcastable
-         --tosa-partition --mhal-annotate-access-kinds
-   */
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
-  pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
-
-  SmallVector<std::string, 4> anchors{"tosa.conv2d", "tosa.depthwise_conv2d",
-                                      "tosa.matmul"};
-  tosa::TosaPartitionOptions opts;
-  opts.anchorOps = std::move(anchors);
-  opts.trailingOnly = true;
-  pm.addPass(tosa::createTosaPartition(opts));
-  pm.addPass(mhal::createMHALAnnotateAccessKindsPass());
-
-  /* mlir-opt --duplicate-function-elimination
-   */
-  pm.addPass(func::createDuplicateFunctionEliminationPass());
-
-  // make mhal kernel launch's
-  /* mlir-opt --mhal-infer-graph
-   */
-  pm.addNestedPass<func::FuncOp>(createMHALInferGraphPass());
-
-  // clone 'kernel' funcs into __kernel_<arch> module
-  /* mlir-opt --mhal-target-kernels
-   */
-  pm.addPass(mhal::createMHALTargetKernelsPass(
-      mhal::MHALTargetKernelsPassOptions{llvm::to_vector(options.targets)}));
-}
-
 /// Collect target objects and package with host partitioned kernels
 void mhal::buildPackagePipeline(OpPassManager &pm,
                                 const mhal::PackageOptions &options) {

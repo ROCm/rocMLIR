@@ -11,29 +11,8 @@
 
 include "mlir/Pass/PassBase.td"
 
-def MHALTargetKernelsPass : Pass<"mhal-target-kernels", "ModuleOp"> {
-  let summary = "clone all kernel funcs into MHAL module";
-  let options = [
-    ListOption<"targets", "targets", "std::string", "List of target architectures">
-  ];
-}
-
 def MHALPackageTargetsPass : Pass<"mhal-package-targets", "ModuleOp"> {
   let summary = "apply target implementation to host kernel funcs";
-}
-
-def MHALAnnotateAccessKindsPass : Pass<"mhal-annotate-access-kinds", "func::FuncOp"> {
-  let summary = "Annotate arguments for read and write access";
-  let description = [{
-    Annotate arguments and results of functions to preserve read-only/write-only/read-write
-    information post-bufferization.
-  }];
-  let dependentDialects = ["mhal::MHALDialect"];
-}
-
-def MHALInferGraphPass : Pass<"mhal-infer-graph", "func::FuncOp"> {
-  let summary = "convert kernel func call ops to mhal.launch ops with dependencies";
-  let dependentDialects = ["mhal::MHALDialect"];
 }
 
 def MHALBufferizePass : Pass<"mhal-bufferize", "func::FuncOp"> {
