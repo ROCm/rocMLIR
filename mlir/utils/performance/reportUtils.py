@@ -73,7 +73,7 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list, col
     styler.format(precision=ROUND_DIGITS, na_rep="---")
     for col in speedupCols:
         if col in styler.columns:
-            styler.applymap(colorizer, subset=[col])
+            styler.map(colorizer, subset=[col])
 
 # Adapted from
 # https://stackoverflow.com/questions/54405704/check-if-all-values-in-dataframe-column-are-the-same
