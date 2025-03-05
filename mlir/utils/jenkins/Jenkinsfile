@@ -334,14 +334,13 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        if (params.canXdlops) {
-            unstash name: "MLIR-PerfDB-gfx908"
-            unstash name: "MLIR-PerfDB-gfx90a"
-            unstash name: "MLIR-PerfDB-gfx942"
-            if (!params.disableNavi21)
-                unstash name: "MLIR-PerfDB-gfx1030"
-        } else {
-            unstash name: "MLIR-PerfDB-vanilla"
+        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942'] : ['vanilla']
+        for (arch in architectures) {
+            try {
+                unstash name: "MLIR-PerfDB-${arch}"
+            } catch (Exception e) {
+                echo "No stash found for MLIR-PerfDB-${arch}, skipping."
+            }
         }
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
