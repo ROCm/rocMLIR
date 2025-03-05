@@ -205,3 +205,9 @@ void TosaTestQuantUtilAPI::runOnOperation() {
 }
 
 } // namespace
+
+namespace mlir {
+  void registerTosaTestQuantUtilAPIPass() {
+    PassRegistration<TosaTestQuantUtilAPI>();
+  }
+} // namespace mlir
