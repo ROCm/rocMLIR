@@ -22,6 +22,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 #include <limits>
 #include <numeric>
 
@@ -72,9 +73,8 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   Value source;
   std::tie(source, transforms, std::ignore) = rock::untransform(b, tensor);
 
-  if (transforms.empty()) {
+  if (transforms.empty())
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
-  }
 
   rock::TransformMapAttr firstCoordTransform =
       cast<rock::TransformMapAttr>(transforms[0]);
@@ -87,15 +87,16 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   SmallVector<uint32_t> strides(upperRank);
   for (int64_t idx = 0; idx < upperRank; idx++) {
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<rock::SubDimInfo>>>
-        maybeLowerSubDims =
-            rock::getLowerSubDimensions(b, transforms, idx, true);
+        maybeLowerSubDims = rock::getLowerSubDimensions(b, transforms, idx);
     if (failed(maybeLowerSubDims)) {
-      LLVM_DEBUG(llvm::dbgs() << "lowerSubDims creation using "
-                                 "getLowerSubDimensions is unsuccesful.\n");
       return failure();
     }
+
     auto lowerSubDims = maybeLowerSubDims.value();
-    uint32_t minStride = std::numeric_limits<uint32_t>::max();
+    // if it's empty, it's a unit dimension
+    uint32_t minStride =
+        lowerSubDims.empty() ? 1 : std::numeric_limits<uint32_t>::max();
+
     for (auto [dim, subDimInfos] : lowerSubDims) {
       LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << ":");
       LLVM_DEBUG(llvm::interleaveComma(subDimInfos, llvm::dbgs()));
@@ -143,7 +144,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
 
   // nothing to do, same ordering
   if (endIndices == startIndices)
-    return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+    return std::make_tuple(tensor, layout, strides);
 
   rock::BottomUpTMBuilder sortDims(b, firstCoordTransform.getUpperBounds(),
                                    tensor.getLoc());
@@ -250,7 +251,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     auto newFilter = std::get<0>(sortedFilter);
     auto newInput = std::get<0>(sortedInput);
     LLVM_DEBUG(llvm::dbgs() << "newFilter=" << newFilter
-                            << "\n newInput=" << newInput << "\n");
+                            << "\nnewInput=" << newInput << "\n");
     auto newFilterLayout = std::get<1>(sortedFilter);
     auto newInputLayout = std::get<1>(sortedInput);
     auto inputStrides = std::get<2>(sortedInput);
@@ -264,18 +265,24 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // better to keep the previous behavior. So that, at least weights loads are
     // vectorized.
     // TODO: improve this
-    SmallVector<StringAttr, 3> nonSpatialDims;
-    for (auto attr : inputLayout) {
-      auto name = cast<StringAttr>(attr);
-      if (name != "ni" && name != "gi" && name != "ci")
-        nonSpatialDims.push_back(name);
-    }
+    if (inputStrides.size() > 1) {
+      SmallVector<Attribute, 3> nonSpatialDims;
+      for (auto attr : inputLayout) {
+        if (attr != b.getStringAttr("ni") && attr != b.getStringAttr("gi") &&
+            attr != b.getStringAttr("ci"))
+          nonSpatialDims.push_back(attr);
+      }
+      LLVM_DEBUG(llvm::dbgs()
+                 << "inputStrides (" << inputStrides.size() << ")=");
+      LLVM_DEBUG(llvm::interleaveComma(inputStrides, llvm::dbgs()));
+      LLVM_DEBUG(llvm::dbgs() << "\n");
 
-    auto ciPos = findIndex(inputLayout, b.getStringAttr("ci")).value();
-    for (auto spatialDim : nonSpatialDims) {
-      auto spatialDimPos = findIndex(inputLayout, spatialDim).value();
-      if (inputStrides[ciPos] > inputStrides[spatialDimPos]) {
-        return failure();
+      auto ciPos = findIndex(inputLayout, b.getStringAttr("ci")).value();
+      for (auto spatialDim : nonSpatialDims) {
+        auto spatialDimPos = findIndex(inputLayout, spatialDim).value();
+        if (inputStrides[ciPos] > inputStrides[spatialDimPos]) {
+          return failure();
+        }
       }
     }
 
@@ -285,6 +292,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
         op.getGridSizeAttr(), op.getPadding(), op.getStrides(),
         op.getDilations(), op.getParams() ? op.getParams().value() : nullptr,
         op.getNumCUAttr());
+
+    if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
 
     newOp->setAttr("filter_layout", b.getArrayAttr(newFilterLayout));
     newOp->setAttr("input_layout", b.getArrayAttr(newInputLayout));
@@ -349,12 +359,15 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     if (finalLayoutA == layoutA && finalLayoutB == layoutB)
       return failure();
 
-    b.replaceOpWithNewOp<rock::GemmOp>(
+    auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
         transposedA, transposedB, op.getCTransposedAttr(), op.getArchAttr(),
         op.getNumCUAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
+
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newGemm->setAttr("perf_config", attr);
 
     return success();
   }
