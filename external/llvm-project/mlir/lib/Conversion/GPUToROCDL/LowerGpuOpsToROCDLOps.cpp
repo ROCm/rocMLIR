@@ -332,21 +332,13 @@ struct LowerGpuOpsToROCDLOpsPass final
       iface->populateConvertToLLVMConversionPatterns(target, converter,
                                                      llvmPatterns);
     }
-    // TODO: remove hardcoded passes
-    // mlir::arith::populateArithToLLVMConversionPatterns(converter, llvmPatterns);
-    // TODO: ends here
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
-    // TODO: remove hardcoded passes
+    // TODO (rocmlir): remove hardcoded passes
     // related PR: https://github.com/llvm/llvm-project/pull/124439
-    // populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     mlir::vector::populateVectorInsertExtractStridedSliceTransforms(llvmPatterns);
-    // populateMathToLLVMConversionPatterns(converter, llvmPatterns);
-    // cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
-    // cf::populateAssertToLLVMConversionPattern(converter, llvmPatterns);
-    // populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
-    // populateFinalizeMemRefToLLVMConversionPatterns(converter, llvmPatterns);
     // TODO: ends here
+
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
     configureGpuToROCDLConversionLegality(target);
     if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))
@@ -381,6 +373,8 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addIllegalOp<func::FuncOp>();
   target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
   target.addLegalDialect<ROCDL::ROCDLDialect>();
+  // TODO (rocmlir): remove vector::VectorDialect
+  // related PR: https://github.com/llvm/llvm-project/pull/124439
   target.addIllegalDialect<gpu::GPUDialect, vector::VectorDialect>();
   target.addIllegalOp<LLVM::CosOp, LLVM::ExpOp, LLVM::Exp2Op, LLVM::FCeilOp,
                       LLVM::FFloorOp, LLVM::FRemOp, LLVM::LogOp, LLVM::Log10Op,
