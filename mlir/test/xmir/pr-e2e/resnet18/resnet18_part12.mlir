@@ -3,6 +3,7 @@
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 
+
 module {
   func.func private @forward__part_12(%arg0: tensor<1x128x28x28xf32> {mhal.read_access}, %arg1: tensor<128x1x1xf32> {mhal.read_access}) -> (tensor<1x128x28x28xf32> {mhal.write_access}) {
     %1 = tosa.transpose %arg0 {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x128x28x28xf32>) -> tensor<1x28x28x128xf32>
@@ -22,7 +23,6 @@ module {
     %12 = tosa.mul %11, %6, %shift : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>, tensor<1xi8>) -> tensor<1x128x28x28xf32>
     %13 = tosa.mul %12, %7, %shift : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>, tensor<1xi8>) -> tensor<1x128x28x28xf32>
     %14 = tosa.add %13, %8 : (tensor<1x128x28x28xf32>, tensor<1x128x1x1xf32>) -> tensor<1x128x28x28xf32>
-    %15 = tosa.clamp %14 {max_val = 3.40282347E+38 : f32, min_val = 0.000000e+00 : f32} : (tensor<1x128x28x28xf32>) -> tensor<1x128x28x28xf32>
-    return %15 : tensor<1x128x28x28xf32>
+    return %14 : tensor<1x128x28x28xf32>
   }
 }
