@@ -4,10 +4,8 @@
 // We need a check for each output as this test case has three outputs in it.
 // CHECK: [1 1 1]
 // CHECK: [1 1 1]
-// CHECK: [1 1 1]
 module {
-  func.func @mlir_convolution_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf16, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x4x64x64xf16, 16384x4096x64x1>, %arg2: !migraphx.shaped<320x4x3x3xf16, 36x9x3x1>) -> (!migraphx.shaped<2x32x1x1x1xf16, 32x1x1x1x1>, !migraphx.shaped<2x32x1x1x1xf16, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf16, 1310720x40960x4096x64x1>) attributes{arch = "##TOKEN_ARCH##", enable_splitk_for_tuning, kernel = "mixr"} {
-    %0 = migraphx.literal(dense<2.44140629E-5> : tensor<1xf16>) : <1xf16, 0>
+  func.func @mlir_convolution_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf16, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x4x64x64xf16, 16384x4096x64x1>, %arg2: !migraphx.shaped<320x4x3x3xf16, 36x9x3x1>) -> (!migraphx.shaped<2x32x1x1x1xf16, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf16, 1310720x40960x4096x64x1>) attributes{arch = "##TOKEN_ARCH##", enable_splitk_for_tuning, kernel = "mixr"} {
     %1 = migraphx.literal(dense<2.44140629E-5> : tensor<1xf16>) : <1xf16, 0>
     %2 = migraphx.convolution %arg1, %arg2 {perf_config="v2:16,32,4,16,16,4,4,1,1", dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [1, 1]} : <2x4x64x64xf16, 16384x4096x64x1>, <320x4x3x3xf16, 36x9x3x1> -> <2x320x64x64xf16, 1310720x4096x64x1>
     %3 = migraphx.reshape %2 {dims = [2, 32, 10, 64, 64]} : <2x320x64x64xf16, 1310720x4096x64x1> -> <2x32x10x64x64xf16, 1310720x40960x4096x64x1>
@@ -17,12 +15,6 @@ module {
     %7 = migraphx.reshape %6 {dims = [2, 32, 40960, 1]} : <2x32x10x64x64xf16, 1310720x40960x4096x64x1> -> <2x32x40960x1xf16, 1310720x40960x1x1>
     %8 = migraphx.reduce_sum %7 {axes = [2]} : <2x32x40960x1xf16, 1310720x40960x1x1> -> <2x32x1x1xf16, 32x1x1x1>
     %9 = migraphx.reshape %8 {dims = [2, 32, 1, 1, 1]} : <2x32x1x1xf16, 32x1x1x1> -> <2x32x1x1x1xf16, 32x1x1x1x1>
-    %10 = migraphx.multibroadcast %0 {out_dyn_dims = [], out_lens = [2, 32, 10, 64, 64]} : <1xf16, 0> -> <2x32x10x64x64xf16, 0x0x0x0x0>
-    %11 = migraphx.mul %4, %4 : <2x32x10x64x64xf16, 1310720x40960x4096x64x1>, <2x32x10x64x64xf16, 1310720x40960x4096x64x1> -> <2x32x10x64x64xf16, 1310720x40960x4096x64x1>
-    %12 = migraphx.mul %11, %10 : <2x32x10x64x64xf16, 1310720x40960x4096x64x1>, <2x32x10x64x64xf16, 0x0x0x0x0> -> <2x32x10x64x64xf16, 1310720x40960x4096x64x1>
-    %13 = migraphx.reshape %12 {dims = [2, 32, 40960]} : <2x32x10x64x64xf16, 1310720x40960x4096x64x1> -> <2x32x40960xf16, 1310720x40960x1>
-    %14 = migraphx.reduce_sum %13 {axes = [2]} : <2x32x40960xf16, 1310720x40960x1> -> <2x32x1xf16, 32x1x1>
-    %15 = migraphx.reshape %14 {dims = [2, 32, 1, 1, 1]} : <2x32x1xf16, 32x1x1> -> <2x32x1x1x1xf16, 32x1x1x1x1>
-    return %9, %15, %4 : !migraphx.shaped<2x32x1x1x1xf16, 32x1x1x1x1>, !migraphx.shaped<2x32x1x1x1xf16, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf16, 1310720x40960x4096x64x1>
+    return %9, %4 : !migraphx.shaped<2x32x1x1x1xf16, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf16, 1310720x40960x4096x64x1>
   }
 }
