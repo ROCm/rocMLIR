@@ -243,7 +243,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
     PopulateParamsXDL tuningInfo;
     // XDLOPS
     Type inTypeA = gemmOp.getAType();
-    bool is8BitReduction = inTypeA.isInteger(8) || (inTypeA.getIntOrFloatBitWidth() == 8 && isa<FloatType>(inTypeA));
+    bool is8BitReduction =
+        inTypeA.isInteger(8) ||
+        (inTypeA.getIntOrFloatBitWidth() == 8 && isa<FloatType>(inTypeA));
     const std::vector<std::vector<uint32_t>> &xdlopsParams =
         is8BitReduction ? validRangeAccelGemmParams8BitReduction
                         : validRangeAccelGemmParams;

@@ -161,7 +161,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   auto elemBWidth = elemTypeB.getIntOrFloatBitWidth();
   // Extend input types to the highest-precision type among the inputs
   if (elemTypeA != elemTypeB &&
-      (!isa<FloatType>(elemTypeA) || !isa<FloatType>(elemTypeB) || elemAWidth != 8 || elemBWidth != 8)) {
+      (!isa<FloatType>(elemTypeA) || !isa<FloatType>(elemTypeB) ||
+       elemAWidth != 8 || elemBWidth != 8)) {
     if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
       MemRefType newBType = MemRefType::get(bShape, elemTypeA);
       memref::AllocOp newB = rw.create<memref::AllocOp>(loc, newBType);

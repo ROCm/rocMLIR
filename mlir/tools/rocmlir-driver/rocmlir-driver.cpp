@@ -252,8 +252,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  llvm::SmallDenseSet<StringRef> hostPipelineOptions{
-      "migraphx", "highlevel", "mhal", "runner"};
+  llvm::SmallDenseSet<StringRef> hostPipelineOptions{"migraphx", "highlevel",
+                                                     "mhal", "runner"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   std::string hostPipelineStr = hostPipeline.getValue();
   if (failed(parsePipeline(hostPipelineStr, hostPipelineSet,

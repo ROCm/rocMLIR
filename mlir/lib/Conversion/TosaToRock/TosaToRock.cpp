@@ -526,7 +526,8 @@ public:
 };
 
 static void permuteLayout(Operation *op, const char *attrKey,
-                          const char *layoutDefault, const ArrayRef<int32_t> permDims,
+                          const char *layoutDefault,
+                          const ArrayRef<int32_t> permDims,
                           bool isInput = false) {
   StringRef currentLayout(layoutDefault);
   if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
@@ -1114,11 +1115,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     normalizedShape.push_back(reverseInputShape[0]);
     auto normalizedType = RankedTensorType::get(
         normalizedShape, inputTensor.getType().getElementType());
-    auto normalizedShapeValue = tosa::getTosaConstShape(
-      rewriter, loc, normalizedShape);
+    auto normalizedShapeValue =
+        tosa::getTosaConstShape(rewriter, loc, normalizedShape);
     auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
-        loc, normalizedType, inputTensor,
-        normalizedShapeValue);
+        loc, normalizedType, inputTensor, normalizedShapeValue);
     return reshapeOp;
   }
 
