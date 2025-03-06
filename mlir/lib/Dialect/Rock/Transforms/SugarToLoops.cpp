@@ -1133,9 +1133,7 @@ std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b,
 
 // A helper to select the right i4 element if it was supposed to
 // be a scalar i4 load.
-Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
-  MemRefType srcType = op.getSource().getType();
-  Type originalLoadedType = op.getResult().getType();
+Value selectDataIf4b(Location loc, PatternRewriter &b, SmallVector<Value>& coords, MemRefType srcType, Type originalLoadedType, Value loadedVec) {
   if (srcType.getElementType().getIntOrFloatBitWidth() >= 8) {
     return loadedVec;
   }
@@ -1150,8 +1148,6 @@ Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
   assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
          "we only support 4bits in narrow types");
   assert(isa<VectorType>(loadedVec.getType()));
-  Location loc = op.getLoc();
-  SmallVector<Value, 5> coords(op.getSourceCoord());
   ArrayRef<int64_t> shape = srcType.getShape();
   Value flatAddress = flattenCoords(b, loc, coords, shape);
   Type coordType = flatAddress.getType();
@@ -1198,6 +1194,12 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
       source = zeroDMemrefAsOneD(b, source);
       coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
     }
+    // We need to copy these params here, because the next if might replace "op".
+    // So, we can't safely access it after that.
+    // TODO: refactor this code
+    MemRefType srcType = op.getSource().getType();
+    Type originalLoadedType = op.getResult().getType();
+    SmallVector<Value> sourceCoords(op.getSourceCoord());
 
     PatternRewriter::InsertionGuard insertGuard(b);
     if (emitOobChecks && !useBufferOps) {
@@ -1207,11 +1209,11 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
             loc, arith::CmpIPredicate::uge, coords[0], numElems);
         cond = b.create<arith::AndIOp>(loc, fallsOffEnd, cond);
       }
-      auto guard = b.create<scf::IfOp>(loc, loadedType, cond, true, true);
+      auto guard = b.create<scf::IfOp>(loc, originalLoadedType, cond, true, true);
       b.replaceOp(op, guard);
 
       b.setInsertionPointToEnd(guard.getBody(1));
-      Value zeroes = createZeroConstantOp(b, loc, loadedType);
+      Value zeroes = createZeroConstantOp(b, loc, originalLoadedType);
       b.create<scf::YieldOp>(loc, zeroes);
       b.setInsertionPointToEnd(guard.getBody(0));
     }
@@ -1249,7 +1251,7 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         else
           loaded = thisLoad;
       });
-      loaded = selectDataIf4b(b, op, loaded);
+      loaded = selectDataIf4b(loc, b, sourceCoords, srcType, originalLoadedType, loaded);
       b.replaceOp(op, loaded);
     } else {
       Value loaded;
@@ -1257,7 +1259,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         loaded = b.create<vector::LoadOp>(loc, loadedType, source, coords);
       else
         loaded = b.create<memref::LoadOp>(loc, loadedType, source, coords);
-      loaded = selectDataIf4b(b, op, loaded);
+
+      loaded = selectDataIf4b(loc, b, sourceCoords, srcType, originalLoadedType, loaded);
       if (emitOobChecks)
         b.create<scf::YieldOp>(loc, loaded);
       else
