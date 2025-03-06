@@ -1011,7 +1011,7 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
         reportFile = reportUtils.PERF_REPORT_FILE['CK']
     else:
         reportFile = reportUtils.PERF_REPORT_FILE['MIOpen']
-    df.fillna('NaN', inplace=True)
+    df.fillna(np.nan, inplace=True)
     df.to_csv(chip + '_' + reportFile, index=False)
 
 def getSolverName(testVector, arch, numCU):
@@ -1205,7 +1205,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         perfResults[testVector] = oneEntry
 
     df = pd.DataFrame(perfResults.values())
-    df.fillna('NaN', inplace=True)
+    df.fillna(np.nan, inplace=True)
     df.rename(columns={'TFlops': 'Fusion TFlops'}, inplace=True)
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
