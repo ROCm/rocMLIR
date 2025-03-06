@@ -1591,7 +1591,7 @@ void RockSugarToLoopsPass::runOnOperation() {
   // for each coordinate
 
   // Note: even if all these patterns are moved before unrolling, a call to
-  // applyPatternsAndFoldGreedily() is needed for the Fold part of that
+  // applyPatternsGreedily() is needed for the Fold part of that
   // function. Specifically, affine loop unrolling generates affine.apply()
   // calls that are then constant-folded away by this rewriter
   RewritePatternSet postUnrollPatterns(ctx);

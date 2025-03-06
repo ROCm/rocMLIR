@@ -2089,64 +2089,64 @@ LogicalResult Conv2DOp::verify() {
     // Skip following checks if output is not ranked
     return success();
 
-  const RankedTensorType inputType =
-      llvm::dyn_cast<RankedTensorType>(getInput().getType());
-  const RankedTensorType weightType =
-      llvm::dyn_cast<RankedTensorType>(getWeight().getType());
+  // TODO: fix and create upstream PR
+  // const RankedTensorType inputType =
+  //     llvm::dyn_cast<RankedTensorType>(getInput().getType());
+  // const RankedTensorType weightType =
+  //     llvm::dyn_cast<RankedTensorType>(getWeight().getType());
 
-  if (inputType && weightType) {
-    const auto verifyOutputSize =
-        [this](const int64_t inputSize, const int64_t kernelSize,
-               const int64_t outputSize, const int64_t padBefore,
-               const int64_t padAfter, const int64_t stride,
-               const int64_t dilation, const llvm::StringRef dimName,
-               const llvm::StringRef dimAxis,
-               const llvm::StringRef padBeforeName,
-               const llvm::StringRef padAfterName) -> LogicalResult {
-      if (inputSize == ShapedType::kDynamic ||
-          kernelSize == ShapedType::kDynamic)
-        return success();
+  // if (inputType && weightType) {
+  //   const auto verifyOutputSize =
+  //       [this](const int64_t inputSize, const int64_t kernelSize,
+  //              const int64_t outputSize, const int64_t padBefore,
+  //              const int64_t padAfter, const int64_t stride,
+  //              const int64_t dilation, const llvm::StringRef dimName,
+  //              const llvm::StringRef dimAxis,
+  //              const llvm::StringRef padBeforeName,
+  //              const llvm::StringRef padAfterName) -> LogicalResult {
+  //     if (inputSize == ShapedType::kDynamic ||
+  //         kernelSize == ShapedType::kDynamic)
+  //       return success();
 
-      const std::optional<int64_t> calculatedOutSizeMinusOne = idivCheck(
-          inputSize - 1 + padBefore + padAfter - (kernelSize - 1) * dilation,
-          stride);
-      if (!calculatedOutSizeMinusOne.has_value())
-        return emitOpError("expected input_")
-               << dimName << " - 1 + pad_" << padBeforeName << " + pad_"
-               << padAfterName << " - (kernel_" << dimName
-               << " - 1) * dilation_" << dimAxis
-               << " to be wholly divisible by stride_" << dimAxis << ", got ("
-               << inputSize << " - 1 + " << padBefore << " + " << padAfter
-               << " - (" << kernelSize << " - 1) * " << dilation << ") / "
-               << stride;
+  //     const std::optional<int64_t> calculatedOutSizeMinusOne = idivCheck(
+  //         inputSize - 1 + padBefore + padAfter - (kernelSize - 1) * dilation,
+  //         stride);
+  //     if (!calculatedOutSizeMinusOne.has_value())
+  //       return emitOpError("expected input_")
+  //              << dimName << " - 1 + pad_" << padBeforeName << " + pad_"
+  //              << padAfterName << " - (kernel_" << dimName
+  //              << " - 1) * dilation_" << dimAxis
+  //              << " to be wholly divisible by stride_" << dimAxis << ", got ("
+  //              << inputSize << " - 1 + " << padBefore << " + " << padAfter
+  //              << " - (" << kernelSize << " - 1) * " << dilation << ") / "
+  //              << stride;
 
-      const int64_t calculatedOutSize = calculatedOutSizeMinusOne.value() + 1;
-      if (outputSize != ShapedType::kDynamic && calculatedOutSize != outputSize)
-        return emitOpError("calculated output ")
-               << dimName << " did not match expected: "
-               << "calculated=" << calculatedOutSize
-               << ", expected=" << outputSize;
+  //     const int64_t calculatedOutSize = calculatedOutSizeMinusOne.value() + 1;
+  //     if (outputSize != ShapedType::kDynamic && calculatedOutSize != outputSize)
+  //       return emitOpError("calculated output ")
+  //              << dimName << " did not match expected: "
+  //              << "calculated=" << calculatedOutSize
+  //              << ", expected=" << outputSize;
 
-      return success();
-    };
+  //     return success();
+  //   };
 
-    // TODO: fix and create upstream PR
-    // if (failed(verifyOutputSize(
-    //         inputType.getDimSize(1), weightType.getDimSize(1),
-    //         outputType.getDimSize(1), padding[0], padding[1], strides[0],
-    //         dilations[0], "height", "y", "top", "bottom"))) {
-    //   llvm::errs() << "____FAILED1\n";
-    //   return failure();
-    // }
+  //   if (failed(verifyOutputSize(
+  //           inputType.getDimSize(1), weightType.getDimSize(1),
+  //           outputType.getDimSize(1), padding[0], padding[1], strides[0],
+  //           dilations[0], "height", "y", "top", "bottom"))) {
+  //     llvm::errs() << "____FAILED1\n";
+  //     return failure();
+  //   }
 
-    // if (failed(verifyOutputSize(
-    //         inputType.getDimSize(2), weightType.getDimSize(2),
-    //         outputType.getDimSize(2), padding[2], padding[3], strides[1],
-    //         dilations[1], "width", "x", "left", "right"))) {
-    //   llvm::errs() << "____FAILED1\n";
-    //   return failure();
-    // }
-  }
+  //   if (failed(verifyOutputSize(
+  //           inputType.getDimSize(2), weightType.getDimSize(2),
+  //           outputType.getDimSize(2), padding[2], padding[3], strides[1],
+  //           dilations[1], "width", "x", "left", "right"))) {
+  //     llvm::errs() << "____FAILED1\n";
+  //     return failure();
+  //   }
+  // }
 
   const RankedTensorType biasType =
       llvm::dyn_cast<RankedTensorType>(getBias().getType());
