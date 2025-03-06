@@ -255,13 +255,13 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
   DagType dag = createDependencyGraph(stages, resources);
 
   // Definition of initiation interval (II)
-  // Initiation interval is defind by number of cycles in each iteration of a
+  // Initiation interval is defined by number of cycles in each iteration of a
   // loop. Only one cycle is counted for parallel stages. Assume each stage
   // executes in one cycle.
-  // Start building the schedules. Since we accept the
-  // stages from the user, we don't need to do any analysis to determine what
-  // goes in each stage. We only have to group things in set of stages of length
-  // II.
+  // Start building the schedules. Since we accept the stages from the user, we
+  // don't need to do any analysis to determine what goes in each stage. Each
+  // `II` number of stages will execute in sequence. All groups of `II`
+  // stages execute in parallel.
   //  For instance, consider the following unpipelined schedule. The column `t`
   //  represents
   // the time slot, and the subsequent columns represents the iterations.
@@ -445,18 +445,13 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
                    ArrayRef<rock::StageOp> stages,
                    SetVector<rock::GpuAllocOp> &allocs,
                    SmallVector<rock::StageOp> &extendedStages,
-                   int64_t &initiationInterval) {
+                   int64_t &initiationInterval, int64_t numIterations) {
   DagType dag = createDependencyGraph(stages, allocs);
   dag = pruneGraph(dag);
 
-  auto maybeNumIterations =
-      rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
-
   // If there is a loop, we probably need a backward barrier, i.e.,
   // an LDS barrier that takes the loop dependency into account
-  const bool addBackwardBarrier =
-      (!maybeNumIterations.has_value() ||
-       (maybeNumIterations.has_value() && maybeNumIterations.value() > 1));
+  const bool addBackwardBarrier = numIterations > 1;
 
   DenseMap<rock::StageOp, int> timeSlotMap;
   int timeSlot = 0;
@@ -569,7 +564,7 @@ void adjustInitiationInterval(int64_t numIterations, size_t numStages,
   int64_t numPrologues = numParallelStages - 1;
   // if number of iterations are less than number of prologues that are going
   // to be emitted, it will not result in correct output therefore increase II
-  // untill that condition becomes false. This can help achieve maximum loop
+  // until that condition becomes false. This can help achieve maximum loop
   // pipelining
   while (numIterations < numPrologues) {
     ii++;
@@ -580,6 +575,8 @@ void adjustInitiationInterval(int64_t numIterations, size_t numStages,
   LLVM_DEBUG(DBGS() << "Number of parallel stages: " << numParallelStages
                     << "\n");
   LLVM_DEBUG(DBGS() << "Number of Prologues: " << numPrologues << "\n");
+  // num of prologues == number of epilogues
+  LLVM_DEBUG(DBGS() << "Number of Epilogues: " << numPrologues << "\n");
 }
 
 struct RockPipeline : public rock::impl::RockPipelinePassBase<RockPipeline> {
@@ -671,17 +668,19 @@ void RockPipeline::runOnOperation() {
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
     assert(isConstantIntValue(forOp.getStep(), 1) &&
            "Step size other one is not permitted in rock-pipeline");
-    if (!maybeNumIterations.has_value())
-      continue;
-
+    if (!maybeNumIterations.has_value()) {
+      emitError(loc,
+                "Number of iterations are unknown while doing rock-pipeline\n");
+      return signalPassFailure();
+    }
     adjustInitiationInterval(maybeNumIterations.value(), numStages, ii);
 
     // Insert the barriers as new stages
     SmallVector<rock::StageOp> extendedStages;
     // use "multiAllocs" to place LDS barriers, no need to explicitly place
     // barriers for registers or globals
-    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
-                  ii);
+    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages, ii,
+                  maybeNumIterations.value());
 
     ScheduleType schedule;
     // use all "resources" to generate dependency graph and generate schedule
