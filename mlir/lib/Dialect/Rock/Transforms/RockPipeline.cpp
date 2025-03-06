@@ -668,10 +668,11 @@ void RockPipeline::runOnOperation() {
         rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
     assert(isConstantIntValue(forOp.getStep(), 1) &&
            "Step size other one is not permitted in rock-pipeline");
-    if (!maybeNumIterations.has_value())
+    if (!maybeNumIterations.has_value()) {
       emitError(loc,
                 "Number of iterations are unknown while doing rock-pipeline\n");
-
+      return signalPassFailure();
+    }
     adjustInitiationInterval(maybeNumIterations.value(), numStages, ii);
 
     // Insert the barriers as new stages
