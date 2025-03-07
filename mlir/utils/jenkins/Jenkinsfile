@@ -338,7 +338,6 @@ void archivePerfDB() {
             unstash name: "MLIR-PerfDB-gfx908"
             unstash name: "MLIR-PerfDB-gfx90a"
             unstash name: "MLIR-PerfDB-gfx1100"
-            unstash name: "MLIR-PerfDB-gfx1101"
             unstash name: "MLIR-PerfDB-gfx1201"
             if (!params.disableNavi21)
                 unstash name: "MLIR-PerfDB-gfx1030"
@@ -688,7 +687,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100', 'gfx1101', 'gfx1201'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100', 'gfx1201'
                     }
                 }
                 agent {
@@ -815,7 +814,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'
+                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100', 'gfx1201'
                     }
                 }
                 when {
