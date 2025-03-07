@@ -134,7 +134,7 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     return failure();
 
   if (param.gemmMPerBlock % param.gemmMPerThread != 0 ||
-        param.gemmNPerBlock % param.gemmNPerThread != 0)
+      param.gemmNPerBlock % param.gemmNPerThread != 0)
     return failure();
 
   int64_t threadGemmMPerCluster = param.gemmMPerThread *
