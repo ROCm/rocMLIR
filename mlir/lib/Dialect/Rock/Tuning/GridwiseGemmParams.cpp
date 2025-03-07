@@ -127,14 +127,14 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     return failure();
   GeneralGemmBlockStructure derived = *maybeDerived;
 
-  if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
+  if (param.gemmMPerThread < 2 || param.gemmMPerThread > 4)
     return failure();
 
-  if (!(param.gemmNPerThread >= 2 && param.gemmNPerThread <= 4))
+  if (param.gemmNPerThread < 2 || param.gemmNPerThread > 4)
     return failure();
 
-  if (!(param.gemmMPerBlock % param.gemmMPerThread == 0 &&
-        param.gemmNPerBlock % param.gemmNPerThread == 0))
+  if (param.gemmMPerBlock % param.gemmMPerThread != 0 ||
+        param.gemmNPerBlock % param.gemmNPerThread != 0)
     return failure();
 
   int64_t threadGemmMPerCluster = param.gemmMPerThread *

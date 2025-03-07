@@ -256,10 +256,12 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                     gemmKPack, isSplitKFusible);
                 for (int64_t splitKFactor : optimalSplitKFactors) {
                   for (uint32_t forceUnroll : xdlopsParams[6]) {
+                    // hardcode schedule version to v1 and outputSwizzle to
+                    // heuristics = 2
                     InitParamsAccel gemmParams(
                         gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                         gemmMPerWave, gemmMnPerXdl, gemmKPack, splitKFactor, 1,
-                        forceUnroll, true, true);
+                        2, forceUnroll, true);
                     if (gemmMPerBlock >= gemmMPerWave &&
                         gemmNPerBlock >= gemmMnPerXdl) {
                       if (succeeded(tuningInfo.paramsProbablyValid(
@@ -295,10 +297,12 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                     gemmKPack, isSplitKFusible);
                 for (auto splitKFactor : optimalSplitKFactors) {
                   for (uint32_t forceUnroll : wmmaParams[6]) {
+                    // hardcode schedule version to v1 and outputSwizzle to
+                    // heuristics = 2
                     InitParamsAccel gemmParams(
                         gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                         gemmMPerWave, gemmNPerWave, gemmKPack, splitKFactor, 1,
-                        forceUnroll, true, true);
+                        2, forceUnroll, true);
                     if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                  gemmParams)) &&
                         (kind == TuningParamSetKind::Exhaustive ||
@@ -328,9 +332,11 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   isSplitKFusible);
               for (auto splitKFactor : optimalSplitKFactors) {
                 for (uint32_t gemmNPerThread : validRangeGeneralGemmParams[5]) {
+                  // hardcode schedule version to v1 and outputSwizzle to
+                  // heuristics = 2
                   InitParamsNonAccel gemmParams(
                       blockSize, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                      gemmMPerThread, gemmNPerThread, splitKFactor, 1, true);
+                      gemmMPerThread, gemmNPerThread, splitKFactor, 1, 2);
                   if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                gemmParams)) &&
                       (kind == TuningParamSetKind::Exhaustive ||

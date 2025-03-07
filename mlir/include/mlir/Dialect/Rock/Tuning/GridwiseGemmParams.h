@@ -102,20 +102,20 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
   uint32_t blockSize;
   int64_t splitKFactor;
   int64_t gemmScheduleVersion;
-  bool outputSwizzle;
+  int64_t outputSwizzle;
 
   constexpr InitParamsNonAccel(uint32_t bSize, int64_t mPerBlock,
                                int64_t nPerBlock, int64_t kPerBlock,
                                int64_t mPerThread, int64_t nPerThread,
                                int64_t splitKFactor, int64_t scheduleVersion,
-                               bool outputSwizzle)
+                               int64_t outputSwizzle)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
         gemmNPerThread(nPerThread), blockSize(bSize),
         splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
         outputSwizzle(outputSwizzle) {}
 
   constexpr InitParamsNonAccel()
-      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, true) {}
+      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL) {}
 
   InitParamsNonAccel(GeneralGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -136,9 +136,9 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
     f(self.gemmKPerBlock);
     f(self.gemmMPerThread);
     f(self.gemmNPerThread);
-    if (self.version != Version::V1)
+    if (self.version >= Version::V2)
       f(self.splitKFactor);
-    if (self.version == Version::V3) {
+    if (self.version >= Version::V3) {
       f(self.gemmScheduleVersion);
       f(self.outputSwizzle);
     }
@@ -150,18 +150,18 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
                             int64_t kPerBlock, int64_t mPerWave,
                             int64_t nPerWaveOrMnPerXdl, int64_t kPack,
                             int64_t splitKFactor, int64_t scheduleVersion,
-                            bool aThreadCopyMoreGemmK,
-                            bool bThreadCopyMoreGemmKPack, bool outputSwizzle)
+                            int64_t outputSwizzle, bool aThreadCopyMoreGemmK,
+                            bool bThreadCopyMoreGemmKPack)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
         gemmNPerWaveOrMnPerXdl(nPerWaveOrMnPerXdl), gemmKPack(kPack),
         splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
+        outputSwizzle(outputSwizzle),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
-        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack),
-        outputSwizzle(outputSwizzle) {}
+        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   constexpr InitParamsAccel()
-      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, false, false,
-                        true) {}
+      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, false,
+                        false) {}
 
   InitParamsAccel(XdlopsGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -169,8 +169,10 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmMPerWave(attr.getMPerWave()),
         gemmNPerWaveOrMnPerXdl(attr.getMnPerXdl()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
+        gemmScheduleVersion(attr.getScheduleVersion()),
+        outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -178,8 +180,10 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmMPerWave(attr.getMPerWave()),
         gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
+        gemmScheduleVersion(attr.getScheduleVersion()),
+        outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   int64_t getKPack() { return gemmKPack; }
 
@@ -188,9 +192,9 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   int64_t gemmKPack;
   int64_t splitKFactor;
   int64_t gemmScheduleVersion;
+  int64_t outputSwizzle;
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
-  bool outputSwizzle;
 
   template <class Self, class F>
   static void visit(Self &&self, F f) {
@@ -200,17 +204,15 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
     f(self.gemmMPerWave);
     f(self.gemmNPerWaveOrMnPerXdl);
     f(self.gemmKPack);
-    if (self.version != Version::V1) {
+    if (self.version >= Version::V2) {
       f(self.splitKFactor);
     }
-    if (self.version == Version::V3) {
+    if (self.version >= Version::V3) {
       f(self.gemmScheduleVersion);
+      f(self.outputSwizzle);
     }
     f(self.gemmAThreadCopyMoreGemmK);
     f(self.gemmBThreadCopyMoreGemmKPack);
-    if (self.version == Version::V3) {
-      f(self.outputSwizzle);
-    }
   }
 };
 

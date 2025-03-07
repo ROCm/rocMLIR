@@ -71,9 +71,10 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Flag used to determine whether to enable output swizzle or not 
+          Returns value  0 or 1 to decide if rocMLIR should enable output swizzle or not. 
+          Return value 2 means rocMLIR should use heuristics to make this decision
         }],
-        /*retType=*/"bool",
+        /*retType=*/"int64_t",
         /*methodName=*/"getOutputSwizzle",
         /*args=*/(ins),
         /*methodBody=*/"",
@@ -81,7 +82,9 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Returns version of the schedule used by the underlying GEMM algorithm
+          Returns version of the schedule used by the underlying GEMM algorithm. 
+          Return value of 1 means it should use 3 stage schedule with II=2. 
+          Return value of 2 means it should 2 stage schedule with II=1. 
         }],
         /*retType=*/"int64_t",
         /*methodName=*/"getScheduleVersion",

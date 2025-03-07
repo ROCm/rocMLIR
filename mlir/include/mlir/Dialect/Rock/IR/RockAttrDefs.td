@@ -227,7 +227,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - kpack: The number of values of k to pack contiguously into the shared buffer
     - splitKFactor:  Split-k factor for the Split-k GEMM algorithm
     - scheduleVersion: Param to select GEMM schedule
-    - outputSwizzle: Whether to enable output swizzle or not
+    - outputSwizzle: Whether to enable/disable output swizzle or use heuristics 
   }];
   let parameters = (ins
     "uint32_t":$blockSize,
@@ -240,7 +240,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     "int64_t":$kpack,
     "int64_t":$splitKFactor,
     "int64_t":$scheduleVersion,
-    "bool":$outputSwizzle
+    "int64_t":$outputSwizzle
   );
 
   let extraClassDeclaration = [{
@@ -295,7 +295,7 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
 
     int64_t getSplitKFactor() { return 1; }
     int64_t getScheduleVersion() { return 1;}
-    bool getOutputSwizzle() { return true;}
+    int64_t getOutputSwizzle() { return 2;}
   }];
 
   let builders = [
@@ -321,7 +321,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
     "int64_t":$scheduleVersion,
-    "bool":$outputSwizzle,
+    "int64_t":$outputSwizzle,
     "bool":$forceUnroll
   );
 
@@ -362,7 +362,7 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
     "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
     "int64_t":$scheduleVersion,
-    "bool":$outputSwizzle,
+    "int64_t":$outputSwizzle,
     "bool":$forceUnroll
   );
 
@@ -430,7 +430,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
     "int64_t":$nPerWave,
     "int64_t":$splitKFactor,
     "int64_t":$scheduleVersion,
-    "bool":$outputSwizzle,
+    "int64_t":$outputSwizzle,
     "bool":$forceUnroll
   );
 
