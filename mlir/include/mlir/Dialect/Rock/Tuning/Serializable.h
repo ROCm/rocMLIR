@@ -70,7 +70,8 @@ struct Serializable {
   }
 
   bool checkVersionFormat(const std::string &s) {
-    const int32_t maxNumTokens = version == Version::V1 ? 8 : 9;
+    const int32_t maxNumTokens =
+        version == Version::V1 ? 8 : (version == Version::V2 ? 9 : 11);
     const int32_t maxNumSeperators = maxNumTokens - 1;
     const int32_t minNumSeperators = maxNumSeperators - 2;
     const auto numFoundSeperators = std::count_if(
@@ -123,7 +124,7 @@ struct Serializable {
     return os;
   }
 
-  enum class Version : int32_t { V1 = 1, V2, Count };
+  enum class Version : int32_t { V1 = 1, V2, V3, Count };
   Version getVersion() { return version; }
 
 protected:

@@ -69,7 +69,26 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
-
+    InterfaceMethod<
+        /*desc=*/[{
+          Flag used to determine whether to enable output swizzle or not 
+        }],
+        /*retType=*/"bool",
+        /*methodName=*/"getOutputSwizzle",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Returns version of the schedule used by the underlying GEMM algorithm
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getScheduleVersion",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
     // TODO: more methods here as needed
   ];
 

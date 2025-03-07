@@ -175,7 +175,8 @@ PopulateParams::getGemmParamsAttr(OpBuilder &b,
       params.blockSize, params.gemmKPerBlock, params.gemmMPerBlock,
       params.gemmNPerBlock,
       /*kPerThread=*/1, params.gemmMPerThread, params.gemmNPerThread,
-      /*kpack=*/1, params.splitKFactor);
+      /*kpack=*/1, params.splitKFactor, params.gemmScheduleVersion,
+      params.outputSwizzle);
 }
 
 LogicalResult
@@ -609,7 +610,8 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
-      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
+      validParams.splitKFactor, validParams.gemmScheduleVersion,
+      validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }
 
 /// Wmma acceleration
@@ -781,5 +783,6 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
-      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
+      validParams.splitKFactor, validParams.gemmScheduleVersion,
+      validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }
