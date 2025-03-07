@@ -295,7 +295,7 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
 
     int64_t getSplitKFactor() { return 1; }
     int64_t getScheduleVersion() { return 1;}
-    int64_t getOutputSwizzle() { return 2;}
+    int64_t getOutputSwizzle() { return 2; }
   }];
 
   let builders = [

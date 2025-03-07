@@ -8,7 +8,7 @@ module {
   // CLONE-NEXT: Unranked Memref base
 
   func.func @dot_splitk_linear(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>, %arg3: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x5x3xf32, 15x3x1> attributes{arch = "##TOKEN_ARCH##", enable_splitk_for_tuning, kernel = "mixr"} {
-    %0 = migraphx.dot %arg0, %arg1 {perf_config="v2:16,32,16,16,16,16,16,1,1"} : <1x5x4xf32, 20x4x1>, <1x4x3xf32, 12x3x1> -> <1x5x3xf32, 15x3x1>
+    %0 = migraphx.dot %arg0, %arg1 {perf_config="v3:16,32,16,16,16,16,16,1,2,1,1"} : <1x5x4xf32, 20x4x1>, <1x4x3xf32, 12x3x1> -> <1x5x3xf32, 15x3x1>
     %cst = migraphx.literal(dense<3.000000e+00> : tensor<1x5x3xf32>) : <1x5x3xf32, 0x0x0>
     %1 = migraphx.add %arg2, %cst {} : <1x5x3xf32, 15x3x1>, <1x5x3xf32, 0x0x0> -> <1x5x3xf32, 15x3x1>
     %2 = migraphx.mul %0, %1 {} : <1x5x3xf32, 15x3x1>, <1x5x3xf32, 15x3x1> -> <1x5x3xf32, 15x3x1>

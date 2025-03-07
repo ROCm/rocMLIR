@@ -22,7 +22,9 @@ func.func @rock_accel_gemm_wmma(%matrixA : memref<1x4xvector<16xf16>, 5>,
        mPerWave = 16,
        nPerWave = 16,
        kpack = 16,
-       splitKFactor = 3,
+       splitKFactor = 3, 
+       scheduleVersion = 1, 
+       outputSwizzle = 2,
        forceUnroll = true>
      } : memref<1x1xvector<8xf32>, 5> += memref<1x4xvector<16xf16>, 5> * memref<1x4xvector<16xf16>, 5>
   return
@@ -49,7 +51,9 @@ func.func @rock_accel_gemm_wmma_gfx12(%matrixA : memref<1x4xvector<8xf16>, 5>,
        mPerWave = 16,
        nPerWave = 16,
        kpack = 8,
-       splitKFactor = 3,
+       splitKFactor = 3, 
+       scheduleVersion = 1, 
+       outputSwizzle = 2,
        forceUnroll = true>
      } : memref<1x1xvector<8xf32>, 5> += memref<1x4xvector<8xf16>, 5> * memref<1x4xvector<8xf16>, 5>
   return
@@ -78,7 +82,9 @@ func.func @rock_accel_gemm_wmma_repeats(%matrixA : memref<1x4xvector<16xf16>, 5>
        mPerWave = 32,
        nPerWave = 32,
        kpack = 16,
-       splitKFactor = 3,
+       splitKFactor = 3, 
+       scheduleVersion = 1, 
+       outputSwizzle = 2,
        forceUnroll = true>
      } : memref<2x2xvector<8xf32>, 5> += memref<1x4xvector<16xf16>, 5> * memref<1x4xvector<16xf16>, 5>
   return
@@ -107,7 +113,9 @@ func.func @rock_accel_gemm_wmma_repeats_int8(%matrixA : memref<1x4xvector<16xi8>
        mPerWave = 32,
        nPerWave = 32,
        kpack = 16,
-       splitKFactor = 3,
+       splitKFactor = 3, 
+       scheduleVersion = 1, 
+       outputSwizzle = 2,
        forceUnroll = true>
      } : memref<2x2xvector<8xi32>, 5> += memref<1x4xvector<16xi8>, 5> * memref<1x4xvector<16xi8>, 5>
   return
@@ -136,7 +144,9 @@ func.func @rock_accel_gemm_wmma_partial_repeats_int8(%matrixA : memref<1x2xvecto
        mPerWave = 32,
        nPerWave = 16,
        kpack = 16,
-       splitKFactor = 3,
+       splitKFactor = 3, 
+       scheduleVersion = 1, 
+       outputSwizzle = 2,
        forceUnroll = true>
      } : memref<2x2xvector<8xi32>, 5> += memref<1x2xvector<16xi8>, 5> * memref<1x2xvector<16xi8>, 5>
   return

@@ -28,7 +28,7 @@ module {
     %4 = rock.transform %1 by #transform_map4 : memref<64x64x4096xf32> to memref<4096x4096xf32>
     %5 = rock.transform %3 by #transform_map5 : memref<64x4096x64xf32> to memref<4096x64xf32>
     %6 = rock.transform %alloc by #transform_map6 : memref<64x64x64xf32> to memref<4096x64xf32>
-    rock.gemm %6 = %4 * %5 features =  mfma|dot|atomic_add storeMethod =  set {arch = "gfx942:sramecc+:xnack-", perf_config = "v2:16,32,4,16,16,4,4,1,1"} : memref<4096x64xf32> = memref<4096x4096xf32> * memref<4096x64xf32>
+    rock.gemm %6 = %4 * %5 features =  mfma|dot|atomic_add storeMethod =  set {arch = "gfx942:sramecc+:xnack-", perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : memref<4096x64xf32> = memref<4096x4096xf32> * memref<4096x64xf32>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<64x64x64xf32>
     linalg.generic {indexing_maps = [#map6, #map6, #map6], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc, %0 : memref<64x64x64xf32>, memref<64x64x64xf32>) outs(%alloc_0 : memref<64x64x64xf32>) {
     ^bb0(%in: f32, %in_3: f32, %out: f32):
