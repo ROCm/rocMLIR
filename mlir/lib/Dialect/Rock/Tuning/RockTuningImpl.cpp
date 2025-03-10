@@ -23,7 +23,6 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <algorithm>
-#include <cstdint>
 
 namespace mlir {
 namespace rock {
