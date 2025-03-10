@@ -170,7 +170,6 @@ private:
   LogicalResult needExtraPadBwdWeight(OpBuilder &builder,
                                       bool &needExtraPad) const;
   LogicalResult hasValidDimension() const;
-  LogicalResult hasValidChip() const;
 
   // Generator config
   Config config;
