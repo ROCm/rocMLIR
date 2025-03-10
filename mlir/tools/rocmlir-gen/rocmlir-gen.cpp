@@ -3970,7 +3970,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
   }
 
   // TODO: Extract isApplicable check to be its own component
-  if (isConv && failed(convGenerator.isApplicable(/* checkChip = */ false))) {
+  if (isConv && failed(convGenerator.isApplicable())) {
     llvm::errs() << "Convolution configuration does not have valid dimension\n";
     exit(1);
   }

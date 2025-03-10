@@ -126,10 +126,6 @@ LogicalResult ConvGenerator::isApplicable(bool checkChip) const {
     return failure();
   }
 
-  // if (checkChip && failed(hasValidChip())) {
-  //   return failure();
-  // }
-
   return success();
 }
 
