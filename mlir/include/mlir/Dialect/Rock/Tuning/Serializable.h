@@ -142,7 +142,7 @@ struct Serializable {
   Version getVersion() { return version; }
 
 protected:
-  Version version{Version::V2};
+  Version version{Version::V3};
 };
 
 template <class Strings>

@@ -18,7 +18,7 @@ module {
     %10 = migraphx.dequantizelinear %2, %8, %9 : <12288x4096xui8, 4096x1>, <12288x4096xf16, 8192x2>, !migraphx.shaped<12288x4096xf16, 8192x2> -> <12288x4096xf16, 4096x1>
     %11 = migraphx.reshape %10 {dims = [1, 12288, 4096]} : <12288x4096xf16, 4096x1> -> <1x12288x4096xf16, 50331648x4096x1>
     %12 = migraphx.transpose %11 {permutation = [0, 2, 1]} : <1x12288x4096xf16, 50331648x4096x1> -> <1x4096x12288xf16, 50331648x1x4096>
-    %13 = migraphx.dot %arg0, %12 {perf_config="v2:16,32,8,16,16,16,1,1,1"} : <1x1x4096xf16, 4096x4096x1>, <1x4096x12288xf16, 50331648x1x4096> -> <1x1x12288xf16, 12288x12288x1>
+    %13 = migraphx.dot %arg0, %12 {perf_config="v3:16,32,8,16,16,16,1,1,2,1,1"} : <1x1x4096xf16, 4096x4096x1>, <1x4096x12288xf16, 50331648x1x4096> -> <1x1x12288xf16, 12288x12288x1>
     return %13 : !migraphx.shaped<1x1x12288xf16, 12288x12288x1>
   }
 }
