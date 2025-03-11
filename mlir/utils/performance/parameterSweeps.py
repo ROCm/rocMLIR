@@ -390,7 +390,6 @@ VANILLA_PERF_CONFIG = itertools.product(
     range(1, 3)
 )
 
-# vanilla perf configs should use V2
 def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
