@@ -31,16 +31,16 @@ name = "pr_gemm"
 [[suite.test]]
 config = "-g 3 -m 1024 -k 769 -n 1024"
 
+[[suite.test]]
+config = "-g 3 -m 1024 -k 769 -n 1024 -perf_config v3:64,64,4,64,16,16,1,2,2,1,1"
+
 ## reverse grid test
 [[suite.test]]
 config = "-g 3 -m 1024 -k 769 -n 1024 --reverse_grid"
 
-[[suite.test]]
-config = "-g 3 -m 1024 -k 769 -n 1024 -perf_config v3:64,64,16,32,32,4,1,2,2,1,1"
-
 ## reverse grid test
 [[suite.test]]
-config = "-g 3 -m 1024 -k 769 -n 1024 --reverse_grid -perf_config v3:64,64,16,32,32,4,1,2,2,1,1"
+config = "-g 3 -m 1024 -k 769 -n 1024 --reverse_grid -perf_config v3:64,64,4,64,16,16,1,2,2,1,1"
 
 # Don't re-test f16 and i8 with transposes: it won't give us much new
 [[suite.test.exclude]]
@@ -55,7 +55,7 @@ values = ["true"]
 config = "-g 1 -m 32768 -k 1 -n 32769"
 
 [[suite.test]]
-config = "-g 1 -m 32768 -k 1 -n 32769 -perf_config v3:256,256,2,64,32,4,1,2,2,1,1"
+config = "-g 1 -m 32768 -k 1 -n 32769 -perf_config v3:64,64,4,64,16,16,1,2,2,1,1"
 
 # Only test f32 here
 [[suite.test.exclude]]

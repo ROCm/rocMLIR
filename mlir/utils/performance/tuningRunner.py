@@ -301,7 +301,7 @@ def main(args=None):
 
     parser.add_argument(
         "--tuning-space",
-        default="exhaustive",
+        default="full",
         choices=["quick", "full", "exhaustive"],
         help="Which space of tuning configs should be used while tuning"
     )
