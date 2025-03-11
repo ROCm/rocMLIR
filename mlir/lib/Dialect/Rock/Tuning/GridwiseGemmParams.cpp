@@ -127,14 +127,14 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     return failure();
   GeneralGemmBlockStructure derived = *maybeDerived;
 
-  if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
+  if (param.gemmMPerThread < 2 || param.gemmMPerThread > 4)
     return failure();
 
-  if (!(param.gemmNPerThread >= 2 && param.gemmNPerThread <= 4))
+  if (param.gemmNPerThread < 2 || param.gemmNPerThread > 4)
     return failure();
 
-  if (!(param.gemmMPerBlock % param.gemmMPerThread == 0 &&
-        param.gemmNPerBlock % param.gemmNPerThread == 0))
+  if (param.gemmMPerBlock % param.gemmMPerThread != 0 ||
+      param.gemmNPerBlock % param.gemmNPerThread != 0)
     return failure();
 
   int64_t threadGemmMPerCluster = param.gemmMPerThread *
@@ -175,7 +175,8 @@ PopulateParams::getGemmParamsAttr(OpBuilder &b,
       params.blockSize, params.gemmKPerBlock, params.gemmMPerBlock,
       params.gemmNPerBlock,
       /*kPerThread=*/1, params.gemmMPerThread, params.gemmNPerThread,
-      /*kpack=*/1, params.splitKFactor);
+      /*kpack=*/1, params.splitKFactor, params.gemmScheduleVersion,
+      params.outputSwizzle);
 }
 
 LogicalResult
@@ -609,7 +610,8 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
-      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
+      validParams.splitKFactor, validParams.gemmScheduleVersion,
+      validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }
 
 /// Wmma acceleration
@@ -781,5 +783,6 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, validParams.gemmNPerWaveOrMnPerXdl,
-      validParams.splitKFactor, validParams.gemmAThreadCopyMoreGemmK);
+      validParams.splitKFactor, validParams.gemmScheduleVersion,
+      validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }

@@ -2557,7 +2557,16 @@ struct GridwiseGemmAccelRewritePattern
 
     // Obtain data types of inputs.
     auto elementTypeA = op.getA().getType().getElementType();
+    auto maybeElementTypeALoad = getGemmInputElementType(op.getA());
+    auto elementTypeALoad = failed(maybeElementTypeALoad)
+                                ? elementTypeA
+                                : maybeElementTypeALoad.value();
+
     auto elementTypeB = op.getB().getType().getElementType();
+    auto maybeElementTypeBLoad = getGemmInputElementType(op.getB());
+    auto elementTypeBLoad = failed(maybeElementTypeBLoad)
+                                ? elementTypeB
+                                : maybeElementTypeBLoad.value();
     auto destType = op.getC().getType().getElementType();
 
     // Prepare some useful constants.
@@ -2606,18 +2615,20 @@ struct GridwiseGemmAccelRewritePattern
 
     // Get the vector copy layout for A and B
     FailureOr<VectorDimInfo> maybeVecDimInfoA = getVectorDim(
-        b, loc, matA, elementTypeA, blockSize, kPerBlock, mPerBlock, kpack);
+        b, loc, matA, elementTypeALoad, blockSize, kPerBlock, mPerBlock, kpack);
     if (failed(maybeVecDimInfoA)) {
       return failure();
     }
     FailureOr<VectorDimInfo> maybeVecDimInfoB = getVectorDim(
-        b, loc, matB, elementTypeB, blockSize, kPerBlock, nPerBlock, kpack);
+        b, loc, matB, elementTypeBLoad, blockSize, kPerBlock, nPerBlock, kpack);
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
                << "blockSize: " << blockSize << "\n"
+               << "elementTypeALoad: " << elementTypeALoad << "\n"
+               << "elementTypeBLoad: " << elementTypeBLoad << "\n"
                << "aCopyPerThread: " << aCopyPerThread << "\n"
                << "bCopyPerThread: " << bCopyPerThread << "\n"
                << "aCopyKpacksPerThread: " << aCopyKpacksPerThread << "\n"

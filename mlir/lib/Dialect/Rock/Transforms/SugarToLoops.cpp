@@ -953,12 +953,13 @@ static void unflattenCoords(OpBuilder &b, Location loc, Value flatAddress,
   }
 }
 
-/// Atomic add for a scalar fp16. Using the CAS loop (atomicRMWOp) alternative
-/// is significantly slower so we extend the scalar in a vector and use the
-/// buffer_atomic_add_fp16 instead. We have to take care of the alignment
-/// manually
+/// Atomic add for a scalar fp16 or bf16. Using the CAS loop (atomicRMWOp)
+/// alternative is significantly slower so we extend the scalar in a vector and
+/// use the buffer_atomic_pk_add_{bf16/f16} instead. We have to take care of the
+/// alignment manually
 static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
-                                 Value dest, ArrayRef<Value> coords,
+                                 Value dest, Type elemTy,
+                                 ArrayRef<Value> coords,
                                  bool useBufferOobChecks) {
 
   assert(isa<ShapedType>(dest.getType()) && "Data needs to have a shape!");
@@ -966,7 +967,7 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   assert(coords.size() == shape.size() &&
          "Shape and coordinates should have the same size!");
 
-  // Always try to pack a scalar fp16 into a vector of 2 elements
+  // Always try to pack a scalar fp16/bf16 into a vector of 2 elements
   const int packedVectorLen = 2;
 
   // Compute the last non-unit dim
@@ -988,9 +989,9 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
 
   // If all the shapes are odd, we have no choice: we need to add a guard and
   // use unpacked atomic_rmw to compute the atomic addition for the last
-  // element: In that case, the last element  will be aligned, but it will be
+  // element: In that case, the last element will be aligned, but it will be
   // "half" out of boundaries, which means the hardware will simply give up and
-  // won't do  anything. However, we cannot step back, because the step back
+  // won't do anything. However, we cannot step back, because the step back
   // would be unaligned
   if (flattenedSize % 2 != 0) {
     Value lastElem = b.create<arith::ConstantIntOp>(loc, flattenedSize - 1, 32);
@@ -1013,8 +1014,8 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   Value two = getConstIntOrIndexValue(b, loc, 2, addressElemType);
 
   // Extended packed data to use with the intrinsic
-  Value dataExt = createZeroConstantOp(
-      b, loc, vectorTypeOrSelf(b.getF16Type(), packedVectorLen));
+  Value dataExt =
+      createZeroConstantOp(b, loc, vectorTypeOrSelf(elemTy, packedVectorLen));
   Value dataExt0 = b.create<vector::InsertElementOp>(loc, data, dataExt, zero);
   Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
 
@@ -1132,9 +1133,9 @@ std::tuple<SmallVector<Value>, Type> getCoordsAndType(PatternRewriter &b,
 
 // A helper to select the right i4 element if it was supposed to
 // be a scalar i4 load.
-Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
-  MemRefType srcType = op.getSource().getType();
-  Type originalLoadedType = op.getResult().getType();
+Value selectDataIf4b(Location loc, PatternRewriter &b,
+                     SmallVector<Value> &coords, MemRefType srcType,
+                     Type originalLoadedType, Value loadedVec) {
   if (srcType.getElementType().getIntOrFloatBitWidth() >= 8) {
     return loadedVec;
   }
@@ -1149,8 +1150,6 @@ Value selectDataIf4b(PatternRewriter &b, GlobalLoadOp op, Value loadedVec) {
   assert(srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
          "we only support 4bits in narrow types");
   assert(isa<VectorType>(loadedVec.getType()));
-  Location loc = op.getLoc();
-  SmallVector<Value, 5> coords(op.getSourceCoord());
   ArrayRef<int64_t> shape = srcType.getShape();
   Value flatAddress = flattenCoords(b, loc, coords, shape);
   Type coordType = flatAddress.getType();
@@ -1197,6 +1196,12 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
       source = zeroDMemrefAsOneD(b, source);
       coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
     }
+    // We need to copy these params here, because the next if might replace
+    // "op". So, we can't safely access it after that.
+    // TODO: refactor this code
+    MemRefType srcType = op.getSource().getType();
+    Type originalLoadedType = op.getResult().getType();
+    SmallVector<Value> sourceCoords(op.getSourceCoord());
 
     PatternRewriter::InsertionGuard insertGuard(b);
     if (emitOobChecks && !useBufferOps) {
@@ -1206,11 +1211,12 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
             loc, arith::CmpIPredicate::uge, coords[0], numElems);
         cond = b.create<arith::AndIOp>(loc, fallsOffEnd, cond);
       }
-      auto guard = b.create<scf::IfOp>(loc, loadedType, cond, true, true);
+      auto guard =
+          b.create<scf::IfOp>(loc, originalLoadedType, cond, true, true);
       b.replaceOp(op, guard);
 
       b.setInsertionPointToEnd(guard.getBody(1));
-      Value zeroes = createZeroConstantOp(b, loc, loadedType);
+      Value zeroes = createZeroConstantOp(b, loc, originalLoadedType);
       b.create<scf::YieldOp>(loc, zeroes);
       b.setInsertionPointToEnd(guard.getBody(0));
     }
@@ -1248,7 +1254,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         else
           loaded = thisLoad;
       });
-      loaded = selectDataIf4b(b, op, loaded);
+      loaded = selectDataIf4b(loc, b, sourceCoords, srcType, originalLoadedType,
+                              loaded);
       b.replaceOp(op, loaded);
     } else {
       Value loaded;
@@ -1256,7 +1263,9 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         loaded = b.create<vector::LoadOp>(loc, loadedType, source, coords);
       else
         loaded = b.create<memref::LoadOp>(loc, loadedType, source, coords);
-      loaded = selectDataIf4b(b, op, loaded);
+
+      loaded = selectDataIf4b(loc, b, sourceCoords, srcType, originalLoadedType,
+                              loaded);
       if (emitOobChecks)
         b.create<scf::YieldOp>(loc, loaded);
       else
@@ -1365,7 +1374,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     StoreMethod memoryOp = op.getStoreMethod();
     bool isAtomic = memoryOp != StoreMethod::Set;
 
-    bool isAtomicF16add = memoryOp == StoreMethod::AtomicAdd && elemTy.isF16();
+    bool isAtomicF16add = memoryOp == StoreMethod::AtomicAdd &&
+                          isa<Float16Type, BFloat16Type>(elemTy);
     bool useBufferOps =
         !hasI64Idx && (numBytes.trunc(32).isNegative() || emitOobChecks ||
                        op.getCanStoreOffEnd() || isAtomicF16add);
@@ -1405,7 +1415,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     Value origLastCoord = coords.empty() ? nullptr : coords.back();
 
     if (isAtomic) {
-      bool usePackedFp16 = (elemTy.isF16() && (len % 2 == 0));
+      bool usePackedFp16 =
+          (isa<Float16Type, BFloat16Type>(elemTy) && (len % 2 == 0));
       int inc = (usePackedFp16 ? 2 : 1);
       Type loadType = (usePackedFp16 ? vectorTypeOrSelf(elemTy, inc) : elemTy);
 
@@ -1429,8 +1440,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
           if (useBufferOps && (usePackedFp16 || elemTy.isF32()))
             b.create<amdgpu::RawBufferAtomicFaddOp>(
                 loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
-          else if (useBufferOps && elemTy.isF16())
-            atomicFp16AddAligned(b, loc, data, dest, coords,
+          else if (useBufferOps && isa<Float16Type, BFloat16Type>(elemTy))
+            atomicFp16AddAligned(b, loc, data, dest, elemTy, coords,
                                  useBufferOobChecks);
           else
             b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest,

@@ -1,4 +1,5 @@
-//===- tosa_miir.cpp - Simple test of C and MIIR APIs ---------------------===//
+//===- mixr_split_k.cpp - Simple test of C and MLIR APIs for testing fusability
+//with Split-K ---------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM
 // Exceptions.
@@ -348,7 +349,7 @@ static bool constructAndTraverseIr(MlirContext ctx,
     mlirOperationDump(moduleMO);
 
   std::stringstream stream;
-  stream << "v2:64,64,16,32,32,4," << options.splitKFactor << ",1,1";
+  stream << "v3:64,64,16,32,32,4," << options.splitKFactor << ",1,2,1,1";
   std::string streamStr = stream.str() + "\0";
   MlirStringRef perfStr = mlirStringRefCreateFromCString(streamStr.data());
 

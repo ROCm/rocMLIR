@@ -85,7 +85,7 @@ module {
       } {name = "LDSWrite"}
       rock.stage {
         %21 = rock.workitem_id : index
-        rock.threadwise_accel_gemm %20 += %18 * %19 at[%21, %21, %21] features =  mfma|dot|atomic_add|atomic_add_f16 {arch = "gfx90a", params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 16, nPerBlock = 16, kpack = 8, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, forceUnroll = true>} : memref<1x1xvector<4xf32>, #gpu.address_space<private>> += memref<1x2xvector<4xf16>, #gpu.address_space<private>> * memref<1x2xvector<4xf16>, #gpu.address_space<private>>
+        rock.threadwise_accel_gemm %20 += %18 * %19 at[%21, %21, %21] features =  mfma|dot|atomic_add|atomic_add_f16 {arch = "gfx90a", params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 16, nPerBlock = 16, kpack = 8, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x1xvector<4xf32>, #gpu.address_space<private>> += memref<1x2xvector<4xf16>, #gpu.address_space<private>> * memref<1x2xvector<4xf16>, #gpu.address_space<private>>
         rock.yield
       } {name = "MMA"}
     } {pipeline = #rock.pipeline<2>}

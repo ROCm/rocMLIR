@@ -15,6 +15,7 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -169,12 +170,12 @@ void mlir::amdgpu::populateAmdgpuEmulateAtomicsPatterns(
   if (chipset.majorVersion == 10 || chipset < Chipset(9, 0, 8)) {
     target.addIllegalOp<RawBufferAtomicFaddOp>();
   }
-  // gfx11 has no fp16 atomics
+  // gfx11 has f32 atomics only
   if (chipset.majorVersion == 11) {
     target.addDynamicallyLegalOp<RawBufferAtomicFaddOp>(
         [](RawBufferAtomicFaddOp op) -> bool {
           Type elemType = getElementTypeOrSelf(op.getValue().getType());
-          return !isa<Float16Type, BFloat16Type>(elemType);
+          return isa<Float32Type>(elemType);
         });
   }
   // gfx9 has no to a very limited support for floating-point min and max.
@@ -194,6 +195,18 @@ void mlir::amdgpu::populateAmdgpuEmulateAtomicsPatterns(
       // The workaround here mirrors HIP and OpenMP.
       target.addIllegalOp<RawBufferAtomicFaddOp, RawBufferAtomicFmaxOp,
                           RawBufferAtomicSmaxOp, RawBufferAtomicUminOp>();
+    } else if (chipset.minorVersion <= 4) {
+      target.addDynamicallyLegalOp<RawBufferAtomicFaddOp>(
+          [](RawBufferAtomicFaddOp op) -> bool {
+            Type elemType = getElementTypeOrSelf(op.getValue().getType());
+            return isa<Float32Type, Float16Type>(elemType);
+          });
+    } else {
+      target.addDynamicallyLegalOp<RawBufferAtomicFaddOp>(
+          [](RawBufferAtomicFaddOp op) -> bool {
+            Type elemType = getElementTypeOrSelf(op.getValue().getType());
+            return isa<Float32Type, Float16Type, BFloat16Type>(elemType);
+          });
     }
   }
   patterns.add<

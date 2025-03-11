@@ -205,24 +205,25 @@ struct ThreadwiseWriteAllRewritePattern
     if (auto elemVecType = dyn_cast<VectorType>(destElemType)) {
       LLVM_DEBUG(llvm::dbgs() << "ThreadwiseWriteAllOp saves a vector type"
                               << ", skipping swizzle\n");
-      return success();
+      return failure();
     }
     size_t extraIdxCount = op.getExtraIndices().size();
     VectorizationResult vectorRes =
         getMaxVectorization(destView, extraIdxCount);
     int64_t originalVectorLen = vectorRes.max;
+    int64_t elementsWrittenPerThread = math_util::gcd(dataPerThread, vectorLen);
 
-    if (vectorLen <= originalVectorLen) {
+    if (elementsWrittenPerThread <= originalVectorLen) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Original vectorization of 'iter' is " << originalVectorLen
-                 << ", the output swizzle could achieve " << vectorLen
-                 << ", skipping swizzle\n");
-      return success();
+                 << ", the output swizzle could achieve "
+                 << elementsWrittenPerThread << ", skipping swizzle\n");
+      return failure();
     }
     LLVM_DEBUG(llvm::dbgs()
                << "Original vectorization of 'iter' is " << originalVectorLen
-               << ", the output swizzle could achieve " << vectorLen
-               << ", performing swizzle\n");
+               << ", the output swizzle could achieve "
+               << elementsWrittenPerThread << ", performing swizzle\n");
 
     // Get current workitem ID.
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
@@ -263,7 +264,6 @@ struct ThreadwiseWriteAllRewritePattern
                                    /*useIndexDiffs=*/useIndexDiffs);
 
     // Load from LDS to registers.
-    int64_t elementsWrittenPerThread = math_util::gcd(dataPerThread, vectorLen);
     int64_t iter = dataPerThread / elementsWrittenPerThread;
     LLVM_DEBUG(llvm::dbgs()
                << "blockSize: " << blockSize
@@ -428,6 +428,7 @@ void RockOutputSwizzlePass::runOnOperation() {
       std::optional<std::tuple<int64_t, int64_t, ArrayAttr>> maybeBlockInfo =
           getIdToLDS(threadwiseWriteAll, rewriter);
       if (!maybeBlockInfo.has_value()) {
+        LLVM_DEBUG(llvm::dbgs() << "OutputSwizzle skipped due to getIdToLDS\n");
         return;
       }
       std::tie(dim0PerBlock, dim1PerBlock, idToLDS) = maybeBlockInfo.value();
@@ -454,10 +455,7 @@ void RockOutputSwizzlePass::runOnOperation() {
       writes.push_back(threadwiseWriteAll);
     }
   });
-  if (writes.size() > 1) {
-    LLVM_DEBUG(llvm::dbgs() << "More than one ThreadwiseWriteAllOp writes to "
-                               "global memory, skipping pass\n");
-  } else if (writes.empty()) {
+  if (writes.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "No ThreadwiseWriteAllOp writes to "
                                "global memory, skipping pass\n");
   } else {

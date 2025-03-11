@@ -29,7 +29,7 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 BENCHMARKING_METRICS_FILE_NAME = 'results.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
-DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convint8']
+DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
@@ -273,7 +273,7 @@ def getConvConfigurations(fileName):
                 if len(line) == 0 or line[0] == '#':
                     continue
                 # Skip int8 non-fwd convolutions
-                if datatype == 'convint8' and direction != '-F 1':
+                if (datatype == 'convint8' or datatype == 'convfp8') and direction != '-F 1':
                     continue
 
                 # Skip datatype if already in
@@ -376,10 +376,10 @@ class ConvConfiguration(PerfConfiguration):
 
     MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NCHWG": "kcyxg", "NHWC": "kyxc", "NHWCG": "kyxcg",
                            "NC01": "kc01", "NC01G": "kc01g", "N01C": "k01c", "N01CG": "k01cg",
-                           "GNC01":"gkc01"}
+                           "GNC01":"gkc01", "GN01C":"gk01c"}
     MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NCHWG": "nkhwg", "NHWC": "nhwk", "NHWCG": "nhwkg",
                            "NC01": "nk01", "NC01G": "nk01g", "N01C": "n01k", "N01CG": "n01kg",
-                           "NGC01":"ngk01"}
+                           "NGC01":"ngk01", "N01GC": "n01gk"}
     filterLayoutMap = {'N':'k', 'C':'c', 'H':'0', 'W':'1', 'G':'g'}
     inputLayoutMap = {'N':'n', 'C':'c', 'H':'0', 'W':'1', 'G':'g'}
     outputLayoutMap = {'N':'n', 'C':'k', 'H':'0', 'W':'1', 'G':'g'}
@@ -1011,7 +1011,7 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
         reportFile = reportUtils.PERF_REPORT_FILE['CK']
     else:
         reportFile = reportUtils.PERF_REPORT_FILE['MIOpen']
-    df.fillna('NaN', inplace=True)
+    df.fillna(np.nan, inplace=True)
     df.to_csv(chip + '_' + reportFile, index=False)
 
 def getSolverName(testVector, arch, numCU):
@@ -1205,7 +1205,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         perfResults[testVector] = oneEntry
 
     df = pd.DataFrame(perfResults.values())
-    df.fillna('NaN', inplace=True)
+    df.fillna(np.nan, inplace=True)
     df.rename(columns={'TFlops': 'Fusion TFlops'}, inplace=True)
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 

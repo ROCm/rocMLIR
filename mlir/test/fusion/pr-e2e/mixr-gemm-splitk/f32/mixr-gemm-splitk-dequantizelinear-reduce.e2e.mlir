@@ -4,7 +4,7 @@ module {
   // CHECK: [1 1 1]
   // CHECK: [1 1 1]
   func.func @dot_splitk_dequantizelinear(%arg0: !migraphx.shaped<1x128x1x1xf32, 128x1x1x1>, %arg1: !migraphx.shaped<1x128x56x56xi8, 401408x3136x56x1>, %arg2: !migraphx.shaped<128x128x3x3xi8, 1152x9x3x1>) -> (!migraphx.shaped<1x128x28x28xf32, 100352x784x28x1>, !migraphx.shaped<1x1x28x28xf32, 784x784x28x1>) attributes{arch = "##TOKEN_ARCH##", enable_splitk_for_tuning, kernel = "mixr"} {
-    %1 = migraphx.quant_convolution %arg1, %arg2 {perf_config="v2:16,32,16,16,16,16,16,1,1", dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : <1x128x56x56xi8, 401408x3136x56x1>, <128x128x3x3xi8, 1152x9x3x1> -> <1x128x28x28xi32, 100352x784x28x1>
+    %1 = migraphx.quant_convolution %arg1, %arg2 {perf_config="v3:16,32,16,16,16,16,16,1,2,1,1", dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [2, 2]} : <1x128x56x56xi8, 401408x3136x56x1>, <128x128x3x3xi8, 1152x9x3x1> -> <1x128x28x28xi32, 100352x784x28x1>
     %2 = migraphx.dequantizelinear %1, %arg0 : <1x128x28x28xi32, 100352x784x28x1>, <1x128x1x1xf32, 128x1x1x1> -> <1x128x28x28xf32, 100352x784x28x1>
     %3 = migraphx.reduce_sum %2 {axes = [1]} : <1x128x28x28xf32, 100352x784x28x1> -> <1x1x28x28xf32, 784x784x28x1>
     return %2, %3 : !migraphx.shaped<1x128x28x28xf32, 100352x784x28x1>, !migraphx.shaped<1x1x28x28xf32, 784x784x28x1>

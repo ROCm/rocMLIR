@@ -184,8 +184,8 @@ def Rock_GemmOp :
 def Rock_ReduceOp :
   Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
   Arguments<(ins
-    Arg<TensorOrMemRefOf<[F16, F32]>, "input", [MemRead]>:$in,
-    Arg<TensorOrMemRefOf<[F16, F32]>, "output", [MemRead, MemWrite]>:$out,
+    Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input", [MemRead]>:$in,
+    Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "output", [MemRead, MemWrite]>:$out,
     Rock_GemmFeaturesAttr:$features,
     ReduceMethodAttr:$reduceMethod,
     IndexAttr:$axis,
@@ -194,7 +194,7 @@ def Rock_ReduceOp :
     UnitAttr:$useLDS,
     UnitAttr:$useDPP
   )>,
-  Results<(outs Optional<TensorOf<[F16, F32]>>:$result)> {
+  Results<(outs Optional<TensorOf<[BF16, F16, F32]>>:$result)> {
   let summary = "Axes-wide reduction operation";
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -211,7 +211,7 @@ def Rock_AttentionOp :
     TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
     TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
     TensorOrMemRefOf<[F32, F16, BF16]>:$values,
-    Variadic<TensorOrMemRefOf<[F32, F16, BF16, I8]>>:$preSoftmaxElemWiseInputs,
+    Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
     Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
     TensorOrMemRefOf<[F32, BF16, F16]>:$out,
     UnitAttr:$qTransposed,
@@ -437,7 +437,7 @@ def Rock_GridwiseAttentionAccelOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
                    MemRefRankOf<[F32, F16, BF16,], [3]>:$values,
-                   Variadic<TensorOrMemRefOf<[F32, F16, BF16, I8]>>:$preSoftmaxElemWiseInputs,
+                   Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
                    Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
                    MemRefRankOf<[F32, F16, BF16], [3]>:$out,
                    StrAttr:$arch,

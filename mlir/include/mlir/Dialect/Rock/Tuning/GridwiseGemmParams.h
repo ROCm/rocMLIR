@@ -101,24 +101,30 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
   int64_t gemmNPerThread;
   uint32_t blockSize;
   int64_t splitKFactor;
+  int64_t gemmScheduleVersion;
+  int64_t outputSwizzle;
 
   constexpr InitParamsNonAccel(uint32_t bSize, int64_t mPerBlock,
                                int64_t nPerBlock, int64_t kPerBlock,
                                int64_t mPerThread, int64_t nPerThread,
-                               int64_t splitKFactor)
+                               int64_t splitKFactor, int64_t scheduleVersion,
+                               int64_t outputSwizzle)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
         gemmNPerThread(nPerThread), blockSize(bSize),
-        splitKFactor(splitKFactor) {}
+        splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
+        outputSwizzle(outputSwizzle) {}
 
   constexpr InitParamsNonAccel()
-      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL) {}
+      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL) {}
 
   InitParamsNonAccel(GeneralGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKPerBlock()},
         gemmMPerThread(attr.getMPerThread()),
         gemmNPerThread(attr.getNPerThread()), blockSize(attr.getBlockSize()),
-        splitKFactor(attr.getSplitKFactor()){};
+        splitKFactor(attr.getSplitKFactor()),
+        gemmScheduleVersion(attr.getScheduleVersion()),
+        outputSwizzle(attr.getOutputSwizzle()){};
 
   int64_t getKPack() { return 1; }
 
@@ -130,8 +136,12 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
     f(self.gemmKPerBlock);
     f(self.gemmMPerThread);
     f(self.gemmNPerThread);
-    if (self.version != Version::V1)
+    if (self.version >= Version::V2)
       f(self.splitKFactor);
+    if (self.version >= Version::V3) {
+      f(self.gemmScheduleVersion);
+      f(self.outputSwizzle);
+    }
   }
 };
 
@@ -139,16 +149,19 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
                             int64_t kPerBlock, int64_t mPerWave,
                             int64_t nPerWaveOrMnPerXdl, int64_t kPack,
-                            int64_t splitKFactor, bool aThreadCopyMoreGemmK,
+                            int64_t splitKFactor, int64_t scheduleVersion,
+                            int64_t outputSwizzle, bool aThreadCopyMoreGemmK,
                             bool bThreadCopyMoreGemmKPack)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
         gemmNPerWaveOrMnPerXdl(nPerWaveOrMnPerXdl), gemmKPack(kPack),
-        splitKFactor(splitKFactor),
+        splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
+        outputSwizzle(outputSwizzle),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
         gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   constexpr InitParamsAccel()
-      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, false, false) {}
+      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, false,
+                        false) {}
 
   InitParamsAccel(XdlopsGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -156,6 +169,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmMPerWave(attr.getMPerWave()),
         gemmNPerWaveOrMnPerXdl(attr.getMnPerXdl()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
+        gemmScheduleVersion(attr.getScheduleVersion()),
+        outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
 
@@ -165,6 +180,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmMPerWave(attr.getMPerWave()),
         gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
+        gemmScheduleVersion(attr.getScheduleVersion()),
+        outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
 
@@ -174,6 +191,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   int64_t gemmNPerWaveOrMnPerXdl;
   int64_t gemmKPack;
   int64_t splitKFactor;
+  int64_t gemmScheduleVersion;
+  int64_t outputSwizzle;
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
 
@@ -185,8 +204,12 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
     f(self.gemmMPerWave);
     f(self.gemmNPerWaveOrMnPerXdl);
     f(self.gemmKPack);
-    if (self.version != Version::V1) {
+    if (self.version >= Version::V2) {
       f(self.splitKFactor);
+    }
+    if (self.version >= Version::V3) {
+      f(self.gemmScheduleVersion);
+      f(self.outputSwizzle);
     }
     f(self.gemmAThreadCopyMoreGemmK);
     f(self.gemmBThreadCopyMoreGemmKPack);
@@ -206,14 +229,15 @@ class BasePopulateParams {
 private:
   struct InitParamData {
     InitParamType paramSet;
-    size_t original_pos;
-    int64_t padding_amount;
+    size_t originalPos;
+    int64_t paddingAmount;
 
     bool operator<(const InitParamData &rhs) const {
-      if (this->padding_amount < rhs.padding_amount) {
+      if (this->paddingAmount < rhs.paddingAmount) {
         return true;
-      } else if (this->padding_amount == rhs.padding_amount) {
-        return (this->original_pos < rhs.original_pos);
+      }
+      if (this->paddingAmount == rhs.paddingAmount) {
+        return (this->originalPos < rhs.originalPos);
       }
       return false;
     }
@@ -227,10 +251,10 @@ private:
       InitParamType paramSet = initParams[pos];
       InitParamData paramData;
       paramData.paramSet = paramSet;
-      paramData.original_pos = pos;
-      paramData.padding_amount = calculatePaddingAmount(paramSet, gemmSize);
-      assert(paramData.original_pos >= 0);
-      assert(paramData.padding_amount >= 0);
+      paramData.originalPos = pos;
+      paramData.paddingAmount = calculatePaddingAmount(paramSet, gemmSize);
+      assert(paramData.originalPos >= 0);
+      assert(paramData.paddingAmount >= 0);
       res.push_back(paramData);
     }
     return res;

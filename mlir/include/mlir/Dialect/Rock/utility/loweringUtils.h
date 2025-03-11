@@ -210,6 +210,9 @@ FailureOr<SmallVector<BlockArgument>>
 traceGemmOutputToArgs(Value matC, func::FuncOp func,
                       const BufferDependencyAnalysis &deps);
 
+// Trace value to a block argument, going through view-like operations
+FailureOr<BlockArgument> findBlockArgument(Value value);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

@@ -187,3 +187,323 @@ func.func @mlir_attention_scale_bias(%arg0: tensor<12288xf16> {mhal.read_access}
   %collapsed_13 = tensor.collapse_shape %23 [[0, 1, 2]] : tensor<32x1x128xf16> into tensor<4096xf16>
   return %collapsed_13 : tensor<4096xf16>
 }
+
+// CHECK-LABEL: func @mlir_causal_attention
+// CHECK: rock.attention
+// CHECK: currentSeqLen = (%{{.*}} : tensor<32xi32>)
+func.func @mlir_causal_attention(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xi32>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+  %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
+  %expanded_0 = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 1] : tensor<1xi32> into tensor<1x1xi32>
+  %0 = "tosa.const"() <{value = dense<[1, 0]> : tensor<2xi32>}> : () -> tensor<2xi32>
+  %1 = tosa.transpose %expanded_0, %0 : (tensor<1x1xi32>, tensor<2xi32>) -> tensor<1x1xi32>
+  %2 = "tosa.const"() <{value = dense<0> : tensor<1x32xi32>}> : () -> tensor<1x32xi32>
+  %3 = tosa.add %1, %2 : (tensor<1x1xi32>, tensor<1x32xi32>) -> tensor<1x32xi32>
+  %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
+  %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 96, 128] : tensor<24576xf16> into tensor<1x2x96x128xf16>
+  %4 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %5 = tosa.transpose %expanded_2, %4 : (tensor<1x2x96x128xf16>, tensor<4xi32>) -> tensor<1x96x2x128xf16>
+  %6 = "tosa.const"() <{value = dense<[1, 2]> : tensor<2xi32>}> : () -> tensor<2xi32>
+  %7 = "tosa.const"() <{value = dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]> : tensor<64xi32>}> : () -> tensor<64xi32>
+  %extracted_slice = tensor.extract_slice %5[0, 0, 0, 0] [1, 32, 2, 128] [1, 1, 1, 1] : tensor<1x96x2x128xf16> to tensor<1x32x2x128xf16>
+  %8 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %9 = tosa.transpose %expanded_1, %8 : (tensor<1x32x64x128xf16>, tensor<4xi32>) -> tensor<1x32x128x64xf16>
+  %collapsed = tensor.collapse_shape %extracted_slice [[0, 1], [2], [3]] : tensor<1x32x2x128xf16> into tensor<32x2x128xf16>
+  %collapsed_3 = tensor.collapse_shape %9 [[0, 1], [2], [3]] : tensor<1x32x128x64xf16> into tensor<32x128x64xf16>
+  %10 = tosa.matmul %collapsed, %collapsed_3 : (tensor<32x2x128xf16>, tensor<32x128x64xf16>) -> tensor<32x2x64xf16>
+  %expanded_4 = tensor.expand_shape %10 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
+  %cst = arith.constant dense<[[[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]]]]> : tensor<1x1x1x64xi32>
+  %11 = "tosa.const"() <{value = dense<0> : tensor<1x32x2x64xi32>}> : () -> tensor<1x32x2x64xi32>
+  %12 = tosa.add %cst, %11 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %13 = "tosa.const"() <{value = dense<0xFC00> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %14 = "tosa.const"() <{value = dense<8.837890e-02> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %cst_5 = arith.constant dense<[[1], [2]]> : tensor<2x1xi32>
+  %cst_6 = arith.constant dense<[[[[1], [2]]]]> : tensor<1x1x2x1xi32>
+  %15 = tosa.add %cst_6, %11 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %16 = tosa.greater_equal %12, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %17 = tosa.cast %16 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %18 = tosa.cast %17 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %19 = tosa.cast %18 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %20 = tosa.select %19, %13, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %expanded_7 = tensor.expand_shape %3 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xi32> into tensor<1x32x1x1xi32>
+  %21 = tosa.add %expanded_7, %11 : (tensor<1x32x1x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %22 = tosa.greater_equal %12, %21 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %23 = tosa.cast %22 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %24 = tosa.cast %23 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %25 = tosa.mul %20, %14 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %26 = tosa.cast %24 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %27 = tosa.select %26, %13, %25 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %28 = tosa.reduce_max %27 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %29 = tosa.sub %27, %28 : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %30 = tosa.exp %29 : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %31 = tosa.reduce_sum %30 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %32 = tosa.reciprocal %31 : (tensor<1x32x2x1xf16>) -> tensor<1x32x2x1xf16>
+  %33 = tosa.mul %30, %32 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %collapsed_8 = tensor.collapse_shape %33 [[0, 1], [2], [3]] : tensor<1x32x2x64xf16> into tensor<32x2x64xf16>
+  %expanded_9 = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [32, 64, 128] : tensor<262144xf16> into tensor<32x64x128xf16>
+  %34 = tosa.matmul %collapsed_8, %expanded_9 : (tensor<32x2x64xf16>, tensor<32x64x128xf16>) -> tensor<32x2x128xf16>
+  %expanded_10 = tensor.expand_shape %34 [[0, 1], [2], [3]] output_shape [1, 32, 2, 128] : tensor<32x2x128xf16> into tensor<1x32x2x128xf16>
+  %35 = tosa.transpose %expanded_10, %4 : (tensor<1x32x2x128xf16>, tensor<4xi32>) -> tensor<1x2x32x128xf16>
+  %collapsed_11 = tensor.collapse_shape %35 [[0], [1], [2, 3]] : tensor<1x2x32x128xf16> into tensor<1x2x4096xf16>
+  %collapsed_12 = tensor.collapse_shape %35 [[0, 1, 2, 3]] : tensor<1x2x32x128xf16> into tensor<8192xf16>
+  return %collapsed_12 : tensor<8192xf16>
+}
+
+// CHECK-LABEL: func @mlir_causal_attention2
+// CHECK: rock.attention
+// CHECK: currentSeqLen = (%{{.*}} : tensor<32xi32>)
+func.func @mlir_causal_attention2(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xi32>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+  %cst = arith.constant dense<[[[[1], [2]]]]> : tensor<1x1x2x1xi32>
+  %0 = "tosa.const"() <{value = dense<8.837890e-02> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %1 = "tosa.const"() <{value = dense<0xFC00> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %2 = "tosa.const"() <{value = dense<0> : tensor<1x32x2x64xi32>}> : () -> tensor<1x32x2x64xi32>
+  %cst_0 = arith.constant dense<[[[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]]]]> : tensor<1x1x1x64xi32>
+  %3 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %4 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %5 = "tosa.const"() <{value = dense<0> : tensor<1x32xi32>}> : () -> tensor<1x32xi32>
+  %expanded = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 1] : tensor<1xi32> into tensor<1x1xi32>
+  %6 = tosa.add %expanded, %5 : (tensor<1x1xi32>, tensor<1x32xi32>) -> tensor<1x32xi32>
+  %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
+  %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 96, 128] : tensor<24576xf16> into tensor<1x2x96x128xf16>
+  %7 = tosa.transpose %expanded_2, %4 : (tensor<1x2x96x128xf16>, tensor<4xi32>) -> tensor<1x96x2x128xf16>
+  %extracted_slice = tensor.extract_slice %7[0, 0, 0, 0] [1, 32, 2, 128] [1, 1, 1, 1] : tensor<1x96x2x128xf16> to tensor<1x32x2x128xf16>
+  %8 = tosa.transpose %expanded_1, %3 : (tensor<1x32x64x128xf16>, tensor<4xi32>) -> tensor<1x32x128x64xf16>
+  %collapsed = tensor.collapse_shape %extracted_slice [[0, 1], [2], [3]] : tensor<1x32x2x128xf16> into tensor<32x2x128xf16>
+  %collapsed_3 = tensor.collapse_shape %8 [[0, 1], [2], [3]] : tensor<1x32x128x64xf16> into tensor<32x128x64xf16>
+  %9 = tosa.matmul %collapsed, %collapsed_3 : (tensor<32x2x128xf16>, tensor<32x128x64xf16>) -> tensor<32x2x64xf16>
+  %expanded_4 = tensor.expand_shape %9 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
+  %10 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %11 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %12 = tosa.greater_equal %10, %11 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %13 = tosa.cast %12 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %14 = tosa.cast %13 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %15 = tosa.cast %14 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %16 = tosa.select %15, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %expanded_5 = tensor.expand_shape %6 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xi32> into tensor<1x32x1x1xi32>
+  %17 = tosa.add %expanded_5, %2 : (tensor<1x32x1x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %18 = tosa.greater_equal %10, %17 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %19 = tosa.cast %18 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %20 = tosa.cast %19 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %21 = tosa.mul %16, %0 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %22 = tosa.cast %20 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %23 = tosa.select %22, %1, %21 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %24 = tosa.reduce_max %23 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %25 = tosa.sub %23, %24 : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %26 = tosa.exp %25 : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %27 = tosa.reduce_sum %26 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %28 = tosa.reciprocal %27 : (tensor<1x32x2x1xf16>) -> tensor<1x32x2x1xf16>
+  %29 = tosa.mul %26, %28 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %collapsed_6 = tensor.collapse_shape %29 [[0, 1], [2], [3]] : tensor<1x32x2x64xf16> into tensor<32x2x64xf16>
+  %expanded_7 = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [32, 64, 128] : tensor<262144xf16> into tensor<32x64x128xf16>
+  %30 = tosa.matmul %collapsed_6, %expanded_7 : (tensor<32x2x64xf16>, tensor<32x64x128xf16>) -> tensor<32x2x128xf16>
+  %expanded_8 = tensor.expand_shape %30 [[0, 1], [2], [3]] output_shape [1, 32, 2, 128] : tensor<32x2x128xf16> into tensor<1x32x2x128xf16>
+  %31 = tosa.transpose %expanded_8, %4 : (tensor<1x32x2x128xf16>, tensor<4xi32>) -> tensor<1x2x32x128xf16>
+  %collapsed_9 = tensor.collapse_shape %31 [[0, 1, 2, 3]] : tensor<1x2x32x128xf16> into tensor<8192xf16>
+  return %collapsed_9 : tensor<8192xf16>
+}
+
+// CHECK-LABEL: func @mlir_causal_attention_nokvcache_wrongtype
+// CHECK: rock.attention
+// CHECK-NOT: currentSeqLen = 
+func.func @mlir_causal_attention_nokvcache_wrongtype(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xf32>) -> tensor<8192xf16> attributes {arch = "gfx942:sramecc+:xnack-", kernel = "mixr"} {
+  %cst = arith.constant dense<[[[[1.000000e+00], [2.000000e+00]]]]> : tensor<1x1x2x1xf32>
+  %0 = "tosa.const"() <{value = dense<8.837890e-02> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %1 = "tosa.const"() <{value = dense<0xFC00> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %2 = "tosa.const"() <{value = dense<0.000000e+00> : tensor<1x32x2x64xf32>}> : () -> tensor<1x32x2x64xf32>
+  %cst_0 = arith.constant dense<[[[[0.000000e+00, 1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00, 5.000000e+00, 6.000000e+00, 7.000000e+00, 8.000000e+00, 9.000000e+00, 1.000000e+01, 1.100000e+01, 1.200000e+01, 1.300000e+01, 1.400000e+01, 1.500000e+01, 1.600000e+01, 1.700000e+01, 1.800000e+01, 1.900000e+01, 2.000000e+01, 2.100000e+01, 2.200000e+01, 2.300000e+01, 2.400000e+01, 2.500000e+01, 2.600000e+01, 2.700000e+01, 2.800000e+01, 2.900000e+01, 3.000000e+01, 3.100000e+01, 3.200000e+01, 3.300000e+01, 3.400000e+01, 3.500000e+01, 3.600000e+01, 3.700000e+01, 3.800000e+01, 3.900000e+01, 4.000000e+01, 4.100000e+01, 4.200000e+01, 4.300000e+01, 4.400000e+01, 4.500000e+01, 4.600000e+01, 4.700000e+01, 4.800000e+01, 4.900000e+01, 5.000000e+01, 5.100000e+01, 5.200000e+01, 5.300000e+01, 5.400000e+01, 5.500000e+01, 5.600000e+01, 5.700000e+01, 5.800000e+01, 5.900000e+01, 6.000000e+01, 6.100000e+01, 6.200000e+01, 6.300000e+01]]]]> : tensor<1x1x1x64xf32>
+  %3 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %4 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %5 = "tosa.const"() <{value = dense<0.000000e+00> : tensor<1x32xf32>}> : () -> tensor<1x32xf32>
+  %expanded = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 1] : tensor<1xf32> into tensor<1x1xf32>
+  %6 = tosa.add %expanded, %5 : (tensor<1x1xf32>, tensor<1x32xf32>) -> tensor<1x32xf32>
+  %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
+  %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 96, 128] : tensor<24576xf16> into tensor<1x2x96x128xf16>
+  %7 = tosa.transpose %expanded_2, %4 : (tensor<1x2x96x128xf16>, tensor<4xi32>) -> tensor<1x96x2x128xf16>
+  %extracted_slice = tensor.extract_slice %7[0, 0, 0, 0] [1, 32, 2, 128] [1, 1, 1, 1] : tensor<1x96x2x128xf16> to tensor<1x32x2x128xf16>
+  %8 = tosa.transpose %expanded_1, %3 : (tensor<1x32x64x128xf16>, tensor<4xi32>) -> tensor<1x32x128x64xf16>
+  %collapsed = tensor.collapse_shape %extracted_slice [[0, 1], [2], [3]] : tensor<1x32x2x128xf16> into tensor<32x2x128xf16>
+  %collapsed_3 = tensor.collapse_shape %8 [[0, 1], [2], [3]] : tensor<1x32x128x64xf16> into tensor<32x128x64xf16>
+  %9 = tosa.matmul %collapsed, %collapsed_3 : (tensor<32x2x128xf16>, tensor<32x128x64xf16>) -> tensor<32x2x64xf16>
+  %expanded_4 = tensor.expand_shape %9 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
+  %10 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xf32>
+  %11 = tosa.add %cst, %2 : (tensor<1x1x2x1xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xf32>
+  %12 = tosa.greater_equal %10, %11 : (tensor<1x32x2x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi1>
+  %13 = tosa.cast %12 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xf32>
+  %14 = tosa.cast %13 : (tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi8>
+  %15 = tosa.cast %14 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %16 = tosa.select %15, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %expanded_5 = tensor.expand_shape %6 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xf32> into tensor<1x32x1x1xf32>
+  %17 = tosa.add %expanded_5, %2 : (tensor<1x32x1x1xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xf32>
+  %18 = tosa.greater_equal %10, %17 : (tensor<1x32x2x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi1>
+  %19 = tosa.cast %18 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xf32>
+  %20 = tosa.cast %19 : (tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi8>
+  %21 = tosa.mul %16, %0 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %22 = tosa.cast %20 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %23 = tosa.select %22, %1, %21 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %24 = tosa.reduce_max %23 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %25 = tosa.sub %23, %24 : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %26 = tosa.exp %25 : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %27 = tosa.reduce_sum %26 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %28 = tosa.reciprocal %27 : (tensor<1x32x2x1xf16>) -> tensor<1x32x2x1xf16>
+  %29 = tosa.mul %26, %28 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %collapsed_6 = tensor.collapse_shape %29 [[0, 1], [2], [3]] : tensor<1x32x2x64xf16> into tensor<32x2x64xf16>
+  %expanded_7 = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [32, 64, 128] : tensor<262144xf16> into tensor<32x64x128xf16>
+  %30 = tosa.matmul %collapsed_6, %expanded_7 : (tensor<32x2x64xf16>, tensor<32x64x128xf16>) -> tensor<32x2x128xf16>
+  %expanded_8 = tensor.expand_shape %30 [[0, 1], [2], [3]] output_shape [1, 32, 2, 128] : tensor<32x2x128xf16> into tensor<1x32x2x128xf16>
+  %31 = tosa.transpose %expanded_8, %4 : (tensor<1x32x2x128xf16>, tensor<4xi32>) -> tensor<1x2x32x128xf16>
+  %collapsed_9 = tensor.collapse_shape %31 [[0, 1, 2, 3]] : tensor<1x2x32x128xf16> into tensor<8192xf16>
+  return %collapsed_9 : tensor<8192xf16>
+}
+
+// CHECK-LABEL: func @mlir_causal_attention_nokvcache_noblockarg
+// CHECK: rock.attention
+// CHECK-NOT: currentSeqLen = 
+func.func @mlir_causal_attention_nokvcache_noblockarg(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+  %cst = arith.constant dense<[[[[1], [2]]]]> : tensor<1x1x2x1xi32>
+  %0 = "tosa.const"() <{value = dense<8.837890e-02> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %1 = "tosa.const"() <{value = dense<0xFC00> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %2 = "tosa.const"() <{value = dense<0> : tensor<1x32x2x64xi32>}> : () -> tensor<1x32x2x64xi32>
+  %cst_0 = arith.constant dense<[[[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]]]]> : tensor<1x1x1x64xi32>
+  %3 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %4 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %5 = "tosa.const"() <{value = dense<0> : tensor<1x32xi32>}> : () -> tensor<1x32xi32>
+  %arg3 = "tosa.const"() <{value = dense<3> : tensor<1xi32>}> : () -> tensor<1xi32>
+  %expanded = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 1] : tensor<1xi32> into tensor<1x1xi32>
+  %6 = tosa.add %expanded, %5 : (tensor<1x1xi32>, tensor<1x32xi32>) -> tensor<1x32xi32>
+  %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
+  %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 96, 128] : tensor<24576xf16> into tensor<1x2x96x128xf16>
+  %7 = tosa.transpose %expanded_2, %4 : (tensor<1x2x96x128xf16>, tensor<4xi32>) -> tensor<1x96x2x128xf16>
+  %extracted_slice = tensor.extract_slice %7[0, 0, 0, 0] [1, 32, 2, 128] [1, 1, 1, 1] : tensor<1x96x2x128xf16> to tensor<1x32x2x128xf16>
+  %8 = tosa.transpose %expanded_1, %3 : (tensor<1x32x64x128xf16>, tensor<4xi32>) -> tensor<1x32x128x64xf16>
+  %collapsed = tensor.collapse_shape %extracted_slice [[0, 1], [2], [3]] : tensor<1x32x2x128xf16> into tensor<32x2x128xf16>
+  %collapsed_3 = tensor.collapse_shape %8 [[0, 1], [2], [3]] : tensor<1x32x128x64xf16> into tensor<32x128x64xf16>
+  %9 = tosa.matmul %collapsed, %collapsed_3 : (tensor<32x2x128xf16>, tensor<32x128x64xf16>) -> tensor<32x2x64xf16>
+  %expanded_4 = tensor.expand_shape %9 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
+  %10 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %11 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %12 = tosa.greater_equal %10, %11 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %13 = tosa.cast %12 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %14 = tosa.cast %13 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %15 = tosa.cast %14 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %16 = tosa.select %15, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %expanded_5 = tensor.expand_shape %6 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xi32> into tensor<1x32x1x1xi32>
+  %17 = tosa.add %expanded_5, %2 : (tensor<1x32x1x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %18 = tosa.greater_equal %10, %17 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %19 = tosa.cast %18 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %20 = tosa.cast %19 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %21 = tosa.mul %16, %0 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %22 = tosa.cast %20 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %23 = tosa.select %22, %1, %21 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %24 = tosa.reduce_max %23 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %25 = tosa.sub %23, %24 : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %26 = tosa.exp %25 : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %27 = tosa.reduce_sum %26 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %28 = tosa.reciprocal %27 : (tensor<1x32x2x1xf16>) -> tensor<1x32x2x1xf16>
+  %29 = tosa.mul %26, %28 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %collapsed_6 = tensor.collapse_shape %29 [[0, 1], [2], [3]] : tensor<1x32x2x64xf16> into tensor<32x2x64xf16>
+  %expanded_7 = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [32, 64, 128] : tensor<262144xf16> into tensor<32x64x128xf16>
+  %30 = tosa.matmul %collapsed_6, %expanded_7 : (tensor<32x2x64xf16>, tensor<32x64x128xf16>) -> tensor<32x2x128xf16>
+  %expanded_8 = tensor.expand_shape %30 [[0, 1], [2], [3]] output_shape [1, 32, 2, 128] : tensor<32x2x128xf16> into tensor<1x32x2x128xf16>
+  %31 = tosa.transpose %expanded_8, %4 : (tensor<1x32x2x128xf16>, tensor<4xi32>) -> tensor<1x2x32x128xf16>
+  %collapsed_9 = tensor.collapse_shape %31 [[0, 1, 2, 3]] : tensor<1x2x32x128xf16> into tensor<8192xf16>
+  return %collapsed_9 : tensor<8192xf16>
+}
+
+// CHECK-LABEL: func @mlir_causal_attention_nokvcache_wrongbroadcast
+// CHECK: rock.attention
+// CHECK-NOT: currentSeqLen = 
+func.func @mlir_causal_attention_nokvcache_wrongbroadcast(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<64xi32>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+  %cst = arith.constant dense<[[[[1], [2]]]]> : tensor<1x1x2x1xi32>
+  %0 = "tosa.const"() <{value = dense<8.837890e-02> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %1 = "tosa.const"() <{value = dense<0xFC00> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %2 = "tosa.const"() <{value = dense<0> : tensor<1x32x2x64xi32>}> : () -> tensor<1x32x2x64xi32>
+  %cst_0 = arith.constant dense<[[[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]]]]> : tensor<1x1x1x64xi32>
+  %3 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %4 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %expanded = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 1, 1, 64] : tensor<64xi32> into tensor<1x1x1x64xi32>
+  %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
+  %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 96, 128] : tensor<24576xf16> into tensor<1x2x96x128xf16>
+  %5 = tosa.transpose %expanded_2, %4 : (tensor<1x2x96x128xf16>, tensor<4xi32>) -> tensor<1x96x2x128xf16>
+  %extracted_slice = tensor.extract_slice %5[0, 0, 0, 0] [1, 32, 2, 128] [1, 1, 1, 1] : tensor<1x96x2x128xf16> to tensor<1x32x2x128xf16>
+  %6 = tosa.transpose %expanded_1, %3 : (tensor<1x32x64x128xf16>, tensor<4xi32>) -> tensor<1x32x128x64xf16>
+  %collapsed = tensor.collapse_shape %extracted_slice [[0, 1], [2], [3]] : tensor<1x32x2x128xf16> into tensor<32x2x128xf16>
+  %collapsed_3 = tensor.collapse_shape %6 [[0, 1], [2], [3]] : tensor<1x32x128x64xf16> into tensor<32x128x64xf16>
+  %7 = tosa.matmul %collapsed, %collapsed_3 : (tensor<32x2x128xf16>, tensor<32x128x64xf16>) -> tensor<32x2x64xf16>
+  %expanded_4 = tensor.expand_shape %7 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
+  %8 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %9 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %10 = tosa.greater_equal %8, %9 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %11 = tosa.cast %10 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %12 = tosa.cast %11 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %13 = tosa.cast %12 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %14 = tosa.select %13, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %15 = tosa.add %expanded, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %16 = tosa.greater_equal %8, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %17 = tosa.cast %16 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %18 = tosa.cast %17 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %19 = tosa.mul %14, %0 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %20 = tosa.cast %18 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %21 = tosa.select %20, %1, %19 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %22 = tosa.reduce_max %21 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %23 = tosa.sub %21, %22 : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %24 = tosa.exp %23 : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %25 = tosa.reduce_sum %24 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %26 = tosa.reciprocal %25 : (tensor<1x32x2x1xf16>) -> tensor<1x32x2x1xf16>
+  %27 = tosa.mul %24, %26 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %collapsed_5 = tensor.collapse_shape %27 [[0, 1], [2], [3]] : tensor<1x32x2x64xf16> into tensor<32x2x64xf16>
+  %expanded_6 = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [32, 64, 128] : tensor<262144xf16> into tensor<32x64x128xf16>
+  %28 = tosa.matmul %collapsed_5, %expanded_6 : (tensor<32x2x64xf16>, tensor<32x64x128xf16>) -> tensor<32x2x128xf16>
+  %expanded_7 = tensor.expand_shape %28 [[0, 1], [2], [3]] output_shape [1, 32, 2, 128] : tensor<32x2x128xf16> into tensor<1x32x2x128xf16>
+  %29 = tosa.transpose %expanded_7, %4 : (tensor<1x32x2x128xf16>, tensor<4xi32>) -> tensor<1x2x32x128xf16>
+  %collapsed_8 = tensor.collapse_shape %29 [[0, 1, 2, 3]] : tensor<1x2x32x128xf16> into tensor<8192xf16>
+  return %collapsed_8 : tensor<8192xf16>
+}
+
+// CHECK-LABEL: func @mlir_causal_attention_nokvcache_wrongrange
+// CHECK: rock.attention
+// CHECK-NOT: currentSeqLen = 
+func.func @mlir_causal_attention_nokvcache_wrongrange(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<64xi32>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+  %cst = arith.constant dense<[[[[1], [2]]]]> : tensor<1x1x2x1xi32>
+  %0 = "tosa.const"() <{value = dense<8.837890e-02> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %1 = "tosa.const"() <{value = dense<0xFC00> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
+  %2 = "tosa.const"() <{value = dense<0> : tensor<1x32x2x64xi32>}> : () -> tensor<1x32x2x64xi32>
+  %cst_0 = arith.constant dense<[[[[0, 1, 2, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]]]]> : tensor<1x1x1x64xi32>
+  %3 = "tosa.const"() <{value = dense<[0, 1, 3, 2]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %4 = "tosa.const"() <{value = dense<[0, 2, 1, 3]> : tensor<4xi32>}> : () -> tensor<4xi32>
+  %expanded = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 1, 1, 64] : tensor<64xi32> into tensor<1x1x1x64xi32>
+  %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
+  %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 96, 128] : tensor<24576xf16> into tensor<1x2x96x128xf16>
+  %5 = tosa.transpose %expanded_2, %4 : (tensor<1x2x96x128xf16>, tensor<4xi32>) -> tensor<1x96x2x128xf16>
+  %extracted_slice = tensor.extract_slice %5[0, 0, 0, 0] [1, 32, 2, 128] [1, 1, 1, 1] : tensor<1x96x2x128xf16> to tensor<1x32x2x128xf16>
+  %6 = tosa.transpose %expanded_1, %3 : (tensor<1x32x64x128xf16>, tensor<4xi32>) -> tensor<1x32x128x64xf16>
+  %collapsed = tensor.collapse_shape %extracted_slice [[0, 1], [2], [3]] : tensor<1x32x2x128xf16> into tensor<32x2x128xf16>
+  %collapsed_3 = tensor.collapse_shape %6 [[0, 1], [2], [3]] : tensor<1x32x128x64xf16> into tensor<32x128x64xf16>
+  %7 = tosa.matmul %collapsed, %collapsed_3 : (tensor<32x2x128xf16>, tensor<32x128x64xf16>) -> tensor<32x2x64xf16>
+  %expanded_4 = tensor.expand_shape %7 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
+  %8 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %9 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %10 = tosa.greater_equal %8, %9 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %11 = tosa.cast %10 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %12 = tosa.cast %11 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %13 = tosa.cast %12 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %14 = tosa.select %13, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %15 = tosa.add %expanded, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
+  %16 = tosa.greater_equal %8, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %17 = tosa.cast %16 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
+  %18 = tosa.cast %17 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
+  %19 = tosa.mul %14, %0 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %20 = tosa.cast %18 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
+  %21 = tosa.select %20, %1, %19 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %22 = tosa.reduce_max %21 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %23 = tosa.sub %21, %22 : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %24 = tosa.exp %23 : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
+  %25 = tosa.reduce_sum %24 {axis = 3 : i32} : (tensor<1x32x2x64xf16>) -> tensor<1x32x2x1xf16>
+  %26 = tosa.reciprocal %25 : (tensor<1x32x2x1xf16>) -> tensor<1x32x2x1xf16>
+  %27 = tosa.mul %24, %26 {shift = 0 : i8} : (tensor<1x32x2x64xf16>, tensor<1x32x2x1xf16>) -> tensor<1x32x2x64xf16>
+  %collapsed_5 = tensor.collapse_shape %27 [[0, 1], [2], [3]] : tensor<1x32x2x64xf16> into tensor<32x2x64xf16>
+  %expanded_6 = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [32, 64, 128] : tensor<262144xf16> into tensor<32x64x128xf16>
+  %28 = tosa.matmul %collapsed_5, %expanded_6 : (tensor<32x2x64xf16>, tensor<32x64x128xf16>) -> tensor<32x2x128xf16>
+  %expanded_7 = tensor.expand_shape %28 [[0, 1], [2], [3]] output_shape [1, 32, 2, 128] : tensor<32x2x128xf16> into tensor<1x32x2x128xf16>
+  %29 = tosa.transpose %expanded_7, %4 : (tensor<1x32x2x128xf16>, tensor<4xi32>) -> tensor<1x2x32x128xf16>
+  %collapsed_8 = tensor.collapse_shape %29 [[0, 1, 2, 3]] : tensor<1x2x32x128xf16> into tensor<8192xf16>
+  return %collapsed_8 : tensor<8192xf16>
+}

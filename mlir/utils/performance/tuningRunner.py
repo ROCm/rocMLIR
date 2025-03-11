@@ -36,6 +36,7 @@ class Options:
     numCU: int
     rocmlir_gen_flags: str
     verifyMode: str
+    verifyPerfConfigs: bool
     tflops: bool
     compact_print: bool
 
@@ -50,7 +51,8 @@ def verifyModeFlags(verifyMode: str) -> str:
 
 #Run a gemm or conv config and verify it
 def verifyKernelWithPerfConfig(perfConfig, config, paths: Paths, options: Options) -> float:
-    print(f"Verifying with perfConfig = {perfConfig}", file=sys.stderr)
+    if not options.compact_print:
+        print(f"Verifying with perfConfig = {perfConfig}", file=sys.stderr)
     config.setPerfConfig(perfConfig.strip())
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + \
         verifyModeFlags(options.verifyMode) + \
@@ -94,7 +96,7 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
             os.chdir(prevdir)
     return nanoSeconds
 
-def getWinningConfig(tuningOutput, config, allData, options: Options):
+def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, options: Options):
     maxTFlops = -np.inf
     minNs = np.inf
     winningConfig = "None"
@@ -115,6 +117,18 @@ def getWinningConfig(tuningOutput, config, allData, options: Options):
         entry = config.tableEntry(nanoSeconds)
         allData.append(entry)
         theseTFlops = entry['TFlops']
+        # verify that each perfConfig passes accuracy verification
+        if options.verifyPerfConfigs:
+            if options.verifyMode == "none":
+                print("Use of `--verify-perf-configs` should happen in conjuction with `--verify-mode`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu` flag")
+                sys.exit(1) 
+            else:
+                verifyNs = verifyKernelWithPerfConfig(perfConfig, config, paths, options)
+                if np.isnan(verifyNs):
+                    # Verification failed, abort the loop
+                    print(f"verification failed on : {testVector} : {perfConfig}", file=sys.stderr)
+                    sys.exit(1)
+
         if not np.isnan(theseTFlops) and theseTFlops > maxTFlops:
             maxTFlops = theseTFlops
             minNs = nanoSeconds
@@ -159,7 +173,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, config, allData, options)
+        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, testVector, config, allData, paths, options)
 
         if options.verifyMode != "none":
             verifyNs = verifyKernelWithPerfConfig(winningConfig, config, paths, options)
@@ -300,7 +314,12 @@ def main(args=None):
     parser.add_argument("--verify-mode",
         default="gpu",
         choices=["none", "cpu", "gpu"],
-        help="How to verify the winning tuned kernel")
+        help="Flag to specify if verification of compiled kernel with selected PerfConfig should use CPU based implementation or GPU based implementation")
+
+    parser.add_argument("--verify-perf-configs",
+        action='store_true',
+        default=False,
+        help="Compile and verify given problem with all applicable perf configs. Whether it would use CPU or GPU based verification is controlled by `--verify-mode`. Should be used in conjunction with `--verify-mode`")
 
     parser.add_argument("--test_dir",
         default="../mlir/test/fusion/resnet50-e2e",
@@ -348,6 +367,7 @@ def main(args=None):
         tuningSpaceKind=parsed_args.tuning_space,
         rocmlir_gen_flags=rocmlir_gen_flags,
         verifyMode=parsed_args.verify_mode,
+        verifyPerfConfigs = parsed_args.verify_perf_configs,
         tflops=parsed_args.tflops,
         compact_print=parsed_args.compact_print)
 

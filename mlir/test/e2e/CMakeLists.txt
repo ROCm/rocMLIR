@@ -37,44 +37,35 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
   set(GEN_MODE "")
 endif()
 if (ROCK_E2E_TEST_ENABLED)
-  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part1")
-    list(APPEND CONFIGS
-    GemmVariants
-    MixedConvLayouts
-    )
-  endif()
-  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part2")
-    list(APPEND CONFIGS
-    Resnet50Config
-    )
-  endif()
-  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part3")
-    list(APPEND CONFIGS
-    Resnext101Config
-    PaddedGemmConfig
-    )
-  endif()
-  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part4")
-    list(APPEND CONFIGS
-    conv_regression_fwd
-    conv_regression_fwd_nonNavi3x
-    conv_regression_fwd_navi3x
-    )
-  endif()
-  if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part5")
-    list(APPEND CONFIGS
-    conv_regression_bwd
-    conv_wrw_perf_config
-    Resnet101Config
-    )
-   endif()
-   if (ROCK_E2E_TEST_SUITES STREQUAL "" OR ROCK_E2E_TEST_SUITES STREQUAL "part6")
-    list(APPEND CONFIGS
-    gemm_with_atomic_add
-    gemm_split_k_f16
-    gemm_split_k_f32
-    )
-   endif()
+  list(APPEND CONFIGS
+  GemmVariants
+  MixedConvLayouts
+  )
+  list(APPEND CONFIGS
+  Resnet50Config
+  )
+  list(APPEND CONFIGS
+  Resnext101Config
+  PaddedGemmConfig
+  )
+  list(APPEND CONFIGS
+  conv_regression_fwd
+  conv_regression_fwd_nonNavi3x
+  conv_regression_fwd_navi3x
+  )
+  list(APPEND CONFIGS
+  conv_regression_bwd
+  conv_wrw_perf_config
+  Resnet101Config
+  )
+  list(APPEND CONFIGS
+  gemm_with_atomic_add_bf16
+  gemm_with_atomic_add_f16
+  gemm_with_atomic_add_f32
+  gemm_split_k_f16
+  gemm_split_k_bf16
+  gemm_split_k_f32
+  )
 endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})
