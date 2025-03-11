@@ -19,3 +19,13 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRRockAnalysis
   MLIRMHAL
 )
+
+find_package(hip REQUIRED)
+# We do need both of these.  One is for linking, to get the HIP
+# functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
+target_link_libraries(MLIRRockUtility PUBLIC
+  hip::host hip::amdhip64
+)
+target_link_libraries(obj.MLIRRockUtility PUBLIC
+  hip::host hip::amdhip64
+)

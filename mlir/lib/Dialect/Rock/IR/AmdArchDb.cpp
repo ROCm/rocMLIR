@@ -15,6 +15,8 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include "hip/hip_runtime_api.h"
+
 using namespace mlir;
 using namespace mlir::rock;
 
@@ -85,11 +87,36 @@ static constexpr AmdArchInfo
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1);
 
+static AmdArchInfo fetchNativeArchInfo(unsigned long long deviceId = 0) {
+  hipDeviceProp_t prop;
+  if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
+    llvm::errs() << "hipGetDeviceProperties error: " << hipGetErrorString(err)
+                 << "; Device ID: " << deviceId
+                 << "; Falling back to defaults\n";
+    return gcnInfo;
+  }
+
+  auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
+  ret.waveSize = prop.warpSize;
+  // are these the correct values to use?
+  ret.totalSharedMemPerCU = prop.sharedMemPerMultiprocessor;
+  ret.maxSharedMemPerWG = prop.sharedMemPerBlock;
+
+  return ret;
+}
+
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
   StringRef firstPart, remainingParts;
   std::tie(firstPart, remainingParts) = arch.split(':');
+  if (firstPart == "native") {
+    unsigned long long deviceId;
+    if (!llvm::getAsUnsignedInteger(remainingParts, 0, deviceId)) {
+      return fetchNativeArchInfo(deviceId);
+    }
+    return fetchNativeArchInfo();
+  }
   if (firstPart.contains('-')) { // target triple
     std::tie(firstPart, remainingParts) = remainingParts.split(':');
   }

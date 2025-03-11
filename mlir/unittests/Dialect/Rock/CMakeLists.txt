@@ -1,8 +1,9 @@
-add_rocmlir_unittest(MLIRRockTransformMapBuilderTests
+add_rocmlir_unittest(MLIRRockUnitTests
+  AmdArchDbTests.cpp
   TransformMapBuilderTests.cpp
 )
 
-target_link_libraries(MLIRRockTransformMapBuilderTests
+target_link_libraries(MLIRRockUnitTests
   PRIVATE
   MLIRRockOps
   MLIRRockUtility
