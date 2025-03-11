@@ -121,7 +121,7 @@ static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   return success();
 }
 
-LogicalResult ConvGenerator::isApplicable(bool checkChip) const {
+LogicalResult ConvGenerator::isApplicable() const {
   if (failed(hasValidDimension())) {
     return failure();
   }
