@@ -2552,13 +2552,13 @@ struct GridwiseGemmAccelRewritePattern
   using OpRewritePattern<GridwiseGemmAccelOp>::OpRewritePattern;
 
   // Generate only the compute loop, i.e., we assume here that all
-  // the data that we need is already in LDS
+  // the data that we need is already in registers
   void generateComputeLoop(
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value regsA, Value regsB, Value regsC, StringAttr arch,
       GemmFeaturesAttr features,
-      const RockAccelTuningParamAttrInterface tuningParams) const {
+      const RockAccelTuningParamAttrInterface &tuningParams) const {
 
     rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
     int64_t mRepeats = params.mRepeats;
@@ -2949,8 +2949,10 @@ struct GridwiseGemmAccelRewritePattern
       arrayALen *= mRepeats;
       arrayBLen *= nRepeats;
       initiationInterval = 1;
+    } else if(scheduleVersion == 1) {
+      initiationInterval = 2; 
     } else {
-      initiationInterval = 2;
+      llvm_unreachable("unknown gemm schedule version. only gemmScheduleVersions 1 or 2 are supported.");
     }
 
     auto arrayA = gpuAlloc(b, loc, arrayALen, argTypeA, AddressSpace::Private);
@@ -3056,9 +3058,10 @@ struct GridwiseGemmAccelRewritePattern
           b.create<rock::YieldOp>(loc);
         }
       } else {
-        // If we are running double-buffered pipeleines, it makes sense to also
-        // parellize The LDSRead/MMA stages. We do this here, by splitting the
+        // If we are running double-buffered pipelines, it makes sense to also
+        // parallelize The LDSRead/MMA stages. We do this here, by splitting the
         // MMA loop in two separate stages
+        // TODO: In future refactor BlockwiseGemmAccelOp to take registers instead of LDS to merge both code paths.
         auto stage2 = b.create<StageOp>(loc, "LDSRead");
         {
           // Read from LDS into registers

@@ -204,8 +204,8 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
   // only enable tuning over gemm schedules when doing exhaustive tuning
-  auto getGemmSchedules = [&]() {
-    if (kind == TuningParamSetKind::Exhaustive) {
+  auto getGemmSchedules = [](const TuningParamSetKind &tuningKind) {
+    if (tuningKind == TuningParamSetKind::Exhaustive) {
       return std::vector<uint32_t>{1, 2};
     }
     return std::vector<uint32_t>{1};
@@ -220,7 +220,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 8, 16, 32, 64, 128},
       {4, 16, 32},
       {1, 4, 8},
-      getGemmSchedules(),
+      getGemmSchedules(kind),
       {0, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack scheduleVersion
@@ -232,7 +232,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                 {4, 8, 16, 32, 64, 128},
                                                 {4, 8, 16, 32, 64, 128},
                                                 {1, 4, 8, 16},
-                                                getGemmSchedules(),
+                                                getGemmSchedules(kind),
                                                 {0, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack scheduleVersion
@@ -244,7 +244,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16},
-      getGemmSchedules(),
+      getGemmSchedules(kind),
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
