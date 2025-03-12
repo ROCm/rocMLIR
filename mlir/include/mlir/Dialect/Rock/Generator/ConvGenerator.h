@@ -138,10 +138,10 @@ public:
     std::replace(targetLayout.begin(), targetLayout.end(), 'y', '0');
     std::replace(targetLayout.begin(), targetLayout.end(), 'x', '1');
     std::replace(targetLayout.begin(), targetLayout.end(), 'h', '0');
-    std::replace(targetLayout.begin(), targetLayout.end() P, 'w', '1');
+    std::replace(targetLayout.begin(), targetLayout.end(), 'w', '1');
     return targetLayout;
   }
-  
+
   LogicalResult isApplicable() const;
 
   // Utility function to query if a config requires additional workspace.
