@@ -1,4 +1,5 @@
-//===- tosa_miir.cpp - Simple test of C and MIIR APIs ---------------------===//
+//===- mixr_split_k.cpp - Simple test of C and MLIR APIs for testing fusability
+// with Split-K ---------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM
 // Exceptions.
