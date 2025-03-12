@@ -1042,7 +1042,7 @@ pipeline {
                     stage("Verify MIGraphX with MLIR") {
                         steps {
                             dir('MIGraphX/build') {
-                                timeout(time: 240, activity: true, unit: 'MINUTES') {
+                                timeout(time: 120, activity: true, unit: 'MINUTES') {
                                     withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
                                         // run test_verify for accuracy and run MLIR related unit-tests
                                         sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
