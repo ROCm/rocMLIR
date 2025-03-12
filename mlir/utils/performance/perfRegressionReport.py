@@ -25,7 +25,7 @@ def loadMlirData(filename: str):
     if 'numCU' not in df:
         df.insert(4, 'numCU', getNumCU(df['Chip'][0]))
     return df
-
+# TODO: Fix this for perfConfigV3
 def mergePerfConfigs(v: Tuple[str, str]) -> str:
     v1, v2 = v
     if v1 == v2:
