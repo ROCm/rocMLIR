@@ -1,6 +1,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
@@ -14,6 +15,7 @@
 #include "mlir/Pass/Pass.h"
 
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
@@ -40,7 +42,7 @@ public:
 private:
   // Actual implementation.
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
-  void affixTuningParametersImpl(AttentionOp op);
+  void affixTuningParametersImpl(RockGemmGemmWrapperInterface op);
 
   template <typename T>
   void setUtilityKernelSizes(Value arg, T utilityOp);
@@ -52,7 +54,8 @@ void AffixTuningParameters::runOnOperation() {
 
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
-  func.walk([&](AttentionOp op) { affixTuningParametersImpl(op); });
+  func.walk(
+      [&](RockGemmGemmWrapperInterface op) { affixTuningParametersImpl(op); });
   func.walk([&](ReduceOp op) {
     func::FuncOp funcOp = getOperation();
     if (!funcOp->hasAttr("block_size")) {
@@ -208,15 +211,16 @@ void AffixTuningParameters::affixTuningParametersImpl(
                             b.getI32IntegerAttr(validParams.blockSize));
   }
 }
+
 static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
+deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
                         AttnPerfConfigAttr attnPerfConfig) {
   auto gemm0TuningParams =
-      cast<RockAccelTuningParamAttrInterface>(op.getParams0().value());
+      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
   int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
   if (auto gemm0XdlDerivedParams =
-          dyn_cast<XdlopsGemmDerivedParamsAttr>(op.getParams0().value())) {
+          dyn_cast<XdlopsGemmDerivedParamsAttr>(op.getGemm0Params().value())) {
     gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
     return XdlopsGemmDerivedParamsAttr::get(
         builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
@@ -240,18 +244,17 @@ deriveGemm1TuningParams(OpBuilder &builder, AttentionOp op,
       gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
 }
 
-void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
+void AffixTuningParameters::affixTuningParametersImpl(
+    RockGemmGemmWrapperInterface op) {
   OpBuilder builder(op.getContext());
-  Type elemTypeQ = cast<MemRefType>(op.getQueries().getType()).getElementType();
-  Type elemTypeK = cast<MemRefType>(op.getKeys().getType()).getElementType();
-  Type elemTypeV = cast<MemRefType>(op.getValues().getType()).getElementType();
-  bool isAccel = rock::isAccel(op.getFeatures());
+  bool isAccel = rock::isAccel(op.getGemmFeatures());
   if (!isAccel) {
-    op.emitError("Currently, attention op is only supported on GPUs "
+    op.emitError("Currently, attention/gemm+gemm op is only "
+                 "supported on GPUs "
                  "with matrix accelerator extentions");
     return signalPassFailure();
   }
-  Attribute params0 = op.getParams0().value_or(nullptr);
+  Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =
       builder.getStringAttr("attn:v1:32,32,32,32,32,32,1,1");
@@ -266,7 +269,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
   }
-  GemmFeatures features = op.getFeatures();
+  GemmFeatures features = op.getGemmFeatures();
   RockAccelTuningParamAttrInterface accelParams0;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
     auto xdlopsParams0 = XdlopsGemmParamsAttr::get(
@@ -284,7 +287,7 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
         attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(), 2,
         attnPerfConfig.getForceUnroll());
   }
-  op.setParams0Attr(accelParams0);
+  op.setGemm0ParamsAttr(accelParams0);
   if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
     op.emitError(
         "The MPerBlockG0 should be larger or equal to getMPerBlockG1.");
@@ -292,8 +295,8 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   }
   RockAccelTuningParamAttrInterface accelParams1 =
       deriveGemm1TuningParams(builder, op, attnPerfConfig);
-  op.setParams1Attr(accelParams1);
-  int64_t waveSize = rock::lookupArchInfo(op.getArchAttr()).waveSize;
+  op.setGemm1ParamsAttr(accelParams1);
+  int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
@@ -302,12 +305,14 @@ void AffixTuningParameters::affixTuningParametersImpl(AttentionOp op) {
   LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams0, elemTypeQ, elemTypeK, op.getArch(),
+          accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
+          cast<MemRefType>(op.getBType()).getElementType(), op.getArch(),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   LogicalResult isValidBlockwiseGemm1 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams1, elemTypeV, elemTypeV, op.getArch(),
+          accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
+          cast<MemRefType>(op.getCType()).getElementType(), op.getArch(),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {

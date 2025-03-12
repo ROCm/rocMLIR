@@ -20,6 +20,7 @@ mlir_tablegen(RockAccelTuningParamAttrInterface.h.inc -gen-attr-interface-decls)
 mlir_tablegen(RockAccelTuningParamAttrInterface.cpp.inc -gen-attr-interface-defs)
 add_public_tablegen_target(MLIRRockAccelTuningParamAttrInterfaceIncGen)
 
+add_mlir_interface(RockGemmGemmWrapperInterface)
 add_mlir_interface(RockGemmWrapperInterface)
 add_mlir_interface(RockConvInterface)
 add_mlir_interface(RockAcceptingViewOpInterface)

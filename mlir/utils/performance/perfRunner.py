@@ -35,6 +35,7 @@ LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
 DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
+DATA_TYPES_GEMM_GEMM = ['f32']
 OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8':'f32',
                          'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
                          'bf8_bf8': 'f32'}
@@ -608,6 +609,39 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OU
                     configs.append(oneConfig)
     return configs
 
+def getGemmGemmConfigurations(fileName):
+    bool_space = ['false', 'true']
+    default_test_space = {
+        "-t": DATA_TYPES_GEMM_GEMM,
+        "-transA": bool_space,
+        "-transB": bool_space,
+        "-transC": bool_space,
+        "-transO": bool_space,
+    }
+    configs = []
+    if fileName:
+        with open(fileName, 'r') as configFile:
+            lines = configFile.readlines()
+            for line in lines:
+                line = line.strip()
+                # Skip empty lines
+                if len(line) == 0 or line[0] == '#':
+                    continue
+                test_space = []
+                args = []
+                for arg in default_test_space.keys():
+                    if arg not in line:
+                        test_space.append(default_test_space[arg])
+                        args.append(arg)
+                for test_vector in itertools.product(*test_space):
+                    # Strip to avoid spurious spaces
+                    oneConfig = line.strip()
+                    for arg, value in zip(args, test_vector):
+                        oneConfig = f"{arg} {value} {oneConfig}"
+                    if oneConfig not in configs:
+                        configs.append(oneConfig)
+    return configs
+
 def getAttentionConfigurations(fileName):
     bool_space = ['false', 'true']
     default_test_space = {
@@ -699,6 +733,7 @@ class GemmConfiguration(PerfConfiguration):
         n = None
         transA = None
         transB = None
+        outDataType = None
         perf_config = ''
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -718,7 +753,7 @@ class GemmConfiguration(PerfConfiguration):
             elif opt.endswith("-transB"):
                 transB = (val.lower() in ["1", "true"])
             elif opt.endswith("-out_datatype"):
-                outDataType =val.lower()
+                outDataType = val.lower()
             elif opt.endswith("-perf_config"):
                 perf_config = val
             else:
@@ -736,8 +771,9 @@ class GemmConfiguration(PerfConfiguration):
 
     def __init__(self, dtype: str, outDataType: str, g: int, m: int, k: int, n: int,
                  transA: bool, transB: bool, arch: str, numCU: int, perf_config: str = ''):
-        if dtype not in {"f16", "f32", "bf16", "i8", "fp8"}:
+        if dtype not in DATA_TYPES_GEMM:
             raise ValueError(f"Invalid datatype: {dtype}")
+        
         self.dataType = dtype
         self.outDataType = outDataType
         self.g = g
@@ -752,12 +788,151 @@ class GemmConfiguration(PerfConfiguration):
         self.chip = GFX_CHIP_RE.search(arch).group(0)
         self.numCU = numCU
 
+class GemmGemmConfiguration(PerfConfiguration):
+    TABLE_COLUMNS = reportUtils.GEMM_GEMM_TEST_PARAMETERS + ['TFlops']
+    def __init__(self, dtype: str, g: int, m: int, k: int, n: int, o: int, 
+                 transA: bool, transB: bool, transC: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
+        if dtype not in DATA_TYPES_GEMM_GEMM:
+            raise ValueError(f"Invalid datatype for a: {dtype}")
+
+        self.dataType = dtype
+        self.g = g
+        self.m = m
+        self.k = k
+        self.n = n
+        self.o = o
+        self.transA = transA
+        self.transB = transB
+        self.transC = transC
+        self.transO = transO
+
+        self.arch = arch
+        self.chip = GFX_CHIP_RE.search(arch).group(0)
+        self.numCU = numCU
+        self.perfConfig = perf_config
+
+    def computeTFlops(self, ns):
+        # NaN will propagate as expected
+        # Repeats are handled by the fact that we're using avarageNs
+        first_matmul_flops = 2.0 * self.g * self.m * self.k * self.n
+        second_matmul_flops = 2.0 * self.g * self.m * self.n * self.o
+        total_flops = first_matmul_flops + second_matmul_flops
+
+        return total_flops / (float(ns) * 1e-9) / 1e12
+
+    def tableEntry(self, nanoSeconds):
+        result = {}
+        values = [
+            self.dataType,
+            self.chip,
+            self.numCU,
+            self.transA,
+            self.transB,
+            self.transC,
+            self.transO,
+            self.g,
+            self.m,
+            self.k,
+            self.n,
+            self.o,
+            self.perfConfig,
+            self.computeTFlops(nanoSeconds)
+        ]
+        assert(len(self.TABLE_COLUMNS) == len(values))
+        for k, v in zip(self.TABLE_COLUMNS, values):
+            result[k] = v
+        return result
+
+    def __repr__(self):
+        attrs = ', '.join(f"{key}={repr(value)!r}" for key, value in self.__dict__.items())
+        return f"{self.__class__.__name__}({attrs})"
+    
+    def setPerfConfig(self, perf_config):
+        self.perfConfig = perf_config
+
+    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
+        result = ' '.join(['-operation', 'gemm_gemm',
+                           '-t', self.dataType,
+                           '--arch', self.arch,
+                           '--num_cu', str(self.numCU),
+                           '-g', str(self.g),
+                           '-m', str(self.m),
+                           '-k', str(self.k),
+                           '-n', str(self.n),
+                           '-gemmO', str(self.o),
+                           f"-transA={self.transA}",
+                           f"-transB={self.transB}",
+                           f"-transC={self.transC}",
+                           f"-transO={self.transO}",
+                           '--kernel-repeats', str(MLIR_N_REPEATS),
+                           f"--perf_config={self.perfConfig}"])
+        result += ' '
+        if rocmlir_gen_flags != '':
+            result += ' '.join(rocmlir_gen_flags.split())
+        return result
+
+    @classmethod
+    def fromCommandLine(cls, argv, arch, numCU):
+        # optional defaults
+        perf_config = ''
+        dtype = None
+        g = None
+        m = None
+        k = None
+        n = None
+        o = None
+        transA = False
+        transB = False
+        transC = False
+        transO = False
+        # Please keep this in sync with mlir::rock::getTuningProblemStr()
+        for i in range(0, len(argv), 2):
+            opt = argv[i]
+            val = argv[i + 1]
+            if opt.endswith("-t"):
+                dtype = val
+            elif opt.endswith("-g"):
+                g = int(val)
+            elif opt.endswith("-m"):
+                m = int(val)
+            elif opt.endswith("-k"):
+                k = int(val)
+            elif opt.endswith("-n"):
+                n = int(val)
+            elif opt.endswith("-gemmO"):
+                o = int(val)
+            elif opt.endswith("-transA"):
+                transA = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transB"):
+                transB = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transC"):
+                transC = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transO"):
+                transO = (val.lower() in ["1", "true"])
+            elif opt.endswith("-perf_config"):
+                perf_config = val
+            else:
+                raise ValueError(f"Unknown GEMM+GEMM config argument {opt} -> {val}")
+        for v in [dtype, g, m, k, n, o, transA, transB, transC, transO]:
+            if v is None:
+                raise ValueError("Incomplete GEMM+GEMM configuration")
+
+        return cls(dtype, g, m, k, n, o, transA, transB, transC, transO, arch, numCU, perf_config)
+
+    def toCommandLine(self):
+        return (f"-t {self.dataType} "
+                + f"-transA {str(self.transA).lower()} -transB {str(self.transB).lower()} "
+                + f"-transC {str(self.transC).lower()} -transO {str(self.transO).lower()} "
+                + f"-g {self.g} "
+                + f"-m {str(self.m)} -k {str(self.k)} -n {str(self.n)} -gemmO {str(self.o)}")
+
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
     def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: int,
                  transQ: bool, transK: bool, transV: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
-        if dtype not in {"f16", "f32"}:
-            raise ValueError(f"Invalid datatype: {dtype}")
+        if dtype not in DATA_TYPES_ATTENTION:
+            raise ValueError(f"Invalid datatype for a: {dtype}")
+        
         self.dataType = dtype
         self.g = g
         self.seq_len_q = seq_len_q
@@ -852,6 +1027,12 @@ class AttentionConfiguration(PerfConfiguration):
     def fromCommandLine(cls, argv, arch, numCU):
         # optional defaults
         perf_config = ''
+        dtype = None
+        g = None
+        seq_len_q = None
+        seq_len_k = None
+        head_dim_qk = None
+        head_dim_v = None
         transQ = False
         transK = False
         transV = False
@@ -1364,7 +1545,7 @@ def main(args=None):
         allow_abbrev=False,
     )
 
-    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention'],
+    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm'],
         default='conv',
         help="Operation to benchmark")
 
@@ -1495,6 +1676,9 @@ def main(args=None):
     elif opType == Operation.ATTENTION:
         confClass = AttentionConfiguration
         externalLib = None
+    elif opType == Operation.GEMM_GEMM:
+        confClass = GemmGemmConfiguration
+        externalLib = None
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir)
@@ -1506,6 +1690,8 @@ def main(args=None):
         configs = getGemmConfigurations(paths.configuration_file_path, datatypes, outputTypeMap)
     elif opType == Operation.ATTENTION:
         configs = getAttentionConfigurations(paths.configuration_file_path)
+    elif opType == Operation.GEMM_GEMM:
+        configs = getGemmGemmConfigurations(paths.configuration_file_path)
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
         if not foundExternalTool(paths, opType, externalLib):

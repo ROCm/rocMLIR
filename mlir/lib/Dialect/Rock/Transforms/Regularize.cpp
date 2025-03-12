@@ -606,7 +606,7 @@ LogicalResult findFusionRoots(func::FuncOp kernel,
         collectInputFusionWriteOperands(readOperand, bufferDeps, state);
     }
 
-    if (isa<AttentionOp, GridwiseAttentionAccelOp>(op)) {
+    if (isa<AttentionOp, GemmElementwiseGemmOp, GridwiseAttentionAccelOp>(op)) {
       // The linalg.generic inside the attention's body will be expected to
       // write out a global tensor as if it were an output fusion, so its
       // write should be added to the set of output fusion writes lest we

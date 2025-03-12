@@ -3,24 +3,9 @@ prefix = "rocmlir-gen"
 suffix = "--operation attention -t f32 --arch %arch -pv %random_data %rocmlir_gen_flags -relDiff_threshold 0.00005 | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
-name = "transQ"
-values = ["true", "false"]
-prefix = "--transQ="
-
-[[axis]]
 name = "transK"
 values = ["true", "false"]
 prefix = "--transK="
-
-[[axis]]
-name = "transV"
-values = ["true", "false"]
-prefix = "--transV="
-
-[[axis]]
-name = "transO"
-values = ["true", "false"]
-prefix = "--transO="
 
 ## attention variant
 [[suite]]

@@ -442,9 +442,9 @@ func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   return
 }
 
-// CHECK-LABEL: func.func @rock_attention_mperblockg1
+// CHECK-LABEL: func.func @rock_attention_mperblockg1_wmma
 // CHECK-SAME: block_size = 128
-// GRID-LABEL: func.func @rock_attention_mperblockg1
+// GRID-LABEL: func.func @rock_attention_mperblockg1_wmma
 // GRID-SAME: grid_size = 3
 func.func @rock_attention_mperblockg1_wmma(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // CHECK: rock.attention
@@ -457,9 +457,9 @@ func.func @rock_attention_mperblockg1_wmma(%arg0: memref<1x384x64xf16>, %arg1: m
   return
 }
 
-// CHECK-LABEL: func.func @rock_attention_mperblockg1
+// CHECK-LABEL: func.func @rock_attention_mperblockg1_mfma
 // CHECK-SAME: block_size = 256
-// GRID-LABEL: func.func @rock_attention_mperblockg1
+// GRID-LABEL: func.func @rock_attention_mperblockg1_mfma
 // GRID-SAME: grid_size = 3
 func.func @rock_attention_mperblockg1_mfma(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // CHECK: rock.attention
@@ -468,6 +468,37 @@ func.func @rock_attention_mperblockg1_mfma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  return
+}
+
+// CHECK-LABEL: func.func @rock_gemm_gemm_large
+// CHECK-SAME: block_size = 256
+// GRID-LABEL: func.func @rock_gemm_gemm_large
+// GRID-SAME: grid_size = 128
+func.func @rock_gemm_gemm_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x512x16384xf32>, %arg2: memref<1x16384x512xf32>, %arg3: memref<1x16384x512xf32>) {
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x16384x512xf32>
+  // CHECK: rock.gemm_elementwise_gemm
+  // CHECK: params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 2, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, mnPerXdl = 64, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  // CHECK: params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 16, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, mnPerXdl = 64, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  rock.gemm_elementwise_gemm{
+    ab = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
+    %arg3 = ab * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  return
+}
+
+// CHECK-LABEL: func.func @rock_gemm_gemm_mperblockg1_mfma
+// CHECK-SAME: block_size = 256
+// GRID-LABEL: func.func @rock_gemm_gemm_mperblockg1_mfma
+// GRID-SAME: grid_size = 3
+func.func @rock_gemm_gemm_mperblockg1_mfma(%arg0: memref<1x384x64xf32>, %arg1: memref<1x384x64xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // CHECK: rock.gemm_elementwise_gemm
+  // CHECK: #rock.xdlops_gemm_derived_params<kpackPerBlock = 2, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, mnPerXdl = 64, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  // CHECK: #rock.xdlops_gemm_derived_params<kpackPerBlock = 16, mPerBlock = 256, nPerBlock = 128, kpack = 8, mPerWave = 128, nPerWave = 64, mnPerXdl = 64, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  rock.gemm_elementwise_gemm{
+   ab = %arg0 * tr %arg1 : memref<1x384x64xf32>, memref<1x384x64xf32>
+   %arg3 = ab * %arg2 : memref<1x384x64xf32> -> memref<1x384x64xf32>
   } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
   return
 }

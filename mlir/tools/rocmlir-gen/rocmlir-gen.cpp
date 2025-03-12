@@ -99,7 +99,9 @@ static llvm::cl::opt<rock::KernelType> operation(
                    "Backpropogate convolution weights"),
         clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication"),
         clEnumValN(rock::KernelType::Attention, "attention",
-                   "Attention operation of transformer models")),
+                   "Attention operation of transformer models"),
+        clEnumValN(rock::KernelType::GemmElementwiseGemm, "gemm_gemm",
+                   "gemm+elementwise+gemm operation")),
     llvm::cl::value_desc("kernel type"),
     llvm::cl::init(rock::KernelType::Conv));
 
@@ -308,6 +310,11 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::desc("N dimension of gemm()"),
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
+
+/// gemm+elementwise+gemm options
+static llvm::cl::opt<int64_t>
+    gemmO("gemmO", llvm::cl::desc("N dimension of the second gemm()"),
+          llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
 
 static llvm::cl::opt<bool>
     transposeA("transA",
@@ -1065,7 +1072,9 @@ static void verifyConvLayout() {
 static void populateDefaults() {
   const bool isGemm = operation == rock::KernelType::Gemm;
   const bool isAttention = operation == rock::KernelType::Attention;
-  const bool isConv = !(isGemm || isAttention);
+  const bool isGemmElntwiseGemm =
+      operation == rock::KernelType::GemmElementwiseGemm;
+  const bool isConv = !(isGemm || isAttention || isGemmElntwiseGemm);
   // Default f32 if we passed no `-t` arguments at all.
   if (outputDataType.empty()) {
     if (filterDataType != inputDataType) {
@@ -1081,6 +1090,13 @@ static void populateDefaults() {
       gemmM = 1024;
       gemmK = 769;
       gemmN = 512;
+    }
+    if (isGemmElntwiseGemm) {
+      groupSize = 1;
+      gemmM = 1024;
+      gemmK = 769;
+      gemmN = 512;
+      gemmO = 769;
     }
     if (isAttention) {
       groupSize = 1;
@@ -1170,6 +1186,11 @@ auto getRequiredArgs(std::optional<rock::KernelType> kernelType) {
                                                       &gemmK, &gemmN};
     return requiredGemmArgs;
   }
+  case rock::KernelType::GemmElementwiseGemm: {
+    const static RequiredArgsType requiredGemmElntwiseGemmArgs = {
+        &groupSize, &gemmM, &gemmK, &gemmN, &gemmO};
+    return requiredGemmElntwiseGemmArgs;
+  }
   case rock::KernelType::Attention: {
     const static RequiredArgsType requiredAttenArgs = {
         &groupSize, &sequenceLengthQ, &sequenceLengthK, &headDimQK, &headDimV};
@@ -1193,9 +1214,11 @@ static LogicalResult detectMissingArguments() {
     }
   }
 
-  if (operation == rock::KernelType::Attention) {
+  if (operation == rock::KernelType::Attention ||
+      operation == rock::KernelType::GemmElementwiseGemm) {
     if (dataTypeAlias.getValue().empty()) {
-      llvm::errs() << "Type of the Attention operation is not specified\n";
+      llvm::errs()
+          << "Type of the Attention/gemm+gemm operation is not specified\n";
       return failure();
     }
   }
@@ -2139,11 +2162,9 @@ createCPUConvFunc(ModuleOp module,
 static void getGemmTypes(ArrayRef<Type> elemTypes,
                          SmallVectorImpl<Type> &result, bool isCpuVerifier) {
   Type cElemType = elemTypes[2];
-  if (elemTypes[0].isInteger(8)) {
-    // Verify in int64_t to detect overflow
-    if (isCpuVerifier)
-      cElemType = IntegerType::get(cElemType.getContext(), 64);
-  }
+  // Verify in int64_t to detect overflow
+  if (elemTypes[0].isInteger(8) && isCpuVerifier)
+    cElemType = IntegerType::get(cElemType.getContext(), 64);
 
   SmallVector<int64_t> aDims = {groupSize, transposeA ? gemmK : gemmM,
                                 transposeA ? gemmM : gemmK},
@@ -2341,6 +2362,51 @@ getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, headVName});
 }
 
+static void getGemmElentwiseGemmTypes(SmallVectorImpl<Type> &result,
+                                      ArrayRef<Type> elemTypes) {
+  SmallVector<int64_t> aDims = {groupSize, transposeA ? gemmK : gemmM,
+                                transposeA ? gemmM : gemmK},
+                       bDims = {groupSize, transposeB ? gemmN : gemmK,
+                                transposeB ? gemmK : gemmN},
+                       cDims = {groupSize, transposeC ? gemmO : gemmN,
+                                transposeC ? gemmN : gemmO},
+                       outDims = {groupSize, transposeO ? gemmO : gemmM,
+                                  transposeO ? gemmM : gemmO};
+
+  MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
+             bType = MemRefType::get(bDims, elemTypes[1]),
+             cType = MemRefType::get(cDims, elemTypes[2]),
+             outType = MemRefType::get(outDims, elemTypes[3]);
+  result.push_back(aType);
+  result.push_back(bType);
+  result.push_back(cType);
+  result.push_back(outType);
+}
+
+static void
+getGemmElentwiseGemmDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
+                             ArrayRef<Type> elementTypes) {
+  result.reserve(elementTypes.size());
+  constexpr StringLiteral gName = "g", m = "m", n = "n", k = "k",
+                          gemmO = "gemmO";
+  if (transposeA)
+    result.emplace_back(SmallVector<StringRef>{gName, k, m});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, m, k});
+  if (transposeB)
+    result.emplace_back(SmallVector<StringRef>{gName, n, k});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, k, n});
+  if (transposeC)
+    result.emplace_back(SmallVector<StringRef>{gName, gemmO, n});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, n, gemmO});
+  if (transposeO)
+    result.emplace_back(SmallVector<StringRef>{gName, gemmO, m});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, m, gemmO});
+}
+
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
                                Args &&...args) {
@@ -2359,8 +2425,9 @@ static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
   return op;
 }
 
-Value addTensorArgToBlock(OpBuilder &builder, Location loc,
-                          Block *preSoftmaxElemwiseBlock, Value funcArg) {
+static Value addTensorArgToBlock(OpBuilder &builder, Location loc,
+                                 Block *preSoftmaxElemwiseBlock,
+                                 Value funcArg) {
   ShapedType funcArgType = cast<ShapedType>(funcArg.getType());
   Value funcArgMemRef = preSoftmaxElemwiseBlock->addArgument(
       MemRefType::get(funcArgType.getShape(), funcArgType.getElementType()),
@@ -2696,6 +2763,87 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   return func;
 }
 
+static func::FuncOp createGpuGemmElentwiseGemmKernel(ModuleOp module,
+                                                     const GenParams &params) {
+  MLIRContext *ctx = module.getContext();
+  Location loc = module->getLoc();
+  OpBuilder builder(ctx);
+
+  // Set mhal.arch on module to make compilation pipeline work
+  StringAttr archAttr = builder.getStringAttr(params.arch);
+  if (!module->hasAttr("mhal.arch"))
+    module->setAttr("mhal.arch", archAttr);
+
+  SmallVector<Type, 5> argTypes;
+  getGemmElentwiseGemmTypes(argTypes, params.types);
+  SmallVector<Type, 5> flatArgTypes =
+      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+
+  SmallVector<NamedAttribute, 2> funcAttrs = {
+      builder.getNamedAttr("kernel", builder.getUnitAttr()),
+      builder.getNamedAttr("mhal.arch", archAttr)};
+
+  constexpr StringLiteral kernelName("rock_gemm_gemm");
+  auto func = builder.create<func::FuncOp>(
+      loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
+  if (reverse_grid) {
+    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
+                  builder.getUnitAttr());
+  }
+
+  Block *block = func.addEntryBlock();
+  builder.setInsertionPointToStart(block);
+
+  SmallVector<Value> unflattenedArgs;
+  SmallVector<SmallVector<StringRef>> allNames;
+  getGemmElentwiseGemmDimNames(allNames, params.types);
+  rock::expandFlatFunctionArguments(builder, func, allNames, argTypes,
+                                    unflattenedArgs);
+
+  Value a = unflattenedArgs[0];
+  Value b = unflattenedArgs[1];
+  Value c = unflattenedArgs[2];
+  Value output = unflattenedArgs[3];
+  SmallVector<Value> elemwiseInputs;
+
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  auto gemmElntGemm = builder.create<rock::GemmElementwiseGemmOp>(
+      loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
+      transposeC, transposeO, archAttr, params.features, numCUAttr,
+      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
+  {
+    Block *preSecondGemmBlock =
+        &gemmElntGemm.getPreSecondGemmBody().emplaceBlock();
+    PatternRewriter::InsertionGuard guard(builder);
+    builder.setInsertionPointToStart(preSecondGemmBlock);
+    ShapedType aType = cast<ShapedType>(a.getType());
+    ArrayRef<int64_t> aShape = aType.getShape();
+    Type abElemType = aType.getElementType();
+    MemRefType abMemRefType =
+        MemRefType::get({aShape[0], gemmM, gemmN}, abElemType);
+    Value abMemRef = preSecondGemmBlock->addArgument(abMemRefType, loc);
+    Value abTensor = rock::getAsTensor(builder, loc, abMemRef);
+    MemRefType resMemRefType =
+        MemRefType::get({aShape[0], gemmM, gemmN},
+                        cast<ShapedType>(abTensor.getType()).getElementType());
+    Value resMemref =
+        builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, abTensor);
+    Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
+    builder.create<memref::CopyOp>(loc, resMemref, outMemref);
+    builder.create<rock::YieldOp>(loc);
+  }
+
+  if (!params.perfConfig.empty())
+    gemmElntGemm->setAttr("perf_config",
+                          builder.getStringAttr(params.perfConfig));
+
+  builder.create<func::ReturnOp>(loc);
+  module.push_back(func);
+  return func;
+}
+
 static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
                                                 const GenParams &params) {
   MLIRContext *ctx = module.getContext();
@@ -2806,6 +2954,95 @@ static Type getAccType(Type inputType, OpBuilder builder) {
     llvm_unreachable("not expected type");
   }
   return accType;
+}
+
+static func::FuncOp
+createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
+                                           const GenParams &params) {
+  MLIRContext *ctx = module.getContext();
+  OpBuilder builder(ctx);
+  Location loc = module->getLoc();
+
+  SmallVector<Type, 5> argTypes;
+  getGemmElentwiseGemmTypes(argTypes, params.types);
+  SmallVector<Type, 5> flatArgTypes =
+      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+
+  constexpr llvm::StringLiteral cpuKernName("host_naive_gemm_gemm");
+  auto func = builder.create<func::FuncOp>(
+      loc, cpuKernName, builder.getFunctionType(flatArgTypes, {}));
+
+  Block *block = func.addEntryBlock();
+  builder.setInsertionPointToStart(block);
+
+  auto getTensorForBlockArg = [&builder, &loc, &block,
+                               &argTypes](unsigned blockArgIndex,
+                                          bool isWritable = false) {
+    constexpr bool isRestrict{true};
+    Value flatTensor = builder.create<bufferization::ToTensorOp>(
+        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+    ArrayRef<int64_t> origShape =
+        cast<ShapedType>(argTypes[blockArgIndex]).getShape();
+
+    Value reshapedTensor;
+    ImplicitLocOpBuilder implicitBuilder(loc, builder);
+    if (origShape.size() == 2) {
+      SmallVector<int64_t, 3> expShape(origShape.size() + 1, 0);
+      expShape[0] = 1;
+      llvm::copy(origShape, expShape.begin() + 1);
+      auto shapeValue = tosa::getTosaConstShape(implicitBuilder, expShape);
+      reshapedTensor =
+          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+    } else {
+      auto shapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
+      reshapedTensor =
+          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+    }
+    return reshapedTensor;
+  };
+
+  auto aTensor = getTensorForBlockArg(0);
+  if (transposeA) {
+    aTensor = transposeMatrix(builder, loc, aTensor, {0, 2, 1});
+  }
+  auto bTensor = getTensorForBlockArg(1);
+  if (transposeB) {
+    bTensor = transposeMatrix(builder, loc, bTensor, {0, 2, 1});
+  }
+  auto cTensor = getTensorForBlockArg(2);
+  if (transposeC) {
+    cTensor = transposeMatrix(builder, loc, cTensor, {0, 2, 1});
+  }
+
+  Type firstGemmOutElemType = params.types[2];
+  Value abTensor = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstGemmOutElemType, aTensor, bTensor);
+
+  Type secondGemmOutElemType = params.types[3];
+  Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondGemmOutElemType, abTensor, cTensor);
+
+  if (transposeO) {
+    resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
+  }
+
+  Value output = block->getArguments().back();
+  auto outputType = cast<MemRefType>(output.getType());
+
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto shapeValue =
+      tosa::getTosaConstShape(implicitBuilder, outputType.getShape());
+  auto flatResultTensor =
+      builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
+
+  auto flatResultMemref = builder.create<bufferization::ToMemrefOp>(
+      loc, outputType, flatResultTensor);
+
+  builder.create<memref::CopyOp>(loc, flatResultMemref, output);
+
+  builder.create<func::ReturnOp>(loc);
+  module.push_back(func);
+  return func;
 }
 
 static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
@@ -2992,9 +3229,6 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
       builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
       expsTensor, invExpsSums, /*shift=*/constZero);
-#ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
-  softmaxTensor = qkTensor;
-#endif
   auto resultOutElementType =
       cast<ShapedType>(softmaxTensor.getType()).getElementType();
   auto softmaxZp =
@@ -3498,6 +3732,15 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       auto cpuAttentionFunc =
           createCpuAttentionKernelWithMlir(module, genParams);
       b.create<func::CallOp>(loc, cpuAttentionFunc, valVars);
+    } else if (genParams.operation == rock::KernelType::GemmElementwiseGemm) {
+      if (validationType == "cpp") {
+        llvm::errs()
+            << "External gemm elementwise gemm validator is not available\n";
+        exit(1);
+      }
+      auto cpuGemmElementwiseGemmFunc =
+          createCpuGemmElementwiseGemmKernelWithMlir(module, genParams);
+      b.create<func::CallOp>(loc, cpuGemmElementwiseGemmFunc, valVars);
     } else {
       llvm::errs()
           << "Validation generation requested, but no operation specified\n";
@@ -3601,6 +3844,9 @@ static LogicalResult populateHostHarnessLogic(
       break;
     case rock::KernelType::ConvBwdWeight:
       outIndices.push_back(0);
+      break;
+    case rock::KernelType::GemmElementwiseGemm:
+      outIndices.push_back(3);
       break;
     case rock::KernelType::Attention:
       isAttention = true;
@@ -3845,11 +4091,14 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
 
   const bool isGemm = operation == rock::KernelType::Gemm;
   const bool isAttention = operation == rock::KernelType::Attention;
-  const bool isConv = !(isGemm || isAttention);
+  const bool isGemmElntwiseGemm =
+      operation == rock::KernelType::GemmElementwiseGemm;
+  const bool isConv = !(isGemm || isAttention || isGemmElntwiseGemm);
   auto convConfigStr = populateConvConfig.getValue();
 
   if (!convConfigStr.empty() && !isConv) {
-    llvm::errs() << "Cannot use --conv-config with gemm/attention operations\n";
+    llvm::errs() << "Cannot use --conv-config with gemm/attention/gemm+gemm "
+                    "operations\n";
     exit(1);
   }
 
@@ -3950,6 +4199,16 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
         genParams.types.push_back(typeFromString(arg, context));
       genParams.convConfig = std::nullopt;
       (void)createGpuGemmKernel(module, genParams);
+    } else if (isGemmElntwiseGemm) {
+      constexpr size_t numArgs{4};
+      // Note: In the current implementation, all operands have the same type.
+      // This behaviour enforced by `-t`. See, detectMissingArguments()
+      auto elemType = typeFromString(inputDataType.getValue(), context);
+      for (size_t argIdx{0}; argIdx < numArgs; ++argIdx) {
+        genParams.types.push_back(elemType);
+      }
+      genParams.convConfig = std::nullopt;
+      (void)createGpuGemmElentwiseGemmKernel(module, genParams);
     } else if (isAttention) {
       auto elemType = typeFromString(inputDataType.getValue(), context);
       // We only support first-gemm i8 version of attention

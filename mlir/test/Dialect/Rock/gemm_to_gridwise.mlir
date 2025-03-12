@@ -267,3 +267,45 @@ func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x
   }
   return
 }
+
+// CHECK-LABEL: func.func @rock_gemmelementwisegemm_simple
+// CHECK-SAME: (%[[a:.*]]: memref<1x64x1024xf32>, %[[b:.*]]: memref<1x64x1024xf32>, %[[c:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x1024x64xf32>)
+func.func @rock_gemmelementwisegemm_simple(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
+  // CHECK: rock.gridwise_attention_accel(%[[a]], %[[b]], %[[c]], %[[o]])
+  // CHECK-NEXT: enableSoftmax = false
+  rock.gemm_elementwise_gemm{
+     ab = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x1024xf32>
+     %arg3 = ab * %arg2 : memref<1x1024x64xf32> -> memref<1x1024x64xf32>
+  } {
+    arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", 
+    features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>,
+    params0 = #xldops_attn_params_g0,
+    params1 = #xldops_attn_params_g1,
+    firstGemmIdx = 0 : i32
+  }
+  return
+}
+
+// CHECK-LABEL: func.func @rock_gemmelementwisegemm_tr_padded
+// CHECK-SAME: (%[[a:.*]]: memref<1x49x7xf32>, %[[b:.*]]: memref<1x7x49xf32>, %[[c:.*]]: memref<1x49x7xf32>, %[[o:.*]]: memref<1x49x7xf32>)
+func.func @rock_gemmelementwisegemm_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7x49xf32>, %arg2: memref<1x49x7xf32>, %arg3: memref<1x49x7xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 2 : i32} {
+  // CHECK-DAG: %[[trA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x49x7xf32> to memref<1x7x49xf32>
+  // CHECK-DAG: %[[paddedTrA:.*]] = rock.transform %[[trA]] by {{.*}} : memref<1x7x49xf32> to memref<1x8x64xf32>
+  // CHECK-DAG: %[[paddedB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x7x49xf32> to memref<1x8x64xf32>
+  // CHECK-DAG: %[[paddedC:.*]] = rock.transform %[[c]] by {{.*}} : memref<1x49x7xf32> to memref<1x64x32xf32>
+  // CHECK-DAG: %[[paddedO:.*]] = rock.transform %[[o]] by {{.*}} : memref<1x49x7xf32> to memref<1x64x32xf32>
+  // CHECK: rock.gridwise_attention_accel(%[[paddedTrA]], %[[paddedB]], %[[paddedC]], %[[paddedO]])
+  // CHECK-NEXT: enableSoftmax = false
+  // CHECK-SAME: prePadG0M = 49 : index, prePadG0N = 49 : index
+  rock.gemm_elementwise_gemm{
+    ab = %arg0 * %arg1 : memref<1x49x7xf32>, memref<1x7x49xf32>
+    %arg3 = ab * %arg2 : memref<1x49x7xf32> -> memref<1x49x7xf32>
+  } {
+    arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", 
+    features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>,
+    params0 = #xldops_attn_params_g0,
+    params1 = #xldops_attn_params_g1,
+    firstGemmIdx = 0 : i32
+  }
+  return
+}

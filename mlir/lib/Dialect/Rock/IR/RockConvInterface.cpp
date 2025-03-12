@@ -1,4 +1,4 @@
-//===- RockGemmWrapperInterface.cpp - ops that wrap rock.gemm -------===//
+//===- RockConvInterface.cpp - ops that wrap rock.gemm -------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.

@@ -11,6 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -28,8 +31,8 @@ namespace mlir {
 namespace rock {
 
 // The full space is a brute-force search for attention kernels
-static void createAttnTuningRangeBF(TuningParamSet *newSpace,
-                                    AttentionOp attnOp,
+template <typename Op>
+static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
                                     TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
       /*gemm0MPerBlock=*/{32, 64, 128, 256},
@@ -47,7 +50,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       /*mPerWave=*/{32, 64},
       /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
-  GemmFeatures features = attnOp.getFeatures();
+  GemmFeatures features = attnOp.getGemmFeatures();
   int64_t numEUPerCU = rock::lookupArchInfo(attnOp.getArch()).numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
   bool isWMMA = false;
@@ -401,12 +404,11 @@ static void createQuickTuningRange(TuningParamSet *newSpace,
 
 // This is temporary workaround to make MIGraphX integration
 // work until the tuning is setup for attention ops properly.
-static void createAttnTuningRangeQuick(TuningParamSet *newSpace,
-                                       AttentionOp attnOp) {
+template <typename Op>
+static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
+                                       Type elemType) {
   OpBuilder b(attnOp.getContext());
-  GemmFeatures currentFeatures = attnOp.getFeatures();
-  Type elemType =
-      cast<ShapedType>(attnOp.getQueries().getType()).getElementType();
+  GemmFeatures currentFeatures = attnOp.getGemmFeatures();
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   using PerfConfigVals =
       std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>;
@@ -482,20 +484,22 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
       });
-  WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    switch (kind) {
-    case TuningParamSetKind::Full:
-    case TuningParamSetKind::Exhaustive:
-      createAttnTuningRangeBF(newSpace, op, kind);
-      break;
-    case TuningParamSetKind::Quick:
-      createAttnTuningRangeQuick(newSpace, op);
-    }
-    return WalkResult::interrupt();
-  });
-  if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {
-    llvm::report_fatal_error(
-        "Expected to find GEMM, convolution, or attention op, and didn't.");
+  WalkResult findGemmGemm =
+      mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+        Type elemType = cast<ShapedType>(op.getAType()).getElementType();
+        switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createAttnTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Quick:
+          createAttnTuningRangeQuick(newSpace, op, elemType);
+        }
+        return WalkResult::interrupt();
+      });
+  if (!findPrimary.wasInterrupted() && !findGemmGemm.wasInterrupted()) {
+    llvm::report_fatal_error("Expected to find GEMM, convolution, attention or "
+                             "gemm+gemm op, and didn't.");
   }
   return newSpace;
 }
@@ -519,15 +523,16 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  WalkResult setAttn = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    auto *ctx = op.getContext();
-    SmallString<64> perfConfig;
-    paramEntry->param.getPerfConfigStr(perfConfig);
-    StringAttr attr = StringAttr::get(ctx, perfConfig);
-    op->setAttr("perf_config", attr);
-    return WalkResult::interrupt();
-  });
-  return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
+  WalkResult setGemmGemm =
+      mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+        auto *ctx = op.getContext();
+        SmallString<64> perfConfig;
+        paramEntry->param.getPerfConfigStr(perfConfig);
+        StringAttr attr = StringAttr::get(ctx, perfConfig);
+        op->setAttr("perf_config", attr);
+        return WalkResult::interrupt();
+      });
+  return setPrimary.wasInterrupted() || setGemmGemm.wasInterrupted();
 }
 
 bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
@@ -538,13 +543,14 @@ bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  WalkResult setAttn = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    auto *ctx = op.getContext();
-    StringAttr attr = StringAttr::get(ctx, perfConfig);
-    op->setAttr("perf_config", attr);
-    return WalkResult::interrupt();
-  });
-  return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
+  WalkResult setGemmGemm =
+      mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+        auto *ctx = op.getContext();
+        StringAttr attr = StringAttr::get(ctx, perfConfig);
+        op->setAttr("perf_config", attr);
+        return WalkResult::interrupt();
+      });
+  return setPrimary.wasInterrupted() || setGemmGemm.wasInterrupted();
 }
 
 TuningTable *tuningTableCreate() {
@@ -552,11 +558,12 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
-                                         SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
-  if (attnOp.getNumCU().has_value()) {
-    numCU = attnOp.getNumCU().value();
+static LogicalResult
+getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
+                    SmallVectorImpl<char> &out) {
+  int32_t numCU = rock::lookupArchInfo(gemmGemmOp.getArch()).minNumCU;
+  if (gemmGemmOp.getNumCU().has_value()) {
+    numCU = gemmGemmOp.getNumCU().value();
   }
   constexpr char sep = ' ';
   constexpr char tab = '\t';
@@ -566,35 +573,37 @@ static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   int64_t seqLenK;
   llvm::raw_svector_ostream problemOS(out);
   // ARCH string
-  problemOS << attnOp.getArch() << tab;
+  problemOS << gemmGemmOp.getArch() << tab;
   // Num of Compute Units
   problemOS << numCU << tab;
 
-  TypedValue<ShapedType> queries = attnOp.getQueries();
-  TypedValue<ShapedType> keys = attnOp.getKeys();
-  TypedValue<ShapedType> values = attnOp.getValues();
-  ArrayRef<int64_t> qShape = queries.getType().getShape();
-  ArrayRef<int64_t> kShape = keys.getType().getShape();
-  ArrayRef<int64_t> vShape = values.getType().getShape();
+  ArrayRef<int64_t> qShape = cast<MemRefType>(gemmGemmOp.getAType()).getShape();
+  ArrayRef<int64_t> kShape = cast<MemRefType>(gemmGemmOp.getBType()).getShape();
+  ArrayRef<int64_t> vShape = cast<MemRefType>(gemmGemmOp.getCType()).getShape();
   int64_t g = qShape[0];
 
-  Type elemTypeQ = queries.getType().getElementType();
+  bool isAttention = isa<AttentionOp>(gemmGemmOp);
+
+  Type elemTypeQ = cast<MemRefType>(gemmGemmOp.getAType()).getElementType();
   problemOS << "-t ";
   if (elemTypeQ.isF32()) {
     problemOS << "f32" << sep;
-  } else if (elemTypeQ.isF16()) {
+  } else if (elemTypeQ.isF16() && isAttention) {
     problemOS << "f16" << sep;
-  } else if (elemTypeQ.isBF16()) {
+  } else if (elemTypeQ.isBF16() && isAttention) {
     problemOS << "bf16" << sep;
-  } else if (elemTypeQ.isInteger(8)) {
+  } else if (elemTypeQ.isInteger(8) && isAttention) {
     problemOS << "i8" << sep;
   } else {
-    return attnOp.emitError("invalid type:") << elemTypeQ << "\n";
+    return gemmGemmOp.emitError("invalid type:") << elemTypeQ << "\n";
   }
 
   // TransQ
-  problemOS << "-transQ ";
-  if (attnOp.getQTransposed()) {
+  if (isAttention)
+    problemOS << "-transQ ";
+  else
+    problemOS << "-transA ";
+  if (gemmGemmOp.getTransposedA()) {
     seqLenQ = qShape[2];
     headDimQK = qShape[1];
     problemOS << "true" << sep;
@@ -605,8 +614,11 @@ static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   }
 
   // TransK
-  problemOS << "-transK ";
-  if (attnOp.getKTransposed()) {
+  if (isAttention)
+    problemOS << "-transK ";
+  else
+    problemOS << "-transB ";
+  if (gemmGemmOp.getTransposedB()) {
     seqLenK = kShape[1];
     problemOS << "true" << sep;
   } else {
@@ -615,8 +627,11 @@ static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   }
 
   // TransV
-  problemOS << "-transV ";
-  if (attnOp.getVTransposed()) {
+  if (isAttention)
+    problemOS << "-transV ";
+  else
+    problemOS << "-transC ";
+  if (gemmGemmOp.getTransposedC()) {
     headDimV = vShape[1];
     problemOS << "true" << sep;
   } else {
@@ -626,16 +641,23 @@ static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
 
   // TransO
   problemOS << "-transO ";
-  if (attnOp.getOTransposed())
+  if (gemmGemmOp.getTransposedOut())
     problemOS << "true" << sep;
   else
     problemOS << "false" << sep;
 
   problemOS << "-g " << g << sep;
-  problemOS << "-seq_len_q " << seqLenQ << sep;
-  problemOS << "-seq_len_k " << seqLenK << sep;
-  problemOS << "-head_dim_qk " << headDimQK << sep;
-  problemOS << "-head_dim_v " << headDimV;
+  if (isAttention) {
+    problemOS << "-seq_len_q " << seqLenQ << sep;
+    problemOS << "-seq_len_k " << seqLenK << sep;
+    problemOS << "-head_dim_qk " << headDimQK << sep;
+    problemOS << "-head_dim_v " << headDimV;
+  } else {
+    problemOS << "-m " << seqLenQ << sep;
+    problemOS << "-n " << seqLenK << sep;
+    problemOS << "-k " << headDimQK << sep;
+    problemOS << "-gemmO " << headDimV;
+  }
   return success();
 }
 
@@ -896,14 +918,14 @@ LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out) {
       return getTuningProblemStr(gemmIF, out);
   }
   {
-    rock::AttentionOp attnOp;
-    WalkResult findAttention =
-        mod->walk([&](rock::AttentionOp op) -> WalkResult {
-          attnOp = op;
+    rock::RockGemmGemmWrapperInterface gemmGemmOp;
+    WalkResult findGemmGemm =
+        mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+          gemmGemmOp = op;
           return WalkResult::interrupt();
         });
-    if (findAttention.wasInterrupted())
-      return getTuningProblemStr(attnOp, out);
+    if (findGemmGemm.wasInterrupted())
+      return getTuningProblemStr(gemmGemmOp, out);
   }
   return failure();
 }

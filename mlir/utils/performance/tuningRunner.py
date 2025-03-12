@@ -19,6 +19,7 @@ from perfRunner import PerfConfiguration
 from perfRunner import ConvConfiguration
 from perfRunner import GemmConfiguration
 from perfRunner import AttentionConfiguration
+from perfRunner import GemmGemmConfiguration
 from perfRunner import Paths
 from perfRunner import getChip
 from perfCommonUtils import CORRECT_RESULT_RE
@@ -256,7 +257,7 @@ def main(args=None):
         allow_abbrev=False,
     )
 
-    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention'],
+    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm'],
         default='conv',
         help="Operation for tuning")
 
@@ -381,6 +382,8 @@ def main(args=None):
         confClass = GemmConfiguration
     elif opType == Operation.ATTENTION:
         confClass = AttentionConfiguration
+    elif opType == Operation.GEMM_GEMM:
+        confClass = GemmGemmConfiguration
     else:
         raise RuntimeError("Tuning operation was not provided/found")
 
@@ -393,6 +396,8 @@ def main(args=None):
         configs = perfRunner.getGemmConfigurations(paths.configuration_file_path, datatypes, outputMap)
     elif opType == Operation.ATTENTION:
         configs = perfRunner.getAttentionConfigurations(paths.configuration_file_path)
+    elif opType == Operation.GEMM_GEMM:
+        configs = perfRunner.getGemmGemmConfigurations(paths.configuration_file_path)
 
     winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 
