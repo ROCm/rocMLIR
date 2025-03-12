@@ -1045,7 +1045,7 @@ pipeline {
                                 timeout(time: 240, activity: true, unit: 'MINUTES') {
                                     withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
                                         // Verify all Unit tests pass with MLIR
-                                        sh 'make -j$(nproc) check'
+                                        sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
                                         // Verify ResNet50, Bert, Gpt2
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
