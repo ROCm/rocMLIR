@@ -2612,3 +2612,59 @@ mlir::rock::getStringRefsFor(ArrayRef<SmallString<8>> strings) {
   }
   return nameRefs;
 }
+
+FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
+  FailureOr<memref::AllocOp> maybeAlloc = findMemrefAlloc(transformed);
+  if (failed(maybeAlloc))
+    return failure();
+  auto memref = maybeAlloc.value().getMemref();
+
+  // find input fusion
+  Value newTransformed = nullptr;
+  for (Operation *user : memref.getUsers()) {
+    Value candidate = nullptr;
+    if (auto genericOp = dyn_cast<linalg::GenericOp>(user)) {
+      if (genericOp.getOutputs().size() != 1) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Can't process linalg.generic with multiple outputs\n");
+        return failure();
+      }
+      Value genericOut = genericOp.getOutputs().front();
+      if (genericOut == memref) {
+        if (auto index = genericOp->getAttrOfType<IntegerAttr>(
+                "rock.majorTensorNumber")) {
+          candidate = genericOp.getInputs()[index.getInt()];
+        } else {
+          LLVM_DEBUG(llvm::dbgs() << "can't analyze linalg.generic "
+                                     "without rock.majorTensorNumber\n");
+          return failure();
+        }
+      } else {
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << "Found a linalg.generic that takes as input the gemm A or B\n");
+        return failure();
+      }
+    } else {
+      continue;
+    }
+
+    if (newTransformed) {
+      LLVM_DEBUG(llvm::dbgs() << "Found multiple linalg.generic that "
+                                 "could be the next one\n");
+      return failure();
+    }
+    newTransformed = candidate;
+  }
+  newTransformed = newTransformed ? newTransformed : memref;
+
+  auto blockArg = findBlockArgument(newTransformed);
+  if (failed(blockArg))
+    return failure();
+
+  auto shapedTy = dyn_cast<ShapedType>(blockArg.value().getType());
+  if (!shapedTy)
+    return failure();
+
+  return shapedTy.getElementType();
+}

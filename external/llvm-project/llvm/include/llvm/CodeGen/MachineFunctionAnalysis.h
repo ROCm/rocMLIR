@@ -41,7 +41,7 @@ public:
                     FunctionAnalysisManager::Invalidator &);
   };
 
-  MachineFunctionAnalysis(const TargetMachine *TM) : TM(TM){};
+  MachineFunctionAnalysis(const TargetMachine *TM) : TM(TM) {};
   Result run(Function &F, FunctionAnalysisManager &FAM);
 };
 

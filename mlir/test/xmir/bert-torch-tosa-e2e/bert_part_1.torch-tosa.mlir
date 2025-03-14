@@ -3,10 +3,12 @@
 // CHECK: [1 1 1]
 module {
   func.func @bert_part_1(%arg0: tensor<1x12x384xf32> {mhal.read_access}, %arg1: tensor<384x384xf32> {mhal.read_access}, %arg2: tensor<1x1x384xf32> {mhal.read_access}) -> (tensor<1x12x12x32xf32> {mhal.write_access}) {
-      %0 = "tosa.reshape"(%arg1) {new_shape = array<i64: 1, 384, 384>} : (tensor<384x384xf32>) -> tensor<1x384x384xf32>
+      %const_shape = "tosa.const_shape"() { value = dense<[1, 384, 384]> : tensor<3xindex> } : () -> !tosa.shape<3>
+      %0 = "tosa.reshape"(%arg1, %const_shape) : (tensor<384x384xf32>, !tosa.shape<3>) -> tensor<1x384x384xf32>
       %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x12x384xf32>, tensor<1x384x384xf32>) -> tensor<1x12x384xf32>
       %2 = "tosa.add"(%1, %arg2) : (tensor<1x12x384xf32>, tensor<1x1x384xf32>) -> tensor<1x12x384xf32>
-      %3 = "tosa.reshape"(%2) {new_shape = array<i64: 1, 12, 12, 32>} : (tensor<1x12x384xf32>) -> tensor<1x12x12x32xf32>
+      %const_shape2 = "tosa.const_shape"() { value = dense<[1, 12, 12, 32]> : tensor<4xindex> } : () -> !tosa.shape<4>
+      %3 = "tosa.reshape"(%2, %const_shape2) : (tensor<1x12x384xf32>, !tosa.shape<4>) -> tensor<1x12x12x32xf32>
       return %3 : tensor<1x12x12x32xf32>
     }
 }

@@ -335,7 +335,7 @@ void ConvertMHALToGPUPass::runOnOperation() {
     RewritePatternSet patterns(ctx);
     patterns.add<LaunchRewritePattern>(ctx);
 
-    if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
+    if (failed(applyPatternsGreedily(op, std::move(patterns))))
       signalPassFailure();
   }
 
@@ -344,7 +344,7 @@ void ConvertMHALToGPUPass::runOnOperation() {
     RewritePatternSet patterns(ctx);
     patterns.add<AwaitRewritePattern>(ctx);
 
-    if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
+    if (failed(applyPatternsGreedily(op, std::move(patterns))))
       signalPassFailure();
   }
 

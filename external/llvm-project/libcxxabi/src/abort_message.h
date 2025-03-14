@@ -11,8 +11,8 @@
 
 #include "cxxabi.h"
 
-extern "C" _LIBCXXABI_HIDDEN _LIBCXXABI_NORETURN void __abort_message(const char* format, ...)
-    __attribute__((format(printf, 1, 2)));
+extern "C" _LIBCXXABI_HIDDEN _LIBCXXABI_NORETURN void
+__abort_message(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 #ifndef _LIBCXXABI_ASSERT
 #  define _LIBCXXABI_ASSERT(expr, msg)                                                                                 \

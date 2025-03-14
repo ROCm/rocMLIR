@@ -3,7 +3,8 @@
 module  {
   // CHECK-LABEL: func @literal_zero
   // CHECK: %[[const:.+]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x3x7x7xf16>}> : () -> tensor<64x3x7x7xf16>
-  // CHECK-NEXT: %[[reshape:.+]] = tosa.reshape %[[const]] {new_shape = array<i64: 9408>} : (tensor<64x3x7x7xf16>) -> tensor<9408xf16>
+  // CHECK: %[[constshape:.+]] = tosa.const_shape  {value = dense<9408> : tensor<1xindex>} : () -> !tosa.shape<1>
+  // CHECK-NEXT: %[[reshape:.+]] = tosa.reshape %[[const]], %[[constshape]] : (tensor<64x3x7x7xf16>, !tosa.shape<1>) -> tensor<9408xf16>
   // CHECK-NEXT: return %[[reshape]] : tensor<9408xf16>
   func.func @literal_zero() -> !migraphx.shaped<64x3x7x7xf16, 147x49x7x1> {
     %0 = migraphx.literal (dense<0.0> : tensor<64x1xf16>) : <64x3x7x7xf16, 147x49x7x1>
@@ -22,16 +23,16 @@ module  {
   // CHECK-NOT: tosa.sub
   // CHECK: tosa.cast
   // CHECK: tosa.mul
-  func.func @dequantize_scale(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  func.func @dequantize_scale(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
   // CHECK-LABEL: func @dequantize_f32_scale
   // CHECK-NOT: tosa.sub
   // CHECK: tosa.mul
-  func.func @dequantize_f32_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, !migraphx.shaped<64xf32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  func.func @dequantize_f32_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
@@ -39,8 +40,8 @@ module  {
   // CHECK-NOT: tosa.sub
   // CHECK: tosa.cast{{.*}}f16
   // CHECK: tosa.mul
-  func.func @dequantize_scale_f16(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf16, 1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 =  migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, <64xf16, 1> -> <1x112x112x64xf16, 802816x7168x64x1>
+  func.func @dequantize_scale_f16(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 =  migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
   }
 
@@ -49,8 +50,8 @@ module  {
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.sub
   // CHECK: tosa.mul
-  func.func @dequantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  func.func @dequantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
@@ -59,8 +60,8 @@ module  {
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.sub{{.*}}f32
   // CHECK: tosa.mul
-  func.func @dequantize_wide_bias(%arg: !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi8, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  func.func @dequantize_wide_bias(%arg: !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi8, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
@@ -69,8 +70,8 @@ module  {
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.sub{{.*}}f32
   // CHECK: tosa.mul
-  func.func @dequantize_wide_input(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi8, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  func.func @dequantize_wide_input(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi8, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
@@ -78,8 +79,8 @@ module  {
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.sub{{.*}}f32
   // CHECK: tosa.mul
-  func.func @dequantize_wide_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xf32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  func.func @dequantize_wide_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
@@ -87,8 +88,8 @@ module  {
   // CHECK: tosa.cast{{.*}}f32
   // CHECK: tosa.sub{{.*}}f32
   // CHECK: tosa.mul
-  func.func @dequantize_wide_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FN, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xf32, 1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  func.func @dequantize_wide_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FN, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
   }
 
@@ -97,8 +98,8 @@ module  {
   // CHECK: tosa.mul
   // CHECK: tosa.cast{{.*}}i8
   // CHECK-NOT: tosa.add
-  func.func @quantize_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1> -> <1x112x112x64xi8, 802816x7168x64x1>
+  func.func @quantize_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xi8, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
@@ -107,8 +108,8 @@ module  {
   // CHECK: tosa.mul
   // CHECK: tosa.cast{{.*}}f8E4M3FNUZ
   // CHECK-NOT: tosa.add
-  func.func @quantize_scale_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1> -> <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
+  func.func @quantize_scale_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
   }
 
@@ -117,8 +118,8 @@ module  {
   // CHECK: tosa.mul
   // CHECK: tosa.cast{{.*}}f8E4M3FN
   // CHECK-NOT: tosa.add
-  func.func @quantize_scale_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1> -> <1x112x112x64xf8E4M3FN, 802816x7168x64x1>
+  func.func @quantize_scale_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf8E4M3FN, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>
   }
 
@@ -129,11 +130,11 @@ module  {
   // CHECK: tosa.cast{{.*}}i8{{.*}}i32
   // CHECK: tosa.add
   // CHECK: tosa.clamp
-  // CHECK-SAME: max_int = 127
-  // CHECK-SAME: min_int = -128
+  // CHECK-SAME: max_val = 127
+  // CHECK-SAME: min_val = -128
   // CHECK: tosa.cast{{.*}}i8
-  func.func @quantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xi8, 1> -> <1x112x112x64xi8, 802816x7168x64x1>
+  func.func @quantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi8, 64x64x64x1> -> <1x112x112x64xi8, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
@@ -143,11 +144,11 @@ module  {
   // CHECK: tosa.cast{{.*}}f8E4M3FNUZ{{.*}}f32
   // CHECK: tosa.add
   // CHECK: tosa.clamp
-  // CHECK-SAME: max_fp = 2.400000e+02
-  // CHECK-SAME: min_fp = -2.400000e+02
+  // CHECK-SAME: max_val = 2.400000e+02
+  // CHECK-SAME: min_val = -2.400000e+02
   // CHECK: tosa.cast{{.*}}f8E4M3FNUZ
-  func.func @quantize_scale_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xf8E4M3FNUZ, 1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xf8E4M3FNUZ, 1> -> <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
+  func.func @quantize_scale_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf8E4M3FNUZ, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf8E4M3FNUZ, 64x64x64x1> -> <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>
   }
 
@@ -157,11 +158,11 @@ module  {
   // CHECK: tosa.cast{{.*}}f8E4M3FN{{.*}}f32
   // CHECK: tosa.add
   // CHECK: tosa.clamp
-  // CHECK-SAME: max_fp = 4.480000e+02
-  // CHECK-SAME: min_fp = -4.480000e+02
+  // CHECK-SAME: max_val = 4.480000e+02
+  // CHECK-SAME: min_val = -4.480000e+02
   // CHECK: tosa.cast{{.*}}f8E4M3FN
-  func.func @quantize_scale_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf32, 1>, %bias: !migraphx.shaped<64xf8E4M3FN, 1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <64xf32, 1>, !migraphx.shaped<64xf8E4M3FN, 1> -> <1x112x112x64xf8E4M3FN, 802816x7168x64x1>
+  func.func @quantize_scale_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf8E4M3FN, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf8E4M3FN, 64x64x64x1> -> <1x112x112x64xf8E4M3FN, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>
   }
 
@@ -173,8 +174,8 @@ module  {
   // CHECK: tosa.add
   // CHECK: tosa.clamp
   // CHECK: tosa.cast
-  func.func @quantize_scale_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf16, 1>, %bias: !migraphx.shaped<64xi8, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf16, 802816x7168x64x1>, <64xf16, 1>, !migraphx.shaped<64xi8, 1> -> <1x112x112x64xi8, 802816x7168x64x1>
+  func.func @quantize_scale_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf16, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi8, 64x64x64x1> -> <1x112x112x64xi8, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
@@ -185,8 +186,8 @@ module  {
   // CHECK: tosa.add
   // CHECK: tosa.clamp
   // CHECK: tosa.cast
-  func.func @quantize_scale_i32_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<64xf16, 1>, %bias: !migraphx.shaped<64xi32, 1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf16, 802816x7168x64x1>, <64xf16, 1>, !migraphx.shaped<64xi32, 1> -> <1x112x112x64xi8, 802816x7168x64x1>
+  func.func @quantize_scale_i32_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf16, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xi8, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
@@ -255,17 +256,21 @@ module  {
 
   // CHECK-LABEL: func.func @matmul_broadcast_op
   func.func @matmul_broadcast_op(%arg0: !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, %arg1: !migraphx.shaped<64x64x768xf16, 49152x768x1>, %arg2: !migraphx.shaped<1x768x2304xf16, 1769472x2304x1>) -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2 {new_shape = array<i64: 1, 768, 2304>}
-    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1 {new_shape = array<i64: 64, 64, 768>}
-    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0 {new_shape = array<i64: 64, 64, 2304>}
-    // CHECK-DAG: %[[INPUT:.*]] = tosa.reshape %[[ARG2]] {new_shape = array<i64: 1, 768, 2304>}
+    // CHECK-DAG: %[[constshape:.+]] = tosa.const_shape  {value = dense<[1, 768, 2304]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2, %[[constshape]]
+    // CHECK-DAG: %[[constshape2:.+]] = tosa.const_shape  {value = dense<[64, 64, 768]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1, %[[constshape2]]
+    // CHECK-DAG: %[[constshape3:.+]] = tosa.const_shape  {value = dense<[64, 64, 2304]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape3]]
+    // CHECK-DAG: %[[INPUT:.*]] = tosa.reshape %[[ARG2]], %[[constshape]]
     %0 = migraphx.broadcast %arg2 {axis = 0, out_lens = [64, 768, 2304]} : <1x768x2304xf16, 1769472x2304x1> -> <64x768x2304xf16, 0x2304x1>
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
     // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[INPUT]]
     %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[ADD]]
     // CHECK-DAG: %[[BIASED:.*]] = tosa.add %[[MATMUL]], %[[ARG0]]
-    // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[BIASED]] {new_shape = array<i64: 9437184>}
+    // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {value = dense<9437184> : tensor<1xindex>} : () -> !tosa.shape<1>
+    // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[BIASED]], %[[constshape5]]
     // CHECK: return %[[RET]]
     %2 = migraphx.add %1, %arg0 : <64x64x2304xf16, 147456x2304x1>, <64x64x2304xf16, 147456x2304x1> -> <64x64x2304xf16, 147456x2304x1>
     return %2 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
@@ -273,16 +278,20 @@ module  {
 
   // CHECK-LABEL: func.func @matmul_broadcast
   func.func @matmul_broadcast(%arg0: !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, %arg1: !migraphx.shaped<64x64x768xf16, 49152x768x1>, %arg2: !migraphx.shaped<1x768x2304xf16, 1769472x2304x1>) -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2 {new_shape = array<i64: 1, 768, 2304>}
-    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1 {new_shape = array<i64: 64, 64, 768>}
-    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0 {new_shape = array<i64: 64, 64, 2304>}
+    // CHECK-DAG: %[[constshape:.+]] = tosa.const_shape  {value = dense<[1, 768, 2304]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2, %[[constshape]]
+    // CHECK-DAG: %[[constshape2:.+]] = tosa.const_shape  {value = dense<[64, 64, 768]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1, %[[constshape2]]
+    // CHECK-DAG: %[[constshape3:.+]] = tosa.const_shape  {value = dense<[64, 64, 2304]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape3]]
     %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 768, 2304]} : <1x768x2304xf16, 1769472x2304x1> -> <64x768x2304xf16, 0x2304x1>
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
     // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[ARG2]]
     %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[ADD]]
     // CHECK-DAG: %[[BIASED:.*]] = tosa.add %[[MATMUL]], %[[ARG0]]
-    // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[BIASED]] {new_shape = array<i64: 9437184>}
+    // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {value = dense<9437184> : tensor<1xindex>} : () -> !tosa.shape<1>
+    // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[BIASED]], %[[constshape5]]
     // CHECK: return %[[RET]]
     %2 = migraphx.add %1, %arg0 : <64x64x2304xf16, 147456x2304x1>, <64x64x2304xf16, 147456x2304x1> -> <64x64x2304xf16, 147456x2304x1>
     return %2 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
@@ -290,17 +299,22 @@ module  {
 
   // CHECK-LABEL: func.func @matmul_broadcast_R5
   func.func @matmul_broadcast_R5(%arg0: !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>, %arg1: !migraphx.shaped<2x4x8x64x768xf16, 1572864x393216x49152x768x1>, %arg2: !migraphx.shaped<1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1>) -> !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2 {new_shape = array<i64: 1, 1, 1, 768, 2304>}
-    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1 {new_shape = array<i64: 2, 4, 8, 64, 768>}
-    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0 {new_shape = array<i64: 2, 4, 8, 64, 2304>}
+    // CHECK-DAG: %[[constshape:.+]] = tosa.const_shape  {value = dense<[1, 1, 1, 768, 2304]> : tensor<5xindex>} : () -> !tosa.shape<5>
+    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2, %[[constshape]]
+    // CHECK-DAG: %[[constshape2:.+]] = tosa.const_shape  {value = dense<[2, 4, 8, 64, 768]> : tensor<5xindex>} : () -> !tosa.shape<5>
+    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1, %[[constshape2]]
+    // CHECK-DAG: %[[constshape3:.+]] = tosa.const_shape  {value = dense<[2, 4, 8, 64, 2304]> : tensor<5xindex>} : () -> !tosa.shape<5>
+    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape3]]
     %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : <1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1> -> <2x4x8x768x2304xf16, 0x0x0x2304x1>
-    // CHECK-DAG: %[[RESHAPE0:.*]] = tosa.reshape %[[ARG1]] {new_shape = array<i64: 64, 64, 768>}
+    // CHECK-DAG: %[[constshape4:.+]] = tosa.const_shape  {value = dense<[64, 64, 768]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[RESHAPE0:.*]] = tosa.reshape %[[ARG1]], %[[constshape4]]
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<2x4x8x768x2304xf16>}> : () -> tensor<2x4x8x768x2304xf16>
     // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[ARG2]]
-    // CHECK-DAG: %[[RESHAPE1:.*]] = tosa.reshape %[[ADD]] {new_shape = array<i64: 64, 768, 2304>}
+    // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {value = dense<[64, 768, 2304]> : tensor<3xindex>} : () -> !tosa.shape<3>
+    // CHECK-DAG: %[[RESHAPE1:.*]] = tosa.reshape %[[ADD]], %[[constshape5]]
     %1 = migraphx.dot %arg1, %0 : <2x4x8x64x768xf16, 1572864x393216x49152x768x1>, <2x4x8x768x2304xf16, 0x0x0x2304x1> -> <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[RESHAPE0]], %[[RESHAPE1]]
-    // CHECK: %[[RESHAPE2:.*]] = tosa.reshape %[[MATMUL]] {new_shape = array<i64: 2, 4, 8, 64, 2304>}
+    // CHECK: %[[RESHAPE2:.*]] = tosa.reshape %[[MATMUL]], %[[constshape3]]
     %2 = migraphx.add %1, %arg0 : <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>, <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1> -> <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
     return %2 : !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
   }
@@ -318,7 +332,7 @@ module  {
 
   // CHECK-LABEL: func.func @mbcast_non_first_dim
   // COM: test for a bug in how mbcast was handled in this case.
-  // CHECK: new_shape = array<i64: 1, 1, 5, 1>
+  // CHECK: tosa.const_shape  {value = dense<[1, 1, 5, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
   func.func @mbcast_non_first_dim(%arg0: !migraphx.shaped<2x3x3x5xf32, 45x15x5x1>, %arg1: !migraphx.shaped<5xf32, 1>) -> !migraphx.shaped<2x3x3x1xf32, 9x3x1x1> attributes {arch = "gfx1100", kernel = "mixr", num_cu = 48 : i64} {
     %0 = migraphx.reshape %arg1 {dims = [5, 1]} : <5xf32, 1> -> <5x1xf32, 1x1>
     %1 = migraphx.multibroadcast %0 {out_dyn_dims = [], out_lens = [2, 3, 5, 1]} : <5x1xf32, 1x1> -> <2x3x5x1xf32, 0x0x1x1>
@@ -341,15 +355,19 @@ module  {
 
   // CHECK-LABEL: func.func @clip_broadcast
   func.func @clip_broadcast(%arg0: !migraphx.shaped<64x64xf16, 64x1>, %arg1: !migraphx.shaped<1x64xf16, 64x1>, %arg2: !migraphx.shaped<1xf16, 0>) -> !migraphx.shaped<64x64xf16, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1 {new_shape = array<i64: 1, 64>}
-    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0 {new_shape = array<i64: 64, 64>}
+    // CHECK-DAG: %[[constshape:.+]] = tosa.const_shape  {value = dense<[1, 64]> : tensor<2xindex>} : () -> !tosa.shape<2>
+    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1, %[[constshape]]
+    // CHECK-DAG: %[[constshape2:.+]] = tosa.const_shape  {value = dense<64> : tensor<2xindex>} : () -> !tosa.shape<2>
+    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape2]]
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0.000000e+00> : tensor<64x64xf16>}> : () -> tensor<64x64xf16>
     // CHECK-DAG: %[[ADD0:.*]] = tosa.add %[[CST0]], %[[ARG1]]
-    // CHECK-DAG: %[[RESHAPE:.*]] = tosa.reshape %arg2 {new_shape = array<i64: 1, 1>}
+    // CHECK-DAG: %[[constshape3:.+]] = tosa.const_shape  {value = dense<1> : tensor<2xindex>} : () -> !tosa.shape<2>
+    // CHECK-DAG: %[[RESHAPE:.*]] = tosa.reshape %arg2, %[[constshape3]]
     // CHECK-DAG: %[[ADD1:.*]] = tosa.add %[[CST0]], %[[RESHAPE]]
     // CHECK: %[[MAX:.*]] = tosa.maximum %[[ARG0]], %[[ADD0]]
     // CHECK: %[[MIN:.*]] = tosa.minimum %[[MAX]], %[[ADD1]]
-    // CHECK: %[[RET:.*]] = tosa.reshape %[[MIN]] {new_shape = array<i64: 4096>}
+    // CHECK-DAG: %[[constshape4:.+]] = tosa.const_shape  {value = dense<4096> : tensor<1xindex>} : () -> !tosa.shape<1>
+    // CHECK: %[[RET:.*]] = tosa.reshape %[[MIN]], %[[constshape4]]
     // CHECK: return %[[RET]]
     %0 = migraphx.multibroadcast %arg1 {out_dyn_dims = [], out_lens = [64, 64]} : <1x64xf16, 64x1> -> <64x64xf16, 0x1>
     %1 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 64]} : <1xf16, 0> -> <64x64xf16, 0x0>
@@ -367,9 +385,11 @@ module  {
 
   // CHECK-LABEL: func.func @where_broadcast
   func.func @where_broadcast(%arg0: !migraphx.shaped<64x1xi8, 1x1>, %arg1: !migraphx.shaped<64x64xf16, 64x1>, %arg2: !migraphx.shaped<64x64xf16, 64x1>) -> !migraphx.shaped<64x64xf16, 64x1> attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr"} {
-    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0 {new_shape = array<i64: 64, 1>}
-    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1 {new_shape = array<i64: 64, 64>}
-    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2 {new_shape = array<i64: 64, 64>}
+    // CHECK-DAG: %[[constshape:.+]] = tosa.const_shape  {value = dense<[64, 1]> : tensor<2xindex>} : () -> !tosa.shape<2>
+    // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape]]
+    // CHECK-DAG: %[[constshape2:.+]] = tosa.const_shape  {value = dense<64> : tensor<2xindex>} : () -> !tosa.shape<2>
+    // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1, %[[constshape2]]
+    // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2, %[[constshape2]]
     // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{value = dense<0> : tensor<64x64xi8>}> : () -> tensor<64x64xi8>
     // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[ARG0]]
     // CHECK-DAG: %[[CAST:.*]] = tosa.cast %[[ADD]]
@@ -382,13 +402,14 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_mean_f32
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<1.120000e+02> : tensor<1xf32>}> : () -> tensor<1xf32>
   // CHECK-DAG: %[[NRECIP:.*]] = tosa.reciprocal %[[N]] : (tensor<1xf32>) -> tensor<1xf32>
-  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIP]] {shift = 0 : i8} : ([[INTYPE]], tensor<1xf32>) -> [[INTYPE]]
+  // CHECK-DAG: %[[NRECIPRESHAPED:.*]] = tosa.reshape %[[NRECIP]], %{{.*}} : (tensor<1xf32>, !tosa.shape<4>) -> tensor<1x1x1x1xf32>
+  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIPRESHAPED]], %{{.*}} : ([[INTYPE]], tensor<1x1x1x1xf32>, tensor<1xi8>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_mean_f32(%arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xf32, 802816x12544x112x1> -> <1x64x1x112xf32, 7168x112x112x1>
@@ -398,13 +419,14 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_mean_f16
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<1.120000e+02> : tensor<1xf16>}> : () -> tensor<1xf16>
   // CHECK-DAG: %[[NRECIP:.*]] = tosa.reciprocal %[[N]] : (tensor<1xf16>) -> tensor<1xf16>
-  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIP]] {shift = 0 : i8} : ([[INTYPE]], tensor<1xf16>) -> [[INTYPE]]
+  // CHECK-DAG: %[[NRECIPRESHAPED:.*]] = tosa.reshape %[[NRECIP]], %{{.*}} : (tensor<1xf16>, !tosa.shape<4>) -> tensor<1x1x1x1xf16>
+  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIPRESHAPED]], %{{.*}} : ([[INTYPE]], tensor<1x1x1x1xf16>, tensor<1xi8>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_mean_f16(%arg0: !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xf16, 802816x12544x112x1> -> <1x64x1x112xf16, 7168x112x112x1>
@@ -414,13 +436,14 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_mean_i32
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<112> : tensor<1xi32>}> : () -> tensor<1xi32>
   // CHECK-DAG: %[[NRECIP:.*]] = tosa.reciprocal %[[N]] : (tensor<1xi32>) -> tensor<1xi32>
-  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIP]] {shift = 0 : i8} : ([[INTYPE]], tensor<1xi32>) -> [[INTYPE]]
+  // CHECK-DAG: %[[NRECIPRESHAPED:.*]] = tosa.reshape %[[NRECIP]], %{{.*}} : (tensor<1xi32>, !tosa.shape<4>) -> tensor<1x1x1x1xi32>
+  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIPRESHAPED]], %{{.*}} : ([[INTYPE]], tensor<1x1x1x1xi32>, tensor<1xi8>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_mean_i32(%arg0: !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi32, 802816x12544x112x1> -> <1x64x1x112xi32, 7168x112x112x1>
@@ -430,13 +453,14 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_mean_i16
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<112> : tensor<1xi16>}> : () -> tensor<1xi16>
   // CHECK-DAG: %[[NRECIP:.*]] = tosa.reciprocal %[[N]] : (tensor<1xi16>) -> tensor<1xi16>
-  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIP]] {shift = 0 : i8} : ([[INTYPE]], tensor<1xi16>) -> [[INTYPE]]
+  // CHECK-DAG: %[[NRECIPRESHAPED:.*]] = tosa.reshape %[[NRECIP]], %{{.*}} : (tensor<1xi16>, !tosa.shape<4>) -> tensor<1x1x1x1xi16>
+  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIPRESHAPED]], %{{.*}} : ([[INTYPE]], tensor<1x1x1x1xi16>, tensor<1xi8>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_mean_i16(%arg0: !migraphx.shaped<1x64x112x112xi16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi16, 802816x12544x112x1> -> <1x64x1x112xi16, 7168x112x112x1>
@@ -446,13 +470,14 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_mean_i8
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
-  // CHECK-DAG: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-DAG: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[N:.*]] = "tosa.const"() <{value = dense<112> : tensor<1xi8>}> : () -> tensor<1xi8>
   // CHECK-DAG: %[[NRECIP:.*]] = tosa.reciprocal %[[N]] : (tensor<1xi8>) -> tensor<1xi8>
-  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIP]] {shift = 0 : i8} : ([[INTYPE]], tensor<1xi8>) -> [[INTYPE]]
+  // CHECK-DAG: %[[NRECIPRESHAPED:.*]] = tosa.reshape %[[NRECIP]], %{{.*}} : (tensor<1xi8>, !tosa.shape<4>) -> tensor<1x1x1x1xi8>
+  // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[NRECIPRESHAPED]], %{{.*}} : ([[INTYPE]], tensor<1x1x1x1xi8>, tensor<1xi8>) -> [[INTYPE]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[MUL]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_mean_i8(%arg0: !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1> {
     %0 = migraphx.reduce_mean %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>
@@ -462,10 +487,10 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_sum_f32
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_sum_f32(%arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1> {
     %0 = migraphx.reduce_sum %arg0 {axes = [2 : i64]} : <1x64x112x112xf32, 802816x12544x112x1> -> <1x64x1x112xf32, 7168x112x112x1>
@@ -475,10 +500,10 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_sum_f16
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_sum_f16(%arg0: !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1> {
     %0 = migraphx.reduce_sum %arg0 {axes = [2 : i64]} : <1x64x112x112xf16, 802816x12544x112x1> -> <1x64x1x112xf16, 7168x112x112x1>
@@ -488,10 +513,10 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_sum_i32
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_sum_i32(%arg0: !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1> {
     %0 = migraphx.reduce_sum %arg0 {axes = [2 : i64]} : <1x64x112x112xi32, 802816x12544x112x1> -> <1x64x1x112xi32, 7168x112x112x1>
@@ -501,10 +526,10 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_sum_i16
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
-  // CHECK-SAME: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_sum_i16(%arg0: !migraphx.shaped<1x64x112x112xi16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1> {
     %0 = migraphx.reduce_sum %arg0 {axes = [2 : i64]} : <1x64x112x112xi16, 802816x12544x112x1> -> <1x64x1x112xi16, 7168x112x112x1>
@@ -514,10 +539,10 @@ module  {
   // CHECK-LABEL: func.func @func_reduce_sum_i8
   // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
-  // CHECK-DAG: ([[INTYPE_FLAT]]) -> [[INTYPE:.*]]
+  // CHECK-DAG: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
   // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
-  // CHECK-SAME: ([[OUTTYPE]]) -> [[OUTTYPE_FLAT]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_sum_i8(%arg0: !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1> {
     %0 = migraphx.reduce_sum %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>

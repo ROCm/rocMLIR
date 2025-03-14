@@ -66,7 +66,6 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Target/TargetIntrinsicInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include <cassert>
 #include <cctype>
@@ -486,7 +485,7 @@ public:
   bool parseMetadataOperand(MachineOperand &Dest);
   bool parseCFIOffset(int &Offset);
   bool parseCFIUnsigned(unsigned &Value);
-  bool parseCFIRegister(Register &Reg);
+  bool parseCFIRegister(unsigned &Reg);
   bool parseCFIAddressSpace(unsigned &AddressSpace);
   bool parseCFIEscapeValues(std::string& Values);
   bool parseCFIOperand(MachineOperand &Dest);
@@ -1318,9 +1317,10 @@ bool MIParser::parseMachineMetadata() {
 
     assert(PFS.MachineMetadataNodes[ID] == MD && "Tracking VH didn't work");
   } else {
-    if (PFS.MachineMetadataNodes.count(ID))
+    auto [It, Inserted] = PFS.MachineMetadataNodes.try_emplace(ID);
+    if (!Inserted)
       return error("Metadata id is already used");
-    PFS.MachineMetadataNodes[ID].reset(MD);
+    It->second.reset(MD);
   }
 
   return false;
@@ -2455,7 +2455,7 @@ bool MIParser::parseCFIUnsigned(unsigned &Value) {
   return false;
 }
 
-bool MIParser::parseCFIRegister(Register &Reg) {
+bool MIParser::parseCFIRegister(unsigned &Reg) {
   if (Token.isNot(MIToken::NamedRegister))
     return error("expected a cfi register");
   Register LLVMReg;
@@ -2500,7 +2500,7 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
   auto Kind = Token.kind();
   lex();
   int Offset;
-  Register Reg;
+  unsigned Reg;
   unsigned AddressSpace;
   unsigned CFIIndex;
   switch (Kind) {
@@ -2573,7 +2573,7 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
     CFIIndex = MF.addFrameInst(MCCFIInstruction::createUndefined(nullptr, Reg));
     break;
   case MIToken::kw_cfi_register: {
-    Register Reg2;
+    unsigned Reg2;
     if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
         parseCFIRegister(Reg2))
       return true;
@@ -2589,7 +2589,7 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
     CFIIndex = MF.addFrameInst(MCCFIInstruction::createNegateRAState(nullptr));
     break;
   case MIToken::kw_cfi_llvm_register_pair: {
-    Register Reg, R1, R2;
+    unsigned Reg, R1, R2;
     unsigned R1Size, R2Size;
     if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
         parseCFIRegister(R1) || expectAndConsume(MIToken::comma) ||
@@ -2607,7 +2607,7 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
     if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma))
       return true;
     do {
-      Register VR;
+      unsigned VR;
       unsigned Lane, Size;
       if (parseCFIRegister(VR) || expectAndConsume(MIToken::comma) ||
           parseCFIUnsigned(Lane) || expectAndConsume(MIToken::comma) ||
@@ -2621,7 +2621,7 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
     break;
   }
   case MIToken::kw_cfi_llvm_vector_offset: {
-    Register Reg, MaskReg;
+    unsigned Reg, MaskReg;
     unsigned RegSize, MaskRegSize;
     int Offset = 0;
 
@@ -2637,7 +2637,7 @@ bool MIParser::parseCFIOperand(MachineOperand &Dest) {
     break;
   }
   case MIToken::kw_cfi_llvm_vector_register_mask: {
-    Register Reg, SpillReg, MaskReg;
+    unsigned Reg, SpillReg, MaskReg;
     unsigned SpillRegLaneSize, MaskRegSize;
 
     if (parseCFIRegister(Reg) || expectAndConsume(MIToken::comma) ||
@@ -2741,13 +2741,8 @@ bool MIParser::parseIntrinsicOperand(MachineOperand &Dest) {
   if (expectAndConsume(MIToken::rparen))
     return error("expected ')' to terminate intrinsic name");
 
-  // Find out what intrinsic we're dealing with, first try the global namespace
-  // and then the target's private intrinsics if that fails.
-  const TargetIntrinsicInfo *TII = MF.getTarget().getIntrinsicInfo();
+  // Find out what intrinsic we're dealing with.
   Intrinsic::ID ID = Intrinsic::lookupIntrinsicID(Name);
-  if (ID == Intrinsic::not_intrinsic && TII)
-    ID = static_cast<Intrinsic::ID>(TII->lookupName(Name));
-
   if (ID == Intrinsic::not_intrinsic)
     return error("unknown intrinsic name");
   Dest = MachineOperand::CreateIntrinsicID(ID);

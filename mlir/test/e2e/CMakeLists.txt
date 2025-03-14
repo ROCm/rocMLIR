@@ -4,7 +4,7 @@ set(ROCK_E2E_DEPENDS
   rocmlir-opt
   rocmlir-gen
   rocmlir-driver
-  mlir-cpu-runner
+  mlir-runner
   mlir_rocm_runtime
   conv-validation-wrappers
   e2e_tests

@@ -225,6 +225,9 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - mPerThread: The number of values of m to process as a unit on each thread
     - nPerThread: The number of values of n to process as a unit on each thread
     - kpack: The number of values of k to pack contiguously into the shared buffer
+    - splitKFactor:  Split-k factor for the Split-k GEMM algorithm
+    - scheduleVersion: Param to select GEMM schedule
+    - outputSwizzle: Whether to enable/disable output swizzle or use heuristics 
   }];
   let parameters = (ins
     "uint32_t":$blockSize,
@@ -235,18 +238,23 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     "int64_t":$mPerThread,
     "int64_t":$nPerThread,
     "int64_t":$kpack,
-    "int64_t":$splitKFactor
+    "int64_t":$splitKFactor,
+    "int64_t":$scheduleVersion,
+    "int64_t":$outputSwizzle
   );
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("v2:" + Twine(getBlockSize()) + ","
+      ("v3:" + Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
       + Twine(getNPerThread()) + ","
-      + Twine(getSplitKFactor())).toVector(perfStr);
+      + Twine(getSplitKFactor()) + ","
+      + Twine(getScheduleVersion()) + ","
+      + Twine(getOutputSwizzle())) 
+      .toVector(perfStr);
     }
     bool getForceUnroll() { return true; }
   }];
@@ -286,6 +294,8 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
     }
 
     int64_t getSplitKFactor() { return 1; }
+    int64_t getScheduleVersion() { return 1;}
+    int64_t getOutputSwizzle() { return 2; }
   }];
 
   let builders = [
@@ -310,18 +320,22 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$mPerWave,
     "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
+    "int64_t":$scheduleVersion,
+    "int64_t":$outputSwizzle,
     "bool":$forceUnroll
   );
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-        ("v2:" + Twine(getMPerBlock()) + ","
+        ("v3:" + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getMnPerXdl()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
+        + Twine(getScheduleVersion()) + ","
+        + Twine(getOutputSwizzle()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
@@ -347,18 +361,22 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
     "int64_t":$nPerWave,
     "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
+    "int64_t":$scheduleVersion,
+    "int64_t":$outputSwizzle,
     "bool":$forceUnroll
   );
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-        ("v2:" + Twine(getMPerBlock()) + ","
+        ("v3:" + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
+        + Twine(getScheduleVersion()) + ","
+        + Twine(getOutputSwizzle()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
@@ -386,6 +404,8 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
         nPerWave,
         mnPerXdl,
         params.getSplitKFactor(),
+        params.getScheduleVersion(),
+        params.getOutputSwizzle(),
         params.getForceUnroll()
       );
     }]>
@@ -409,18 +429,22 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
     "int64_t":$mPerWave,
     "int64_t":$nPerWave,
     "int64_t":$splitKFactor,
+    "int64_t":$scheduleVersion,
+    "int64_t":$outputSwizzle,
     "bool":$forceUnroll
   );
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
-        ("v2:" +  Twine(getMPerBlock()) + ","
+        ("v3:" +  Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
+        + Twine(getScheduleVersion()) + ","
+        + Twine(getOutputSwizzle()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);

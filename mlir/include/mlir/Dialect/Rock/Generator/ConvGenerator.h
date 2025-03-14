@@ -141,7 +141,8 @@ public:
     std::replace(targetLayout.begin(), targetLayout.end(), 'w', '1');
     return targetLayout;
   }
-  LogicalResult isApplicable(bool checkChip = true) const;
+
+  LogicalResult isApplicable() const;
 
   // Utility function to query if a config requires additional workspace.
   LogicalResult hasWorkspace(OpBuilder &builder, bool &needWorkspace) const;
@@ -170,7 +171,6 @@ private:
   LogicalResult needExtraPadBwdWeight(OpBuilder &builder,
                                       bool &needExtraPad) const;
   LogicalResult hasValidDimension() const;
-  LogicalResult hasValidChip() const;
 
   // Generator config
   Config config;

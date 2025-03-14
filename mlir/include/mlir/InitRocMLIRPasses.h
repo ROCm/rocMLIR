@@ -43,20 +43,20 @@ namespace mlir {
 inline void registerUpstreamPasses() {
 
   // Conversion passes
-  registerConvertAffineToStandard();
+  registerLowerAffinePass();
   registerArithToAMDGPUConversionPass();
-  registerConvertAMDGPUToROCDL();
+  registerConvertAMDGPUToROCDLPass();
   registerArithToLLVMConversionPass();
   registerConvertFuncToLLVMPass();
   registerConvertGpuOpsToROCDLOps();
   registerConvertMathToLLVMPass();
   registerFinalizeMemRefToLLVMConversionPass();
-  registerReconcileUnrealizedCasts();
-  registerSCFToControlFlow();
-  registerTosaToArith();
+  registerReconcileUnrealizedCastsPass();
+  registerSCFToControlFlowPass();
+  registerTosaToArithPass();
   registerTosaToLinalg();
   registerTosaToLinalgNamed();
-  registerTosaToSCF();
+  registerTosaToSCFPass();
   registerConvertControlFlowToLLVMPass();
 
   // MLIR passes

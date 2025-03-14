@@ -15,6 +15,7 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Regex.h"
 #include <algorithm>
 #include <cassert>
@@ -70,7 +71,21 @@ struct Serializable {
   }
 
   bool checkVersionFormat(const std::string &s) {
-    const int32_t maxNumTokens = version == Version::V1 ? 8 : 9;
+    int32_t maxNumTokens;
+    switch (version) {
+    case Version::V1:
+      maxNumTokens = 8;
+      break;
+    case Version::V2:
+      maxNumTokens = 9;
+      break;
+    case Version::V3:
+      maxNumTokens = 11;
+      break;
+    default:
+      llvm_unreachable("Unknown version of the perfConfig");
+      break;
+    };
     const int32_t maxNumSeperators = maxNumTokens - 1;
     const int32_t minNumSeperators = maxNumSeperators - 2;
     const auto numFoundSeperators = std::count_if(
@@ -123,7 +138,7 @@ struct Serializable {
     return os;
   }
 
-  enum class Version : int32_t { V1 = 1, V2, Count };
+  enum class Version : int32_t { V1 = 1, V2, V3, Count };
   Version getVersion() { return version; }
 
 protected:
@@ -131,7 +146,7 @@ protected:
 };
 
 template <class Strings>
-inline std::string joinStrings(Strings strings, std::string delim) {
+inline std::string joinStrings(Strings strings, const std::string &delim) {
   auto it = strings.begin();
   if (it == strings.end())
     return "";

@@ -61,14 +61,14 @@ void initialize_thunks(const sanitizer_thunk *first,
 #  pragma section(".WEAK$Z", read)  // weak end
 
 extern "C" {
-__declspec(allocate(".INTR$A"))
-    sanitizer_thunk __sanitizer_intercept_thunk_begin;
+__declspec(allocate(
+    ".INTR$A")) sanitizer_thunk __sanitizer_intercept_thunk_begin;
 __declspec(allocate(".INTR$Z")) sanitizer_thunk __sanitizer_intercept_thunk_end;
 
-__declspec(allocate(".WEAK$A"))
-    sanitizer_thunk __sanitizer_register_weak_thunk_begin;
-__declspec(allocate(".WEAK$Z"))
-    sanitizer_thunk __sanitizer_register_weak_thunk_end;
+__declspec(allocate(
+    ".WEAK$A")) sanitizer_thunk __sanitizer_register_weak_thunk_begin;
+__declspec(allocate(
+    ".WEAK$Z")) sanitizer_thunk __sanitizer_register_weak_thunk_end;
 }
 
 extern "C" int __sanitizer_thunk_init() {

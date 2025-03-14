@@ -199,7 +199,7 @@ void test_noexcept() {
 namespace LWG3528 {
 template <class T, class Tuple>
 auto test_make_from_tuple(T&&, Tuple&& t) -> decltype(std::make_from_tuple<T>(t), std::uint8_t()) {
-    return 0;
+  return 0;
 }
 template <class T, class Tuple>
 uint32_t test_make_from_tuple(...) {

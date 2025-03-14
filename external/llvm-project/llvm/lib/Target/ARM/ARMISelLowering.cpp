@@ -767,6 +767,9 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
       setLibcallName(LC.Op, LC.Name);
       setLibcallCallingConv(LC.Op, LC.CC);
     }
+  } else if (!Subtarget->isTargetMachO()) {
+    setLibcallName(RTLIB::FPROUND_F32_F16, "__gnu_f2h_ieee");
+    setLibcallName(RTLIB::FPEXT_F16_F32, "__gnu_h2f_ieee");
   }
 
   if (Subtarget->isThumb1Only())
@@ -2347,14 +2350,14 @@ ARMTargetLowering::ByValCopyKind ARMTargetLowering::ByValNeedsCopyForTailCall(
 
   // Globals are always safe to copy from.
   if (isa<GlobalAddressSDNode>(Src) || isa<ExternalSymbolSDNode>(Src))
-        return CopyOnce;
+    return CopyOnce;
 
   // Can only analyse frame index nodes, conservatively assume we need a
   // temporary.
   auto *SrcFrameIdxNode = dyn_cast<FrameIndexSDNode>(Src);
   auto *DstFrameIdxNode = dyn_cast<FrameIndexSDNode>(Dst);
   if (!SrcFrameIdxNode || !DstFrameIdxNode)
-        return CopyViaTemp;
+    return CopyViaTemp;
 
   int SrcFI = SrcFrameIdxNode->getIndex();
   int DstFI = DstFrameIdxNode->getIndex();
@@ -2369,7 +2372,7 @@ ARMTargetLowering::ByValCopyKind ARMTargetLowering::ByValNeedsCopyForTailCall(
   bool FixedSrc = MFI.isFixedObjectIndex(SrcFI);
   if (!FixedSrc ||
       (FixedSrc && SrcOffset < -(int64_t)AFI->getArgRegsSaveSize()))
-        return CopyOnce;
+    return CopyOnce;
 
   // In the case of byval arguments split between registers and the stack,
   // computeAddrForCallArg returns a FrameIndex which corresponds only to the
@@ -2382,9 +2385,9 @@ ARMTargetLowering::ByValCopyKind ARMTargetLowering::ByValNeedsCopyForTailCall(
   // If the value is already in the correct location, then no copying is
   // needed. If not, then we need to copy via a temporary.
   if (SrcOffset == DstOffset)
-        return NoCopy;
+    return NoCopy;
   else
-        return CopyViaTemp;
+    return CopyViaTemp;
 }
 
 void ARMTargetLowering::PassF64ArgInRegs(const SDLoc &dl, SelectionDAG &DAG,
@@ -3241,7 +3244,7 @@ bool
 ARMTargetLowering::CanLowerReturn(CallingConv::ID CallConv,
                                   MachineFunction &MF, bool isVarArg,
                                   const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                  LLVMContext &Context) const {
+                                  LLVMContext &Context, const Type *RetTy) const {
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, MF, RVLocs, Context);
   return CCInfo.CheckReturn(Outs, CCAssignFnForReturn(CallConv, isVarArg));
@@ -4759,6 +4762,25 @@ SDValue ARMTargetLowering::LowerFormalArguments(
                 VA.getLocMemOffset(), Flags.getByValSize());
             InVals.push_back(DAG.getFrameIndex(FrameIndex, PtrVT));
             CCInfo.nextInRegsParam();
+          } else if (VA.needsCustom() && (VA.getValVT() == MVT::f16 ||
+                                          VA.getValVT() == MVT::bf16)) {
+            // f16 and bf16 values are passed in the least-significant half of
+            // a 4 byte stack slot. This is done as-if the extension was done
+            // in a 32-bit register, so the actual bytes used for the value
+            // differ between little and big endian.
+            assert(VA.getLocVT().getSizeInBits() == 32);
+            unsigned FIOffset = VA.getLocMemOffset();
+            int FI = MFI.CreateFixedObject(VA.getLocVT().getSizeInBits() / 8,
+                                           FIOffset, true);
+
+            SDValue Addr = DAG.getFrameIndex(FI, PtrVT);
+            if (DAG.getDataLayout().isBigEndian())
+              Addr = DAG.getObjectPtrOffset(dl, Addr, TypeSize::getFixed(2));
+
+            InVals.push_back(DAG.getLoad(VA.getValVT(), dl, Chain, Addr,
+                                         MachinePointerInfo::getFixedStack(
+                                             DAG.getMachineFunction(), FI)));
+
           } else {
             unsigned FIOffset = VA.getLocMemOffset();
             int FI = MFI.CreateFixedObject(VA.getLocVT().getSizeInBits()/8,
@@ -8479,7 +8501,7 @@ bool ARMTargetLowering::isShuffleMaskLegal(ArrayRef<int> M, EVT VT) const {
 
   unsigned EltSize = VT.getScalarSizeInBits();
   if (EltSize >= 32 ||
-      ShuffleVectorSDNode::isSplatMask(&M[0], VT) ||
+      ShuffleVectorSDNode::isSplatMask(M) ||
       ShuffleVectorInst::isIdentityMask(M, M.size()) ||
       isVREVMask(M, VT, 64) ||
       isVREVMask(M, VT, 32) ||
@@ -20767,9 +20789,9 @@ ARMTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const 
     Chain = SP.getValue(1);
     SP = DAG.getNode(ISD::SUB, DL, MVT::i32, SP, Size);
     if (Align)
-      SP =
-          DAG.getNode(ISD::AND, DL, MVT::i32, SP.getValue(0),
-                      DAG.getConstant(-(uint64_t)Align->value(), DL, MVT::i32));
+      SP = DAG.getNode(
+          ISD::AND, DL, MVT::i32, SP.getValue(0),
+          DAG.getSignedConstant(-(uint64_t)Align->value(), DL, MVT::i32));
     Chain = DAG.getCopyToReg(Chain, DL, ARM::SP, SP);
     SDValue Ops[2] = { SP, Chain };
     return DAG.getMergeValues(Ops, DL);

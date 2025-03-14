@@ -183,10 +183,10 @@ void InstrEmitter::EmitCopyFromReg(SDNode *Node, unsigned ResNo, bool IsClone,
 }
 
 void InstrEmitter::CreateVirtualRegisters(SDNode *Node,
-                                          MachineInstrBuilder &MIB,
-                                          const MCInstrDesc &II, bool IsClone,
-                                          bool IsCloned,
-                                          VRBaseMapType &VRBaseMap) {
+                                       MachineInstrBuilder &MIB,
+                                       const MCInstrDesc &II,
+                                       bool IsClone, bool IsCloned,
+                                       VRBaseMapType &VRBaseMap) {
   assert(Node->getMachineOpcode() != TargetOpcode::IMPLICIT_DEF &&
          "IMPLICIT_DEF should have been handled as a special case elsewhere!");
 
@@ -311,10 +311,13 @@ static bool isConvergenceCtrlMachineOp(SDValue Op) {
 /// AddRegisterOperand - Add the specified register as an operand to the
 /// specified machine instr. Insert register copies if the register is
 /// not in the required register class.
-void InstrEmitter::AddRegisterOperand(MachineInstrBuilder &MIB, SDValue Op,
-                                      unsigned IIOpNum, const MCInstrDesc *II,
-                                      VRBaseMapType &VRBaseMap, bool IsDebug,
-                                      bool IsClone, bool IsCloned) {
+void
+InstrEmitter::AddRegisterOperand(MachineInstrBuilder &MIB,
+                                 SDValue Op,
+                                 unsigned IIOpNum,
+                                 const MCInstrDesc *II,
+                                 VRBaseMapType &VRBaseMap,
+                                 bool IsDebug, bool IsClone, bool IsCloned) {
   assert(Op.getValueType() != MVT::Other &&
          Op.getValueType() != MVT::Glue &&
          "Chain and glue operands should occur at end of operand list!");
@@ -348,8 +351,9 @@ void InstrEmitter::AddRegisterOperand(MachineInstrBuilder &MIB, SDValue Op,
         OpRC = TRI->getAllocatableClass(OpRC);
         assert(OpRC && "Constraints cannot be fulfilled for allocation");
         Register NewVReg = MRI->createVirtualRegister(OpRC);
-        BuildMI(*MBB, InsertPos, Op.getNode()->getDebugLoc(),
-                TII->get(TargetOpcode::COPY), NewVReg).addReg(VReg);
+        BuildMI(*MBB, InsertPos, MIB->getDebugLoc(),
+                TII->get(TargetOpcode::COPY), NewVReg)
+            .addReg(VReg);
         VReg = NewVReg;
       } else {
         assert(ConstrainedRC->isAllocatable() &&
@@ -624,8 +628,9 @@ void InstrEmitter::EmitSubregNode(SDNode *Node, VRBaseMapType &VRBaseMap,
 /// COPY_TO_REGCLASS is just a normal copy, except that the destination
 /// register is constrained to be in a particular register class.
 ///
-void InstrEmitter::EmitCopyToRegClassNode(SDNode *Node,
-                                          VRBaseMapType &VRBaseMap) {
+void
+InstrEmitter::EmitCopyToRegClassNode(SDNode *Node,
+                                     VRBaseMapType &VRBaseMap) {
   Register VReg = getVR(Node->getOperand(0), VRBaseMap);
 
   // Create the new VReg in the destination class and emit a copy.
@@ -691,8 +696,9 @@ void InstrEmitter::EmitRegSequence(SDNode *Node, VRBaseMapType &VRBaseMap,
 
 /// EmitDbgValue - Generate machine instruction for a dbg_value node.
 ///
-MachineInstr *InstrEmitter::EmitDbgValue(SDDbgValue *SD,
-                                         VRBaseMapType &VRBaseMap) {
+MachineInstr *
+InstrEmitter::EmitDbgValue(SDDbgValue *SD,
+                           VRBaseMapType &VRBaseMap) {
   DebugLoc DL = SD->getDebugLoc();
   assert(cast<DILocalVariable>(SD->getVariable())
              ->isValidLocationForIntrinsic(DL) &&
@@ -741,10 +747,10 @@ MachineOperand GetMOForConstDbgOp(const SDDbgOperand &Op) {
       /* SubReg */ 0, /* isDebug */ true);
 }
 
-void InstrEmitter::AddDbgValueLocationOps(MachineInstrBuilder &MIB,
-                                          const MCInstrDesc &DbgValDesc,
-                                          ArrayRef<SDDbgOperand> LocationOps,
-                                          VRBaseMapType &VRBaseMap) {
+void InstrEmitter::AddDbgValueLocationOps(
+    MachineInstrBuilder &MIB, const MCInstrDesc &DbgValDesc,
+    ArrayRef<SDDbgOperand> LocationOps,
+    VRBaseMapType &VRBaseMap) {
   for (const SDDbgOperand &Op : LocationOps) {
     switch (Op.getKind()) {
     case SDDbgOperand::FRAMEIX:
@@ -773,8 +779,9 @@ void InstrEmitter::AddDbgValueLocationOps(MachineInstrBuilder &MIB,
   }
 }
 
-MachineInstr *InstrEmitter::EmitDbgInstrRef(SDDbgValue *SD,
-                                            VRBaseMapType &VRBaseMap) {
+MachineInstr *
+InstrEmitter::EmitDbgInstrRef(SDDbgValue *SD,
+                              VRBaseMapType &VRBaseMap) {
   MDNode *Var = SD->getVariable();
   const DIExpression *Expr = (DIExpression *)SD->getExpression();
   DebugLoc DL = SD->getDebugLoc();
@@ -914,8 +921,9 @@ MachineInstr *InstrEmitter::EmitDbgNoLocation(SDDbgValue *SD) {
   return BuildMI(*MF, DL, Desc, false, 0U, Var, Expr);
 }
 
-MachineInstr *InstrEmitter::EmitDbgValueList(SDDbgValue *SD,
-                                             VRBaseMapType &VRBaseMap) {
+MachineInstr *
+InstrEmitter::EmitDbgValueList(SDDbgValue *SD,
+                               VRBaseMapType &VRBaseMap) {
   MDNode *Var = SD->getVariable();
   DIExpression *Expr = SD->getExpression();
   DebugLoc DL = SD->getDebugLoc();
@@ -929,8 +937,9 @@ MachineInstr *InstrEmitter::EmitDbgValueList(SDDbgValue *SD,
   return &*MIB;
 }
 
-MachineInstr *InstrEmitter::EmitDbgValueFromSingleOp(SDDbgValue *SD,
-                                                     VRBaseMapType &VRBaseMap) {
+MachineInstr *
+InstrEmitter::EmitDbgValueFromSingleOp(SDDbgValue *SD,
+                                       VRBaseMapType &VRBaseMap) {
   MDNode *Var = SD->getVariable();
   DIExpression *Expr = SD->getExpression();
   DebugLoc DL = SD->getDebugLoc();
@@ -1024,8 +1033,9 @@ InstrEmitter::EmitDbgDefKill(SDDbgDefKill *SDDK,
 /// EmitMachineNode - Generate machine code for a target-specific node and
 /// needed dependencies.
 ///
-void InstrEmitter::EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
-                                   VRBaseMapType &VRBaseMap) {
+void InstrEmitter::
+EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
+                VRBaseMapType &VRBaseMap) {
   unsigned Opc = Node->getMachineOpcode();
 
   // Handle subreg insert/extract specially
@@ -1271,8 +1281,9 @@ void InstrEmitter::EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
 
 /// EmitSpecialNode - Generate machine code for a target-independent node and
 /// needed dependencies.
-void InstrEmitter::EmitSpecialNode(SDNode *Node, bool IsClone, bool IsCloned,
-                                   VRBaseMapType &VRBaseMap) {
+void InstrEmitter::
+EmitSpecialNode(SDNode *Node, bool IsClone, bool IsCloned,
+                VRBaseMapType &VRBaseMap) {
   switch (Node->getOpcode()) {
   default:
 #ifndef NDEBUG

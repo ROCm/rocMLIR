@@ -1,5 +1,5 @@
 
-// RUN: rocmlir-gen -ph -print-results -rand none - < %s | rocmlir-driver -arch %arch -c  | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -ph -print-results -rand none - < %s | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK-COUNT-24576: 32
 
 #transform_map1 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, 0, d3 floordiv 32, d3 mod 32, 0, 0, d4 floordiv 4, d4 mod 4)> by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>, <Merge{1, 2, 32} ["tid"] at [3] -> ["1ave", "m_tid", "n_tid"] at [3, 4, 5]>, <Merge{1, 1, 4, 4} ["item"] at [4] -> ["i", "j", "vec_group", "vec_item"] at [6, 7, 8, 9]>] bounds = [1, 2, 12, 64, 16] -> [1, 2, 12, 1, 2, 32, 1, 1, 4, 4]>

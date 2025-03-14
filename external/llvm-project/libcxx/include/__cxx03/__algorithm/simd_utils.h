@@ -93,10 +93,9 @@ template <class _ArithmeticT, size_t _Np>
 using __simd_vector __attribute__((__ext_vector_type__(_Np))) = _ArithmeticT;
 
 template <class _VecT>
-inline constexpr size_t __simd_vector_size_v = []<bool _False = false>()->size_t {
+inline constexpr size_t __simd_vector_size_v = []<bool _False = false>() -> size_t {
   static_assert(_False, "Not a vector!");
-}
-();
+}();
 
 template <class _Tp, size_t _Np>
 inline constexpr size_t __simd_vector_size_v<__simd_vector<_Tp, _Np>> = _Np;

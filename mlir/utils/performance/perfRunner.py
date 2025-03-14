@@ -29,7 +29,7 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 BENCHMARKING_METRICS_FILE_NAME = 'results.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
-DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convint8']
+DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
@@ -37,6 +37,7 @@ DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
 OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8':'f32',
                          'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
                          'bf8_bf8': 'f32'}
+MLIR_N_REPEATS = 5
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: ([0-9\.]*) ms")
@@ -114,7 +115,7 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
         mlir_paths = MLIRPaths(rocmlir_gen_path = mlir_bin_dir + '/rocmlir-gen',
             rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
             rocmlir_opt_path = mlir_bin_dir + '/rocmlir-opt',
-            cpu_runner_path = llvm_bin_dir + '/mlir-cpu-runner',
+            cpu_runner_path = llvm_bin_dir + '/mlir-runner',
             libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
             libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
             libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
@@ -273,7 +274,7 @@ def getConvConfigurations(fileName):
                 if len(line) == 0 or line[0] == '#':
                     continue
                 # Skip int8 non-fwd convolutions
-                if datatype == 'convint8' and direction != '-F 1':
+                if (datatype == 'convint8' or datatype == 'convfp8') and direction != '-F 1':
                     continue
 
                 # Skip datatype if already in
@@ -367,7 +368,7 @@ class ConvConfiguration(PerfConfiguration):
                            '--padding_h', str(self.paddingH),
                            '--padding_w', str(self.paddingW),
                            '--groupsize', str(self.group),
-                           '--kernel-repeats', str(self.MLIR_N_REPEATS),
+                           '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
         result += ' '
         if rocmlir_gen_flags != '':
@@ -496,7 +497,6 @@ class ConvConfiguration(PerfConfiguration):
         if direction not in {"fwd", "bwd", "wrw"}:
             raise ValueError(f"Invalid direction: {direction}")
 
-        self.MLIR_N_REPEATS = 5
         self.dataType = dtype
         self.direction = direction
 
@@ -666,7 +666,7 @@ class GemmConfiguration(PerfConfiguration):
                            '-n', str(self.n),
                            f"-transA={self.transA}",
                            f"-transB={self.transB}",
-                           '--kernel-repeats', str(self.MLIR_N_REPEATS),
+                           '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
 
         result += ' '
@@ -723,7 +723,6 @@ class GemmConfiguration(PerfConfiguration):
                  transA: bool, transB: bool, arch: str, numCU: int, perf_config: str = ''):
         if dtype not in {"f16", "f32", "bf16", "i8", "fp8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
-        self.MLIR_N_REPEATS = 5
         self.dataType = dtype
         self.outDataType = outDataType
         self.g = g
@@ -759,7 +758,6 @@ class AttentionConfiguration(PerfConfiguration):
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
         self.numCU = numCU
-        self.MLIR_N_REPEATS = 5
         self.perfConfig = perf_config
 
     def computeTFlops(self, ns, only_matmul_flops=True):
@@ -826,9 +824,9 @@ class AttentionConfiguration(PerfConfiguration):
                            f"-with-attn-scale={self.with_attn_scale}",
                            f"-transQ={self.transQ}",
                            f"-transK={self.transK}",
-                           f"-transQ={self.transV}",
-                           f"-transK={self.transO}",
-                           '--kernel-repeats', str(self.MLIR_N_REPEATS),
+                           f"-transV={self.transV}",
+                           f"-transO={self.transO}",
+                           '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
         result += ' '
         if rocmlir_gen_flags != '':
@@ -1011,7 +1009,7 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
         reportFile = reportUtils.PERF_REPORT_FILE['CK']
     else:
         reportFile = reportUtils.PERF_REPORT_FILE['MIOpen']
-    df.fillna('NaN', inplace=True)
+    df.fillna(np.nan, inplace=True)
     df.to_csv(chip + '_' + reportFile, index=False)
 
 def getSolverName(testVector, arch, numCU):
@@ -1068,7 +1066,7 @@ def getFusionTestInfo(filename, paths: Paths):
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirOptCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
     elif "migraphx" in rocmlirCommand:
@@ -1076,12 +1074,12 @@ def getFusionTestInfo(filename, paths: Paths):
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', getChip()]
         # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirMigraphxCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        # pipe to rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
     else:
         rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
-        # rocmlir-driver -host-pipeline partition,highlevel -targets gfx90a
+        # rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     # pipe to rocmlir_gen --emit-tuning-key
@@ -1205,7 +1203,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         perfResults[testVector] = oneEntry
 
     df = pd.DataFrame(perfResults.values())
-    df.fillna('NaN', inplace=True)
+    df.fillna(np.nan, inplace=True)
     df.rename(columns={'TFlops': 'Fusion TFlops'}, inplace=True)
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 

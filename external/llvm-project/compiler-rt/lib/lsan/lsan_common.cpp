@@ -290,7 +290,7 @@ static inline bool MaybeUserPointer(uptr p) {
 
 namespace {
 struct DirectMemoryAccessor {
-  void Init(uptr begin, uptr end){};
+  void Init(uptr begin, uptr end) {};
   void *LoadPtr(uptr p) const { return *reinterpret_cast<void **>(p); }
 };
 

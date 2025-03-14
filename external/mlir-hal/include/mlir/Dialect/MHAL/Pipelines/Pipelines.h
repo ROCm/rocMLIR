@@ -34,9 +34,6 @@ struct GraphOptions : public PassPipelineOptions<GraphOptions> {
       desc("list of target architectures to clone kernels for")};
 };
 
-/// Adds the "partition" pipeline to the `OpPassManager`.
-void buildGraphPipeline(OpPassManager &pm, const GraphOptions &options = {});
-
 //===--- Model Pipeline ---------------------------------------------------===//
 struct PackageOptions : public PassPipelineOptions<PackageOptions> {};
 

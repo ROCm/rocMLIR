@@ -336,6 +336,7 @@ TEST_F(SPIRVPartialOrderingVisitorTest, CheckDeathIrreducible) {
     }
   )";
 
-  ASSERT_DEATH({ run(Assembly); },
-               "No valid candidate in the queue. Is the graph reducible?");
+  ASSERT_DEATH(
+      { run(Assembly); },
+      "No valid candidate in the queue. Is the graph reducible?");
 }

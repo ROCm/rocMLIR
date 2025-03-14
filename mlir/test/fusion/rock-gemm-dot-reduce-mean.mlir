@@ -20,7 +20,7 @@ func.func @mlir_dot_add_reduce_mean(%arg0: memref<1024xf32>, %arg1: memref<4096x
     %1 = rock.transform %arg2 by #transform_map1 : memref<4096xf32> to memref<1x128x32xf32>
     %2 = rock.transform %arg0 by #transform_map2 : memref<1024xf32> to memref<1x32x32xf32>
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x32x32xf32>
-    rock.gemm %alloc = %0 * %1 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {arch = "gfx942:sramecc+:xnack-", numCU = 120 : i32, perf_config = "v2:32,32,8,16,16,8,1,1,1"} : memref<1x32x32xf32> = memref<1x32x128xf32> * memref<1x128x32xf32>
+    rock.gemm %alloc = %0 * %1 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {arch = "gfx942:sramecc+:xnack-", numCU = 120 : i32, perf_config = "v3:32,32,8,16,16,8,1,1,2,1,1"} : memref<1x32x32xf32> = memref<1x32x128xf32> * memref<1x128x32xf32>
     %3 = rock.transform %alloc by #transform_map3 : memref<1x32x32xf32> to memref<32x32xf32>
     %4 = rock.transform %2 by #transform_map3 : memref<1x32x32xf32> to memref<32x32xf32>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<32x32xf32>

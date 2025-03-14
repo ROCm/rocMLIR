@@ -40,12 +40,9 @@ _tile_dpbf8ps_internal(unsigned short m, unsigned short n, unsigned short k,
 ///     FOR n := 0 TO dst.colsb / 4 - 1
 ///       temp1[n] +=
 ///         INT64(src1.row[m].float8[4*k+0]) * INT64(src2.row[k].float8[4*n+0])
-///         + INT64(src1.row[m].float8[4*k+1]) *
-///         INT64(src2.row[k].float8[4*n+1])
-///         + INT64(src1.row[m].float8[4*k+2]) *
-///         INT64(src2.row[k].float8[4*n+2])
-///         + INT64(src1.row[m].float8[4*k+3]) *
-///         INT64(src2.row[k].float8[4*n+3])
+///         + INT64(src1.row[m].float8[4*k+1]) * INT64(src2.row[k].float8[4*n+1])
+///         + INT64(src1.row[m].float8[4*k+2]) * INT64(src2.row[k].float8[4*n+2])
+///         + INT64(src1.row[m].float8[4*k+3]) * INT64(src2.row[k].float8[4*n+3])
 ///     ENDFOR
 ///   ENDFOR
 ///   FOR n := 0 TO dst.colsb / 4 - 1
@@ -92,12 +89,9 @@ _tile_dpbhf8ps_internal(unsigned short m, unsigned short n, unsigned short k,
 ///     FOR n := 0 TO dst.colsb / 4 - 1
 ///       temp1[n] +=
 ///         INT64(src1.row[m].float8[4*k+0]) * INT64(src2.row[k].float8[4*n+0])
-///         + INT64(src1.row[m].float8[4*k+1]) *
-///         INT64(src2.row[k].float8[4*n+1])
-///         + INT64(src1.row[m].float8[4*k+2]) *
-///         INT64(src2.row[k].float8[4*n+2])
-///         + INT64(src1.row[m].float8[4*k+3]) *
-///         INT64(src2.row[k].float8[4*n+3])
+///         + INT64(src1.row[m].float8[4*k+1]) * INT64(src2.row[k].float8[4*n+1])
+///         + INT64(src1.row[m].float8[4*k+2]) * INT64(src2.row[k].float8[4*n+2])
+///         + INT64(src1.row[m].float8[4*k+3]) * INT64(src2.row[k].float8[4*n+3])
 ///     ENDFOR
 ///   ENDFOR
 ///   FOR n := 0 TO dst.colsb / 4 - 1
@@ -144,12 +138,9 @@ _tile_dphbf8ps_internal(unsigned short m, unsigned short n, unsigned short k,
 ///     FOR n := 0 TO dst.colsb / 4 - 1
 ///       temp1[n] +=
 ///         INT64(src1.row[m].float8[4*k+0]) * INT64(src2.row[k].float8[4*n+0])
-///         + INT64(src1.row[m].float8[4*k+1]) *
-///         INT64(src2.row[k].float8[4*n+1])
-///         + INT64(src1.row[m].float8[4*k+2]) *
-///         INT64(src2.row[k].float8[4*n+2])
-///         + INT64(src1.row[m].float8[4*k+3]) *
-///         INT64(src2.row[k].float8[4*n+3])
+///         + INT64(src1.row[m].float8[4*k+1]) * INT64(src2.row[k].float8[4*n+1])
+///         + INT64(src1.row[m].float8[4*k+2]) * INT64(src2.row[k].float8[4*n+2])
+///         + INT64(src1.row[m].float8[4*k+3]) * INT64(src2.row[k].float8[4*n+3])
 ///     ENDFOR
 ///   ENDFOR
 ///   FOR n := 0 TO dst.colsb / 4 - 1
@@ -197,12 +188,9 @@ _tile_dphf8ps_internal(unsigned short m, unsigned short n, unsigned short k,
 ///     FOR n := 0 TO dst.colsb / 4 - 1
 ///       temp1[n] +=
 ///         INT64(src1.row[m].float8[4*k+0]) * INT64(src2.row[k].float8[4*n+0])
-///         + INT64(src1.row[m].float8[4*k+1]) *
-///         INT64(src2.row[k].float8[4*n+1])
-///         + INT64(src1.row[m].float8[4*k+2]) *
-///         INT64(src2.row[k].float8[4*n+2])
-///         + INT64(src1.row[m].float8[4*k+3]) *
-///         INT64(src2.row[k].float8[4*n+3])
+///         + INT64(src1.row[m].float8[4*k+1]) * INT64(src2.row[k].float8[4*n+1])
+///         + INT64(src1.row[m].float8[4*k+2]) * INT64(src2.row[k].float8[4*n+2])
+///         + INT64(src1.row[m].float8[4*k+3]) * INT64(src2.row[k].float8[4*n+3])
 ///     ENDFOR
 ///   ENDFOR
 ///   FOR n := 0 TO dst.colsb / 4 - 1

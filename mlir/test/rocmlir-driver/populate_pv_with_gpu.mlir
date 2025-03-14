@@ -17,10 +17,10 @@
 // GEMM-CHECK: func.func @rock_gemm_ver({{.*}}) attributes {kernel, mhal.arch = "{{.*}}"} {
 // GEMM-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = dot|atomic_add|atomic_add_f16 storeMethod = {{.*}} {[[PARMS:.*]]} : memref<[[CDIMS]]xf32> = memref<[[ADIMS]]xf32> * memref<[[BDIMS]]xf32>
 
-// RUN: rocmlir-gen --operation gemm --arch gfx908  -p -mfma=on -dot=on -atomic_add=on -pv_with_gpu --verifier-keep-perf-config=false --perf_config="v2:32,64,4,32,64,1,1,1,1" -disable-split-k-for-tuning | FileCheck %s --check-prefix=GEMM-HEURISTIC-CHECK
+// RUN: rocmlir-gen --operation gemm --arch gfx908  -p -mfma=on -dot=on -atomic_add=on -pv_with_gpu --verifier-keep-perf-config=false --perf_config="v3:32,64,4,32,64,1,1,1,2,1,1" -disable-split-k-for-tuning | FileCheck %s --check-prefix=GEMM-HEURISTIC-CHECK
 
 // GEMM-HEURISTIC-CHECK: func.func @rock_gemm({{.*}}: memref<[[NA:[0-9]+]]xf32>, {{.*}}: memref<[[NB:[0-9]+]]xf32>, {{.*}}: memref<[[NC:[0-9]+]]xf32>) attributes {kernel, mhal.arch = "{{.*}}"} {
-// GEMM-HEURISTIC-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = {{.*}}perf_config = "v2:32,64,4,32,64,1,1,1,1"{{.*}} : memref<[[CDIMS:[x0-9]+]]xf32> = memref<[[ADIMS:[x0-9]+]]xf32> * memref<[[BDIMS:[x0-9]+]]xf32>
+// GEMM-HEURISTIC-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = {{.*}}perf_config = "v3:32,64,4,32,64,1,1,1,2,1,1"{{.*}} : memref<[[CDIMS:[x0-9]+]]xf32> = memref<[[ADIMS:[x0-9]+]]xf32> * memref<[[BDIMS:[x0-9]+]]xf32>
 // GEMM-HEURISTIC-CHECK-NOT: perf_config
 // GEMM-HEURISTIC-CHECK: call @rock_gemm_gpu({{.*}}) : (memref<[[NA]]xf32>, memref<[[NB]]xf32>, memref<[[NC]]xf32>) -> ()
 // GEMM-HEURISTIC-CHECK: call @rock_gemm_ver_gpu({{.*}}) : (memref<[[NA]]xf32>, memref<[[NB]]xf32>, memref<[[NC]]xf32>) -> ()

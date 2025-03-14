@@ -334,15 +334,13 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        if (params.canXdlops) {
-            unstash name: "MLIR-PerfDB-gfx908"
-            unstash name: "MLIR-PerfDB-gfx90a"
-            unstash name: "MLIR-PerfDB-gfx1100"
-            unstash name: "MLIR-PerfDB-gfx1201"
-            if (!params.disableNavi21)
-                unstash name: "MLIR-PerfDB-gfx1030"
-        } else {
-            unstash name: "MLIR-PerfDB-vanilla"
+        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942', 'gfx1100', 'gfx1201'] : ['vanilla']
+        for (arch in architectures) {
+            try {
+                unstash name: "MLIR-PerfDB-${arch}"
+            } catch (Exception e) {
+                echo "No stash found for MLIR-PerfDB-${arch}, skipping."
+            }
         }
         sh 'date --utc +%Y-%m-%d >tuning-date'
     }
@@ -523,11 +521,11 @@ pipeline {
                         }
                         steps {
                             script {
-                                    build_fixedE2ETests("${CODEPATH}")
-                                    preMergeCheck("${CODEPATH}")
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        sh 'cd build; ninja check-mlir check-rocmlir'
-                                    }
+                                build_fixedE2ETests("${CODEPATH}")
+                                preMergeCheck("${CODEPATH}")
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    sh 'cd build; ninja check-mlir check-rocmlir'
+                                }
                             }
                         }
                     }
@@ -541,7 +539,7 @@ pipeline {
                         }
                         steps {
                             script {
-                                    check_randomE2ETests("${CODEPATH}")
+                                check_randomE2ETests("${CODEPATH}")
                             }
                         }
                     }
@@ -687,7 +685,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100', 'gfx1201'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1101', 'gfx1201'
                     }
                 }
                 agent {
@@ -814,7 +812,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx1030', 'gfx1100', 'gfx1201'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1101', 'gfx1201'
                     }
                 }
                 when {
@@ -1034,9 +1032,7 @@ pipeline {
                                 dir('MIGraphX') {
                                     getAndBuildMIGraphX("""
                                                     -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
-                                                    -DMIGRAPHX_ENABLE_MLIR=On
                                                     -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                    -DMIGRAPHX_USE_HIPRTC=Off
                                                     -DGPU_TARGETS="${gpu_arch}"
                                                     """)
                                 }
@@ -1046,11 +1042,10 @@ pipeline {
                     stage("Verify MIGraphX with MLIR") {
                         steps {
                             dir('MIGraphX/build') {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    withEnv(['MIGRAPHX_ENABLE_MLIR=1']) {
-                                        // Verify MLIR unit tests
-                                        sh 'make -j$(nproc) driver test_gpu_mlir'
-                                        sh 'ctest -R test_gpu_mlir'
+                                timeout(time: 120, activity: true, unit: 'MINUTES') {
+                                    withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                        // run test_verify for accuracy and run MLIR related unit-tests
+                                        sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
                                         // Verify ResNet50, Bert, Gpt2
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
@@ -1063,9 +1058,11 @@ pipeline {
                             }
                             //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
                             dir('MIGraphX/tools/accuracy') {
-                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
-                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
+                                withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                    sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                    sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
+                                    sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
+                                }
                             }
                         }
                     }

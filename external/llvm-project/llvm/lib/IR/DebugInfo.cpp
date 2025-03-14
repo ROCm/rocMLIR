@@ -818,7 +818,11 @@ private:
 
       return getReplacementMDNode(N);
     };
-    Replacements[N] = doRemap(N);
+    // Seperate recursive doRemap and operator [] into 2 lines to avoid
+    // out-of-order evaluations since both of them can access the same memory
+    // location in map Replacements.
+    auto Value = doRemap(N);
+    Replacements[N] = Value;
   }
 
   /// Do the remapping traversal.
@@ -1472,10 +1476,11 @@ LLVMDIBuilderCreateObjCProperty(LLVMDIBuilderRef Builder,
                   PropertyAttributes, unwrapDI<DIType>(Ty)));
 }
 
-LLVMMetadataRef
-LLVMDIBuilderCreateObjectPointerType(LLVMDIBuilderRef Builder,
-                                     LLVMMetadataRef Type) {
-  return wrap(unwrap(Builder)->createObjectPointerType(unwrapDI<DIType>(Type)));
+LLVMMetadataRef LLVMDIBuilderCreateObjectPointerType(LLVMDIBuilderRef Builder,
+                                                     LLVMMetadataRef Type,
+                                                     LLVMBool Implicit) {
+  return wrap(unwrap(Builder)->createObjectPointerType(unwrapDI<DIType>(Type),
+                                                       Implicit));
 }
 
 LLVMMetadataRef
@@ -1728,7 +1733,8 @@ LLVMDbgRecordRef LLVMDIBuilderInsertDeclareRecordBefore(
   DbgInstPtr DbgInst = unwrap(Builder)->insertDeclare(
       unwrap(Storage), unwrap<DILocalVariable>(VarInfo),
       unwrap<DIExpression>(Expr), unwrap<DILocation>(DL),
-      unwrap<Instruction>(Instr));
+      Instr ? InsertPosition(unwrap<Instruction>(Instr)->getIterator())
+            : nullptr);
   // This assert will fail if the module is in the old debug info format.
   // This function should only be called if the module is in the new
   // debug info format.
@@ -1760,7 +1766,9 @@ LLVMDbgRecordRef LLVMDIBuilderInsertDbgValueRecordBefore(
     LLVMMetadataRef Expr, LLVMMetadataRef DebugLoc, LLVMValueRef Instr) {
   DbgInstPtr DbgInst = unwrap(Builder)->insertDbgValueIntrinsic(
       unwrap(Val), unwrap<DILocalVariable>(VarInfo), unwrap<DIExpression>(Expr),
-      unwrap<DILocation>(DebugLoc), unwrap<Instruction>(Instr));
+      unwrap<DILocation>(DebugLoc),
+      Instr ? InsertPosition(unwrap<Instruction>(Instr)->getIterator())
+            : nullptr);
   // This assert will fail if the module is in the old debug info format.
   // This function should only be called if the module is in the new
   // debug info format.
@@ -1776,7 +1784,8 @@ LLVMDbgRecordRef LLVMDIBuilderInsertDbgValueRecordAtEnd(
     LLVMMetadataRef Expr, LLVMMetadataRef DebugLoc, LLVMBasicBlockRef Block) {
   DbgInstPtr DbgInst = unwrap(Builder)->insertDbgValueIntrinsic(
       unwrap(Val), unwrap<DILocalVariable>(VarInfo), unwrap<DIExpression>(Expr),
-      unwrap<DILocation>(DebugLoc), unwrap(Block));
+      unwrap<DILocation>(DebugLoc),
+      Block ? InsertPosition(unwrap(Block)->end()) : nullptr);
   // This assert will fail if the module is in the old debug info format.
   // This function should only be called if the module is in the new
   // debug info format.
@@ -1859,7 +1868,9 @@ LLVMDbgRecordRef LLVMDIBuilderInsertLabelBefore(LLVMDIBuilderRef Builder,
                                                 LLVMValueRef InsertBefore) {
   DbgInstPtr DbgInst = unwrap(Builder)->insertLabel(
       unwrapDI<DILabel>(LabelInfo), unwrapDI<DILocation>(Location),
-      unwrap<Instruction>(InsertBefore));
+      InsertBefore
+          ? InsertPosition(unwrap<Instruction>(InsertBefore)->getIterator())
+          : nullptr);
   // This assert will fail if the module is in the old debug info format.
   // This function should only be called if the module is in the new
   // debug info format.
@@ -1876,7 +1887,7 @@ LLVMDbgRecordRef LLVMDIBuilderInsertLabelAtEnd(LLVMDIBuilderRef Builder,
                                                LLVMBasicBlockRef InsertAtEnd) {
   DbgInstPtr DbgInst = unwrap(Builder)->insertLabel(
       unwrapDI<DILabel>(LabelInfo), unwrapDI<DILocation>(Location),
-      unwrap(InsertAtEnd));
+      InsertAtEnd ? InsertPosition(unwrap(InsertAtEnd)->end()) : nullptr);
   // This assert will fail if the module is in the old debug info format.
   // This function should only be called if the module is in the new
   // debug info format.

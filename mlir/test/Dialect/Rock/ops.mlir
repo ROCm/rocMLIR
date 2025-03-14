@@ -35,7 +35,7 @@ func.func @rock_conv_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x
 
 func.func @rock_conv_fp8_mixed(%filter : memref<?x?x?x?x?xf8E4M3FNUZ>, %input : memref<?x?x?x?x?xf8E5M2FNUZ>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv(%filter, %input, %output) features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx940",
+    arch = "amdgcn-amd-amdhsa:gfx942",
     filter_layout = ["g", "k", "c", "0", "1"],
     input_layout = ["n", "gi", "c", "0i", "1i"],
     output_layout = ["n", "go", "k", "0o", "1o"],
@@ -205,7 +205,9 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
       mPerThread = 4,
       nPerBlock = 128,
       nPerThread = 4,
-      splitKFactor = 1>
+      splitKFactor = 1, 
+      scheduleVersion = 1, 
+      outputSwizzle = 2>
   } : memref<2x128x256xf32> = memref<2x72x128xf32> * memref<2x72x256xf32>
   return
 }
@@ -227,7 +229,9 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
       nPerBlock = 128,
       nPerWave = 64,
       mnPerXdl = 32,
-      splitKFactor = 1,
+      splitKFactor = 1, 
+      scheduleVersion = 1, 
+      outputSwizzle = 2,
       forceUnroll = true>
   } : memref<2x1024x1024xf32>, memref<2x1024x2048xf32>, memref<2x1024x2048xf32>
   return

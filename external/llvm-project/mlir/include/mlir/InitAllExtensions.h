@@ -21,11 +21,13 @@
 #include "mlir/Conversion/GPUCommon/GPUToLLVM.h"
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVM.h"
 #include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/MPIToLLVM/MPIToLLVM.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
 #include "mlir/Conversion/OpenMPToLLVM/ConvertOpenMPToLLVM.h"
 #include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/AMX/Transforms.h"
 #include "mlir/Dialect/Affine/TransformOps/AffineTransformOps.h"
 #include "mlir/Dialect/Bufferization/TransformOps/BufferizationTransformOps.h"
@@ -49,6 +51,7 @@
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 
 #include <cstdlib>
 
@@ -69,6 +72,7 @@ inline void registerAllExtensions(DialectRegistry &registry) {
   registerConvertFuncToLLVMInterface(registry);
   index::registerConvertIndexToLLVMInterface(registry);
   registerConvertMathToLLVMInterface(registry);
+  mpi::registerConvertMPIToLLVMInterface(registry);
   registerConvertMemRefToLLVMInterface(registry);
   registerConvertNVVMToLLVMInterface(registry);
   registerConvertOpenMPToLLVMInterface(registry);
@@ -76,6 +80,7 @@ inline void registerAllExtensions(DialectRegistry &registry) {
   registerConvertAMXToLLVMInterface(registry);
   gpu::registerConvertGpuToLLVMInterface(registry);
   NVVM::registerConvertGpuToNVVMInterface(registry);
+  vector::registerConvertVectorToLLVMInterface(registry);
 
   // Register all transform dialect extensions.
   affine::registerTransformDialectExtension(registry);

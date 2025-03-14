@@ -6,6 +6,7 @@
 // RUN: llvm-profdata merge -o %t.profdata %t.profraw
 // RUN: llvm-cov show %t -instr-profile %t.profdata 2>&1 | FileCheck %s
 
+
 int main() {                        // CHECK:       [[# @LINE]]| 1|int main() {
     int x = 0;                      // CHECK-NEXT:  [[# @LINE]]| 1|
                                     // CHECK-NEXT:  [[# @LINE]]|  |

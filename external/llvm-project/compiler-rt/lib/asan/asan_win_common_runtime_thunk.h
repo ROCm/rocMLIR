@@ -19,12 +19,11 @@
 #  include "sanitizer_common/sanitizer_win_defs.h"
 
 #  pragma section(".CRT$XIB", long, \
-                      read)  // C initializer (during C init before dyninit)
+                  read)  // C initializer (during C init before dyninit)
 #  pragma section(".CRT$XID", long, \
-                      read)  // First C initializer after CRT initializers
-#  pragma section(           \
-          ".CRT$XCAB", long, \
-              read)  // First C++ initializer after startup initializers
+                  read)  // First C initializer after CRT initializers
+#  pragma section(".CRT$XCAB", long, \
+                  read)  // First C++ initializer after startup initializers
 
 #  pragma section(".CRT$XTW", long, read)  // First ASAN globals terminator
 #  pragma section(".CRT$XTY", long, read)  // Last ASAN globals terminator

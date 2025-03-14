@@ -208,13 +208,11 @@ template <class _Container, class... _Args>
   static_assert(
       !is_volatile_v<_Container>, "The target container cannot be volatile-qualified, please remove the volatile");
 
-  auto __to_func = []<input_range _Range, class... _Tail>(_Range && __range, _Tail && ... __tail) static
+  auto __to_func = []<input_range _Range, class... _Tail>(_Range&& __range, _Tail&&... __tail) static
     requires requires { //
       /**/ ranges::to<_Container>(std::forward<_Range>(__range), std::forward<_Tail>(__tail)...);
     }
-  {
-    return ranges::to<_Container>(std::forward<_Range>(__range), std::forward<_Tail>(__tail)...);
-  };
+  { return ranges::to<_Container>(std::forward<_Range>(__range), std::forward<_Tail>(__tail)...); };
 
   return __range_adaptor_closure_t(std::__bind_back(__to_func, std::forward<_Args>(__args)...));
 }

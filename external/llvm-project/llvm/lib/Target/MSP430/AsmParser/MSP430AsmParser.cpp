@@ -104,7 +104,7 @@ class MSP430Operand : public MCParsedAsmOperand {
   };
   union {
     const MCExpr *Imm;
-    MCRegister Reg;
+    MCRegister    Reg;
     StringRef     Tok;
     Memory        Mem;
   };

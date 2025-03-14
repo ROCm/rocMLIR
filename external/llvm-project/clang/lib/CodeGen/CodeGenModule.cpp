@@ -76,6 +76,7 @@
 #include "llvm/TargetParser/X86TargetParser.h"
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include <optional>
+#include <set>
 
 using namespace clang;
 using namespace CodeGen;
@@ -123,6 +124,8 @@ createTargetCodeGenInfo(CodeGenModule &CGM) {
   case llvm::Triple::mipsel:
     if (Triple.getOS() == llvm::Triple::NaCl)
       return createPNaClTargetCodeGenInfo(CGM);
+    else if (Triple.getOS() == llvm::Triple::Win32)
+      return createWindowsMIPSTargetCodeGenInfo(CGM, /*IsOS32=*/true);
     return createMIPSTargetCodeGenInfo(CGM, /*IsOS32=*/true);
 
   case llvm::Triple::mips64:
@@ -487,8 +490,10 @@ void CodeGenModule::createOpenMPRuntime() {
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
   case llvm::Triple::amdgcn:
-    assert(getLangOpts().OpenMPIsTargetDevice &&
-           "OpenMP AMDGPU/NVPTX is only prepared to deal with device code.");
+  case llvm::Triple::spirv64:
+    assert(
+        getLangOpts().OpenMPIsTargetDevice &&
+        "OpenMP AMDGPU/NVPTX/SPIRV is only prepared to deal with device code.");
     OpenMPRuntime.reset(new CGOpenMPRuntimeGPU(*this));
     break;
   default:
@@ -1156,6 +1161,8 @@ void CodeGenModule::Release() {
     if (CodeGenOpts.PatchableFunctionEntryOffset)
       getModule().addModuleFlag(llvm::Module::Override, "kcfi-offset",
                                 CodeGenOpts.PatchableFunctionEntryOffset);
+    if (CodeGenOpts.SanitizeKcfiArity)
+      getModule().addModuleFlag(llvm::Module::Override, "kcfi-arity", 1);
   }
 
   if (CodeGenOpts.CFProtectionReturn &&
@@ -1299,6 +1306,11 @@ void CodeGenModule::Release() {
 
   if (LangOpts.EHAsynch)
     getModule().addModuleFlag(llvm::Module::Warning, "eh-asynch", 1);
+
+  // Emit Import Call section.
+  if (CodeGenOpts.ImportCallOptimization)
+    getModule().addModuleFlag(llvm::Module::Warning, "import-call-optimization",
+                              1);
 
   // Indicate whether this Module was compiled with -fopenmp
   if (getLangOpts().OpenMP && !getLangOpts().OpenMPSimd)
@@ -2758,17 +2770,26 @@ bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
     Attrs.addAttribute("target-features", llvm::join(Features, ","));
     AddedAttr = true;
   }
+  // Add metadata for AArch64 Function Multi Versioning.
   if (getTarget().getTriple().isAArch64()) {
     llvm::SmallVector<StringRef, 8> Feats;
-    if (TV)
+    bool IsDefault = false;
+    if (TV) {
+      IsDefault = TV->isDefaultVersion();
       TV->getFeatures(Feats);
-    else if (TC)
+    } else if (TC) {
+      IsDefault = TC->isDefaultVersion(GD.getMultiVersionIndex());
       TC->getFeatures(Feats, GD.getMultiVersionIndex());
-    if (!Feats.empty()) {
-      llvm::sort(Feats);
+    }
+    if (IsDefault) {
+      Attrs.addAttribute("fmv-features");
+      AddedAttr = true;
+    } else if (!Feats.empty()) {
+      // Sort features and remove duplicates.
+      std::set<StringRef> OrderedFeats(Feats.begin(), Feats.end());
       std::string FMVFeatures;
-      for (StringRef F : Feats)
-        FMVFeatures.append(",+" + F.str());
+      for (StringRef F : OrderedFeats)
+        FMVFeatures.append("," + F.str());
       Attrs.addAttribute("fmv-features", FMVFeatures.substr(1));
       AddedAttr = true;
     }
@@ -2810,6 +2831,7 @@ void CodeGenModule::setNonAliasAttributes(GlobalDecl GD,
         llvm::AttributeMask RemoveAttrs;
         RemoveAttrs.addAttribute("target-cpu");
         RemoveAttrs.addAttribute("target-features");
+        RemoveAttrs.addAttribute("fmv-features");
         RemoveAttrs.addAttribute("tune-cpu");
         F->removeFnAttrs(RemoveAttrs);
         F->addFnAttrs(Attrs);
@@ -3059,13 +3081,15 @@ static void emitUsed(CodeGenModule &CGM, StringRef Name,
   for (unsigned i = 0, e = List.size(); i != e; ++i) {
     UsedArray[i] = llvm::ConstantExpr::getPointerBitCastOrAddrSpaceCast(
         cast<llvm::Constant>(&*List[i]),
-        llvm::PointerType::getUnqual(CGM.getLLVMContext()));
+        CGM.getTarget().getTriple().isAMDGCN() ?
+          llvm::PointerType::getUnqual(CGM.getLLVMContext()) :
+          CGM.Int8PtrTy);
   }
 
   if (UsedArray.empty())
     return;
-  llvm::ArrayType *ATy = llvm::ArrayType::get(
-      llvm::PointerType::getUnqual(CGM.getLLVMContext()), UsedArray.size());
+  llvm::ArrayType *ATy = llvm::ArrayType::get(UsedArray.front()->getType(),
+                                              UsedArray.size());
 
   auto *GV = new llvm::GlobalVariable(
       CGM.getModule(), ATy, false, llvm::GlobalValue::AppendingLinkage,
@@ -3758,7 +3782,7 @@ ConstantAddress CodeGenModule::GetAddrOfTemplateParamObject(
   auto *GV = new llvm::GlobalVariable(getModule(), Init->getType(),
                                       /*isConstant=*/true, Linkage, Init, Name);
   setGVProperties(GV, TPO);
-  if (supportsCOMDAT())
+  if (supportsCOMDAT() && Linkage == llvm::GlobalValue::LinkOnceODRLinkage)
     GV->setComdat(TheModule.getOrInsertComdat(GV->getName()));
   Emitter.finalize(GV);
 
@@ -4008,7 +4032,8 @@ namespace {
       unsigned BuiltinID = FD->getBuiltinID();
       if (!BuiltinID || !BI.isLibFunction(BuiltinID))
         return false;
-      StringRef BuiltinName = BI.getName(BuiltinID);
+      std::string BuiltinNameStr = BI.getName(BuiltinID);
+      StringRef BuiltinName = BuiltinNameStr;
       if (BuiltinName.starts_with("__builtin_") &&
           Name == BuiltinName.slice(strlen("__builtin_"), StringRef::npos)) {
         return true;
@@ -4252,7 +4277,7 @@ void CodeGenModule::EmitGlobalDefinition(GlobalDecl GD, llvm::GlobalValue *GV) {
 static void ReplaceUsesOfNonProtoTypeWithRealFunction(llvm::GlobalValue *Old,
                                                       llvm::Function *NewFn);
 
-static unsigned getFMVPriority(const TargetInfo &TI,
+static uint64_t getFMVPriority(const TargetInfo &TI,
                                const CodeGenFunction::FMVResolverOption &RO) {
   llvm::SmallVector<StringRef, 8> Features{RO.Features};
   if (RO.Architecture)
@@ -4422,7 +4447,7 @@ void CodeGenModule::emitCPUDispatchDefinition(GlobalDecl GD) {
   GlobalDecl ResolverGD;
   if (getTarget().supportsIFunc()) {
     ResolverType = llvm::FunctionType::get(
-        llvm::PointerType::get(DeclTy,
+        llvm::PointerType::get(getLLVMContext(),
                                getTypes().getTargetAddressSpace(FD->getType())),
         false);
   }
@@ -4594,8 +4619,8 @@ llvm::Constant *CodeGenModule::GetOrCreateMultiVersionResolver(GlobalDecl GD) {
   // cpu_dispatch will be emitted in this translation unit.
   if (ShouldReturnIFunc) {
     unsigned AS = getTypes().getTargetAddressSpace(FD->getType());
-    llvm::Type *ResolverType =
-        llvm::FunctionType::get(llvm::PointerType::get(DeclTy, AS), false);
+    llvm::Type *ResolverType = llvm::FunctionType::get(
+        llvm::PointerType::get(getLLVMContext(), AS), false);
     llvm::Constant *Resolver = GetOrCreateLLVMFunction(
         MangledName + ".resolver", ResolverType, GlobalDecl{},
         /*ForVTable=*/false);
@@ -5499,6 +5524,11 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
   // therefore no need to be translated.
   QualType ASTTy = D->getType();
   if (getLangOpts().OpenCL && ASTTy->isSamplerT())
+    return;
+
+  // HLSL default buffer constants will be emitted during HLSLBufferDecl codegen
+  if (getLangOpts().HLSL &&
+      D->getType().getAddressSpace() == LangAS::hlsl_constant)
     return;
 
   // If this is OpenMP device, check if it is legal to emit this global
@@ -7012,9 +7042,10 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
   case Decl::VarTemplateSpecialization:
     EmitGlobal(cast<VarDecl>(D));
     if (auto *DD = dyn_cast<DecompositionDecl>(D))
-      for (auto *B : DD->bindings())
+      for (auto *B : DD->flat_bindings())
         if (auto *HD = B->getHoldingVar())
           EmitGlobal(HD);
+
     break;
 
   // Indirect fields from global anonymous structs and unions can be

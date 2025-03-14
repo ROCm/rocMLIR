@@ -18,8 +18,8 @@ namespace LIBC_NAMESPACE_DECL {
 
 LLVM_LIBC_FUNCTION(int, puts, (const char *__restrict str)) {
   cpp::string_view str_view(str);
-  auto written = file::write_impl<LIBC_WRITE_TO_STDOUT_NEWLINE>(
-      stdout, str, str_view.size());
+  auto written = file::write_impl<LIBC_WRITE_TO_STDOUT_NEWLINE>(stdout, str,
+                                                               str_view.size());
   if (written != str_view.size() + 1)
     return EOF;
   return 0;

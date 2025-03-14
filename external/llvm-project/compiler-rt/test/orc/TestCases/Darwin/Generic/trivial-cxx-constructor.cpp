@@ -12,4 +12,6 @@ public:
 
 static Init I;
 
-int main(int argc, char *argv[]) { return x; }
+int main(int argc, char *argv[]) {
+  return x;
+}

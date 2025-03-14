@@ -11,18 +11,19 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/Frontend/CompilerInvocation.h"
-#include "flang/Common/Fortran-features.h"
-#include "flang/Common/OpenMP-features.h"
-#include "flang/Common/Version.h"
 #include "flang/Frontend/CodeGenOptions.h"
 #include "flang/Frontend/PreprocessorOptions.h"
 #include "flang/Frontend/TargetOptions.h"
 #include "flang/Semantics/semantics.h"
+#include "flang/Support/Fortran-features.h"
+#include "flang/Support/OpenMP-features.h"
+#include "flang/Support/Version.h"
 #include "flang/Tools/TargetSetup.h"
 #include "flang/Version.inc"
 #include "clang/Basic/AllDiagnostics.h"
 #include "clang/Basic/DiagnosticDriver.h"
 #include "clang/Basic/DiagnosticOptions.h"
+#include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/OptionUtils.h"
 #include "clang/Driver/Options.h"
@@ -157,6 +158,32 @@ static bool parseDebugArgs(Fortran::frontend::CodeGenOptions &opts,
   return true;
 }
 
+static bool parseDoConcurrentMapping(Fortran::frontend::CodeGenOptions &opts,
+                                     llvm::opt::ArgList &args,
+                                     clang::DiagnosticsEngine &diags) {
+  llvm::opt::Arg *arg =
+      args.getLastArg(clang::driver::options::OPT_do_concurrent_parallel_EQ);
+  if (!arg)
+    return true;
+
+  using DoConcurrentMappingKind = Fortran::frontend::CodeGenOptions::DoConcurrentMappingKind;
+  std::optional<DoConcurrentMappingKind> val =
+      llvm::StringSwitch<std::optional<DoConcurrentMappingKind>>(
+          arg->getValue())
+          .Case("none", DoConcurrentMappingKind::DCMK_None)
+          .Case("host", DoConcurrentMappingKind::DCMK_Host)
+          .Case("device", DoConcurrentMappingKind::DCMK_Device)
+          .Default(std::nullopt);
+
+  if (!val.has_value()) {
+    diags.Report(clang::diag::err_drv_invalid_value)
+        << arg->getAsString(args) << arg->getValue();
+    return false;
+  }
+  opts.setDoConcurrentMapping(val.value());
+  return true;
+}
+
 static bool parseVectorLibArg(Fortran::frontend::CodeGenOptions &opts,
                               llvm::opt::ArgList &args,
                               clang::DiagnosticsEngine &diags) {
@@ -242,9 +269,16 @@ static void parseCodeGenArgs(Fortran::frontend::CodeGenOptions &opts,
                    clang::driver::options::OPT_fno_stack_arrays, false))
     opts.StackArrays = 1;
 
+  if (args.getLastArg(clang::driver::options::OPT_vectorize_loops))
+    opts.VectorizeLoop = 1;
+
   if (args.hasFlag(clang::driver::options::OPT_floop_versioning,
                    clang::driver::options::OPT_fno_loop_versioning, false))
     opts.LoopVersioning = 1;
+
+  opts.UnrollLoops = args.hasFlag(clang::driver::options::OPT_funroll_loops,
+                                  clang::driver::options::OPT_fno_unroll_loops,
+                                  (opts.OptimizationLevel > 1));
 
   opts.AliasAnalysis = opts.OptimizationLevel > 0;
 
@@ -422,6 +456,14 @@ static void parseCodeGenArgs(Fortran::frontend::CodeGenOptions &opts,
                    clang::driver::options::OPT_funderscoring, false)) {
     opts.Underscoring = 0;
   }
+
+  if (args.hasFlag(clang::driver::options::OPT_foffload_global_filtering,
+                   clang::driver::options::OPT_fno_offload_global_filtering,
+                   false)) {
+    opts.OffloadGlobalFiltering = 1;
+  }
+
+  parseDoConcurrentMapping(opts, args, diags);
 }
 
 /// Parses all target input arguments and populates the target
@@ -460,6 +502,7 @@ static void parseTargetArgs(TargetOptions &opts, llvm::opt::ArgList &args) {
 
   if (const llvm::opt::Arg *a =
           args.getLastArg(clang::driver::options::OPT_mabi_EQ)) {
+    opts.abi = a->getValue();
     llvm::StringRef V = a->getValue();
     if (V == "vec-extabi") {
       opts.EnableAIXExtendedAltivecABI = true;
@@ -736,6 +779,12 @@ static bool parseFrontendArgs(FrontendOptions &opts, llvm::opt::ArgList &args,
       args.hasFlag(clang::driver::options::OPT_fimplicit_none,
                    clang::driver::options::OPT_fno_implicit_none, false));
 
+  // -f{no-}implicit-none-ext
+  opts.features.Enable(
+      Fortran::common::LanguageFeature::ImplicitNoneExternal,
+      args.hasFlag(clang::driver::options::OPT_fimplicit_none_ext,
+                   clang::driver::options::OPT_fno_implicit_none_ext, false));
+
   // -f{no-}backslash
   opts.features.Enable(Fortran::common::LanguageFeature::BackslashEscapes,
                        args.hasFlag(clang::driver::options::OPT_fbackslash,
@@ -765,6 +814,12 @@ static bool parseFrontendArgs(FrontendOptions &opts, llvm::opt::ArgList &args,
   if (args.hasArg(clang::driver::options::OPT_fno_automatic)) {
     opts.features.Enable(Fortran::common::LanguageFeature::DefaultSave);
   }
+
+  // -f{no}-save-main-program
+  opts.features.Enable(
+      Fortran::common::LanguageFeature::SaveMainProgram,
+      args.hasFlag(clang::driver::options::OPT_fsave_main_program,
+                   clang::driver::options::OPT_fno_save_main_program, false));
 
   if (args.hasArg(
           clang::driver::options::OPT_falternative_parameter_statement)) {
@@ -1020,8 +1075,8 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
   unsigned numErrorsBefore = diags.getNumErrors();
   llvm::Triple t(res.getTargetOpts().triple);
 
-  // By default OpenMP is set to 1.1 version
-  res.getLangOpts().OpenMPVersion = 11;
+  // By default OpenMP is set to 5.2 version
+  res.getLangOpts().OpenMPVersion = 52;
   res.getFrontendOpts().features.Enable(
       Fortran::common::LanguageFeature::OpenMP);
   if (int Version = getLastArgIntValue(
@@ -1076,7 +1131,7 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
           args.hasArg(clang::driver::options::OPT_fopenmp_target_debug))
         res.getLangOpts().OpenMPTargetDebug = 1;
     }
-    if (args.hasArg(clang::driver::options::OPT_nogpulib))
+    if (args.hasArg(clang::driver::options::OPT_no_offloadlib))
       res.getLangOpts().NoGPULib = 1;
   }
 
@@ -1368,6 +1423,14 @@ bool CompilerInvocation::createFromArgs(
     invoc.loweringOpts.setNoPPCNativeVecElemOrder(true);
   }
 
+  // -f[no-]init-global-zero
+  if (args.hasFlag(clang::driver::options::OPT_finit_global_zero,
+                   clang::driver::options::OPT_fno_init_global_zero,
+                   /*default=*/true))
+    invoc.loweringOpts.setInitGlobalZero(true);
+  else
+    invoc.loweringOpts.setInitGlobalZero(false);
+
   // Preserve all the remark options requested, i.e. -Rpass, -Rpass-missed or
   // -Rpass-analysis. This will be used later when processing and outputting the
   // remarks generated by LLVM in ExecuteCompilerInvocation.cpp.
@@ -1431,6 +1494,10 @@ bool CompilerInvocation::createFromArgs(
     }
   }
 
+  // Process the timing-related options.
+  if (args.hasArg(clang::driver::options::OPT_ftime_report))
+    invoc.enableTimers = true;
+
   invoc.setArgv0(argv0);
 
   return success;
@@ -1488,6 +1555,7 @@ void CompilerInvocation::setDefaultPredefinitions() {
   auto &fortranOptions = getFortranOpts();
   const auto &frontendOptions = getFrontendOpts();
   // Populate the macro list with version numbers and other predefinitions.
+  fortranOptions.predefinitions.emplace_back("__amdflang__", "1");
   fortranOptions.predefinitions.emplace_back("__flang__", "1");
   fortranOptions.predefinitions.emplace_back("__flang_major__",
                                              FLANG_VERSION_MAJOR_STRING);

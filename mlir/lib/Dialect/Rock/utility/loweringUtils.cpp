@@ -575,7 +575,7 @@ FailureOr<memref::AllocOp> mlir::rock::findMemrefAlloc(Value value) {
   return findAlloc<memref::AllocOp>(value);
 }
 
-FailureOr<BlockArgument> findBlockArgument(Value value) {
+FailureOr<BlockArgument> mlir::rock::findBlockArgument(Value value) {
   auto maybeBlockArg = dyn_cast_or_null<BlockArgument>(value);
   while (!maybeBlockArg) {
     // Keep going until the operation that defines the value is a

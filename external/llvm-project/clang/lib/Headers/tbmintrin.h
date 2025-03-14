@@ -32,7 +32,8 @@ __blcfill_u32(unsigned int __a) {
   return __a & (__a + 1);
 }
 
-static __inline__ unsigned int __DEFAULT_FN_ATTRS __blci_u32(unsigned int __a) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+__blci_u32(unsigned int __a) {
   return __a | ~(__a + 1);
 }
 
@@ -46,7 +47,8 @@ __blcmsk_u32(unsigned int __a) {
   return __a ^ (__a + 1);
 }
 
-static __inline__ unsigned int __DEFAULT_FN_ATTRS __blcs_u32(unsigned int __a) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+__blcs_u32(unsigned int __a) {
   return __a | (__a + 1);
 }
 

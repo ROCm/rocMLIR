@@ -60,18 +60,18 @@ In general (with all invocations given from the build directory)
 
 
 The result of this pipeline should, most simply, be passed to the `rocm-run`
-script in `mlir/utils/widgets//rocm-run`, which calls `mlir-cpu-runner` with
+script in `mlir/utils/widgets//rocm-run`, which calls `mlir-runner` with
 the appropriate flags and infers the pathnames for libraries correctly.
 
 In more detail, the result of the above pipeline can be passed to
-`./external/llvm-project/llvm/bin/mlir-cpu-runner` .
+`./external/llvm-project/llvm/bin/mlir-runner` .
 
-`mlir-cpu-runner` needs to link the generated host code against libraries that
+`mlir-runner` needs to link the generated host code against libraries that
 map from MLIR operations to the HIP runtime.
 The required command-line arguments (if running from `build/`) are
 
 ```sh
-./external/llvm-project/llvm/bin/mlir-cpu-runner --shared-libs=./external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,./lib/libconv-validation-wrappers.so,./external/llvm-project/llvm/lib/libmlir_runner_utils.so --entry-point-result=void
+./external/llvm-project/llvm/bin/mlir-runner --shared-libs=./external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,./lib/libconv-validation-wrappers.so,./external/llvm-project/llvm/lib/libmlir_runner_utils.so --entry-point-result=void
 ```
 
 Adding `--debug-only=serialize-to-blob` to the `rocmlir-driver` invocation

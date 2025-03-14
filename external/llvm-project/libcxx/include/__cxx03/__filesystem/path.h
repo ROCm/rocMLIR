@@ -129,7 +129,7 @@ struct __is_pathable_string< basic_string_view<_ECharT, _Traits>,
 template <class _Source,
           class _DS            = __decay_t<_Source>,
           class _UnqualPtrType = __remove_const_t<__remove_pointer_t<_DS> >,
-          bool _IsCharPtr      = is_pointer<_DS>::value&& __can_convert_char<_UnqualPtrType>::value>
+          bool _IsCharPtr      = is_pointer<_DS>::value && __can_convert_char<_UnqualPtrType>::value>
 struct __is_pathable_char_array : false_type {};
 
 template <class _Source, class _ECharT, class _UPtr>

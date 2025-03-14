@@ -28,8 +28,9 @@ namespace mlir {
 namespace rock {
 
 // The full space is a brute-force search for attention kernels
-void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
-                             TuningParamSetKind kind) {
+static void createAttnTuningRangeBF(TuningParamSet *newSpace,
+                                    AttentionOp attnOp,
+                                    TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
       /*gemm0MPerBlock=*/{32, 64, 128, 256},
       /*gemm1MPerBlock=*/{32, 64, 128, 256},
@@ -95,10 +96,10 @@ void createAttnTuningRangeBF(TuningParamSet *newSpace, AttentionOp attnOp,
   }
 }
 
-double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
-                            int32_t gemmNPerBlock, int32_t gemmKPerBlock,
-                            int32_t kPack, uint32_t numCUs,
-                            int32_t splitKFactor = 1) {
+static double computeWorkImbalance(GemmSize origGemmSize, int32_t gemmMPerBlock,
+                                   int32_t gemmNPerBlock, int32_t gemmKPerBlock,
+                                   int32_t kPack, uint32_t numCUs,
+                                   int32_t splitKFactor = 1) {
   const InitParams params{gemmMPerBlock, gemmNPerBlock, gemmKPerBlock};
   const GemmSize gemmSize =
       calculatePaddedGemmSize(params, origGemmSize, kPack);
@@ -192,9 +193,10 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
 // the smallest parameters. This filters out perf configs that are
 // known to be impossible during tthe AffixTuningParams check.
 // If `kind` is Full, also filters out unlikely-to-be-good configurations.
-void createGemmTuningRangeBF(TuningParamSet *newSpace,
-                             RockGemmWrapperInterface gemmOp,
-                             bool isSplitKFusible, TuningParamSetKind kind) {
+static void createGemmTuningRangeBF(TuningParamSet *newSpace,
+                                    RockGemmWrapperInterface gemmOp,
+                                    bool isSplitKFusible,
+                                    TuningParamSetKind kind) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
 
   // blockSize M/block N/block K/block M/thread N/thread
@@ -237,9 +239,9 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
     PopulateParamsXDL tuningInfo;
     // XDLOPS
     Type inTypeA = gemmOp.getAType();
-    bool is8BitReduction = inTypeA.isInteger(8) || inTypeA.isFloat8E5M2FNUZ() ||
-                           inTypeA.isFloat8E4M3FNUZ() ||
-                           inTypeA.isFloat8E5M2() || inTypeA.isFloat8E4M3FN();
+    bool is8BitReduction =
+        inTypeA.isInteger(8) ||
+        (inTypeA.getIntOrFloatBitWidth() == 8 && isa<FloatType>(inTypeA));
     const std::vector<std::vector<uint32_t>> &xdlopsParams =
         is8BitReduction ? validRangeAccelGemmParams8BitReduction
                         : validRangeAccelGemmParams;
@@ -254,10 +256,12 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                     gemmKPack, isSplitKFusible);
                 for (int64_t splitKFactor : optimalSplitKFactors) {
                   for (uint32_t forceUnroll : xdlopsParams[6]) {
-                    InitParamsAccel gemmParams(gemmMPerBlock, gemmNPerBlock,
-                                               gemmKPerBlock, gemmMPerWave,
-                                               gemmMnPerXdl, gemmKPack,
-                                               splitKFactor, forceUnroll, true);
+                    // hardcode schedule version to v1 and outputSwizzle to
+                    // heuristics = 2
+                    InitParamsAccel gemmParams(
+                        gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                        gemmMPerWave, gemmMnPerXdl, gemmKPack, splitKFactor, 1,
+                        2, forceUnroll, true);
                     if (gemmMPerBlock >= gemmMPerWave &&
                         gemmNPerBlock >= gemmMnPerXdl) {
                       if (succeeded(tuningInfo.paramsProbablyValid(
@@ -293,10 +297,12 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                     gemmKPack, isSplitKFusible);
                 for (auto splitKFactor : optimalSplitKFactors) {
                   for (uint32_t forceUnroll : wmmaParams[6]) {
-                    InitParamsAccel gemmParams(gemmMPerBlock, gemmNPerBlock,
-                                               gemmKPerBlock, gemmMPerWave,
-                                               gemmNPerWave, gemmKPack,
-                                               splitKFactor, forceUnroll, true);
+                    // hardcode schedule version to v1 and outputSwizzle to
+                    // heuristics = 2
+                    InitParamsAccel gemmParams(
+                        gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                        gemmMPerWave, gemmNPerWave, gemmKPack, splitKFactor, 1,
+                        2, forceUnroll, true);
                     if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                  gemmParams)) &&
                         (kind == TuningParamSetKind::Exhaustive ||
@@ -326,9 +332,11 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
                   isSplitKFusible);
               for (auto splitKFactor : optimalSplitKFactors) {
                 for (uint32_t gemmNPerThread : validRangeGeneralGemmParams[5]) {
+                  // hardcode schedule version to v1 and outputSwizzle to
+                  // heuristics = 2
                   InitParamsNonAccel gemmParams(
                       blockSize, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                      gemmMPerThread, gemmNPerThread, splitKFactor);
+                      gemmMPerThread, gemmNPerThread, splitKFactor, 1, 2);
                   if (succeeded(tuningInfo.paramsProbablyValid(b, info,
                                                                gemmParams)) &&
                       (kind == TuningParamSetKind::Exhaustive ||
@@ -347,8 +355,8 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
   }
 }
 
-void createQuickTuningRange(TuningParamSet *newSpace,
-                            RockGemmWrapperInterface gemmOp) {
+static void createQuickTuningRange(TuningParamSet *newSpace,
+                                   RockGemmWrapperInterface gemmOp) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
   GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
@@ -393,15 +401,15 @@ void createQuickTuningRange(TuningParamSet *newSpace,
 
 // This is temporary workaround to make MIGraphX integration
 // work until the tuning is setup for attention ops properly.
-void createAttnTuningRangeQuick(TuningParamSet *newSpace, AttentionOp attnOp) {
+static void createAttnTuningRangeQuick(TuningParamSet *newSpace,
+                                       AttentionOp attnOp) {
   OpBuilder b(attnOp.getContext());
   GemmFeatures currentFeatures = attnOp.getFeatures();
   Type elemType =
       cast<ShapedType>(attnOp.getQueries().getType()).getElementType();
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
-  typedef std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-                     int64_t>
-      PerfConfigVals;
+  using PerfConfigVals =
+      std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>;
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     const SmallVector<PerfConfigVals, 7> attnQuickTuningListMFMAF16{
         PerfConfigVals{32, 128, 128, 32, 32, 32, 4},
@@ -544,8 +552,8 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
-                                  SmallVectorImpl<char> &out) {
+static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
+                                         SmallVectorImpl<char> &out) {
   int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
   if (attnOp.getNumCU().has_value()) {
     numCU = attnOp.getNumCU().value();
@@ -631,8 +639,8 @@ LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   return success();
 }
 
-LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
-                                  SmallVectorImpl<char> &out) {
+static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
+                                         SmallVectorImpl<char> &out) {
   int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
   if (gemmIF.getNumCU().has_value())
     numCU = gemmIF.getNumCU().value();
@@ -644,9 +652,9 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   Operation *gemmOp = gemmIF.getOperation();
 
   auto f8TypeStr = [](const Type &type) -> std::optional<StringLiteral> {
-    if (type.isFloat8E4M3FNUZ() || type.isFloat8E4M3FN())
+    if (isa<Float8E4M3FNUZType, Float8E4M3FNType>(type))
       return StringLiteral("fp8");
-    if (type.isFloat8E5M2FNUZ() || type.isFloat8E5M2())
+    if (isa<Float8E5M2FNUZType, Float8E5M2Type>(type))
       return StringLiteral("bf8");
     return std::nullopt;
   };
@@ -932,14 +940,14 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 }
 
 template <typename ParamType>
-int64_t retrieveSplitKValueImpl(StringRef perfConfig) {
+static int64_t retrieveSplitKValueImpl(StringRef perfConfig) {
   ParamType params;
   params.deserialize(perfConfig.str());
   return params.splitKFactor;
 }
 
-int64_t retrieveSplitKValue(rock::RockGemmWrapperInterface op,
-                            StringRef perfConfig) {
+static int64_t retrieveSplitKValue(rock::RockGemmWrapperInterface op,
+                                   StringRef perfConfig) {
   rock::GemmFeatures features = op.getGemmFeatures();
   if (isAccel(features)) {
     return retrieveSplitKValueImpl<rock::InitParamsAccel>(perfConfig);

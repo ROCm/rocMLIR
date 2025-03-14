@@ -487,12 +487,14 @@ private:
   MemDepResult getCallDependencyFrom(CallBase *Call, bool isReadOnlyCall,
                                      BasicBlock::iterator ScanIt,
                                      BasicBlock *BB);
-  bool getNonLocalPointerDepFromBB(
-      Instruction *QueryInst, const PHITransAddr &Pointer,
-      const MemoryLocation &Loc, bool isLoad, BasicBlock *BB,
-      SmallVectorImpl<NonLocalDepResult> &Result,
-      SmallDenseMap<BasicBlock *, Value *, 16> &Visited,
-      bool SkipFirstBlock = false, bool IsIncomplete = false);
+  bool getNonLocalPointerDepFromBB(Instruction *QueryInst,
+                                   const PHITransAddr &Pointer,
+                                   const MemoryLocation &Loc, bool isLoad,
+                                   BasicBlock *BB,
+                                   SmallVectorImpl<NonLocalDepResult> &Result,
+                                   SmallDenseMap<BasicBlock *, Value *, 16> &Visited,
+                                   bool SkipFirstBlock = false,
+                                   bool IsIncomplete = false);
   MemDepResult getNonLocalInfoForBlock(Instruction *QueryInst,
                                        const MemoryLocation &Loc, bool isLoad,
                                        BasicBlock *BB, NonLocalDepInfo *Cache,

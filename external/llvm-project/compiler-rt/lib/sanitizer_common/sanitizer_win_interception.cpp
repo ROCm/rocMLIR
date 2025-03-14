@@ -106,9 +106,10 @@ extern "C" __declspec(dllexport) bool __cdecl __sanitizer_override_function(
   return function_overridden;
 }
 
-extern "C" __declspec(dllexport) bool __cdecl __sanitizer_override_function_by_addr(
-    const uptr source_function, const uptr target_function,
-    uptr *const old_target_function) {
+extern "C"
+    __declspec(dllexport) bool __cdecl __sanitizer_override_function_by_addr(
+        const uptr source_function, const uptr target_function,
+        uptr *const old_target_function) {
   CHECK(source_function);
   CHECK(target_function);
 
@@ -125,9 +126,10 @@ extern "C" __declspec(dllexport) bool __cdecl __sanitizer_override_function_by_a
   return function_overridden;
 }
 
-extern "C" __declspec(dllexport) bool __cdecl __sanitizer_register_weak_function(
-    const char *export_name, const uptr user_function,
-    uptr *const old_user_function) {
+extern "C"
+    __declspec(dllexport) bool __cdecl __sanitizer_register_weak_function(
+        const char *export_name, const uptr user_function,
+        uptr *const old_user_function) {
   CHECK(export_name);
   CHECK(user_function);
 

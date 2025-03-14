@@ -57,12 +57,12 @@ using namespace llvm;
   CASE_AVX_INS_COMMON(Inst, Z128, src##i) \
   CASE_MASK_INS_COMMON(Inst, Z, src##i)
 
-#define CASE_FPCLASS_PACKED_MEM(Inst)                                          \
-  CASE_FPCLASS_PACKED(Inst, m)                                                 \
+#define CASE_FPCLASS_PACKED_MEM(Inst) \
+  CASE_FPCLASS_PACKED(Inst, m)        \
   CASE_FPCLASS_PACKED(Inst, mb)
 
-#define CASE_FPCLASS_SCALAR(Inst, src)                                         \
-  CASE_AVX_INS_COMMON(Inst, Z, src##i)                                         \
+#define CASE_FPCLASS_SCALAR(Inst, src)  \
+  CASE_AVX_INS_COMMON(Inst, Z, src##i)  \
   CASE_MASK_INS_COMMON(Inst, Z, src##i)
 
 #define CASE_PTERNLOG(Inst, src)                                               \
@@ -979,7 +979,7 @@ static bool printFPCLASSComments(const MCInst *MI, raw_ostream &OS,
   unsigned NumOperands = MI->getNumOperands();
   int SrcIdx;
   switch (MI->getOpcode()) {
-    CASE_FPCLASS_PACKED(FPCLASSPBF16, r)
+    CASE_FPCLASS_PACKED(FPCLASSBF16, r)
     CASE_FPCLASS_PACKED(FPCLASSPH, r)
     CASE_FPCLASS_PACKED(FPCLASSPS, r)
     CASE_FPCLASS_PACKED(FPCLASSPD, r)
@@ -989,7 +989,7 @@ static bool printFPCLASSComments(const MCInst *MI, raw_ostream &OS,
       SrcIdx = NumOperands - 2;
       break;
     }
-    CASE_FPCLASS_PACKED_MEM(FPCLASSPBF16)
+    CASE_FPCLASS_PACKED_MEM(FPCLASSBF16)
     CASE_FPCLASS_PACKED_MEM(FPCLASSPH)
     CASE_FPCLASS_PACKED_MEM(FPCLASSPS)
     CASE_FPCLASS_PACKED_MEM(FPCLASSPD)
@@ -1015,8 +1015,14 @@ static bool printFPCLASSComments(const MCInst *MI, raw_ostream &OS,
     OS << "false";
   } else {
     static constexpr StringLiteral CategoryNames[] = {
-        "QuietNaN",         "PositiveZero", "NegativeZero", "PositiveInfinity",
-        "NegativeInfinity", "Subnormal",    "Negative",     "SignalingNaN",
+      "QuietNaN",
+      "PositiveZero",
+      "NegativeZero",
+      "PositiveInfinity",
+      "NegativeInfinity",
+      "Subnormal",
+      "Negative",
+      "SignalingNaN",
     };
     bool Conjoin = false;
     for (size_t I = 0, E = std::size(CategoryNames); I != E; ++I) {
@@ -1675,18 +1681,18 @@ bool llvm::EmitAnyX86InstComments(const MCInst *MI, raw_ostream &OS,
 
   case X86::VBROADCASTF128rm:
   case X86::VBROADCASTI128rm:
-    CASE_AVX512_INS_COMMON(BROADCASTF64X2, Z256, rm)
-    CASE_AVX512_INS_COMMON(BROADCASTI64X2, Z256, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTF64X2, Z256, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTI64X2, Z256, rm)
     DecodeSubVectorBroadcast(4, 2, ShuffleMask);
     DestName = getRegName(MI->getOperand(0).getReg());
     break;
-    CASE_AVX512_INS_COMMON(BROADCASTF64X2, Z, rm)
-    CASE_AVX512_INS_COMMON(BROADCASTI64X2, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTF64X2, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTI64X2, Z, rm)
     DecodeSubVectorBroadcast(8, 2, ShuffleMask);
     DestName = getRegName(MI->getOperand(0).getReg());
     break;
-    CASE_AVX512_INS_COMMON(BROADCASTF64X4, Z, rm)
-    CASE_AVX512_INS_COMMON(BROADCASTI64X4, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTF64X4, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTI64X4, Z, rm)
     DecodeSubVectorBroadcast(8, 4, ShuffleMask);
     DestName = getRegName(MI->getOperand(0).getReg());
     break;
@@ -1695,13 +1701,13 @@ bool llvm::EmitAnyX86InstComments(const MCInst *MI, raw_ostream &OS,
     DecodeSubVectorBroadcast(8, 4, ShuffleMask);
     DestName = getRegName(MI->getOperand(0).getReg());
     break;
-    CASE_AVX512_INS_COMMON(BROADCASTF32X4, Z, rm)
-    CASE_AVX512_INS_COMMON(BROADCASTI32X4, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTF32X4, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTI32X4, Z, rm)
     DecodeSubVectorBroadcast(16, 4, ShuffleMask);
     DestName = getRegName(MI->getOperand(0).getReg());
     break;
-    CASE_AVX512_INS_COMMON(BROADCASTF32X8, Z, rm)
-    CASE_AVX512_INS_COMMON(BROADCASTI32X8, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTF32X8, Z, rm)
+  CASE_AVX512_INS_COMMON(BROADCASTI32X8, Z, rm)
     DecodeSubVectorBroadcast(16, 8, ShuffleMask);
     DestName = getRegName(MI->getOperand(0).getReg());
     break;

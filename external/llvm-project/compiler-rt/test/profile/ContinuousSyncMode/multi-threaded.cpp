@@ -16,10 +16,10 @@ void accum(int n) {
 
 int main() {
   int init_value = 10000;
-  auto t1 = std::thread(accum, 1 * init_value);
-  auto t2 = std::thread(accum, 2 * init_value);
-  auto t3 = std::thread(accum, 3 * init_value);
-  auto t4 = std::thread(accum, 4 * init_value);
+  auto t1 = std::thread(accum, 1*init_value);
+  auto t2 = std::thread(accum, 2*init_value);
+  auto t3 = std::thread(accum, 3*init_value);
+  auto t4 = std::thread(accum, 4*init_value);
 
   t1.join();
   t2.join();

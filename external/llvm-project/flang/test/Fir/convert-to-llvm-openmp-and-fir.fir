@@ -799,8 +799,8 @@ func.func @_QPs(%arg0: !fir.ref<complex<f32>> {fir.bindc_name = "x"}) {
 //CHECK:  omp.parallel   {
 //CHECK:    %[[CONST_1:.*]] = llvm.mlir.constant(1 : i32) : i32
 //CHECK:    %[[ALLOCA_1:.*]] = llvm.alloca %[[CONST_1:.*]] x !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8)> {alignment = 8 : i64} : (i32) -> !llvm.ptr
-//CHECK:    %[[SIZE:.*]] = llvm.mlir.constant(24 : i32) : i32
-//CHECK:    "llvm.intr.memcpy"(%[[ALLOCA_1]], %[[ALLOCA]], %[[SIZE]]) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
+//CHECK:    %[[LOAD:.*]] = llvm.load %[[ALLOCA]] : !llvm.ptr -> !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8)>
+//CHECK:    llvm.store %[[LOAD]], %[[ALLOCA_1]] : !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8)>, !llvm.ptr
 //CHECK:    %[[GEP:.*]] = llvm.getelementptr %[[ALLOCA_1]][0, 0] : (!llvm.ptr) -> !llvm.ptr
 //CHECK:    %[[LOAD_2:.*]] = llvm.load %[[GEP]] : !llvm.ptr -> !llvm.ptr
 //CHECK:    omp.terminator
@@ -936,9 +936,9 @@ func.func @omp_map_info_descriptor_type_conversion(%arg0 : !fir.ref<!fir.box<!fi
   %1 = omp.map.info var_ptr(%0 : !fir.llvm_ptr<!fir.ref<i32>>, i32) map_clauses(tofrom) capture(ByRef) -> !fir.llvm_ptr<!fir.ref<i32>> {name = ""}
   // CHECK: %[[DESC_MAP:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8)>) map_clauses(always, delete) capture(ByRef) members(%[[MEMBER_MAP]] : [0] : !llvm.ptr) -> !llvm.ptr {name = ""}
   %2 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.box<!fir.heap<i32>>>, !fir.box<!fir.heap<i32>>) map_clauses(always, delete) capture(ByRef) members(%1 : [0] : !fir.llvm_ptr<!fir.ref<i32>>) -> !fir.ref<!fir.box<!fir.heap<i32>>> {name = ""}
-  // CHECK: omp.target_exit_data map_entries(%[[DESC_MAP]] : !llvm.ptr) 
+  // CHECK: omp.target_exit_data map_entries(%[[DESC_MAP]] : !llvm.ptr)
   omp.target_exit_data   map_entries(%2 : !fir.ref<!fir.box<!fir.heap<i32>>>)
-  return 
+  return
 }
 
 // -----
@@ -956,8 +956,8 @@ func.func @omp_map_info_derived_type_explicit_member_conversion(%arg0 : !fir.ref
   %3 = fir.field_index real, !fir.type<_QFderived_type{real:f32,array:!fir.array<10xi32>,int:i32}>
   %4 = fir.coordinate_of %arg0, %3 : (!fir.ref<!fir.type<_QFderived_type{real:f32,array:!fir.array<10xi32>,int:i32}>>, !fir.field) -> !fir.ref<f32>
   // CHECK: %[[MAP_MEMBER_2:.*]] = omp.map.info var_ptr(%[[GEP_2]] : !llvm.ptr, f32) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = "dtype%real"}
-  %5 = omp.map.info var_ptr(%4 : !fir.ref<f32>, f32) map_clauses(tofrom) capture(ByRef) -> !fir.ref<f32> {name = "dtype%real"}    
-  // CHECK: %[[MAP_PARENT:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, !llvm.struct<"_QFderived_type", (f32, array<10 x i32>, i32)>) map_clauses(tofrom) capture(ByRef) members(%[[MAP_MEMBER_1]], %[[MAP_MEMBER_2]] : [2], [0] : !llvm.ptr, !llvm.ptr) -> !llvm.ptr {name = "dtype", partial_map = true} 
+  %5 = omp.map.info var_ptr(%4 : !fir.ref<f32>, f32) map_clauses(tofrom) capture(ByRef) -> !fir.ref<f32> {name = "dtype%real"}
+  // CHECK: %[[MAP_PARENT:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, !llvm.struct<"_QFderived_type", (f32, array<10 x i32>, i32)>) map_clauses(tofrom) capture(ByRef) members(%[[MAP_MEMBER_1]], %[[MAP_MEMBER_2]] : [2], [0] : !llvm.ptr, !llvm.ptr) -> !llvm.ptr {name = "dtype", partial_map = true}
   %6 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.type<_QFderived_type{real:f32,array:!fir.array<10xi32>,int:i32}>>, !fir.type<_QFderived_type{real:f32,array:!fir.array<10xi32>,int:i32}>) map_clauses(tofrom) capture(ByRef) members(%2, %5 : [2], [0] : !fir.ref<i32>, !fir.ref<f32>) -> !fir.ref<!fir.type<_QFderived_type{real:f32,array:!fir.array<10xi32>,int:i32}>> {name = "dtype", partial_map = true}
   // CHECK: omp.target map_entries(%[[MAP_MEMBER_1]] -> %[[ARG_1:.*]], %[[MAP_MEMBER_2]] -> %[[ARG_2:.*]], %[[MAP_PARENT]] -> %[[ARG_3:.*]] : !llvm.ptr, !llvm.ptr, !llvm.ptr) {
   omp.target map_entries(%2 -> %arg1, %5 -> %arg2, %6 -> %arg3 : !fir.ref<i32>, !fir.ref<f32>, !fir.ref<!fir.type<_QFderived_type{real:f32,array:!fir.array<10xi32>,int:i32}>>) {
@@ -1022,7 +1022,7 @@ func.func @omp_map_common_block_using_common_block_symbol() {
     %8 = fir.load %4 : !fir.ref<i32>
     %9 = arith.addi %8, %c20_i32 : i32
     fir.store %9 to %7 : !fir.ref<i32>
-    omp.terminator
+        omp.terminator
   }
   return
 }
@@ -1059,7 +1059,7 @@ func.func @omp_map_common_block_using_common_block_members() {
     %9 = fir.load %arg0 : !fir.ref<i32>
     %10 = arith.muli %9, %c10_i32 : i32
     fir.store %10 to %arg1 : !fir.ref<i32>
-    omp.terminator
+   omp.terminator
   }
   return
 }
@@ -1160,7 +1160,8 @@ func.func @map_dtype_alloca_mem2(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_
   %c0 = arith.constant 0 : index
   // CHECK: %[[BOUNDS:.*]] = omp.map.bounds lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}}) {stride_in_bytes = true}
   %0 = omp.map.bounds lower_bound(%c0 : index) upper_bound(%c4 : index) extent(%c4 : index) stride(%c1 : index) start_idx(%c0 : index) {stride_in_bytes = true}
-  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
+  // CHECK: %[[LOAD_9:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
+  // CHECK: llvm.store %[[LOAD_9]], %[[DTYPE_ALLOCATABLE_ALOCA]] : [[DESC_TY]], !llvm.ptr
   %1 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1172,7 +1173,8 @@ func.func @map_dtype_alloca_mem2(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_
   %4 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%3 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
   // CHECK: %[[MAP_MEMBER_DESC:.*]] = omp.map.info var_ptr(%[[GEP_DTYPE_MEMBER]] : !llvm.ptr, [[DESC_TY2]]) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
   %5 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
-  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA_2]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
+  // CHECK: %[[LOAD_16:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
+  // CHECK: llvm.store %[[LOAD_16]], %[[DTYPE_ALLOCATABLE_ALOCA_2]] : [[DESC_TY]], !llvm.ptr  
   %6 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA_2]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1208,7 +1210,8 @@ func.func @map_nested_dtype_alloca_mem(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.
   %c0 = arith.constant 0 : index
   // CHECK: %[[BOUNDS:.*]] = omp.map.bounds lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}}) {stride_in_bytes = true}
   %0 = omp.map.bounds lower_bound(%c0 : index) upper_bound(%c4 : index) extent(%c4 : index) stride(%c1 : index) start_idx(%c0 : index) {stride_in_bytes = true}
-  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
+  // CHECK:  %[[LOAD_11:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
+  // CHECK:  llvm.store %[[LOAD_11]], %[[DTYPE_ALLOCATABLE_ALOCA]] : [[DESC_TY]], !llvm.ptr  
   %1 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_GEP_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1222,7 +1225,8 @@ func.func @map_nested_dtype_alloca_mem(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.
   %5 = omp.map.info var_ptr(%3 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%4 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
   // CHECK: %[[MAP_NESTED_MEMBER_DESC:.*]] = omp.map.info var_ptr(%[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER]] : !llvm.ptr, [[DESC_TY2]]) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
   %6 = omp.map.info var_ptr(%3 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
-  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA_2]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
+  // CHECK: %[[LOAD_19:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
+  // CHECK: llvm.store %[[LOAD_19]], %[[DTYPE_ALLOCATABLE_ALOCA_2]] : [[DESC_TY]], !llvm.ptr
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA_2]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_GEP_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
   %7 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>
@@ -1274,4 +1278,23 @@ func.func @map_nested_dtype_alloca_mem2(%arg0 : !fir.ref<!fir.type<_QFRecTy{i:f3
     omp.terminator
   }
   return
+}
+
+// -----
+
+// CHECK-LABEL:   omp.declare_mapper @my_mapper : !llvm.struct<"_QFdeclare_mapperTmy_type", (i32)> {
+omp.declare_mapper @my_mapper : !fir.type<_QFdeclare_mapperTmy_type{data:i32}> {
+// CHECK:         ^bb0(%[[VAL_0:.*]]: !llvm.ptr):
+^bb0(%0: !fir.ref<!fir.type<_QFdeclare_mapperTmy_type{data:i32}>>):
+// CHECK:           %[[VAL_1:.*]] = llvm.mlir.constant(0 : i32) : i32
+  %1 = fir.field_index data, !fir.type<_QFdeclare_mapperTmy_type{data:i32}>
+// CHECK:           %[[VAL_2:.*]] = llvm.getelementptr %[[VAL_0]][0, 0] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<"_QFdeclare_mapperTmy_type", (i32)>
+  %2 = fir.coordinate_of %0, %1 : (!fir.ref<!fir.type<_QFdeclare_mapperTmy_type{data:i32}>>, !fir.field) -> !fir.ref<i32>
+// CHECK:           %[[VAL_3:.*]] = omp.map.info var_ptr(%[[VAL_2]] : !llvm.ptr, i32) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr {name = "var%[[VAL_4:.*]]"}
+  %3 = omp.map.info var_ptr(%2 : !fir.ref<i32>, i32) map_clauses(tofrom) capture(ByRef) -> !fir.ref<i32> {name = "var%data"}
+// CHECK:           %[[VAL_5:.*]] = omp.map.info var_ptr(%[[VAL_0]] : !llvm.ptr, !llvm.struct<"_QFdeclare_mapperTmy_type", (i32)>) map_clauses(tofrom) capture(ByRef) members(%[[VAL_3]] : [0] : !llvm.ptr) -> !llvm.ptr {name = "var", partial_map = true}
+  %4 = omp.map.info var_ptr(%0 : !fir.ref<!fir.type<_QFdeclare_mapperTmy_type{data:i32}>>, !fir.type<_QFdeclare_mapperTmy_type{data:i32}>) map_clauses(tofrom) capture(ByRef) members(%3 : [0] : !fir.ref<i32>) -> !fir.ref<!fir.type<_QFdeclare_mapperTmy_type{data:i32}>> {name = "var", partial_map = true}
+// CHECK:           omp.declare_mapper.info map_entries(%[[VAL_5]], %[[VAL_3]] : !llvm.ptr, !llvm.ptr)
+  omp.declare_mapper.info map_entries(%4, %3 : !fir.ref<!fir.type<_QFdeclare_mapperTmy_type{data:i32}>>, !fir.ref<i32>)
+// CHECK:         }
 }

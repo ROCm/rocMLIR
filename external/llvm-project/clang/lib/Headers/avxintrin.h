@@ -3706,10 +3706,9 @@ _mm256_undefined_si256(void)
 ///    A double-precision floating-point value used to initialize bits [63:0]
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [4 x double].
-static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR _mm256_set_pd(double __a,
-                                                                   double __b,
-                                                                   double __c,
-                                                                   double __d) {
+static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR
+_mm256_set_pd(double __a, double __b, double __c, double __d)
+{
   return __extension__ (__m256d){ __d, __c, __b, __a };
 }
 
@@ -3747,8 +3746,9 @@ static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR _mm256_set_pd(double __a,
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [8 x float].
 static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR
-_mm256_set_ps(float __a, float __b, float __c, float __d, float __e, float __f,
-              float __g, float __h) {
+_mm256_set_ps(float __a, float __b, float __c, float __d,
+              float __e, float __f, float __g, float __h)
+{
   return __extension__ (__m256){ __h, __g, __f, __e, __d, __c, __b, __a };
 }
 
@@ -3973,7 +3973,8 @@ _mm256_set_epi64x(long long __a, long long __b, long long __c, long long __d)
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [4 x double].
 static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR
-_mm256_setr_pd(double __a, double __b, double __c, double __d) {
+_mm256_setr_pd(double __a, double __b, double __c, double __d)
+{
   return _mm256_set_pd(__d, __c, __b, __a);
 }
 
@@ -4012,8 +4013,9 @@ _mm256_setr_pd(double __a, double __b, double __c, double __d) {
 ///    of the result.
 /// \returns An initialized 256-bit floating-point vector of [8 x float].
 static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR
-_mm256_setr_ps(float __a, float __b, float __c, float __d, float __e, float __f,
-               float __g, float __h) {
+_mm256_setr_ps(float __a, float __b, float __c, float __d,
+               float __e, float __f, float __g, float __h)
+{
   return _mm256_set_ps(__h, __g, __f, __e, __d, __c, __b, __a);
 }
 
@@ -4228,7 +4230,8 @@ _mm256_setr_epi64x(long long __a, long long __b, long long __c, long long __d)
 ///    element of the result.
 /// \returns An initialized 256-bit floating-point vector of [4 x double].
 static __inline __m256d __DEFAULT_FN_ATTRS_CONSTEXPR
-_mm256_set1_pd(double __w) {
+_mm256_set1_pd(double __w)
+{
   return _mm256_set_pd(__w, __w, __w, __w);
 }
 
@@ -4245,7 +4248,9 @@ _mm256_set1_pd(double __w) {
 ///    A single-precision floating-point value used to initialize each vector
 ///    element of the result.
 /// \returns An initialized 256-bit floating-point vector of [8 x float].
-static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR _mm256_set1_ps(float __w) {
+static __inline __m256 __DEFAULT_FN_ATTRS_CONSTEXPR
+_mm256_set1_ps(float __w)
+{
   return _mm256_set_ps(__w, __w, __w, __w, __w, __w, __w, __w);
 }
 
