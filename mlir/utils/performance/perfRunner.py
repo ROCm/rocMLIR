@@ -273,6 +273,13 @@ def getConvConfigurations(fileName):
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
+                
+                # Skip unsupported datatypes
+                if datatype == 'convfp8':
+                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
+                    if getChip() in unsupported_chips:
+                        continue
+
                 # Skip int8 non-fwd convolutions
                 if (datatype == 'convint8' or datatype == 'convfp8') and direction != '-F 1':
                     continue
@@ -560,11 +567,18 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OU
             for datatype, transA, transB, line in \
                     itertools.product(DATA_TYPES_GEMM, ['false', 'true'], ['false', 'true'], lines):
                 line = line.strip()
+                
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
                 if datatype not in dataTypes:
                     continue
+
+                # Skip unsupported datatypes
+                if datatype == 'fp8':
+                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
+                     if getChip() in unsupported_chips:
+                        continue
 
                 # We need trailing spaces here to account for the concat below
                 # Skip type if already in
