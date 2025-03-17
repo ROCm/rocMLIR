@@ -7,6 +7,7 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -18,6 +19,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -801,10 +803,10 @@ LogicalResult mlir::rock::checkLDSSize(StringAttr arch, int64_t ldsBytes) {
   return success(ldsBytes <= ldsSize);
 }
 
-// Trace an arg back to its alloc.
-static void traceGemmAllocToArgs(memref::AllocOp buffer,
-                                 const BufferDependencyAnalysis &deps,
-                                 SmallVector<BlockArgument> &args) {
+static void traceAlloc(memref::AllocOp buffer,
+                       const BufferDependencyAnalysis &deps,
+                       SmallVector<BlockArgument> &args,
+                       SmallVector<OpOperand *> &genericOpOperands) {
   IRRewriter rewriter(buffer.getContext());
   std::optional<llvm::SmallVector<OpOperand *>> readersOperands =
       deps.getReaders(buffer);
@@ -815,6 +817,9 @@ static void traceGemmAllocToArgs(memref::AllocOp buffer,
     if (!readOp)
       continue;
 
+    if (auto genericOp = dyn_cast<linalg::GenericOp>(readerOperand->getOwner()))
+      genericOpOperands.push_back(readerOperand);
+
     SmallVector<MemoryEffects::EffectInstance> effects;
     readOp.getEffects(effects);
     for (const MemoryEffects::EffectInstance &effect : effects) {
@@ -823,11 +828,11 @@ static void traceGemmAllocToArgs(memref::AllocOp buffer,
       if (writerOperand && readerOperand != writerOperand &&
           isa<MemoryEffects::Write>(effect.getEffect())) {
         Value writerOperandValue = writerOperand->get();
-        if (auto blockArg = dyn_cast<BlockArgument>(writerOperandValue))
-          args.push_back(blockArg);
-        else if (memref::AllocOp writeBuffer = dyn_cast<memref::AllocOp>(
-                     writerOperandValue.getDefiningOp()))
-          traceGemmAllocToArgs(writeBuffer, deps, args);
+        if (auto arg = dyn_cast<BlockArgument>(writerOperandValue))
+          args.push_back(arg);
+        else if (memref::AllocOp writeBuffer =
+                     writerOperandValue.getDefiningOp<memref::AllocOp>())
+          traceAlloc(writeBuffer, deps, args, genericOpOperands);
       }
     }
   }
@@ -856,7 +861,8 @@ mlir::rock::traceGemmOutputToArgs(Value matC, func::FuncOp func,
     return failure();
 
   // trace gemm alloc to arg
-  traceGemmAllocToArgs(allocOp.value(), deps, args);
+  SmallVector<OpOperand *> genericOpOperands;
+  traceAlloc(allocOp.value(), deps, args, genericOpOperands);
   for (auto arg : args) {
     bool containsArg =
         std::find(funcArgs.begin(), funcArgs.end(), arg) != funcArgs.end();
@@ -867,4 +873,28 @@ mlir::rock::traceGemmOutputToArgs(Value matC, func::FuncOp func,
     return args;
 
   return failure();
+}
+
+FailureOr<SmallVector<OpOperand *>>
+mlir::rock::traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
+                                        const BufferDependencyAnalysis &deps) {
+  auto funcArgs = func.getArguments();
+  // check if matC is a kernel argument
+  for (auto arg : funcArgs) {
+    // no possible linalg.generic output fusion if matC is a block arg
+    if (findBlockArgument(matC) == arg)
+      return {};
+  }
+
+  // trace matC to its alloc
+  FailureOr<memref::AllocOp> allocOp = findMemrefAlloc(matC);
+  if (failed(allocOp))
+    return failure();
+
+  // trace gemm alloc to arg, saving all genericOps
+  SmallVector<OpOperand *> genericOpOperands;
+  SmallVector<BlockArgument> args;
+  traceAlloc(allocOp.value(), deps, args, genericOpOperands);
+
+  return genericOpOperands;
 }

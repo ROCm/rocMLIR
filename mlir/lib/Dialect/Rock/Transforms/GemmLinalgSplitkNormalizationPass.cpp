@@ -21,6 +21,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Analysis/BufferDependencyAnalysis.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
@@ -90,52 +91,49 @@ static LogicalResult
 rewriteLinalgForSplitK(func::FuncOp &func,
                        BufferDependencyAnalysis &bufferDeps) {
   IRRewriter rewriter(func->getContext());
-  SmallVector<linalg::GenericOp> genericOps;
-  func.walk([&genericOps](linalg::GenericOp genericOp) {
-    genericOps.push_back(genericOp);
-  });
-  const auto &writersTable = bufferDeps.getWritersTable();
-  LLVM_DEBUG(llvm::dbgs() << "Found " << genericOps.size()
-                          << " linalg::GenericOp\n");
+  SmallVector<GemmOp> gemmOps;
 
-  for (linalg::GenericOp op : genericOps) {
-    SmallVector<Value> gemmOut;
-    SmallVector<int64_t> splitKFactors;
-    SmallVector<GemmFeatures> features;
-    for (auto operand : op->getOperands()) {
-      auto genericOpInputAlloc = findMemrefAlloc(operand);
-      if (succeeded(genericOpInputAlloc)) {
-        if (writersTable.contains(genericOpInputAlloc.value())) {
-          for (OpOperand *op : writersTable.at(genericOpInputAlloc.value())) {
-            if (auto gemm = dyn_cast<GemmOp>(op->getOwner())) {
-              const int64_t splitKFactor = gemm.getParams()->getSplitKFactor();
-              LLVM_DEBUG(llvm::dbgs()
-                         << "splitKFactor=" << splitKFactor << "\n");
-              if (splitKFactor > 1) {
-                gemmOut.push_back(genericOpInputAlloc.value());
-                splitKFactors.push_back(splitKFactor);
-                features.push_back(gemm.getFeatures());
-              }
-            }
-          }
-        }
-      }
+  func.walk([&](GemmOp gemmOp) {
+    int64_t splitKFactor = gemmOp.getParams()->getSplitKFactor();
+    if (splitKFactor > 1) {
+      gemmOps.push_back(gemmOp);
     }
-    assert(gemmOut.empty() || gemmOut.size() == 1);
-    assert(gemmOut.size() == splitKFactors.size());
-    assert(gemmOut.size() == features.size());
-    if (gemmOut.size() == 1) {
+  });
+  if (gemmOps.size() > 1)
+    return failure();
+
+  if (gemmOps.size() == 1) {
+    GemmOp gemmOp = gemmOps[0];
+    auto gemmResult = gemmOp.getOutArgument()->get();
+    int64_t splitKFactor = gemmOp.getParams()->getSplitKFactor();
+    GemmFeatures features = gemmOp.getFeatures();
+
+    // save all `linalg::GenericOp` that read from a gemm output
+    auto genericOpOperands =
+        traceGemmOutputToGenericOps(gemmResult, func, bufferDeps);
+
+    // GEMM result could come from a block argument, so if it fails, we return
+    // success()
+    if (failed(genericOpOperands))
+      return success();
+
+    // check if generic ops are valid fusions
+    for (OpOperand *genericOpOperand : genericOpOperands.value()) {
+      auto genericOp = cast<linalg::GenericOp>(genericOpOperand->getOwner());
       LLVM_DEBUG(llvm::dbgs()
                  << "Found linalg::GenericOp that reads GEMM output, let's "
-                    "modify it if it has addf and/or subf\n");
-      if (failed(divideAddBySplitkFactor(op, gemmOut[0], splitKFactors[0],
-                                         features[0], rewriter)))
+                    "modify it if it has addf and/or subf. Op="
+                 << genericOp << "\n");
+      auto inputAlloc = findMemrefAlloc(genericOpOperand->get());
+      if (failed(inputAlloc))
         return failure();
-    } else {
-      LLVM_DEBUG(llvm::dbgs() << "We didn't find any linalg::GenericOp that "
-                                 "needs to be modified\n");
+
+      if (failed(divideAddBySplitkFactor(genericOp, inputAlloc.value(),
+                                         splitKFactor, features, rewriter)))
+        return failure();
     }
   }
+
   return success();
 }
 
