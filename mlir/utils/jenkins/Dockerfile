@@ -79,7 +79,7 @@ ENV LC_ALL en_US.UTF-8
 ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" llvm-requirements.txt
 RUN pip3 install -r llvm-requirements.txt
 
-ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/refs/heads/develop/mlir/requirements.txt" requirements.txt
+ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/requirements.txt" requirements.txt
 RUN pip3 install -r requirements.txt
 
 # --------------------- Section 2: Rock dialect setups -----------------
