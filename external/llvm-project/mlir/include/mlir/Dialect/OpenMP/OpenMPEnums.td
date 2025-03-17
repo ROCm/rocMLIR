@@ -40,13 +40,15 @@ class OpenMP_EnumAttr<EnumAttrInfo enumInfo, string name>
 // capture_clause enum.
 //===----------------------------------------------------------------------===//
 
-def CaptureClauseTo : I32EnumAttrCase<"to", 0>;
-def CaptureClauseLink : I32EnumAttrCase<"link", 1>;
-def CaptureClauseEnter : I32EnumAttrCase<"enter", 2>;
+def CaptureClauseNone : I32EnumAttrCase<"none", 0>;
+def CaptureClauseTo : I32EnumAttrCase<"to", 1>;
+def CaptureClauseLink : I32EnumAttrCase<"link", 2>;
+def CaptureClauseEnter : I32EnumAttrCase<"enter", 3>;
 
 def DeclareTargetCaptureClause : OpenMP_I32EnumAttr<
     "DeclareTargetCaptureClause",
     "capture clause", [
+      CaptureClauseNone,
       CaptureClauseTo,
       CaptureClauseLink,
       CaptureClauseEnter
@@ -178,6 +180,27 @@ def OrderModifier
 }
 def OrderModifierAttr : EnumAttr<OpenMP_Dialect, OrderModifier,
                                     "order_mod">;
+
+//===----------------------------------------------------------------------===//
+// reduction_modifier enum.
+//===----------------------------------------------------------------------===//
+
+def ReductionModifierDefault : I32EnumAttrCase<"defaultmod", 0>;
+def ReductionModifierInscan : I32EnumAttrCase<"inscan", 1>;
+def ReductionModifierTask : I32EnumAttrCase<"task", 2>;
+
+def ReductionModifier : OpenMP_I32EnumAttr<
+    "ReductionModifier",
+    "reduction modifier", [
+      ReductionModifierDefault,
+      ReductionModifierInscan,
+      ReductionModifierTask
+    ]>;
+
+def ReductionModifierAttr : OpenMP_EnumAttr<ReductionModifier,
+                                            "reduction_modifier"> {
+  let assemblyFormat = "`(` $value `)`";
+}
 
 //===----------------------------------------------------------------------===//
 // sched_mod enum.

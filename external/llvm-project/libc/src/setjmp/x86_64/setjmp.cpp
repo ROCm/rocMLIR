@@ -18,7 +18,8 @@
 namespace LIBC_NAMESPACE_DECL {
 
 #ifdef __i386__
-[[gnu::naked]] LLVM_LIBC_FUNCTION(int, setjmp, (jmp_buf buf)) {
+[[gnu::naked]]
+LLVM_LIBC_FUNCTION(int, setjmp, (jmp_buf buf)) {
   asm(R"(
       mov 4(%%esp), %%eax
 
@@ -41,7 +42,8 @@ namespace LIBC_NAMESPACE_DECL {
       : "eax", "ecx");
 }
 #else
-[[gnu::naked]] LLVM_LIBC_FUNCTION(int, setjmp, (jmp_buf buf)) {
+[[gnu::naked]]
+LLVM_LIBC_FUNCTION(int, setjmp, (jmp_buf buf)) {
   asm(R"(
       mov %%rbx, %c[rbx](%%rdi)
       mov %%rbp, %c[rbp](%%rdi)

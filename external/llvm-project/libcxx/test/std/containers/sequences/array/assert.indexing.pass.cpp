@@ -21,57 +21,59 @@
 
 int main(int, char**) {
   // Check with an empty array
-  {{using Array = std::array<int, 0>;
-  Array c         = {};
-  Array const& cc = c;
-  TEST_LIBCPP_ASSERT_FAILURE(c[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
-  TEST_LIBCPP_ASSERT_FAILURE(c[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
-  TEST_LIBCPP_ASSERT_FAILURE(cc[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
-  TEST_LIBCPP_ASSERT_FAILURE(cc[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
-}
-{
-  using Array     = std::array<const int, 0>;
-  Array c         = {{}};
-  Array const& cc = c;
-  TEST_LIBCPP_ASSERT_FAILURE(c[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
-  TEST_LIBCPP_ASSERT_FAILURE(c[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
-  TEST_LIBCPP_ASSERT_FAILURE(cc[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
-  TEST_LIBCPP_ASSERT_FAILURE(cc[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
-}
-}
-
-// Check with non-empty arrays
-{
   {
-    using Array     = std::array<int, 1>;
-    Array c         = {};
-    Array const& cc = c;
-    TEST_LIBCPP_ASSERT_FAILURE(c[2], "out-of-bounds access in std::array<T, N>");
-    TEST_LIBCPP_ASSERT_FAILURE(cc[2], "out-of-bounds access in std::array<T, N>");
-  }
-  {
-    using Array     = std::array<const int, 1>;
-    Array c         = {{}};
-    Array const& cc = c;
-    TEST_LIBCPP_ASSERT_FAILURE(c[2], "out-of-bounds access in std::array<T, N>");
-    TEST_LIBCPP_ASSERT_FAILURE(cc[2], "out-of-bounds access in std::array<T, N>");
+    {
+      using Array     = std::array<int, 0>;
+      Array c         = {};
+      Array const& cc = c;
+      TEST_LIBCPP_ASSERT_FAILURE(c[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
+      TEST_LIBCPP_ASSERT_FAILURE(c[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
+    }
+    {
+      using Array     = std::array<const int, 0>;
+      Array c         = {{}};
+      Array const& cc = c;
+      TEST_LIBCPP_ASSERT_FAILURE(c[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
+      TEST_LIBCPP_ASSERT_FAILURE(c[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[0], "cannot call array<T, 0>::operator[] on a zero-sized array");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[1], "cannot call array<T, 0>::operator[] on a zero-sized array");
+    }
   }
 
+  // Check with non-empty arrays
   {
-    using Array     = std::array<int, 5>;
-    Array c         = {};
-    Array const& cc = c;
-    TEST_LIBCPP_ASSERT_FAILURE(c[99], "out-of-bounds access in std::array<T, N>");
-    TEST_LIBCPP_ASSERT_FAILURE(cc[99], "out-of-bounds access in std::array<T, N>");
-  }
-  {
-    using Array     = std::array<const int, 5>;
-    Array c         = {{}};
-    Array const& cc = c;
-    TEST_LIBCPP_ASSERT_FAILURE(c[99], "out-of-bounds access in std::array<T, N>");
-    TEST_LIBCPP_ASSERT_FAILURE(cc[99], "out-of-bounds access in std::array<T, N>");
-  }
-}
+    {
+      using Array     = std::array<int, 1>;
+      Array c         = {};
+      Array const& cc = c;
+      TEST_LIBCPP_ASSERT_FAILURE(c[2], "out-of-bounds access in std::array<T, N>");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[2], "out-of-bounds access in std::array<T, N>");
+    }
+    {
+      using Array     = std::array<const int, 1>;
+      Array c         = {{}};
+      Array const& cc = c;
+      TEST_LIBCPP_ASSERT_FAILURE(c[2], "out-of-bounds access in std::array<T, N>");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[2], "out-of-bounds access in std::array<T, N>");
+    }
 
-return 0;
+    {
+      using Array     = std::array<int, 5>;
+      Array c         = {};
+      Array const& cc = c;
+      TEST_LIBCPP_ASSERT_FAILURE(c[99], "out-of-bounds access in std::array<T, N>");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[99], "out-of-bounds access in std::array<T, N>");
+    }
+    {
+      using Array     = std::array<const int, 5>;
+      Array c         = {{}};
+      Array const& cc = c;
+      TEST_LIBCPP_ASSERT_FAILURE(c[99], "out-of-bounds access in std::array<T, N>");
+      TEST_LIBCPP_ASSERT_FAILURE(cc[99], "out-of-bounds access in std::array<T, N>");
+    }
+  }
+
+  return 0;
 }

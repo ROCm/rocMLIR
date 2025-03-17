@@ -36,10 +36,8 @@ values = ["tosa-to-rock"]
 [[suite.axis]]
 name = "ops"
 values = [["clamp", '''"tosa.clamp"{operand} {{
-               min_fp = 0.0 : f32,
-               max_fp = 6.0 : f32,
-               min_int = 0 : i64,
-               max_int = 6 : i64
+               min_val = 0.0 : {type},
+               max_val = 6.0 : {type}
              }}
           '''],
           ["exp", '"tosa.exp"{operand}'],

@@ -343,7 +343,7 @@ private:
 
     _LIBCPP_HIDE_FROM_ABI constexpr const iterator_t<_Base>& base() const& noexcept { return __i_.__current(); }
     _LIBCPP_HIDE_FROM_ABI constexpr iterator_t<_Base> base() &&
-          requires forward_range<_View>
+      requires forward_range<_View>
     {
       return std::move(__i_.__current());
     }
@@ -403,8 +403,8 @@ template <class _Range, class _Pattern>
 lazy_split_view(_Range&&, _Pattern&&) -> lazy_split_view<views::all_t<_Range>, views::all_t<_Pattern>>;
 
 template <input_range _Range>
-lazy_split_view(_Range&&, range_value_t<_Range>)
-    -> lazy_split_view<views::all_t<_Range>, single_view<range_value_t<_Range>>>;
+lazy_split_view(_Range&&,
+                range_value_t<_Range>) -> lazy_split_view<views::all_t<_Range>, single_view<range_value_t<_Range>>>;
 
 namespace views {
 namespace __lazy_split_view {

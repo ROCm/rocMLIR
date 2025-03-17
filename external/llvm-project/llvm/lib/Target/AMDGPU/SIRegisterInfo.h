@@ -37,11 +37,11 @@ private:
   BitVector RegPressureIgnoredUnits;
 
   /// Sub reg indexes for getRegSplitParts.
-  /// First index represents subreg size from 1 to 16 DWORDs.
+  /// First index represents subreg size from 1 to 32 Half DWORDS.
   /// The inner vector is sorted by bit offset.
   /// Provided a register can be fully split with given subregs,
   /// all elements of the inner vector combined give a full lane mask.
-  static std::array<std::vector<int16_t>, 16> RegSplitParts;
+  static std::array<std::vector<int16_t>, 32> RegSplitParts;
 
   // Table representing sub reg of given width and offset.
   // First index is subreg size: 32, 64, 96, 128, 160, 192, 224, 256, 512.
@@ -142,6 +142,9 @@ public:
 
   bool isFrameOffsetLegal(const MachineInstr *MI, Register BaseReg,
                           int64_t Offset) const override;
+
+  std::optional<unsigned> getDwarfRegLaneSize(int64_t DwarfReg,
+                                              bool isEH) const override;
 
   const TargetRegisterClass *getPointerRegClass(
     const MachineFunction &MF, unsigned Kind = 0) const override;
@@ -276,11 +279,6 @@ public:
   getCompatibleSubRegClass(const TargetRegisterClass *SuperRC,
                            const TargetRegisterClass *SubRC,
                            unsigned SubIdx) const;
-
-  bool shouldRewriteCopySrc(const TargetRegisterClass *DefRC,
-                            unsigned DefSubReg,
-                            const TargetRegisterClass *SrcRC,
-                            unsigned SrcSubReg) const override;
 
   /// \returns True if operands defined with this operand type can accept
   /// a literal constant (i.e. any 32-bit immediate).

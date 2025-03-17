@@ -297,7 +297,7 @@ auto getMfmaInsnGroupAttrMapGfx90aPlusBf16 = []() {
   return groupAttrMap;
 };
 
-auto getMfmaInsnGroupAttrMapPreGfx940Int8 = []() {
+auto getMfmaInsnGroupAttrMapPreGfx942Int8 = []() {
   using amdgpu::MFMAPermB;
   static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                         MfmaInsnGroupSelectKeyInfo>
@@ -321,7 +321,7 @@ auto getMfmaInsnGroupAttrMapPreGfx940Int8 = []() {
 };
 
 // New I8 and all Float8
-auto getMfmaInsnGroupAttrMapGfx940Plus = []() {
+auto getMfmaInsnGroupAttrMapGfx942Plus = []() {
   using amdgpu::MFMAPermB;
   static MfmaInsnGroupMap
       // Int8
@@ -480,28 +480,32 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
   if (dataTypeA.isInteger(8) && dataTypeB.isInteger(8)) {
     return MfmaTypeId::I8TyId;
   }
-  if (dataTypeA.isFloat8E4M3FNUZ() && dataTypeB.isFloat8E4M3FNUZ()) {
+  if (isa<Float8E4M3FNUZType>(dataTypeA) &&
+      isa<Float8E4M3FNUZType>(dataTypeB)) {
     return MfmaTypeId::Fp8Fp8TyId;
   }
-  if (dataTypeA.isFloat8E4M3FNUZ() && dataTypeB.isFloat8E5M2FNUZ()) {
+  if (isa<Float8E4M3FNUZType>(dataTypeA) &&
+      isa<Float8E5M2FNUZType>(dataTypeB)) {
     return MfmaTypeId::Fp8Bf8TyId;
   }
-  if (dataTypeA.isFloat8E5M2FNUZ() && dataTypeB.isFloat8E4M3FNUZ()) {
+  if (isa<Float8E5M2FNUZType>(dataTypeA) &&
+      isa<Float8E4M3FNUZType>(dataTypeB)) {
     return MfmaTypeId::Bf8Fp8TyId;
   }
-  if (dataTypeA.isFloat8E5M2FNUZ() && dataTypeB.isFloat8E5M2FNUZ()) {
+  if (isa<Float8E5M2FNUZType>(dataTypeA) &&
+      isa<Float8E5M2FNUZType>(dataTypeB)) {
     return MfmaTypeId::Bf8Bf8TyId;
   }
-  if (dataTypeA.isFloat8E4M3FN() && dataTypeB.isFloat8E4M3FN()) {
+  if (isa<Float8E4M3FNType>(dataTypeA) && isa<Float8E4M3FNType>(dataTypeB)) {
     return MfmaTypeId::Fp8Fp8TyId;
   }
-  if (dataTypeA.isFloat8E4M3FN() && dataTypeB.isFloat8E5M2()) {
+  if (isa<Float8E4M3FNType>(dataTypeA) && isa<Float8E5M2Type>(dataTypeB)) {
     return MfmaTypeId::Fp8Bf8TyId;
   }
-  if (dataTypeA.isFloat8E5M2() && dataTypeB.isFloat8E4M3FN()) {
+  if (isa<Float8E5M2Type>(dataTypeA) && isa<Float8E4M3FNType>(dataTypeB)) {
     return MfmaTypeId::Bf8Fp8TyId;
   }
-  if (dataTypeA.isFloat8E5M2() && dataTypeB.isFloat8E5M2()) {
+  if (isa<Float8E5M2Type>(dataTypeA) && isa<Float8E5M2Type>(dataTypeB)) {
     return MfmaTypeId::Bf8Bf8TyId;
   }
   llvm_unreachable("Unsupported input argument type.");
@@ -543,12 +547,12 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(Type elementTypeA,
     }
   };
   bool hasOldBf16 = arch.contains("gfx908");
-  bool isPreGfx940 = arch.contains("gfx908") || arch.contains("gfx90a");
+  bool isPreGfx942 = arch.contains("gfx908") || arch.contains("gfx90a");
   if (elementTypeA.isBF16())
     selectFrom(hasOldBf16 ? getMfmaInsnGroupAttrMapGfx908Bf16()
                           : getMfmaInsnGroupAttrMapGfx90aPlusBf16());
-  selectFrom(isPreGfx940 ? getMfmaInsnGroupAttrMapPreGfx940Int8()
-                         : getMfmaInsnGroupAttrMapGfx940Plus());
+  selectFrom(isPreGfx942 ? getMfmaInsnGroupAttrMapPreGfx942Int8()
+                         : getMfmaInsnGroupAttrMapGfx942Plus());
   selectFrom(getMfmaInsnGroupAttrMapAllArch());
   if (failed(result)) {
     LLVM_DEBUG(llvm::dbgs() << "No match found in MFMA database\n");

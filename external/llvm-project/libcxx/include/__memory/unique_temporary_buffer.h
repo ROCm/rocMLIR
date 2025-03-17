@@ -31,8 +31,8 @@ struct __temporary_buffer_deleter {
   ptrdiff_t __count_; // ignored in non-constant evaluation
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR __temporary_buffer_deleter() _NOEXCEPT : __count_(0) {}
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __temporary_buffer_deleter(ptrdiff_t __count) _NOEXCEPT
-      : __count_(__count) {}
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR explicit __temporary_buffer_deleter(ptrdiff_t __count) _NOEXCEPT : __count_(__count) {}
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 void operator()(_Tp* __ptr) _NOEXCEPT {
     if (__libcpp_is_constant_evaluated()) {
@@ -40,12 +40,12 @@ struct __temporary_buffer_deleter {
       return;
     }
 
-    std::__libcpp_deallocate_unsized((void*)__ptr, _LIBCPP_ALIGNOF(_Tp));
+    std::__libcpp_deallocate_unsized<_Tp>(__ptr);
   }
 };
 
 template <class _Tp>
-using __unique_temporary_buffer = unique_ptr<_Tp, __temporary_buffer_deleter<_Tp> >;
+using __unique_temporary_buffer _LIBCPP_NODEBUG = unique_ptr<_Tp, __temporary_buffer_deleter<_Tp> >;
 
 template <class _Tp>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_NO_CFI _LIBCPP_CONSTEXPR_SINCE_CXX23 __unique_temporary_buffer<_Tp>

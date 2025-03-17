@@ -82,7 +82,7 @@ int main()
                      0x1.7fffffffffffffffffffffffffffp+1L,
                      UINT64_C(0x00017fffffffffff),
                      UINT64_C(0xfffffffffffffffc)))
-        return 1;
+      return 1;
 
 #else
     printf("skipped\n");

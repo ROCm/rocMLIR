@@ -72,10 +72,9 @@ struct TruncfToFloat16RewritePattern final
 
 static LogicalResult isSupportedFp8(Type elementType, Chipset chipset) {
   if (chipset.isGfx940())
-    return success(elementType.isFloat8E5M2FNUZ() ||
-                   elementType.isFloat8E4M3FNUZ());
+    return success(isa<Float8E5M2FNUZType, Float8E4M3FNUZType>(elementType));
   if (chipset.hasOcpFp8())
-    return success(elementType.isFloat8E5M2() || elementType.isFloat8E4M3FN());
+    return success(isa<Float8E5M2Type, Float8E4M3FNType>(elementType));
   return failure();
 }
 
@@ -113,20 +112,23 @@ void ExtFOnFloat8RewritePattern::rewrite(arith::ExtFOp op,
     return rewriter.replaceOp(op, result);
   }
   int64_t numElements = inType.getNumElements();
+
   Value zero = rewriter.create<arith::ConstantOp>(
       loc, outElemType, rewriter.getFloatAttr(outElemType, 0.0));
+  VectorType outType = cast<VectorType>(op.getOut().getType());
+
   if (inType.getShape().empty()) {
+    Value zerodSplat =
+        rewriter.createOrFold<vector::SplatOp>(loc, outType, zero);
     Value scalarIn =
         rewriter.create<vector::ExtractOp>(loc, in, ArrayRef<int64_t>{});
-    // Recurse to send the 0-D vector case to the 1-D vector case
     Value scalarExt =
         rewriter.create<arith::ExtFOp>(loc, outElemType, scalarIn);
-    Value result = rewriter.create<vector::InsertOp>(loc, scalarExt, zero,
+    Value result = rewriter.create<vector::InsertOp>(loc, scalarExt, zerodSplat,
                                                      ArrayRef<int64_t>{});
     return rewriter.replaceOp(op, result);
   }
 
-  VectorType outType = cast<VectorType>(op.getOut().getType());
   VectorType flatTy = VectorType::get(SmallVector<int64_t>{numElements},
                                       outType.getElementType());
   Value result = rewriter.createOrFold<vector::SplatOp>(loc, flatTy, zero);

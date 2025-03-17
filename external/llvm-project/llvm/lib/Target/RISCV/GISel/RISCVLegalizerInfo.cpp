@@ -254,7 +254,8 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
 
   // TODO: transform illegal vector types into legal vector type
   // TODO: Merge with G_FREEZE?
-  getActionDefinitionsBuilder({G_IMPLICIT_DEF, G_CONSTANT_FOLD_BARRIER})
+  getActionDefinitionsBuilder(
+      {G_IMPLICIT_DEF, G_CONSTANT_FOLD_BARRIER})
       .legalFor({s32, sXLen, p0})
       .legalIf(typeIsLegalBoolVec(0, BoolVecTys, ST))
       .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
@@ -395,7 +396,8 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
       .lowerIfMemSizeNotByteSizePow2()
       .clampScalar(0, s16, sXLen)
       .lower();
-  StoreActions.clampScalar(0, s16, sXLen)
+  StoreActions
+      .clampScalar(0, s16, sXLen)
       .lowerIfMemSizeNotByteSizePow2()
       .lower();
 
@@ -1118,7 +1120,7 @@ bool RISCVLegalizerInfo::legalizeExtractSubvector(MachineInstr &MI,
   // divide exactly.
   assert(
       RISCVVType::decodeVLMUL(RISCVTargetLowering::getLMUL(LitTyMVT)).second ||
-      RISCVTargetLowering::getLMUL(LitTyMVT) == RISCVII::VLMUL::LMUL_1);
+      RISCVTargetLowering::getLMUL(LitTyMVT) == RISCVVType::LMUL_1);
 
   // If the vector type is an LMUL-group type, extract a subvector equal to the
   // nearest full vector register type.
@@ -1141,7 +1143,7 @@ bool RISCVLegalizerInfo::legalizeExtractSubvector(MachineInstr &MI,
   const LLT XLenTy(STI.getXLenVT());
   auto SlidedownAmt = MIB.buildVScale(XLenTy, RemIdx);
   auto [Mask, VL] = buildDefaultVLOps(LitTy, MIB, MRI);
-  uint64_t Policy = RISCVII::TAIL_AGNOSTIC | RISCVII::MASK_AGNOSTIC;
+  uint64_t Policy = RISCVVType::TAIL_AGNOSTIC | RISCVVType::MASK_AGNOSTIC;
   auto Slidedown = MIB.buildInstr(
       RISCV::G_VSLIDEDOWN_VL, {InterLitTy},
       {MIB.buildUndef(InterLitTy), Vec, SlidedownAmt, Mask, VL, Policy});
@@ -1263,10 +1265,10 @@ bool RISCVLegalizerInfo::legalizeInsertSubvector(MachineInstr &MI,
     // Use tail agnostic policy if we're inserting over InterLitTy's tail.
     ElementCount EndIndex =
         ElementCount::getScalable(RemIdx) + LitTy.getElementCount();
-    uint64_t Policy = RISCVII::TAIL_UNDISTURBED_MASK_UNDISTURBED;
+    uint64_t Policy = RISCVVType::TAIL_UNDISTURBED_MASK_UNDISTURBED;
     if (STI.expandVScale(EndIndex) ==
         STI.expandVScale(InterLitTy.getElementCount()))
-      Policy = RISCVII::TAIL_AGNOSTIC;
+      Policy = RISCVVType::TAIL_AGNOSTIC;
 
     Inserted =
         MIB.buildInstr(RISCV::G_VSLIDEUP_VL, {InsertedDst},

@@ -108,6 +108,14 @@ GetFlattenedSpellings(const Record &Attr) {
       Ret.emplace_back("CXX11", Name, "clang", false, *Spelling);
       if (Spelling->getValueAsBit("AllowInC"))
         Ret.emplace_back("C23", Name, "clang", false, *Spelling);
+    } else if (Variety == "ClangGCC") {
+      Ret.emplace_back("GNU", Name, "", false, *Spelling);
+      Ret.emplace_back("CXX11", Name, "clang", false, *Spelling);
+      Ret.emplace_back("CXX11", Name, "gnu", false, *Spelling);
+      if (Spelling->getValueAsBit("AllowInC")) {
+        Ret.emplace_back("C23", Name, "clang", false, *Spelling);
+        Ret.emplace_back("C23", Name, "gnu", false, *Spelling);
+      }
     } else {
       Ret.push_back(FlattenedSpelling(*Spelling));
     }
@@ -219,15 +227,15 @@ namespace {
     Argument(StringRef Arg, StringRef Attr)
         : lowerName(Arg.str()), upperName(lowerName), attrName(Attr),
           isOpt(false), Fake(false) {
-    if (!lowerName.empty()) {
-      lowerName[0] = std::tolower(lowerName[0]);
-      upperName[0] = std::toupper(upperName[0]);
-    }
-    // Work around MinGW's macro definition of 'interface' to 'struct'. We
-    // have an attribute argument called 'Interface', so only the lower case
-    // name conflicts with the macro definition.
-    if (lowerName == "interface")
-      lowerName = "interface_";
+      if (!lowerName.empty()) {
+        lowerName[0] = std::tolower(lowerName[0]);
+        upperName[0] = std::toupper(upperName[0]);
+      }
+      // Work around MinGW's macro definition of 'interface' to 'struct'. We
+      // have an attribute argument called 'Interface', so only the lower case
+      // name conflicts with the macro definition.
+      if (lowerName == "interface")
+        lowerName = "interface_";
     }
     Argument(const Record &Arg, StringRef Attr)
         : Argument(Arg.getValueAsString("Name"), Attr) {}
@@ -1519,8 +1527,8 @@ createArgument(const Record &Arg, StringRef Attr,
   if (!Ptr) {
     // Search in reverse order so that the most-derived type is handled first.
     for (const auto &[Base, _] : reverse(Search->getSuperClasses())) {
-        if ((Ptr = createArgument(Arg, Attr, Base)))
-          break;
+      if ((Ptr = createArgument(Arg, Attr, Base)))
+        break;
     }
   }
 
@@ -3743,6 +3751,36 @@ void EmitClangRegularKeywordAttributeInfo(const RecordKeeper &Records,
   OS << "#undef KEYWORD_ATTRIBUTE\n";
 }
 
+void EmitCXX11AttributeInfo(const RecordKeeper &Records, raw_ostream &OS) {
+  OS << "#if defined(CXX11_ATTR_ARGS_INFO)\n";
+  for (auto *R : Records.getAllDerivedDefinitions("Attr")) {
+    for (const FlattenedSpelling &SI : GetFlattenedSpellings(*R)) {
+      if (SI.variety() == "CXX11" && SI.nameSpace().empty()) {
+        unsigned RequiredArgs = 0;
+        unsigned OptionalArgs = 0;
+        for (const auto *Arg : R->getValueAsListOfDefs("Args")) {
+          if (Arg->getValueAsBit("Fake"))
+            continue;
+
+          if (Arg->getValueAsBit("Optional"))
+            OptionalArgs++;
+          else
+            RequiredArgs++;
+        }
+        OS << ".Case(\"" << SI.getSpellingRecord().getValueAsString("Name")
+           << "\","
+           << "AttributeCommonInfo::AttrArgsInfo::"
+           << (RequiredArgs   ? "Required"
+               : OptionalArgs ? "Optional"
+                              : "None")
+           << ")"
+           << "\n";
+      }
+    }
+  }
+  OS << "#endif // CXX11_ATTR_ARGS_INFO\n";
+}
+
 // Emits the list of spellings for attributes.
 void EmitClangAttrHasAttrImpl(const RecordKeeper &Records, raw_ostream &OS) {
   emitSourceFileHeader("Code to implement the __has_attribute logic", OS,
@@ -3859,8 +3897,9 @@ void EmitClangAttrSpellingListIndex(const RecordKeeper &Records,
       if (Names.size() > 1) {
         SmallVector<StringRef, 6> SameLenNames;
         StringRef FSName = FS.name();
-        llvm::copy_if(Names, std::back_inserter(SameLenNames),
-                      [&](StringRef N) { return N.size() == FSName.size(); });
+        llvm::copy_if(
+            Names, std::back_inserter(SameLenNames),
+            [&](StringRef N) { return N.size() == FSName.size(); });
 
         if (SameLenNames.size() == 1) {
           OS << "Name.size() == " << FS.name().size() << " && ";

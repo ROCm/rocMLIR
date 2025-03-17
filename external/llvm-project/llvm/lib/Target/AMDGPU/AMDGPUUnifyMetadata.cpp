@@ -53,24 +53,24 @@ namespace {
     /// Keep the largest version as the sole operand if PickFirst is false.
     /// Otherwise pick it from the first value, representing kernel module.
     bool unifyVersionMD(Module &M, StringRef Name, bool PickFirst) {
-    auto *NamedMD = M.getNamedMetadata(Name);
-    if (!NamedMD || NamedMD->getNumOperands() <= 1)
-      return false;
-    MDNode *MaxMD = nullptr;
-    auto MaxVer = 0U;
-    for (auto *VersionMD : NamedMD->operands()) {
-      assert(VersionMD->getNumOperands() == 2);
-      auto *CMajor = mdconst::extract<ConstantInt>(VersionMD->getOperand(0));
-      auto VersionMajor = CMajor->getZExtValue();
-      auto *CMinor = mdconst::extract<ConstantInt>(VersionMD->getOperand(1));
-      auto VersionMinor = CMinor->getZExtValue();
-      auto Ver = (VersionMajor * 100) + (VersionMinor * 10);
-      if (Ver > MaxVer) {
-        MaxVer = Ver;
-        MaxMD = VersionMD;
-      }
-      if (PickFirst)
-        break;
+      auto *NamedMD = M.getNamedMetadata(Name);
+      if (!NamedMD || NamedMD->getNumOperands() <= 1)
+        return false;
+      MDNode *MaxMD = nullptr;
+      auto MaxVer = 0U;
+      for (auto *VersionMD : NamedMD->operands()) {
+        assert(VersionMD->getNumOperands() == 2);
+        auto *CMajor = mdconst::extract<ConstantInt>(VersionMD->getOperand(0));
+        auto VersionMajor = CMajor->getZExtValue();
+        auto *CMinor = mdconst::extract<ConstantInt>(VersionMD->getOperand(1));
+        auto VersionMinor = CMinor->getZExtValue();
+        auto Ver = (VersionMajor * 100) + (VersionMinor * 10);
+        if (Ver > MaxVer) {
+          MaxVer = Ver;
+          MaxMD = VersionMD;
+        }
+        if (PickFirst)
+          break;
       }
       NamedMD->eraseFromParent();
       NamedMD = M.getOrInsertNamedMetadata(Name);
@@ -86,22 +86,22 @@ namespace {
   /// !n2 = !{!"cl_khr_image"}
   /// Combine it into a single list with unique operands.
   bool unifyExtensionMD(Module &M, StringRef Name) {
-      auto *NamedMD = M.getNamedMetadata(Name);
-      if (!NamedMD || NamedMD->getNumOperands() == 1)
-        return false;
+    auto *NamedMD = M.getNamedMetadata(Name);
+    if (!NamedMD || NamedMD->getNumOperands() == 1)
+      return false;
 
-      SmallVector<Metadata *, 4> All;
-      for (auto *MD : NamedMD->operands())
-        for (const auto &Op : MD->operands())
-          if (!llvm::is_contained(All, Op.get()))
-            All.push_back(Op.get());
+    SmallVector<Metadata *, 4> All;
+    for (auto *MD : NamedMD->operands())
+      for (const auto &Op : MD->operands())
+        if (!llvm::is_contained(All, Op.get()))
+          All.push_back(Op.get());
 
-      NamedMD->eraseFromParent();
-      NamedMD = M.getOrInsertNamedMetadata(Name);
-      for (const auto &MD : All)
-        NamedMD->addOperand(MDNode::get(M.getContext(), MD));
+    NamedMD->eraseFromParent();
+    NamedMD = M.getOrInsertNamedMetadata(Name);
+    for (const auto &MD : All)
+      NamedMD->addOperand(MDNode::get(M.getContext(), MD));
 
-      return true;
+    return true;
   }
 
   bool unifyMetadataImpl(Module &M) {

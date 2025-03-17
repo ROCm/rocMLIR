@@ -625,9 +625,9 @@ private:
 
 public:
   GIConstant(ArrayRef<APInt> Values)
-      : Kind(GIConstantKind::FixedVector), Values(Values){};
+      : Kind(GIConstantKind::FixedVector), Values(Values) {};
   GIConstant(const APInt &Value, GIConstantKind Kind)
-      : Kind(Kind), Value(Value){};
+      : Kind(Kind), Value(Value) {};
 
   /// Returns the kind of of this constant, e.g, Scalar.
   GIConstantKind getKind() const { return Kind; }
@@ -663,7 +663,7 @@ private:
 
 public:
   GFConstant(ArrayRef<APFloat> Values)
-      : Kind(GFConstantKind::FixedVector), Values(Values){};
+      : Kind(GFConstantKind::FixedVector), Values(Values) {};
   GFConstant(const APFloat &Value, GFConstantKind Kind) : Kind(Kind) {
     Values.push_back(Value);
   }

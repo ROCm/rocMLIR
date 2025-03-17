@@ -1905,8 +1905,7 @@ class TemplateDiff {
       return isa<IntegerLiteral>(E);
     };
 
-    if (CheckIntegerLiteral(E))
-      return false;
+    if (CheckIntegerLiteral(E)) return false;
 
     if (UnaryOperator *UO = dyn_cast<UnaryOperator>(E))
       if (UO->getOpcode() == UO_Minus)

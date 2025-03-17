@@ -675,9 +675,9 @@ size_t matchWeights(
       Method = StaleMatcher::MATCH_OPCODE;
     }
     if (!MatchedBlock) {
-      LLVM_DEBUG(
-          dbgs() << "Couldn't match yaml block (bid = " << YamlBB.Index << ")"
-                 << " with hash " << Twine::utohexstr(YamlBB.Hash) << "\n");
+      LLVM_DEBUG(dbgs() << "Couldn't match yaml block (bid = " << YamlBB.Index
+                        << ")" << " with hash " << Twine::utohexstr(YamlBB.Hash)
+                        << "\n");
       continue;
     }
     addMatchedBlock({MatchedBlock, Method}, YamlBF, YamlBB);

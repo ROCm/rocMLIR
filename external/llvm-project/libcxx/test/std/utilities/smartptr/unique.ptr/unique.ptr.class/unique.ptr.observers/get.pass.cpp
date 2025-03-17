@@ -22,59 +22,65 @@
 template <class T>
 TEST_CONSTEXPR_CXX23 void test_basic() {
   // non-const element type
-  {// non-const access
-   {T* x = new T;
-  std::unique_ptr<T> ptr(x);
-  ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
-  ASSERT_NOEXCEPT(ptr.get());
-  assert(ptr.get() == x);
-}
+  {
+    // non-const access
+    {
+      T* x = new T;
+      std::unique_ptr<T> ptr(x);
+      ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
+      ASSERT_NOEXCEPT(ptr.get());
+      assert(ptr.get() == x);
+    }
 
-// const access
-{
-  T* x = new T;
-  std::unique_ptr<T> const ptr(x);
-  ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
-  ASSERT_NOEXCEPT(ptr.get());
-  assert(ptr.get() == x);
-}
-}
+    // const access
+    {
+      T* x = new T;
+      std::unique_ptr<T> const ptr(x);
+      ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
+      ASSERT_NOEXCEPT(ptr.get());
+      assert(ptr.get() == x);
+    }
+  }
 
-// const element type
-{// non-const access
- {T* x = new T;
-std::unique_ptr<T const> ptr(x);
-ASSERT_SAME_TYPE(decltype(ptr.get()), T const*);
-assert(ptr.get() == x);
-}
+  // const element type
+  {
+    // non-const access
+    {
+      T* x = new T;
+      std::unique_ptr<T const> ptr(x);
+      ASSERT_SAME_TYPE(decltype(ptr.get()), T const*);
+      assert(ptr.get() == x);
+    }
 
-// const access
-{
-  T* x = new T;
-  std::unique_ptr<T const> const ptr(x);
-  ASSERT_SAME_TYPE(decltype(ptr.get()), T const*);
-  assert(ptr.get() == x);
-}
-}
+    // const access
+    {
+      T* x = new T;
+      std::unique_ptr<T const> const ptr(x);
+      ASSERT_SAME_TYPE(decltype(ptr.get()), T const*);
+      assert(ptr.get() == x);
+    }
+  }
 
-// Same thing but for unique_ptr<T[]>
-// non-const element type
-{// non-const access
- {T* x = new T[3];
-std::unique_ptr<T[]> ptr(x);
-ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
-ASSERT_NOEXCEPT(ptr.get());
-assert(ptr.get() == x);
-}
+  // Same thing but for unique_ptr<T[]>
+  // non-const element type
+  {
+    // non-const access
+    {
+      T* x = new T[3];
+      std::unique_ptr<T[]> ptr(x);
+      ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
+      ASSERT_NOEXCEPT(ptr.get());
+      assert(ptr.get() == x);
+    }
 
-// const access
-{
-  T* x = new T[3];
-  std::unique_ptr<T[]> const ptr(x);
-  ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
-  ASSERT_NOEXCEPT(ptr.get());
-  assert(ptr.get() == x);
-}
+    // const access
+    {
+      T* x = new T[3];
+      std::unique_ptr<T[]> const ptr(x);
+      ASSERT_SAME_TYPE(decltype(ptr.get()), T*);
+      ASSERT_NOEXCEPT(ptr.get());
+      assert(ptr.get() == x);
+    }
   }
 
   // const element type

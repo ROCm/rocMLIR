@@ -388,6 +388,7 @@ enum MetadataCodes {
   METADATA_EXPR = 48,             // [distinct, ...]
   METADATA_FRAGMENT = 49,         // []
   METADATA_LIFETIME = 50,         // [obj, loc, n x args]
+  METADATA_SUBRANGE_TYPE = 51,    // [distinct, ...]
 };
 
 // The constants block (CONSTANTS_BLOCK_ID) describes emission for each
@@ -792,6 +793,7 @@ enum AttributeKindCodes {
   ATTR_KIND_NO_DIVERGENCE_SOURCE = 100,
   ATTR_KIND_SANITIZED_PADDED_GLOBAL = 101,
   ATTR_KIND_SANITIZE_TYPE = 102,
+  ATTR_KIND_CAPTURES = 103,
 };
 
 enum ComdatSelectionKindCodes {

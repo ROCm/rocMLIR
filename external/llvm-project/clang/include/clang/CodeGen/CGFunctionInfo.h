@@ -135,9 +135,10 @@ private:
 public:
   ABIArgInfo(Kind K = Direct)
       : TypeData(nullptr), PaddingType(nullptr), DirectAttr{0, 0}, TheKind(K),
-        PaddingInReg(false), InAllocaSRet(false), InAllocaIndirect(false),
-        IndirectByVal(false), IndirectRealign(false), SRetAfterThis(false),
-        InReg(false), CanBeFlattened(false), SignExt(false), ZeroExt(false) {}
+        PaddingInReg(false), InAllocaSRet(false),
+        InAllocaIndirect(false), IndirectByVal(false), IndirectRealign(false),
+        SRetAfterThis(false), InReg(false), CanBeFlattened(false),
+        SignExt(false), ZeroExt(false) {}
 
   static ABIArgInfo getDirect(llvm::Type *T = nullptr, unsigned Offset = 0,
                               llvm::Type *Padding = nullptr,

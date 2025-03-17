@@ -43,8 +43,8 @@
 /// \param __Y
 ///    The lower 8 bits specify the bit number of the lowest bit to zero.
 /// \returns The partially zeroed 32-bit value.
-static __inline__ unsigned int __DEFAULT_FN_ATTRS _bzhi_u32(unsigned int __X,
-                                                            unsigned int __Y) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+_bzhi_u32(unsigned int __X, unsigned int __Y) {
   return __builtin_ia32_bzhi_si(__X, __Y);
 }
 
@@ -72,8 +72,8 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS _bzhi_u32(unsigned int __X,
 /// \param __Y
 ///    The 32-bit mask specifying where to deposit source bits.
 /// \returns The 32-bit result.
-static __inline__ unsigned int __DEFAULT_FN_ATTRS _pdep_u32(unsigned int __X,
-                                                            unsigned int __Y) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+_pdep_u32(unsigned int __X, unsigned int __Y) {
   return __builtin_ia32_pdep_si(__X, __Y);
 }
 
@@ -101,8 +101,8 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS _pdep_u32(unsigned int __X,
 /// \param __Y
 ///    The 32-bit mask specifying which source bits to extract.
 /// \returns The 32-bit result.
-static __inline__ unsigned int __DEFAULT_FN_ATTRS _pext_u32(unsigned int __X,
-                                                            unsigned int __Y) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+_pext_u32(unsigned int __X, unsigned int __Y) {
   return __builtin_ia32_pext_si(__X, __Y);
 }
 
@@ -126,9 +126,8 @@ static __inline__ unsigned int __DEFAULT_FN_ATTRS _pext_u32(unsigned int __X,
 /// \param __P
 ///    A pointer to memory for storing the upper half of the product.
 /// \returns The lower half of the product.
-static __inline__ unsigned int __DEFAULT_FN_ATTRS _mulx_u32(unsigned int __X,
-                                                            unsigned int __Y,
-                                                            unsigned int *__P) {
+static __inline__ unsigned int __DEFAULT_FN_ATTRS
+_mulx_u32(unsigned int __X, unsigned int __Y, unsigned int *__P) {
   unsigned long long __res = (unsigned long long) __X * __Y;
   *__P = (unsigned int)(__res >> 32);
   return (unsigned int)__res;
@@ -239,8 +238,9 @@ _pext_u64(unsigned long long __X, unsigned long long __Y) {
 /// \param __P
 ///    A pointer to memory for storing the upper half of the product.
 /// \returns The lower half of the product.
-static __inline__ unsigned long long __DEFAULT_FN_ATTRS _mulx_u64(
-    unsigned long long __X, unsigned long long __Y, unsigned long long *__P) {
+static __inline__ unsigned long long __DEFAULT_FN_ATTRS
+_mulx_u64 (unsigned long long __X, unsigned long long __Y,
+           unsigned long long *__P) {
   unsigned __int128 __res = (unsigned __int128) __X * __Y;
   *__P = (unsigned long long) (__res >> 64);
   return (unsigned long long) __res;

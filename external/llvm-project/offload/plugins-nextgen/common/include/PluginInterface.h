@@ -17,6 +17,8 @@
 #include <list>
 #include <map>
 #include <shared_mutex>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "ExclusiveAccess.h"
@@ -58,6 +60,7 @@ struct GenericPluginTy;
 struct GenericKernelTy;
 struct GenericDeviceTy;
 struct RecordReplayTy;
+struct KernelRunRecordTy;
 
 /// Class that wraps the __tgt_async_info to simply its usage. In case the
 /// object is constructed without a valid __tgt_async_info, the object will use
@@ -93,14 +96,14 @@ struct AsyncInfoWrapperTy {
   }
 
   /// Synchronize with the __tgt_async_info's pending operations if it's the
-  /// internal async info. The error associated to the aysnchronous operations
+  /// internal async info. The error associated to the asynchronous operations
   /// issued in this queue must be provided in \p Err. This function will update
   /// the error parameter with the result of the synchronization if it was
   /// actually executed. This function must be called before destroying the
   /// object and only once.
   void finalize(Error &Err);
 
-  /// Register \p Ptr as an associated alloction that is freed after
+  /// Register \p Ptr as an associated allocation that is freed after
   /// finalization.
   void freeAllocationAfterSynchronization(void *Ptr) {
     AsyncInfoPtr->AssociatedAllocations.push_back(Ptr);
@@ -344,6 +347,26 @@ struct GenericKernelTy {
     return AchievedOccupancy;
   }
 
+  /// Indicate if the kernel works in Generic SPMD, Generic or SPMD mode.
+  bool isGenericSPMDMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC_SPMD;
+  }
+  bool isGenericMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC;
+  }
+  bool isSPMDMode() const { return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD; }
+
+  /// AMD-only execution modes
+  bool isBigJumpLoopMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP;
+  }
+  bool isNoLoopMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_NO_LOOP;
+  }
+  bool isXTeamReductionsMode() const {
+    return ExecutionMode == OMP_TGT_EXEC_MODE_XTEAM_RED;
+  }
+
 protected:
   /// Get the execution mode name of the kernel.
   const char *getExecutionModeName() const {
@@ -431,26 +454,6 @@ protected:
   /// The maximum number of threads which the kernel could leverage.
   uint32_t MaxNumThreads;
 
-  /// Indicate if the kernel works in Generic SPMD, Generic or SPMD mode.
-  bool isGenericSPMDMode() const {
-    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC_SPMD;
-  }
-  bool isGenericMode() const {
-    return ExecutionMode == OMP_TGT_EXEC_MODE_GENERIC;
-  }
-  bool isSPMDMode() const { return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD; }
-
-  /// AMD-only execution modes
-  bool isBigJumpLoopMode() const {
-    return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_BIG_JUMP_LOOP;
-  }
-  bool isNoLoopMode() const {
-    return ExecutionMode == OMP_TGT_EXEC_MODE_SPMD_NO_LOOP;
-  }
-  bool isXTeamReductionsMode() const {
-    return ExecutionMode == OMP_TGT_EXEC_MODE_XTEAM_RED;
-  }
-
   /// The kernel environment, including execution flags.
   KernelEnvironmentTy KernelEnvironment;
 
@@ -537,7 +540,7 @@ private:
 };
 
 /// Class representing a map of host pinned allocations. We track these pinned
-/// allocations, so memory tranfers invloving these buffers can be optimized.
+/// allocations, so memory transfers involving these buffers can be optimized.
 class PinnedAllocationMapTy {
 
   /// Struct representing a map entry.
@@ -563,7 +566,7 @@ class PinnedAllocationMapTy {
     /// becomes zero.
     mutable size_t References;
 
-    /// Create an entry with the host and device acessible pointers, the buffer
+    /// Create an entry with the host and device accessible pointers, the buffer
     /// size, and a boolean indicating whether the buffer was locked externally.
     EntryTy(void *HstPtr, void *DevAccessiblePtr, size_t Size,
             bool ExternallyLocked)
@@ -598,7 +601,7 @@ class PinnedAllocationMapTy {
   /// Indicate whether mapped host buffers should be locked automatically.
   bool LockMappedBuffers;
 
-  /// Indicate whether failures when locking mapped buffers should be ingored.
+  /// Indicate whether failures when locking mapped buffers should be ignored.
   bool IgnoreLockMappedFailures;
 
   /// Find an allocation that intersects with \p HstPtr pointer. Assume the
@@ -956,10 +959,10 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   virtual bool supportsUnifiedMemoryImpl() { return false; }
 
   // Returns true if coarse graining of mapped variables is
-  // disabled on MI200 GPUs.
-  // virtual bool IsFineGrainedMemoryEnabled() { return false; }
-  bool IsFineGrainedMemoryEnabled();
-  virtual bool IsFineGrainedMemoryEnabledImpl() { return false; }
+  // enabled on MI200 GPUs.
+  // virtual bool IsGfx90aCoarseGrainUsmMapEnabled() { return false; }
+  bool IsGfx90aCoarseGrainUsmMapEnabled();
+  virtual bool IsGfx90aCoarseGrainUsmMapEnabledImpl() { return false; }
 
   /// Create an event.
   Error createEvent(void **EventPtrStorage);
@@ -1105,6 +1108,12 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
 
   bool getMultiDeviceKernelValue(void *EntryPtr);
 
+  KernelRunRecordTy *getKernelRunRecords() const { return KernelRunRecords; }
+
+  /// Return true if a descriptor of size 'Size' should be allocated using
+  /// shared memory. Default implementation returns 'false',
+  virtual bool useSharedMemForDescriptor(int64_t Size);
+
   /// Reference to the underlying plugin that created this device.
   GenericPluginTy &Plugin;
 
@@ -1161,6 +1170,22 @@ struct GenericDeviceTy : public DeviceAllocatorTy {
   BoolEnvar OMPX_TrackAllocationTraces =
       BoolEnvar("OFFLOAD_TRACK_ALLOCATION_TRACES", false);
 
+  /// An entry to cache a shared memory buffer for Args to emissary APIs
+  struct ArgBufEntryTy {
+    size_t Size; // Size of Buffer
+    void *Addr;  // Pointer to SHARED mem
+    bool is_free;
+  };
+  /// The cache of allocated shared memory buffers for emissary APIs args
+  std::list<ArgBufEntryTy *> ArgBufEntries;
+  /// Get a free shared memory buffer and mark it not free. If none
+  /// free, allocate a new buffer and mark it not free.
+  void *getFree_ArgBuf(size_t sz);
+  /// Change a cached buffer from not free (busy) to free.
+  void moveBusyToFree_ArgBuf(void *ptr);
+  /// Destroy Argbufs and clear the cache. Used as part of device destructor
+  void clear_ArgBufs();
+
 private:
   /// Get and set the stack size and heap size for the device. If not used, the
   /// plugin can implement the setters as no-op and setting the output
@@ -1184,6 +1209,9 @@ private:
 
   /// Pointer to the memory manager or nullptr if not available.
   MemoryManagerTy *MemoryManager;
+
+  /// Per device setting of MemoryManager's Threshold
+  virtual size_t getMemoryManagerSizeThreshold() { return 0 /* use default */; }
 
   /// Environment variables defined by the OpenMP standard.
   Int32Envar OMP_TeamLimit;
@@ -1249,6 +1277,9 @@ protected:
   /// This is used to run the RPC server during task synchronization.
   RPCServerTy *RPCServer;
 
+  /// Structs for functions and data used in runtime autotuning.
+  KernelRunRecordTy *KernelRunRecords;
+
 private:
 #ifdef OMPT_SUPPORT
   /// OMPT callback functions
@@ -1273,6 +1304,109 @@ private:
   DeviceMemoryPoolTrackingTy DeviceMemoryPoolTracking = {0, 0, ~0U, 0};
 
   bool IsFastReductionEnabled = false;
+};
+
+/// Struct represents the metadata for each kernel run on the device.
+struct KernelRunRecordTy {
+
+  struct KernelRunEntryTy {
+    std::string KernelName;
+    uint32_t NumTeams = 0;
+    uint32_t NumThreads = 0;
+    uint64_t RunDuration = 0;
+  };
+
+  // Metadata used in tuning process.
+  struct TuningMetadataTy {
+    uint32_t IdxThread = 0;
+    uint32_t IdxCUMultiplier = 0;
+    // Run counters.
+    uint32_t RunCounters = 0;
+    // Entry with minimum running time.
+    KernelRunEntryTy MinEntry;
+  };
+
+  // Add a new entry
+  void addEntry(std::string KernelName, uint32_t NumTeams, uint32_t NumThreads,
+                uint64_t RunDuration) {
+    TuningData[KernelName].RunCounters++;
+
+    // Update min entries.
+    uint64_t MinDuration = 0;
+    auto It = TuningData.find(KernelName);
+    if (It != TuningData.end()) {
+      MinDuration = It->second.MinEntry.RunDuration;
+    }
+    if (MinDuration > RunDuration || MinDuration == 0) {
+      TuningData[KernelName].MinEntry = {KernelName, NumTeams, NumThreads,
+                                         RunDuration};
+    }
+  }
+
+  // Get parameters for next kernel launch.
+  std::pair<uint32_t, uint32_t>
+  getLaunchParamsForKernel(std::string KernelName,
+                           GenericDeviceTy &GenericDevice) {
+    // If the kernel reaches the run limit,
+    // return the current optimal launch parameters.
+    if (reachedRunLimitForKernel(KernelName)) {
+      auto MinEntry = TuningData[KernelName].MinEntry;
+      return {MinEntry.NumTeams, MinEntry.NumThreads};
+    }
+
+    // Pick new launch parameters.
+    uint32_t IdxCUMulti = TuningData[KernelName].IdxCUMultiplier;
+    uint32_t IdxThread = TuningData[KernelName].IdxThread;
+
+    if (IdxCUMulti >= CUMultiplierCandidate.size()) {
+      // No more element to search.
+      // Return current optimal launch parameters.
+      return {TuningData[KernelName].MinEntry.NumTeams,
+              TuningData[KernelName].MinEntry.NumThreads};
+    }
+
+    // New team/thread pair for launch parameters.
+    uint32_t NumCU = GenericDevice.getNumComputeUnits();
+    std::pair<uint32_t, uint32_t> NewLaunchParams = {
+        CUMultiplierCandidate[IdxCUMulti] * NumCU, ThreadCandidate[IdxThread]};
+
+    // Update indices.
+    IdxThread++;
+    TuningData[KernelName].IdxThread = IdxThread;
+
+    if (IdxThread >= ThreadCandidate.size()) {
+      TuningData[KernelName].IdxThread = 0;
+      TuningData[KernelName].IdxCUMultiplier++;
+    }
+
+    return NewLaunchParams;
+  }
+
+  bool reachedRunLimitForKernel(std::string KernelName) {
+    if (TuningData.find(KernelName) == TuningData.end()) {
+      // If no record for this kernel.
+      return false;
+    }
+
+    return TuningData[KernelName].RunCounters > RunLimiter;
+  }
+
+  uint32_t getRunCounterForKernel(std::string KernelName) {
+    if (TuningData.find(KernelName) == TuningData.end()) {
+      return 0;
+    }
+
+    return TuningData[KernelName].RunCounters;
+  }
+
+private:
+  // Candidates for thread and team.
+  std::vector<uint32_t> ThreadCandidate = {32, 64, 128, 256, 512, 1024};
+  std::vector<uint32_t> CUMultiplierCandidate = {4, 8, 16, 32, 64, 128};
+  // The max number of tuning runs for each kernel.
+  uint32_t RunLimiter = ThreadCandidate.size() * CUMultiplierCandidate.size();
+  // Used for keeping track of the metatdata used in tuning for each kernel.
+  std::unordered_map<std::string, TuningMetadataTy> TuningData;
 };
 
 /// Class implementing common functionalities of offload plugins. Each plugin
@@ -1308,7 +1442,7 @@ struct GenericPluginTy {
   /// Get the reference to the device with a certain device id.
   GenericDeviceTy &getDevice(int32_t DeviceId) {
     assert(isValidDeviceId(DeviceId) && "Invalid device id");
-    assert(Devices[DeviceId] && "Device is unitialized");
+    assert(Devices[DeviceId] && "Device is uninitialized");
 
     return *Devices[DeviceId];
   }
@@ -1442,8 +1576,9 @@ public:
   /// Returns if this device supports USM.
   bool supports_unified_memory(int32_t DeviceId);
 
-  /// Returns if fine grained memory is supported.
-  bool is_fine_grained_memory_enabled(int32_t DeviceId);
+  /// Returns if GFX90A coarse graining of OpenMP mapped
+  /// variables is enabled under unified shared memory.
+  bool is_gfx90a_coarse_grain_usm_map_enabled(int32_t DeviceId);
 
   /// Returns if managed memory is supported.
   bool is_system_supporting_managed_memory(int32_t DeviceId);
@@ -1491,7 +1626,7 @@ public:
   int32_t data_retrieve(int32_t DeviceId, void *HstPtr, void *TgtPtr,
                         int64_t Size);
 
-  /// Copy data from the given device asynchornously.
+  /// Copy data from the given device asynchronously.
   int32_t data_retrieve_async(int32_t DeviceId, void *HstPtr, void *TgtPtr,
                               int64_t Size, __tgt_async_info *AsyncInfoPtr);
 
@@ -1534,7 +1669,7 @@ public:
   int32_t wait_event(int32_t DeviceId, void *EventPtr,
                      __tgt_async_info *AsyncInfoPtr);
 
-  /// Syncrhonize execution until an event is done.
+  /// Synchronize execution until an event is done.
   int32_t sync_event(int32_t DeviceId, void *EventPtr);
 
   /// Remove the event from the plugin.
@@ -1589,6 +1724,10 @@ public:
 
   /// Check if kernel is multi-device.
   bool kernel_is_multi_device(int32_t DeviceId, void *TgtEntryPtr);
+
+  /// Return true if a descriptor of size 'Size' should be allocated using
+  /// shared memory.
+  bool use_shared_mem_for_descriptor(int32_t DeviceId, int64_t Size);
 
 private:
   /// Indicates if the platform runtime has been fully initialized.

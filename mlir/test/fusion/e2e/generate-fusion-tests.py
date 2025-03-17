@@ -48,7 +48,7 @@ def generate_op_variants_test(indir, outdir, type, file, opspec):
         # The instruction operand is in the middle for clamp, so we can't simply
         # substitute.  With a regexp replace we could capture the actual operand
         # but for now we'll just "know" what we have.
-        op = op.format(operand='(%0)')
+        op = op.format(operand='(%0)', type=type)
         f.write(template.format(op=op, type=type,
                                 randtype=RANDTYPE[type],
                                 randkind='fixed' if opname != 'rsqrt' else '1',

@@ -1,13 +1,10 @@
 add_mlir_dialect_library(MLIRMHALTransforms
-  AnnotateAccessKinds.cpp
   Bufferize.cpp
   BufferizableOpInterfaceImpl.cpp
   DropMetadata.cpp
   EmulateNarrowType.cpp
-  InferGraph.cpp
   PackageTargets.cpp
   SelectTargets.cpp
-  TargetKernels.cpp
   Prefill.cpp
 
   ADDITIONAL_HEADER_DIRS

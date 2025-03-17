@@ -213,10 +213,11 @@ static int dummy_covinit_funcs[0] COMPILER_RT_SECTION(
 #pragma GCC diagnostic ignored "-Wcast-qual"
 #endif
 COMPILER_RT_VISIBILITY
-void *__llvm_profile_keep[] = {
-    (void *)&dummy_cnts,  (void *)&dummy_bits, (void *)&dummy_data,
-    (void *)&dummy_name,  (void *)&dummy_vnds, (void *)&dummy_orderfile,
-    (void *)&dummy_vname, (void *)&dummy_vtab, (void *)&dummy_covinit_funcs};
+void *__llvm_profile_keep[] = {(void *)&dummy_cnts,  (void *)&dummy_bits,
+                               (void *)&dummy_data,  (void *)&dummy_name,
+                               (void *)&dummy_vnds,  (void *)&dummy_orderfile,
+                               (void *)&dummy_vname, (void *)&dummy_vtab,
+                               (void *)&dummy_covinit_funcs};
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif

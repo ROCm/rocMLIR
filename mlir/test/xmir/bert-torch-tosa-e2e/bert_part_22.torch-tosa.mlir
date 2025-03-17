@@ -4,7 +4,8 @@
 // CHECK: [1 1 1]
 module {
   func.func @bert_part_22(%arg0: tensor<1x12x384xf32> {mhal.read_access}, %arg1: tensor<384x1536xf32> {mhal.read_access}, %arg2: tensor<1x1x1536xf32> {mhal.read_access}) -> (tensor<1x12x1536xf32> {mhal.write_access}) {
-      %0 = "tosa.reshape"(%arg1) {new_shape = array<i64: 1, 384, 1536>} : (tensor<384x1536xf32>) -> tensor<1x384x1536xf32>
+      %const_shape = "tosa.const_shape"() { value = dense<[1, 384, 1536]> : tensor<3xindex> } : () -> !tosa.shape<3>
+      %0 = "tosa.reshape"(%arg1, %const_shape) : (tensor<384x1536xf32>, !tosa.shape<3>) -> tensor<1x384x1536xf32>
       %1 = "tosa.matmul"(%arg0, %0) : (tensor<1x12x384xf32>, tensor<1x384x1536xf32>) -> tensor<1x12x1536xf32>
       %2 = "tosa.add"(%1, %arg2) : (tensor<1x12x1536xf32>, tensor<1x1x1536xf32>) -> tensor<1x12x1536xf32>
       return %2 : tensor<1x12x1536xf32>

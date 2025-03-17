@@ -85,7 +85,7 @@ ProfilePoint::~ProfilePoint() {
 class PerfTimerWindows : public PerfTimerImpl {
 
 public:
-  PerfTimerWindows(){};
+  PerfTimerWindows() {};
   virtual bool Init() override {
     LARGE_INTEGER li;
     if (QueryPerformanceCounter(&li))

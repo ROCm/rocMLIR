@@ -259,31 +259,32 @@ public:
 
       // Translate the source location.
       if (Info.hasSourceManager()) {
-      DiagnosticDetail::SourceLocation loc;
-      clang::SourceManager &sm = Info.getSourceManager();
-      const clang::SourceLocation sloc = Info.getLocation();
-      if (sloc.isValid()) {
-        const clang::FullSourceLoc fsloc(sloc, sm);
-        clang::PresumedLoc PLoc = fsloc.getPresumedLoc(true);
-        StringRef filename = PLoc.isValid() ? PLoc.getFilename() : StringRef{};
-        loc.file = FileSpec(filename);
-        loc.line = fsloc.getSpellingLineNumber();
-        loc.column = fsloc.getSpellingColumnNumber();
-        loc.in_user_input = filename == m_filename;
-        loc.hidden = filename.starts_with("<lldb wrapper ");
+        DiagnosticDetail::SourceLocation loc;
+        clang::SourceManager &sm = Info.getSourceManager();
+        const clang::SourceLocation sloc = Info.getLocation();
+        if (sloc.isValid()) {
+          const clang::FullSourceLoc fsloc(sloc, sm);
+          clang::PresumedLoc PLoc = fsloc.getPresumedLoc(true);
+          StringRef filename =
+              PLoc.isValid() ? PLoc.getFilename() : StringRef{};
+          loc.file = FileSpec(filename);
+          loc.line = fsloc.getSpellingLineNumber();
+          loc.column = fsloc.getSpellingColumnNumber();
+          loc.in_user_input = filename == m_filename;
+          loc.hidden = filename.starts_with("<lldb wrapper ");
 
-        // Find the range of the primary location.
-        for (const auto &range : Info.getRanges()) {
-          if (range.getBegin() == sloc) {
-            // FIXME: This is probably not handling wide characters correctly.
-            unsigned end_col = sm.getSpellingColumnNumber(range.getEnd());
-            if (end_col > loc.column)
-              loc.length = end_col - loc.column;
-            break;
+          // Find the range of the primary location.
+          for (const auto &range : Info.getRanges()) {
+            if (range.getBegin() == sloc) {
+              // FIXME: This is probably not handling wide characters correctly.
+              unsigned end_col = sm.getSpellingColumnNumber(range.getEnd());
+              if (end_col > loc.column)
+                loc.length = end_col - loc.column;
+              break;
+            }
           }
+          detail.source_location = loc;
         }
-        detail.source_location = loc;
-      }
       }
       llvm::SmallString<0> msg;
       Info.FormatDiagnostic(msg);
@@ -297,7 +298,7 @@ public:
       // FIXME: Should we try to filter out FixIts that apply to our generated
       // code, and not the user's expression?
       if (detail.severity == lldb::eSeverityError)
-      AddAllFixIts(new_diagnostic.get(), Info);
+        AddAllFixIts(new_diagnostic.get(), Info);
 
       m_manager->AddDiagnostic(std::move(new_diagnostic));
   }

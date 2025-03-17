@@ -4,7 +4,7 @@
 Note: This requires Python 3.7 or newer, use pyenv or the like to install it temporarily
 
 Usage:
-$ ninja rocmlir-gen rocmlir-driver mlir-cpu-runner ci-performance-scripts
+$ ninja rocmlir-gen rocmlir-driver mlir-runner ci-performance-scripts
 $ stdbuf --output=L python3 ./bin/parameterSweeps.py [config] | stdbuf --output=L tee [output-file-of-choice]"""
 
 import argparse

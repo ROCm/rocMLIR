@@ -3,10 +3,13 @@
 
 #include <stdint.h>
 
-extern "C" const char *__ubsan_default_options() { return "halt_on_error=1"; }
+extern "C" const char *__ubsan_default_options() {
+  return "halt_on_error=1";
+}
 
 int main() {
   (void)(uint64_t(10000000000000000000ull) + uint64_t(9000000000000000000ull));
   // CHECK: ubsan_options.cpp:[[@LINE-1]]:44: runtime error: unsigned integer overflow
   return 0;
 }
+

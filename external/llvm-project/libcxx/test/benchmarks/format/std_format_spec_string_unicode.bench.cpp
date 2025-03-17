@@ -6,13 +6,13 @@
 
 // UNSUPPORTED: c++03, c++11, c++14, c++17
 
-#include <concepts>
+#  include <concepts>
 #  include <format>
 #  include <string_view>
 
 #  include "benchmark/benchmark.h"
 #  include "make_string.h"
-#include "test_macros.h"
+#  include "test_macros.h"
 
 #  define SV(S) MAKE_STRING_VIEW(CharT, S)
 

@@ -132,36 +132,16 @@ struct ExtractSliceRewritePattern
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
 
-  LogicalResult getTransposeDims(Value v, SmallVector<int32_t> &perms) const {
-    Operation *cval = v.getDefiningOp();
-    if (isa<arith::ConstantOp>(cval) || isa<tosa::ConstOp>(cval)) {
-      auto cattr = cast<DenseElementsAttr>(cval->getAttr("value"));
-      auto vals = cattr.tryGetValues<int32_t>();
-      if (succeeded(vals)) {
-        perms.assign((*vals).begin(), (*vals).end());
-        return success();
-      }
-      auto vals64 = cattr.tryGetValues<int64_t>();
-      if (succeeded(vals64)) {
-        perms.assign((*vals64).begin(), (*vals64).end());
-        return success();
-      }
-    }
-    return failure();
-  }
-
   // Fold transpose ops and convert convolution into changed layout.
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
   //           rock.conv.NCHW
   // Pattern match start from the output transpose
   LogicalResult matchAndRewrite(tosa::TransposeOp top,
                                 PatternRewriter &b) const final {
-    SmallVector<int32_t> perms;
-    if (failed(getTransposeDims(top.getOperand(1), perms)))
-      return failure();
+    const auto perms = top.getPerms();
 
     Location loc = top.getLoc();
-    Value inp = top.getOperand(0);
+    Value inp = top->getOperand(0);
     ShapedType inpType = cast<ShapedType>(inp.getType());
     ArrayRef<int64_t> inpShape = inpType.getShape();
     assert(perms.size() == inpShape.size());

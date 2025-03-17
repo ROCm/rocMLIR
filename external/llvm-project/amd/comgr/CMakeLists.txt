@@ -167,16 +167,31 @@ set(AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS ${LLVM_DEFINITIONS})
 set(AMD_COMGR_PUBLIC_LINKER_OPTIONS)
 set(AMD_COMGR_PRIVATE_LINKER_OPTIONS)
 
-option(COMGR_DISABLE_SPIRV "To disable SPIRV in Comgr" OFF)
-if(${COMGR_DISABLE_SPIRV})
-    list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "COMGR_DISABLE_SPIRV")
-endif()
-
 list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "AMD_COMGR_GIT_COMMIT=${AMD_COMGR_GIT_COMMIT}")
 list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "AMD_COMGR_GIT_BRANCH=${AMD_COMGR_GIT_BRANCH}")
 message("----COMGR_GIT_COMMIT: ${AMD_COMGR_GIT_COMMIT}")
 message("----COMGR_GIT_BRANCH: ${AMD_COMGR_GIT_BRANCH}")
 message("")
+
+option(COMGR_DISABLE_SPIRV "To disable SPIRV in Comgr" OFF)
+
+if (NOT COMGR_DISABLE_SPIRV)
+  # TODO: Explore switching this to CHECK_INCLUDE_FILE_CXX() macro
+  if (NOT EXISTS "${LLVM_INCLUDE_DIRS}/LLVMSPIRVLib/LLVMSPIRVLib.h")
+    message("-- LLVMSPIRVLib/LLVMSPIRVLib.h not found")
+    set(COMGR_DISABLE_SPIRV ON)
+  else()
+    message("-- LLVMSPIRVLib/LLVMSPIRVLib.h found")
+  endif()
+endif()
+
+if(${COMGR_DISABLE_SPIRV})
+    list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "COMGR_DISABLE_SPIRV")
+  message("-- Comgr SPIRV Disabled")
+else()
+  message("-- Comgr SPIRV Enabled")
+endif()
+
 
 if (UNIX)
   list(APPEND AMD_COMGR_PRIVATE_COMPILE_OPTIONS
@@ -390,11 +405,9 @@ set(LLD_LIBS
   lldCommon)
 
 if (${COMGR_DISABLE_SPIRV})
-  message("-- Comgr SPIRV Disabled")
   set(SPIRV_DYNAMIC_LIB "")
   set(SPIRV_STATIC_LIB "")
 else()
-  message("-- Comgr SPIRV Enabled")
   set(SPIRV_DYNAMIC_LIB "LLVMSPIRVAMDLib")
   set(SPIRV_STATIC_LIB "SPIRVAMDLib")
 endif()
@@ -517,7 +530,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CPACK_DEBIAN_AMD-COMGR_PACKAGE_NAME comgr-static-dev)
   endif()
   set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/ROCm/llvm-project/tree/amd-staging/amd/comgr")
-  set(DEBIAN_DEPENDENCIES "libzstd1, zlib1g, libc6, libstdc++6, libgcc-s1")
+  set(DEBIAN_DEPENDENCIES "libzstd1, zlib1g, libc6, libstdc++6, libgcc-s1 | libgcc1")
   if (LLVM_LINK_LLVM_DYLIB)
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core, rocm-llvm-core, ${DEBIAN_DEPENDENCIES}")
     set(CPACK_DEBIAN_ASAN_PACKAGE_DEPENDS "libtinfo-dev, rocm-core-asan, rocm-llvm-core, ${DEBIAN_DEPENDENCIES}")

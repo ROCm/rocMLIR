@@ -62,6 +62,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cassert>
@@ -286,6 +287,33 @@ private:
 
   const PathSensitiveBugReport *getBugReport() const { return R; }
 };
+
+std::string timeTraceName(const BugReportEquivClass &EQ) {
+  if (!llvm::timeTraceProfilerEnabled())
+    return "";
+  const auto &BugReports = EQ.getReports();
+  if (BugReports.empty())
+    return "Empty Equivalence Class";
+  const BugReport *R = BugReports.front().get();
+  const auto &BT = R->getBugType();
+  return ("Flushing EQC " + BT.getDescription()).str();
+}
+
+llvm::TimeTraceMetadata timeTraceMetadata(const BugReportEquivClass &EQ,
+                                          const SourceManager &SM) {
+  // Must be called only when constructing non-bogus TimeTraceScope
+  assert(llvm::timeTraceProfilerEnabled());
+
+  const auto &BugReports = EQ.getReports();
+  if (BugReports.empty())
+    return {};
+  const BugReport *R = BugReports.front().get();
+  const auto &BT = R->getBugType();
+  auto Loc = R->getLocation().asLocation();
+  std::string File = SM.getFilename(Loc).str();
+  return {BT.getCheckerName().str(), std::move(File),
+          static_cast<int>(Loc.getLineNumber())};
+}
 
 } // namespace
 
@@ -2420,7 +2448,7 @@ static bool exitingDestructor(const ExplodedNode *N) {
   // Need to loop here, as some times the Error node is already outside of the
   // destructor context, and the previous node is an edge that is also outside.
   while (N && !N->getLocation().getAs<StmtPoint>()) {
-      N = N->getFirstPred();
+    N = N->getFirstPred();
   }
   return N && isa<CXXDestructorDecl>(N->getLocationContext()->getDecl());
 }
@@ -2428,12 +2456,12 @@ static bool exitingDestructor(const ExplodedNode *N) {
 static const Stmt *
 findReasonableStmtCloseToFunctionExit(const ExplodedNode *N) {
   if (exitingDestructor(N)) {
-      // If we are exiting a destructor call, it is more useful to point to
-      // the next stmt which is usually the temporary declaration.
-      if (const Stmt *S = N->getNextStmtForDiagnostics())
+    // If we are exiting a destructor call, it is more useful to point to
+    // the next stmt which is usually the temporary declaration.
+    if (const Stmt *S = N->getNextStmtForDiagnostics())
       return S;
-      // If next stmt is not found, it is likely the end of a top-level
-      // function analysis. find the last execution statement then.
+    // If next stmt is not found, it is likely the end of a top-level
+    // function analysis. find the last execution statement then.
   }
   return N->getPreviousStmtForDiagnostics();
 }
@@ -2892,6 +2920,7 @@ std::optional<PathDiagnosticBuilder> PathDiagnosticBuilder::findValidReport(
 
     if (R->isValid()) {
       if (Reporter.getAnalyzerOptions().ShouldCrosscheckWithZ3) {
+        llvm::TimeTraceScope TCS{"Crosscheck with Z3"};
         // If crosscheck is enabled, remove all visitors, add the refutation
         // visitor and check again
         R->clearVisitors();
@@ -2929,7 +2958,7 @@ std::optional<PathDiagnosticBuilder> PathDiagnosticBuilder::findValidReport(
 
 std::unique_ptr<DiagnosticForConsumerMapTy>
 PathSensitiveBugReporter::generatePathDiagnostics(
-    ArrayRef<PathDiagnosticConsumer *> consumers,
+    ArrayRef<std::unique_ptr<PathDiagnosticConsumer>> consumers,
     ArrayRef<PathSensitiveBugReport *> &bugReports) {
   assert(!bugReports.empty());
 
@@ -2939,9 +2968,9 @@ PathSensitiveBugReporter::generatePathDiagnostics(
       PathDiagnosticBuilder::findValidReport(bugReports, *this);
 
   if (PDB) {
-    for (PathDiagnosticConsumer *PC : consumers) {
-      if (std::unique_ptr<PathDiagnostic> PD = PDB->generate(PC)) {
-        (*Out)[PC] = std::move(PD);
+    for (const auto &PC : consumers) {
+      if (std::unique_ptr<PathDiagnostic> PD = PDB->generate(PC.get())) {
+        (*Out)[PC.get()] = std::move(PD);
       }
     }
   }
@@ -3119,7 +3148,10 @@ BugReport *PathSensitiveBugReporter::findReportInEquivalenceClass(
   return exampleReport;
 }
 
-void BugReporter::FlushReport(BugReportEquivClass& EQ) {
+void BugReporter::FlushReport(BugReportEquivClass &EQ) {
+  llvm::TimeTraceScope TCS{timeTraceName(EQ), [&]() {
+                             return timeTraceMetadata(EQ, getSourceManager());
+                           }};
   SmallVector<BugReport*, 10> bugReports;
   BugReport *report = findReportInEquivalenceClass(EQ, bugReports);
   if (!report)
@@ -3132,7 +3164,7 @@ void BugReporter::FlushReport(BugReportEquivClass& EQ) {
       return;
   }
 
-  ArrayRef<PathDiagnosticConsumer*> Consumers = getPathDiagnosticConsumers();
+  ArrayRef Consumers = getPathDiagnosticConsumers();
   std::unique_ptr<DiagnosticForConsumerMapTy> Diagnostics =
       generateDiagnosticForConsumerMap(report, Consumers, bugReports);
 
@@ -3266,12 +3298,13 @@ findExecutedLines(const SourceManager &SM, const ExplodedNode *N) {
 
 std::unique_ptr<DiagnosticForConsumerMapTy>
 BugReporter::generateDiagnosticForConsumerMap(
-    BugReport *exampleReport, ArrayRef<PathDiagnosticConsumer *> consumers,
+    BugReport *exampleReport,
+    ArrayRef<std::unique_ptr<PathDiagnosticConsumer>> consumers,
     ArrayRef<BugReport *> bugReports) {
   auto *basicReport = cast<BasicBugReport>(exampleReport);
   auto Out = std::make_unique<DiagnosticForConsumerMapTy>();
-  for (auto *Consumer : consumers)
-    (*Out)[Consumer] =
+  for (const auto &Consumer : consumers)
+    (*Out)[Consumer.get()] =
         generateDiagnosticForBasicReport(basicReport, AnalysisEntryPoint);
   return Out;
 }
@@ -3339,11 +3372,10 @@ static void resetDiagnosticLocationToMainFile(PathDiagnostic &PD) {
   }
 }
 
-
-
 std::unique_ptr<DiagnosticForConsumerMapTy>
 PathSensitiveBugReporter::generateDiagnosticForConsumerMap(
-    BugReport *exampleReport, ArrayRef<PathDiagnosticConsumer *> consumers,
+    BugReport *exampleReport,
+    ArrayRef<std::unique_ptr<PathDiagnosticConsumer>> consumers,
     ArrayRef<BugReport *> bugReports) {
   std::vector<BasicBugReport *> BasicBugReports;
   std::vector<PathSensitiveBugReport *> PathSensitiveBugReports;

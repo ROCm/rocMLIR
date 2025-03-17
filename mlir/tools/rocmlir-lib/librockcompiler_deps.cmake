@@ -45,6 +45,7 @@ LLVMMCParser
 LLVMMIRParser
 LLVMObjCARCOpts
 LLVMObject
+LLVMObjectYAML
 LLVMOption
 LLVMPasses
 LLVMProfileData
@@ -89,6 +90,7 @@ MLIRCAPIIR
 MLIRCallInterfaces
 MLIRCastInterfaces
 MLIRComplexDialect
+MLIRComplexDivisionConversion
 MLIRComplexToLLVM
 MLIRControlFlowDialect
 MLIRControlFlowInterfaces

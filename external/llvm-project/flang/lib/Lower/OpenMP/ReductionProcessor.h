@@ -13,12 +13,12 @@
 #ifndef FORTRAN_LOWER_REDUCTIONPROCESSOR_H
 #define FORTRAN_LOWER_REDUCTIONPROCESSOR_H
 
-#include "Clauses.h"
+#include "flang/Lower/OpenMP/Clauses.h"
 #include "flang/Optimizer/Builder/FIRBuilder.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
-#include "flang/Parser/parse-tree.h"
 #include "flang/Semantics/symbol.h"
 #include "flang/Semantics/type.h"
+#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 
@@ -113,20 +113,21 @@ public:
   /// value `initValue`, and the reduction combiner carried over from `reduce`.
   /// TODO: add atomic region.
   static mlir::omp::DeclareReductionOp
-  createDeclareReduction(fir::FirOpBuilder &builder,
+  createDeclareReduction(AbstractConverter &builder,
                          llvm::StringRef reductionOpName,
                          const ReductionIdentifier redId, mlir::Type type,
                          mlir::Location loc, bool isByRef);
 
   /// Creates a reduction declaration and associates it with an OpenMP block
   /// directive.
-  static void addDeclareReduction(
+  static void processReductionArguments(
       mlir::Location currentLocation, lower::AbstractConverter &converter,
       const omp::clause::Reduction &reduction,
       llvm::SmallVectorImpl<mlir::Value> &reductionVars,
       llvm::SmallVectorImpl<bool> &reduceVarByRef,
       llvm::SmallVectorImpl<mlir::Attribute> &reductionDeclSymbols,
-      llvm::SmallVectorImpl<const semantics::Symbol *> &reductionSymbols);
+      llvm::SmallVectorImpl<const semantics::Symbol *> &reductionSymbols,
+      mlir::omp::ReductionModifierAttr &reductionMod);
 };
 
 template <typename FloatOp, typename IntegerOp>

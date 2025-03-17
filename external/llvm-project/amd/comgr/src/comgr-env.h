@@ -43,6 +43,7 @@ namespace env {
 
 /// Return whether the environment requests temps be saved.
 bool shouldSaveTemps();
+bool shouldSaveLLVMTemps();
 
 /// If the environment requests logs be redirected, return the string identifier
 /// of where to redirect. Otherwise return @p None.
@@ -53,14 +54,6 @@ bool shouldEmitVerboseLogs();
 
 /// Return whether the environment requests time statistics collection.
 bool needTimeStatistics();
-
-/// If environment variable ROCM_PATH is set, return the environment varaible,
-/// otherwise return the default ROCM path.
-llvm::StringRef getROCMPath();
-
-/// If environment variable HIP_PATH is set, return the environment variable,
-/// otherwise return the default HIP path.
-llvm::StringRef getHIPPath();
 
 /// If environment variable LLVM_PATH is set, return the environment variable,
 /// otherwise return the default LLVM path.
