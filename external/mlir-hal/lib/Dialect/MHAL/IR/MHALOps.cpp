@@ -59,7 +59,7 @@ CallInterfaceCallable LaunchOp::getCallableForCallee() {
 
 /// Set the callee for this operation.
 void LaunchOp::setCalleeFromCallable(CallInterfaceCallable callee) {
-  (*this)->setAttr("callee", callee.get<SymbolRefAttr>());
+  (*this)->setAttr("callee", cast<SymbolRefAttr>(callee));
 }
 
 /// Return the operands passed to the callee.

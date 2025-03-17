@@ -38,8 +38,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Iterator, size_t _Size>
 struct __static_bounded_iter_storage {
   _LIBCPP_HIDE_FROM_ABI __static_bounded_iter_storage() = default;
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __static_bounded_iter_storage(
-      _Iterator __current, _Iterator __begin)
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __static_bounded_iter_storage(_Iterator __current, _Iterator __begin)
       : __current_(__current), __begin_(__begin) {}
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Iterator& __current() _NOEXCEPT { return __current_; }
@@ -55,8 +55,8 @@ private:
 template <class _Iterator>
 struct __static_bounded_iter_storage<_Iterator, 0> {
   _LIBCPP_HIDE_FROM_ABI __static_bounded_iter_storage() = default;
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __static_bounded_iter_storage(
-      _Iterator __current, _Iterator /* __begin */)
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __static_bounded_iter_storage(_Iterator __current, _Iterator /* __begin */)
       : __current_(__current) {}
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Iterator& __current() _NOEXCEPT { return __current_; }
@@ -114,8 +114,8 @@ struct __static_bounded_iter {
 private:
   // Create an iterator wrapping the given iterator, and whose bounds are described
   // by the provided [begin, begin + _Size] range.
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __static_bounded_iter(
-      _Iterator __current, _Iterator __begin)
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit __static_bounded_iter(_Iterator __current, _Iterator __begin)
       : __storage_(__current, __begin) {
     _LIBCPP_ASSERT_INTERNAL(
         __begin <= __current, "__static_bounded_iter(current, begin): current and begin are inconsistent");

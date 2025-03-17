@@ -90,15 +90,14 @@ struct Fp8TruncToCallPattern final : public OpConversionPattern<TruncFOp> {
 } // namespace
 
 static bool isFp8(Type t) {
-  return t.isFloat8E5M2() || t.isFloat8E4M3FN() || t.isFloat8E5M2FNUZ() ||
-         t.isFloat8E4M3FNUZ();
+  return isa<FloatType>(t) && t.getIntOrFloatBitWidth() == 8;
 }
 
 static bool isNanooF8(Type t) {
-  return t.isFloat8E5M2FNUZ() || t.isFloat8E4M3FNUZ();
+  return isa<Float8E5M2FNUZType, Float8E4M3FNUZType>(t);
 }
 
-static bool isOcpF8(Type t) { return t.isFloat8E5M2() || t.isFloat8E4M3FN(); }
+static bool isOcpF8(Type t) { return isa<Float8E5M2Type, Float8E4M3FNType>(t); }
 
 static LogicalResult canBeConverted(Type t, bool hasF8ConversionInstrs,
                                     bool hasOcpF8ConversionInstrs) {
@@ -154,7 +153,7 @@ static Value getFloatValueTableFor(Type elementType, Operation *op,
     uint32_t u = llvm::bit_cast<uint32_t>(x);
     // Hack:  Navi4 uses 0x7f800001 for all three NaN, and that's not
     // what APFloat will do.
-    if (type.isFloat8E5M2()) {
+    if (isa<Float8E5M2Type>(type)) {
       if (i == 0x7d || i == 0x7e || i == 0x7f)
         u = 0x7f800001;
       if (i == 0xfd || i == 0xfe || i == 0xff)
@@ -497,7 +496,7 @@ makeOCPFp8TruncFunction(Location loc, FloatType outType, Operation *module) {
   Block *bb5 = func.addBlock();
   Block *bb6 = func.addBlock();
   b.setInsertionPointToStart(bb4);
-  SmallVector<int32_t> caseLabels({0, static_cast<int>(2147483648)});
+  SmallVector<int32_t> caseLabels({0, std::numeric_limits<int32_t>::max()});
   SmallVector<Block *> caseSuccessors({ret, bb5});
   SmallVector<ValueRange> caseOperands({ValueRange{i8Const(0)}, ValueRange{}});
   b.create<cf::SwitchOp>(loc, bits, bb6, ValueRange{}, caseLabels,
@@ -659,13 +658,13 @@ LogicalResult Fp8TruncToCallPattern::match(TruncFOp op) const {
                             hasOcpF8ConversionInstrs)))
     return failure();
   Type resType = getElementTypeOrSelf(op.getOut().getType());
-  if (resType.isFloat8E4M3FNUZ() && !f8E4M3FNUZFunc)
+  if (isa<Float8E4M3FNUZType>(resType) && !f8E4M3FNUZFunc)
     return failure();
-  if (resType.isFloat8E5M2FNUZ() && !f8E5M2FNUZFunc)
+  if (isa<Float8E5M2FNUZType>(resType) && !f8E5M2FNUZFunc)
     return failure();
-  if (resType.isFloat8E4M3FN() && !f8E4M3FNFunc)
+  if (isa<Float8E4M3FNType>(resType) && !f8E4M3FNFunc)
     return failure();
-  if (resType.isFloat8E5M2() && !f8E5M2Func)
+  if (isa<Float8E5M2Type>(resType) && !f8E5M2Func)
     return failure();
   return success();
 }
@@ -774,15 +773,15 @@ void EmulateFp8ExtTruncPass::runOnOperation() {
   op->walk([&](TruncFOp op) {
     Type outElemType = getElementTypeOrSelf(op.getOut().getType());
     if (!hasFp8ConversionInstrs) {
-      if (outElemType.isFloat8E4M3FNUZ())
+      if (isa<Float8E4M3FNUZType>(outElemType))
         f8E4M3FNUZLocs.push_back(op->getLoc());
-      else if (outElemType.isFloat8E5M2FNUZ())
+      else if (isa<Float8E5M2FNUZType>(outElemType))
         f8E5M2FNUZLocs.push_back(op->getLoc());
     }
     if (!hasOcpFp8ConversionInstrs) {
-      if (outElemType.isFloat8E4M3FN())
+      if (isa<Float8E4M3FNType>(outElemType))
         f8E4M3FNLocs.push_back(op->getLoc());
-      else if (outElemType.isFloat8E5M2())
+      else if (isa<Float8E5M2Type>(outElemType))
         f8E5M2Locs.push_back(op->getLoc());
     }
   });

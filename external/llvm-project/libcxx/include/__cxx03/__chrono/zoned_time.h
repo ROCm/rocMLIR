@@ -101,26 +101,27 @@ public:
       : zoned_time{__traits::locate_zone(__name), __tp} {}
 
   _LIBCPP_HIDE_FROM_ABI zoned_time(_TimeZonePtr __zone, const local_time<_Duration>& __tp)
-    requires(is_convertible_v<decltype(std::declval<_TimeZonePtr&>()->to_sys(local_time<_Duration>{})),
+    requires(is_convertible_v<decltype(std::declval<_TimeZonePtr&>() -> to_sys(local_time<_Duration>{})),
                               sys_time<duration>>)
       : __zone_{std::move(__zone)}, __tp_{__zone_->to_sys(__tp)} {}
 
   _LIBCPP_HIDE_FROM_ABI zoned_time(string_view __name, const local_time<_Duration>& __tp)
     requires(requires {
       _TimeZonePtr{__traits::locate_zone(string_view{})};
-    } && is_convertible_v<decltype(std::declval<_TimeZonePtr&>()->to_sys(local_time<_Duration>{})), sys_time<duration>>)
+    } && is_convertible_v<decltype(std::declval<_TimeZonePtr&>() -> to_sys(local_time<_Duration>{})),
+                          sys_time<duration>>)
       : zoned_time{__traits::locate_zone(__name), __tp} {}
 
   _LIBCPP_HIDE_FROM_ABI zoned_time(_TimeZonePtr __zone, const local_time<_Duration>& __tp, choose __c)
     requires(is_convertible_v<
-                decltype(std::declval<_TimeZonePtr&>()->to_sys(local_time<_Duration>{}, choose::earliest)),
+                decltype(std::declval<_TimeZonePtr&>() -> to_sys(local_time<_Duration>{}, choose::earliest)),
                 sys_time<duration>>)
       : __zone_{std::move(__zone)}, __tp_{__zone_->to_sys(__tp, __c)} {}
 
   _LIBCPP_HIDE_FROM_ABI zoned_time(string_view __name, const local_time<_Duration>& __tp, choose __c)
     requires(requires {
       _TimeZonePtr{__traits::locate_zone(string_view{})};
-    } && is_convertible_v<decltype(std::declval<_TimeZonePtr&>()->to_sys(local_time<_Duration>{}, choose::earliest)),
+    } && is_convertible_v<decltype(std::declval<_TimeZonePtr&>() -> to_sys(local_time<_Duration>{}, choose::earliest)),
                           sys_time<duration>>)
       : zoned_time{__traits::locate_zone(__name), __tp, __c} {}
 

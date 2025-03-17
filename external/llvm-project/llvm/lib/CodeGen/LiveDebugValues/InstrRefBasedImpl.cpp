@@ -156,6 +156,15 @@ static cl::opt<unsigned>
                          cl::desc("livedebugvalues-stack-ws-limit"),
                          cl::init(250));
 
+// Limit for the maximum number of stack slot indexes. On targets where this is
+// exceeded, this effectivly disables tracking debug locations across spills.
+// The spill tracking in MLocTracker performs quite poorly in terms of memory
+// and time on targets with a more complicated register file (FIXME).
+static cl::opt<unsigned>
+    StackSlotIdxesLimit("livedebugvalues-max-stack-slot-idxes", cl::Hidden,
+                        cl::desc("livedebugvalues-max-stack-slot-idxes"),
+                        cl::init(128));
+
 DbgOpID DbgOpID::UndefID = DbgOpID(0xffffffff);
 
 /// Tracker for converting machine value locations and variable values into
@@ -283,7 +292,7 @@ public:
     if (Reg >= MTracker->NumRegs)
       return false;
     for (MCRegAliasIterator RAI(Reg, &TRI, true); RAI.isValid(); ++RAI)
-      if (CalleeSavedRegs.test(*RAI))
+      if (CalleeSavedRegs.test((*RAI).id()))
         return true;
     return false;
   };
@@ -1122,6 +1131,10 @@ void MLocTracker::writeRegMask(const MachineOperand *MO, unsigned CurBB,
 }
 
 std::optional<SpillLocationNo> MLocTracker::getOrTrackSpillLoc(SpillLoc L) {
+  // Disable spill tracking on targets with a large number of slot idxes.
+  if (NumSlotIdxes >= StackSlotIdxesLimit)
+    return std::nullopt;
+
   SpillLocationNo SpillID(SpillLocs.idFor(L));
 
   if (SpillID.id() == 0) {
@@ -1290,6 +1303,27 @@ MLocTracker::emitLoc(const SmallVectorImpl<ResolvedDbgOp> &DbgOps,
           }
         }
 
+        // https://github.com/llvm/llvm-project/issues/64093
+        // in particular #issuecomment-2531264124. We use variable locations
+        // such as DBG_VALUE $xmm0 as shorthand to refer to "the low lane of
+        // $xmm0", and this is reflected in how DWARF is interpreted too.
+        // However InstrRefBasedLDV tries to be smart and interprets such a
+        // DBG_VALUE as a 128-bit reference. We then issue a DW_OP_deref_size
+        // of 128 bits to the stack, which isn't permitted by DWARF (it's
+        // larger than a pointer).
+        //
+        // Solve this for now by not using DW_OP_deref_size if it would be
+        // illegal. Instead we'll use DW_OP_deref, and the consumer will load
+        // the variable type from the stack, which should be correct.
+        //
+        // There's still a risk of imprecision when LLVM decides to use
+        // smaller or larger value types than the source-variable type, which
+        // manifests as too-little or too-much memory being read from the stack.
+        // However we can't solve that without putting more type information in
+        // debug-info.
+        if (ValueSizeInBits > MF.getTarget().getPointerSizeInBits(0))
+          UseDerefSize = false;
+
         SmallVector<uint64_t, 5> OffsetOps;
         TRI.getOffsetOpcodes(Spill.SpillOffset, OffsetOps);
         bool StackValue = false;
@@ -1345,7 +1379,7 @@ bool InstrRefBasedLDV::isCalleeSaved(LocIdx L) const {
 }
 bool InstrRefBasedLDV::isCalleeSavedReg(Register R) const {
   for (MCRegAliasIterator RAI(R, TRI, true); RAI.isValid(); ++RAI)
-    if (CalleeSavedRegs.test(*RAI))
+    if (CalleeSavedRegs.test((*RAI).id()))
       return true;
   return false;
 }
@@ -1881,7 +1915,7 @@ void InstrRefBasedLDV::transferRegisterDef(MachineInstr &MI) {
       // Remove ranges of all aliased registers.
       for (MCRegAliasIterator RAI(MO.getReg(), TRI, true); RAI.isValid(); ++RAI)
         // FIXME: Can we break out of this loop early if no insertion occurs?
-        DeadRegs.insert(*RAI);
+        DeadRegs.insert((*RAI).id());
     } else if (MO.isRegMask()) {
       RegMasks.push_back(MO.getRegMask());
       RegMaskPtrs.push_back(&MO);
@@ -3699,6 +3733,15 @@ bool InstrRefBasedLDV::ExtendRanges(MachineFunction &MF,
       new MLocTracker(MF, *TII, *TRI, *MF.getSubtarget().getTargetLowering());
   VTracker = nullptr;
   TTracker = nullptr;
+
+  if (MTracker->NumSlotIdxes >= StackSlotIdxesLimit) {
+    LLVM_DEBUG(
+        dbgs() << "Disabling InstrRefBasedLDV spill tracking for "
+               << MF.getName()
+               << " since target has too many potential stack slot indexes ("
+               << MTracker->NumSlotIdxes << ", limit is " << StackSlotIdxesLimit
+               << ")\n");
+  }
 
   SmallVector<MLocTransferMap, 32> MLocTransfer;
   SmallVector<VLocTracker, 8> vlocs;

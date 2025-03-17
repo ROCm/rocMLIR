@@ -106,9 +106,9 @@ else()
 
   # Check for flang
   if (NOT MSVC)
-    set(OPENMP_TEST_Fortran_COMPILER ${LLVM_RUNTIME_OUTPUT_INTDIR}/flang)
+    set(OPENMP_TEST_Fortran_COMPILER ${LLVM_RUNTIME_OUTPUT_INTDIR}/flang-new)
   else()
-    set(OPENMP_TEST_Fortran_COMPILER ${LLVM_RUNTIME_OUTPUT_INTDIR}/flang.exe)
+    set(OPENMP_TEST_Fortran_COMPILER ${LLVM_RUNTIME_OUTPUT_INTDIR}/flang-new.exe)
   endif()
 
   # Set fortran test compiler if flang is found
@@ -429,16 +429,23 @@ if(SANITIZER_AMDGPU)
   find_package(amd_comgr QUIET 2.4.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
 endif()
 
+# An Emissary API is a subset of Host APIs that are executed from Offload devices
+# using the offload RPC mechanism such as FORTRAN IO runtime and MPI.
+option(OFFLOAD_ENABLE_EMISSARY_APIS "Enable build of GPU Emissary APIs" ON)
+if(OFFLOAD_ENABLE_EMISSARY_APIS)
+  add_definitions(-DOFFLOAD_ENABLE_EMISSARY_APIS)
+  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/DeviceRTL/include/EmissaryIds.h
+    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include)
+endif()
+
 # Build offloading plugins and device RTLs if they are available.
 add_subdirectory(plugins-nextgen)
 
 add_subdirectory(tools)
-set(PREP_TOOL $<TARGET_FILE:prep-libomptarget-bc>)
-add_subdirectory(hostexec)
 add_subdirectory(DeviceRTL)
 
 # Build target agnostic offloading library.
-add_subdirectory(src)
+add_subdirectory(libomptarget)
 
 # FIXME: Re-enable once OMPT design allows
 # add_subdirectory(tools/offload-tblgen)

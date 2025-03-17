@@ -108,22 +108,11 @@ required. If the value is used, it is read once at the time it is needed, and
 then cached. The exact behavior when changing these values during the execution
 of a process after Comgr APIs have been invoked is undefined.
 
-Comgr supports some environment variables to locate parts of the ROCm stack.
-These include:
+Comgr supports an environment variable to help locate LLVM:
 
-* `ROCM_PATH`: If this is set it is used as an absolute path to the root of the
-  ROCm installation, which is used when determining the default values for
-  `HIP_PATH` and `LLVM_PATH` (see below). If this is not set and if a ROCM
-  package is provided during the build, ROCM path is set to it. Otherwise Comgr
-  tries to construct the ROCM path from the path where amd_comgr library
-  is located.
-* `HIP_PATH`: If this is set it is used as an absolute path to the root of the
-  HIP installation. If this is not set, it has a default value of
-  "${ROCM_PATH}/hip".
-* `LLVM_PATH`: If this is set it is used as an absolute path to the root of the
-  LLVM installation, which is currently used for HIP compilation to locate
-  certain runtime headers. If this is not set, it has a default value of
-  "${ROCM_PATH}/llvm".
+* `LLVM_PATH`: If set, it is used as an absolute path to the root of the LLVM
+  installation, which is currently used to locate the clang resource directory
+  and clang binary path, allowing for additional optimizations.
 
 Comgr also supports some environment variables to aid in debugging. These
 include:
@@ -133,6 +122,8 @@ include:
   the current working directory, but are instead left in a platform-specific
   temporary directory (typically `/tmp` on Linux and `C:\Temp` or the path
   found in the `TEMP` environment variable on Windows).
+* `AMD_COMGR_SAVE_LLVM_TEMPS`: If this is set, Comgr forwards `--save-temps=obj`
+  to Clang Driver invocations.
 * `AMD_COMGR_REDIRECT_LOGS`: If this is not set, or is set to "0", logs are
   returned to the caller as normal. If this is set to "stdout"/"-" or "stderr",
   logs are instead redirected to the standard output or error stream,

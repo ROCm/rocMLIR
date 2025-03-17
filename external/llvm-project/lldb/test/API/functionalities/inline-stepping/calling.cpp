@@ -89,17 +89,17 @@ caller_trivial_2 ()
 // should share a PC with all three of the following inlined
 // functions, so we can exercise "virtual inline stepping".
 void caller_trivial_inline_1() {
-    caller_trivial_inline_2(); // In caller_trivial_inline_1.
-    inline_value += 1;
+  caller_trivial_inline_2(); // In caller_trivial_inline_1.
+  inline_value += 1;
 }
 
 void caller_trivial_inline_2() {
-    caller_trivial_inline_3(); // In caller_trivial_inline_2.
-    inline_value += 1;         // After caller_trivial_inline_3
+  caller_trivial_inline_3(); // In caller_trivial_inline_2.
+  inline_value += 1;         // After caller_trivial_inline_3
 }
 
 void caller_trivial_inline_3() {
-    inline_value += 1; // In caller_trivial_inline_3.
+  inline_value += 1; // In caller_trivial_inline_3.
 }
 
 void

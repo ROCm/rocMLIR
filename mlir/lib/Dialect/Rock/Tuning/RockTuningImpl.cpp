@@ -239,9 +239,9 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
     PopulateParamsXDL tuningInfo;
     // XDLOPS
     Type inTypeA = gemmOp.getAType();
-    bool is8BitReduction = inTypeA.isInteger(8) || inTypeA.isFloat8E5M2FNUZ() ||
-                           inTypeA.isFloat8E4M3FNUZ() ||
-                           inTypeA.isFloat8E5M2() || inTypeA.isFloat8E4M3FN();
+    bool is8BitReduction =
+        inTypeA.isInteger(8) ||
+        (inTypeA.getIntOrFloatBitWidth() == 8 && isa<FloatType>(inTypeA));
     const std::vector<std::vector<uint32_t>> &xdlopsParams =
         is8BitReduction ? validRangeAccelGemmParams8BitReduction
                         : validRangeAccelGemmParams;
@@ -652,9 +652,9 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   Operation *gemmOp = gemmIF.getOperation();
 
   auto f8TypeStr = [](const Type &type) -> std::optional<StringLiteral> {
-    if (type.isFloat8E4M3FNUZ() || type.isFloat8E4M3FN())
+    if (isa<Float8E4M3FNUZType, Float8E4M3FNType>(type))
       return StringLiteral("fp8");
-    if (type.isFloat8E5M2FNUZ() || type.isFloat8E5M2())
+    if (isa<Float8E5M2FNUZType, Float8E5M2Type>(type))
       return StringLiteral("bf8");
     return std::nullopt;
   };

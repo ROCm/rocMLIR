@@ -409,24 +409,25 @@ setupIndirectCallTable(GenericPluginTy &Plugin, GenericDeviceTy &Device,
                        DeviceImageTy &Image) {
   GenericGlobalHandlerTy &Handler = Plugin.getGlobalHandler();
 
-  llvm::ArrayRef<__tgt_offload_entry> Entries(Image.getTgtImage()->EntriesBegin,
-                                              Image.getTgtImage()->EntriesEnd);
+  llvm::ArrayRef<llvm::offloading::EntryTy> Entries(
+      Image.getTgtImage()->EntriesBegin, Image.getTgtImage()->EntriesEnd);
   llvm::SmallVector<std::pair<void *, void *>> IndirectCallTable;
   for (const auto &Entry : Entries) {
-    if (Entry.size == 0 || !(Entry.flags & OMP_DECLARE_TARGET_INDIRECT))
+    if (Entry.Kind != object::OffloadKind::OFK_OpenMP || Entry.Size == 0 ||
+        !(Entry.Flags & OMP_DECLARE_TARGET_INDIRECT))
       continue;
 
-    assert(Entry.size == sizeof(void *) && "Global not a function pointer?");
+    assert(Entry.Size == sizeof(void *) && "Global not a function pointer?");
     auto &[HstPtr, DevPtr] = IndirectCallTable.emplace_back();
 
-    GlobalTy DeviceGlobal(Entry.name, Entry.size);
+    GlobalTy DeviceGlobal(Entry.SymbolName, Entry.Size);
     if (auto Err =
             Handler.getGlobalMetadataFromDevice(Device, Image, DeviceGlobal))
       return std::move(Err);
 
-    HstPtr = Entry.addr;
+    HstPtr = Entry.Address;
     if (auto Err = Device.dataRetrieve(&DevPtr, DeviceGlobal.getPtr(),
-                                       Entry.size, nullptr))
+                                       Entry.Size, nullptr))
       return std::move(Err);
   }
 
@@ -725,21 +726,40 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
   uint32_t NumBlocks[3] = {KernelArgs.NumTeams[0], KernelArgs.NumTeams[1],
                            KernelArgs.NumTeams[2]};
 
-  // TODO fix workaround since IsBareKernel is not properly set for legacy
-  // flang and specialized kernels since they don't use kernel-env. While
-  // we can check for specialized kernels, we can't for legacy flang. So,
-  // on amd-staging, all kernels including bare ones use this codepath.
-  NumThreads[0] = getNumThreads(GenericDevice, NumThreads);
+  std::string KernelName = getName();
+  KernelRunRecordTy *KernelRecord = GenericDevice.getKernelRunRecords();
+  uint32_t KernelRunCounter = 0;
 
-  std::pair<bool, uint32_t> AdjustInfo = adjustNumThreadsForLowTripCount(
-      GenericDevice, NumThreads[0], KernelArgs.Tripcount,
-      KernelArgs.ThreadLimit);
-  if (AdjustInfo.first)
-    NumThreads[0] = AdjustInfo.second;
+  if (KernelRecord) {
+    KernelRunCounter = KernelRecord->getRunCounterForKernel(KernelName);
+  }
+  // If Autotuning is enabled and the kernel is not launched for the first time.
+  if (GenericDevice.enableRuntimeAutotuning() && isSPMDMode() &&
+      KernelRunCounter > 0) {
+    assert(KernelRecord &&
+           "Autotuning is enabled, but KernelRunRecord is not initialized!");
 
-  NumBlocks[0] = getNumBlocks(GenericDevice, NumBlocks, KernelArgs.Tripcount,
-                              NumThreads[0], KernelArgs.ThreadLimit[0] > 0);
-  // }
+    auto [Teams, Threads] =
+        KernelRecord->getLaunchParamsForKernel(KernelName, GenericDevice);
+    NumBlocks[0] = Teams;
+    NumThreads[0] = Threads;
+  } else {
+
+    // TODO fix workaround since IsBareKernel is not properly set for legacy
+    // flang and specialized kernels since they don't use kernel-env. While
+    // we can check for specialized kernels, we can't for legacy flang. So,
+    // on amd-staging, all kernels including bare ones use this codepath.
+    NumThreads[0] = getNumThreads(GenericDevice, NumThreads);
+
+    std::pair<bool, uint32_t> AdjustInfo = adjustNumThreadsForLowTripCount(
+        GenericDevice, NumThreads[0], KernelArgs.Tripcount,
+        KernelArgs.ThreadLimit);
+    if (AdjustInfo.first)
+      NumThreads[0] = AdjustInfo.second;
+
+    NumBlocks[0] = getNumBlocks(GenericDevice, NumBlocks, KernelArgs.Tripcount,
+                                NumThreads[0], KernelArgs.ThreadLimit[0] > 0);
+  }
 
   // Record the kernel description after we modified the argument count and num
   // blocks/threads.
@@ -920,7 +940,7 @@ GenericDeviceTy::GenericDeviceTy(GenericPluginTy &Plugin, int32_t DeviceId,
       OMPX_SharedMemorySize("LIBOMPTARGET_SHARED_MEMORY_SIZE"),
       // Do not initialize the following two envars since they depend on the
       // device initialization. These cannot be consulted until the device is
-      // initialized correctly. We intialize them in GenericDeviceTy::init().
+      // initialized correctly. We initialize them in GenericDeviceTy::init().
       OMPX_TargetStackSize(), OMPX_TargetHeapSize(),
       // By default, the initial number of streams and events is 1.
       OMPX_InitialNumStreams("LIBOMPTARGET_NUM_INITIAL_STREAMS", 1),
@@ -929,7 +949,7 @@ GenericDeviceTy::GenericDeviceTy(GenericPluginTy &Plugin, int32_t DeviceId,
       OMPX_EnableRuntimeAutotuning("OMPX_ENABLE_RUNTIME_AUTOTUNING", false),
       DeviceId(DeviceId), GridValues(OMPGridValues),
       PeerAccesses(NumDevices, PeerAccessState::PENDING), PeerAccessesLock(),
-      PinnedAllocs(*this), RPCServer(nullptr) {
+      PinnedAllocs(*this), RPCServer(nullptr), KernelRunRecords(nullptr) {
 #ifdef OMPT_SUPPORT
   OmptInitialized.store(false);
   // Bind the callbacks to this device's member functions
@@ -1005,13 +1025,22 @@ Error GenericDeviceTy::init(GenericPluginTy &Plugin) {
 
   // Enable the memory manager if required.
   auto [ThresholdMM, EnableMM] = MemoryManagerTy::getSizeThresholdFromEnv();
-  if (EnableMM)
+  if (EnableMM) {
+    if (ThresholdMM == 0)
+      ThresholdMM = getMemoryManagerSizeThreshold();
     MemoryManager = new MemoryManagerTy(*this, ThresholdMM);
+  }
+
+  // Allocate resources for autotuning if enabled.
+  if (OMPX_EnableRuntimeAutotuning) {
+    KernelRunRecords = new KernelRunRecordTy();
+  }
 
   return Plugin::success();
 }
 
 Error GenericDeviceTy::deinit(GenericPluginTy &Plugin) {
+  clear_ArgBufs();
   for (DeviceImageTy *Image : LoadedImages)
     if (auto Err = callGlobalDestructors(Plugin, *Image))
       return Err;
@@ -1056,8 +1085,14 @@ Error GenericDeviceTy::deinit(GenericPluginTy &Plugin) {
     if (!ProfOrErr)
       return ProfOrErr.takeError();
 
-    // TODO: write data to profiling file
-    ProfOrErr->dump();
+    // Dump out profdata
+    if ((OMPX_DebugKind.get() & uint32_t(DeviceDebugKind::PGODump)) ==
+        uint32_t(DeviceDebugKind::PGODump))
+      ProfOrErr->dump();
+
+    // Write data to profiling file
+    if (auto Err = ProfOrErr->write())
+      return Err;
   }
 
   // Delete the memory manager before deinitializing the device. Otherwise,
@@ -1073,6 +1108,14 @@ Error GenericDeviceTy::deinit(GenericPluginTy &Plugin) {
   if (RPCServer)
     if (auto Err = RPCServer->deinitDevice(*this))
       return Err;
+
+  // Delete autotuning related resources if the option is on.
+  if (OMPX_EnableRuntimeAutotuning) {
+    if (KernelRunRecords) {
+      delete KernelRunRecords;
+      KernelRunRecords = nullptr;
+    }
+  }
 
 #ifdef OMPT_SUPPORT
   if (ompt::Initialized) {
@@ -1248,7 +1291,7 @@ Error GenericDeviceTy::setupDeviceMemoryPool(GenericPluginTy &Plugin,
 
 Error GenericDeviceTy::setupRPCServer(GenericPluginTy &Plugin,
                                       DeviceImageTy &Image) {
-  // The plugin either does not need an RPC server or it is unavailible.
+  // The plugin either does not need an RPC server or it is unavailable.
   if (!shouldSetupRPCServer())
     return Plugin::success();
 
@@ -1263,6 +1306,9 @@ Error GenericDeviceTy::setupRPCServer(GenericPluginTy &Plugin,
     return Plugin::success();
 
   if (auto Err = Server.initDevice(*this, Plugin.getGlobalHandler(), Image))
+    return Err;
+
+  if (auto Err = Server.startThread())
     return Err;
 
   RPCServer = &Server;
@@ -1530,16 +1576,16 @@ Error GenericDeviceTy::queryAsync(__tgt_async_info *AsyncInfo) {
 }
 
 Error GenericDeviceTy::memoryVAMap(void **Addr, void *VAddr, size_t *RSize) {
-  return Plugin::error("Device does not suppport VA Management");
+  return Plugin::error("Device does not support VA Management");
 }
 
 Error GenericDeviceTy::memoryVAUnMap(void *VAddr, size_t Size) {
-  return Plugin::error("Device does not suppport VA Management");
+  return Plugin::error("Device does not support VA Management");
 }
 
 Error GenericDeviceTy::getDeviceMemorySize(uint64_t &DSize) {
   return Plugin::error(
-      "Mising getDeviceMemorySize impelmentation (required by RR-heuristic");
+      "Missing getDeviceMemorySize implementation (required by RR-heuristic");
 }
 
 Expected<void *> GenericDeviceTy::dataAlloc(int64_t Size, void *HostPtr,
@@ -1773,8 +1819,8 @@ bool GenericDeviceTy::supportsUnifiedMemory() {
   return supportsUnifiedMemoryImpl();
 }
 
-bool GenericDeviceTy::IsFineGrainedMemoryEnabled() {
-  return IsFineGrainedMemoryEnabledImpl();
+bool GenericDeviceTy::IsGfx90aCoarseGrainUsmMapEnabled() {
+  return IsGfx90aCoarseGrainUsmMapEnabledImpl();
 }
 
 Error GenericDeviceTy::prepopulatePageTable(void *ptr, int64_t size) {
@@ -1842,6 +1888,48 @@ bool GenericDeviceTy::getMultiDeviceKernelValue(void *EntryPtr) {
   return GenericKernel.isMultiDeviceKernel();
 }
 
+bool GenericDeviceTy::useSharedMemForDescriptor(int64_t Size) { return false; }
+
+void *GenericDeviceTy::getFree_ArgBuf(size_t sz) {
+  void *found_ptr = nullptr;
+  for (auto entry : ArgBufEntries) {
+    if (entry->is_free && entry->Size >= sz) {
+      entry->is_free = false;
+      found_ptr = entry->Addr;
+      break;
+    }
+  }
+  if (!found_ptr) {
+    found_ptr = this->allocate(sz, &found_ptr, TARGET_ALLOC_SHARED);
+    assert(found_ptr && "Could not get SHARED mem for Arg Buffer\n");
+    ArgBufEntryTy *new_entry_ptr = new ArgBufEntryTy;
+    new_entry_ptr->Size = sz;
+    new_entry_ptr->Addr = found_ptr;
+    new_entry_ptr->is_free = false;
+    ArgBufEntries.push_back(new_entry_ptr);
+  }
+  return found_ptr;
+}
+void GenericDeviceTy::moveBusyToFree_ArgBuf(void *ptr) {
+  bool found_argbuf = false;
+  for (auto entry : ArgBufEntries) {
+    if (entry->Addr == ptr) {
+      assert(!entry->is_free && "moveBusyToFree_Arg: entry already free");
+      entry->is_free = true;
+      found_argbuf = true;
+      return;
+    }
+  }
+  assert(found_argbuf && "Could not find ArgBuf to free");
+}
+void GenericDeviceTy::clear_ArgBufs() {
+  for (auto entry : ArgBufEntries) {
+    this->free(entry->Addr, TARGET_ALLOC_SHARED);
+    delete entry;
+  }
+  ArgBufEntries.clear();
+}
+
 Error GenericPluginTy::init() {
   if (Initialized)
     return Plugin::success();
@@ -1886,10 +1974,11 @@ Error GenericPluginTy::deinit() {
   if (GlobalHandler)
     delete GlobalHandler;
 
-#if RPC_FIXME
-  if (RPCServer)
+  if (RPCServer) {
+    if (Error Err = RPCServer->shutDown())
+      return Err;
     delete RPCServer;
-#endif
+  }
 
   if (RecordReplay)
     delete RecordReplay;
@@ -2106,9 +2195,11 @@ bool GenericPluginTy::supports_unified_memory(int32_t DeviceId) {
   return R;
 }
 
-bool GenericPluginTy::is_fine_grained_memory_enabled(int32_t DeviceId) {
+bool GenericPluginTy::is_gfx90a_coarse_grain_usm_map_enabled(int32_t DeviceId) {
   auto T = logger::log<bool>(__func__, DeviceId);
-  auto R = [&]() { return getDevice(DeviceId).IsFineGrainedMemoryEnabled(); }();
+  auto R = [&]() {
+    return getDevice(DeviceId).IsGfx90aCoarseGrainUsmMapEnabled();
+  }();
   T.res(R);
   return R;
 }
@@ -2143,7 +2234,7 @@ int32_t GenericPluginTy::initialize_record_replay(int32_t DeviceId,
 
   if (auto Err = RecordReplay->init(&Device, MemorySize, VAddr, Status,
                                     SaveOutput, ReqPtrArgOffset)) {
-    REPORT("WARNING RR did not intialize RR-properly with %lu bytes"
+    REPORT("WARNING RR did not initialize RR-properly with %lu bytes"
            "(Error: %s)\n",
            MemorySize, toString(std::move(Err)).data());
     RecordReplay->setStatus(RecordReplayTy::RRStatusTy::RRDeactivated);
@@ -2201,11 +2292,6 @@ void *GenericPluginTy::data_alloc(int32_t DeviceId, int64_t Size, void *HostPtr,
       return nullptr;
     }
     assert(*AllocOrErr && "Null pointer upon successful allocation");
-
-    // Method has no effect when the CUDA Plugin is used.
-    // This method can only be called if HostPtr is not null.
-    if (HostPtr && Kind == TARGET_ALLOC_SHARED)
-      set_coarse_grain_mem_region(DeviceId, HostPtr, Size);
 
     return *AllocOrErr;
   }();
@@ -2803,6 +2889,16 @@ bool GenericPluginTy::kernel_is_multi_device(int32_t DeviceId,
   auto T = logger::log<bool>(__func__, DeviceId, TgtEntryPtr);
   auto R = [&]() {
     return getDevice(DeviceId).getMultiDeviceKernelValue(TgtEntryPtr);
+  }();
+  T.res(R);
+  return R;
+}
+
+bool GenericPluginTy::use_shared_mem_for_descriptor(int32_t DeviceId,
+                                                    int64_t Size) {
+  auto T = logger::log<bool>(__func__, DeviceId);
+  auto R = [&]() {
+    return getDevice(DeviceId).useSharedMemForDescriptor(Size);
   }();
   T.res(R);
   return R;

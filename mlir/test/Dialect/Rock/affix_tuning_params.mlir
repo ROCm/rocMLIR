@@ -362,19 +362,19 @@ func.func @rock_gemm_from_i8_conv(%a : memref<1x72x128xi8>, %b : memref<1x72x115
   return
 }
 
-// The available xdlops for int8 change on gfx940, verify that different tuning
+// The available xdlops for int8 change on gfx942, verify that different tuning
 // parameters are picked.
 
-// CHECK-LABEL: func.func @rock_gemm_from_i8_conv_gfx940
-// GRID-LABEL: func.func @rock_gemm_from_i8_conv_gfx940
-func.func @rock_gemm_from_i8_conv_gfx940(%a : memref<1x72x128xi8>, %b : memref<1x72x115200xi8>, %c : memref<1x128x115200xi32>) {
+// CHECK-LABEL: func.func @rock_gemm_from_i8_conv_gfx942
+// GRID-LABEL: func.func @rock_gemm_from_i8_conv_gfx942
+func.func @rock_gemm_from_i8_conv_gfx942(%a : memref<1x72x128xi8>, %b : memref<1x72x115200xi8>, %c : memref<1x128x115200xi32>) {
   // CHECK: rock.gemm
   // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 256, kpack = 16, mPerWave = 64, nPerWave = 64, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 900
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
-    arch = "amdgcn-amd-amdhsa:gfx940",
+    arch = "amdgcn-amd-amdhsa:gfx942",
     numCU = 120 : i32
   } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
   return
@@ -390,7 +390,7 @@ func.func @rock_gemm_xdlops_fp8_bf8(%a : memref<1x72x128xf8E4M3FNUZ>, %b : memre
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 1800
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
-    arch = "amdgcn-amd-amdhsa:gfx940",
+    arch = "amdgcn-amd-amdhsa:gfx942",
     numCU = 120 : i32
   } : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FNUZ> * memref<1x72x115200xf8E5M2FNUZ>
   return

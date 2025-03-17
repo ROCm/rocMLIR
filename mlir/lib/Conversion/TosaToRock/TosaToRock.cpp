@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
@@ -302,7 +303,7 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
 
 static bool isTosaReduction(Operation *op) {
   return isa<tosa::ReduceMaxOp, tosa::ReduceSumOp, tosa::ReduceMinOp,
-             tosa::ReduceProdOp, tosa::ReduceAllOp, tosa::ReduceAnyOp>(op);
+             tosa::ReduceProductOp, tosa::ReduceAllOp, tosa::ReduceAnyOp>(op);
 }
 
 static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
@@ -525,7 +526,8 @@ public:
 };
 
 static void permuteLayout(Operation *op, const char *attrKey,
-                          const char *layoutDefault, ArrayRef<int32_t> permDims,
+                          const char *layoutDefault,
+                          const ArrayRef<int32_t> permDims,
                           bool isInput = false) {
   StringRef currentLayout(layoutDefault);
   if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
@@ -543,24 +545,6 @@ static void permuteLayout(Operation *op, const char *attrKey,
 
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
-
-  LogicalResult getTransposeDims(Value v, SmallVector<int32_t> &perms) const {
-    Operation *cval = v.getDefiningOp();
-    if (isa<arith::ConstantOp>(cval) || isa<tosa::ConstOp>(cval)) {
-      auto cattr = cast<DenseElementsAttr>(cval->getAttr("value"));
-      auto vals = cattr.tryGetValues<int32_t>();
-      if (succeeded(vals)) {
-        perms.assign((*vals).begin(), (*vals).end());
-        return success();
-      }
-      auto vals64 = cattr.tryGetValues<int64_t>();
-      if (succeeded(vals64)) {
-        perms.assign((*vals64).begin(), (*vals64).end());
-        return success();
-      }
-    }
-    return failure();
-  }
 
   void setTranspose(Operation *op, StringRef name, bool isNonTrivial) const {
     bool currentValue = false;
@@ -582,7 +566,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   }
 
   LogicalResult checkMatMulTransposeValid(tosa::MatMulOp matmulOp,
-                                          ArrayRef<int32_t> dims) const {
+                                          const ArrayRef<int32_t> dims) const {
     // batch dimension is expected to be 3rd from the last.
     if (dims.size() >= 3 && dims[dims.size() - 3] != (int32_t)dims.size() - 3) {
       return matmulOp.emitWarning(
@@ -591,7 +575,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     return success();
   }
 
-  bool isMatMulNonTrivial(ArrayRef<int32_t> dims) const {
+  bool isMatMulNonTrivial(const ArrayRef<int32_t> dims) const {
     int32_t lastDim = dims.size() - 1;
     int32_t prevLastDim = dims.size() - 2;
     return (dims[prevLastDim] == lastDim && dims[lastDim] == prevLastDim);
@@ -603,7 +587,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   // is applied on the tInput.
   LogicalResult mergeTransposeWithGemmLikeOp(PatternRewriter &rewriter,
                                              Value tOutput,
-                                             ArrayRef<int32_t> dims,
+                                             const ArrayRef<int32_t> dims,
                                              Value tInput) const {
     for (auto &use : llvm::make_early_inc_range(tOutput.getUses())) {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
@@ -763,12 +747,9 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   // Pattern match start from the output transpose
   LogicalResult matchAndRewrite(tosa::TransposeOp top,
                                 PatternRewriter &b) const final {
-    SmallVector<int32_t> dims;
-    if (failed(getTransposeDims(top.getOperand(1), dims))) {
-      return failure();
-    }
+    const auto dims = top.getPerms();
 
-    Value tInput = top.getOperand(0);
+    Value tInput = top.getInput1();
     Value tOutput = top.getResult();
 
     if (tosa::Conv2DOp convOp = tInput.getDefiningOp<tosa::Conv2DOp>()) {
@@ -897,7 +878,8 @@ static bool isElementwiseOp(Operation *op) {
         tosa::SelectOp,
         tosa::EqualOp,
         tosa::GreaterOp,
-        tosa::GreaterEqualOp
+        tosa::GreaterEqualOp,
+        tosa::MulOp
        >(op);
   // clang-format on
 }
@@ -984,7 +966,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto select = getDefiningNonReshapeOp<tosa::SelectOp>(softmaxInput);
     if (select) {
       // Check onTrue is -inf
-      auto onTrue = select.getOnTrue();
+      auto onTrue = select.getInput2();
       bool isConsNegInf = false;
       if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
         isConsNegInf = isConstIsNegInf(constOp.getResult());
@@ -994,7 +976,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (!isConsNegInf)
         return failure();
 
-      auto pred = select.getPred();
+      auto pred = select.getInput1();
       if (auto greaterEqual =
               getDefiningNonReshapeOpNonCastOp<tosa::GreaterEqualOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen
@@ -1034,7 +1016,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         }
 
         Value currentSeqLen = getValueNonReshapeOp(maybeNonZero2.value());
-        Value result = select.getOnFalse();
+        Value result = select.getInput3();
 
         // currentSeqLen must be of i32 type
         auto currentSeqLenShape = dyn_cast<ShapedType>(currentSeqLen.getType());
@@ -1148,9 +1130,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     normalizedShape.push_back(reverseInputShape[0]);
     auto normalizedType = RankedTensorType::get(
         normalizedShape, inputTensor.getType().getElementType());
+    auto normalizedShapeValue =
+        tosa::getTosaConstShape(rewriter, loc, normalizedShape);
     auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
-        loc, normalizedType, inputTensor,
-        rewriter.getDenseI64ArrayAttr(normalizedShape));
+        loc, normalizedType, inputTensor, normalizedShapeValue);
     return reshapeOp;
   }
 

@@ -86,7 +86,7 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
         cobjArgs.push_back(arg);
         // aligned ptr
         cobjArgs.push_back(arg);
-        ValueRange noArgs({});
+        ValueRange noArgs;
 
         // offset
         auto offsetOp = rewriter.create<mlir::migraphx::LiteralOp>(

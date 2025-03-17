@@ -392,55 +392,55 @@ constexpr void test_ctr_choice_order() {
   }
 
   { // Case 4 -- default-construct then insert elements.
-      auto case_4 = [in, arg1, arg2]<auto InserterChoice, bool CanReserve>() {
-        using C = Container<int, CtrChoice::DefaultCtrAndInsert, InserterChoice, CanReserve>;
-        {
-          [[maybe_unused]] std::same_as<C> decltype(auto) result = std::ranges::to<C>(in);
+    auto case_4 = [in, arg1, arg2]<auto InserterChoice, bool CanReserve>() {
+      using C = Container<int, CtrChoice::DefaultCtrAndInsert, InserterChoice, CanReserve>;
+      {
+        [[maybe_unused]] std::same_as<C> decltype(auto) result = std::ranges::to<C>(in);
 
-          assert(result.ctr_choice == CtrChoice::DefaultCtrAndInsert);
-          assert(result.inserter_choice == InserterChoice);
-          assert(std::ranges::equal(result, in));
+        assert(result.ctr_choice == CtrChoice::DefaultCtrAndInsert);
+        assert(result.inserter_choice == InserterChoice);
+        assert(std::ranges::equal(result, in));
 
-          if constexpr (CanReserve) {
-            assert(result.called_reserve);
-          } else {
-            assert(!result.called_reserve);
-          }
-
-          assert((in | std::ranges::to<C>()) == result);
-          [[maybe_unused]] auto closure = std::ranges::to<C>();
-          assert((in | closure) == result);
+        if constexpr (CanReserve) {
+          assert(result.called_reserve);
+        } else {
+          assert(!result.called_reserve);
         }
 
-        { // Extra arguments
-          [[maybe_unused]] std::same_as<C> decltype(auto) result = std::ranges::to<C>(in, arg1, arg2);
+        assert((in | std::ranges::to<C>()) == result);
+        [[maybe_unused]] auto closure = std::ranges::to<C>();
+        assert((in | closure) == result);
+      }
 
-          assert(result.ctr_choice == CtrChoice::DefaultCtrAndInsert);
-          assert(result.inserter_choice == InserterChoice);
-          assert(std::ranges::equal(result, in));
-          assert(result.extra_arg1 == arg1);
-          assert(result.extra_arg2 == arg2);
+      { // Extra arguments
+        [[maybe_unused]] std::same_as<C> decltype(auto) result = std::ranges::to<C>(in, arg1, arg2);
 
-          if constexpr (CanReserve) {
-            assert(result.called_reserve);
-          } else {
-            assert(!result.called_reserve);
-          }
+        assert(result.ctr_choice == CtrChoice::DefaultCtrAndInsert);
+        assert(result.inserter_choice == InserterChoice);
+        assert(std::ranges::equal(result, in));
+        assert(result.extra_arg1 == arg1);
+        assert(result.extra_arg2 == arg2);
 
-          assert((in | std::ranges::to<C>(arg1, arg2)) == result);
-          [[maybe_unused]] auto closure = std::ranges::to<C>(arg1, arg2);
-          assert((in | closure) == result);
+        if constexpr (CanReserve) {
+          assert(result.called_reserve);
+        } else {
+          assert(!result.called_reserve);
         }
-      };
 
-      case_4.operator()<InserterChoice::Insert, false>();
-      case_4.operator()<InserterChoice::Insert, true>();
-      case_4.operator()<InserterChoice::Emplace, false>();
-      case_4.operator()<InserterChoice::Emplace, true>();
-      case_4.operator()<InserterChoice::PushBack, false>();
-      case_4.operator()<InserterChoice::PushBack, true>();
-      case_4.operator()<InserterChoice::EmplaceBack, false>();
-      case_4.operator()<InserterChoice::EmplaceBack, true>();
+        assert((in | std::ranges::to<C>(arg1, arg2)) == result);
+        [[maybe_unused]] auto closure = std::ranges::to<C>(arg1, arg2);
+        assert((in | closure) == result);
+      }
+    };
+
+    case_4.operator()<InserterChoice::Insert, false>();
+    case_4.operator()<InserterChoice::Insert, true>();
+    case_4.operator()<InserterChoice::Emplace, false>();
+    case_4.operator()<InserterChoice::Emplace, true>();
+    case_4.operator()<InserterChoice::PushBack, false>();
+    case_4.operator()<InserterChoice::PushBack, true>();
+    case_4.operator()<InserterChoice::EmplaceBack, false>();
+    case_4.operator()<InserterChoice::EmplaceBack, true>();
   }
 }
 

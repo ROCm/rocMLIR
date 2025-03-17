@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGOpenMPRuntime.h"
-#include "ABIInfoImpl.h"
 #include "CGCXXABI.h"
 #include "CGCleanup.h"
 #include "CGRecordLayout.h"
@@ -1356,7 +1355,7 @@ void CGOpenMPRuntime::setLocThreadIdInsertPt(CodeGenFunction &CGF,
                                                  CGF.Builder.GetInsertBlock());
   } else {
     Elem.ServiceInsertPt = new llvm::BitCastInst(Undef, CGF.Int32Ty, "svcpt");
-    Elem.ServiceInsertPt->insertAfter(CGF.AllocaInsertPt);
+    Elem.ServiceInsertPt->insertAfter(CGF.AllocaInsertPt->getIterator());
   }
 }
 
@@ -1481,14 +1480,13 @@ void CGOpenMPRuntime::functionFinished(CodeGenFunction &CGF) {
     clearLocThreadIdInsertPt(CGF);
     OpenMPLocThreadIDMap.erase(CGF.CurFn);
   }
-  if (FunctionUDRMap.count(CGF.CurFn) > 0) {
-    for(const auto *D : FunctionUDRMap[CGF.CurFn])
+  if (auto I = FunctionUDRMap.find(CGF.CurFn); I != FunctionUDRMap.end()) {
+    for (const auto *D : I->second)
       UDRMap.erase(D);
-    FunctionUDRMap.erase(CGF.CurFn);
+    FunctionUDRMap.erase(I);
   }
-  auto I = FunctionUDMMap.find(CGF.CurFn);
-  if (I != FunctionUDMMap.end()) {
-    for(const auto *D : I->second)
+  if (auto I = FunctionUDMMap.find(CGF.CurFn); I != FunctionUDMMap.end()) {
+    for (const auto *D : I->second)
       UDMMap.erase(D);
     FunctionUDMMap.erase(I);
   }
@@ -2351,11 +2349,10 @@ void CGOpenMPRuntime::emitBarrierCall(CodeGenFunction &CGF, SourceLocation Loc,
   auto *OMPRegionInfo =
       dyn_cast_or_null<CGOpenMPRegionInfo>(CGF.CapturedStmtInfo);
   if (CGF.CGM.getLangOpts().OpenMPIRBuilder) {
-    llvm::OpenMPIRBuilder::InsertPointOrErrorTy AfterIP =
-        OMPBuilder.createBarrier(CGF.Builder, Kind, ForceSimpleCall,
-                                 EmitChecks);
-    assert(AfterIP && "unexpected error creating barrier");
-    CGF.Builder.restoreIP(*AfterIP);
+    llvm::OpenMPIRBuilder::InsertPointTy AfterIP =
+        cantFail(OMPBuilder.createBarrier(CGF.Builder, Kind, ForceSimpleCall,
+                                          EmitChecks));
+    CGF.Builder.restoreIP(AfterIP);
     return;
   }
 
@@ -4127,7 +4124,7 @@ static void emitDependData(CodeGenFunction &CGF, QualType &KmpDependInfoTy,
       Size = llvm::ConstantInt::get(CGF.SizeTy, 0);
     }
     LValue Base;
-    if (unsigned *P = Pos.dyn_cast<unsigned *>()) {
+    if (unsigned *P = dyn_cast<unsigned *>(Pos)) {
       Base = CGF.MakeAddrLValue(
           CGF.Builder.CreateConstGEP(DependenciesArray, *P), KmpDependInfoTy);
     } else {
@@ -4157,7 +4154,7 @@ static void emitDependData(CodeGenFunction &CGF, QualType &KmpDependInfoTy,
     CGF.EmitStoreOfScalar(
         llvm::ConstantInt::get(LLVMFlagsTy, static_cast<unsigned int>(DepKind)),
         FlagsLVal);
-    if (unsigned *P = Pos.dyn_cast<unsigned *>()) {
+    if (unsigned *P = dyn_cast<unsigned *>(Pos)) {
       ++(*P);
     } else {
       LValue &PosLVal = *cast<LValue *>(Pos);
@@ -5928,10 +5925,13 @@ void CGOpenMPRuntime::emitUsesAllocatorsFini(CodeGenFunction &CGF,
 
 void CGOpenMPRuntime::computeMinAndMaxThreadsAndTeams(
     const OMPExecutableDirective &D, CodeGenFunction &CGF,
-    int32_t &MinThreadsVal, int32_t &MaxThreadsVal, int32_t &MinTeamsVal,
-    int32_t &MaxTeamsVal) {
+    llvm::OpenMPIRBuilder::TargetKernelDefaultAttrs &Attrs) {
+  assert(Attrs.MaxTeams.size() == 1 && Attrs.MaxThreads.size() == 1 &&
+         "invalid default attrs structure");
+  int32_t &MaxTeamsVal = Attrs.MaxTeams.front();
+  int32_t &MaxThreadsVal = Attrs.MaxThreads.front();
 
-  getNumTeamsExprForTargetDirective(CGF, D, MinTeamsVal, MaxTeamsVal);
+  getNumTeamsExprForTargetDirective(CGF, D, Attrs.MinTeams, MaxTeamsVal);
   getNumThreadsExprForTargetDirective(CGF, D, MaxThreadsVal,
                                       /*UpperBoundOnly=*/true);
 
@@ -5949,12 +5949,12 @@ void CGOpenMPRuntime::computeMinAndMaxThreadsAndTeams(
       else
         continue;
 
-      MinThreadsVal = std::max(MinThreadsVal, AttrMinThreadsVal);
+      Attrs.MinThreads = std::max(Attrs.MinThreads, AttrMinThreadsVal);
       if (AttrMaxThreadsVal > 0)
         MaxThreadsVal = MaxThreadsVal > 0
                             ? std::min(MaxThreadsVal, AttrMaxThreadsVal)
                             : AttrMaxThreadsVal;
-      MinTeamsVal = std::max(MinTeamsVal, AttrMinBlocksVal);
+      Attrs.MinTeams = std::max(Attrs.MinTeams, AttrMinBlocksVal);
       if (AttrMaxBlocksVal > 0)
         MaxTeamsVal = MaxTeamsVal > 0 ? std::min(MaxTeamsVal, AttrMaxBlocksVal)
                                       : AttrMaxBlocksVal;
@@ -5982,10 +5982,9 @@ void CGOpenMPRuntime::emitTargetOutlinedFunctionHelper(
             /*CanHaveMultiDeviceArgs*/ true, /*IsTopKernel*/ true);
       };
 
-  llvm::Error Err = OMPBuilder.emitTargetRegionFunction(
+  cantFail(OMPBuilder.emitTargetRegionFunction(
       EntryInfo, GenerateOutlinedFunction, IsOffloadEntry, OutlinedFn,
-      OutlinedFnID);
-  assert(!Err && "unexpected error creating target region");
+      OutlinedFnID));
 
   if (!OutlinedFn)
     return;
@@ -7496,7 +7495,7 @@ private:
           // Update info about the lowest and highest elements for this struct
           if (!PartialStruct.Base.isValid()) {
             PartialStruct.LowestElem = {FieldIndex, LowestElem};
-            if (IsFinalArraySection) {
+            if (IsFinalArraySection && OASE) {
               Address HB =
                   CGF.EmitArraySectionExpr(OASE, /*IsLowerBound=*/false)
                       .getAddress();
@@ -7509,7 +7508,7 @@ private:
           } else if (FieldIndex < PartialStruct.LowestElem.first) {
             PartialStruct.LowestElem = {FieldIndex, LowestElem};
           } else if (FieldIndex > PartialStruct.HighestElem.first) {
-            if (IsFinalArraySection) {
+            if (IsFinalArraySection && OASE) {
               Address HB =
                   CGF.EmitArraySectionExpr(OASE, /*IsLowerBound=*/false)
                       .getAddress();
@@ -7774,15 +7773,12 @@ private:
     for (const auto &I : RD->bases()) {
       if (I.isVirtual())
         continue;
-
-      QualType BaseTy = I.getType();
-      const auto *Base = BaseTy->getAsCXXRecordDecl();
+      const auto *Base = I.getType()->getAsCXXRecordDecl();
       // Ignore empty bases.
-      if (isEmptyRecordForLayout(CGF.getContext(), BaseTy) ||
-          CGF.getContext()
-              .getASTRecordLayout(Base)
-              .getNonVirtualSize()
-              .isZero())
+      if (Base->isEmpty() || CGF.getContext()
+                                 .getASTRecordLayout(Base)
+                                 .getNonVirtualSize()
+                                 .isZero())
         continue;
 
       unsigned FieldIndex = RL.getNonVirtualBaseLLVMFieldNo(Base);
@@ -7790,12 +7786,10 @@ private:
     }
     // Fill in virtual bases.
     for (const auto &I : RD->vbases()) {
-      QualType BaseTy = I.getType();
+      const auto *Base = I.getType()->getAsCXXRecordDecl();
       // Ignore empty bases.
-      if (isEmptyRecordForLayout(CGF.getContext(), BaseTy))
+      if (Base->isEmpty())
         continue;
-
-      const auto *Base = BaseTy->getAsCXXRecordDecl();
       unsigned FieldIndex = RL.getVirtualBaseIndex(Base);
       if (RecordLayout[FieldIndex])
         continue;
@@ -7806,8 +7800,7 @@ private:
     for (const auto *Field : RD->fields()) {
       // Fill in non-bitfields. (Bitfields always use a zero pattern, which we
       // will fill in later.)
-      if (!Field->isBitField() &&
-          !isEmptyFieldForLayout(CGF.getContext(), Field)) {
+      if (!Field->isBitField() && !Field->isZeroSize(CGF.getContext())) {
         unsigned FieldIndex = RL.getLLVMFieldNo(Field);
         RecordLayout[FieldIndex] = Field;
       }
@@ -7816,7 +7809,7 @@ private:
              &Data : RecordLayout) {
       if (Data.isNull())
         continue;
-      if (const auto *Base = Data.dyn_cast<const CXXRecordDecl *>())
+      if (const auto *Base = dyn_cast<const CXXRecordDecl *>(Data))
         getPlainLayout(Base, Layout, /*AsBase=*/true);
       else
         Layout.push_back(cast<const FieldDecl *>(Data));
@@ -8928,7 +8921,7 @@ static void emitOffloadingArraysAndArgs(
   };
 
   auto CustomMapperCB = [&](unsigned int I) {
-    llvm::Value *MFunc = nullptr;
+    llvm::Function *MFunc = nullptr;
     if (CombinedInfo.Mappers[I]) {
       Info.HasMapper = true;
       MFunc = CGM.getOpenMPRuntime().getOrCreateUserDefinedMapperFunc(
@@ -8936,9 +8929,9 @@ static void emitOffloadingArraysAndArgs(
     }
     return MFunc;
   };
-  OMPBuilder.emitOffloadingArraysAndArgs(
-      AllocaIP, CodeGenIP, Info, Info.RTArgs, CombinedInfo, IsNonContiguous,
-      ForEndCall, DeviceAddrCB, CustomMapperCB);
+  cantFail(OMPBuilder.emitOffloadingArraysAndArgs(
+      AllocaIP, CodeGenIP, Info, Info.RTArgs, CombinedInfo, CustomMapperCB,
+      IsNonContiguous, ForEndCall, DeviceAddrCB));
 }
 
 /// Check for inner distribute directive.
@@ -9131,15 +9124,15 @@ void CGOpenMPRuntime::emitUserDefinedMapper(const OMPDeclareMapperDecl *D,
     return CombinedInfo;
   };
 
-  auto CustomMapperCB = [&](unsigned I, llvm::Function **MapperFunc) {
+  auto CustomMapperCB = [&](unsigned I) {
+    llvm::Function *MapperFunc = nullptr;
     if (CombinedInfo.Mappers[I]) {
       // Call the corresponding mapper function.
-      *MapperFunc = getOrCreateUserDefinedMapperFunc(
+      MapperFunc = getOrCreateUserDefinedMapperFunc(
           cast<OMPDeclareMapperDecl>(CombinedInfo.Mappers[I]));
-      assert(*MapperFunc && "Expect a valid mapper function is available.");
-      return true;
+      assert(MapperFunc && "Expect a valid mapper function is available.");
     }
-    return false;
+    return MapperFunc;
   };
 
   SmallString<64> TyStr;
@@ -9147,8 +9140,8 @@ void CGOpenMPRuntime::emitUserDefinedMapper(const OMPDeclareMapperDecl *D,
   CGM.getCXXABI().getMangleContext().mangleCanonicalTypeName(Ty, Out);
   std::string Name = getName({"omp_mapper", TyStr, D->getName()});
 
-  auto *NewFn = OMPBuilder.emitUserDefinedMapper(PrivatizeAndGenMapInfoCB,
-                                                 ElemTy, Name, CustomMapperCB);
+  llvm::Function *NewFn = cantFail(OMPBuilder.emitUserDefinedMapper(
+      PrivatizeAndGenMapInfoCB, ElemTy, Name, CustomMapperCB));
   UDMMap.try_emplace(D, NewFn);
   if (CGF)
     FunctionUDMMap[CGF->CurFn].push_back(D);
@@ -9464,11 +9457,17 @@ static void emitTargetCallKernelLaunch(
     CodeGenModule::XteamRedVarMap &XteamRVM = CGF.CGM.getXteamRedVarMap(FStmt);
     auto &XteamOrdVars = CGF.CGM.getXteamOrderedRedVar(FStmt);
 
-    // The Xteam Reduction kernels require two helper variables - `team_vals`
+    // Note Regarding the ExpectedNumArgs:
+    // 1. The Xteam Reduction kernels require two helper variables - `team_vals`
     // array and `teams_done_ptr`.
-    // The Xteam Scan Reduction kernels require a third helper variable - 
+    // 2. The Xteam Scan Reduction kernels require a third helper variable -
     // `scan_storage` array.
-    int ExpectedNumArgs = CGF.CGM.isXteamScanKernel() ? 3 : 2;
+    //    a. The segmented scan variant(the default) requires a fourth helper
+    //    variable - `segmented_vals`
+    size_t ExpectedNumArgs =
+        CGF.CGM.isXteamScanKernel()
+            ? (CGF.CGM.isXteamSegmentedScanKernel() ? 4 : 3)
+            : 2;
     assert((CapturedVars.size() ==
             CapturedCount + ExpectedNumArgs * XteamRVM.size()) &&
            "Unexpected number of captured vars");
@@ -9536,19 +9535,24 @@ static void emitTargetCallKernelLaunch(
       // For the Phase 2 of the Xteam Scan codegen, fresh memory allocation for
       // reduction helper data structures is not needed. The helpers generated
       // during the Phase 1 will be re-used here.
-      assert(CGF.CGM.ReductionVars.size() == 3 &&
-             "Xteam Scan reduction code-generates three helper variables");
+      assert(CGF.CGM.ReductionVars.size() == ExpectedNumArgs &&
+             "Insufficient number of helper variables for Xteam Scan reduction "
+             "code-generation");
       addXTeamReductionComponentHelper(
           CGF, CombinedInfo, CGF.CGM.ReductionVars[0]); // team_vals
       addXTeamReductionComponentHelper(
           CGF, CombinedInfo, CGF.CGM.ReductionVars[1]); // teams_done_ptr
       addXTeamReductionComponentHelper(
           CGF, CombinedInfo, CGF.CGM.ReductionVars[2]); // scan_storage
+      if (CGF.CGM.isXteamSegmentedScanKernel())
+        addXTeamReductionComponentHelper(
+            CGF, CombinedInfo, CGF.CGM.ReductionVars[3]); // segment_vals
     } else {
       for (; CapturedCount + ArgPos < CapturedVars.size();) {
         // Process the pair of captured variables:
         llvm::Value *DTeamValsInst = nullptr;
         llvm::Value *DScanStorageInst = nullptr;
+        llvm::Value *DSegmentValsInst = nullptr;
 
         assert(CapturedCount + ArgPos < CapturedVars.size() &&
                "Xteam reduction argument position out of bounds");
@@ -9568,8 +9572,8 @@ static void emitTargetCallKernelLaunch(
               CGF.Builder.CreateAlloca(RedVarType, nullptr, "d_team_vals");
           Address DTeamValsAddr(DTeamValsInst, RedVarType,
                                 Context.getTypeAlignInChars(RedVarQualType));
-          llvm::Value *NullPtrDTeamVals =
-              llvm::ConstantPointerNull::get(RedVarType->getPointerTo());
+          llvm::Value *NullPtrDTeamVals = llvm::ConstantPointerNull::get(
+              llvm::PointerType::get(CGF.getLLVMContext(), /*AddressSpace=*/0));
           CGF.Builder.CreateStore(NullPtrDTeamVals, DTeamValsAddr);
         } else {
           // dteam_vals = omp_target_alloc(sizeof(red-type) * num_teams, devid)
@@ -9596,7 +9600,7 @@ static void emitTargetCallKernelLaunch(
                 XteamRedNumTeamsFromClauseVal ? XteamRedNumTeamsFromClauseVal
                                               : XteamRedNumTeamsFromOccupancy,
                 CGF.Builder.CreateIntCast(
-                    OMPRuntime->emitNumThreadsForTargetDirective(CGF, D),
+                    CGF.Builder.getInt32(CGF.CGM.getXteamRedBlockSize(D)),
                     CGF.Int64Ty, false),
                 "total_num_threads");
             llvm::Value *StorageSize = CGF.Builder.CreateAdd(
@@ -9610,6 +9614,41 @@ static void emitTargetCallKernelLaunch(
                 OMPBuilder.getOrCreateRuntimeFunction(CGF.CGM.getModule(),
                                                       OMPRTL_omp_target_alloc),
                 TgtAllocArgsScan, "d_scan_storage");
+            if (CGF.CGM.isXteamSegmentedScanKernel()) {
+              // Emit the lower and upper bounds
+              const auto *LBDecl = cast<VarDecl>(
+                  cast<DeclRefExpr>(
+                      cast<OMPLoopDirective>(D).getLowerBoundVariable())
+                      ->getDecl());
+              CGF.EmitVarDecl(*LBDecl);
+
+              const auto *UBDecl = cast<VarDecl>(
+                  cast<DeclRefExpr>(
+                      cast<OMPLoopDirective>(D).getUpperBoundVariable())
+                      ->getDecl());
+              CGF.EmitVarDecl(*UBDecl);
+              const auto UBLValue = CGF.EmitLValue(cast<DeclRefExpr>(
+                  cast<OMPLoopDirective>(D).getUpperBoundVariable()));
+              const auto LBLValue = CGF.EmitLValue(cast<DeclRefExpr>(
+                  cast<OMPLoopDirective>(D).getLowerBoundVariable()));
+              // Emit SegmentValsSize = UBLValue - LBLValue + 1
+              llvm::Value *SegmentValsSize = CGF.Builder.CreateAdd(
+                  CGF.Builder.CreateSub(
+                      CGF.Builder.CreateLoad(UBLValue.getAddress()),
+                      CGF.Builder.CreateLoad(LBLValue.getAddress())),
+                  llvm::ConstantInt::get(CGF.Int32Ty, 1), "segment_vals_size");
+
+              llvm::Value *DSegmentValsSz = CGF.Builder.CreateMul(
+                  RedVarTySz,
+                  CGF.Builder.CreateIntCast(SegmentValsSize, CGF.Int64Ty,
+                                            /*isSigned*/ false),
+                  "d_segment_vals_sz");
+              llvm::Value *TgtAllocArgsScan[] = {DSegmentValsSz, DevIdVal};
+              DSegmentValsInst = CGF.EmitRuntimeCall(
+                  OMPBuilder.getOrCreateRuntimeFunction(
+                      CGF.CGM.getModule(), OMPRTL_omp_target_alloc),
+                  TgtAllocArgsScan, "d_segment_vals");
+            }
           }
         }
         CGF.CGM.ReductionVars.push_back(DTeamValsInst);
@@ -9626,8 +9665,8 @@ static void emitTargetCallKernelLaunch(
           Address DTeamsDoneAddr(
               DTeamsDonePtrInst, CGF.Int32Ty,
               Context.getTypeAlignInChars(Context.UnsignedIntTy));
-          llvm::Value *NullPtrDTeamsDone =
-              llvm::ConstantPointerNull::get(CGF.Int32Ty->getPointerTo());
+          llvm::Value *NullPtrDTeamsDone = llvm::ConstantPointerNull::get(
+              llvm::PointerType::get(CGF.getLLVMContext(), /*AddressSpace=*/0));
           CGF.Builder.CreateStore(NullPtrDTeamsDone, DTeamsDoneAddr);
         } else {
           // uint32 teams_done = 0
@@ -9667,6 +9706,12 @@ static void emitTargetCallKernelLaunch(
           ++ArgPos;
           CGF.CGM.ReductionVars.push_back(DScanStorageInst);
           addXTeamReductionComponentHelper(CGF, CombinedInfo, DScanStorageInst);
+          if (CGF.CGM.isXteamSegmentedScanKernel()) {
+            ++ArgPos;
+            CGF.CGM.ReductionVars.push_back(DSegmentValsInst);
+            addXTeamReductionComponentHelper(CGF, CombinedInfo,
+                                             DSegmentValsInst);
+          }
         }
         // Advance to the next reduction variable in the pair:
         ++ArgPos;
@@ -9759,12 +9804,11 @@ static void emitTargetCallKernelLaunch(
         NumTargetItems, RTArgs, NumIterations, NumTeams, NumThreads,
         DynCGGroupMem, HasNoWait);
 
-    llvm::OpenMPIRBuilder::InsertPointOrErrorTy AfterIP =
-        OMPRuntime->getOMPBuilder().emitKernelLaunch(
+    llvm::OpenMPIRBuilder::InsertPointTy AfterIP =
+        cantFail(OMPRuntime->getOMPBuilder().emitKernelLaunch(
             CGF.Builder, OutlinedFnID, EmitTargetCallFallbackCB, Args, DeviceID,
-            RTLoc, AllocaIP);
-    assert(AfterIP && "unexpected error creating kernel launch");
-    CGF.Builder.restoreIP(*AfterIP);
+            RTLoc, AllocaIP));
+    CGF.Builder.restoreIP(AfterIP);
   };
 
   if (RequiresOuterTask) {
@@ -10449,7 +10493,7 @@ void CGOpenMPRuntime::emitTargetDataCalls(
   };
 
   auto CustomMapperCB = [&](unsigned int I) {
-    llvm::Value *MFunc = nullptr;
+    llvm::Function *MFunc = nullptr;
     if (CombinedInfo.Mappers[I]) {
       Info.HasMapper = true;
       MFunc = CGF.CGM.getOpenMPRuntime().getOrCreateUserDefinedMapperFunc(
@@ -10466,12 +10510,12 @@ void CGOpenMPRuntime::emitTargetDataCalls(
   InsertPointTy CodeGenIP(CGF.Builder.GetInsertBlock(),
                           CGF.Builder.GetInsertPoint());
   llvm::OpenMPIRBuilder::LocationDescription OmpLoc(CodeGenIP);
-  llvm::OpenMPIRBuilder::InsertPointOrErrorTy AfterIP =
-      OMPBuilder.createTargetData(
+  llvm::OpenMPIRBuilder::InsertPointTy AfterIP =
+      cantFail(OMPBuilder.createTargetData(
           OmpLoc, AllocaIP, CodeGenIP, DeviceID, IfCondVal, Info, GenMapInfoCB,
-          /*MapperFunc=*/nullptr, BodyCB, DeviceAddrCB, CustomMapperCB, RTLoc);
-  assert(AfterIP && "unexpected error creating target data");
-  CGF.Builder.restoreIP(*AfterIP);
+          CustomMapperCB,
+          /*MapperFunc=*/nullptr, BodyCB, DeviceAddrCB, RTLoc));
+  CGF.Builder.restoreIP(AfterIP);
 }
 
 void CGOpenMPRuntime::emitTargetDataStandAloneCall(

@@ -106,7 +106,7 @@ void ConvertMHALToCPUPass::runOnOperation() {
   patterns.add<LaunchRewritePattern>(ctx);
   patterns.add<AwaitRewritePattern>(ctx);
 
-  if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
+  if (failed(applyPatternsGreedily(op, std::move(patterns))))
     signalPassFailure();
 
   op.walk([](func::FuncOp f) { f->removeAttr("mhal.targets"); });

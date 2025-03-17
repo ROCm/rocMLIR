@@ -1,5 +1,5 @@
-// RUN: rocmlir-gen --arch gfx940 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA
-// RUN: rocmlir-gen --arch gfx940 --operation gemm -mfma=off -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA_OFF
+// RUN: rocmlir-gen --arch gfx942 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA
+// RUN: rocmlir-gen --arch gfx942 --operation gemm -mfma=off -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA_OFF
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -mfma=off -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA_OFF
 // RUN: rocmlir-gen --arch gfx1100 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=GFX11
@@ -7,7 +7,7 @@
 // COM: This runs the kernel pipeline so that we still get a good test with the
 // COM: host pipeline off as in the static library build, using the fact that
 // COM: the fp8 expander isn't limited to GPU code.
-// RUN: rocmlir-gen --arch gfx940 --operation gemm -t fp8 -p -pv | rocmlir-driver -kernel-pipeline=full | FileCheck %s --check-prefix=HOST
+// RUN: rocmlir-gen --arch gfx942 --operation gemm -t fp8 -p -pv | rocmlir-driver -kernel-pipeline=full | FileCheck %s --check-prefix=HOST
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -t fp8 -p -pv | rocmlir-driver -kernel-pipeline=full | FileCheck %s --check-prefix=HOST_GFX950
 
 // MFMA: rocdl.mfma.f32.16x16x32.fp8.fp8

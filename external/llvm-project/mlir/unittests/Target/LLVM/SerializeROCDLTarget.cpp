@@ -176,6 +176,7 @@ TEST_F(MLIRTargetLLVMROCDL, SKIP_WITHOUT_AMDGPU(SerializeROCDLToPTX)) {
     // Check that the serializer was successful.
     ASSERT_TRUE(object != std::nullopt);
     ASSERT_TRUE(!object->empty());
+
     ASSERT_TRUE(
         StringRef(object->data(), object->size()).contains("rocdl_kernel"));
   }

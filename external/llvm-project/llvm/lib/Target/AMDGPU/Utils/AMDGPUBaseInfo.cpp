@@ -134,6 +134,12 @@ unsigned getLoadcntStorecntBitShift(unsigned VersionMajor) {
   return VersionMajor >= 12 ? 8 : 0;
 }
 
+/// \returns VaSdst bit width
+inline unsigned getVaSdstBitWidth() { return 3; }
+
+/// \returns VaSdst bit shift
+inline unsigned getVaSdstBitShift() { return 9; }
+
 /// \returns VmVsrc bit width
 inline unsigned getVmVsrcBitWidth() { return 3; }
 
@@ -145,6 +151,12 @@ inline unsigned getVaVdstBitWidth() { return 4; }
 
 /// \returns VaVdst bit shift
 inline unsigned getVaVdstBitShift() { return 12; }
+
+/// \returns VaVcc bit width
+inline unsigned getVaVccBitWidth() { return 1; }
+
+/// \returns VaVcc bit shift
+inline unsigned getVaVccBitShift() { return 1; }
 
 /// \returns SaSdst bit width
 inline unsigned getSaSdstBitWidth() { return 1; }
@@ -418,6 +430,7 @@ struct FP4FP8DstByteSelInfo {
 #define GET_VOPDPairs_IMPL
 #define GET_VOPTrue16Table_DECL
 #define GET_VOPTrue16Table_IMPL
+#define GET_True16D16Table_IMPL
 #define GET_WMMAOpcode2AddrMappingTable_DECL
 #define GET_WMMAOpcode2AddrMappingTable_IMPL
 #define GET_WMMAOpcode3AddrMappingTable_DECL
@@ -1719,6 +1732,14 @@ unsigned decodeFieldSaSdst(unsigned Encoded) {
   return unpackBits(Encoded, getSaSdstBitShift(), getSaSdstBitWidth());
 }
 
+unsigned decodeFieldVaSdst(unsigned Encoded) {
+  return unpackBits(Encoded, getVaSdstBitShift(), getVaSdstBitWidth());
+}
+
+unsigned decodeFieldVaVcc(unsigned Encoded) {
+  return unpackBits(Encoded, getVaVccBitShift(), getVaVccBitWidth());
+}
+
 unsigned encodeFieldVmVsrc(unsigned Encoded, unsigned VmVsrc) {
   return packBits(VmVsrc, Encoded, getVmVsrcBitShift(), getVmVsrcBitWidth());
 }
@@ -1741,6 +1762,22 @@ unsigned encodeFieldSaSdst(unsigned Encoded, unsigned SaSdst) {
 
 unsigned encodeFieldSaSdst(unsigned SaSdst) {
   return encodeFieldSaSdst(0xffff, SaSdst);
+}
+
+unsigned encodeFieldVaSdst(unsigned Encoded, unsigned VaSdst) {
+  return packBits(VaSdst, Encoded, getVaSdstBitShift(), getVaSdstBitWidth());
+}
+
+unsigned encodeFieldVaSdst(unsigned VaSdst) {
+  return encodeFieldVaSdst(0xffff, VaSdst);
+}
+
+unsigned encodeFieldVaVcc(unsigned Encoded, unsigned VaVcc) {
+  return packBits(VaVcc, Encoded, getVaVccBitShift(), getVaVccBitWidth());
+}
+
+unsigned encodeFieldVaVcc(unsigned VaVcc) {
+  return encodeFieldVaVcc(0xffff, VaVcc);
 }
 
 } // namespace DepCtr
@@ -2289,50 +2326,48 @@ bool isHi16Reg(MCRegister Reg, const MCRegisterInfo &MRI) {
   return MRI.getEncodingValue(Reg) & AMDGPU::HWEncoding::IS_HI16;
 }
 
-#define MAP_REG2REG                                                                                            \
-  using namespace AMDGPU;                                                                                      \
-  switch (Reg.id()) {                                                                                          \
-  default:                                                                                                     \
-    return Reg;                                                                                                \
-    CASE_CI_VI(FLAT_SCR)                                                                                       \
-    CASE_CI_VI(FLAT_SCR_LO)                                                                                    \
-    CASE_CI_VI(FLAT_SCR_HI)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP0)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP1)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP2)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP3)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP4)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP5)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP6)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP7)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP8)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP9)                                                                                    \
-    CASE_VI_GFX9PLUS(TTMP10)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP11)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP12)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP13)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP14)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP15)                                                                                   \
-    CASE_VI_GFX9PLUS(TTMP0_TTMP1)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP2_TTMP3)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP4_TTMP5)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP6_TTMP7)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP8_TTMP9)                                                                              \
-    CASE_VI_GFX9PLUS(TTMP10_TTMP11)                                                                            \
-    CASE_VI_GFX9PLUS(TTMP12_TTMP13)                                                                            \
-    CASE_VI_GFX9PLUS(TTMP14_TTMP15)                                                                            \
-    CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3)                                                                  \
-    CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7)                                                                  \
-    CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11)                                                                \
-    CASE_VI_GFX9PLUS(TTMP12_TTMP13_TTMP14_TTMP15)                                                              \
-    CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7)                                          \
-    CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11)                                        \
-    CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15)                                    \
-    CASE_VI_GFX9PLUS(                                                                                          \
-        TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15) \
-    CASE_GFXPRE11_GFX11PLUS(M0)                                                                                \
-    CASE_GFXPRE11_GFX11PLUS(SGPR_NULL)                                                                         \
-    CASE_GFXPRE11_GFX11PLUS_TO(SGPR_NULL64, SGPR_NULL)                                                         \
+#define MAP_REG2REG \
+  using namespace AMDGPU; \
+  switch(Reg.id()) { \
+  default: return Reg; \
+  CASE_CI_VI(FLAT_SCR) \
+  CASE_CI_VI(FLAT_SCR_LO) \
+  CASE_CI_VI(FLAT_SCR_HI) \
+  CASE_VI_GFX9PLUS(TTMP0) \
+  CASE_VI_GFX9PLUS(TTMP1) \
+  CASE_VI_GFX9PLUS(TTMP2) \
+  CASE_VI_GFX9PLUS(TTMP3) \
+  CASE_VI_GFX9PLUS(TTMP4) \
+  CASE_VI_GFX9PLUS(TTMP5) \
+  CASE_VI_GFX9PLUS(TTMP6) \
+  CASE_VI_GFX9PLUS(TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP8) \
+  CASE_VI_GFX9PLUS(TTMP9) \
+  CASE_VI_GFX9PLUS(TTMP10) \
+  CASE_VI_GFX9PLUS(TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP12) \
+  CASE_VI_GFX9PLUS(TTMP13) \
+  CASE_VI_GFX9PLUS(TTMP14) \
+  CASE_VI_GFX9PLUS(TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1) \
+  CASE_VI_GFX9PLUS(TTMP2_TTMP3) \
+  CASE_VI_GFX9PLUS(TTMP4_TTMP5) \
+  CASE_VI_GFX9PLUS(TTMP6_TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP8_TTMP9) \
+  CASE_VI_GFX9PLUS(TTMP10_TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP12_TTMP13) \
+  CASE_VI_GFX9PLUS(TTMP14_TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3) \
+  CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP12_TTMP13_TTMP14_TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7) \
+  CASE_VI_GFX9PLUS(TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11) \
+  CASE_VI_GFX9PLUS(TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15) \
+  CASE_VI_GFX9PLUS(TTMP0_TTMP1_TTMP2_TTMP3_TTMP4_TTMP5_TTMP6_TTMP7_TTMP8_TTMP9_TTMP10_TTMP11_TTMP12_TTMP13_TTMP14_TTMP15) \
+  CASE_GFXPRE11_GFX11PLUS(M0) \
+  CASE_GFXPRE11_GFX11PLUS(SGPR_NULL) \
+  CASE_GFXPRE11_GFX11PLUS_TO(SGPR_NULL64, SGPR_NULL) \
   }
 
 #define CASE_CI_VI(node) \
@@ -2448,6 +2483,8 @@ bool isSISrcInlinableOperand(const MCInstrDesc &Desc, unsigned OpNo) {
 // (move from MC* level to Target* level). Return size in bits.
 unsigned getRegBitWidth(unsigned RCID) {
   switch (RCID) {
+  case AMDGPU::VGPR_16RegClassID:
+  case AMDGPU::VGPR_16_Lo128RegClassID:
   case AMDGPU::SGPR_LO16RegClassID:
   case AMDGPU::AGPR_LO16RegClassID:
     return 16;
@@ -2489,6 +2526,7 @@ unsigned getRegBitWidth(unsigned RCID) {
   case AMDGPU::AReg_128_Align2RegClassID:
   case AMDGPU::AV_128RegClassID:
   case AMDGPU::AV_128_Align2RegClassID:
+  case AMDGPU::SReg_128_XNULLRegClassID:
     return 128;
   case AMDGPU::SGPR_160RegClassID:
   case AMDGPU::SReg_160RegClassID:
@@ -2525,6 +2563,7 @@ unsigned getRegBitWidth(unsigned RCID) {
   case AMDGPU::AReg_256_Align2RegClassID:
   case AMDGPU::AV_256RegClassID:
   case AMDGPU::AV_256_Align2RegClassID:
+  case AMDGPU::SReg_256_XNULLRegClassID:
     return 256;
   case AMDGPU::SGPR_288RegClassID:
   case AMDGPU::SReg_288RegClassID:

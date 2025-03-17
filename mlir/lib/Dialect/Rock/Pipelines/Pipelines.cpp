@@ -64,7 +64,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
-    funcPm.addPass(tosa::createTosaToTensor());
+    funcPm.addPass(createTosaToTensorPass());
     funcPm.addPass(createTosaToRockPass());
     funcPm.addPass(rock::createRockViewToTransformPass());
   }
@@ -76,7 +76,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
   tosa::TosaValidationOptions validationOptions;
   validationOptions.level = tosa::TosaLevelEnum::None;
-  validationOptions.profile = {"bi", "mi", "mt"};
+  validationOptions.profile = {"pro_int", "pro_fp"};
   tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
                               validationOptions);
 
@@ -84,9 +84,9 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
    */
   auto &funcPm2 = pm.nest<func::FuncOp>();
-  funcPm2.addPass(tosa::createTosaToTensor());
-  funcPm2.addPass(tosa::createTosaToSCF());
-  funcPm2.addPass(tosa::createTosaToArith());
+  funcPm2.addPass(createTosaToTensorPass());
+  funcPm2.addPass(createTosaToSCFPass());
+  funcPm2.addPass(createTosaToArithPass());
 
   // linalg tensor opts
   /* rocmlir-opt --linalg-fuse-elementwise-ops --linalg-fold-unit-extent-dims
@@ -257,7 +257,9 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(createLowerAffinePass());
   gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
       options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP));
+      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP,
+      llvm::SmallDenseSet<StringRef>{"memref", "math", "cf", "func", "vector",
+                                     "arith"}));
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
   // -canonicalize -cse so that we don't have to crawl through memref

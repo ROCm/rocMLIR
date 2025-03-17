@@ -60,28 +60,6 @@ def TosaMakeBroadcastable : Pass<"tosa-make-broadcastable", "func::FuncOp"> {
   let constructor = "createTosaMakeBroadcastablePass()";
 }
 
-def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
-  let summary = "Outline TOSA Conv2D ops and adjacent element-wise ops";
-  let description = [{
-    Outline kernels of tosa::Conv2D and surrounding elementwise ops.
-  }];
-
-  let options = [
-    ListOption<"anchorOps", "anchor-ops", "std::string",
-               "One or more operations to be used as focus of partitioned "
-               "kernels",
-               "llvm::cl::ZeroOrMore">,
-    ListOption<"terminalOps", "terminal-ops", "std::string",
-               "One or more operations that terminal a fusion chain",
-               "llvm::cl::ZeroOrMore">,
-    Option<"partitionTagOpt", "partition-tag", "std::string",
-           /*default=*/"\"kernel\"", "Attribute for outlined functions">,
-    Option<"trailingOnly", "trailing-only", "bool", /*default=*/"true",
-           "Don't gather ops ahead of anchor op">
-  ];
-  let dependentDialects = ["tosa::TosaDialect"];
-}
-
 def TosaOptionalDecompositions
   : Pass<"tosa-optional-decompositions", "func::FuncOp"> {
   let summary = "Applies Tosa operations optional decompositions";
@@ -91,16 +69,6 @@ def TosaOptionalDecompositions
   }];
 
   let constructor = "tosa::createTosaOptionalDecompositions()";
-}
-
-def TosaProfileType : I32EnumAttr<"TosaProfileEnum", "Tosa profile",
-    [
-      I32EnumAttrCase<"BaseInference", 0, "bi">,
-      I32EnumAttrCase<"MainInference", 1, "mi">,
-      I32EnumAttrCase<"MainTraining", 2, "mt">,
-      I32EnumAttrCase<"Undefined", 3, "none">
-    ]>{
-  let cppNamespace = "mlir::tosa";
 }
 
 def TosaLevelType : I32EnumAttr<"TosaLevelEnum", "Tosa level",
@@ -121,7 +89,9 @@ def TosaValidation : Pass<"tosa-validate", "mlir::ModuleOp"> {
   let options = [
       ListOption<"profile", "profile", "std::string",
              "Validate if operations match for the given profile set">,
-      Option<"StrictOperationSpecAlignment", "strict-op-spec-alignment", "bool",
+      ListOption<"extension", "extension", "std::string",
+             "Validate if operations match for the given extension set">,
+      Option<"strictOpSpecAlignment", "strict-op-spec-alignment", "bool",
              /*default=*/"false",
              "Verify if the properties of certain operations align the spec requirement">,
       Option<"level", "level", "mlir::tosa::TosaLevelEnum",

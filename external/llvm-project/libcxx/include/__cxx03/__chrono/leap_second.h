@@ -36,8 +36,8 @@ namespace chrono {
 
 class leap_second {
 public:
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit constexpr leap_second(
-      __private_constructor_tag, sys_seconds __date, seconds __value)
+  [[nodiscard]]
+  _LIBCPP_HIDE_FROM_ABI explicit constexpr leap_second(__private_constructor_tag, sys_seconds __date, seconds __value)
       : __date_(__date), __value_(__value) {}
 
   _LIBCPP_HIDE_FROM_ABI leap_second(const leap_second&)            = default;

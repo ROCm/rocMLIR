@@ -37,6 +37,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -1592,7 +1593,7 @@ void RockSugarToLoopsPass::runOnOperation() {
   // for each coordinate
 
   // Note: even if all these patterns are moved before unrolling, a call to
-  // applyPatternsAndFoldGreedily() is needed for the Fold part of that
+  // applyPatternsGreedily() is needed for the Fold part of that
   // function. Specifically, affine loop unrolling generates affine.apply()
   // calls that are then constant-folded away by this rewriter
   RewritePatternSet postUnrollPatterns(ctx);

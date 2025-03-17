@@ -193,7 +193,8 @@ bool SPIRVEmitNonSemanticDI::emitGlobalDI(MachineFunction &MF) {
     };
 
     const SPIRVType *VoidTy =
-        GR->getOrCreateSPIRVType(Type::getVoidTy(*Context), MIRBuilder);
+        GR->getOrCreateSPIRVType(Type::getVoidTy(*Context), MIRBuilder,
+                                 SPIRV::AccessQualifier::ReadWrite, false);
 
     const auto EmitDIInstruction =
         [&](SPIRV::NonSemanticExtInst::NonSemanticExtInst Inst,
@@ -217,7 +218,8 @@ bool SPIRVEmitNonSemanticDI::emitGlobalDI(MachineFunction &MF) {
         };
 
     const SPIRVType *I32Ty =
-        GR->getOrCreateSPIRVType(Type::getInt32Ty(*Context), MIRBuilder);
+        GR->getOrCreateSPIRVType(Type::getInt32Ty(*Context), MIRBuilder,
+                                 SPIRV::AccessQualifier::ReadWrite, false);
 
     const Register DwarfVersionReg =
         GR->buildConstantInt(DwarfVersion, MIRBuilder, I32Ty, false);
@@ -258,7 +260,8 @@ bool SPIRVEmitNonSemanticDI::emitGlobalDI(MachineFunction &MF) {
       const Register SourceLanguageReg =
           GR->buildConstantInt(SpirvSourceLanguage, MIRBuilder, I32Ty, false);
 
-      [[maybe_unused]] const Register DebugCompUnitResIdReg =
+      [[maybe_unused]]
+      const Register DebugCompUnitResIdReg =
           EmitDIInstruction(SPIRV::NonSemanticExtInst::DebugCompilationUnit,
                             {DebugInfoVersionReg, DwarfVersionReg,
                              DebugSourceResIdReg, SourceLanguageReg});
@@ -332,19 +335,19 @@ bool SPIRVEmitNonSemanticDI::emitGlobalDI(MachineFunction &MF) {
           for (const auto &BasicTypeRegPair : BasicTypeRegPairs) {
             const auto &[DefinedBasicType, BasicTypeReg] = BasicTypeRegPair;
             if (DefinedBasicType == MaybeNestedBasicType) {
-              [[maybe_unused]] const Register DebugPointerTypeReg =
-                  EmitDIInstruction(
-                      SPIRV::NonSemanticExtInst::DebugTypePointer,
-                      {BasicTypeReg, StorageClassReg, I32ZeroReg});
+              [[maybe_unused]]
+              const Register DebugPointerTypeReg = EmitDIInstruction(
+                  SPIRV::NonSemanticExtInst::DebugTypePointer,
+                  {BasicTypeReg, StorageClassReg, I32ZeroReg});
             }
           }
         } else {
           const Register DebugInfoNoneReg =
               EmitDIInstruction(SPIRV::NonSemanticExtInst::DebugInfoNone, {});
-          [[maybe_unused]] const Register DebugPointerTypeReg =
-              EmitDIInstruction(
-                  SPIRV::NonSemanticExtInst::DebugTypePointer,
-                  {DebugInfoNoneReg, StorageClassReg, I32ZeroReg});
+          [[maybe_unused]]
+          const Register DebugPointerTypeReg = EmitDIInstruction(
+              SPIRV::NonSemanticExtInst::DebugTypePointer,
+              {DebugInfoNoneReg, StorageClassReg, I32ZeroReg});
         }
       }
     }

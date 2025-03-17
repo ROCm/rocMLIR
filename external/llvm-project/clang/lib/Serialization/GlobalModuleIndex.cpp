@@ -430,13 +430,13 @@ namespace {
 
     /// Retrieve the module file information for the given file.
     ModuleFileInfo &getModuleFileInfo(FileEntryRef File) {
-    auto [It, Inserted] = ModuleFiles.try_emplace(File);
-    if (Inserted) {
-      unsigned NewID = ModuleFiles.size();
-      ModuleFileInfo &Info = It->second;
-      Info.ID = NewID;
-    }
-    return It->second;
+      auto [It, Inserted] = ModuleFiles.try_emplace(File);
+      if (Inserted) {
+        unsigned NewID = ModuleFiles.size();
+        ModuleFileInfo &Info = It->second;
+        Info.ID = NewID;
+      }
+      return It->second;
     }
 
   public:
@@ -660,8 +660,8 @@ llvm::Error GlobalModuleIndexBuilder::loadModuleFile(FileEntryRef File) {
       // Save the information in ImportedModuleFileInfo so we can verify after
       // loading all pcms.
       ImportedModuleFiles.insert(std::make_pair(
-          *DependsOnFile,
-          ImportedModuleFileInfo(StoredSize, StoredModTime, StoredSignature)));
+          *DependsOnFile, ImportedModuleFileInfo(StoredSize, StoredModTime,
+                                                 StoredSignature)));
 
       // Record the dependency.
       unsigned DependsOnID = getModuleFileInfo(*DependsOnFile).ID;

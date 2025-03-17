@@ -17,6 +17,7 @@
 
 #include "mlir/Dialect/Quant/IR/QuantOpsDialect.cpp.inc"
 
+
 namespace mlir {
 namespace quant {
 
@@ -36,8 +37,7 @@ namespace {
 LogicalResult verifyPerAxisQuantization(Operation *op,
                                         QuantizedType quantizedType,
                                         Type containerType) {
-  auto quantizedPerAxisType =
-      dyn_cast<UniformQuantizedPerAxisType>(quantizedType);
+  auto quantizedPerAxisType = dyn_cast<UniformQuantizedPerAxisType>(quantizedType);
   if (!quantizedPerAxisType)
     return success();
 
@@ -54,8 +54,7 @@ LogicalResult verifyPerAxisQuantization(Operation *op,
 
   int64_t quantizedDimensionSize = tensorType.getDimSize(quantizedDimension);
   if (quantizedDimensionSize != ShapedType::kDynamic &&
-      quantizedDimensionSize !=
-          (int64_t)quantizedPerAxisType.getScales().size())
+      quantizedDimensionSize != (int64_t)quantizedPerAxisType.getScales().size())
     return op->emitError(
         "quantized dimension size does not match number of scales");
 
@@ -85,7 +84,8 @@ LogicalResult verifyQuantizationOp(Operation *op, QuantizedType quantizedType,
   return verifyPerAxisQuantization(op, quantizedType, containerType);
 }
 
-} // namespace
+}  // namespace
+
 
 //===----------------------------------------------------------------------===//
 // Dialect
@@ -100,6 +100,7 @@ void QuantDialect::initialize() {
       >();
   detail::addBytecodeInterface(this);
 }
+
 
 //===----------------------------------------------------------------------===//
 // DequantizeCastOp
@@ -129,6 +130,7 @@ QuantizedType DequantizeCastOp::getQuantizedType() {
   return cast<QuantizedType>(getElementTypeOrSelf(getInput().getType()));
 }
 
+
 //===----------------------------------------------------------------------===//
 // QuantizeCastOp
 //===----------------------------------------------------------------------===//
@@ -157,6 +159,7 @@ FloatType QuantizeCastOp::getFloatType() {
 QuantizedType QuantizeCastOp::getQuantizedType() {
   return cast<QuantizedType>(getElementTypeOrSelf(getResult().getType()));
 }
+
 
 //===----------------------------------------------------------------------===//
 // StorageCastOp
@@ -202,8 +205,10 @@ QuantizedType StorageCastOp::getQuantizedType() {
   return cast<QuantizedType>(resultScalarType);
 }
 
+
 } // namespace quant
 } // namespace mlir
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Quant/IR/QuantOps.cpp.inc"
+

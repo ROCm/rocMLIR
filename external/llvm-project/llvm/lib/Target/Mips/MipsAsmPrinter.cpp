@@ -17,12 +17,12 @@
 #include "MCTargetDesc/MipsInstPrinter.h"
 #include "MCTargetDesc/MipsMCNaCl.h"
 #include "MCTargetDesc/MipsMCTargetDesc.h"
+#include "MCTargetDesc/MipsTargetStreamer.h"
 #include "Mips.h"
 #include "MipsMCInstLower.h"
 #include "MipsMachineFunction.h"
 #include "MipsSubtarget.h"
 #include "MipsTargetMachine.h"
-#include "MipsTargetStreamer.h"
 #include "TargetInfo/MipsTargetInfo.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
@@ -380,7 +380,7 @@ void MipsAsmPrinter::emitFrameDirective() {
   const TargetRegisterInfo &RI = *MF->getSubtarget().getRegisterInfo();
 
   Register stackReg = RI.getFrameRegister(*MF);
-  unsigned returnReg = RI.getRARegister();
+  MCRegister returnReg = RI.getRARegister();
   unsigned stackSize = MF->getFrameInfo().getStackSize();
 
   getTargetStreamer().emitFrame(stackReg, stackSize, returnReg);
@@ -744,7 +744,7 @@ void MipsAsmPrinter::emitStartOfAsmFile(Module &M) {
     StringRef FS = TM.getTargetFeatureString();
     Module::iterator F = M.begin();
     if (FS.empty() && M.size() && F->hasFnAttribute("target-features"))
-        FS = F->getFnAttribute("target-features").getValueAsString();
+      FS = F->getFnAttribute("target-features").getValueAsString();
 
     // Compute MIPS architecture attributes based on the default subtarget
     // that we'd have constructed.
@@ -758,13 +758,12 @@ void MipsAsmPrinter::emitStartOfAsmFile(Module &M) {
     bool IsABICalls = STI.isABICalls();
     const MipsABIInfo &ABI = MTM.getABI();
     if (IsABICalls) {
-        TS.emitDirectiveAbiCalls();
-        // FIXME: This condition should be a lot more complicated that it is
-        // here.
-        //        Ideally it should test for properties of the ABI and not the
-        //        ABI itself. For the moment, I'm only correcting enough to make
-        //        MIPS-IV work.
-        if (!isPositionIndependent() && STI.hasSym32())
+      TS.emitDirectiveAbiCalls();
+      // FIXME: This condition should be a lot more complicated that it is here.
+      //        Ideally it should test for properties of the ABI and not the ABI
+      //        itself.
+      //        For the moment, I'm only correcting enough to make MIPS-IV work.
+      if (!isPositionIndependent() && STI.hasSym32())
         TS.emitDirectiveOptionPic0();
     }
 
@@ -787,13 +786,13 @@ void MipsAsmPrinter::emitStartOfAsmFile(Module &M) {
     // (-mfpxx or -mfp64) and omit it otherwise.
     if ((ABI.IsO32() && (STI.isABI_FPXX() || STI.isFP64bit())) ||
         STI.useSoftFloat())
-        TS.emitDirectiveModuleFP();
+      TS.emitDirectiveModuleFP();
 
     // We should always emit a '.module [no]oddspreg' but binutils 2.24 does not
     // accept it. We therefore emit it when it contradicts the default or an
     // option has changed the default (i.e. FPXX) and omit it otherwise.
     if (ABI.IsO32() && (!STI.useOddSPReg() || STI.isABI_FPXX()))
-        TS.emitDirectiveModuleOddSPReg();
+      TS.emitDirectiveModuleOddSPReg();
 
     // Switch to the .text section.
     OutStreamer->switchSection(getObjFileLowering().getTextSection());

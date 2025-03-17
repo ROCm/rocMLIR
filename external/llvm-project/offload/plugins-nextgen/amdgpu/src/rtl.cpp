@@ -267,26 +267,6 @@ namespace omp {
 namespace target {
 namespace plugin {
 
-extern "C" {
-uint64_t hostrpc_assign_buffer(hsa_agent_t Agent, hsa_queue_t *ThisQ,
-                               uint32_t DeviceId,
-                               hsa_amd_memory_pool_t HostMemoryPool,
-                               hsa_amd_memory_pool_t DevMemoryPool);
-hsa_status_t hostrpc_terminate();
-__attribute__((weak)) hsa_status_t hostrpc_terminate() {
-  return HSA_STATUS_SUCCESS;
-}
-__attribute__((weak)) uint64_t hostrpc_assign_buffer(
-    hsa_agent_t, hsa_queue_t *, uint32_t DeviceId,
-    hsa_amd_memory_pool_t HostMemoryPool, hsa_amd_memory_pool_t DevMemoryPool) {
-  // FIXME:THIS SHOULD BE HARD FAIL
-  DP("Warning: Attempting to assign hostrpc to device %u, but hostrpc library "
-     "missing\n",
-     DeviceId);
-  return 0;
-}
-}
-
 /// Forward declarations for all specialized data structures.
 struct AMDGPUKernelTy;
 struct AMDGPUDeviceTy;
@@ -357,12 +337,6 @@ Error iterateAgentMemoryPools(hsa_agent_t Agent, CallbackTy Cb) {
   return Plugin::check(Status,
                        "Error in hsa_amd_agent_iterate_memory_pools: %s");
 }
-
-extern "C" uint64_t hostrpc_assign_buffer(hsa_agent_t Agent, hsa_queue_t *ThisQ,
-                                          uint32_t DeviceId,
-                                          hsa_amd_memory_pool_t HostMemoryPool,
-                                          hsa_amd_memory_pool_t DevMemoryPool);
-extern "C" hsa_status_t hostrpc_terminate();
 
 /// Dispatches an asynchronous memory copy.
 /// Enables different SDMA engines for the dispatch in a round-robin fashion.
@@ -669,7 +643,7 @@ private:
   /// have more previously allocated buffers.
   void *allocate(size_t Size, void *HstPtr, TargetAllocTy Kind) override;
 
-  /// Deallocation callack that will be called by the memory manager.
+  /// Deallocation callback that will be called by the memory manager.
   int free(void *TgtPtr, TargetAllocTy Kind) override {
     if (auto Err = MemoryPool->deallocate(TgtPtr)) {
       consumeError(std::move(Err));
@@ -735,9 +709,8 @@ struct AMDGPUDeviceImageTy : public DeviceImageTy {
   bool hasDeviceSymbol(GenericDeviceTy &Device, StringRef SymbolName) const;
 
 private:
-  /// The exectuable loaded on the agent.
+  /// The executable loaded on the agent.
   hsa_executable_t Executable;
-  hsa_code_object_t CodeObject;
 #if SANITIZER_AMDGPU
   hsa_code_object_reader_t CodeObjectReader;
 #endif
@@ -751,9 +724,6 @@ struct AMDGPUKernelTy : public GenericKernelTy {
   /// Create an AMDGPU kernel with a name and an execution mode.
   AMDGPUKernelTy(const char *Name, GenericGlobalHandlerTy &Handler)
       : GenericKernelTy(Name),
-        OMPX_DisableHostExec("LIBOMPTARGET_DISABLE_HOST_EXEC", false),
-        ServiceThreadDeviceBufferGlobal("service_thread_buf", sizeof(uint64_t)),
-        HostServiceBufferHandler(Handler),
         OMPX_SPMDOccupancyBasedOpt("OMPX_SPMD_OCCUPANCY_BASED_OPT", false),
         OMPX_BigJumpLoopOccupancyBasedOpt(
             "OMPX_BIGJUMPLOOP_OCCUPANCY_BASED_OPT", false),
@@ -839,14 +809,7 @@ struct AMDGPUKernelTy : public GenericKernelTy {
       INFO(OMP_INFOTYPE_PLUGIN_KERNEL, Device.getDeviceId(),
            "Could not read extra information for kernel %s.", getName());
 
-    NeedsHostServices =
-        AMDImage.hasDeviceSymbol(Device, "__needs_host_services");
-    if (NeedsHostServices && !OMPX_DisableHostExec) {
-      // GenericGlobalHandlerTy * GHandler = Plugin::createGlobalHandler();
-      if (auto Err = HostServiceBufferHandler.getGlobalMetadataFromDevice(
-              Device, AMDImage, ServiceThreadDeviceBufferGlobal))
-        return Err;
-    }
+    HasRPC = AMDImage.hasDeviceSymbol(Device, "__llvm_rpc_client");
 
     return Plugin::success();
   }
@@ -884,9 +847,6 @@ struct AMDGPUKernelTy : public GenericKernelTy {
   /// Indicates whether or not we need to set up our own private segment size.
   bool usesDynamicStack() const { return DynamicStack; }
 
-  /// Envar to disable host-exec thread creation.
-  BoolEnvar OMPX_DisableHostExec;
-
   /// Envar to enable occupancy-based optimization for SPMD kernel.
   BoolEnvar OMPX_SPMDOccupancyBasedOpt;
 
@@ -906,6 +866,10 @@ private:
   uint32_t PrivateSize;
   bool DynamicStack;
 
+  /// Device init sets this to true if image has symbol indicating that RPC
+  /// service threads are used in this image.  Only used for trace display.
+  bool HasRPC;
+
   /// The size of implicit kernel arguments.
   uint32_t ImplicitArgsSize;
 
@@ -913,15 +877,6 @@ private:
   std::optional<offloading::amdgpu::AMDGPUKernelMetaData> KernelInfo;
   /// CodeGen generate WGSize
   uint16_t ConstWGSize;
-
-  /// Indicate whether this Kernel requires host services
-  bool NeedsHostServices;
-
-  /// Global for host service device thread buffer
-  GlobalTy ServiceThreadDeviceBufferGlobal;
-
-  /// Global handler for hostservices buffer
-  GenericGlobalHandlerTy &HostServiceBufferHandler;
 
   /// Lower number of threads if tripcount is low. This should produce
   /// a larger number of teams if allowed by other constraints.
@@ -1382,9 +1337,9 @@ struct AMDGPUSignalTy {
   }
 
   /// Wait until the signal gets a zero value.
-  Error wait(const uint64_t ActiveTimeout = 0, RPCServerTy *RPCServer = nullptr,
+  Error wait(const uint64_t ActiveTimeout = 0,
              GenericDeviceTy *Device = nullptr) const {
-    if (ActiveTimeout && !RPCServer) {
+    if (ActiveTimeout) {
       hsa_signal_value_t Got = 1;
       Got = hsa_signal_wait_scacquire(HSASignal, HSA_SIGNAL_CONDITION_EQ, 0,
                                       ActiveTimeout, HSA_WAIT_STATE_ACTIVE);
@@ -1393,14 +1348,11 @@ struct AMDGPUSignalTy {
     }
 
     // If there is an RPC device attached to this stream we run it as a server.
-    uint64_t Timeout = RPCServer ? 8192 : UINT64_MAX;
-    auto WaitState = RPCServer ? HSA_WAIT_STATE_ACTIVE : HSA_WAIT_STATE_BLOCKED;
+    uint64_t Timeout = UINT64_MAX;
+    auto WaitState = HSA_WAIT_STATE_BLOCKED;
     while (hsa_signal_wait_scacquire(HSASignal, HSA_SIGNAL_CONDITION_EQ, 0,
-                                     Timeout, WaitState) != 0) {
-      if (RPCServer && Device)
-        if (auto Err = RPCServer->runServer(*Device))
-          return Err;
-    }
+                                     Timeout, WaitState) != 0)
+      ;
     return Plugin::success();
   }
 
@@ -1653,7 +1605,7 @@ private:
     hsa_signal_store_relaxed(Queue->doorbell_signal, PacketId);
   }
 
-  /// Callack that will be called when an error is detected on the HSA queue.
+  /// Callback that will be called when an error is detected on the HSA queue.
   static void callbackError(hsa_status_t Status, hsa_queue_t *Source,
                             void *Data);
 
@@ -1712,6 +1664,10 @@ private:
     hsa_agent_t Agent;
     AMDGPUSignalTy *Signal;
     double TicksToTime;
+    std::string KernelName;
+    uint32_t NumTeams;
+    uint32_t NumThreads;
+    KernelRunRecordTy *KernelRunRecords;
   };
 
   using AMDGPUStreamCallbackTy = Error(void *Data);
@@ -1723,7 +1679,7 @@ private:
   /// operation's output signal is set to the consumed slot's signal. If there
   /// is a previous asynchronous operation on the previous slot, the HSA async
   /// operation's input signal is set to the signal of the previous slot. This
-  /// way, we obtain a chain of dependant async operations. The action is a
+  /// way, we obtain a chain of dependent async operations. The action is a
   /// function that will be executed eventually after the operation is
   /// completed, e.g., for releasing a buffer.
   struct StreamSlotTy {
@@ -1758,8 +1714,8 @@ private:
 
     /// Create an empty slot.
     StreamSlotTy()
-        : Signal(nullptr), Callbacks({}), ActionArgs({}),
-          OmptActionFunction(nullptr) {}
+        : Signal(nullptr), Callbacks({}), OmptActionFunction(nullptr),
+          ActionArgs({}) {}
 
     /// Schedule a host memory copy action on the slot.
     Error schedHostMemoryCopy(void *Dst, const void *Src, size_t Size) {
@@ -1895,27 +1851,26 @@ private:
   /// operation that was already finalized in a previous stream sycnhronize.
   uint32_t SyncCycle;
 
-  /// A pointer associated with an RPC server running on the given device. If
-  /// RPC is not being used this will be a null pointer. Otherwise, this
-  /// indicates that an RPC server is expected to be run on this stream.
-  RPCServerTy *RPCServer;
-
   /// Mutex to protect stream's management.
   mutable std::mutex Mutex;
 
   /// Timeout hint for HSA actively waiting for signal value to change
   const uint64_t StreamBusyWaitMicroseconds;
 
-  /// Indicate to spread data transfers across all avilable SDMAs
+  /// Indicate to spread data transfers across all available SDMAs
   bool UseMultipleSdmaEngines;
 
   /// Use synchronous copy back.
   bool UseSyncCopyBack;
 
+  /// When copying data from one host buffer to another, only do it
+  /// asynchronously if `MinHostToHostAsyncCopySize <= size`.
+  UInt32Envar OMPX_MinHostToHostAsyncCopySize;
+
   /// Arguments for the callback function.
   PostKernelRunProcessingArgsTy PostKernelRunProcessingArgs;
 
-  /// Return the current number of asychronous operations on the stream.
+  /// Return the current number of asynchronous operations on the stream.
   uint32_t size() const { return NextSlot; }
 
   /// Return the last valid slot on the stream.
@@ -1996,7 +1951,6 @@ private:
       return Err;
 
     // Push a barrier into the queue with both input signals.
-    DP("Using Queue: %p with HSA Queue: %p\n", Queue, Queue->getHsaQueue());
     return Queue->pushBarrier(OutputSignal, InputSignal, OtherSignal);
   }
 
@@ -2013,12 +1967,12 @@ private:
     assert(Slot && "Invalid slot");
     assert(Slot->Signal && "Invalid signal");
 
-    // Peform the operation.
+    // Perform the operation.
     if (auto Err = Slot->performAction())
-      FATAL_MESSAGE(1, "Error peforming post action: %s",
+      FATAL_MESSAGE(1, "Error performing post action: %s",
                     toString(std::move(Err)).data());
 
-    // Signal the output signal to notify the asycnhronous operation finalized.
+    // Signal the output signal to notify the asynchronous operation finalized.
     Slot->Signal->signal();
 
     // Unregister callback.
@@ -2041,9 +1995,9 @@ private:
   /// action. There are two kinds of memory buffers:
   ///   1. For kernel arguments. This buffer can be freed after receiving the
   ///   kernel completion signal.
-  ///   2. For H2D tranfers that need pinned memory space for staging. This
+  ///   2. For H2D transfers that need pinned memory space for staging. This
   ///   buffer can be freed after receiving the transfer completion signal.
-  ///   3. For D2H tranfers that need pinned memory space for staging. This
+  ///   3. For D2H transfers that need pinned memory space for staging. This
   ///   buffer cannot be freed after receiving the transfer completion signal
   ///   because of the following asynchronous H2H callback.
   ///      For this reason, This action can only be taken at
@@ -2080,8 +2034,8 @@ private:
     assert(Args->Signal &&
            "Invalid AMDGPUSignal Pointer in post kernel run processing");
     hsa_amd_profiling_dispatch_time_t TimeRec;
-    hsa_status_t Status = hsa_amd_profiling_get_dispatch_time(
-        Args->Agent, Args->Signal->get(), &TimeRec);
+    hsa_amd_profiling_get_dispatch_time(Args->Agent, Args->Signal->get(),
+                                        &TimeRec);
 
     uint64_t StartTime = TimeRec.start * Args->TicksToTime;
     uint64_t EndTime = TimeRec.end * Args->TicksToTime;
@@ -2095,9 +2049,20 @@ private:
     PostKernelRunProcessingArgsTy *Args =
         reinterpret_cast<PostKernelRunProcessingArgsTy *>(Data);
 
-    uint64_t KernelDuration = getKernelDuration(Args);
-    fprintf(stderr, "Kernel Duration: %lu ns\n", KernelDuration);
+    KernelRunRecordTy *KernelRecord = Args->KernelRunRecords;
+    assert(KernelRecord && "KernelRunRecord is null!");
 
+    uint64_t KernelDuration = getKernelDuration(Args);
+    KernelRecord->addEntry(Args->KernelName, Args->NumTeams, Args->NumThreads,
+                           KernelDuration);
+
+    if (getInfoLevel() & OMP_INFOTYPE_AMD_KERNEL_TRACE) {
+      fprintf(stderr,
+              "[Autotuning run] Kernel %s with %u teams and %u threads "
+              "completed in %lu ns.\n",
+              Args->KernelName.c_str(), Args->NumTeams, Args->NumThreads,
+              KernelDuration);
+    }
     return Plugin::success();
   }
 
@@ -2128,16 +2093,13 @@ public:
   /// Create an empty stream associated with a specific device.
   AMDGPUStreamTy(AMDGPUDeviceTy &Device);
 
-  /// Intialize the stream's signals.
+  /// Initialize the stream's signals.
   Error init() { return Plugin::success(); }
 
   /// Deinitialize the stream's signals.
   Error deinit() { return Plugin::success(); }
 
   hsa_queue_t *getHsaQueue() { return Queue->getHsaQueue(); }
-
-  /// Attach an RPC server to this stream.
-  void setRPCServer(RPCServerTy *Server) { RPCServer = Server; }
 
   /// Push a asynchronous kernel to the stream. The kernel arguments must be
   /// placed in a special allocation for kernel args and must keep alive until
@@ -2182,21 +2144,54 @@ public:
 
     // If runtime autotuning is enabled, setup the callback functions to process
     // the data after kernel completed.
-    if (Device.enableRuntimeAutotuning()) {
-      PostKernelRunProcessingArgs.Agent = Agent;
-      PostKernelRunProcessingArgs.Signal = OutputSignal;
-      PostKernelRunProcessingArgs.TicksToTime = 1.0;
+    if (Device.enableRuntimeAutotuning() && Kernel.isSPMDMode()) {
+      std::string KernelName(Kernel.getName());
+      KernelRunRecordTy *KernelRecords = Device.getKernelRunRecords();
+      assert(KernelRecords && "No KernelRecords!");
 
-      if (auto Err = Slots[Curr].schedCallback(postKernelRunProcessingAction,
-                                               &PostKernelRunProcessingArgs))
-        return Err;
+      // If this kernel has reached the run limit,
+      // skip registering the callback function.
+      if (!KernelRecords->reachedRunLimitForKernel(KernelName)) {
+        PostKernelRunProcessingArgs.Agent = Agent;
+        PostKernelRunProcessingArgs.Signal = OutputSignal;
+        PostKernelRunProcessingArgs.TicksToTime = 1.0;
+        PostKernelRunProcessingArgs.KernelName = KernelName;
+        PostKernelRunProcessingArgs.NumTeams = NumBlocks[0];
+        PostKernelRunProcessingArgs.NumThreads = NumThreads[0];
+        PostKernelRunProcessingArgs.KernelRunRecords = KernelRecords;
+
+        if (auto Err = Slots[Curr].schedCallback(postKernelRunProcessingAction,
+                                                 &PostKernelRunProcessingArgs))
+          return Err;
+      }
     }
 
     // Push the kernel with the output signal and an input signal (optional)
     DP("Using Queue: %p with HSA Queue: %p\n", Queue, Queue->getHsaQueue());
-    return Queue->pushKernelLaunch(Kernel, KernelArgs, NumThreads, NumBlocks,
-                                   GroupSize, StackSize, OutputSignal,
-                                   InputSignal);
+    // If we are running an RPC server we want to wake up the server thread
+    // whenever there is a kernel running and let it sleep otherwise.
+    if (Device.getRPCServer())
+      Device.Plugin.getRPCServer().Thread->notify();
+
+    // Push the kernel with the output signal and an input signal (optional)
+    if (auto Err = Queue->pushKernelLaunch(Kernel, KernelArgs, NumThreads,
+                                           NumBlocks, GroupSize, StackSize,
+                                           OutputSignal, InputSignal))
+      return Err;
+
+    // Register a callback to indicate when the kernel is complete.
+    if (Device.getRPCServer()) {
+      if (auto Err = Slots[Curr].schedCallback(
+              [](void *Data) -> llvm::Error {
+                GenericPluginTy &Plugin =
+                    *reinterpret_cast<GenericPluginTy *>(Data);
+                Plugin.getRPCServer().Thread->finish();
+                return Error::success();
+              },
+              &Device.Plugin))
+        return Err;
+    }
+    return Plugin::success();
   }
 
   /// Push an asynchronous memory copy between pinned memory buffers.
@@ -2241,7 +2236,7 @@ public:
   /// Push an asynchronous memory copy device-to-host involving an unpinned
   /// memory buffer. The operation consists of a two-step copy from the
   /// device buffer to an intermediate pinned host buffer, and then, to a
-  /// unpinned host buffer. Both operations are asynchronous and dependant.
+  /// unpinned host buffer. Both operations are asynchronous and dependent.
   /// The intermediate pinned buffer will be released to the specified memory
   /// manager once the operation completes.
   Error pushMemoryCopyD2HAsync(
@@ -2268,9 +2263,8 @@ public:
 
     // Wait for kernel to finish before scheduling the asynchronous copy.
     if (UseSyncCopyBack && InputSignal && InputSignal->load())
-      if (auto Err = InputSignal->wait(StreamBusyWaitMicroseconds, RPCServer, &Device))
+      if (auto Err = InputSignal->wait(StreamBusyWaitMicroseconds, &Device))
         return Err;
-
 #ifdef OMPT_SUPPORT
 
     if (OmptInfo) {
@@ -2297,6 +2291,14 @@ public:
         return Err;
     }
 
+    if (CopySize < OMPX_MinHostToHostAsyncCopySize) {
+      if (auto Err =
+              OutputSignals[0]->wait(StreamBusyWaitMicroseconds, &Device))
+        return Err;
+      std::memcpy(Dst, Inter, CopySize);
+      return Error::success();
+    }
+
     // Consume another stream slot and compute dependencies.
     std::tie(Curr, InputSignal) = consume(OutputSignals[1]);
     assert(InputSignal && "Invalid input signal");
@@ -2320,7 +2322,7 @@ public:
   /// Push an asynchronous memory copy host-to-device involving an unpinned
   /// memory buffer. The operation consists of a two-step copy from the
   /// unpinned host buffer to an intermediate pinned host buffer, and then, to
-  /// the pinned host buffer. Both operations are asynchronous and dependant.
+  /// the pinned host buffer. Both operations are asynchronous and dependent.
   /// The intermediate pinned buffer will be released to the specified memory
   /// manager once the operation completes.
   Error pushMemoryCopyH2DAsync(
@@ -2457,8 +2459,8 @@ public:
       return Plugin::success();
 
     // Wait until all previous operations on the stream have completed.
-    if (auto Err = Slots[last()].Signal->wait(StreamBusyWaitMicroseconds,
-                                              RPCServer, &Device))
+    if (auto Err =
+            Slots[last()].Signal->wait(StreamBusyWaitMicroseconds, &Device))
       return Err;
 
     // Reset the stream and perform all pending post actions.
@@ -2661,7 +2663,7 @@ struct AMDGPUStreamManagerTy final
   }
 
 private:
-  /// Search for and assign an prefereably idle queue to the given Stream. If
+  /// Search for and assign an preferably idle queue to the given Stream. If
   /// there is no queue without current users, choose the queue with the lowest
   /// user count. If utilization is ignored: use round robin selection.
   inline Error assignNextQueue(AMDGPUStreamTy *Stream) {
@@ -2852,13 +2854,13 @@ struct AMDHostDeviceTy : public AMDGenericDeviceTy {
   /// Get a memory pool for fine-grained allocations.
   AMDGPUMemoryPoolTy &getFineGrainedMemoryPool() {
     assert(!FineGrainedMemoryPools.empty() && "No fine-grained mempool");
-    // Retrive any memory pool.
+    // Retrieve any memory pool.
     return *FineGrainedMemoryPools[0];
   }
 
   AMDGPUMemoryPoolTy &getCoarseGrainedMemoryPool() {
     assert(!CoarseGrainedMemoryPools.empty() && "No coarse-grained mempool");
-    // Retrive any memory pool.
+    // Retrieve any memory pool.
     return *CoarseGrainedMemoryPools[0];
   }
 
@@ -2895,14 +2897,14 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
       : GenericDeviceTy(Plugin, DeviceId, NumDevices, {}), AMDGenericDeviceTy(),
         OMPX_NumQueues("LIBOMPTARGET_AMDGPU_NUM_HSA_QUEUES", 4),
         OMPX_QueueSize("LIBOMPTARGET_AMDGPU_HSA_QUEUE_SIZE", 512),
-        OMPX_DefaultTeamsPerCU("LIBOMPTARGET_AMDGPU_TEAMS_PER_CU", 6),
+        OMPX_DefaultTeamsPerCU("LIBOMPTARGET_AMDGPU_TEAMS_PER_CU", 4),
         OMPX_GenericSpmdTeamsPerCU(
             "LIBOMPTARGET_AMDGPU_GENERIC_SPMD_TEAMS_PER_CU", 0),
         OMPX_BigJumpLoopTeamsPerCU(
             "LIBOMPTARGET_AMDGPU_BIG_JUMP_LOOP_TEAMS_PER_CU", 0),
         OMPX_BigJumpLoopMaxTotalTeams(
             "LIBOMPTARGET_AMDGPU_BIG_JUMP_LOOP_MAX_TOTAL_TEAMS", 1024 * 1024),
-        OMPX_LowTripCount("LIBOMPTARGET_AMDGPU_LOW_TRIPCOUNT", 4000),
+        OMPX_LowTripCount("LIBOMPTARGET_AMDGPU_LOW_TRIPCOUNT", 9000),
         OMPX_SmallBlockSize("LIBOMPTARGET_MIN_THREADS_FOR_LOW_TRIP_COUNT", 32),
         OMPX_NumBlocksForLowTripcount("LIBOMPTARGET_BLOCKS_FOR_LOW_TRIP_COUNT",
                                       0),
@@ -2922,14 +2924,18 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
             // setting default to true here appears to solve random sdma problem
             "LIBOMPTARGET_AMDGPU_USE_MULTIPLE_SDMA_ENGINES", false),
         OMPX_ApuMaps("OMPX_APU_MAPS", false),
-        OMPX_DisableUsmMaps("OMPX_DISABLE_USM_MAPS", false),
-        OMPX_NoMapChecks("OMPX_DISABLE_MAPS", true),
+        OMPX_EnableGFX90ACoarseGrainUsmMaps(
+            "OMPX_ENABLE_GFX90A_COARSE_GRAIN_USM_MAPS", false),
+        OMPX_EnableGFX90ACoarseGrainSharedAlloc(
+            "OMPX_ENABLE_GFX90A_COARSE_GRAIN_SHARED_ALLOC", false),
         OMPX_StrictSanityChecks("OMPX_STRICT_SANITY_CHECKS", false),
         OMPX_SyncCopyBack("LIBOMPTARGET_SYNC_COPY_BACK", true),
-        OMPX_APUPrefaultMemcopy("LIBOMPTARGET_APU_PREFAULT_MEMCOPY", "true"),
+        OMPX_APUPrefaultMemcopy("LIBOMPTARGET_APU_PREFAULT_MEMCOPY", true),
         OMPX_APUPrefaultMemcopySize("LIBOMPTARGET_APU_PREFAULT_MEMCOPY_SIZE",
                                     1 * 1024 * 1024), // 1MB
         OMPX_DGPUMaps("OMPX_DGPU_MAPS", false),
+        OMPX_SharedDescriptorMaxSize("LIBOMPTARGET_SHARED_DESCRIPTOR_MAX_SIZE",
+                                     48),
         AMDGPUStreamManager(*this, Agent), AMDGPUEventManager(*this),
         AMDGPUSignalManager(*this), Agent(Agent), HostDevice(HostDevice) {}
 
@@ -3072,7 +3078,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
                          ClockFrequency) != HSA_STATUS_SUCCESS)
       ClockFrequency = 0;
 
-    // Load the grid values dependending on the wavefront.
+    // Load the grid values depending on the wavefront.
     if (WavefrontSize == 32)
       GridValues = getAMDGPUGridValues<32>();
     else if (WavefrontSize == 64)
@@ -3193,7 +3199,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     if (auto Err = checkIfMI300x())
       return Err;
 
-    // detect special cases for MI200 and MI300A
+    // detect special cases for MI200
     specialBehaviorHandling();
 
     // detect ROCm-specific environment variables
@@ -3289,7 +3295,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
     std::string LLDPath = ErrorOrPath.get();
     INFO(OMP_INFOTYPE_PLUGIN_KERNEL, getDeviceId(),
-         "Using `%s` to link JITed amdgcn ouput.", LLDPath.c_str());
+         "Using `%s` to link JITed amdgcn output.", LLDPath.c_str());
 
     std::string MCPU = "-plugin-opt=mcpu=" + getComputeUnitKind();
     StringRef Args[] = {LLDPath,
@@ -3352,15 +3358,15 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   }
 
   /// We want to set up the RPC server for host services to the GPU if it is
-  /// availible.
+  /// available.
   bool shouldSetupRPCServer() const override { return true; }
 
-  /// The RPC interface should have enough space for all availible parallelism.
+  /// The RPC interface should have enough space for all available parallelism.
   uint64_t requestedRPCPortCount() const override {
     return getHardwareParallelism();
   }
 
-  /// Get the stream of the asynchronous info sructure or get a new one.
+  /// Get the stream of the asynchronous info structure or get a new one.
   Error getStream(AsyncInfoWrapperTy &AsyncInfoWrapper,
                   AMDGPUStreamTy *&Stream) {
     // Get the stream (if any) from the async info.
@@ -3756,8 +3762,8 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
                                  bool set_attr = true) override final {
     // If the table has not yet been created, check if the gpu arch is
     // MI200 and create it, but only if USM Map is enabled.
-    if (!IsEquippedWithGFX90A || OMPX_DisableUsmMaps)
-      return Plugin::success();
+    if (!IsEquippedWithGFX90A || !EnableGFX90ACoarseGrainUsmMaps)
+      return Plugin::error("Invalid request to set coarse grain mode");
     if (!CoarseGrainMemoryTable)
       CoarseGrainMemoryTable = new AMDGPUMemTypeBitFieldTable(
           AMDGPU_X86_64_SystemConfiguration::max_addressable_byte +
@@ -4034,7 +4040,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
       Status =
           Pool->getAttrRaw(HSA_AMD_MEMORY_POOL_INFO_ACCESSIBLE_BY_ALL, TmpBool);
       if (Status == HSA_STATUS_SUCCESS)
-        Info.add<InfoLevel3>("Accessable by all", TmpBool);
+        Info.add<InfoLevel3>("Accessible by all", TmpBool);
     }
 
     Info.add("ISAs");
@@ -4231,6 +4237,10 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
   bool useMultipleSdmaEngines() const { return OMPX_UseMultipleSdmaEngines; }
 
+  bool useSharedMemForDescriptor(int64_t Size) override {
+    return Size <= OMPX_SharedDescriptorMaxSize;
+  }
+
 private:
   using AMDGPUEventRef = AMDGPUResourceRef<AMDGPUEventTy>;
   using AMDGPUEventManagerTy = GenericDeviceResourceManagerTy<AMDGPUEventRef>;
@@ -4272,16 +4282,10 @@ private:
     // TODO: replace with ROCr API once it becomes available.
     // MI300A
     llvm::StringRef StrGfxName(ComputeUnitKind);
-    IsAPU = llvm::StringSwitch<bool>(StrGfxName)
-                .Case("gfx940", true)
-                .Default(false);
-    if (IsAPU)
-      return Plugin::success();
-
     bool MayBeAPU = llvm::StringSwitch<bool>(StrGfxName)
                         .Case("gfx942", true)
                         .Default(false);
-    if (!MayBeAPU) // not gfx90a, gfx940, gfx941, or or gfx942
+    if (!MayBeAPU) // not gfx90a or gfx942
       return Plugin::success();
 
     // Can be MI300A or MI300X
@@ -4305,12 +4309,6 @@ private:
 
   Error checkIfMI300x() {
     llvm::StringRef StrGfxName(ComputeUnitKind);
-    IsEquippedWithMI300X = llvm::StringSwitch<bool>(StrGfxName)
-                               .Case("gfx941", true)
-                               .Default(false);
-
-    if (IsEquippedWithMI300X)
-      return Plugin::success();
 
     bool isMI300 = llvm::StringSwitch<bool>(StrGfxName)
                        .Case("gfx942", true)
@@ -4329,22 +4327,52 @@ private:
     return Plugin::success();
   }
 
-  /// Determines if
-  /// - Map checks should be disabled
-  /// - Coarse graining upon map on MI200 needs to be disabled.
-  /// - Prefaulting GPU page tables on MI300A needs to be enabled.
-  void specialBehaviorHandling() {
-    if (OMPX_NoMapChecks.get() == false) {
-      NoUSMMapChecks = false;
+  bool checkIfCoarseGrainMemoryNearOrAbove64GB() {
+    for (AMDGPUMemoryPoolTy *Pool : AllMemoryPools) {
+      if (Pool->isGlobal() && Pool->isCoarseGrained()) {
+	uint64_t Value;
+        hsa_status_t Status =
+            Pool->getAttrRaw(HSA_AMD_MEMORY_POOL_INFO_SIZE, Value);
+        if (Status != HSA_STATUS_SUCCESS) continue;
+	constexpr uint64_t Almost64Gig = 0xFF0000000;
+	if (Value >= Almost64Gig) return true;
+      }
     }
-
-    if (OMPX_DisableUsmMaps.get() == true) {
-      EnableFineGrainedMemory = true;
-    }
+    return false; // CoarseGrain pool w/ 64GB or more capacity not found
   }
 
-  bool IsFineGrainedMemoryEnabledImpl() override final {
-    return EnableFineGrainedMemory;
+  size_t getMemoryManagerSizeThreshold() override {
+    // TODO: check performance on lower memory capacity GPU
+    // for lowering the threshold from 64GB.
+    if (checkIfCoarseGrainMemoryNearOrAbove64GB()) {
+      // Set GenericDeviceTy::MemoryManager's Threshold to ~2GB,
+      // used if not set by LIBOMPTARGET_MEMORY_MANAGER_THRESHOLD
+      // ENV var. This MemoryManager is used for
+      // omp_target_alloc(), OpenMP (non-usm) map clause, etc.
+      //
+      // TODO 1: Fine tune to lower the threshold closer to 1GB.
+      // TODO 2: HSA-level memory manager on the user-side such that
+      // memory management is shared with HIP and OpenCL.
+      //
+      // If this value needs to go above UINT_MAX, consider
+      // adding sizeof(size_t) check to avoid unpleasant truncation
+      // surprises where size_t is still 32bit.
+      constexpr size_t Almost3Gig = 3000000000u;
+      return Almost3Gig;
+    }
+    return 0;
+  }
+
+  /// Determines if
+  /// - Coarse graining upon USM map on MI200 needs to be enabled.
+  void specialBehaviorHandling() {
+    EnableGFX90ACoarseGrainUsmMaps = OMPX_EnableGFX90ACoarseGrainUsmMaps;
+    EnableGFX90ACoarseGrainSharedAlloc =
+        OMPX_EnableGFX90ACoarseGrainSharedAlloc;
+  }
+
+  bool IsGfx90aCoarseGrainUsmMapEnabledImpl() override final {
+    return EnableGFX90ACoarseGrainUsmMaps;
   }
 
   bool hasAPUDeviceImpl() override final { return IsAPU; }
@@ -4426,7 +4454,7 @@ private:
 
   /// Envar specifying the maximum size in bytes where the memory copies are
   /// asynchronous operations. Up to this transfer size, the memory copies are
-  /// asychronous operations pushed to the corresponding stream. For larger
+  /// asynchronous operations pushed to the corresponding stream. For larger
   /// transfers, they are synchronous transfers.
   UInt32Envar OMPX_MaxAsyncCopyBytes;
 
@@ -4451,17 +4479,22 @@ private:
   /// automatic zero-copy behavior on non-APU GPUs.
   BoolEnvar OMPX_ApuMaps;
 
-  /// Value of OMPX_DISABLE_USM_MAPS. Use on MI200
-  /// systems to disable both device memory
-  /// allocations and host-device memory copies upon
-  /// map, and coarse graining of mapped variables.
-  BoolEnvar OMPX_DisableUsmMaps;
+  /// Value of OMPX_ENABLE_GFX90A_COARSE_GRAIN_USM_MAPS.
+  /// Use on MI200 systems to enable coarse graining
+  /// of mapped variables (and other variables partially
+  /// or fully on the same memory page) under unified
+  /// shared memory.
+  ///
+  /// It was enabled by default up to Rocm6.3
+  /// and env var spelling for controlling it was
+  /// OMPX_DISABLE_USM_MAPS
+  BoolEnvar OMPX_EnableGFX90ACoarseGrainUsmMaps;
 
-  /// Value of OMPX_DISABLE_MAPS. Turns off map table checks
-  /// in libomptarget in unified_shared_memory mode. Legacy:
-  /// never turned to false (unified_shared_memory mode is
-  /// currently always without map checks.
-  BoolEnvar OMPX_NoMapChecks;
+  /// Value of OMPX_ENABLE_GFX90A_COARSE_GRAIN_SHARED_ALLOC.
+  /// Use on MI200 systems to enable coarse grain
+  /// allocation of TARGET_ALLOC_SHARED memory.
+  /// Default is fine grain allocation.
+  BoolEnvar OMPX_EnableGFX90ACoarseGrainSharedAlloc;
 
   /// Makes warnings turn into fatal errors
   BoolEnvar OMPX_StrictSanityChecks;
@@ -4482,6 +4515,10 @@ private:
   /// Value of OMPX_DGPU_MAPS. When enabled, it will always perform
   /// copy on APUs regardless of the setting of HSA_XNACK.
   BoolEnvar OMPX_DGPUMaps;
+
+  /// Descriptors of size <= to this value will be allocated using shared
+  /// memory. Default value is 48.
+  UInt32Envar OMPX_SharedDescriptorMaxSize;
 
   /// Stream manager for AMDGPU streams.
   AMDGPUStreamManagerTy AMDGPUStreamManager;
@@ -4542,14 +4579,15 @@ private:
   /// False otherwise.
   bool IsXnackEnabled = false;
 
-  // Set by OMPX_DISABLE_USM_MAPS environment variable.
-  // If set, fine graned memory is used for maps instead of coarse grained.
-  bool EnableFineGrainedMemory = false;
+  // Set by OMPX_ENABLE_GFX90A_COARSE_GRAIN_USM_MAPS environment variable.
+  // If set, under unified shared memory on MI200, fine grained memory page
+  // is switched to coarse grain (and stay coarse grain) if a variable
+  // residing on the page goes through implicit/explicit OpenMP map.
+  bool EnableGFX90ACoarseGrainUsmMaps = false;
 
-  /// Set by OMPX_DISABLE_MAPS environment variable.
-  // If false, map checks are performed also in unified_shared_memory mode.
-  // TODO: this feature is non functional.
-  bool NoUSMMapChecks = true;
+  // Set by OMPX_ENABLE_GFX90A_COARSE_GRAIN_SHARED_ALLOC environment variable.
+  // If set, TARGET_ALLOC_SHARED is allocated on coarse grain memory on MI200
+  bool EnableGFX90ACoarseGrainSharedAlloc = false;
 
   /// True if in multi-device mode.
   bool IsMultiDeviceEnabled = false;
@@ -4653,10 +4691,12 @@ AMDGPUStreamTy::AMDGPUStreamTy(AMDGPUDeviceTy &Device)
     : Agent(Device.getAgent()), Queue(nullptr),
       SignalManager(Device.getSignalManager()), Device(Device),
       // Initialize the std::deque with some empty positions.
-      Slots(32), NextSlot(0), SyncCycle(0), RPCServer(nullptr),
+      Slots(32), NextSlot(0), SyncCycle(0),
       StreamBusyWaitMicroseconds(Device.getStreamBusyWaitMicroseconds()),
       UseMultipleSdmaEngines(Device.useMultipleSdmaEngines()),
-      UseSyncCopyBack(Device.syncCopyBack()) {}
+      UseSyncCopyBack(Device.syncCopyBack()),
+      OMPX_MinHostToHostAsyncCopySize(
+          "LIBOMPTARGET_AMDGPU_MIN_HOST_TO_HOST_ASYNC_COPY_SIZE", 2048) {}
 
 /// Class implementing the AMDGPU-specific functionalities of the global
 /// handler.
@@ -4795,7 +4835,6 @@ struct AMDGPUPluginTy final : public GenericPluginTy {
 
   /// Deinitialize the plugin.
   Error deinitImpl() override {
-    hsa_utils::hostrpc_terminate();
     // The HSA runtime was not initialized, so nothing from the plugin was
     // actually initialized.
     if (!Initialized)
@@ -5040,38 +5079,10 @@ Error AMDGPUKernelTy::launchImpl(GenericDeviceTy &GenericDevice,
   if (LaunchParams.Size)
     std::memcpy(AllArgs, LaunchParams.Data, LaunchParams.Size);
 
-  uint64_t Buffer = 0;
   AMDGPUDeviceTy &AMDGPUDevice = static_cast<AMDGPUDeviceTy &>(GenericDevice);
   AMDGPUStreamTy *Stream = nullptr;
   if (auto Err = AMDGPUDevice.getStream(AsyncInfoWrapper, Stream))
     return Err;
-  if (NeedsHostServices) {
-    int32_t DevID = AMDGPUDevice.getDeviceId();
-    hsa_amd_memory_pool_t HostMemPool =
-        HostDevice.getFineGrainedMemoryPool().get();
-    hsa_amd_memory_pool_t DeviceMemPool =
-        AMDGPUDevice.getCoarseGrainedMemoryPool()->get();
-    hsa_queue_t *HsaQueue = Stream->getHsaQueue();
-    Buffer = hsa_utils::hostrpc_assign_buffer(AMDGPUDevice.getAgent(), HsaQueue,
-                                          DevID, HostMemPool, DeviceMemPool);
-    GlobalTy ServiceThreadHostBufferGlobal("service_thread_buf",
-                                           sizeof(uint64_t), &Buffer);
-    if (auto Err = HostServiceBufferHandler.writeGlobalToDevice(
-            AMDGPUDevice, ServiceThreadHostBufferGlobal,
-            ServiceThreadDeviceBufferGlobal)) {
-      DP("Missing symbol %s, continue execution anyway.\n",
-         ServiceThreadHostBufferGlobal.getName().data());
-      consumeError(std::move(Err));
-    }
-    DP("Hostrpc buffer allocated at %p and service thread started\n",
-       (void *)Buffer);
-  } else {
-    DP("No hostrpc buffer or service thread required\n");
-  }
-
-  // If this kernel requires an RPC server we attach its pointer to the stream.
-  if (GenericDevice.getRPCServer())
-    Stream->setRPCServer(GenericDevice.getRPCServer());
 
   // Only COV5 implicitargs needs to be set. COV4 implicitargs are not used.
   if (ImplArgs &&
@@ -5110,23 +5121,24 @@ void AMDGPUKernelTy::printAMDOneLineKernelTrace(GenericDeviceTy &GenericDevice,
   auto GroupSegmentSize = (*KernelInfo).GroupSegmentList;
   auto SGPRCount = (*KernelInfo).SGPRCount;
   auto VGPRCount = (*KernelInfo).VGPRCount;
+  auto AGPRCount = (*KernelInfo).AGPRCount;
   auto SGPRSpillCount = (*KernelInfo).SGPRSpillCount;
   auto VGPRSpillCount = (*KernelInfo).VGPRSpillCount;
   // auto MaxFlatWorkgroupSize = (*KernelInfo).MaxFlatWorkgroupSize;
 
   // This line should print exactly as the one in the old plugin.
-  fprintf(stderr,
-          "DEVID: %2d SGN:%d ConstWGSize:%-4d args:%2d teamsXthrds:(%4luX%4d) "
-          "reqd:(%4dX%4d) lds_usage:%uB sgpr_count:%u vgpr_count:%u "
-          "sgpr_spill_count:%u vgpr_spill_count:%u tripcount:%lu rpc:%d "
-          "md:%d md_LB:%ld md_UB:%ld Max Occupancy: %u Achieved Occupancy: "
-          "%d%% n:%s\n",
-          GenericDevice.getDeviceId(), getExecutionModeFlags(), ConstWGSize,
-          KernelArgs.NumArgs, NumBlocks[0], NumThreads[0], 0, 0,
-          GroupSegmentSize, SGPRCount, VGPRCount, SGPRSpillCount,
-          VGPRSpillCount, KernelArgs.Tripcount, NeedsHostServices,
-          isMultiDeviceKernel(), MultiDeviceLB, MultiDeviceUB, MaxOccupancy,
-          AchievedOccupancy, getName());
+  fprintf(
+      stderr,
+      "DEVID: %2d SGN:%d ConstWGSize:%-4d args:%2d teamsXthrds:(%4uX%4d) "
+      "reqd:(%4dX%4d) lds_usage:%uB sgpr_count:%u vgpr_count:%u agpr_count:%u "
+      "sgpr_spill_count:%u vgpr_spill_count:%u tripcount:%lu rpc:%d "
+      "md:%d md_LB:%ld md_UB:%ld Max Occupancy: %u Achieved Occupancy: "
+      "%d%% n:%s\n",
+      GenericDevice.getDeviceId(), getExecutionModeFlags(), ConstWGSize,
+      KernelArgs.NumArgs, NumBlocks[0], NumThreads[0], 0, 0, GroupSegmentSize,
+      SGPRCount, VGPRCount, AGPRCount, SGPRSpillCount, VGPRSpillCount,
+      KernelArgs.Tripcount, HasRPC, isMultiDeviceKernel(), MultiDeviceLB,
+      MultiDeviceUB, MaxOccupancy, AchievedOccupancy, getName());
 }
 
 Error AMDGPUKernelTy::printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
@@ -5248,6 +5260,11 @@ void *AMDGPUDeviceTy::allocate(size_t Size, void *, TargetAllocTy Kind) {
     break;
   }
 
+  if (Kind == TARGET_ALLOC_SHARED && IsEquippedWithGFX90A &&
+      EnableGFX90ACoarseGrainSharedAlloc) {
+    MemoryPool = CoarseGrainedMemoryPools[0];
+  }
+
   if (!MemoryPool) {
     REPORT("No memory pool for the specified allocation kind\n");
     return nullptr;
@@ -5259,10 +5276,10 @@ void *AMDGPUDeviceTy::allocate(size_t Size, void *, TargetAllocTy Kind) {
     REPORT("%s\n", toString(std::move(Err)).data());
     return nullptr;
   }
-  // FIXME: Maybe this should be guarded by hasgfx90a
-  if (MemoryPool == CoarseGrainedMemoryPools[0]) {
-    // printf(" Device::allocate calling setCoarseGrainMemoryImpl(Alloc, Size,
-    // false)\n");
+  if (MemoryPool == CoarseGrainedMemoryPools[0] && IsEquippedWithGFX90A &&
+      EnableGFX90ACoarseGrainUsmMaps) {
+    // Need to register in the coarse grain usm map table
+    // if not already registered.
     if (auto Err = setCoarseGrainMemoryImpl(Alloc, Size, /*set_attr=*/false)) {
       REPORT("%s\n", toString(std::move(Err)).data());
       return nullptr;
@@ -5305,8 +5322,8 @@ static std::pair<uint64_t, uint64_t>
 getKernelStartAndEndTime(const OmptKernelTimingArgsAsyncTy *Args) {
   assert(Args->Signal && "Invalid AMDGPUSignal Pointer in OMPT profiling");
   hsa_amd_profiling_dispatch_time_t TimeRec;
-  hsa_status_t Status = hsa_amd_profiling_get_dispatch_time(
-      Args->Agent, Args->Signal->get(), &TimeRec);
+  hsa_amd_profiling_get_dispatch_time(Args->Agent, Args->Signal->get(),
+                                      &TimeRec);
 
   uint64_t StartTime = TimeRec.start * Args->TicksToTime;
   uint64_t EndTime = TimeRec.end * Args->TicksToTime;
@@ -5318,8 +5335,7 @@ static std::pair<uint64_t, uint64_t>
 getCopyStartAndEndTime(const OmptKernelTimingArgsAsyncTy *Args) {
   assert(Args->Signal && "Invalid AMDGPUSignal Pointer in OMPT profiling");
   hsa_amd_profiling_async_copy_time_t TimeRec;
-  hsa_status_t Status =
-      hsa_amd_profiling_get_async_copy_time(Args->Signal->get(), &TimeRec);
+  hsa_amd_profiling_get_async_copy_time(Args->Signal->get(), &TimeRec);
   uint64_t StartTime = TimeRec.start * Args->TicksToTime;
   uint64_t EndTime = TimeRec.end * Args->TicksToTime;
 

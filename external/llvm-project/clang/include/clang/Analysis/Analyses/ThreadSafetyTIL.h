@@ -1492,7 +1492,7 @@ inline ArrayRef<BasicBlock *> Terminator::successors() const {
     case COP_Branch: return cast<Branch>(this)->successors();
     case COP_Return: return cast<Return>(this)->successors();
     default:
-    return {};
+      return {};
   }
 }
 

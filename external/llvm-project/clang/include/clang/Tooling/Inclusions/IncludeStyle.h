@@ -126,8 +126,9 @@ struct IncludeStyle {
   /// * ``""`` means "arbitrary suffix"
   /// * ``"$"`` means "no suffix"
   ///
-  /// For example, if configured to ``"(_test)?$"``, then a header a.h would be
-  /// seen as the "main" include in both a.cc and a_test.cc. \version 3.9
+  /// For example, if configured to ``"(_test)?$"``, then a header a.h would be seen
+  /// as the "main" include in both a.cc and a_test.cc.
+  /// \version 3.9
   std::string IncludeIsMainRegex;
 
   /// Specify a regular expression for files being formatted

@@ -51,8 +51,8 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __swap_result_t<_Tp> 
     _NOEXCEPT_(is_nothrow_move_constructible<_Tp>::value&& is_nothrow_move_assignable<_Tp>::value);
 
 template <class _Tp, size_t _Np, __enable_if_t<__is_swappable_v<_Tp>, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(_Tp (&__a)[_Np], _Tp (&__b)[_Np])
-    _NOEXCEPT_(__is_nothrow_swappable_v<_Tp>);
+inline _LIBCPP_HIDE_FROM_ABI
+_LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(_Tp (&__a)[_Np], _Tp (&__b)[_Np]) _NOEXCEPT_(__is_nothrow_swappable_v<_Tp>);
 
 // ALL generic swap overloads MUST already have a declaration available at this point.
 
@@ -65,7 +65,8 @@ inline const bool __is_swappable_with_v<_Tp,
 #ifndef _LIBCPP_CXX03_LANG // C++03 doesn't have noexcept, so things are never nothrow swappable
 template <class _Tp, class _Up>
 inline const bool __is_nothrow_swappable_with_v<_Tp, _Up, true> =
-    noexcept(swap(std::declval<_Tp>(), std::declval<_Up>()))&& noexcept(swap(std::declval<_Up>(), std::declval<_Tp>()));
+    noexcept(swap(std::declval<_Tp>(), std::declval<_Up>())) &&
+    noexcept(swap(std::declval<_Up>(), std::declval<_Tp>()));
 #endif
 
 #if _LIBCPP_STD_VER >= 17

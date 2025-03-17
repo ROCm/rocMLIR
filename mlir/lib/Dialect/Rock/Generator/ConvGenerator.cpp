@@ -121,12 +121,8 @@ static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   return success();
 }
 
-LogicalResult ConvGenerator::isApplicable(bool checkChip) const {
+LogicalResult ConvGenerator::isApplicable() const {
   if (failed(hasValidDimension())) {
-    return failure();
-  }
-
-  if (checkChip && failed(hasValidChip())) {
     return failure();
   }
 
@@ -247,35 +243,6 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   return success();
 }
 
-LogicalResult ConvGenerator::hasValidChip() const {
-  // We support in between gfx900 to gfx908 and gfx1030 for nonxdlops algorithm
-  // For example, gfx803, gfx90c are unsupported now
-  unsigned int chipHexNumber = 0;
-  if (sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber) != 1)
-    return failure();
-
-  constexpr size_t NUM_SUPPORTED_CHIPS = 12;
-  static const unsigned int supportedChips[NUM_SUPPORTED_CHIPS] = {
-      0x900, 0x906,  0x908,  0x90a,  0x940,  0x941,
-      0x942, 0x1030, 0x1100, 0x1101, 0x1102, 0x1103};
-  const unsigned int *ptr;
-  ptr = std::find(supportedChips, supportedChips + NUM_SUPPORTED_CHIPS,
-                  chipHexNumber);
-  if (ptr == supportedChips + NUM_SUPPORTED_CHIPS)
-    return failure();
-
-  // XDLOPS are only supported on MI-100 (gfx908) and MI-200 (gfx90a)
-  if (bitEnumContainsAll(config.features, GemmFeatures::mfma) &&
-      (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
-    return failure();
-
-  // WMMA is only supported on gfx11xx
-  if (bitEnumContainsAll(config.features, GemmFeatures::wmma) &&
-      (chipHexNumber > 0x1103))
-    return failure();
-  return success();
-}
-
 LogicalResult ConvGenerator::getKernelCount(OpBuilder &builder,
                                             int &kernelCount) const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
@@ -353,10 +320,10 @@ static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
           .Case("bf16", builder.getBF16Type())
           .Case("i32", builder.getI32Type())
           .Case("i8", builder.getI8Type())
-          .Case("f8E5M2", builder.getFloat8E5M2Type())
-          .Case("f8E4M3FN", builder.getFloat8E4M3FNType())
-          .Case("f8E5M2FNUZ", builder.getFloat8E5M2FNUZType())
-          .Case("f8E4M3FNUZ", builder.getFloat8E4M3FNUZType())
+          .Case("f8E5M2", builder.getType<Float8E5M2Type>())
+          .Case("f8E4M3FN", builder.getType<Float8E4M3FNType>())
+          .Case("f8E5M2FNUZ", builder.getType<Float8E5M2FNUZType>())
+          .Case("f8E4M3FNUZ", builder.getType<Float8E4M3FNUZType>())
           .Default(std::nullopt);
   if (!type) {
     llvm::errs() << "Unknown data type: " << dataTypeStr << "\n";

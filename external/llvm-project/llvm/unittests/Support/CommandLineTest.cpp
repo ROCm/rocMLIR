@@ -1870,14 +1870,16 @@ TEST(CommandLineTest, LongOptions) {
   // longest string.
   //
 
-  EXPECT_TRUE(cl::ParseCommandLineOptions(4, args1, StringRef(), &OS));
+  EXPECT_TRUE(
+      cl::ParseCommandLineOptions(4, args1, StringRef(), &OS));
   EXPECT_TRUE(OptA);
   EXPECT_FALSE(OptBLong);
   EXPECT_STREQ("val1", OptAB.c_str());
   EXPECT_TRUE(Errs.empty()); Errs.clear();
   cl::ResetAllOptionOccurrences();
 
-  EXPECT_TRUE(cl::ParseCommandLineOptions(4, args2, StringRef(), &OS));
+  EXPECT_TRUE(
+      cl::ParseCommandLineOptions(4, args2, StringRef(), &OS));
   EXPECT_TRUE(OptA);
   EXPECT_FALSE(OptBLong);
   EXPECT_STREQ("val1", OptAB.c_str());
@@ -1886,7 +1888,8 @@ TEST(CommandLineTest, LongOptions) {
 
   // Fails because `-ab` and `--ab` are treated the same and appear more than
   // once.  Also, `val1` is unexpected.
-  EXPECT_FALSE(cl::ParseCommandLineOptions(4, args3, StringRef(), &OS));
+  EXPECT_FALSE(
+      cl::ParseCommandLineOptions(4, args3, StringRef(), &OS));
   outs()<< Errs << "\n";
   EXPECT_FALSE(Errs.empty()); Errs.clear();
   cl::ResetAllOptionOccurrences();
@@ -1898,14 +1901,14 @@ TEST(CommandLineTest, LongOptions) {
 
   // Fails because `-ab` is treated as `-a -b`, so `-a` is seen twice, and
   // `val1` is unexpected.
-  EXPECT_FALSE(
-      cl::ParseCommandLineOptions(4, args1, StringRef(), &OS, nullptr, true));
+  EXPECT_FALSE(cl::ParseCommandLineOptions(4, args1, StringRef(),
+                                           &OS, nullptr, true));
   EXPECT_FALSE(Errs.empty()); Errs.clear();
   cl::ResetAllOptionOccurrences();
 
   // Works because `-a` is treated differently than `--ab`.
-  EXPECT_TRUE(
-      cl::ParseCommandLineOptions(4, args2, StringRef(), &OS, nullptr, true));
+  EXPECT_TRUE(cl::ParseCommandLineOptions(4, args2, StringRef(),
+                                           &OS, nullptr, true));
   EXPECT_TRUE(Errs.empty()); Errs.clear();
   cl::ResetAllOptionOccurrences();
 

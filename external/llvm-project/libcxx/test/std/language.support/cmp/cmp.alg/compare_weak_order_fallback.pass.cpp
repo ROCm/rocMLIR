@@ -528,26 +528,26 @@ namespace N2 {
 
     template <comparison_result_kind K>
     struct comparison_result {
-        bool value;
+      bool value;
 
-        constexpr operator bool() const noexcept { return value; }
+      constexpr operator bool() const noexcept { return value; }
 
-        constexpr auto operator!() const noexcept {
-            if constexpr (K == comparison_result_kind::boolean_testable) {
-            return comparison_result{!value};
-            }
+      constexpr auto operator!() const noexcept {
+        if constexpr (K == comparison_result_kind::boolean_testable) {
+          return comparison_result{!value};
         }
+      }
     };
 
     template <comparison_result_kind EqKind, comparison_result_kind LeKind>
     struct boolean_tested_type {
-        friend constexpr comparison_result<EqKind> operator==(boolean_tested_type, boolean_tested_type) noexcept {
-            return comparison_result<EqKind>{true};
-        }
+      friend constexpr comparison_result<EqKind> operator==(boolean_tested_type, boolean_tested_type) noexcept {
+        return comparison_result<EqKind>{true};
+      }
 
-        friend constexpr comparison_result<LeKind> operator<(boolean_tested_type, boolean_tested_type) noexcept {
-            return comparison_result<LeKind>{false};
-        }
+      friend constexpr comparison_result<LeKind> operator<(boolean_tested_type, boolean_tested_type) noexcept {
+        return comparison_result<LeKind>{false};
+      }
     };
 
     using test_only_convertible =
@@ -592,18 +592,18 @@ constexpr bool test_2()
         assert(!has_weak_order(vc, cvc));
     }
     {
-        // P2167R3: Both decltype(e == f) and decltype(e < f) need to be well-formed and boolean-testable.
-        N2::test_only_convertible tc;
-        N2::test_eq_boolean_testable teq;
-        N2::test_le_boolean_testable tle;
-        N2::test_boolean_testable tbt;
+      // P2167R3: Both decltype(e == f) and decltype(e < f) need to be well-formed and boolean-testable.
+      N2::test_only_convertible tc;
+      N2::test_eq_boolean_testable teq;
+      N2::test_le_boolean_testable tle;
+      N2::test_boolean_testable tbt;
 
-        assert(!has_weak_order(tc, tc));
-        assert(!has_weak_order(teq, teq));
-        assert(!has_weak_order(tle, tle));
-        assert(has_weak_order(tbt, tbt));
+      assert(!has_weak_order(tc, tc));
+      assert(!has_weak_order(teq, teq));
+      assert(!has_weak_order(tle, tle));
+      assert(has_weak_order(tbt, tbt));
 
-        assert(std::compare_weak_order_fallback(tbt, tbt) == std::weak_ordering::equivalent);
+      assert(std::compare_weak_order_fallback(tbt, tbt) == std::weak_ordering::equivalent);
     }
     return true;
 }

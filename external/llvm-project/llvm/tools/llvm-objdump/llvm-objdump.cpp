@@ -94,7 +94,8 @@ namespace {
 
 class CommonOptTable : public opt::GenericOptTable {
 public:
-  CommonOptTable(const char *StrTable, ArrayRef<unsigned> PrefixesTable,
+  CommonOptTable(const StringTable &StrTable,
+                 ArrayRef<StringTable::Offset> PrefixesTable,
                  ArrayRef<Info> OptionInfos, const char *Usage,
                  const char *Description)
       : opt::GenericOptTable(StrTable, PrefixesTable, OptionInfos),
@@ -3338,7 +3339,7 @@ static void dumpObject(ObjectFile *O, const Archive *A = nullptr,
   if (FaultMapSection)
     printFaultMaps(O);
   if (Offloading)
-    dumpOffloadBinary(*O);
+    dumpOffloadBinary(*O, ArchName);
 }
 
 static void dumpObject(const COFFImportFile *I, const Archive *A,

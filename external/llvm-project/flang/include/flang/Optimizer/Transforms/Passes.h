@@ -10,10 +10,12 @@
 #define FORTRAN_OPTIMIZER_TRANSFORMS_PASSES_H
 
 #include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Transforms/Utils.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
+
 #include <memory>
 
 namespace mlir {
@@ -60,6 +62,8 @@ namespace fir {
 #define GEN_PASS_DECL_FUNCTIONATTR
 #define GEN_PASS_DECL_CONSTANTARGUMENTGLOBALISATIONOPT
 #define GEN_PASS_DECL_COMPILERGENERATEDNAMESCONVERSION
+#define GEN_PASS_DECL_SETRUNTIMECALLATTRIBUTES
+#define GEN_PASS_DECL_GENRUNTIMECALLSFORTEST
 
 #include "flang/Optimizer/Transforms/Passes.h.inc"
 

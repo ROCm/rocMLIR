@@ -19,11 +19,9 @@
 #include "DeviceTypes.h"
 #include "DeviceUtils.h"
 
-#define __XTEAM_SHARED_LDS volatile __attribute__((address_space(3)))
+#define __XTEAM_SHARED_LDS volatile __gpu_local
 
 using namespace  ompx::mapping;
-
-#pragma omp begin declare target device_type(nohost)
 
 // Headers for specialized shfl_xor
 double xteamr_shfl_xor_d(double var, const int lane_mask, const uint32_t width);
@@ -36,7 +34,7 @@ float _Complex xteamr_shfl_xor_cf(float _Complex var, const int lane_mask,
 
 // Define the arch (amdgcn vs nvptx) variants of shfl
 
-#pragma omp begin declare variant match(device = {arch(amdgcn)})
+#ifdef __AMDGPU__
 int xteamr_shfl_xor_int(int var, const int lane_mask, const uint32_t width) {
   int self = ompx::mapping::getThreadIdInWarp(); // __lane_id();
   int index = self ^ lane_mask;
@@ -59,10 +57,9 @@ double xteamr_shfl_xor_d(double var, const int lane_mask,
   __builtin_memcpy(&tmp1, &tmp0, sizeof(tmp0));
   return tmp1;
 }
-#pragma omp end declare variant
+#endif
 
-#pragma omp begin declare variant match(                                       \
-    device = {arch(nvptx, nvptx64)}, implementation = {extension(match_any)})
+#ifdef __NVPTX__
 
 int xteamr_shfl_xor_int(int var, const int lane_mask, const uint32_t width) {
   return __nvvm_shfl_sync_bfly_i32(0xFFFFFFFF, var, lane_mask, 0x1f);
@@ -75,7 +72,7 @@ double xteamr_shfl_xor_d(double var, int laneMask, const uint32_t width) {
   asm volatile("mov.b64 %0, {%1,%2};" : "=d"(var) : "r"(lo), "r"(hi));
   return var;
 }
-#pragma omp end declare variant
+#endif
 
 float xteamr_shfl_xor_f(float var, const int lane_mask, const uint32_t width) {
   union {
@@ -317,7 +314,7 @@ __attribute__((flatten, always_inline)) void _xteam_reduction(
 
   if (_IS_FAST) {
     if (omp_thread_num == 0)
-      ompx::atomic::add_system(r_ptr, xwave_lds[0], ompx::atomic::seq_cst);
+      ompx::atomic::add(r_ptr, xwave_lds[0], ompx::atomic::seq_cst);
   } else {
     // No sync needed here from last reduction in LDS loop
     // because we only need xwave_lds[0] correct on thread 0.
@@ -397,7 +394,7 @@ __attribute__((flatten, always_inline)) void _xteam_reduction(
 #define _US unsigned short
 #define _UI unsigned int
 #define _UL unsigned long
-#define _LDS volatile __attribute__((address_space(3)))
+#define _LDS volatile __gpu_local
 
 _EXT_ATTR
 __kmpc_xteamr_d_16x64(double v, double *r_p, double *tvs, uint32_t *td,
@@ -486,48 +483,6 @@ __kmpc_iteamr_bf_16x64(__bf16 v, __bf16 *r_p, void (*rf)(__bf16 *, __bf16),
                        void (*rflds)(_LDS __bf16 *, _LDS __bf16 *),
                        const __bf16 rnv, const uint64_t k) {
   _iteam_reduction<__bf16, 16, 64>(v, r_p, rf, rflds, rnv, k);
-}
-_EXT_ATTR
-__kmpc_xteamr_cd_16x64(_CD v, _CD *r_p, _CD *tvs, uint32_t *td,
-                       void (*rf)(_CD *, _CD),
-                       void (*rflds)(_LDS _CD *, _LDS _CD *), const _CD rnv,
-                       const uint64_t k, const uint32_t nt) {
-  _xteam_reduction<_CD, 16, 64>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_xteamr_cd_16x64_fast_sum(_CD v, _CD *r_p, _CD *tvs, uint32_t *td,
-                                void (*rf)(_CD *, _CD),
-                                void (*rflds)(_LDS _CD *, _LDS _CD *),
-                                const _CD rnv, const uint64_t k,
-                                const uint32_t nt) {
-  _xteam_reduction<_CD, 16, 64, true>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_iteamr_cd_16x64(_CD v, _CD *r_p, void (*rf)(_CD *, _CD),
-                       void (*rflds)(_LDS _CD *, _LDS _CD *), const _CD rnv,
-                       const uint64_t k) {
-  _iteam_reduction<_CD, 16, 64>(v, r_p, rf, rflds, rnv, k);
-}
-_EXT_ATTR
-__kmpc_xteamr_cf_16x64(_CF v, _CF *r_p, _CF *tvs, uint32_t *td,
-                       void (*rf)(_CF *, _CF),
-                       void (*rflds)(_LDS _CF *, _LDS _CF *), const _CF rnv,
-                       const uint64_t k, const uint32_t nt) {
-  _xteam_reduction<_CF, 16, 64>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_xteamr_cf_16x64_fast_sum(_CF v, _CF *r_p, _CF *tvs, uint32_t *td,
-                                void (*rf)(_CF *, _CF),
-                                void (*rflds)(_LDS _CF *, _LDS _CF *),
-                                const _CF rnv, const uint64_t k,
-                                const uint32_t nt) {
-  _xteam_reduction<_CF, 16, 64, true>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_iteamr_cf_16x64(_CF v, _CF *r_p, void (*rf)(_CF *, _CF),
-                       void (*rflds)(_LDS _CF *, _LDS _CF *), const _CF rnv,
-                       const uint64_t k) {
-  _iteam_reduction<_CF, 16, 64>(v, r_p, rf, rflds, rnv, k);
 }
 _EXT_ATTR
 __kmpc_xteamr_s_16x64(short v, short *r_p, short *tvs, uint32_t *td,
@@ -744,48 +699,6 @@ __kmpc_iteamr_bf_32x32(__bf16 v, __bf16 *r_p, void (*rf)(__bf16 *, __bf16),
   _iteam_reduction<__bf16, 32, 32>(v, r_p, rf, rflds, rnv, k);
 }
 _EXT_ATTR
-__kmpc_xteamr_cd_32x32(_CD v, _CD *r_p, _CD *tvs, uint32_t *td,
-                       void (*rf)(_CD *, _CD),
-                       void (*rflds)(_LDS _CD *, _LDS _CD *), const _CD rnv,
-                       const uint64_t k, const uint32_t nt) {
-  _xteam_reduction<_CD, 32, 32>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_xteamr_cd_32x32_fast_sum(_CD v, _CD *r_p, _CD *tvs, uint32_t *td,
-                                void (*rf)(_CD *, _CD),
-                                void (*rflds)(_LDS _CD *, _LDS _CD *),
-                                const _CD rnv, const uint64_t k,
-                                const uint32_t nt) {
-  _xteam_reduction<_CD, 32, 32, true>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_iteamr_cd_32x32(_CD v, _CD *r_p, void (*rf)(_CD *, _CD),
-                       void (*rflds)(_LDS _CD *, _LDS _CD *), const _CD rnv,
-                       const uint64_t k) {
-  _iteam_reduction<_CD, 32, 32>(v, r_p, rf, rflds, rnv, k);
-}
-_EXT_ATTR
-__kmpc_xteamr_cf_32x32(_CF v, _CF *r_p, _CF *tvs, uint32_t *td,
-                       void (*rf)(_CF *, _CF),
-                       void (*rflds)(_LDS _CF *, _LDS _CF *), const _CF rnv,
-                       const uint64_t k, const uint32_t nt) {
-  _xteam_reduction<_CF, 32, 32>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_xteamr_cf_32x32_fast_sum(_CF v, _CF *r_p, _CF *tvs, uint32_t *td,
-                                void (*rf)(_CF *, _CF),
-                                void (*rflds)(_LDS _CF *, _LDS _CF *),
-                                const _CF rnv, const uint64_t k,
-                                const uint32_t nt) {
-  _xteam_reduction<_CF, 32, 32, true>(v, r_p, tvs, td, rf, rflds, rnv, k, nt);
-}
-_EXT_ATTR
-__kmpc_iteamr_cf_32x32(_CF v, _CF *r_p, void (*rf)(_CF *, _CF),
-                       void (*rflds)(_LDS _CF *, _LDS _CF *), const _CF rnv,
-                       const uint64_t k) {
-  _iteam_reduction<_CF, 32, 32>(v, r_p, rf, rflds, rnv, k);
-}
-_EXT_ATTR
 __kmpc_xteamr_s_32x32(short v, short *r_p, short *tvs, uint32_t *td,
                       void (*rf)(short *, short),
                       void (*rflds)(_LDS short *, _LDS short *),
@@ -915,7 +828,7 @@ __kmpc_iteamr_ul_32x32(_UL v, _UL *r_p, void (*rf)(_UL *, _UL),
 // Built-in pair reduction functions used as function pointers for
 // cross team reduction functions.
 
-#define _RF_LDS volatile __attribute__((address_space(3)))
+#define _RF_LDS volatile __gpu_local
 
 _EXT_ATTR __kmpc_rfun_sum_d(double *val, double otherval) { *val += otherval; }
 _EXT_ATTR __kmpc_rfun_sum_lds_d(_RF_LDS double *val, _RF_LDS double *otherval) {
@@ -1101,5 +1014,3 @@ _EXT_ATTR __kmpc_rfun_min_lds_ul(_RF_LDS _UL *val, _RF_LDS _UL *otherval) {
 #undef _UL
 #undef _LDS
 #undef _RF_LDS
-
-#pragma omp end declare target

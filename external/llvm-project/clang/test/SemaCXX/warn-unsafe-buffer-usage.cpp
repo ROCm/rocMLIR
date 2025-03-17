@@ -365,7 +365,11 @@ template<typename T> void fArr(T t[], long long idx) {
   foo(ar[idx]);   // expected-note{{used in buffer access here}}
 }
 
+<<<<<<< HEAD
+template void fArr<int>(int t[]); // expected-note {{in instantiation of}}
+=======
 template void fArr<int>(int t[], long long); // FIXME: expected note {{in instantiation of}}
+>>>>>>> 594d57e07a92e3a2cefb262114db2608989f874d
 
 int testReturn(int t[]) {// expected-note{{change type of 't' to 'std::span' to preserve bounds information}}
   // expected-warning@-1{{'t' is an unsafe pointer used for buffer access}}

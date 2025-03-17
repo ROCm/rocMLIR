@@ -1032,9 +1032,7 @@ pipeline {
                                 dir('MIGraphX') {
                                     getAndBuildMIGraphX("""
                                                     -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
-                                                    -DMIGRAPHX_ENABLE_MLIR=On
                                                     -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                    -DMIGRAPHX_USE_HIPRTC=Off
                                                     -DGPU_TARGETS="${gpu_arch}"
                                                     """)
                                 }
@@ -1044,11 +1042,10 @@ pipeline {
                     stage("Verify MIGraphX with MLIR") {
                         steps {
                             dir('MIGraphX/build') {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    withEnv(['MIGRAPHX_ENABLE_MLIR=1']) {
-                                        // Verify MLIR unit tests
-                                        sh 'make -j$(nproc) driver test_gpu_mlir'
-                                        sh 'ctest -R test_gpu_mlir'
+                                timeout(time: 120, activity: true, unit: 'MINUTES') {
+                                    withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                        // run test_verify for accuracy and run MLIR related unit-tests
+                                        sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
                                         // Verify ResNet50, Bert, Gpt2
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                         sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
@@ -1061,9 +1058,11 @@ pipeline {
                             }
                             //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
                             dir('MIGraphX/tools/accuracy') {
-                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
-                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
+                                withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                    sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                    sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
+                                    sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
+                                }
                             }
                         }
                     }

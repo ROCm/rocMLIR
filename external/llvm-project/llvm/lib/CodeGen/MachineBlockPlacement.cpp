@@ -3178,11 +3178,11 @@ bool MachineBlockPlacement::maybeTailDuplicateBlock(
     // Conservative default.
     bool InWorkList = true;
     // Remove from the Chain and Chain Map
-    if (BlockToChain.count(RemBB)) {
-      BlockChain *Chain = BlockToChain[RemBB];
+    if (auto It = BlockToChain.find(RemBB); It != BlockToChain.end()) {
+      BlockChain *Chain = It->second;
       InWorkList = Chain->UnscheduledPredecessors == 0;
       Chain->remove(RemBB);
-      BlockToChain.erase(RemBB);
+      BlockToChain.erase(It);
     }
 
     // Handle the unplaced block iterator
@@ -3671,8 +3671,7 @@ void MachineBlockPlacement::applyExtTsp(bool OptForSize) {
 
   LLVM_DEBUG(dbgs() << "Applying ext-tsp layout for |V| = " << F->size()
                     << " with profile = " << F->getFunction().hasProfileData()
-                    << " (" << F->getName() << ")"
-                    << "\n");
+                    << " (" << F->getName() << ")" << "\n");
 
   const double OrgScore = calcExtTspScore(BlockSizes, JumpCounts);
   LLVM_DEBUG(dbgs() << format("  original  layout score: %0.2f\n", OrgScore));

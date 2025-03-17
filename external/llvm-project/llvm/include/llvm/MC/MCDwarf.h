@@ -828,8 +828,8 @@ public:
            Operation == OpSameValue || Operation == OpDefCfaRegister ||
            Operation == OpLLVMVectorRegisters ||
            Operation == OpLLVMRegisterPair || Operation == OpLLVMVectorOffset ||
-           Operation == OpLLVMVectorRegisterMask || Operation == OpRelOffset ||
-           Operation == OpValOffset);
+           Operation == OpLLVMVectorRegisterMask ||
+           Operation == OpRelOffset || Operation == OpValOffset);
     return U.RI.Register;
   }
 
@@ -849,7 +849,8 @@ public:
     assert(Operation == OpDefCfa || Operation == OpOffset ||
            Operation == OpRelOffset || Operation == OpDefCfaOffset ||
            Operation == OpAdjustCfaOffset || Operation == OpGnuArgsSize ||
-           Operation == OpLLVMVectorOffset || Operation == OpValOffset);
+           Operation == OpLLVMVectorOffset ||
+           Operation == OpValOffset);
     return U.RI.Offset;
   }
 
