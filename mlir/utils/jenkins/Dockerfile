@@ -79,6 +79,10 @@ ENV LC_ALL en_US.UTF-8
 ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" llvm-requirements.txt
 RUN pip3 install -r llvm-requirements.txt
 
+# Install hip-python from Test PyPI.
+# Ideally, it should be in requirements.txt, but it doesn't work there currently.
+RUN pip3 install --index-url https://test.pypi.org/simple hip-python
+
 ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/requirements.txt" requirements.txt
 RUN pip3 install -r requirements.txt
 

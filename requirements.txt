@@ -2,4 +2,3 @@ tomli==2.0.1
 numpy>=1.19.5, <=2.1.2
 ml_dtypes>=0.1.0, <=0.5.0   # provides several NumPy dtype extensions, including the bf16
 scipy
-hip-python --index-url https://test.pypi.org/simple
