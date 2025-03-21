@@ -1,15 +1,5 @@
 boolean shouldRunOnMachine(String machine){
     switch (machine){
-        case "ixt-hq-ubb4-31":
-            return (params.MI250 == true)
-        case "sh5-1e707-rf06-26.mkm.dcgpu":
-            return (params.MI300 == true)
-        case "supermicro-829":
-            return (params.Navi2x == true)
-        case "aus-navi3x-19.amd.com":
-            return (params.Navi3x == true)
-        case "navi4x-hw-31.amd.com":
-            return (params.Navi4x == true)
     }
 }
 
@@ -236,7 +226,6 @@ pipeline {
                 axes {
                     axis {
                         name 'PLATFORM'
-                        values "ixt-hq-ubb4-31", "sh5-1e707-rf06-26.mkm.dcgpu", "supermicro-829", "aus-navi3x-19.amd.com", "navi4x-hw-31.amd.com"
                     }
                 }
                 when {
@@ -261,7 +250,6 @@ pipeline {
                 axes {
                     axis {
                         name 'PLATFORM'
-                        values "ixt-hq-ubb4-31", "sh5-1e707-rf06-26.mkm.dcgpu", "supermicro-829", "aus-navi3x-19.amd.com", "navi4x-hw-31.amd.com"
                     }
                 }
                 agent {
