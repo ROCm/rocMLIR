@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -30,11 +31,13 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/bit.h"
+#include "llvm/Support/LogicalResult.h"
 #include <utility>
 
 #define DEBUG_TYPE "convert-tosa-to-rock"
@@ -233,7 +236,8 @@ static FailureOr<rock::ConvOp>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group) {
+             int64_t group, StringAttr arch, std::optional<uint32_t> numCU,
+             rock::GemmFeatures features) {
   Location loc = op->getLoc();
 
   SmallString<8> filterLayout("kyxc");
@@ -258,13 +262,8 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto filterExp = expandTensor(rw, op, filter, filterLayout, "k", group);
   auto outputExp = expandTensor(rw, op, output, outputLayout, "k", group);
 
-  StringAttr arch;
-  std::optional<uint32_t> num_cu;
-  rock::GemmFeatures features;
-  std::tie(arch, num_cu, features) = getArchAttributes(op, input.getType());
-
   IntegerAttr numCUAttr =
-      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr;
+      numCU.has_value() ? rw.getI32IntegerAttr(numCU.value()) : nullptr;
   auto cop = rw.create<rock::ConvOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
@@ -301,11 +300,6 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   return cop;
 }
 
-static bool isTosaReduction(Operation *op) {
-  return isa<tosa::ReduceMaxOp, tosa::ReduceSumOp, tosa::ReduceMinOp,
-             tosa::ReduceProductOp, tosa::ReduceAllOp, tosa::ReduceAnyOp>(op);
-}
-
 static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
                         Value expectedTensor) {
   if (cache.contains(tensor))
@@ -313,13 +307,19 @@ static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
 
   Value res = nullptr;
   if (tensor.getDefiningOp()) {
-    if (isTosaReduction(tensor.getDefiningOp()) && expectedTensor == tensor) {
+    if (expectedTensor == tensor) {
       res = tensor;
     } else if (auto view = tensor.getDefiningOp<ViewLikeOpInterface>()) {
       res = traceToRes(view.getViewSource(), cache, expectedTensor);
+    } else if (auto expand = tensor.getDefiningOp<tensor::ExpandShapeOp>()) {
+      res = traceToRes(expand.getSrc(), cache, expectedTensor);
     } else if (auto collapse =
                    tensor.getDefiningOp<tensor::CollapseShapeOp>()) {
       res = traceToRes(collapse.getSrc(), cache, expectedTensor);
+    } else if (auto untransform =
+                   tensor.getDefiningOp<rock::TensorUntransformCastOp>()) {
+      res =
+          traceToRes(untransform.getTransformedResult(), cache, expectedTensor);
     } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
       for (auto operand : tosaOp->getOperands()) {
         if (llvm::isa<TensorType>(operand.getType())) {
@@ -335,7 +335,7 @@ static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
   return res;
 }
 
-static FailureOr<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
+static SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
   llvm::DenseMap<Value, Value> cache;
 
   SmallVector<func::ReturnOp> returns;
@@ -343,13 +343,57 @@ static FailureOr<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
   assert(returns.size() == 1 && "Number of returns is not one");
   func::ReturnOp returnOp = returns[0];
 
+  SetVector<int64_t> resIndices;
   for (auto [i, res] : llvm::enumerate(returnOp->getOperands())) {
     Value out = traceToRes(res, cache, expectedTensor);
-    if (out == expectedTensor) {
-      return i;
+    if (out == expectedTensor)
+      resIndices.insert(i);
+  }
+  return resIndices;
+}
+
+template <typename OpT>
+static LogicalResult setSplitKAttrs(OpT op, rock::GemmFeatures features,
+                                    ConversionPatternRewriter &rw) {
+  auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
+  if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
+    func::FuncOp func = op->template getParentOfType<func::FuncOp>();
+    SetVector<int64_t> resIndices = traceToRes(op->getResult(0), func);
+    if (resIndices.empty())
+      return op.emitOpError(
+          "can't trace the operation output to a kernel result");
+
+    func::ReturnOp returnOp;
+    func.walk([&](func::ReturnOp op) { returnOp = op; });
+    for (int64_t resNumber : resIndices) {
+      Type elementType =
+          cast<ShapedType>(returnOp->getOperand(resNumber).getType())
+              .getElementType();
+      if (!isa<Float32Type, Float16Type, BFloat16Type>(elementType)) {
+        return rw.notifyMatchFailure(
+            op, "We only support F32, F16 and BF16 split-k, yet.");
+      }
+      Attribute outputInitVal = rw.getFloatAttr(elementType, 0.0);
+      func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
+                         outputInitVal);
+      func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
+      // The original function also need the read access attr for the output.
+      if (func->hasAttr("original_func")) {
+        if (ModuleOp rootMod = func->getParentOfType<ModuleOp>()
+                                   ->getParentOfType<ModuleOp>()) {
+          SymbolTable symTable(rootMod);
+          SymbolRefAttr originalFuncAttr =
+              func->getAttrOfType<SymbolRefAttr>("original_func");
+          if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
+                  symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
+            originalFunc.setResultAttr(resNumber, "mhal.read_access",
+                                       rw.getUnitAttr());
+          }
+        }
+      }
     }
   }
-  return failure();
+  return success();
 }
 
 template <typename OpT>
@@ -367,15 +411,23 @@ public:
     auto bias = operands[2];
     auto outputType = cast<RankedTensorType>(op.getType());
 
+    StringAttr arch;
+    std::optional<uint32_t> numCU;
+    rock::GemmFeatures features;
+    std::tie(arch, numCU, features) = getArchAttributes(op, input.getType());
+
+    if (failed(setSplitKAttrs(op, features, rw)))
+      return failure();
+
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
     int64_t group = 1;
     if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
       group = attr.getInt(); // Use op.getGroup() when all OpT have it.
-    FailureOr<rock::ConvOp> rockConv =
-        makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
-                     op.getStrideAttr(), op.getDilationAttr(), group);
+    FailureOr<rock::ConvOp> rockConv = makeRockConv(
+        rw, op, input, filter, output, op.getPadAttr(), op.getStrideAttr(),
+        op.getDilationAttr(), group, arch, numCU, features);
     if (failed(rockConv))
       return failure();
 
@@ -477,15 +529,18 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
+    StringAttr arch;
+    std::optional<uint32_t> numCU;
+    rock::GemmFeatures features;
+    std::tie(arch, numCU, features) =
+        getArchAttributes(op, op.getA().getType());
+
+    if (failed(setSplitKAttrs(op, features, rw)))
+      return failure();
+
     UnitAttr transposeA = getTranspose(op, "transpose_a"),
              transposeB = getTranspose(op, "transpose_b"),
              transposeC = getTranspose(op, "transpose_c");
-
-    StringAttr arch;
-    std::optional<uint32_t> num_cu;
-    rock::GemmFeatures features;
-    std::tie(arch, num_cu, features) =
-        getArchAttributes(op, op.getA().getType());
 
     auto [mDim, nDim] = getLastDims(transposeC, outputType);
 
@@ -508,7 +563,7 @@ public:
     Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
 
     IntegerAttr numCUAttr =
-        num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr;
+        numCU.has_value() ? rw.getI32IntegerAttr(numCU.value()) : nullptr;
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
         arch, numCUAttr, rw.getAttr<rock::GemmFeaturesAttr>(features),
@@ -1382,26 +1437,27 @@ typename std::enable_if_t<
       /*useDPP=*/nullptr);
 
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-  FailureOr<int64_t> maybeRes = traceToRes(op.getOutput(), func);
-  if (failed(maybeRes))
+  SetVector<int64_t> resIndices = traceToRes(op.getOutput(), func);
+  if (resIndices.empty())
     return op.emitOpError(
         "can't trace the reduction output to a kernel result");
-  int64_t resNumber = maybeRes.value();
 
-  func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
-                     outputInitVal);
-  func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
-  // The original function also need the read access attr for the output.
-  if (func->hasAttr("original_func")) {
-    if (ModuleOp rootMod =
-            func->getParentOfType<ModuleOp>()->getParentOfType<ModuleOp>()) {
-      SymbolTable symTable(rootMod);
-      SymbolRefAttr originalFuncAttr =
-          func->getAttrOfType<SymbolRefAttr>("original_func");
-      if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
-              symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
-        originalFunc.setResultAttr(resNumber, "mhal.read_access",
-                                   rw.getUnitAttr());
+  for (int64_t resNumber : resIndices) {
+    func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
+                       outputInitVal);
+    func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
+    // The original function also need the read access attr for the output.
+    if (func->hasAttr("original_func")) {
+      if (ModuleOp rootMod =
+              func->getParentOfType<ModuleOp>()->getParentOfType<ModuleOp>()) {
+        SymbolTable symTable(rootMod);
+        SymbolRefAttr originalFuncAttr =
+            func->getAttrOfType<SymbolRefAttr>("original_func");
+        if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
+                symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
+          originalFunc.setResultAttr(resNumber, "mhal.read_access",
+                                     rw.getUnitAttr());
+        }
       }
     }
   }
