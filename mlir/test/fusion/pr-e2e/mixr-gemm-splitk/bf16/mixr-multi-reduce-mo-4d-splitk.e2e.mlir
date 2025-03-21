@@ -2,7 +2,7 @@
 
 // ALLOW_RETRIES: 2
 
-// We need a check for each output as this test case has three outputs in it.
+// We need a check for each output as this test case has two outputs in it.
 // CHECK: [1 1 1]
 // CHECK: [1 1 1]
 module {
