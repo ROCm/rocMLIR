@@ -754,9 +754,6 @@ static mlir::WalkResult unwrap(MlirWalkResult result) {
     return mlir::WalkResult::interrupt();
 
   default:
-    return mlir::WalkResult::skip();
-
-  default:
     llvm_unreachable("unknown result in WalkResult::unwrap");
   }
 }
