@@ -649,6 +649,33 @@ def ROCDL_DPPUpdateOp : ROCDL_IntrOp<"update.dpp", [], [0],
   }];
 }
 
+// Set Inactive intrinsic
+def ROCDL_SetInactiveOp : ROCDL_IntrOp<"set.inactive", [], [0],
+    [AllTypesMatch<["res", "src", "inactive_value"]>], 1, 0, 0>,
+  Arguments<(ins LLVM_Type:$src, LLVM_Type:$inactive_value)> {
+  let results = (outs LLVM_Type:$res);
+  let assemblyFormat = [{
+    attr-dict $src `,` $inactive_value `:` type($src)
+  }];
+  let description = [{
+    Copies the given value while setting all inactive lanes to a specified value.
+  }];
+}
+
+// Strict WWM intrinsic operation
+def ROCDL_StrictWWMOp : ROCDL_IntrOp<"strict.wwm", [], [0],
+    [AllTypesMatch<["res", "src"]>], 1, 0, 0>,
+  Arguments<(ins LLVM_Type:$src)> {
+  let results = (outs LLVM_Type:$res);
+  let assemblyFormat = [{
+    attr-dict $src `:` type($src)
+  }];
+  let description = [{
+    Copies the active channels of the source value to the destination value,
+    guaranteed to be executed in Whole Wavefront Mode with all channels enabled.
+  }];
+}
+
 //===---------------------------------------------------------------------===//
 // 16-bit float intrinsics
 //===---------------------------------------------------------------------===//
