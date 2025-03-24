@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
@@ -142,7 +143,7 @@ static bool isConstRangeAttribute(Attribute value) {
   return false;
 }
 
-bool isConstRange(Value v) {
+static bool isConstRange(Value v) {
   if (auto cst = v.getDefiningOp<arith::ConstantOp>())
     return isConstRangeAttribute(cst.getValue());
   if (auto cst = v.getDefiningOp<tosa::ConstOp>())
@@ -394,6 +395,140 @@ static LogicalResult setSplitKAttrs(OpT op, rock::GemmFeatures features,
     }
   }
   return success();
+}
+
+// Tosa ops can broadcast values along axes, which allows for
+// element-wise operations without fully-matching dimensions.  The
+// Elementwise trait is strict about matching dimensions, but
+// broadcastable ops are also element-wise, and we know that an
+// additional set of ops are also element-wise.
+static bool isElementwiseOp(Operation *op) {
+  return op->hasTrait<OpTrait::Elementwise>() ||
+         op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
+         // clang-format off
+    isa<tosa::CastOp,
+        tosa::ClampOp,
+        tosa::ErfOp,
+        tosa::SigmoidOp,
+        tosa::TanhOp,
+        tosa::AbsOp,
+        tosa::CeilOp,
+        tosa::ClzOp,
+        tosa::ExpOp,
+        tosa::FloorOp,
+        tosa::LogOp,
+        tosa::LogicalNotOp,
+        tosa::NegateOp,
+        tosa::ReciprocalOp,
+        tosa::RsqrtOp,
+        tosa::SelectOp,
+        tosa::EqualOp,
+        tosa::GreaterOp,
+        tosa::GreaterEqualOp,
+        tosa::MulOp
+       >(op);
+  // clang-format on
+}
+
+static Value addBlockArgument(OpBuilder &b, Value val, Block *block,
+                              Location loc) {
+  RankedTensorType valType = cast<RankedTensorType>(val.getType());
+  val = block->addArgument(
+      MemRefType::get(valType.getShape(), valType.getElementType()), loc);
+  val = rock::getAsTensor(b, loc, val);
+  return val;
+}
+
+// This function traverse an upward tree where the root is the  input.
+// It traverses the tree until it hit the gemm or last elementwise
+// operation that may or maynot be interleaved with reshape-like ops. Note
+// there is a TODO to explore relaxing reshape-like ops constraints to more
+// of rock.transforms. (See the implementation for the TODO)
+static std::tuple<Value, FailureOr<tosa::MatMulOp>>
+getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
+                     SmallVector<Value> &elementwiseArgs,
+                     std::optional<Location> loc = std::nullopt,
+                     bool doRewrite = false, int recDepth = 0) {
+  PatternRewriter::InsertionGuard guard(regionBuilder);
+  regionBuilder.setInsertionPointToEnd(block);
+  // If the matmul is found, we return this information to the
+  // root.
+  LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                          << "getElementwiseRegion:input=" << input << "\n");
+  if (tosa::MatMulOp matmul = input.getDefiningOp<tosa::MatMulOp>()) {
+    Value matmulMemRef;
+    if (doRewrite) {
+      matmulMemRef = addBlockArgument(regionBuilder, input, block, loc.value());
+      rock::RockGemmGemmWrapperInterface gemmGemmLikeOp =
+          cast<rock::RockGemmGemmWrapperInterface>(block->getParentOp());
+      gemmGemmLikeOp.setFirstGemmIndex(block->getArguments().size() - 1);
+    }
+    LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                            << "matmul found. terminating recursion.\n");
+    return {matmulMemRef, matmul};
+  }
+  if (tosa::ConstOp constOp = input.getDefiningOp<tosa::ConstOp>()) {
+    Value newConstOpRes;
+    if (doRewrite) {
+      auto *newConstOp = regionBuilder.clone(*constOp);
+      newConstOpRes = newConstOp->getResult(0);
+    }
+    LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                            << "const found. terminating recursion.\n");
+    return {newConstOpRes, failure()};
+  }
+  Operation *op = input.getDefiningOp();
+  // Right now, this is a bit restricted that we only allow reshape-like
+  // ops between in the elementwise tree that get fused to the fusion point.
+  // TODO: however, the latest code gridwise-gemm-to-blockwise should tackle
+  // more cases. The absolute restriction is gemm0Output to Linalg block
+  // should contain invertible transforms, but that's future work.
+  if (!op || (!isElementwiseOp(op) &&
+              !isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp>(op))) {
+    Value blockArg;
+    if (doRewrite) {
+      blockArg = addBlockArgument(regionBuilder, input, block, loc.value());
+    }
+    elementwiseArgs.push_back(input);
+    LLVM_DEBUG(llvm::dbgs()
+               << std::string(recDepth, '\t')
+               << "unsupported region op found. terminating recursion.\n");
+    return {blockArg, failure()};
+  }
+  // Following section recursively calls into the left and right
+  // sub-tree to grab as much of the elementwise tree rooted on softmax
+  // input.
+  mlir::IRMapping mapper;
+  SmallVector<Value> newOperands;
+
+  FailureOr<mlir::tosa::MatMulOp> maybeMatMul = failure();
+  for (auto operand : op->getOperands()) {
+    auto [result, maybeSubTreeMatMul] =
+        getElementwiseRegion(operand, regionBuilder, block, elementwiseArgs,
+                             loc, doRewrite, recDepth + 1);
+    mapper.map(operand, result);
+    newOperands.push_back(result);
+    if (succeeded(maybeSubTreeMatMul)) {
+      maybeMatMul = maybeSubTreeMatMul;
+    }
+  }
+
+  Value res;
+  if (doRewrite) {
+    auto *newOp = regionBuilder.clone(*op, mapper);
+    res = newOp->getResult(0);
+  }
+  // We convey to the caller the result
+  // of the cloning as well if this subtree
+  // contains the first matmul.
+  if (succeeded(maybeMatMul)) {
+    LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                            << "a subtree have a matmul in it.\n");
+    return {res, maybeMatMul};
+  }
+  LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
+                          << "none of subtress have a matmul in it.\n");
+  return {res, failure()};
 }
 
 template <typename OpT>
@@ -906,38 +1041,80 @@ struct CollapseExpandRewritePattern
   }
 };
 
-// Tosa ops can broadcast values along axes, which allows for
-// element-wise operations without fully-matching dimensions.  The
-// Elementwise trait is strict about matching dimensions, but
-// broadcastable ops are also element-wise, and we know that an
-// additional set of ops are also element-wise.
-static bool isElementwiseOp(Operation *op) {
-  return op->hasTrait<OpTrait::Elementwise>() ||
-         op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
-         // clang-format off
-    isa<tosa::CastOp,
-        tosa::ClampOp,
-        tosa::ErfOp,
-        tosa::SigmoidOp,
-        tosa::TanhOp,
-        tosa::AbsOp,
-        tosa::CeilOp,
-        tosa::ClzOp,
-        tosa::ExpOp,
-        tosa::FloorOp,
-        tosa::LogOp,
-        tosa::LogicalNotOp,
-        tosa::NegateOp,
-        tosa::ReciprocalOp,
-        tosa::RsqrtOp,
-        tosa::SelectOp,
-        tosa::EqualOp,
-        tosa::GreaterOp,
-        tosa::GreaterEqualOp,
-        tosa::MulOp
-       >(op);
-  // clang-format on
-}
+struct GemmElementwiseGemmRewritePattern
+    : public OpRewritePattern<tosa::MatMulOp>::SplitMatchAndRewrite {
+  using SplitMatchAndRewrite::SplitMatchAndRewrite;
+
+  LogicalResult match(tosa::MatMulOp op) const override {
+    OpBuilder b{op};
+    SmallVector<Value> vec;
+    FailureOr<tosa::MatMulOp> maybeFirstMatMul;
+    std::tie(std::ignore, maybeFirstMatMul) =
+        getElementwiseRegion(op.getA(), b, nullptr, vec);
+
+    if (succeeded(maybeFirstMatMul))
+      LLVM_DEBUG(llvm::dbgs()
+                 << "first matmul = " << maybeFirstMatMul.value() << "\n");
+    else
+      LLVM_DEBUG(llvm::dbgs() << "first matmul not found\n");
+
+    return maybeFirstMatMul;
+  }
+
+  void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto outputType = cast<RankedTensorType>(op.getType());
+    Value output = rewriter.create<bufferization::AllocTensorOp>(
+        loc, outputType, ValueRange{});
+    StringAttr arch;
+    std::optional<uint32_t> numCu;
+    rock::GemmFeatures features;
+    std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
+    SmallVector<Value> elementwiseOtherArgs;
+
+    FailureOr<tosa::MatMulOp> maybeFirstMatMul;
+    std::tie(std::ignore, maybeFirstMatMul) = getElementwiseRegion(
+        op.getA(), rewriter, nullptr, elementwiseOtherArgs);
+    // This is guranteed by the matcher
+    tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
+    IntegerAttr numCUAttr =
+        numCu.has_value() ? rewriter.getI32IntegerAttr(numCu.value()) : nullptr;
+
+    rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
+        rewriter.create<rock::GemmElementwiseGemmOp>(
+            loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(),
+            op.getB(), elementwiseOtherArgs, output,
+            /*qTransposed=*/nullptr,
+            /*kTransposed=*/nullptr,
+            /*vTransposed=*/nullptr,
+            /*oTransposed=*/nullptr, arch,
+            rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
+            /*params0=*/nullptr, /*params1=*/nullptr,
+            /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
+
+    Block *preSecondGemmElemwiseBlock =
+        &gemmElentwiseGemmOp.getPreSecondGemmBody().emplaceBlock();
+    FailureOr<tosa::MatMulOp> maybeMatMul;
+    {
+      PatternRewriter::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(preSecondGemmElemwiseBlock);
+      Value res;
+      std::tie(res, maybeMatMul) =
+          getElementwiseRegion(op.getA(), rewriter, preSecondGemmElemwiseBlock,
+                               elementwiseOtherArgs, loc, true);
+      RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
+      MemRefType resMemRefType = MemRefType::get(
+          resTensorType.getShape(), resTensorType.getElementType());
+      Value resMemref =
+          rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
+      Value outMemref =
+          preSecondGemmElemwiseBlock->addArgument(resMemRefType, loc);
+      rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
+      rewriter.create<rock::YieldOp>(loc);
+    }
+    rewriter.replaceOp(op, gemmElentwiseGemmOp.getResult());
+  }
+};
 
 struct AttentionRewritePattern
     : public OpRewritePattern<tosa::MatMulOp>::SplitMatchAndRewrite {
@@ -1193,109 +1370,6 @@ struct AttentionRewritePattern
     return reshapeOp;
   }
 
-  Value addBlockArgument(OpBuilder &b, Value val, Block *block,
-                         Location loc) const {
-    RankedTensorType valType = cast<RankedTensorType>(val.getType());
-    val = block->addArgument(
-        MemRefType::get(valType.getShape(), valType.getElementType()), loc);
-    val = rock::getAsTensor(b, loc, val);
-    return val;
-  }
-
-  // This function traverse an upward tree where the root is the softmax
-  // input. It traverses the tree until it hit the gemm or last elemwise
-  // operation that may or maynot be interleaved with reshape-like ops. Note
-  // there is a TODO to explore relaxing reshape-like ops constraints to more
-  // of rock.transforms. (See the implementation for the TODO)
-  std::tuple<Value, FailureOr<tosa::MatMulOp>> getPreSoftmaxElementwiseRegion(
-      Value input, OpBuilder &regionBuilder, Block *block,
-      SmallVector<Value> &elementwiseArgs,
-      std::optional<Location> loc = std::nullopt, bool doRewrite = false,
-      int recDepth = 0) const {
-    PatternRewriter::InsertionGuard guard(regionBuilder);
-    regionBuilder.setInsertionPointToEnd(block);
-    // If the matmul is found, we return this information to the
-    // root.
-    LLVM_DEBUG(llvm::dbgs()
-               << std::string(recDepth, '\t')
-               << "getPreSoftmaxElementwiseRegion:input=" << input << "\n");
-    if (tosa::MatMulOp matmul = input.getDefiningOp<tosa::MatMulOp>()) {
-      Value matmulMemRef;
-      if (doRewrite) {
-        matmulMemRef =
-            addBlockArgument(regionBuilder, input, block, loc.value());
-        rock::AttentionOp attnOp =
-            cast<rock::AttentionOp>(block->getParentOp());
-        attnOp.setFirstGemmIdx(block->getArguments().size() - 1);
-      }
-      LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
-                              << "matmul found. terminating recursion.\n");
-      return {matmulMemRef, matmul};
-    }
-    if (tosa::ConstOp constOp = input.getDefiningOp<tosa::ConstOp>()) {
-      Value newConstOpRes;
-      if (doRewrite) {
-        auto *newConstOp = regionBuilder.clone(*constOp);
-        newConstOpRes = newConstOp->getResult(0);
-      }
-      LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
-                              << "const found. terminating recursion.\n");
-      return {newConstOpRes, failure()};
-    }
-    Operation *op = input.getDefiningOp();
-    // Right now, this is a bit restricted that we only allow reshape-like
-    // ops between in the elementwise tree that get fused to the fusion point.
-    // TODO: however, the latest code gridwise-gemm-to-blockwise should tackle
-    // more cases. The absolute restriction is gemm0Output to Linalg block
-    // should contain invertible transforms, but that's future work.
-    if (!op || (!isElementwiseOp(op) &&
-                !isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp>(op))) {
-      Value blockArg;
-      if (doRewrite) {
-        blockArg = addBlockArgument(regionBuilder, input, block, loc.value());
-      }
-      elementwiseArgs.push_back(input);
-      LLVM_DEBUG(llvm::dbgs()
-                 << std::string(recDepth, '\t')
-                 << "unsupported region op found. terminating recursion.\n");
-      return {blockArg, failure()};
-    }
-    // Following section recursively calls into the left and right
-    // sub-tree to grab as much of the elementwise tree rooted on softmax
-    // input.
-    mlir::IRMapping mapper;
-    SmallVector<Value> newOperands;
-
-    FailureOr<mlir::tosa::MatMulOp> maybeMatMul = failure();
-    for (auto operand : op->getOperands()) {
-      auto [result, maybeSubTreeMatMul] = getPreSoftmaxElementwiseRegion(
-          operand, regionBuilder, block, elementwiseArgs, loc, doRewrite,
-          recDepth + 1);
-      mapper.map(operand, result);
-      newOperands.push_back(result);
-      if (succeeded(maybeSubTreeMatMul)) {
-        maybeMatMul = maybeSubTreeMatMul;
-      }
-    }
-
-    Value res;
-    if (doRewrite) {
-      auto *newOp = regionBuilder.clone(*op, mapper);
-      res = newOp->getResult(0);
-    }
-    // We convey to the caller the result
-    // of the cloning as well if this subtree
-    // contains the first matmul.
-    if (succeeded(maybeMatMul)) {
-      LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
-                              << "a subtree have a matmul in it.\n");
-      return {res, maybeMatMul};
-    }
-    LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
-                            << "none of subtress have a matmul in it.\n");
-    return {res, failure()};
-  }
-
   LogicalResult match(tosa::MatMulOp op) const override {
     FailureOr<std::tuple<Value, bool, Value>> softmaxInputResult =
         maybeSoftmax(op.getA());
@@ -1316,7 +1390,7 @@ struct AttentionRewritePattern
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
     std::tie(std::ignore, maybeFirstMatMul) =
-        getPreSoftmaxElementwiseRegion(softmaxInput, b, nullptr, vec);
+        getElementwiseRegion(softmaxInput, b, nullptr, vec);
 
     if (succeeded(maybeFirstMatMul)) {
       TypedValue<TensorType> matC = maybeFirstMatMul.value().getOutput();
@@ -1353,7 +1427,7 @@ struct AttentionRewritePattern
     SmallVector<Value> elementwiseOtherArgs;
 
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
-    std::tie(std::ignore, maybeFirstMatMul) = getPreSoftmaxElementwiseRegion(
+    std::tie(std::ignore, maybeFirstMatMul) = getElementwiseRegion(
         softmaxInput, rewriter, nullptr, elementwiseOtherArgs);
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
@@ -1385,9 +1459,9 @@ struct AttentionRewritePattern
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
       Value res;
-      std::tie(res, maybeMatMul) = getPreSoftmaxElementwiseRegion(
-          softmaxInput, rewriter, preSoftmaxElemwiseBlock, elementwiseOtherArgs,
-          loc, true);
+      std::tie(res, maybeMatMul) =
+          getElementwiseRegion(softmaxInput, rewriter, preSoftmaxElemwiseBlock,
+                               elementwiseOtherArgs, loc, true);
       RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
@@ -1549,6 +1623,11 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
 void tosa::populateTosaToRockAttentionConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<AttentionRewritePattern>(context);
+}
+
+void tosa::populateTosaToRockGemmGemmConversionPatterns(
+    MLIRContext *context, RewritePatternSet &patterns) {
+  patterns.add<GemmElementwiseGemmRewritePattern>(context);
 }
 
 void tosa::populateTosaToRockTensorConversionPatterns(
