@@ -676,6 +676,22 @@ def ROCDL_StrictWWMOp : ROCDL_IntrOp<"strict.wwm", [], [0],
   }];
 }
 
+// PermLaneX16 intrinsic operation
+def ROCDL_PermlaneX16Op : ROCDL_IntrOp<"permlanex16", [], [0],
+    [AllTypesMatch<["res", "old", "src0", "src1", "src2"]>], 1, 0, 0,
+    [4, 5], ["fi", "boundControl"]>,
+  Arguments<(ins LLVM_Type:$old, LLVM_Type:$src0, LLVM_Type:$src1, LLVM_Type:$src2,
+             I1Attr:$fi, I1Attr:$boundControl)> {
+  let results = (outs LLVM_Type:$res);
+  let assemblyFormat = [{
+    attr-dict $old `,` $src0 `,` $src1 `,` $src2 `,` $fi `,` $boundControl `:` type($src0)
+  }];
+  let description = [{
+    Performs a `permlanex16` operation with the given operands, applying the
+    permutation specified by $fi to the provided inputs.
+  }];
+}
+
 //===---------------------------------------------------------------------===//
 // 16-bit float intrinsics
 //===---------------------------------------------------------------------===//
