@@ -650,8 +650,6 @@ static bool compareSameArgs(IndexCmpPredicate pred) {
   case IndexCmpPredicate::ULE:
     return true;
   default:
-    return false;
-  default:
     llvm_unreachable("unknown predicate in compareSameArgs");
   }
 }
