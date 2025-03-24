@@ -404,22 +404,43 @@ ContiguousMergesMap findContiguousGroups(Value transformed) {
   // Transform table. Will be overwritten after processing each transform_map
   DimToMergeMap dimToMerge;
   ContiguousMergesMap contiguousGroups;
-
+  llvm::dbgs() << "[findContiguousGroups] input is to this function is : \n";
+  transformed.dump();
   Value currentVal = transformed;
   while (auto trOp = currentVal.getDefiningOp<TransformOp>()) {
+    llvm::dbgs() << "currentVal is : \n";
+    currentVal.dump();
     TransformMapAttr transformMap = trOp.getTransform();
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
     DimToMergeMap thisDimToMerge;
 
     for (TransformAttr transform : transformMap.getOps()) {
       TransformType transformType = transform.getType();
-
+      llvm::dbgs() << "TransformType: " << transformType << "\n";
       ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
+
+      llvm::dbgs() << "lowerDims: ";
+      for (const auto dim : lowerDims) {
+        llvm::dbgs() << dim << " ";
+      }
+      llvm::dbgs() << "\n";
       ArrayRef<uint32_t> upperDims = transform.getUpperDims();
+      llvm::dbgs() << "upperDims: ";
+      for (const auto dim : upperDims) {
+        llvm::dbgs() << dim << " ";
+      }
+      llvm::dbgs() << "\n";
+
       ArrayRef<int64_t> params = transform.getParams();
+      llvm::dbgs() << "params: ";
+      for (const auto dim : params) {
+        llvm::dbgs() << dim << " ";
+      }
+      llvm::dbgs() << "\n";
 
       switch (transformType) {
       case TransformType::Merge:
+        llvm::dbgs() << "case of merge\n";
         for (size_t i = 0; i < lowerDims.size(); i++) {
           thisDimToMerge[lowerDims[i]] = {transformMap, transform, i};
         }
@@ -497,6 +518,7 @@ ContiguousMergesMap findContiguousGroups(Value transformed) {
         }
         break;
       case TransformType::Unmerge:
+        llvm::dbgs() << "case of unmerge:\n";
         findCountiguousGroupsUnmerge(upperDims, params, dimToMerge,
                                      contiguousGroups);
         break;
@@ -504,12 +526,50 @@ ContiguousMergesMap findContiguousGroups(Value transformed) {
     }
     currentVal = trOp.getInput();
     dimToMerge = thisDimToMerge;
+    llvm::dbgs() << "DimToMerge: \n";
+    for (const auto [key, val] : dimToMerge) {
+      if (val.transform) {
+        llvm::dbgs() << "key: " << key << "\n";
+        llvm::dbgs() << "val: \n";
+        val.transform.dump();
+        val.transformMap.dump();
+        llvm::dbgs() << "Position in merge " << val.positionInMerge << "\n ";
+      }
+    }
+    llvm::dbgs() << "Contiguous Groups\n";
+    for (const auto [key, val] : contiguousGroups) {
+      key.first.dump();
+      llvm::dbgs() << "val: ";
+      val.getLeaderValue();
+      llvm::dbgs() << "\n";
+    }
   }
 
   // Last global unmerge
+  llvm::dbgs() << "Final Global DimToMerge: \n";
+  for (const auto [key, val] : dimToMerge) {
+    if (val.transform) {
+      llvm::dbgs() << "key: " << key << "\n";
+      llvm::dbgs() << "val: \n";
+      val.transform.dump();
+      val.transformMap.dump();
+      llvm::dbgs() << "Position in merge " << val.positionInMerge << "\n ";
+    }
+  }
   auto outputType = cast<ShapedType>(currentVal.getType());
+  llvm::dbgs() << "outputType : \n";
+  outputType.dump();
   SmallVector<uint32_t> sortedDims(outputType.getRank());
   std::iota(sortedDims.begin(), sortedDims.end(), 0);
+  llvm::dbgs() << "Contiguous Groups\n";
+  for (const auto [key, val] : contiguousGroups) {
+    key.first.dump();
+    // llvm::dbgs() << "val: ";
+    // for(const auto vval : val) {
+    //   llvm::dbgs() << vval.getData()  << " ";
+    // }
+    // llvm::dbgs() << "\n";
+  }
   findCountiguousGroupsUnmerge(sortedDims, outputType.getShape(), dimToMerge,
                                contiguousGroups);
   return contiguousGroups;

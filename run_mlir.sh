@@ -1,0 +1,2 @@
+#!/bin/bash
+rocmlir-gen --clone-harness yolo_nhwc.mlir -arch gfx942 -fut mlir_slice_sigmoid_mul_convolution_broadcast_add_sigmoid_mul | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen --kernel-repeats=5 -ph -rand 1 -rand_type float -fut mlir_slice_sigmoid_mul_convolution_broadcast_add_sigmoid_mul_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | rocprof --stats -o results.csv ../mlir/utils/widgets/xmir-run 
