@@ -35,18 +35,26 @@ import os
 import sys
 import getopt
 import glob
-import subprocess
+from hip import hip
+
+def hip_check(call_result):
+    err = call_result[0]
+    result = call_result[1:]
+    if len(result) == 1:
+        result = result[0]
+    if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
+        raise RuntimeError(str(err))
+    return result
 
 def getArch():
-    p = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator", "-name"], check=True,
-                       stdout=subprocess.PIPE)
-    agents = set(x.decode("utf-8") for x in p.stdout.split())
-    if not agents:
-        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
-        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
-        q = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator"],
-                              check=True, stdout=subprocess.PIPE)
-        agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+    agents = set()
+    device_count = hip_check(hip.hipGetDeviceCount())
+    for device in range(device_count):
+        props = hip.hipDeviceProp_t()
+        hip_check(hip.hipGetDeviceProperties(props,device))
+        agent = props.gcnArchName.decode('utf-8')
+        agents.add(agent)
+
     return agents
 
 def generate_option_list(prefixes: dict, table: list, key1: str, key2: str):

@@ -16,6 +16,7 @@
 #include "mlir-c/Dialect/RockEnums.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/Support/RWMutex.h"
 
@@ -75,6 +76,7 @@ LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
                                      SmallVectorImpl<char> &out);
 
 bool isSplitKRequested(ModuleOp mod, StringRef perfConfig);
+bool isSplitKRequested(rock::GemmFeatures features, StringRef perfConfig);
 
 // This method checks a given fused module is actually fusible
 // for the given perfConfig

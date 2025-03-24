@@ -102,7 +102,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
   }
 
   Value moveMemory(OpBuilder b, mhal::LaunchOp launchOp, Value opr,
-                   uint32_t fidx, bool readAccess, bool writeAccess,
+                   uint32_t fidx, bool writeAccess,
                    llvm::SmallVector<Value> &copyBackOprs,
                    llvm::SmallVector<Value, 8> &asyncDeps) const {
     if (auto gpuAllocOp = opr.getDefiningOp<gpu::AllocOp>()) {
@@ -128,12 +128,11 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     Value dstToken = dst.getResult(1);
 
     auto makeCopy = [&]() {
-      if (readAccess) {
-        // copy to device
-        auto memcpyToken = b.create<gpu::MemcpyOp>(
-            loc, tokenType, ValueRange{dstToken}, dstMem, opr);
-        dstToken = memcpyToken.getResult(0);
-      }
+      // always copy to device, even if it's read_access only
+      // this way we initialize with whatever was provided by the user
+      auto memcpyToken = b.create<gpu::MemcpyOp>(
+          loc, tokenType, ValueRange{dstToken}, dstMem, opr);
+      dstToken = memcpyToken.getResult(0);
       if (writeAccess) {
         // copy from device
         copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
@@ -187,12 +186,12 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
     FunctionOpInterface funcIF(func);
     auto funcName = funcIF.getName();
-    auto binaryName = funcName + "_module";
+    std::string binaryName = (funcName + "_module").str();
 
-    auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName.str());
+    auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
     if (!binaryOp) {
       OpBuilder b(ctx);
-      binaryOp = b.create<gpu::BinaryOp>(floc, binaryName.str(), nullptr,
+      binaryOp = b.create<gpu::BinaryOp>(floc, binaryName, nullptr,
                                          ArrayRef<Attribute>({binary}));
 
       SymbolTable symbolTable(module);
@@ -232,18 +231,16 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
       Value opr = operands[i];
       // move input memories to GPU
       if (isa<MemRefType>(opr.getType())) {
-        bool readAccess{
-            func.getArgAttr(fidx, mhal::MHALDialect::getReadAccessAttrName())};
         bool writeAccess{
             func.getArgAttr(fidx, mhal::MHALDialect::getWriteAccessAttrName())};
-        opr = moveMemory(rw, op, opr, fidx, readAccess, writeAccess,
-                         copyBackOprs, asyncDeps);
+        opr =
+            moveMemory(rw, op, opr, fidx, writeAccess, copyBackOprs, asyncDeps);
       }
       gpuOperands.push_back(opr);
     }
 
     // The gpu.launch_func requires 1 and only 1 token
-    if (asyncDeps.size() == 0)
+    if (asyncDeps.empty())
       // There must be at least 1 token
       asyncDeps.push_back(makeWait(rw, loc));
     else if (asyncDeps.size() > 1) {
@@ -255,7 +252,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     // Make gpu.launch_func
     auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
         loc,
-        SymbolRefAttr::get(getContext(), binaryName.str(),
+        SymbolRefAttr::get(getContext(), binaryName,
                            {FlatSymbolRefAttr::get(getContext(), funcName)}),
         gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
         gpu::KernelDim3{blockSizeIdx, oneIdx, oneIdx}, dynamicSharedMemorySize,

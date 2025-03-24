@@ -1,5 +1,5 @@
 FROM ubuntu:22.04
-MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
+MAINTAINER Christopher Austen <chausten@amd.com>
 
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.3/
 ARG ROCM_BUILD_NAME=jammy
@@ -44,7 +44,7 @@ RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/dow
     rm /cmake.sh
 
 # LLVM must be installed after prerequisite packages.
-ENV LLVM_VERSION=17
+ENV LLVM_VERSION=20
 RUN echo 'install llvm ${LLVM_VERSION}' && \
     wget --no-verbose https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
@@ -77,14 +77,8 @@ ENV LC_ALL en_US.UTF-8
 # Install python dependencies for the scripts. ADD will check contents of a file for changes.
 # TODO: that should be done during the build as it will pull this repo anyway and will have latest version.
 ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" llvm-requirements.txt
-RUN pip3 install -r llvm-requirements.txt
-
-# Install hip-python from Test PyPI.
-# Ideally, it should be in requirements.txt, but it doesn't work there currently.
-RUN pip3 install --index-url https://test.pypi.org/simple hip-python
 
 ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/requirements.txt" requirements.txt
-RUN pip3 install -r requirements.txt
 
 # --------------------- Section 2: Rock dialect setups -----------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -96,7 +90,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
            python3-venv \
     && apt upgrade -y \
     && python3 -m pip install --upgrade pip \
-    && pip3 install pandas numpy scipy jinja2 tomli \
     && pip3 install -r llvm-requirements.txt \
     && pip3 install -r requirements.txt
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
@@ -151,8 +144,7 @@ RUN wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2
 # --ignore-installed because of problems upgrading PyYAML.  See also -U.
 ADD "https://raw.githubusercontent.com/ROCm/MITuna/pf-tuna-rocmlir-3/requirements.txt" tuna-requirements.txt
 RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
-    python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
-    python3 -m pip install scipy pandas
+    python3 -m pip install -r tuna-requirements.txt --ignore-installed
 
 # Workaround for 6.1.1 rocprof not supporting navi3x:  add it to list.
 RUN sed --in-place 's/gfx94x")/gfx94x","gfx11xx")/' /opt/rocm/bin/rocprof
