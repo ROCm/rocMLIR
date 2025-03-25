@@ -83,8 +83,7 @@ RUN pip3 install -r llvm-requirements.txt
 # Ideally, it should be in requirements.txt, but it doesn't work there currently.
 RUN pip3 install --index-url https://test.pypi.org/simple hip-python
 
-ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/requirements.txt" requirements.txt
-RUN pip3 install -r requirements.txt
+ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/pip_requirements.txt" requirements.txt
 
 # --------------------- Section 2: Rock dialect setups -----------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
