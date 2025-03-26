@@ -263,18 +263,19 @@ def Rock_GemmElementwiseGemmOp
               [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                RockFusionRoot]>,
-      AllElementTypesMatch<["a", "b", "c"]>,
-      Arguments<(ins TensorOrMemRefOf<[F32]>:$a, TensorOrMemRefOf<[F32]>:$b,
-          TensorOrMemRefOf<[F32]>:$c,
+      AllElementTypesMatch<["a", "b"]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$a,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$b,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$c,
           Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
-          TensorOrMemRefOf<[F32]>:$out, UnitAttr:$aTransposed,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$aTransposed,
           UnitAttr:$bTransposed, UnitAttr:$cTransposed, UnitAttr:$oTransposed,
           StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
           OptionalAttr<I32Attr>:$numCU,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           I32Attr:$firstGemmIdx)>,
-      Results<(outs Optional<TensorOf<[F32]>>:$result)> {
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
   let summary = "GEMM-elementwise-GEMM operation";
   let description = [{
     Performs the operation out = preSecondGemmBody(a * b, elemwiseInputs) * c.

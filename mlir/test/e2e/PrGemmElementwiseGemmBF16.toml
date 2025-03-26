@@ -1,0 +1,46 @@
+directory = "PrGemmElementwiseGemmBF16"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm_gemm -t bf16 --arch %arch -pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "transB"
+values = ["true", "false"]
+prefix = "--transB="
+
+## gemm+gemm variant
+[[suite]]
+name = "pr_gemm_gemm_bf16"
+
+[[suite.test]]
+config = "-m 384 -n 384 -k 64 -gemmO 64"
+
+# reverse grid test
+[[suite.test]]
+config = "--reverse_grid -m 384 -n 384 -k 64 -gemmO 64"
+
+[[suite.test]]
+config = "-m 64 -n 64 -k 64 -gemmO 64 -perf_config attn:v1:32,32,64,32,32,32,4,1"
+
+## This one test kPerBlock (16 x 4) == head_dim case
+## Also it has drepeats > 1 to check correct fetching
+[[suite.test]]
+config = "-m 256 -n 256 -k 128 -gemmO 128 -perf_config attn:v1:128,128,128,32,64,64,4,1"
+
+[[suite.test]]
+config = "-m 64 -n 64 -k 64 -gemmO 64"
+
+# Check a padding config
+[[suite.test]]
+config = "-m 64 -n 64 -k 64 -gemmO 64 -perf_config attn:v1:64,64,256,4,64,64,8,1"
+
+# Check lds bypass config
+[[suite.test]]
+config = "-m 256 -n 256 -k 128 -gemmO 128 -perf_config attn:v1:128,128,128,32,128,32,4,1"
+
+# check a case where MPerBlock != gemm1M
+[[suite.test]]
+config = "-m 384 -n 384 -k 64 -gemmO 64 -perf_config attn:v1:32,32,64,8,32,32,8,1"
+
+# check a case where MPerBlock != gemm1M && MPerWave < 32
+[[suite.test]]
+config = "-m 384 -n 384 -k 64 -gemmO 64 -perf_config attn:v1:32,32,64,8,16,16,8,1"

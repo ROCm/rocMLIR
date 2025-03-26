@@ -2,8 +2,6 @@
 
 from perfCommonUtils import Operation
 from dataclasses import dataclass
-import enum
-import getopt
 import os
 import subprocess
 import sys
@@ -12,8 +10,6 @@ import argparse
 import glob
 import tempfile
 
-from collections import OrderedDict
-from typing import Optional
 import perfRunner
 from perfRunner import PerfConfiguration
 from perfRunner import ConvConfiguration
@@ -21,9 +17,7 @@ from perfRunner import GemmConfiguration
 from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
 from perfRunner import Paths
-from perfRunner import getChip
 from perfCommonUtils import CORRECT_RESULT_RE
-import reportUtils
 
 import numpy as np
 import pandas as pd

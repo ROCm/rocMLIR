@@ -588,9 +588,9 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   problemOS << "-t ";
   if (elemTypeQ.isF32()) {
     problemOS << "f32" << sep;
-  } else if (elemTypeQ.isF16() && isAttention) {
+  } else if (elemTypeQ.isF16()) {
     problemOS << "f16" << sep;
-  } else if (elemTypeQ.isBF16() && isAttention) {
+  } else if (elemTypeQ.isBF16()) {
     problemOS << "bf16" << sep;
   } else if (elemTypeQ.isInteger(8) && isAttention) {
     problemOS << "i8" << sep;
