@@ -45,7 +45,7 @@ void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
         if (!llvmModule)
           return failure();
 
-        StringRef amdgcnTriple = "amdgcn-amd-amdhsa";
+        auto amdgcnTriple = llvm::Triple("amdgcn-amd-amdhsa");
         llvmModule->setTargetTriple(amdgcnTriple);
         llvmModule->setDataLayout(
             m->getAttrOfType<StringAttr>(

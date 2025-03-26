@@ -106,6 +106,20 @@ using namespace llvm::omp::xteam_red;
   } while (0)
 #endif
 
+double setTicksToTime() {
+  uint64_t TicksFrequency = 1;
+  double TicksToTime = 1.0;
+
+  hsa_status_t Status =
+      hsa_system_get_info(HSA_SYSTEM_INFO_TIMESTAMP_FREQUENCY, &TicksFrequency);
+  if (Status == HSA_STATUS_SUCCESS)
+    TicksToTime = (double)1e9 / (double)TicksFrequency;
+  else
+    DP("Error calling hsa_system_get_info for timestamp frequency\n");
+
+  return TicksToTime;
+}
+
 #ifdef OMPT_SUPPORT
 #include "OmptDeviceTracing.h"
 #include <omp-tools.h>
@@ -193,15 +207,7 @@ void setOmptAsyncCopyProfile(bool Enable) {
 }
 
 /// Compute system timestamp conversion factor, modeled after ROCclr.
-void setOmptTicksToTime() {
-  uint64_t TicksFrequency = 1;
-  hsa_status_t Status =
-      hsa_system_get_info(HSA_SYSTEM_INFO_TIMESTAMP_FREQUENCY, &TicksFrequency);
-  if (Status == HSA_STATUS_SUCCESS)
-    TicksToTime = (double)1e9 / (double)TicksFrequency;
-  else
-    DP("Error calling hsa_system_get_info for timestamp frequency\n");
-}
+void setOmptTicksToTime() { TicksToTime = setTicksToTime(); }
 
 /// Get the current HSA-based device timestamp.
 uint64_t getSystemTimestampInNs() {
@@ -847,6 +853,10 @@ struct AMDGPUKernelTy : public GenericKernelTy {
   /// Indicates whether or not we need to set up our own private segment size.
   bool usesDynamicStack() const { return DynamicStack; }
 
+  bool isValidBlockSize(uint32_t BlockSize) const override {
+    return BlockSize <= ConstWGSize;
+  }
+
   /// Envar to enable occupancy-based optimization for SPMD kernel.
   BoolEnvar OMPX_SPMDOccupancyBasedOpt;
 
@@ -1085,11 +1095,18 @@ private:
       // Honor OMP_NUM_TEAMS environment variable for XteamReduction kernel
       // type, if possible.
       int32_t NumTeamsEnvVar = GenericDevice.getOMPNumTeams();
+      // CU mulitiplier from envar.
+      uint32_t EnvarCUMultiplier = GenericDevice.getXTeamRedTeamsPerCU();
 
       if (GenericDevice.isFastReductionEnabled()) {
         // When fast reduction is enabled, the number of teams is capped by
         // the MaxCUMultiplier constant.
-        MaxNumGroups = DeviceNumCUs * llvm::omp::xteam_red::MaxCUMultiplier;
+        // When envar is enabled, use it for computing MaxNumGroup.
+        if (EnvarCUMultiplier > 0)
+          MaxNumGroups = DeviceNumCUs * EnvarCUMultiplier;
+        else
+          MaxNumGroups = DeviceNumCUs * llvm::omp::xteam_red::MaxCUMultiplier;
+
       } else {
         // When fast reduction is not enabled, the number of teams is capped
         // by the metadata that clang CodeGen created. The number of teams
@@ -1100,7 +1117,13 @@ private:
         // ConstWGSize is the block size that CodeGen used.
         uint32_t CUMultiplier =
             llvm::omp::xteam_red::getXteamRedCUMultiplier(ConstWGSize);
-        MaxNumGroups = DeviceNumCUs * CUMultiplier;
+
+        if (EnvarCUMultiplier > 0) {
+          MaxNumGroups =
+              DeviceNumCUs * std::min(CUMultiplier, EnvarCUMultiplier);
+        } else {
+          MaxNumGroups = DeviceNumCUs * CUMultiplier;
+        }
       }
 
       // If envar OMPX_XTEAMREDUCTION_OCCUPANCY_BASED_OPT is set and no
@@ -1668,6 +1691,10 @@ private:
     uint32_t NumTeams;
     uint32_t NumThreads;
     KernelRunRecordTy *KernelRunRecords;
+
+    PostKernelRunProcessingArgsTy()
+        : Agent{0}, Signal(nullptr), TicksToTime(setTicksToTime()), NumTeams(0),
+          NumThreads(0), KernelRunRecords(nullptr) {}
   };
 
   using AMDGPUStreamCallbackTy = Error(void *Data);
@@ -2154,7 +2181,6 @@ public:
       if (!KernelRecords->reachedRunLimitForKernel(KernelName)) {
         PostKernelRunProcessingArgs.Agent = Agent;
         PostKernelRunProcessingArgs.Signal = OutputSignal;
-        PostKernelRunProcessingArgs.TicksToTime = 1.0;
         PostKernelRunProcessingArgs.KernelName = KernelName;
         PostKernelRunProcessingArgs.NumTeams = NumBlocks[0];
         PostKernelRunProcessingArgs.NumThreads = NumThreads[0];
@@ -2899,9 +2925,11 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
         OMPX_QueueSize("LIBOMPTARGET_AMDGPU_HSA_QUEUE_SIZE", 512),
         OMPX_DefaultTeamsPerCU("LIBOMPTARGET_AMDGPU_TEAMS_PER_CU", 4),
         OMPX_GenericSpmdTeamsPerCU(
-            "LIBOMPTARGET_AMDGPU_GENERIC_SPMD_TEAMS_PER_CU", 0),
+            "LIBOMPTARGET_AMDGPU_GENERIC_SPMD_TEAMS_PER_CU", 6),
         OMPX_BigJumpLoopTeamsPerCU(
             "LIBOMPTARGET_AMDGPU_BIG_JUMP_LOOP_TEAMS_PER_CU", 0),
+        OMPX_XTeamRedTeamsPerCU("LIBOMPTARGET_AMDGPU_XTEAM_RED_TEAMS_PER_CU",
+                                0),
         OMPX_BigJumpLoopMaxTotalTeams(
             "LIBOMPTARGET_AMDGPU_BIG_JUMP_LOOP_MAX_TOTAL_TEAMS", 1024 * 1024),
         OMPX_LowTripCount("LIBOMPTARGET_AMDGPU_LOW_TRIPCOUNT", 9000),
@@ -2922,7 +2950,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
         OMPX_StreamBusyWait("LIBOMPTARGET_AMDGPU_STREAM_BUSYWAIT", 2000000),
         OMPX_UseMultipleSdmaEngines(
             // setting default to true here appears to solve random sdma problem
-            "LIBOMPTARGET_AMDGPU_USE_MULTIPLE_SDMA_ENGINES", false),
+            "LIBOMPTARGET_AMDGPU_USE_MULTIPLE_SDMA_ENGINES", true),
         OMPX_ApuMaps("OMPX_APU_MAPS", false),
         OMPX_EnableGFX90ACoarseGrainUsmMaps(
             "OMPX_ENABLE_GFX90A_COARSE_GRAIN_USM_MAPS", false),
@@ -2935,7 +2963,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
                                     1 * 1024 * 1024), // 1MB
         OMPX_DGPUMaps("OMPX_DGPU_MAPS", false),
         OMPX_SharedDescriptorMaxSize("LIBOMPTARGET_SHARED_DESCRIPTOR_MAX_SIZE",
-                                     48),
+                                     96),
         AMDGPUStreamManager(*this, Agent), AMDGPUEventManager(*this),
         AMDGPUSignalManager(*this), Agent(Agent), HostDevice(HostDevice) {}
 
@@ -2966,6 +2994,9 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   }
   virtual uint32_t getOMPXBigJumpLoopTeamsPerCU() const override {
     return OMPX_BigJumpLoopTeamsPerCU;
+  }
+  virtual uint32_t getXTeamRedTeamsPerCU() const override {
+    return OMPX_XTeamRedTeamsPerCU;
   }
   virtual uint32_t getOMPXBigJumpLoopMaxTotalTeams() const override {
     return OMPX_BigJumpLoopMaxTotalTeams;
@@ -4413,6 +4444,12 @@ private:
   /// is not specified. If non-zero, the number of teams =
   /// OMPX_BigJumpLoopTeamsPerCU * #CUs.
   UInt32Envar OMPX_BigJumpLoopTeamsPerCU;
+
+  /// Envar for controlling the number of teams relative to the number of
+  /// compute units (CUs) for cross-team-reduction kernels. 0 indicates that
+  /// this value is not specified. If non-zero, the number of teams =
+  /// OMPX_XTeamRedTeamsPerCU * #CUs.
+  UInt32Envar OMPX_XTeamRedTeamsPerCU;
 
   /// Envar controlling the maximum number of teams per device for
   /// Big-Jump-Loop kernels.

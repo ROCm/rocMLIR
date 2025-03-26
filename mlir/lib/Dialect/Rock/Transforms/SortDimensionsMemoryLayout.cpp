@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -72,17 +73,34 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   ArrayAttr transforms;
   Value source;
   std::tie(source, transforms, std::ignore) = rock::untransform(b, tensor);
+  // handle input fusion, traverse past linalg generic op
+  while (source.getDefiningOp<memref::AllocOp>() &&
+         // allocOp will have two users, one rock.transform and other
+         // linalg.generic op
+         std::distance(source.getUsers().begin(), source.getUsers().end()) ==
+             2) {
+    for (auto *users : source.getUsers()) {
+      if (auto laGenericOp = dyn_cast<linalg::GenericOp>(users)) {
+        for (auto idxMap : laGenericOp.getIndexingMapsArray())
+          if (!idxMap.isIdentity())
+            return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+        source = laGenericOp.getInputs().front();
+        std::tie(source, transforms, std::ignore) =
+            rock::untransform(b, source, transforms);
+      }
+    }
+  }
 
   if (transforms.empty())
+    return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+
+  // no need to do anything if it's not a block argument
+  if (!isa<BlockArgument>(source))
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
 
   rock::TransformMapAttr firstCoordTransform =
       cast<rock::TransformMapAttr>(transforms[0]);
   int64_t upperRank = firstCoordTransform.getUpperBounds().size();
-
-  // no need to do anything if it's not a block argument
-  if (!isa<BlockArgument>(source))
-    return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
 
   SmallVector<uint32_t> strides(upperRank);
   for (int64_t idx = 0; idx < upperRank; idx++) {

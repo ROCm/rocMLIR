@@ -60,6 +60,8 @@ void Flang::addFortranDialectOptions(const ArgList &Args,
                             options::OPT_frealloc_lhs,
                             options::OPT_fno_realloc_lhs,
                             options::OPT_fsave_main_program,
+                            options::OPT_fd_lines_as_code,
+                            options::OPT_fd_lines_as_comments,
                             options::OPT_fno_save_main_program});
 }
 
@@ -129,6 +131,11 @@ void Flang::addOtherOptions(const ArgList &Args, ArgStringList &CmdArgs) const {
                    options::OPT_foffload_global_filtering,
                    options::OPT_fno_offload_global_filtering,
                    options::OPT_funsigned, options::OPT_fno_unsigned});
+
+  if (Args.hasArg(options::OPT_fopenacc)) {
+     const Driver &D = getToolChain().getDriver();
+     D.Diag(diag::warn_openacc_experimental);
+  }
 
   llvm::codegenoptions::DebugInfoKind DebugInfoKind;
   if (Args.hasArg(options::OPT_gN_Group)) {
@@ -515,6 +522,9 @@ void Flang::addTargetOptions(const ArgList &Args,
     else
       CmdArgs.push_back(A->getValue());
   }
+
+  Args.addAllArgs(CmdArgs,
+                  {options::OPT_fverbose_asm, options::OPT_fno_verbose_asm});
 }
 
 void Flang::addOffloadOptions(Compilation &C, const InputInfoList &Inputs,
@@ -818,8 +828,13 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
 
   // 'flang -E' always produces output that is suitable for use as fixed form
   // Fortran. However it is only valid free form source if the original is also
-  // free form.
-  if (InputType == types::TY_PP_Fortran &&
+  // free form. Ensure this logic does not incorrectly assume fixed-form for
+  // cases where it shouldn't, such as `flang -x f95 foo.f90`.
+  bool isAtemporaryPreprocessedFile =
+      Input.isFilename() &&
+      llvm::sys::path::extension(Input.getFilename())
+          .ends_with(types::getTypeTempSuffix(InputType, /*CLStyle=*/false));
+  if (InputType == types::TY_PP_Fortran && isAtemporaryPreprocessedFile &&
       !Args.getLastArg(options::OPT_ffixed_form, options::OPT_ffree_form))
     CmdArgs.push_back("-ffixed-form");
 

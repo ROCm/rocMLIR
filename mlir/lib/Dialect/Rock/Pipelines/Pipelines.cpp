@@ -124,20 +124,13 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm3.addPass(bufferization::createEmptyTensorToAllocTensorPass());
   funcPm3.addPass(createLinalgFoldUnitExtentDimsPass());
 
-  bufferization::OneShotBufferizationOptions bufOpts;
+  bufferization::OneShotBufferizePassOptions bufOpts;
   bufOpts.allowReturnAllocsFromLoops = true;
   bufOpts.bufferizeFunctionBoundaries = true;
-  bufOpts.setFunctionBoundaryTypeConversion(
-      bufferization::LayoutMapOption::IdentityLayoutMap);
-  bufOpts.unknownTypeConverterFn =
-      [](Value value, Attribute memorySpace,
-         const bufferization::BufferizationOptions &options) {
-        return bufferization::getMemRefTypeWithStaticIdentityLayout(
-            cast<TensorType>(value.getType()), memorySpace);
-      };
-  // bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
-  pm.addPass(createOneShotBufferizePass(bufOpts));
+  bufOpts.functionBoundaryTypeConversion = "identity-layout-map";
+  bufOpts.unknownTypeConversion = "identity-layout-map";
 
+  pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
 
   // Sort dimensions according to the underlying memory layout strides

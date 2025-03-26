@@ -9,17 +9,9 @@ Revert "Recommit "[InstCombine] Expand `foldSelectICmpAndOr` -> `foldSelectICmpA
 contact: Selehov
 b2659ca44 [InstCombine] Propagate flags in `foldSelectICmpAndBinOp` (#127437)
 ---
-breaks devicelibs
-6e0b0038 [clang][OpenCL][CodeGen][AMDGPU] Do not use `private` as the default AS for when `generic` is available (#112442)
-AlexV and MarkS
----
 breaks build of hipRuntime
 51ad2901ca54 [Clang] Improve diagnostic on `[[nodiscard]]` attribute (#112521)
 Ron, Maneesh
----
-Revert: breaks build of rocFFT
-854d7301f989 [Clang/AMDGPU] Zero sized arrays not allowed in HIP device code. (#113470)
-Ron and Vigneshwar
 ---
 revert: breaks rocBLAS build
 d57230c7 [AMDGPU][MC] Disallow op_sel in some VOP3P dot instructions (#100485)
@@ -28,10 +20,11 @@ revert: breaks build of rccl __cpuidex
 1c28b92373 [Clang] __has_builtin should return false for aux triple builtins (#121839) 
 Ron and Saiyed
 ---
-build/run issues: Scott Linder
-1083ec647f16 [reland][DebugInfo] Update DIBuilder insertion to take 
----
-revert : breaks build of 5 spec-accel codes
-25f29ee377b1 - [flang][OpenMP] Update all `lastprivate` symbols, not just in clauses (#125628)
-Kareem, Ron
+breaks flang build quadmath_wrapper.h
+[Flang-RT] Environment introspection for quadmath.h (#130411)  
+Kruse, palermo
+--
+breaks build of offload
+libc] Make RPC server handling header only (#131205)  
+huber
 ---

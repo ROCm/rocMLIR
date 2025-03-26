@@ -32,173 +32,13 @@
 #include "../../../DeviceRTL/include/EmissaryIds.h"
 #include "Emissary.h"
 
-static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
-                                     size_t bufsz, uint64_t *return_value);
-
-extern "C" emis_return_t _emissary_execute_fortrt(uint32_t emis_func_id,
-                                                  void *data, uint32_t sz) {
-  uint64_t return_value;
-  service_rc rc =
-      fortran_rt_service(emis_func_id, (char *)data, (size_t)sz, &return_value);
-  return (emis_return_t)return_value;
-}
-
-// Make the vargs function call to the function pointer fnptr
-// by casting fnptr to vfnptr. Return uint32_t
-template <typename T, typename FT>
-static uint32_t _s_call_fnptr(uint32_t NumArgs, void *fnptr,
-                              uint64_t *a[MAXVARGS], T *rv) {
-  FT *vfnptr = (FT *)fnptr;
-
-  switch (NumArgs) {
-  case 1:
-    *rv = vfnptr(fnptr, a[0]);
-    break;
-  case 2:
-    *rv = vfnptr(fnptr, a[0], a[1]);
-    break;
-  case 3:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2]);
-    break;
-  case 4:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3]);
-    break;
-  case 5:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4]);
-    break;
-  case 6:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5]);
-    break;
-  case 7:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6]);
-    break;
-  case 8:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
-    break;
-  case 9:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]);
-    break;
-  case 10:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9]);
-    break;
-  case 11:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10]);
-    break;
-  case 12:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11]);
-    break;
-  case 13:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12]);
-    break;
-  case 14:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13]);
-    break;
-  case 15:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14]);
-    break;
-  case 16:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15]);
-    break;
-  case 17:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16]);
-    break;
-  case 18:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17]);
-    break;
-  case 19:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18]);
-    break;
-  case 20:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19]);
-    break;
-  case 21:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20]);
-    break;
-  case 22:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21]);
-    break;
-  case 23:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22]);
-    break;
-  case 24:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23]);
-    break;
-  case 25:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24]);
-    break;
-  case 26:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24], a[25]);
-    break;
-  case 27:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24], a[25], a[26]);
-    break;
-  case 28:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24], a[25], a[26],
-                 a[27]);
-    break;
-  case 29:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24], a[25], a[26],
-                 a[27], a[28]);
-    break;
-  case 30:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24], a[25], a[26],
-                 a[27], a[28], a[29]);
-    break;
-  case 31:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24], a[25], a[26],
-                 a[27], a[28], a[29], a[30]);
-    break;
-  case 32:
-    *rv = vfnptr(fnptr, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
-                 a[9], a[10], a[11], a[12], a[13], a[14], a[15], a[16], a[17],
-                 a[18], a[19], a[20], a[21], a[22], a[23], a[24], a[25], a[26],
-                 a[27], a[28], a[29], a[30], a[31]);
-    break;
-  default:
-    return _RC_EXCEED_MAXVARGS_ERROR;
-  }
-  return _RC_SUCCESS;
-}
-
-// Headers for Host Fortran Runtime API as built in flang/runtime
+// Headers for Host Fortran Runtime API as built in llvm/flang/runtime
 extern "C" {
 void *_FortranAioBeginExternalListOutput(uint32_t a1, const char *a2,
                                          uint32_t a3);
+void *_FortranAioBeginExternalFormattedOutput(const char *ptr1, uint64_t x1,
+                                              void *ptr2, uint32_t x2,
+                                              const char *ptr3, uint32_t x3);
 bool _FortranAioOutputAscii(void *a1, char *a2, uint64_t a3);
 bool _FortranAioOutputInteger32(void *a1, uint32_t a2);
 uint32_t _FortranAioEndIoStatement(void *a1);
@@ -223,6 +63,21 @@ extern void *V_FortranAioBeginExternalListOutput(void *fnptr, ...) {
   int32_t v2 = va_arg(args, int32_t);
   va_end(args);
   void *cookie = _FortranAioBeginExternalListOutput(v0, v1, v2);
+  _list_started_cookie = cookie;
+  return cookie;
+}
+extern void *V_FortranAioBeginExternalFormattedOutput(void *fnptr, ...) {
+  va_list args;
+  va_start(args, fnptr);
+  const char *p0 = va_arg(args, const char *);
+  int64_t v0 = va_arg(args, int64_t);
+  void *p1 = va_arg(args, void *);
+  int32_t v1 = va_arg(args, int32_t);
+  const char *p2 = va_arg(args, const char *);
+  int32_t v2 = va_arg(args, int32_t);
+  va_end(args);
+  void *cookie =
+      _FortranAioBeginExternalFormattedOutput(p0, v0, p1, v1, p2, v2);
   _list_started_cookie = cookie;
   return cookie;
 }
@@ -374,47 +229,31 @@ typedef struct {
   uint32_t dfnid;      // The dvoideferred function id, in order received
   uint64_t *arg_array; // ptr to malloced arg_array
   char *c_ptr;         // ptr to null terminated char string
+  char *c_ptr2;        // ptr to null terminated char string
   uint64_t thread_num;
   uint64_t num_threads;
   uint64_t team_num;
   uint64_t num_teams;
-  uint64_t *return_value; // pointer to where return value is copied
+  emis_return_t return_value;
 } deferred_entry_t;
 
 static std::vector<deferred_entry_t *> *_deferred_fns_ptr;
 // static std::list<deferred_entry_t *> _deferred_fns;
+//
 
-static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
-                                     size_t bufsz, uint64_t *return_value) {
-  if (bufsz == 0)
+extern "C" emis_return_t EmissaryFortrt(char *data, emisArgBuf_t *ab) {
+  emis_return_t return_value = (emis_return_t)0;
+
+  if (ab->DataLen == 0)
     return _RC_SUCCESS;
 
-  // Get 6 values needed to unpack the buffer
-  int *datalen = (int *)buf;
-  int NumArgs = *((int *)(buf + sizeof(int)));
-  size_t data_not_used =
-      (size_t)(*datalen) - ((size_t)(2 + NumArgs) * sizeof(int));
-  char *keyptr = buf + (2 * sizeof(int));
-  char *dataptr = keyptr + (NumArgs * sizeof(int));
-  char *strptr = buf + (size_t)*datalen;
-
-  // skip the function pointer arg including any align buffer
-  if (((size_t)dataptr) % (size_t)8) {
-    dataptr += 4;
-    data_not_used -= 4;
-  }
-  void *fnptr = getfnptr(dataptr);
-  NumArgs--;
-  keyptr += 4;
-  dataptr += 8;
-  data_not_used -= 4;
-
-  if (NumArgs <= 0)
+  void *fnptr;
+  if (ab->NumArgs <= 0)
     return _RC_ERROR_INVALID_REQUEST;
 
-  uint64_t *a[MAXVARGS];
-  if (_build_vargs_array(NumArgs, keyptr, dataptr, strptr, &data_not_used, a) !=
-      _RC_SUCCESS)
+  emis_argptr_t *a[MAXVARGS];
+  if (EmissaryBuildVargs(ab->NumArgs, ab->keyptr, ab->argptr, ab->strptr,
+                         &ab->data_not_used, a) != _RC_SUCCESS)
     return _RC_ERROR_INVALID_REQUEST;
 
   // std::list<deferred_entry_t *> _deferred_fns;
@@ -422,9 +261,10 @@ static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
     _deferred_fns_ptr = new std::vector<deferred_entry_t *>;
 
   char *c_ptr = nullptr;
+  char *c_ptr2 = nullptr;
   bool defer_for_reorder = true;
   bool run_deferred_functions = false;
-  switch (DeviceRuntime_idx) {
+  switch (ab->emisfnid) {
   case _FortranAioBeginExternalListOutput_idx: {
     _deferred_begin_statements++;
     fnptr = (void *)V_FortranAioBeginExternalListOutput;
@@ -434,7 +274,27 @@ static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
       fprintf(stderr, "MALLOC FAILED for c_ptr size:%ld \n", slen);
     std::strncpy(c_ptr, (char *)a[5], slen - 1);
     c_ptr[slen - 1] = (char)0;
-    a[5] = (uint64_t *)c_ptr;
+    a[5] = (emis_argptr_t *)c_ptr;
+    break;
+  }
+  case _FortranAioBeginExternalFormattedOutput_idx: {
+    _deferred_begin_statements++;
+    fnptr = (void *)V_FortranAioBeginExternalFormattedOutput;
+    size_t slen = std::strlen((char *)a[8]) + 1;
+    c_ptr = (char *)aligned_alloc(sizeof(uint64_t *), slen);
+    if (!c_ptr)
+      fprintf(stderr, "MALLOC FAILED for c_ptr size:%ld \n", slen);
+    std::strncpy(c_ptr, (char *)a[8], slen - 1);
+    c_ptr[slen - 1] = (char)0;
+    a[8] = (emis_argptr_t *)c_ptr;
+
+    slen = std::strlen((char *)a[4]) + 1;
+    c_ptr2 = (char *)aligned_alloc(sizeof(uint64_t *), slen);
+    if (!c_ptr2)
+      fprintf(stderr, "MALLOC FAILED for c_ptr2 size:%ld \n", slen);
+    std::strncpy(c_ptr2, (char *)a[4], slen - 1);
+    c_ptr2[slen - 1] = (char)0;
+    a[4] = (emis_argptr_t *)c_ptr2;
     break;
   }
   case _FortranAioOutputAscii_idx: {
@@ -446,7 +306,7 @@ static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
       fprintf(stderr, "MALLOC FAILED for c_ptr size:%ld \n", slen);
     std::strncpy(c_ptr, (char *)a[5], slen - 1);
     c_ptr[slen - 1] = (char)0;
-    a[5] = (uint64_t *)c_ptr;
+    a[5] = (emis_argptr_t *)c_ptr;
 
     break;
   }
@@ -527,27 +387,27 @@ static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
     q->num_teams = (uint64_t)a[3];
     _max_num_teams =
         (q->num_teams > _max_num_teams) ? q->num_teams : _max_num_teams;
-    q->NumArgs = NumArgs - 4;
+    q->NumArgs = ab->NumArgs - 4;
     q->fnptr = fnptr;
-    q->fn_idx = DeviceRuntime_idx;
+    q->fn_idx = ab->emisfnid;
     uint64_t *arg_array = (uint64_t *)aligned_alloc(
-        sizeof(uint64_t), (NumArgs - 4) * sizeof(uint64_t));
+        sizeof(uint64_t), (ab->NumArgs - 4) * sizeof(uint64_t));
     if (!arg_array)
       fprintf(stderr, " MALLOC FAILED for arg_array size:%ld \n",
-              sizeof(uint64_t) * (NumArgs - 4));
-    for (int32_t i = 0; i < NumArgs - 4; i++) {
+              sizeof(uint64_t) * (ab->NumArgs - 4));
+    for (uint32_t i = 0; i < ab->NumArgs - 4; i++) {
       uint64_t val = (uint64_t)a[i + 4];
       arg_array[i] = val;
     }
     q->arg_array = arg_array;
-    q->return_value = (uint64_t *)return_value;
+    q->return_value = (emis_return_t)0;
     q->c_ptr = c_ptr;
+    q->c_ptr2 = c_ptr2;
     _deferred_fns_ptr->push_back(q);
   } else {
-    // non deferred functions get a return_value
-    if (_s_call_fnptr<uint64_t, emis_uint64_t>(NumArgs - 4, fnptr, &a[4],
-                                               return_value) != _RC_SUCCESS)
-      return _RC_ERROR_INVALID_REQUEST;
+    // execute a non deferred function
+    return_value = EmissaryCallFnptr<emis_return_t, emisfn_t>(ab->NumArgs - 4,
+                                                              fnptr, &a[4]);
   }
 
   if (run_deferred_functions) {
@@ -559,13 +419,9 @@ static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
         for (auto q : *_deferred_fns_ptr) {
           if ((thread_num == q->thread_num) && (team_num == q->team_num)) {
             for (uint32_t i = 0; i < q->NumArgs; i++)
-              a[i] = (uint64_t *)q->arg_array[i];
-            uint32_t rc = _s_call_fnptr<uint64_t, emis_uint64_t>(
-                q->NumArgs, q->fnptr, a, q->return_value);
-            if (rc != _RC_SUCCESS) {
-              fprintf(stderr, "    BAD RETURN FROM _call_fnptr %d\n", rc);
-              return _RC_ERROR_INVALID_REQUEST;
-            }
+              a[i] = (emis_argptr_t *)q->arg_array[i];
+            q->return_value = EmissaryCallFnptr<emis_return_t, emisfn_t>(
+                q->NumArgs, q->fnptr, a);
           }
           // Only the return value for the last end statement is returned.
           return_value = q->return_value;
@@ -577,6 +433,8 @@ static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
     for (auto q : *_deferred_fns_ptr) {
       if (q->c_ptr)
         free(q->c_ptr);
+      if (q->c_ptr2)
+        free(q->c_ptr2);
       free(q->arg_array);
       delete q;
     }
@@ -587,7 +445,8 @@ static service_rc fortran_rt_service(uint32_t DeviceRuntime_idx, char *buf,
     _max_num_threads = 0;
     _max_num_teams = 0;
     delete _deferred_fns_ptr;
+    _deferred_fns_ptr = nullptr;
   } // end run_deferred_functions
 
-  return _RC_SUCCESS;
-} // end fortran_rt_service
+  return return_value;
+} // end EmissaryFortrt

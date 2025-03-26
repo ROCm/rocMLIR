@@ -890,25 +890,25 @@ AsinPolynomialApproximation::matchAndRewrite(math::AsinOp op,
   // Asin(x) approximation for x = [-9/16, 9/16]:
   Value s = mul(x, x);
   Value q = mul(s, s);
-  Value r = bcast(floatCst(builder, 5.5579749017470502e-2f, elementType));
-  Value t = bcast(floatCst(builder, -6.2027913464120114e-2f, elementType));
+  Value r = bcast(floatCst(builder, 5.5579749017470502e-2, elementType));
+  Value t = bcast(floatCst(builder, -6.2027913464120114e-2, elementType));
 
-  r = fma(r, q, bcast(floatCst(builder, 5.4224464349245036e-2f, elementType)));
-  t = fma(t, q, bcast(floatCst(builder, -1.1326992890324464e-2f, elementType)));
-  r = fma(r, q, bcast(floatCst(builder, 1.5268872539397656e-2f, elementType)));
-  t = fma(t, q, bcast(floatCst(builder, 1.0493798473372081e-2f, elementType)));
-  r = fma(r, q, bcast(floatCst(builder, 1.4106045900607047e-2f, elementType)));
-  t = fma(t, q, bcast(floatCst(builder, 1.7339776384962050e-2f, elementType)));
-  r = fma(r, q, bcast(floatCst(builder, 2.2372961589651054e-2f, elementType)));
-  t = fma(t, q, bcast(floatCst(builder, 3.0381912707941005e-2f, elementType)));
-  r = fma(r, q, bcast(floatCst(builder, 4.4642857881094775e-2f, elementType)));
-  t = fma(t, q, bcast(floatCst(builder, 7.4999999991367292e-2f, elementType)));
+  r = fma(r, q, bcast(floatCst(builder, 5.4224464349245036e-2, elementType)));
+  t = fma(t, q, bcast(floatCst(builder, -1.1326992890324464e-2, elementType)));
+  r = fma(r, q, bcast(floatCst(builder, 1.5268872539397656e-2, elementType)));
+  t = fma(t, q, bcast(floatCst(builder, 1.0493798473372081e-2, elementType)));
+  r = fma(r, q, bcast(floatCst(builder, 1.4106045900607047e-2, elementType)));
+  t = fma(t, q, bcast(floatCst(builder, 1.7339776384962050e-2, elementType)));
+  r = fma(r, q, bcast(floatCst(builder, 2.2372961589651054e-2, elementType)));
+  t = fma(t, q, bcast(floatCst(builder, 3.0381912707941005e-2, elementType)));
+  r = fma(r, q, bcast(floatCst(builder, 4.4642857881094775e-2, elementType)));
+  t = fma(t, q, bcast(floatCst(builder, 7.4999999991367292e-2, elementType)));
   r = fma(r, s, t);
-  r = fma(r, s, bcast(floatCst(builder, 1.6666666666670193e-1f, elementType)));
+  r = fma(r, s, bcast(floatCst(builder, 1.6666666666670193e-1, elementType)));
   t = mul(x, s);
   r = fma(r, t, x);
 
-  Value rsub = sub(bcast(floatCst(builder, 1.57079632679f, elementType)), r);
+  Value rsub = sub(bcast(floatCst(builder, 1.57079632679, elementType)), r);
   r = sel(gt, rsub, r);
   r = scopy(r, operand);
 
@@ -968,8 +968,8 @@ AcosPolynomialApproximation::matchAndRewrite(math::AcosOp op,
       builder.create<arith::CmpFOp>(arith::CmpFPredicate::OGT, r, chkConst);
 
   Value trueVal =
-      fma(bcast(floatCst(builder, 9.3282184640716537e-1f, elementType)),
-          bcast(floatCst(builder, 1.6839188885261840e+0f, elementType)),
+      fma(bcast(floatCst(builder, 9.3282184640716537e-1, elementType)),
+          bcast(floatCst(builder, 1.6839188885261840e+0, elementType)),
           builder.create<math::AsinOp>(r));
 
   Value falseVal = builder.create<math::SqrtOp>(fma(half, r, half));
@@ -988,8 +988,8 @@ AcosPolynomialApproximation::matchAndRewrite(math::AcosOp op,
   Value betweenNegOneZero =
       builder.create<arith::AndIOp>(greaterThanNegOne, lessThanZero);
 
-  trueVal = fma(bcast(floatCst(builder, 1.8656436928143307e+0f, elementType)),
-                bcast(floatCst(builder, 1.6839188885261840e+0f, elementType)),
+  trueVal = fma(bcast(floatCst(builder, 1.8656436928143307e+0, elementType)),
+                bcast(floatCst(builder, 1.6839188885261840e+0, elementType)),
                 builder.create<arith::NegFOp>(r));
 
   Value finalVal =
@@ -1776,90 +1776,93 @@ void mlir::populatePolynomialApproximateErfcPattern(
 template <typename OpType>
 static void
 populateMathF32ExpansionPattern(RewritePatternSet &patterns,
-                                llvm::function_ref<bool(StringRef)> predicate) {
+                                llvm::function_ref<bool(StringRef)> predicate,
+                                PatternBenefit benefit) {
   if (predicate(OpType::getOperationName())) {
-    patterns.add<ReuseF32Expansion<OpType>>(patterns.getContext());
+    patterns.add<ReuseF32Expansion<OpType>>(patterns.getContext(), benefit);
   }
 }
 
 void mlir::populateMathF32ExpansionPatterns(
-    RewritePatternSet &patterns,
-    llvm::function_ref<bool(StringRef)> predicate) {
-  populateMathF32ExpansionPattern<math::AcosOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::AcoshOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::AsinOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::AsinhOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::AtanOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::Atan2Op>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::AtanhOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::CbrtOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::CosOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::CoshOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::ErfOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::ErfcOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::ExpOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::Exp2Op>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::ExpM1Op>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::LogOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::Log10Op>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::Log1pOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::Log2Op>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::PowFOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::RsqrtOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::SinOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::SinhOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::SqrtOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::TanOp>(patterns, predicate);
-  populateMathF32ExpansionPattern<math::TanhOp>(patterns, predicate);
+    RewritePatternSet &patterns, llvm::function_ref<bool(StringRef)> predicate,
+    PatternBenefit benefit) {
+  populateMathF32ExpansionPattern<math::AcosOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::AcoshOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::AsinOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::AsinhOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::AtanOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::Atan2Op>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::AtanhOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::CbrtOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::CosOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::CoshOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::ErfOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::ErfcOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::ExpOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::Exp2Op>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::ExpM1Op>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::LogOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::Log10Op>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::Log1pOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::Log2Op>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::PowFOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::RsqrtOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::SinOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::SinhOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::SqrtOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::TanOp>(patterns, predicate, benefit);
+  populateMathF32ExpansionPattern<math::TanhOp>(patterns, predicate, benefit);
 }
 
 template <typename OpType, typename PatternType>
 static void populateMathPolynomialApproximationPattern(
-    RewritePatternSet &patterns,
-    llvm::function_ref<bool(StringRef)> predicate) {
+    RewritePatternSet &patterns, llvm::function_ref<bool(StringRef)> predicate,
+    PatternBenefit benefit) {
   if (predicate(OpType::getOperationName())) {
-    patterns.add<PatternType>(patterns.getContext());
+    patterns.add<PatternType>(patterns.getContext(), benefit);
   }
 }
 
 void mlir::populateMathPolynomialApproximationPatterns(
-    RewritePatternSet &patterns,
-    llvm::function_ref<bool(StringRef)> predicate) {
+    RewritePatternSet &patterns, llvm::function_ref<bool(StringRef)> predicate,
+    PatternBenefit benefit) {
   populateMathPolynomialApproximationPattern<AcosOp,
                                              AcosPolynomialApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<AsinOp,
                                              AsinPolynomialApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<AtanOp, AtanApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<Atan2Op, Atan2Approximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<CbrtOp, CbrtApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<
-      CosOp, SinAndCosApproximation<false, math::CosOp>>(patterns, predicate);
+      CosOp, SinAndCosApproximation<false, math::CosOp>>(patterns, predicate,
+                                                         benefit);
   populateMathPolynomialApproximationPattern<ErfOp, ErfPolynomialApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<ErfcOp,
                                              ErfcPolynomialApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<ExpOp, ExpApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<ExpM1Op, ExpM1Approximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<LogOp, LogApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<Log2Op, Log2Approximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<Log1pOp, Log1pApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<RsqrtOp, RsqrtApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
   populateMathPolynomialApproximationPattern<
-      SinOp, SinAndCosApproximation<true, math::SinOp>>(patterns, predicate);
+      SinOp, SinAndCosApproximation<true, math::SinOp>>(patterns, predicate,
+                                                        benefit);
   populateMathPolynomialApproximationPattern<TanhOp, TanhApproximation>(
-      patterns, predicate);
+      patterns, predicate, benefit);
 }
 
 void mlir::populateMathPolynomialApproximationPatterns(

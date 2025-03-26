@@ -332,6 +332,7 @@ struct LowerGpuOpsToROCDLOpsPass final
       iface->populateConvertToLLVMConversionPatterns(target, converter,
                                                      llvmPatterns);
     }
+
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
     // TODO (rocmlir): remove hardcoded passes
