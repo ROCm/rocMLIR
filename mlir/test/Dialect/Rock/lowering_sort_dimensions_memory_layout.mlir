@@ -120,8 +120,8 @@ func.func @test_mlir_slice_sigmoid_mul_convolution(%arg0: memref<1638400xf16>, %
   // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<1x1x128x80x80xf16> to memref<80x80x1x1x128xf16>
   // CHECK: rock.conv(%{{.*}}, %[[b]], %{{.*}})
   rock.conv(%7, %6, %8) features =  mfma|dot|atomic_add|atomic_add_f16 {arch = "gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCU = 304 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x128x3x3x128xf16>, memref<1x1x128x80x80xf16>, memref<1x1x128x80x80xf16>
-  %9 = rock.transform %8 by <affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)> by [<PassThrough ["dim0", "dim2", "dim3", "dim1"] at [0, 1, 2, 3] -> ["dim0", "dim2", "dim3", "dim1"] at [0, 2, 3, 1]>] bounds = [1, 80, 80, 128] -> [1, 128, 80, 80]> : memref<1x128x80x80xf16> to memref<1x80x80x128xf16>
-  %10 = rock.transform %9 by <affine_map<(d0) -> (0, d0 floordiv 10240, (d0 mod 10240) floordiv 128, d0 mod 128)> by [<Merge{1, 80, 80, 128} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3]>] bounds = [819200] -> [1, 80, 80, 128]> : memref<1x80x80x128xf16> to memref<819200xf16>
+  %9 = rock.transform %8 by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)> by [<PassThrough ["dim0", "dim1", "dim2", "dim3", "dim4"] at [0, 1, 2, 3, 4] -> ["dim0", "dim1", "dim3", "dim4", "dim2"] at [0, 1, 3, 4, 2]>] bounds = [1, 1, 80, 80, 128] -> [1, 1, 128, 80, 80]> : memref<1x1x128x80x80xf16> to memref<1x1x80x80x128xf16>
+  %10 = rock.transform %9 by <affine_map<(d0) -> (0, 0, d0 floordiv 10240, (d0 mod 10240) floordiv 128, d0 mod 128)> by [<Merge{1, 1, 80, 80, 128} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3", "col4"] at [0, 1, 2, 3, 4]>] bounds = [819200] -> [1, 1, 80, 80, 128]> : memref<1x1x80x80x128xf16> to memref<819200xf16>
   memref.copy %10, %arg2 : memref<819200xf16> to memref<819200xf16>
   return
 }

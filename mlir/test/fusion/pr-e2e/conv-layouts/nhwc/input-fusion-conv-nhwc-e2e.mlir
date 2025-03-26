@@ -10,7 +10,7 @@
 // VECTORIZATION-NEXT: bVectorLen: 8
 
 module {
-func.func @test(%arg0: !migraphx.shaped<1x256x80x80xf16, 1638400x1x20480x256>, %arg1: !migraphx.shaped<128x128x3x3xf16, 1152x1x384x128>, %arg2: !migraphx.shaped<128xf16, 1>) -> !migraphx.shaped<1x128x80x80xf16, 819200x1x10240x128> {
+func.func @test(%arg0: !migraphx.shaped<1x256x80x80xf16, 1638400x1x20480x256>, %arg1: !migraphx.shaped<128x128x3x3xf16, 1152x1x384x128>) -> !migraphx.shaped<1x128x80x80xf16, 819200x1x10240x128> {
     %0 = migraphx.slice %arg0 {axes = [1], ends = [256], starts = [128]} : <1x256x80x80xf16, 1638400x1x20480x256> -> <1x128x80x80xf16, 1638400x1x20480x256>
     %1 = migraphx.sigmoid %0 : <1x128x80x80xf16, 1638400x1x20480x256> -> <1x128x80x80xf16, 819200x1x10240x128>
     %2 = migraphx.mul %0, %1 : <1x128x80x80xf16, 1638400x1x20480x256>, <1x128x80x80xf16, 819200x1x10240x128> -> <1x128x80x80xf16, 819200x1x10240x128>
