@@ -27,6 +27,7 @@ def hip_check(call_result):
         raise RuntimeError(str(err))
     return result
 
+
 props = hip.hipDeviceProp_t()
 hip_check(hip.hipGetDeviceProperties(props,0))
 numCUs = int(props.multiProcessorCount)
@@ -139,11 +140,11 @@ def calculateArithmeticIntensity(M, N, K):
     return (M*N*K)/(M*N + M*K + N*K) # opPerByte/bytesLoaded
 
 
-def calculateOccupancy(M, N, G, MPerBlock, NPerBlock, MNPerWave, minNumWaves):
+def calculateOccupancy(M, N, G, MPerBlock, NPerBlock, MNPerWave, minNumWaves, splitKFactor=1):
     MTiles = math.ceil(M/MPerBlock)
     NTiles = math.ceil(N/NPerBlock)
 
-    WorkGroups = G * MTiles * NTiles
+    WorkGroups = G * MTiles * NTiles * splitKFactor
     WavesPerBlock = MPerBlock * NPerBlock // MNPerWave
     Waves = WorkGroups * WavesPerBlock
 
