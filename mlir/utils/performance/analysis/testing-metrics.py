@@ -16,6 +16,8 @@ import argparse
 import math
 from hip import hip
 
+# TODO use AmdArchDb.py (when it's implemented)
+
 numEUPerCU = 4 # may be changed in newer architectures
 
 def hip_check(call_result):
@@ -32,6 +34,7 @@ props = hip.hipDeviceProp_t()
 hip_check(hip.hipGetDeviceProperties(props,0))
 numCUs = int(props.multiProcessorCount)
 minNumWaves = numCUs * numEUPerCU
+print("Using info from GPU 0 in your system, the data should have be obtained from the same GPU.")
 
 
 def analyzeGemmFile(file, n):
@@ -157,8 +160,9 @@ def calculateWorkImbalance(M, N, G, MPerBlock, NPerBlock, MNPerWave, minNumWaves
     WorkGroups = G * MTiles * NTiles * splitKFactor
     WavesPerBlock = MPerBlock * NPerBlock // MNPerWave
     Waves = WorkGroups * WavesPerBlock
+    WorkImbalanceIntermedResult = (Waves % minNumWaves) / minNumWaves
 
-    return ((1-((Waves % minNumWaves)/minNumWaves)) if ((Waves % minNumWaves)/minNumWaves) != 0 else 0)
+    return ((1-(WorkImbalanceIntermedResult)) if WorkImbalanceIntermedResult != 0 else 0)
 
 
 def determineFiletype(file):
