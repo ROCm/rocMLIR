@@ -164,7 +164,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
 
   ArrayAttr transforms = b.getArrayAttr(transformsList);
   rock::TransformMapAttr firstCoordTransform =
-      cast<rock::TransformMapAttr>(transforms);
+      dyn_cast<rock::TransformMapAttr>(transformsList[0]);
   int64_t upperRank = firstCoordTransform.getUpperBounds().size();
   SmallVector<uint32_t> strides(upperRank);
   for (int64_t idx = 0; idx < upperRank; idx++) {
