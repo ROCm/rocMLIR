@@ -14,11 +14,22 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import argparse
 import math
-import hip
+from hip import hip
 
 numEUPerCU = 4 # may be changed in newer architectures
-numCUs = 304 # temporary hardcoded
 
+def hip_check(call_result):
+    err = call_result[0]
+    result = call_result[1:]
+    if len(result) == 1:
+        result = result[0]
+    if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
+        raise RuntimeError(str(err))
+    return result
+
+props = hip.hipDeviceProp_t()
+hip_check(hip.hipGetDeviceProperties(props,0))
+numCUs = int(props.multiProcessorCount)
 minNumWaves = numCUs * numEUPerCU
 
 
@@ -33,8 +44,8 @@ def analyzeGemmFile(file, n):
 
     df["ArithmeticIntensity"] = df.apply(lambda row: calculateArithmeticIntensity(row["M"], row["N"], row["K"]), axis=1)
     df["MNPerWave"] = df.apply(lambda row: (int(row["MPerWave"]) * int(row["NPerWave"])), axis=1)
-    df["Occupancy"] = df.apply(lambda row: calculateOccupancy(row["M"], row["N"], row["G"], row["MPerBlock"], row["NPerBlock"], row["MNPerWave"], minNumWaves), axis=1)
-    df["WorkImbalance"] = df.apply(lambda row: calculateWorkImbalance(row["M"], row["N"], row["G"], row["MPerBlock"], row["NPerBlock"], row["MNPerWave"], minNumWaves, row["splitKFactor"]), axis=1)
+    df["Occupancy"] = df.apply(lambda row: calculateOccupancy(int(row["M"]), int(row["N"]), int(row["G"]), int(row["MPerBlock"]), int(row["NPerBlock"]), int(row["MNPerWave"]), minNumWaves), axis=1)
+    df["WorkImbalance"] = df.apply(lambda row: calculateWorkImbalance(int(row["M"]), int(row["N"]), int(row["G"]), int(row["MPerBlock"]), int(row["NPerBlock"]), int(row["MNPerWave"]), minNumWaves, int(row["splitKFactor"])), axis=1)
 
     topList = []
 
