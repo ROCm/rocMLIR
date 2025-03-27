@@ -649,6 +649,12 @@ static bool compareSameArgs(IndexCmpPredicate pred) {
   case IndexCmpPredicate::UGE:
   case IndexCmpPredicate::ULE:
     return true;
+  case IndexCmpPredicate::NE:
+  case IndexCmpPredicate::SGT:
+  case IndexCmpPredicate::SLT:
+  case IndexCmpPredicate::UGT:
+  case IndexCmpPredicate::ULT:
+    return false;
   default:
     llvm_unreachable("unknown predicate in compareSameArgs");
   }

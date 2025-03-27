@@ -28,9 +28,12 @@ import multiprocessing
 import git
 
 
-def get_diff(base_commit) -> Tuple[bool, str]:
+def get_diff(base_commit, ignore_external_files: bool) -> Tuple[bool, str]:
+  command = f"git-clang-format --diff {base_commit}"
+  if ignore_external_files:
+    command = f"git-clang-format --diff {base_commit} $(git diff --name-only {base_commit} | grep -v '^external/')"
   diff_run = subprocess.run(
-    f'git-clang-format --diff {base_commit}',
+    command,
     shell=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE
@@ -49,7 +52,7 @@ def run_clang_format(base_commit, ignore_config, ignore_external_files: bool = F
   """Apply clang-format and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_format_report.py"""
 
-  is_diff_run_succesful, patch = get_diff(base_commit)
+  is_diff_run_succesful, patch = get_diff(base_commit, ignore_external_files)
   if not is_diff_run_succesful:
     print('git-clang-format returned an non-zero exit code')
     return False

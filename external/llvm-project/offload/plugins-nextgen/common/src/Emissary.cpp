@@ -19,58 +19,95 @@
 #include "../../../DeviceRTL/include/EmissaryIds.h"
 #include "Emissary.h"
 
-extern "C" emis_return_t _emissary_execute(void *data) {
+extern "C" emis_return_t Emissary(char *data) {
+  emisArgBuf_t ab;
+  emisExtractArgBuf(data, &ab);
+  emis_return_t result = 0;
+  emis_argptr_t *args[MAXVARGS]; // FIXME use malloc here
 
-  uint32_t *int32_data = (uint32_t *)data;
-  uint32_t sz = int32_data[0];
-  // Note: while the data buffer contains all args including strings,
-  // sz does not include strings. It only counts header, keys,
-  // and aligned numerics.
-  uint32_t nargs = int32_data[1];
-
-  // Extract the two emissary identifiers from 1st 64bit arg
-  char *char_data = (char *)data;
-  char *argptr = char_data + ((nargs + 2) * sizeof(int));
-  if (((size_t)argptr) % (size_t)8)
-    argptr += 4;
-  uint64_t emis_ids = *(uint64_t *)argptr;
-  offload_emis_id_t emis_id = (offload_emis_id_t)((uint)(emis_ids >> 32));
-  uint32_t emis_func_id = (uint32_t)((uint)((emis_ids << 32) >> 32));
-  unsigned long long result;
-  switch (emis_id) {
+  switch (ab.emisid) {
   case EMIS_ID_INVALID: {
-    fprintf(stderr, "_emissary_execute got invalid EMIS_ID\n");
+    fprintf(stderr, "emisExecute got invalid EMIS_ID\n");
     result = 0;
     break;
   }
   case EMIS_ID_FORTRT: {
-    result = _emissary_execute_fortrt(emis_func_id, data, sz);
+    result = EmissaryFortrt(data, &ab);
     break;
   }
   case EMIS_ID_PRINT: {
-    result = _emissary_execute_print(emis_func_id, data, sz);
+    result = EmissaryPrint(data, &ab);
     break;
   }
   case EMIS_ID_MPI: {
-    // res = _emissary_execute_mpi(emis_func_id, data, sz);
-    result = 0;
-    fprintf(stderr, "Support for MPI Emissary API is in development\n");
+    if (EmissaryBuildVargs(ab.NumArgs, ab.keyptr, ab.argptr, ab.strptr,
+                           &ab.data_not_used, &args[0]) != _RC_SUCCESS)
+      return (emis_return_t)0;
+    result = EmissaryMPI(data, &ab, args);
     break;
   }
   case EMIS_ID_HDF5: {
-    // result = _emissary_execute_hdf5(emis_func_id, data, sz);
-    result = 0;
-    fprintf(stderr, "Support for HDF5 Emissary API is in development\n");
+    if (EmissaryBuildVargs(ab.NumArgs, ab.keyptr, ab.argptr, ab.strptr,
+                           &ab.data_not_used, &args[0]) != _RC_SUCCESS)
+      return (emis_return_t)0;
+    result = EmissaryHDF5(data, &ab, args);
+    break;
+  }
+  case EMIS_ID_RESERVE: {
+    if (EmissaryBuildVargs(ab.NumArgs, ab.keyptr, ab.argptr, ab.strptr,
+                           &ab.data_not_used, &args[0]) != _RC_SUCCESS)
+      return (emis_return_t)0;
+    result = EmissaryReserve(data, &ab, args);
     break;
   }
   default:
-    fprintf(stderr, "EMIS_ID %d not supported, func_id=%d\n", emis_id,
-            emis_func_id);
+    fprintf(stderr, "EMIS_ID:%d fnid:%d not supported\n", ab.emisid,
+            ab.emisfnid);
   }
   return result;
 }
 
-/// These are helper functions for host support of emissary APIs
+// emisExtractArgBuf reverses protocol that codegen in EmitEmissaryExec makes.
+extern "C" void emisExtractArgBuf(char *data, emisArgBuf_t *ab) {
+
+  uint32_t *int32_data = (uint32_t *)data;
+  ab->DataLen = int32_data[0];
+  ab->NumArgs = int32_data[1];
+
+  // Note: while the data buffer contains all args including strings,
+  // ab->DataLen does not include strings. It only counts header, keys,
+  // and aligned numerics.
+
+  ab->keyptr = data + (2 * sizeof(int));
+  ab->argptr = ab->keyptr + (ab->NumArgs * sizeof(int));
+  ab->strptr = data + (size_t)ab->DataLen;
+  int alignfill = 0;
+  if (((size_t)ab->argptr) % (size_t)8) {
+    ab->argptr += 4;
+    alignfill = 4;
+  }
+
+  // Extract the two emissary identifiers from 1st 64bit arg
+  uint64_t emisIds = *(uint64_t *)ab->argptr;
+  ab->emisid = (offload_emis_id_t)((uint)(emisIds >> 32));
+  ab->emisfnid = (uint32_t)((uint)((emisIds << 32) >> 32));
+
+  // skip the uint64_t emissary id arg which is first arg in _emissary_exec.
+  ab->keyptr += sizeof(int);
+  ab->argptr += sizeof(uint64_t);
+  ab->NumArgs -= 1;
+
+  // data_not_used used for testing consistency.
+  ab->data_not_used =
+      (size_t)(ab->DataLen) - (((size_t)(3 + ab->NumArgs) * sizeof(int)) +
+                               sizeof(uint64_t) + alignfill);
+
+  // Ensure first arg after emissary id arg is aligned.
+  if (((size_t)ab->argptr) % (size_t)8) {
+    ab->argptr += 4;
+    ab->data_not_used -= 4;
+  }
+}
 
 /// Get uint32 value extended to uint64_t value from a char ptr
 extern "C" uint64_t getuint32(char *val) {
@@ -88,9 +125,10 @@ extern "C" void *getfnptr(char *val) {
 }
 
 // build argument array
-extern "C" uint32_t _build_vargs_array(int NumArgs, char *keyptr, char *dataptr,
-                                       char *strptr, size_t *data_not_used,
-                                       uint64_t *a[MAXVARGS]) {
+extern "C" uint32_t EmissaryBuildVargs(int NumArgs, char *keyptr, char *dataptr,
+                                       char *strptr,
+                                       unsigned long long *data_not_used,
+                                       emis_argptr_t *a[MAXVARGS]) {
   size_t num_bytes;
   size_t bytes_consumed;
   size_t strsz;
@@ -120,9 +158,9 @@ extern "C" uint32_t _build_vargs_array(int NumArgs, char *keyptr, char *dataptr,
         return _RC_DATA_USED_ERROR;
 
       if (num_bytes == 4)
-        a[argcount] = (uint64_t *)getuint32(dataptr);
+        a[argcount] = (emis_argptr_t *)getuint32(dataptr);
       else
-        a[argcount] = (uint64_t *)getuint64(dataptr);
+        a[argcount] = (emis_argptr_t *)getuint64(dataptr);
 
       break;
 
@@ -138,9 +176,9 @@ extern "C" uint32_t _build_vargs_array(int NumArgs, char *keyptr, char *dataptr,
         return _RC_DATA_USED_ERROR;
 
       if (num_bytes == 4)
-        a[argcount] = (uint64_t *)getuint32(dataptr);
+        a[argcount] = (emis_argptr_t *)getuint32(dataptr);
       else
-        a[argcount] = (uint64_t *)getuint64(dataptr);
+        a[argcount] = (emis_argptr_t *)getuint64(dataptr);
 
       break;
 
@@ -151,7 +189,7 @@ extern "C" uint32_t _build_vargs_array(int NumArgs, char *keyptr, char *dataptr,
         strsz = (size_t)*(unsigned int *)dataptr;
         if ((*data_not_used) < bytes_consumed)
           return _RC_DATA_USED_ERROR;
-        a[argcount] = (uint64_t *)((char *)strptr);
+        a[argcount] = (emis_argptr_t *)((char *)strptr);
 
       } else {
         num_bytes = 8;
@@ -164,7 +202,7 @@ extern "C" uint32_t _build_vargs_array(int NumArgs, char *keyptr, char *dataptr,
         if ((*data_not_used) < bytes_consumed)
           return _RC_DATA_USED_ERROR;
 
-        a[argcount] = (uint64_t *)getuint64(dataptr);
+        a[argcount] = (emis_argptr_t *)getuint64(dataptr);
       }
       break;
 

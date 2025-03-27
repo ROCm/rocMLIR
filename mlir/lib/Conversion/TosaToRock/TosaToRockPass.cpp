@@ -41,14 +41,22 @@ public:
     }
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization
+    RewritePatternSet attentionPatterns(&ctx);
+
+    mlir::tosa::populateTosaToRockAttentionConversionPatterns(
+        &ctx, attentionPatterns);
+    if (failed(applyPatternsGreedily(func, std::move(attentionPatterns))))
+      signalPassFailure();
+
     RewritePatternSet tensorPatterns(&ctx);
-    RewritePatternSet patterns(&ctx);
-    ConversionTarget target(ctx);
 
     mlir::tosa::populateTosaToRockTensorConversionPatterns(&ctx,
                                                            tensorPatterns);
     if (failed(applyPatternsGreedily(func, std::move(tensorPatterns))))
       signalPassFailure();
+
+    RewritePatternSet patterns(&ctx);
+    ConversionTarget target(ctx);
 
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
                            tensor::TensorDialect,

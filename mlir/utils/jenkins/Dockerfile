@@ -78,7 +78,7 @@ ENV LC_ALL en_US.UTF-8
 # TODO: that should be done during the build as it will pull this repo anyway and will have latest version.
 ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" llvm-requirements.txt
 
-ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/requirements.txt" requirements.txt
+ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/pip_requirements.txt" requirements.txt
 
 # --------------------- Section 2: Rock dialect setups -----------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
