@@ -139,7 +139,6 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
   llvm::SmallVector<Value, 4> blockArgs;
   if (failed(traceGemmArgToBlockArg(tensor, b, transformAttrsMap, blockArgs))) {
-    llvm::dbgs() << "1";
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
   }
   assert(!blockArgs.empty());
@@ -148,7 +147,6 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
     // make sure all the blockArgs have been mapped to some transform sequence
     // or empty transform sequence
     if (not transformAttrsMap.contains(blockArg)) {
-      llvm::dbgs() << "2";
       return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
     }
     if (transformsList.empty()) {
@@ -157,12 +155,10 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
       // Currently we do not handle case where some block arg goes through
       // different sequence of transforms. All blockArgs must have same
       // transforms for now.
-      llvm::dbgs() << "3";
       return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
     }
   }
   if (transformsList.empty()) {
-    llvm::dbgs() << "4";
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
   }
   ArrayAttr transforms = b.getArrayAttr(transformsList);
