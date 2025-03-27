@@ -84,20 +84,17 @@ static LogicalResult traceGemmArgToBlockArg(
     llvm::SmallVector<Value, 4> &blockArgs) {
   Value source;
   ArrayAttr transforms;
-  std::tie(source, transforms, std::ignore) = rock::untransform(b, inputArg);
+  std::tie(source, transforms, std::ignore) =
+      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
   // avoid adding duplicates
   if (llvm::is_contained(blockArgs, source)) {
     return success();
   }
+  SmallVector<Attribute> transformsOnSource{};
+  transformsOnSource.append(transforms.begin(), transforms.end());
+  transformAttrsMap[source] = transformsOnSource;
   if (isa<BlockArgument>(source)) {
     blockArgs.push_back(source);
-    SmallVector<Attribute> transformsOnSource{};
-    if (transformAttrsMap.contains(inputArg)) {
-      auto transformsOnInputArg = transformAttrsMap[inputArg];
-      transformsOnSource.append(transforms.begin(), transforms.end());
-    }
-    transformsOnSource.append(transforms.begin(), transforms.end());
-    transformAttrsMap[source] = transformsOnSource;
     return success();
   }
   FailureOr<memref::AllocOp> allocOp = mlir::rock::findMemrefAlloc(source);
@@ -124,6 +121,7 @@ static LogicalResult traceGemmArgToBlockArg(
       if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
           writerOpOperand != allocWriteOperand) {
         Value writerOpOperandValue = writerOpOperand->get();
+        transformAttrsMap[writerOpOperandValue] = transformsOnSource;
         if (succeeded(traceGemmArgToBlockArg(writerOpOperandValue, b,
                                              transformAttrsMap, blockArgs))) {
           hasSuccess = true;
@@ -142,6 +140,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
   llvm::SmallVector<Value, 4> blockArgs;
   if (failed(traceGemmArgToBlockArg(tensor, b, transformAttrsMap, blockArgs))) {
+    llvm::dbgs() << "1";
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
   }
   assert(!blockArgs.empty());
@@ -150,6 +149,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
     // make sure all the blockArgs have been mapped to some transform sequence
     // or empty transform sequence
     if (not transformAttrsMap.contains(blockArg)) {
+      llvm::dbgs() << "2";
       return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
     }
     if (transformsList.empty()) {
@@ -158,13 +158,18 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
       // Currently we do not handle case where some block arg goes through
       // different sequence of transforms. All blockArgs must have same
       // transforms for now.
+      llvm::dbgs() << "3";
       return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
     }
   }
-
+  if (transformsList.empty()) {
+    llvm::dbgs() << "4";
+    return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+  }
   ArrayAttr transforms = b.getArrayAttr(transformsList);
   rock::TransformMapAttr firstCoordTransform =
       dyn_cast<rock::TransformMapAttr>(transformsList[0]);
+  firstCoordTransform.dump();
   int64_t upperRank = firstCoordTransform.getUpperBounds().size();
   SmallVector<uint32_t> strides(upperRank);
   for (int64_t idx = 0; idx < upperRank; idx++) {
