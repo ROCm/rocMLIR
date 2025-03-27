@@ -1,677 +1,677 @@
 # from densenet121i32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 96 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 96 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from densenet121i32 --fp16
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 96 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 96 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 28 -W 28 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 160 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 224 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 320 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 352 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 384 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 416 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 480 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 14 -W 14 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 512 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 544 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 576 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 608 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 640 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 672 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 704 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 736 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 800 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 832 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 864 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 896 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 928 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 960 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 992 -H 7 -W 7 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from dpn92i1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 288 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 56 -W 56 -k 3 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 96 -H 56 -W 56 -k 272 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 304 -H 56 -W 56 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 320 -H 56 -W 56 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 336 -H 56 -W 56 -k 576 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 336 -H 56 -W 56 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 6 -H 56 -W 56 -k 6 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 192 -H 28 -W 28 -k 544 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 608 -H 28 -W 28 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 6 -H 28 -W 28 -k 6 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 640 -H 28 -W 28 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 672 -H 28 -W 28 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 704 -H 28 -W 28 -k 1072 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 704 -H 28 -W 28 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 12 -H 28 -W 28 -k 12 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 384 -H 14 -W 14 -k 1048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1096 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 12 -H 14 -W 14 -k 12 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1120 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1144 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1168 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1192 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1216 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1240 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1264 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1288 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1312 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1336 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1360 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1384 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1408 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1432 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1456 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1480 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1504 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1528 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1552 -H 14 -W 14 -k 2304 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1552 -H 14 -W 14 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 24 -H 14 -W 14 -k 24 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 768 -H 7 -W 7 -k 2176 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2432 -H 7 -W 7 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 24 -H 7 -W 7 -k 24 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2560 -H 7 -W 7 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 5376 -H 1 -W 1 -k 1000 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 288 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 56 -W 56 -k 3 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 96 -H 56 -W 56 -k 272 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 304 -H 56 -W 56 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 320 -H 56 -W 56 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 336 -H 56 -W 56 -k 576 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 336 -H 56 -W 56 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 6 -H 56 -W 56 -k 6 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 192 -H 28 -W 28 -k 544 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 608 -H 28 -W 28 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 6 -H 28 -W 28 -k 6 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 640 -H 28 -W 28 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 672 -H 28 -W 28 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 704 -H 28 -W 28 -k 1072 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 704 -H 28 -W 28 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 12 -H 28 -W 28 -k 12 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 384 -H 14 -W 14 -k 1048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1096 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 12 -H 14 -W 14 -k 12 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1120 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1144 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1168 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1192 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1216 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1240 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1264 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1288 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1312 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1336 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1360 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1384 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1408 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1432 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1456 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1480 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1504 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1528 -H 14 -W 14 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1552 -H 14 -W 14 -k 2304 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1552 -H 14 -W 14 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 24 -H 14 -W 14 -k 24 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 768 -H 7 -W 7 -k 2176 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2432 -H 7 -W 7 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 24 -H 7 -W 7 -k 24 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2560 -H 7 -W 7 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 5376 -H 1 -W 1 -k 1000 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from inceptioni32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 73 -W 73 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 48 -H 35 -W 35 -k 64 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 384 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 576 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 73 -W 73 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 48 -H 35 -W 35 -k 64 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 384 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 576 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from inceptioni32 --fp16
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 73 -W 73 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 48 -H 35 -W 35 -k 64 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 384 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 576 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 73 -W 73 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 48 -H 35 -W 35 -k 64 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 35 -W 35 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 256 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 48 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 288 -H 35 -W 35 -k 384 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 128 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 128 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 160 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 576 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 768 -H 17 -W 17 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 384 -H 8 -W 8 -k 384 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 32 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 384 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 
 # from inception4iv16
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 64 -H 147 -W 147 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 160 -H 73 -W 73 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O N01GC -n 16 -c 64 -H 73 -W 73 -k 96 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 64 -H 73 -W 73 -k 64 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 64 -H 73 -W 73 -k 64 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 64 -H 73 -W 73 -k 96 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 71 -W 71 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 384 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 35 -W 35 -k 224 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 224 -H 35 -W 35 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 224 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 224 -H 17 -W 17 -k 256 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 224 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 224 -H 17 -W 17 -k 224 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 224 -H 17 -W 17 -k 256 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 224 -H 17 -W 17 -k 256 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 224 -H 17 -W 17 -k 256 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 256 -H 17 -W 17 -k 256 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 256 -H 17 -W 17 -k 320 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 320 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1536 -H 8 -W 8 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1536 -H 8 -W 8 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 384 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 384 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 384 -H 8 -W 8 -k 448 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 448 -H 8 -W 8 -k 512 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 512 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 512 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O N01GC -n 16 -c 384 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 384 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 512 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 512 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 64 -H 147 -W 147 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 160 -H 73 -W 73 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O N01GC -n 16 -c 64 -H 73 -W 73 -k 96 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 64 -H 73 -W 73 -k 64 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 64 -H 73 -W 73 -k 64 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 64 -H 73 -W 73 -k 96 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 71 -W 71 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 96 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 384 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 384 -H 35 -W 35 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 35 -W 35 -k 224 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 224 -H 35 -W 35 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 224 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 224 -H 17 -W 17 -k 256 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 224 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 224 -H 17 -W 17 -k 224 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 224 -H 17 -W 17 -k 256 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 224 -H 17 -W 17 -k 256 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 192 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 224 -H 17 -W 17 -k 256 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 192 -H 17 -W 17 -k 192 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1024 -H 17 -W 17 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 256 -H 17 -W 17 -k 256 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 256 -H 17 -W 17 -k 320 -y 7 -x 1 -p 3 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 320 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1536 -H 8 -W 8 -k 768 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 1536 -H 8 -W 8 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 384 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 384 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 16 -c 384 -H 8 -W 8 -k 448 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 448 -H 8 -W 8 -k 512 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 512 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 512 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O N01GC -n 16 -c 384 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 384 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 512 -H 8 -W 8 -k 256 -y 1 -x 3 -p 0 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 16 -c 512 -H 8 -W 8 -k 256 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from MaskRCNN-10
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from mobilenet_i64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 225 -W 225 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 112 -W 112 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 32 -H 112 -W 112 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 113 -W 113 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 56 -W 56 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 57 -W 57 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 128
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 28 -W 28 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 256 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 29 -W 29 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 256
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 14 -W 14 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 512
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 512 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 15 -W 15 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 512
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 7 -W 7 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1024
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 1024 -H 7 -W 7 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 1 -W 1 -k 1001 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 225 -W 225 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 112 -W 112 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 32
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 32 -H 112 -W 112 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 113 -W 113 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 56 -W 56 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 57 -W 57 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 128
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 28 -W 28 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 256 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 29 -W 29 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 256
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 14 -W 14 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 512
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 512 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 15 -W 15 -k 1 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 512
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 7 -W 7 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1024
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 1024 -H 7 -W 7 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 1 -W 1 -k 1001 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from nasnet_i64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 331 -W 331 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 96 -H 165 -W 165 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 165 -W 165 -k 1 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 96
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 96 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 42
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 42 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 165 -W 165 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 96
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 42
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 165 -W 165 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 42
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 84 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 42
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 168 -H 83 -W 83 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 96 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 84
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 84 -H 42 -W 42 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 84
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 84
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 84
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 168 -H 42 -W 42 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 84
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 336 -H 42 -W 42 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 168 -H 42 -W 42 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 168
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 168 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 168
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 336 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 1008 -H 42 -W 42 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 64 -c 336 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1008 -H 42 -W 42 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1008 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 47 -W 47 -k 1 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 336
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 336 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 336
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 45 -W 45 -k 1 -y 5 -x 5 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 336
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 336
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 672 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 336
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1344 -H 21 -W 21 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1008 -H 21 -W 21 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 2016 -H 21 -W 21 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 64 -c 672 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2016 -H 21 -W 21 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2016 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 672
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 672 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 11 -W 11 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 672
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 672
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 11 -W 11 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 672
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 1344 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 11 -W 11 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 672
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2688 -H 11 -W 11 -k 1344 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2016 -H 11 -W 11 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 4032 -H 11 -W 11 -k 1344 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 64 -c 1344 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 4032 -H 11 -W 11 -k 1344 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 4032 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 331 -W 331 -k 96 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 96 -H 165 -W 165 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 165 -W 165 -k 1 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 96
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 96 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 42
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 42 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 165 -W 165 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 96
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 42
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 165 -W 165 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 42
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 84 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 42
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 168 -H 83 -W 83 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 96 -H 83 -W 83 -k 42 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 84
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 84 -H 42 -W 42 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 84
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 83 -W 83 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 84
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 84
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 168 -H 42 -W 42 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 84
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 336 -H 42 -W 42 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 168 -H 42 -W 42 -k 84 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 168
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 168 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 42 -W 42 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 168
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 336 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 1008 -H 42 -W 42 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 64 -c 336 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1008 -H 42 -W 42 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1008 -H 42 -W 42 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 47 -W 47 -k 1 -y 7 -x 7 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 336
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 336 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 336
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 45 -W 45 -k 1 -y 5 -x 5 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 336
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 336
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 672 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 336
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1344 -H 21 -W 21 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1008 -H 21 -W 21 -k 168 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 2016 -H 21 -W 21 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 64 -c 672 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2016 -H 21 -W 21 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2016 -H 21 -W 21 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 672
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 672 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 11 -W 11 -k 1 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 672
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 21 -W 21 -k 1 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 672
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 11 -W 11 -k 1 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 672
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 1344 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1 -H 11 -W 11 -k 1 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 672
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2688 -H 11 -W 11 -k 1344 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2016 -H 11 -W 11 -k 336 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 2
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 64 -c 4032 -H 11 -W 11 -k 1344 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 64 -c 1344 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 4032 -H 11 -W 11 -k 1344 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 4032 -H 11 -W 11 -k 672 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from resnet50i1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from resnet50i64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from resnet50i64 --fp16
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 64 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from resnext101_64x4di1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 4 -H 56 -W 56 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 8 -H 56 -W 56 -k 8 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 768 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 8 -H 28 -W 28 -k 8 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 16 -H 28 -W 28 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1536 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 16 -H 14 -W 14 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 32 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 3072 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 32 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 4 -H 56 -W 56 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 8 -H 56 -W 56 -k 8 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 768 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 8 -H 28 -W 28 -k 8 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 16 -H 28 -W 28 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1536 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 16 -H 14 -W 14 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 32 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 3072 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 32 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from resnext101_64x4di16
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 64 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 4 -H 56 -W 56 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 256 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 256 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 8 -H 56 -W 56 -k 8 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 768 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 512 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 8 -H 28 -W 28 -k 8 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 512 -H 28 -W 28 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 16 -H 28 -W 28 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 1536 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 1024 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 16 -H 14 -W 14 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 32 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 3072 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 32 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O N01GC -n 16 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 16 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 64 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 4 -H 56 -W 56 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 256 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 256 -H 56 -W 56 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 8 -H 56 -W 56 -k 8 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 768 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 512 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 8 -H 28 -W 28 -k 8 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 512 -H 28 -W 28 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 16 -H 28 -W 28 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 1536 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 1024 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 16 -H 14 -W 14 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 32 -H 14 -W 14 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 3072 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 16 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 32 -H 7 -W 7 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 16 -c 2048 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from yolov5s
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 32 -y 6 -x 6 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 320 -W 320 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 160 -W 160 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 160 -W 160 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 20 -W 20 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 32 -y 6 -x 6 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 320 -W 320 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 160 -W 160 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 160 -W 160 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 20 -W 20 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from model --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024 --fp16
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 4 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 320 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 640 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 2560 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 2560 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1920 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1920 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1920 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1920 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1280 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 4 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 320 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 640 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 2560 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 2560 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1920 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1920 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1920 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1920 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1280 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from taau_low_res_downsample_d2s_for_infer_time_fp16_opset11 --input-dim @inputs 1 1920 1080 8
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 8 -H 1920 -W 1080 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 16 -H 960 -W 540 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 16 -H 480 -W 270 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 16 -H 240 -W 135 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 480 -W 270 -k 16 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 480 -W 270 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 960 -W 540 -k 16 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 960 -W 540 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 1920 -W 1080 -k 16 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 1920 -W 1080 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-Problem: gfx942:sramecc+:xnack-	304	convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 16 -H 1920 -W 1080 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 8 -H 1920 -W 1080 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 16 -H 960 -W 540 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 16 -H 480 -W 270 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 16 -H 240 -W 135 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 480 -W 270 -k 16 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 480 -W 270 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 960 -W 540 -k 16 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 960 -W 540 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 1920 -W 1080 -k 16 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 1920 -W 1080 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 16 -H 1920 -W 1080 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
