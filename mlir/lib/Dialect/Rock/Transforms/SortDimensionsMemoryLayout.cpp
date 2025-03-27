@@ -87,9 +87,8 @@ static LogicalResult traceGemmInputToBlockArgs(
   ArrayAttr transforms;
   std::tie(source, transforms, std::ignore) =
       rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
-  SmallVector<Attribute> transformsOnSource{};
-  transformsOnSource.append(transforms.begin(), transforms.end());
-  transformAttrsMap[source] = transformsOnSource;
+  transformAttrsMap.insert(
+      {source, SmallVector<Attribute>{transforms.begin(), transforms.end()}});
   if (isa<BlockArgument>(source)) {
     blockArgs.insert(source);
     return success();
@@ -121,7 +120,7 @@ static LogicalResult traceGemmInputToBlockArgs(
       if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
           writerOpOperand != allocWriteOperand) {
         Value writerOpOperandValue = writerOpOperand->get();
-        transformAttrsMap[writerOpOperandValue] = transformsOnSource;
+        transformAttrsMap[writerOpOperandValue] = transformAttrsMap.at(source);
         if (succeeded(traceGemmInputToBlockArgs(
                 writerOpOperandValue, b, transformAttrsMap, blockArgs, deps))) {
           hasSuccess = true;
