@@ -82,7 +82,7 @@ static LogicalResult traceGemmInputToBlockArgs(
     Value inputArg, PatternRewriter &b,
     llvm::DenseMap<Value, SmallVector<Attribute>> &transformAttrsMap,
     llvm::SmallSetVector<Value, 2> &blockArgs,
-    llvm::DenseMap<memref::AllocOp, BufferDependencyAnalysis> &deps) {
+    const BufferDependencyAnalysis &deps) {
   Value source;
   ArrayAttr transforms;
   std::tie(source, transforms, std::ignore) =
@@ -97,12 +97,8 @@ static LogicalResult traceGemmInputToBlockArgs(
   if (failed(allocOp)) {
     return failure();
   }
-  if (!deps.contains(allocOp.value())) {
-    deps.insert({allocOp.value(),
-                 BufferDependencyAnalysis(allocOp.value().getOperation())});
-  }
   std::optional<llvm::SmallVector<OpOperand *>> allocOpWriters =
-      deps.at(allocOp.value()).getWriters(allocOp.value());
+      deps.getWriters(allocOp.value());
   if (!allocOpWriters.has_value()) {
     return failure();
   }
@@ -138,7 +134,8 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   // trace input tensor to blockArgument first and do necessary error checking
   llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
   llvm::SmallSetVector<Value, 2> blockArgs;
-  llvm::DenseMap<memref::AllocOp, BufferDependencyAnalysis> deps;
+  BufferDependencyAnalysis deps(
+      tensor.getDefiningOp()->getParentOfType<func::FuncOp>());
   if (failed(traceGemmInputToBlockArgs(tensor, b, transformAttrsMap, blockArgs,
                                        deps))) {
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
