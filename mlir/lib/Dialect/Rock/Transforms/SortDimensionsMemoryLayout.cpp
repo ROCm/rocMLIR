@@ -97,7 +97,7 @@ static LogicalResult traceGemmInputToBlockArgs(
   if (failed(allocOp)) {
     return failure();
   }
-  if (not deps.contains(allocOp.value())) {
+  if (!deps.contains(allocOp.value())) {
     deps.insert({allocOp.value(),
                  BufferDependencyAnalysis(allocOp.value().getOperation())});
   }
