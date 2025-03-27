@@ -164,12 +164,13 @@ def getBankConflict(fileName):
     with open(fileName, 'r') as csv_file:
         reader = csv.DictReader(csv_file, delimiter = ',')
         header = reader.fieldnames
-        if 'Counter_Value' not in header:
+        if 'Counter_Name' not in header or 'Counter_Value' not in header:
             return np.nan
 
         result = []
         for row in reader:
-            result.append(float(row['Counter_Value']))
+            if row['Counter_Name'] == 'LDSBankConflict':
+                result.append(float(row['Counter_Value']))
         csv_file.close()
         result_average = sum(result) / len(result)
         return result_average
