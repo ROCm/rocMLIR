@@ -79,18 +79,21 @@ FailureOr<Container> reorderArrayAttr(Container inputArray,
 //  rock.TransformAttr sequences for each `blockArgs` is recorded in
 //  transformAttrsMap.
 static LogicalResult traceGemmArgToBlockArg(
-    Value arg, PatternRewriter &b,
+    Value inputArg, PatternRewriter &b,
     llvm::DenseMap<Value, SmallVector<Attribute>> &transformAttrsMap,
-    llvm::SmallSet<Value, 4> &blockArgs) {
+    llvm::SmallVector<Value, 4> &blockArgs) {
   Value source;
   ArrayAttr transforms;
-  std::tie(source, transforms, std::ignore) = rock::untransform(b, arg);
-  // transformAttrs.append(transforms.begin(), transforms.end());
+  std::tie(source, transforms, std::ignore) = rock::untransform(b, inputArg);
+  // avoid adding duplicates
+  if (llvm::is_contained(blockArgs, source)) {
+    return success();
+  }
   if (isa<BlockArgument>(source)) {
-    blockArgs.insert(source);
+    blockArgs.push_back(source);
     SmallVector<Attribute> transformsOnSource{};
-    if (transformAttrsMap.contains(arg)) {
-      auto transformsOnArg = transformAttrsMap[arg];
+    if (transformAttrsMap.contains(inputArg)) {
+      auto transformsOnInputArg = transformAttrsMap[inputArg];
       transformsOnSource.append(transforms.begin(), transforms.end());
     }
     transformsOnSource.append(transforms.begin(), transforms.end());
@@ -118,7 +121,7 @@ static LogicalResult traceGemmArgToBlockArg(
     for (const MemoryEffects::EffectInstance &effect : effects) {
       OpOperand *writerOpOperand = effect.getEffectValue<OpOperand *>();
       // test that same buffer is not being read and written to
-      if (writerOpOperand && isa<MemoryEffects::Read>(effect) &&
+      if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
           writerOpOperand != allocWriteOperand) {
         Value writerOpOperandValue = writerOpOperand->get();
         if (succeeded(traceGemmArgToBlockArg(writerOpOperandValue, b,
@@ -135,30 +138,33 @@ static LogicalResult traceGemmArgToBlockArg(
 template <typename Container>
 static FailureOr<std::tuple<Value, Container, SmallVector<uint32_t>>>
 sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
+  // trace input tensor to blockArgument first and do necessary error checking
   llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
-  llvm::SmallSet<Value, 4> blockArgs;
+  llvm::SmallVector<Value, 4> blockArgs;
   if (failed(traceGemmArgToBlockArg(tensor, b, transformAttrsMap, blockArgs))) {
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
   }
   assert(!blockArgs.empty());
-  llvm::SmallSet<SmallVector<Attribute>, 4> transformsSet;
+  SmallVector<Attribute> transformsList;
   for (const auto blockArg : blockArgs) {
     // make sure all the blockArgs have been mapped to some transform sequence
     // or empty transform sequence
     if (not transformAttrsMap.contains(blockArg)) {
       return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
     }
-    transformsSet.insert(transformAttrsMap[blockArg]);
+    if (transformsList.empty()) {
+      transformsList = transformAttrsMap[blockArg];
+    } else if (transformsList != transformAttrsMap[blockArg]) {
+      // Currently we do not handle case where some block arg goes through
+      // different sequence of transforms. All blockArgs must have same
+      // transforms for now.
+      return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+    }
   }
-  // Currently we do not handle case where some block arg goes through different
-  // sequence of transforms. All blockArgs must have same transforms for now.
-  if (transformsSet.size() != 1) {
-    return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
-  }
-  SmallVector<Attribute> transformsList = *transformsSet.begin();
+
   ArrayAttr transforms = b.getArrayAttr(transformsList);
   rock::TransformMapAttr firstCoordTransform =
-      cast<rock::TransformMapAttr>(*transformsSet.begin());
+      cast<rock::TransformMapAttr>(transforms);
   int64_t upperRank = firstCoordTransform.getUpperBounds().size();
   SmallVector<uint32_t> strides(upperRank);
   for (int64_t idx = 0; idx < upperRank; idx++) {
