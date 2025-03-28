@@ -845,7 +845,7 @@ pipeline {
                             copyArtifacts filter: 'build/perfDB/**',\
                                 optional: true,\
                                 flatten: true,\
-                                projectName: "/MLIR/mlir-weekly",\
+                                projectName: "/MLIR/mlir/PR-1768",\
                                 selector: lastSuccessful(),\
                                 target: 'build'
                                 sh 'ls build'
