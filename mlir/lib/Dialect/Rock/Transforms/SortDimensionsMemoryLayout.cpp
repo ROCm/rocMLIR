@@ -71,6 +71,7 @@ FailureOr<Container> reorderArrayAttr(Container inputArray,
 
   return reorderedElements;
 }
+//
 
 //  traces input arguments of the GEMM operation back to blockArguments. It
 //  records sequence of rock.transforms between gemm argument to blockArgument
@@ -85,10 +86,24 @@ static LogicalResult traceGemmInputToBlockArgs(
     const BufferDependencyAnalysis &deps) {
   Value source;
   ArrayAttr transforms;
+  // below call to `rock.untransform` is concatenating existing transform
+  // sequence on `inputArg` with rock.transform sequence found by tracing upto
+  // source from `inputArg` as staring point.
+  // For example,
+  // SeqExisting -> inputArgs --> Seq --> source
+  // transforms == SeqExisting + Seq
+  // transformAttrsMap[inputArg] = SeqExisting
+  // transformAttrsMap[Source] = SeqExisting + Seq
   std::tie(source, transforms, std::ignore) =
-      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
-  transformAttrsMap.insert(
-      {source, SmallVector<Attribute>{transforms.begin(), transforms.end()}});
+      rock::untransform(b, inputArg, transformAttrsMap.at(inputArg));
+  // insert transform sequence on source into the map if it doesn't already
+  // exists. if it does then we've found a loop
+  if (!transformAttrsMap
+           .insert({source, SmallVector<Attribute>{transforms.begin(),
+                                                   transforms.end()}})
+           .second) {
+    return failure();
+  }
   if (isa<BlockArgument>(source)) {
     blockArgs.insert(source);
     return success();
@@ -116,6 +131,8 @@ static LogicalResult traceGemmInputToBlockArgs(
       if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
           writerOpOperand != allocWriteOperand) {
         Value writerOpOperandValue = writerOpOperand->get();
+        // Add existing transform sequences on `writerOpOperandValue` to
+        // continue concatenating in recursive calls.
         transformAttrsMap[writerOpOperandValue] = transformAttrsMap.at(source);
         if (succeeded(traceGemmInputToBlockArgs(
                 writerOpOperandValue, b, transformAttrsMap, blockArgs, deps))) {
