@@ -97,7 +97,8 @@ static LogicalResult traceGemmInputToBlockArgs(
   std::tie(source, transforms, std::ignore) =
       rock::untransform(b, inputArg, transformAttrsMap.at(inputArg));
   // insert transform sequence on source into the map if it doesn't already
-  // exists. if it does then we've found a loop
+  // exists. if it does then we've found a loop or case where multiple operators
+  // are writing to same `memref.alloc`
   if (!transformAttrsMap
            .insert({source, SmallVector<Attribute>{transforms.begin(),
                                                    transforms.end()}})
