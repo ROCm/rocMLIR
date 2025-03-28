@@ -1,0 +1,17 @@
+# from AgentModel
+-t f16 -transQ false -transK false -transV false -transO false -g 512 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+
+# from bert_large_uncased_1_fp16_gpu
+-t f16 -transQ false -transK false -transV false -transO false -g 512 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+
+# from bert_mrpc1
+-t f32 -transQ false -transK false -transV false -transO false -g 12 -seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 64
+
+# from model --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024 --fp16
+-t f16 -transQ false -transK false -transV false -transO false -g 10 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK false -transV false -transO false -g 10 -seq_len_q 4096 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK false -transV false -transO false -g 20 -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK false -transV false -transO false -g 20 -seq_len_q 1024 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK false -transV false -transO false -g 40 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK false -transV false -transO false -g 40 -seq_len_q 256 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK false -transV false -transO false -g 40 -seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
