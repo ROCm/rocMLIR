@@ -95,7 +95,7 @@ static LogicalResult traceGemmInputToBlockArgs(
   // transformAttrsMap[inputArg] = SeqExisting
   // transformAttrsMap[Source] = SeqExisting + Seq
   std::tie(source, transforms, std::ignore) =
-      rock::untransform(b, inputArg, transformAttrsMap.at(inputArg));
+      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
   // insert transform sequence on source into the map if it doesn't already
   // exists. if it does then we've found a loop or case where multiple operators
   // are writing to same `memref.alloc`
