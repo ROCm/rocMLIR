@@ -152,8 +152,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   // trace input tensor to blockArgument first and do necessary error checking
   llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
   llvm::SmallSetVector<Value, 2> blockArgs;
-  BufferDependencyAnalysis deps(
-      tensor.getDefiningOp()->getParentOfType<func::FuncOp>());
+  BufferDependencyAnalysis deps(tensor.getParentBlock()->getParentOp());
   if (failed(traceGemmInputToBlockArgs(tensor, b, transformAttrsMap, blockArgs,
                                        deps))) {
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
