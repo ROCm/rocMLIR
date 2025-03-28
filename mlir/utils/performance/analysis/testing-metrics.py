@@ -2,18 +2,21 @@
 # important metrics (Arithmetic Intensity, Occupancy, Work Imbalance) and
 # plots correlation between them with the selected parameters.
 #
-# Usage: python3 ./testing-metrics.py <debug file(s)> [--n <percent>] [--m <metrics>] [--t <method for threshold>]
+# Usage: python3 ./testing-metrics.py <debug file(s)> [--n <percent>] [--m <metrics>] [--t <method for threshold>] [--o <output directory>] [--c <numCUs>]
 # Arguments:
 #       <debug file(s)>               Input file(s) in .tsv.debug format
 #       --n <percent>                 Percent of the best perfconfigs to be considered (default=5) - doesn't affect analysis when checking only the best perfConfigs
 #       --m <metrics>                 Metrics to be shown (ai, oc, wi, nmk)
 #       --t <method for threshold>    Method for calculating threshold (m - max, mn - maxN, qn - quantileN)
+#       --o <output directory>        Output directory in case of saving plots
+#       --c <numCUs>                  CUs count if data is not collected on the machine on which the script is executed
 
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import argparse
 import math
+import os
 from hip import hip
 
 # TODO use AmdArchDb.py (when it's implemented)
@@ -30,11 +33,18 @@ def hip_check(call_result):
     return result
 
 
-props = hip.hipDeviceProp_t()
-hip_check(hip.hipGetDeviceProperties(props,0))
-numCUs = int(props.multiProcessorCount)
+def assignNumCu():
+    if args.c:
+        return int(args.c)
+    else:
+        props = hip.hipDeviceProp_t()
+        hip_check(hip.hipGetDeviceProperties(props,0))
+        print("Using info from GPU 0 in your system, the data should have be obtained from the same GPU.")
+        return int(props.multiProcessorCount)
+
+
+numCUs = assignNumCu()
 minNumWaves = numCUs * numEUPerCU
-print("Using info from GPU 0 in your system, the data should have be obtained from the same GPU.")
 
 
 def analyzeGemmFile(file, n):
@@ -94,7 +104,7 @@ def analyzeGemmFile(file, n):
             ax.set_ylabel('ArithmeticIntensity')
 
         plt.tight_layout()
-        plt.show()
+        plotOutput("ArithmeticIntensity_vs_perfConfigParams.png")
 
     if args.m == "oc":        
         print(list.corr()['Occupancy'])
@@ -106,7 +116,7 @@ def analyzeGemmFile(file, n):
             ax.set_ylabel('Occupancy')
 
         plt.tight_layout()
-        plt.show()
+        plotOutput("Occupancy_vs_perfConfigParams.png")
 
     if args.m == "wi":
         print(list.corr()['WorkImbalance'])
@@ -118,7 +128,7 @@ def analyzeGemmFile(file, n):
             ax.set_ylabel('WorkImbalance')
 
         plt.tight_layout()
-        plt.show()
+        plotOutput("WorkImbalance_vs_perfConfigParams.png")
 
     if args.m == "nmk":
         figure, axes = plt.subplots(3, 7)
@@ -128,7 +138,7 @@ def analyzeGemmFile(file, n):
                 sns.scatterplot(x=list[param], y=list[nmk], alpha=0.7, ax=subplot)
                 subplot.set_xlabel(param)
                 subplot.set_ylabel(nmk)
-        plt.show()
+        plotOutput("NMK_vs_perfConfigParams.png")
 
     return pd.concat(topList)
 
@@ -165,6 +175,15 @@ def calculateWorkImbalance(M, N, G, MPerBlock, NPerBlock, MNPerWave, minNumWaves
     return ((1-(WorkImbalanceIntermedResult)) if WorkImbalanceIntermedResult != 0 else 0)
 
 
+def plotOutput(name):
+    if args.o:
+        os.makedirs(args.o, exist_ok=True)
+        plt.savefig(os.path.join(args.o, name), dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
+
 def determineFiletype(file):
     with open(file, 'r') as file:
         header = file.readline().strip()
@@ -183,6 +202,8 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=float, default=5) # percent of configs close to winning
     parser.add_argument("--m", type=str, default="ai") # plots to be shown: ai, oc, wi, nmk
     parser.add_argument("--t", type=str, default="m") # threshold formula: m, mn, qn
+    parser.add_argument("--o", type=str, default=None) # Directory in case of saving the plots
+    parser.add_argument("--c", type=int, default=None) # numCUs (if data is not collected on the machine on which the script is executed)
 
     args = parser.parse_args()
 
