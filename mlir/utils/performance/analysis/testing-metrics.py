@@ -23,7 +23,7 @@ from hip import hip
 
 numEUPerCU = 4 # may be changed in newer architectures
 
-def hip_check(call_result):
+def hipCheck(call_result):
     err = call_result[0]
     result = call_result[1:]
     if len(result) == 1:
@@ -38,13 +38,9 @@ def assignNumCu():
         return int(args.c)
     else:
         props = hip.hipDeviceProp_t()
-        hip_check(hip.hipGetDeviceProperties(props,0))
+        hipCheck(hip.hipGetDeviceProperties(props,0))
         print("Using info from GPU 0 in your system, the data should have be obtained from the same GPU.")
         return int(props.multiProcessorCount)
-
-
-numCUs = assignNumCu()
-minNumWaves = numCUs * numEUPerCU
 
 
 def analyzeGemmFile(file, n):
@@ -206,6 +202,9 @@ if __name__ == "__main__":
     parser.add_argument("--c", type=int, default=None) # numCUs (if data is not collected on the machine on which the script is executed)
 
     args = parser.parse_args()
+
+    numCUs = assignNumCu()
+    minNumWaves = numCUs * numEUPerCU
 
     rowList = []
 
