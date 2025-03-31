@@ -51,33 +51,33 @@ config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -perf_con
 config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -perf_config attn:v1:32,32,64,8,16,16,8,1"
 
 # check scale
-#[[suite.test]]
-#config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale"
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale"
 
 # check bias
 [[suite.test]]
 config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-bias"
 
 # check scale and bias together
-#[[suite.test]]
-#config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
 
 # cross attention
 [[suite.test]]
 config = "-seq_len_q 128 -seq_len_k 27 -head_dim_qk 64 -head_dim_v 32 --with-attn-scale --with-attn-bias"
 
 # issue 1661
-#[[suite.test]]
-#config = "-seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
+[[suite.test]]
+config = "-seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
 
 # GQA
-#[[suite.test]]
-#config = "-num_heads_q 4 -num_heads_kv 2 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
+[[suite.test]]
+config = "-num_heads_q 4 -num_heads_kv 2 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
 
 # GQA + KV Cache
-#[[suite.test]]
-#config = "-rand 1 -current_seq_len=17 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
+[[suite.test]]
+config = "-rand 1 -current_seq_len=17 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
 
 # GQA + KV Cache batch=3
-#[[suite.test]]
-#config = "-rand 1 -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
+[[suite.test]]
+config = "-rand 1 -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
