@@ -59,6 +59,8 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm_agent_enumerator'
     sh 'id'
     sh 'printenv'
+    sh 'nproc'
+    sh 'cat /proc/meminfo'
 }
 
 String dockerArgs() {
