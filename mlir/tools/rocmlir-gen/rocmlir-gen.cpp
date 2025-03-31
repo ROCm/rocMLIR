@@ -2879,7 +2879,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto keysZp =
       tosa::createZeroPointTensor(builder, loc, keysTensor.getType(), 0)
           .value();
-
+  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
+  // be more similar to what the gpu code does
   // accumulate in 32 bit
   Type firstAccType = getAccType(firstGemmOutElemType, builder);
   assert(firstAccType == getAccType(params.types[1], builder));
@@ -3003,6 +3004,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, valuesTensor.getType(), 0)
           .value();
 
+  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
+  // be more similar to what the gpu code does
   // accumulate in 32 bit
   Type secondAccType = getAccType(resultOutElementType, builder);
   Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
