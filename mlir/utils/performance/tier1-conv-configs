@@ -625,7 +625,7 @@ conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 255 -y 1 -x 1 -p
 conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
-# from model --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024 --fp16
+# from sd21-onnx model --input-dim @sample 2 4 64 64 @timestep 1 @encoder_hidden_states 2 64 1024 --fp16
 convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 4 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
@@ -675,3 +675,7 @@ convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 960 -W 540 -k 16 -y 3 -x 
 convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 1920 -W 1080 -k 16 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 16 -H 1920 -W 1080 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 16 -H 1920 -W 1080 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# from whisper-tiny encoder model
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 80 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 2 -v 1 -l 1 -j 1 -g 1
