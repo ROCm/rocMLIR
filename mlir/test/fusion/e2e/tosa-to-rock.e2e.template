@@ -8,8 +8,8 @@ module {{
   func.func @test_fusion(%arg0: tensor<128x32x32x8x{type}>, %arg1: tensor<128x3x3x8x{type}>) -> tensor<128x30x30x128x{type}> attributes {{kernel, arch = ""}} {{
 
     %zero = arith.constant dense<0.0> : tensor<128x{type}>
-    %input_zp = "tosa.const"() {{value = dense<0.0> : tensor<1x{type}>}} : () -> tensor<1x{type}>
-    %weight_zp = "tosa.const"() {{value = dense<0.0> : tensor<1x{type}>}} : () -> tensor<1x{type}>
+    %input_zp = "tosa.const"() {{values = dense<0.0> : tensor<1x{type}>}} : () -> tensor<1x{type}>
+    %weight_zp = "tosa.const"() {{values = dense<0.0> : tensor<1x{type}>}} : () -> tensor<1x{type}>
     %0 = "tosa.conv2d"(%arg0, %arg1, %zero, %input_zp, %weight_zp) {{
       acc_type = {type},
       dilation = array<i64: 1, 1>,

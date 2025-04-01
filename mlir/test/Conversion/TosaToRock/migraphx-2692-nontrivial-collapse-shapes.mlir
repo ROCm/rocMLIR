@@ -24,9 +24,9 @@ func.func @mlir_reshape_transpose_reshape_convolution(%arg0: tensor<1x116x28x28x
   %collapsed = tensor.collapse_shape %1 [[0], [1, 2], [3], [4]] : tensor<1x58x2x28x28xf32> into tensor<1x116x28x28xf32>
   %3 = "tosa.transpose"(%collapsed) {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x116x28x28xf32>) -> tensor<1x28x28x116xf32>
   %4 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 3, 1>} : (tensor<116x1x3x3xf32>) -> tensor<116x3x3x1xf32>
-  %5 = "tosa.const"() <{value = dense<0.000000e+00> : tensor<116xf32>}> : () -> tensor<116xf32>
-  %input_zp = "tosa.const"() <{value = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
-  %weight_zp = "tosa.const"() <{value = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %5 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<116xf32>}> : () -> tensor<116xf32>
+  %input_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %weight_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %6 = "tosa.conv2d"(%3, %4, %5, %input_zp, %weight_zp) <{acc_type = f32, dilation = array<i64: 1, 1>, group = 116 : i64, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>}> : (tensor<1x28x28x116xf32>, tensor<116x3x3x1xf32>, tensor<116xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x14x14x116xf32>
   %8 = "tosa.transpose"(%6) {perms = array<i32: 0, 3, 1, 2>} : (tensor<1x14x14x116xf32>) -> tensor<1x116x14x14xf32>
   return %8 : tensor<1x116x14x14xf32>

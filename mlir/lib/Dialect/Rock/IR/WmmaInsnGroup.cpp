@@ -85,9 +85,9 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   } else if (elementTypeA.isInteger(8)) {
     insn = ROCDL::wmma_i32_16x16x16_iu8::getOperationName();
   } else if (isa<Float8E4M3FNType>(elementTypeA)) {
-    insn = ROCDL::wmma_f32_16x16x16_fp8::getOperationName();
+    insn = ROCDL::wmma_f32_16x16x16_fp8_fp8::getOperationName();
   } else if (isa<Float8E5M2Type>(elementTypeA)) {
-    insn = ROCDL::wmma_f32_16x16x16_bf8::getOperationName();
+    insn = ROCDL::wmma_f32_16x16x16_bf8_bf8::getOperationName();
   } else {
     return failure();
   }

@@ -740,7 +740,7 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
            "Autotuning is enabled, but KernelRunRecord is not initialized!");
 
     auto [Teams, Threads] =
-        KernelRecord->getLaunchParamsForKernel(KernelName, GenericDevice);
+        KernelRecord->getLaunchParamsForKernel(*this, GenericDevice);
     NumBlocks[0] = Teams;
     NumThreads[0] = Threads;
   } else {
@@ -2045,7 +2045,7 @@ Expected<bool> GenericPluginTy::checkBitcodeImage(StringRef Image) const {
     return ModuleOrErr.takeError();
   Module &M = **ModuleOrErr;
 
-  return Triple(M.getTargetTriple()).getArch() == getTripleArch();
+  return M.getTargetTriple().getArch() == getTripleArch();
 }
 
 int32_t GenericPluginTy::is_initialized() const { return Initialized; }

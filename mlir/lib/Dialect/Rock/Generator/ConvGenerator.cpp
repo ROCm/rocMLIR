@@ -539,12 +539,12 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     if (type == "fp16")
       return std::string("f16");
     if (type == "fp8") {
-      if (maybeChipset->hasOcpFp8())
+      if (amdgpu::hasOcpFp8(maybeChipset.value()))
         return std::string("f8E4M3FN");
       return std::string("f8E4M3FNUZ");
     }
     if (type == "bf8") {
-      if (maybeChipset->hasOcpFp8())
+      if (amdgpu::hasOcpFp8(maybeChipset.value()))
         return std::string("f8E5M2");
       return std::string("f8E5M2FNUZ");
     }

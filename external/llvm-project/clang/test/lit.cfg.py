@@ -58,8 +58,6 @@ config.excludes = [
     "README.txt",
     "LICENSE.txt",
     "debuginfo-tests",
-    "SemaOpenACC",              # unsupported on AMD downstream
-    "ParserOpenACC",            # unsupported on AMD downstream
 ]
 
 # test_source_root: The root path where tests are located.
@@ -185,6 +183,14 @@ if config.clang_staticanalyzer:
         (
             "%check_analyzer_fixit",
             '"%s" %s' % (config.python_executable, check_analyzer_fixit_path),
+        )
+    )
+
+    csv2json_path = os.path.join(config.test_source_root, "Analysis", "csv2json.py")
+    config.substitutions.append(
+        (
+            "%csv2json",
+            '"%s" %s' % (config.python_executable, csv2json_path),
         )
     )
 

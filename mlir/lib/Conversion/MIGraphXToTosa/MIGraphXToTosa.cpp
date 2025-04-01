@@ -402,20 +402,6 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
     cop->setAttr("perf_config", attr);
 
-  // Note: For TOSA convolution, a non-float type is considered as a
-  // quantized convolution. For quantized convolution, it is required
-  // to carry the "quantization_info" as attribute. Adding this
-  // attribute help us populate the correct TOSA IR.
-  //
-  // When we add support to quantized types and TOSA.rescale Op, we
-  // should make the quantized attribute to accept actual zero point
-  // values from intput and filter.
-  if (elementTy.isInteger(8)) {
-    auto quantAttr = rewriter.getAttr<tosa::ConvOpQuantizationAttr>(
-        /*inputZp =*/0, /*weightZp =*/0);
-    cop->setAttr("quantization_info", quantAttr);
-  }
-
   if (dims == 1) {
     auto shapeValue = tosa::getTosaConstShape(
         rewriter, loc, cast<ShapedType>(newOutTy).getShape());
@@ -504,26 +490,17 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
     inA = cast<TypedValue<RankedTensorType>>(reshapeAOp.getResult());
     inB = cast<TypedValue<RankedTensorType>>(reshapeBOp.getResult());
   }
+  auto aZp =
+      tosa::createZeroPointTensor(rewriter, loc, inA.getType(), 0).value();
+  auto bZp =
+      tosa::createZeroPointTensor(rewriter, loc, inB.getType(), 0).value();
   // Construct tosa.matmul.
-  auto mop = rewriter.create<tosa::MatMulOp>(loc, newOutType, inA, inB);
+  auto mop =
+      rewriter.create<tosa::MatMulOp>(loc, newOutType, inA, inB, aZp, bZp);
 
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
     mop->setAttr("perf_config", attr);
-
-  // Note: For TOSA matmul, a non-float type is considered as a
-  // quantized convolution. For quantized convolution, it is required
-  // to carry the "quantization_info" as attribute. Adding this
-  // attribute help us populate the correct TOSA IR.
-  //
-  // When we add support to quantized types and TOSA.rescale Op, we
-  // should make the quantized attribute to accept actual zero point
-  // values from intput and filter.
-  if (elementTy.isInteger(8)) {
-    auto quantAttr = rewriter.getAttr<tosa::MatMulOpQuantizationAttr>(
-        /*a_zp =*/0, /*b_zp =*/0);
-    mop->setAttr("quantization_info", quantAttr);
-  }
 
   if (outRank != 3 || rankA != rankB ||
       (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
@@ -638,10 +615,10 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
   // If its a splat constant, we can broadcast it trivially
   if (tosa::ConstOp constOp =
           adaptor.getInput().getDefiningOp<tosa::ConstOp>()) {
-    if (constOp.getValueAttr().isSplat()) {
+    if (constOp.getValuesAttr().isSplat()) {
       auto outTy = RankedTensorType::get(outShape, elemType);
       auto bcastConstAttr = DenseElementsAttr::get(
-          outTy, cast<DenseElementsAttr>(constOp.getValueAttr())
+          outTy, cast<DenseElementsAttr>(constOp.getValuesAttr())
                      .getSplatValue<Attribute>());
       tosa::ConstOp newConstOp =
           rewriter.create<tosa::ConstOp>(loc, outTy, bcastConstAttr);

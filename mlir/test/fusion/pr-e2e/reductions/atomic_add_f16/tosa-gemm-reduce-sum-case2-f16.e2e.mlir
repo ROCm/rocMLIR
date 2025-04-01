@@ -5,7 +5,9 @@
 
 module {
   func.func private @dot_add__part_0(%arg0: tensor<1x128x64xf16> {mhal.read_access}, %arg1: tensor<1x64x256xf16> {mhal.read_access}) -> (tensor<1x1x256xf16> {mhal.write_access}) {
-    %0 = "tosa.matmul"(%arg0, %arg1) : (tensor<1x128x64xf16>, tensor<1x64x256xf16>) -> tensor<1x128x256xf16>
+    %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf16>}> : () -> tensor<1xf16>
+    %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf16>}> : () -> tensor<1xf16>
+    %0 = "tosa.matmul"(%arg0, %arg1, %a_zp, %b_zp) : (tensor<1x128x64xf16>, tensor<1x64x256xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<1x128x256xf16>
     %1 = "tosa.reduce_sum"(%0) {axis = 1 : i32} : (tensor<1x128x256xf16>) -> tensor<1x1x256xf16>
     return %1 : tensor<1x1x256xf16>
   }
@@ -16,7 +18,9 @@ module {
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
     func.func private @dot_add__part_0(%arg0: tensor<1x128x64xf16> {mhal.read_access}, %arg1: tensor<1x64x256xf16> {mhal.read_access}) -> (tensor<1x1x256xf16> {mhal.write_access}) attributes {kernel, original_func = @dot_add__part_0} {
-      %0 = "tosa.matmul"(%arg0, %arg1) : (tensor<1x128x64xf16>, tensor<1x64x256xf16>) -> tensor<1x128x256xf16>
+      %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf16>}> : () -> tensor<1xf16>
+      %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf16>}> : () -> tensor<1xf16>
+      %0 = "tosa.matmul"(%arg0, %arg1, %a_zp, %b_zp) : (tensor<1x128x64xf16>, tensor<1x64x256xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<1x128x256xf16>
       %1 = "tosa.reduce_sum"(%0) {axis = 1 : i32} : (tensor<1x128x256xf16>) -> tensor<1x1x256xf16>
       return %1 : tensor<1x1x256xf16>
     }
