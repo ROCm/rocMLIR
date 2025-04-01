@@ -868,6 +868,9 @@ struct GridwiseAttentionAccelRewritePattern
         return failure();
       }
     } else {
+      assert(!ldsLayoutCfg.doSwapThreadIterSubDims &&
+             "doSwapThreadIterSubDims must be false if the destination buffer "
+             "is private memory");
       accel::AccelEmitterParams accelEmitterParams = accelEmitter.getParams();
       int64_t dRepeats = (nonKDimName == "m" ? accelEmitterParams.mRepeats
                                              : accelEmitterParams.nRepeats);
@@ -1754,6 +1757,9 @@ struct GridwiseAttentionAccelRewritePattern
     }
     LDSLayoutConfigDim ldsLayoutCfgNG0 = getLDSLayoutConfigDim(
         elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value());
+    if (doBypassLDSForQ) {
+      ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
+    }
     FailureOr<VectorDimInfo> maybeVectorDimInfoK =
         getVectorDim(rewriter, loc, inK, elemTypeK, blockSize, gemm0KPerBlock,
                      gemm0MPerBlock, gemm0kpack);

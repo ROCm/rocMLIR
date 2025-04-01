@@ -2300,9 +2300,9 @@ getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
   else
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, headQKName});
   if (transposeK)
-    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
-  else
     result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
   if (transposeV)
     result.emplace_back(SmallVector<StringRef>{gName, headVName, seqKName});
   else
@@ -2352,9 +2352,8 @@ Value addTensorArgToBlock(OpBuilder &builder, Location loc,
   return funcArgTensor;
 }
 
-template <typename T>
 static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
-                             Value currentSeqLenVal, T initValue) {
+                             Value currentSeqLenVal, float initValue) {
   // inputTensor is [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV], we want to reshape to
   // [B, NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
   auto origType = cast<RankedTensorType>(inputTensor.getType());
@@ -2398,28 +2397,16 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
       currentSeqLenBroadcast);
 
   // create a tensor with a single value and broadcast it
-  DenseElementsAttr initValueAttr;
-  if constexpr (std::is_same_v<T, int32_t>) {
-    assert(inpType.getElementType() == builder.getI32Type());
-    initValueAttr = DenseIntElementsAttr::get(
-        RankedTensorType::get(inpShape, inpType.getElementType()), initValue);
-  } else if constexpr (std::is_same_v<T, float>) {
-    assert(inpType.getElementType() == builder.getF32Type() ||
-           inpType.getElementType() == builder.getF16Type());
-    llvm::APFloat fpVal(initValue);
-    if (inpType.getElementType() == builder.getF16Type()) {
-      bool losesInfo = false;
-      auto status =
-          fpVal.convert(llvm::APFloat::IEEEhalf(),
-                        llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-      assert(status == llvm::APFloat::opOK);
-    }
-    initValueAttr = DenseFPElementsAttr::get(
-        RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
-  } else {
-    static_assert(!std::is_same_v<T, T>,
-                  "Unsupported type for MLIR type mapping");
-  }
+  assert(isa<FloatType>(inpType.getElementType()));
+  std::pair<APFloat, llvm::detail::opStatus> floatRes =
+      rock::createAPFloat(inpType.getElementType(), initValue);
+  APFloat fpVal = floatRes.first;
+  auto status = floatRes.second;
+  assert(status == APFloat::opOK);
+
+  DenseElementsAttr initValueAttr = DenseFPElementsAttr::get(
+      RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
+
   Value initVal = builder.create<tosa::ConstOp>(loc, initValueAttr.getType(),
                                                 initValueAttr);
 
@@ -2770,13 +2757,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
                              ArrayRef<int32_t> perm) {
   auto elemType = cast<RankedTensorType>(src.getType()).getElementType();
-  auto permutationAttr = DenseIntElementsAttr::get(
-      RankedTensorType::get({(int64_t)perm.size()}, builder.getI32Type()),
-      perm);
-  Value permutationValue =
-      builder.create<arith::ConstantOp>(loc, permutationAttr);
-  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src,
-                                             permutationValue);
+  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src, perm);
 }
 
 static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
