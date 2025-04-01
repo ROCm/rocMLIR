@@ -39,11 +39,10 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
-#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
-
 namespace mlir {
 namespace rock {
 #define GEN_PASS_DEF_ROCKBLOCKWISEGEMMTOTHREADWISEPASS
@@ -1210,38 +1209,14 @@ struct BlockwiseReduceRewritePattern
 
                 dppRotated = rewriter.create<ROCDL::StrictWWMOp>(loc, elemType,
                                                                  dppRotated);
-
-                BrodcastAll = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, dppRotated, dppRotated,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_share),
-                    rewriter.getI32IntegerAttr(0),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-
-                BrodcastAll = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, BrodcastAll, BrodcastAll,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_bcast_15),
-                    nullptr, rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-                if (blockSize > 32) {
-                  BrodcastAll = rewriter.create<amdgpu::DPPOp>(
-                      loc, elemType, BrodcastAll, BrodcastAll,
-                      amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                               amdgpu::DPPPerm::row_bcast_31),
-                      nullptr, rewriter.getI32IntegerAttr(0xF),
-                      rewriter.getI32IntegerAttr(0xF),
-                      rewriter.getBoolAttr(false));
-                }
+                BrodcastAll = rewriter.create<ROCDL::ReadlaneOp>(
+                    loc, elemType, dppRotated,
+                    rewriter.create<mlir::arith::ConstantIntOp>(loc, 0, 32));
               }
               rewriter.create<InBoundsStoreOp>(loc, BrodcastAll,
                                                workspaceLDSBuffer,
                                                reductionLoop.getLowerCoords(2));
             } else {
-
               Value loadAcc = rewriter.create<InBoundsLoadOp>(
                   loc, vectorTypeOrSelf(elemType, nrIterVectorLen), accReg,
                   zeroConstantOp);
@@ -1445,10 +1420,10 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<BlockwiseBroadcastReduceOp, BlockwiseFillOp>();
-    writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
-                                   memref::MemRefDialect, scf::SCFDialect,
-                                   vector::VectorDialect, AffineDialect,
-                                   ROCDL::ROCDLDialect, amdgpu::AMDGPUDialect>();
+    writeAllTarget.addLegalDialect<
+        arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
+        scf::SCFDialect, vector::VectorDialect, AffineDialect,
+        ROCDL::ROCDLDialect, amdgpu::AMDGPUDialect>();
     writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
