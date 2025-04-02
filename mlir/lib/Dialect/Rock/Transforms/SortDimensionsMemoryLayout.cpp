@@ -10,9 +10,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -20,11 +22,15 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/LogicalResult.h"
 #include <limits>
 #include <numeric>
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -65,25 +71,116 @@ FailureOr<Container> reorderArrayAttr(Container inputArray,
 
   return reorderedElements;
 }
+//
+
+//  traces input arguments of the GEMM operation back to blockArguments. It
+//  records sequence of rock.transforms between gemm argument to blockArgument
+//  if there is any. It is possible that single gemm arg is mapped to multiple
+//  blockArguments. BlockArguments are recorded in `blockArgs` and series of
+//  rock.TransformAttr sequences for each `blockArgs` is recorded in
+//  transformAttrsMap.
+static LogicalResult traceGemmInputToBlockArgs(
+    Value inputArg, PatternRewriter &b,
+    llvm::DenseMap<Value, SmallVector<Attribute>> &transformAttrsMap,
+    llvm::SmallSetVector<Value, 2> &blockArgs,
+    const BufferDependencyAnalysis &deps) {
+  Value source;
+  ArrayAttr transforms;
+  // below call to `rock.untransform` is concatenating existing transform
+  // sequence on `inputArg` with rock.transform sequence found by tracing upto
+  // source from `inputArg` as staring point.
+  // For example,
+  // SeqExisting -> inputArgs --> Seq --> source
+  // transforms == SeqExisting + Seq
+  // transformAttrsMap[inputArg] = SeqExisting
+  // transformAttrsMap[Source] = SeqExisting + Seq
+  std::tie(source, transforms, std::ignore) =
+      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
+  // insert transform sequence on source into the map if it doesn't already
+  // exists. if it does then we've found a loop or case where multiple operators
+  // are writing to same `memref.alloc`
+  if (!transformAttrsMap
+           .insert({source, SmallVector<Attribute>{transforms.begin(),
+                                                   transforms.end()}})
+           .second) {
+    return failure();
+  }
+  if (isa<BlockArgument>(source)) {
+    blockArgs.insert(source);
+    return success();
+  }
+  FailureOr<memref::AllocOp> allocOp = mlir::rock::findMemrefAlloc(source);
+  if (failed(allocOp)) {
+    return failure();
+  }
+  std::optional<llvm::SmallVector<OpOperand *>> allocOpWriters =
+      deps.getWriters(allocOp.value());
+  if (!allocOpWriters.has_value()) {
+    return failure();
+  }
+  bool hasSuccess = false;
+  for (OpOperand *allocWriteOperand : allocOpWriters.value()) {
+    auto writerOp =
+        dyn_cast<MemoryEffectOpInterface>(allocWriteOperand->getOwner());
+    if (!writerOp)
+      continue;
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    writerOp.getEffects(effects);
+    for (const MemoryEffects::EffectInstance &effect : effects) {
+      OpOperand *writerOpOperand = effect.getEffectValue<OpOperand *>();
+      // test that same buffer is not being read and written to
+      if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
+          writerOpOperand != allocWriteOperand) {
+        Value writerOpOperandValue = writerOpOperand->get();
+        // Add existing transform sequences on `writerOpOperandValue` to
+        // continue concatenating in recursive calls.
+        transformAttrsMap[writerOpOperandValue] = transformAttrsMap.at(source);
+        if (succeeded(traceGemmInputToBlockArgs(
+                writerOpOperandValue, b, transformAttrsMap, blockArgs, deps))) {
+          hasSuccess = true;
+        }
+      }
+    }
+  }
+  // return success if it has found trace to any blockArg
+  return success(hasSuccess);
+}
 
 template <typename Container>
 static FailureOr<std::tuple<Value, Container, SmallVector<uint32_t>>>
 sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
-  ArrayAttr transforms;
-  Value source;
-  std::tie(source, transforms, std::ignore) = rock::untransform(b, tensor);
-
-  if (transforms.empty())
+  // trace input tensor to blockArgument first and do necessary error checking
+  llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
+  llvm::SmallSetVector<Value, 2> blockArgs;
+  BufferDependencyAnalysis deps(tensor.getParentBlock()->getParentOp());
+  if (failed(traceGemmInputToBlockArgs(tensor, b, transformAttrsMap, blockArgs,
+                                       deps))) {
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
-
+  }
+  assert(!blockArgs.empty());
+  SmallVector<Attribute> transformsList;
+  for (const auto blockArg : blockArgs) {
+    // make sure all the blockArgs have been mapped to some transform sequence
+    // or empty transform sequence
+    if (!transformAttrsMap.contains(blockArg)) {
+      return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+    }
+    if (transformsList.empty()) {
+      transformsList = transformAttrsMap[blockArg];
+    } else if (transformsList != transformAttrsMap[blockArg]) {
+      // Currently we do not handle case where some block arg goes through
+      // different sequence of transforms. All blockArgs must have same
+      // transforms for now.
+      return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+    }
+  }
+  if (transformsList.empty()) {
+    return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
+  }
+  ArrayAttr transforms = b.getArrayAttr(transformsList);
   rock::TransformMapAttr firstCoordTransform =
-      cast<rock::TransformMapAttr>(transforms[0]);
+      cast<rock::TransformMapAttr>(transformsList[0]);
   int64_t upperRank = firstCoordTransform.getUpperBounds().size();
-
-  // no need to do anything if it's not a block argument
-  if (!isa<BlockArgument>(source))
-    return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
-
   SmallVector<uint32_t> strides(upperRank);
   for (int64_t idx = 0; idx < upperRank; idx++) {
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<rock::SubDimInfo>>>

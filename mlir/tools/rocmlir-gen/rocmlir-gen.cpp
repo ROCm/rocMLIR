@@ -2317,9 +2317,9 @@ getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
   else
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, headQKName});
   if (transposeK)
-    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
-  else
     result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
+  else
+    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
   if (transposeV)
     result.emplace_back(SmallVector<StringRef>{gName, headVName, seqKName});
   else
@@ -2369,9 +2369,8 @@ Value addTensorArgToBlock(OpBuilder &builder, Location loc,
   return funcArgTensor;
 }
 
-template <typename T>
 static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
-                             Value currentSeqLenVal, T initValue) {
+                             Value currentSeqLenVal, float initValue) {
   // inputTensor is [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV], we want to reshape to
   // [B, NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
   auto origType = cast<RankedTensorType>(inputTensor.getType());
@@ -2423,28 +2422,16 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
       currentSeqLenBroadcast);
 
   // create a tensor with a single value and broadcast it
-  DenseElementsAttr initValueAttr;
-  if constexpr (std::is_same_v<T, int32_t>) {
-    assert(inpType.getElementType() == builder.getI32Type());
-    initValueAttr = DenseIntElementsAttr::get(
-        RankedTensorType::get(inpShape, inpType.getElementType()), initValue);
-  } else if constexpr (std::is_same_v<T, float>) {
-    assert(inpType.getElementType() == builder.getF32Type() ||
-           inpType.getElementType() == builder.getF16Type());
-    llvm::APFloat fpVal(initValue);
-    if (inpType.getElementType() == builder.getF16Type()) {
-      bool losesInfo = false;
-      auto status =
-          fpVal.convert(llvm::APFloat::IEEEhalf(),
-                        llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-      assert(status == llvm::APFloat::opOK);
-    }
-    initValueAttr = DenseFPElementsAttr::get(
-        RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
-  } else {
-    static_assert(!std::is_same_v<T, T>,
-                  "Unsupported type for MLIR type mapping");
-  }
+  assert(isa<FloatType>(inpType.getElementType()));
+  std::pair<APFloat, llvm::detail::opStatus> floatRes =
+      rock::createAPFloat(inpType.getElementType(), initValue);
+  APFloat fpVal = floatRes.first;
+  auto status = floatRes.second;
+  assert(status == APFloat::opOK);
+
+  DenseElementsAttr initValueAttr = DenseFPElementsAttr::get(
+      RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
+
   Value initVal = builder.create<tosa::ConstOp>(loc, initValueAttr.getType(),
                                                 initValueAttr);
 
@@ -2809,6 +2796,18 @@ static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
   return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src, perm);
 }
 
+static Type getAccType(Type inputType, OpBuilder builder) {
+  Type accType;
+  if (isa<FloatType>(inputType)) {
+    accType = builder.getF32Type();
+  } else if (isa<IntegerType>(inputType)) {
+    accType = builder.getI32Type();
+  } else {
+    llvm_unreachable("not expected type");
+  }
+  return accType;
+}
+
 static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                                      const GenParams &params) {
   MLIRContext *ctx = module.getContext();
@@ -2880,9 +2879,18 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto keysZp =
       tosa::createZeroPointTensor(builder, loc, keysTensor.getType(), 0)
           .value();
-  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, firstGemmOutElemType, queriesTensor, keysTensor, queriesZp,
-      keysZp);
+  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
+  // be more similar to what the gpu code does
+  // accumulate in 32 bit
+  Type firstAccType = getAccType(firstGemmOutElemType, builder);
+  assert(firstAccType == getAccType(params.types[1], builder));
+  Value qkTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstAccType, queriesTensor, keysTensor, queriesZp, keysZp);
+  Value qkTensor = builder.createOrFold<tosa::CastOp>(
+      loc,
+      cast<ShapedType>(qkTensorBeforeConversion.getType())
+          .clone(firstGemmOutElemType),
+      qkTensorBeforeConversion);
 
   // get currentSeqLenTensor
   Value currentSeqLenTensor;
@@ -2995,9 +3003,19 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto valuesZp =
       tosa::createZeroPointTensor(builder, loc, valuesTensor.getType(), 0)
           .value();
-  Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, resultOutElementType, softmaxTensor, valuesTensor,
-      softmaxZp, valuesZp);
+
+  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
+  // be more similar to what the gpu code does
+  // accumulate in 32 bit
+  Type secondAccType = getAccType(resultOutElementType, builder);
+  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondAccType, softmaxTensor, valuesTensor, softmaxZp,
+      valuesZp);
+  Value resultTensor = builder.createOrFold<tosa::CastOp>(
+      loc,
+      cast<ShapedType>(resultTensorBeforeConversion.getType())
+          .clone(resultOutElementType),
+      resultTensorBeforeConversion);
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
