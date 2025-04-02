@@ -71,6 +71,80 @@ FailureOr<Container> reorderArrayAttr(Container inputArray,
 
   return reorderedElements;
 }
+//
+
+//  traces input arguments of the GEMM operation back to blockArguments. It
+//  records sequence of rock.transforms between gemm argument to blockArgument
+//  if there is any. It is possible that single gemm arg is mapped to multiple
+//  blockArguments. BlockArguments are recorded in `blockArgs` and series of
+//  rock.TransformAttr sequences for each `blockArgs` is recorded in
+//  transformAttrsMap.
+static LogicalResult traceGemmInputToBlockArgs(
+    Value inputArg, PatternRewriter &b,
+    llvm::DenseMap<Value, SmallVector<Attribute>> &transformAttrsMap,
+    llvm::SmallSetVector<Value, 2> &blockArgs,
+    const BufferDependencyAnalysis &deps) {
+  Value source;
+  ArrayAttr transforms;
+  // below call to `rock.untransform` is concatenating existing transform
+  // sequence on `inputArg` with rock.transform sequence found by tracing upto
+  // source from `inputArg` as staring point.
+  // For example,
+  // SeqExisting -> inputArgs --> Seq --> source
+  // transforms == SeqExisting + Seq
+  // transformAttrsMap[inputArg] = SeqExisting
+  // transformAttrsMap[Source] = SeqExisting + Seq
+  std::tie(source, transforms, std::ignore) =
+      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
+  // insert transform sequence on source into the map if it doesn't already
+  // exists. if it does then we've found a loop or case where multiple operators
+  // are writing to same `memref.alloc`
+  if (!transformAttrsMap
+           .insert({source, SmallVector<Attribute>{transforms.begin(),
+                                                   transforms.end()}})
+           .second) {
+    return failure();
+  }
+  if (isa<BlockArgument>(source)) {
+    blockArgs.insert(source);
+    return success();
+  }
+  FailureOr<memref::AllocOp> allocOp = mlir::rock::findMemrefAlloc(source);
+  if (failed(allocOp)) {
+    return failure();
+  }
+  std::optional<llvm::SmallVector<OpOperand *>> allocOpWriters =
+      deps.getWriters(allocOp.value());
+  if (!allocOpWriters.has_value()) {
+    return failure();
+  }
+  bool hasSuccess = false;
+  for (OpOperand *allocWriteOperand : allocOpWriters.value()) {
+    auto writerOp =
+        dyn_cast<MemoryEffectOpInterface>(allocWriteOperand->getOwner());
+    if (!writerOp)
+      continue;
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    writerOp.getEffects(effects);
+    for (const MemoryEffects::EffectInstance &effect : effects) {
+      OpOperand *writerOpOperand = effect.getEffectValue<OpOperand *>();
+      // test that same buffer is not being read and written to
+      if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
+          writerOpOperand != allocWriteOperand) {
+        Value writerOpOperandValue = writerOpOperand->get();
+        // Add existing transform sequences on `writerOpOperandValue` to
+        // continue concatenating in recursive calls.
+        transformAttrsMap[writerOpOperandValue] = transformAttrsMap.at(source);
+        if (succeeded(traceGemmInputToBlockArgs(
+                writerOpOperandValue, b, transformAttrsMap, blockArgs, deps))) {
+          hasSuccess = true;
+        }
+      }
+    }
+  }
+  // return success if it has found trace to any blockArg
+  return success(hasSuccess);
+}
 
 //  traces input arguments of the GEMM operation back to blockArguments. It
 //  records sequence of rock.transforms between gemm argument to blockArgument
@@ -134,8 +208,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   // trace input tensor to blockArgument first and do necessary error checking
   llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
   llvm::SmallSetVector<Value, 2> blockArgs;
-  BufferDependencyAnalysis deps(
-      tensor.getDefiningOp()->getParentOfType<func::FuncOp>());
+  BufferDependencyAnalysis deps(tensor.getParentBlock()->getParentOp());
   if (failed(traceGemmInputToBlockArgs(tensor, b, transformAttrsMap, blockArgs,
                                        deps))) {
     return std::make_tuple(tensor, layout, SmallVector<uint32_t>{});
