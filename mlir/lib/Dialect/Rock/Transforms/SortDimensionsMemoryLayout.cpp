@@ -146,62 +146,6 @@ static LogicalResult traceGemmInputToBlockArgs(
   return success(hasSuccess);
 }
 
-//  traces input arguments of the GEMM operation back to blockArguments. It
-//  records sequence of rock.transforms between gemm argument to blockArgument
-//  if there is any. It is possible that single gemm arg is mapped to multiple
-//  blockArguments. BlockArguments are recorded in `blockArgs` and series of
-//  rock.TransformAttr sequences for each `blockArgs` is recorded in
-//  transformAttrsMap.
-static LogicalResult traceGemmInputToBlockArgs(
-    Value inputArg, PatternRewriter &b,
-    llvm::DenseMap<Value, SmallVector<Attribute>> &transformAttrsMap,
-    llvm::SmallSetVector<Value, 2> &blockArgs,
-    const BufferDependencyAnalysis &deps) {
-  Value source;
-  ArrayAttr transforms;
-  std::tie(source, transforms, std::ignore) =
-      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
-  transformAttrsMap.insert(
-      {source, SmallVector<Attribute>{transforms.begin(), transforms.end()}});
-  if (isa<BlockArgument>(source)) {
-    blockArgs.insert(source);
-    return success();
-  }
-  FailureOr<memref::AllocOp> allocOp = mlir::rock::findMemrefAlloc(source);
-  if (failed(allocOp)) {
-    return failure();
-  }
-  std::optional<llvm::SmallVector<OpOperand *>> allocOpWriters =
-      deps.getWriters(allocOp.value());
-  if (!allocOpWriters.has_value()) {
-    return failure();
-  }
-  bool hasSuccess = false;
-  for (OpOperand *allocWriteOperand : allocOpWriters.value()) {
-    auto writerOp =
-        dyn_cast<MemoryEffectOpInterface>(allocWriteOperand->getOwner());
-    if (!writerOp)
-      continue;
-    SmallVector<MemoryEffects::EffectInstance> effects;
-    writerOp.getEffects(effects);
-    for (const MemoryEffects::EffectInstance &effect : effects) {
-      OpOperand *writerOpOperand = effect.getEffectValue<OpOperand *>();
-      // test that same buffer is not being read and written to
-      if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
-          writerOpOperand != allocWriteOperand) {
-        Value writerOpOperandValue = writerOpOperand->get();
-        transformAttrsMap[writerOpOperandValue] = transformAttrsMap.at(source);
-        if (succeeded(traceGemmInputToBlockArgs(
-                writerOpOperandValue, b, transformAttrsMap, blockArgs, deps))) {
-          hasSuccess = true;
-        }
-      }
-    }
-  }
-  // return success if it has found trace to any blockArg
-  return success(hasSuccess);
-}
-
 template <typename Container>
 static FailureOr<std::tuple<Value, Container, SmallVector<uint32_t>>>
 sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
