@@ -1346,6 +1346,7 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, loc, gemm0OutBufferType.getElementType(),
         gemm0OutBufferType.getElementType(),
         -std::numeric_limits<float>::infinity());
+
     // Get current workitem ID.
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
@@ -1369,6 +1370,7 @@ struct GridwiseAttentionAccelRewritePattern
 
       Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
       TypedValue<IntegerType> isValid = loop.getValidity(0);
+
       Value zeroBit = createConstantIntOp(rewriter, loc, isValid.getType(),
                                           isValid.getType(), 0);
       auto isInvalid = rewriter.create<arith::CmpIOp>(
@@ -1834,7 +1836,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value accRegBufferGemm0 =
         createBufferForAccelGemmOut(loc, accelParamsGemm0, rewriter);
     // Currently, there is a working assumption that this kernel is meant
-    // support fp32/fp16 This should be guranteed by op verifiers.
+    // support fp32/fp16/bf16. This should be guranteed by op verifiers.
     Type gemmOutElemType = elemTypeQxK;
     Type softmaxInElemType = elemTypeQxK;
     if (elemTypeQ == rewriter.getI8Type()) {
@@ -1985,12 +1987,13 @@ struct GridwiseAttentionAccelRewritePattern
         if (failed(statusLoadQ)) {
           return failure();
         }
+        rewriter.create<LDSBarrierOp>(loc);
 
         TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         loadGemmOperandsFromLDSToRegs(
             rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n", blockSize,
-            gemm0InMPerThread, *accelEmitterPtrGemm0.get(),
+            gemm0InNPerThread, *accelEmitterPtrGemm0.get(),
             ldsLayoutCfgNG0.doRotateWithK);
         rewriter.create<GpuDeallocOp>(loc, ldsByteBufferQ);
       }
@@ -2249,7 +2252,6 @@ struct GridwiseAttentionAccelRewritePattern
 #endif
 
       APInt reductionAxis = APInt(64, 1);
-      APInt nrDimPerThread = APInt(64, gemm0MPerBlock / gemm0MPerThread);
 
       Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
           rewriter, loc, reductionWorkspaceSize, elemTypeQxK);
@@ -2262,6 +2264,7 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
           gemm0OutSubTileViewsTr.threadSubTile, /*extraViews=*/nullptr,
           blockSize);
+
       rewriter.create<GpuDeallocOp>(loc, ldsReductionWorkspaceByteBuffer);
       // softmax normalization.
       Value gemm0MNThreadwiseView =
@@ -2291,6 +2294,7 @@ struct GridwiseAttentionAccelRewritePattern
           gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
           gemm0OutSubTileViewsTr.threadSubTile,
           /*extraViews=*/nullptr, blockSize);
+
       rewriter.create<GpuDeallocOp>(loc, ldsReductionWorkspaceByteSecondBuffer);
       Value gemm0SumThreadwiseView =
           transform(rewriter, gemm0OutBufferSum,
