@@ -58,6 +58,7 @@
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/CommandLine.h"
@@ -3758,18 +3759,16 @@ static LogicalResult populateHostHarnessLogic(
 
   b.create<func::ReturnOp>(loc, ValueRange{});
 
-  // Wrap the kernels and gather them to substitute in calls.
-  llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
+  // Set of kernels
+  llvm::SmallSet<func::FuncOp, 4> kernelsSet;
   std::string kernelBaseName =
       (genParams.convConfig.has_value())
           ? genParams.convConfig.value()->kernelBaseName
           : root0.func.getName().str();
-  auto repeatedFunc = createGPUWrapper(module, kernelBaseName, kernels);
+  auto gpuWrapperFunc = createGPUWrapper(module, kernelBaseName, kernels);
   for (auto &kernel : kernels) {
     if (kernel.func->hasAttr("kernel")) {
-      wrappedFuncs[kernel.func] = repeatedFunc;
-    } else {
-      wrappedFuncs[kernel.func] = kernel.func;
+      kernelsSet.insert(kernel.func);
     }
   }
   // Redirect calls to kernel functions to point at wrapped functions.
@@ -3778,13 +3777,13 @@ static LogicalResult populateHostHarnessLogic(
     Operation *callable = callOp.resolveCallable();
     if (callable) {
       func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
-      if (fop != root0.func and wrappedFuncs.contains(fop)) {
+      if (fop != root0.func && kernelsSet.contains(fop)) {
         callOp->erase();
         return WalkResult::advance();
       }
-      if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
+      if (fop == root0.func) {
         callOp->setAttr("callee", FlatSymbolRefAttr::get(
-                                      context, wrappedFuncs[fop].getSymName()));
+                                      context, gpuWrapperFunc.getSymName()));
       }
     }
     return WalkResult::advance();
