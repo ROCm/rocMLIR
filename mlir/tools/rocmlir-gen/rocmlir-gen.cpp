@@ -3450,7 +3450,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         valVars.resize(valVars.size() - 1);
       }
       auto kernelWrapperFunc =
-          createGPUWrapper(module, kernelBaseName + "_ref", kernelIFFuncs);
+          createGPUWrapper(module, kernelBaseName + "_ver", kernelIFFuncs);
       b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       convGenerator.setKernelName(kernelBaseName);
     } else { // gemm GPU validation
@@ -3472,8 +3472,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
 
       KernelIF kernel(
           createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
-      auto kernelWrapperFunc = createGPUWrapper(
-          module, kernel.func.getName().str() + "_ref", {kernel});
+      auto kernelWrapperFunc =
+          createGPUWrapper(module, kernel.func.getName().str(), {kernel});
       b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
     }
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
@@ -3760,28 +3760,30 @@ static LogicalResult populateHostHarnessLogic(
   b.create<func::ReturnOp>(loc, ValueRange{});
 
   // Set of kernels
-  llvm::SmallSet<func::FuncOp, 4> kernelsSet;
+  llvm::SmallSetVector<func::FuncOp, 4> kernelsSet;
   std::string kernelBaseName =
       (genParams.convConfig.has_value())
           ? genParams.convConfig.value()->kernelBaseName
           : root0.func.getName().str();
-  auto gpuWrapperFunc = createGPUWrapper(module, kernelBaseName, kernels);
   for (auto &kernel : kernels) {
     if (kernel.func->hasAttr("kernel")) {
       kernelsSet.insert(kernel.func);
     }
   }
+  func::FuncOp gpuWrapperFunc;
+  if (!kernelsSet.empty())
+    gpuWrapperFunc = createGPUWrapper(module, kernelBaseName, kernels);
   // Redirect calls to kernel functions to point at wrapped functions.
   func.walk([&](CallOpInterface callOp) -> WalkResult {
     // If the callee matches a wrapped function, update the call.
     Operation *callable = callOp.resolveCallable();
     if (callable) {
       func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
-      if (fop != root0.func && kernelsSet.contains(fop)) {
-        callOp->erase();
-        return WalkResult::advance();
-      }
-      if (fop == root0.func) {
+      if (kernelsSet.contains(fop)) {
+        if (fop != root0.func) {
+          callOp->erase();
+          return WalkResult::advance();
+        }
         callOp->setAttr("callee", FlatSymbolRefAttr::get(
                                       context, gpuWrapperFunc.getSymName()));
       }
