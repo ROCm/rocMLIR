@@ -1277,6 +1277,80 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
   return var;
 }
+static func::FuncOp createGPUWrapper(ModuleOp module,
+                                     const SmallVector<KernelIF, 8> &kernels) {
+  MLIRContext *context = module.getContext();
+  OpBuilder b(context);
+  auto loc = kernels[0].func->getLoc();
+
+  // Create gpu wrapper function
+  auto kfunc = kernels[0].func;
+  std::string funcName = kfunc.getName().str() + "_gpu";
+  auto gpuWrapperFuncType = b.getFunctionType(kernels[0].params, {});
+  auto gpuWrapperFunc =
+      func::FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
+  module.push_back(gpuWrapperFunc);
+
+  // Emit gpu convolution logic.
+  Block *block = gpuWrapperFunc.addEntryBlock();
+  b.setInsertionPoint(block, block->begin());
+
+  // Emit device selection
+  if (deviceNum.getNumOccurrences() > 0)
+    b.create<gpu::SetDefaultDeviceOp>(
+        loc, b.create<arith::ConstantIntOp>(loc, deviceNum.getValue(),
+                                            b.getIntegerType(32)));
+
+  SmallVector<Value, 4> cpuMem;
+  SmallVector<Value, 4> gpuMem;
+  for (auto pair : llvm::enumerate(kernels[0].params)) {
+    Value arg = block->getArgument(pair.index());
+    cpuMem.push_back(arg);
+
+    // Emit GPU memory allocation function calls.
+    auto gpuAllocOp = b.create<gpu::AllocOp>(
+        loc, arg.getType(), Type(), /*asyncDependencies=*/ValueRange{},
+        /*dynamicSizes=*/ValueRange{}, /*symbolOperands=*/ValueRange{});
+    Value gpuAlloc = gpuAllocOp.getResult(0);
+    gpuMem.push_back(gpuAlloc);
+
+    // Emit CPU->GPU memcpy function calls.
+    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
+  }
+
+  // Emit kernel function call, repeating it if needed.
+  // We assume that the repeated atomic add usages in a wrw kernel will not
+  // substantially impact performance as the result becomes large
+  auto emitWrappedCall = [&kernels, &gpuMem](OpBuilder &b, Location loc,
+                                             Value ignoredIv,
+                                             ValueRange noArgs) {
+    for (const auto &kernel : kernels) {
+      auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
+      wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
+    }
+    if (ignoredIv) { // we're creating an actual loop
+      b.create<scf::YieldOp>(loc);
+    }
+  };
+  if (kernelRepeats > 1) {
+    Value zeroOp = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    Value kernelRepeatsOp =
+        b.createOrFold<arith::ConstantIndexOp>(loc, kernelRepeats);
+    Value step = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+    b.create<scf::ForOp>(loc, zeroOp, kernelRepeatsOp, step,
+                         /*args=*/std::nullopt, emitWrappedCall);
+  } else {
+    emitWrappedCall(b, loc, nullptr, {});
+  }
+
+  for (auto pair : llvm::enumerate(kernels[0].params)) {
+    uint32_t i = pair.index();
+    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{cpuMem[i], gpuMem[i]});
+    b.create<gpu::DeallocOp>(loc, TypeRange{}, ValueRange{gpuMem[i]});
+  }
+  b.create<func::ReturnOp>(loc, ValueRange{});
+  return gpuWrapperFunc;
+}
 
 static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
   MLIRContext *context = module.getContext();
@@ -3761,9 +3835,10 @@ static LogicalResult populateHostHarnessLogic(
 
   // Wrap the kernels and gather them to substitute in calls.
   llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
+  auto repeatedFunc = createGPUWrapper(module, kernels);
   for (auto &kernel : kernels) {
     if (kernel.func->hasAttr("kernel")) {
-      wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
+      wrappedFuncs[kernel.func] = repeatedFunc;
     } else {
       wrappedFuncs[kernel.func] = kernel.func;
     }
@@ -3781,6 +3856,10 @@ static LogicalResult populateHostHarnessLogic(
     Operation *callable = callOp.resolveCallable();
     if (callable) {
       func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
+      if (fop != root0.func) {
+        callOp->erase();
+        return WalkResult::advance();
+      }
       if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
         callOp->setAttr("callee", FlatSymbolRefAttr::get(
                                       context, wrappedFuncs[fop].getSymName()));
