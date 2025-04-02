@@ -1351,79 +1351,6 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
   return gpuWrapperFunc;
 }
 
-static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
-  MLIRContext *context = module.getContext();
-  OpBuilder b(context);
-  auto loc = kernel.func->getLoc();
-
-  // Create gpu wrapper function
-  auto kfunc = kernel.func;
-  std::string funcName = kfunc.getName().str() + "_gpu";
-  auto gpuWrapperFuncType = b.getFunctionType(kernel.params, {});
-  auto gpuWrapperFunc =
-      func::FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
-  module.push_back(gpuWrapperFunc);
-
-  // Emit gpu convolution logic.
-  Block *block = gpuWrapperFunc.addEntryBlock();
-  b.setInsertionPoint(block, block->begin());
-
-  // Emit device selection
-  if (deviceNum.getNumOccurrences() > 0)
-    b.create<gpu::SetDefaultDeviceOp>(
-        loc, b.create<arith::ConstantIntOp>(loc, deviceNum.getValue(),
-                                            b.getIntegerType(32)));
-
-  SmallVector<Value, 4> cpuMem;
-  SmallVector<Value, 4> gpuMem;
-  for (auto pair : llvm::enumerate(kernel.params)) {
-    Value arg = block->getArgument(pair.index());
-    cpuMem.push_back(arg);
-
-    // Emit GPU memory allocation function calls.
-    auto gpuAllocOp = b.create<gpu::AllocOp>(
-        loc, arg.getType(), Type(), /*asyncDependencies=*/ValueRange{},
-        /*dynamicSizes=*/ValueRange{}, /*symbolOperands=*/ValueRange{});
-    Value gpuAlloc = gpuAllocOp.getResult(0);
-    gpuMem.push_back(gpuAlloc);
-
-    // Emit CPU->GPU memcpy function calls.
-    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
-  }
-
-  // Emit kernel function call, repeating it if needed.
-  // We assume that the repeated atomic add usages in a wrw kernel will not
-  // substantially impact performance as the result becomes large
-  auto emitWrappedCall = [&kernel, &gpuMem](OpBuilder &b, Location loc,
-                                            Value ignoredIv,
-                                            ValueRange noArgs) {
-    b.create<func::CallOp>(loc, kernel.func, gpuMem);
-    if (ignoredIv) { // we're creating an actual loop
-      b.create<scf::YieldOp>(loc);
-    }
-  };
-  if (kernelRepeats > 1) {
-    Value zeroOp = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    Value kernelRepeatsOp =
-        b.createOrFold<arith::ConstantIndexOp>(loc, kernelRepeats);
-    Value step = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
-    b.create<scf::ForOp>(loc, zeroOp, kernelRepeatsOp, step,
-                         /*args=*/std::nullopt, emitWrappedCall);
-  } else {
-    emitWrappedCall(b, loc, nullptr, {});
-  }
-
-  for (auto pair : llvm::enumerate(kernel.params)) {
-    uint32_t i = pair.index();
-    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{cpuMem[i], gpuMem[i]});
-    b.create<gpu::DeallocOp>(loc, TypeRange{}, ValueRange{gpuMem[i]});
-  }
-
-  b.create<func::ReturnOp>(loc, ValueRange{});
-
-  return gpuWrapperFunc;
-}
-
 llvm::SmallString<32> archChip() {
   RocmDeviceName targetInfo;
   if (failed(targetInfo.parse(arch.getValue()))) {
@@ -3496,6 +3423,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       // generate all sub-kernels, and get corresponding gemmId
       std::string kernelBaseName = genConfig.kernelBaseName;
+      SmallVector<KernelIF, 8> kernelIFFuncs;
       for (int i = kernelStart; i < kernelCount; ++i) {
         convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
         if (failed(convGenerator.genConvModule(module, i, true,
@@ -3503,28 +3431,25 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
-        KernelIF kernel(convGenerator.getKernelFunc());
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-
-        // Decide whether to trim the last workspace argument to the verifier
-        // GPU kernel.
-        rock::ConvGenerator originalConvGenerator(genConfig);
-        bool originalHasWorkspace = false, verifierHasWorkspace = false;
-        if (failed(
-                originalConvGenerator.hasWorkspace(b, originalHasWorkspace))) {
-          llvm::errs() << "Getting workspace failed.\n";
-          exit(1);
-        }
-        if (failed(convGenerator.hasWorkspace(b, verifierHasWorkspace))) {
-          llvm::errs() << "Getting workspace failed.\n";
-          exit(1);
-        }
-        if (originalHasWorkspace && !verifierHasWorkspace) {
-          valVars.resize(valVars.size() - 1);
-        }
-
-        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+        kernelIFFuncs.push_back(convGenerator.getKernelFunc());
       }
+      // Decide whether to trim the last workspace argument to the verifier
+      // GPU kernel.
+      rock::ConvGenerator originalConvGenerator(genConfig);
+      bool originalHasWorkspace = false, verifierHasWorkspace = false;
+      if (failed(originalConvGenerator.hasWorkspace(b, originalHasWorkspace))) {
+        llvm::errs() << "Getting workspace failed.\n";
+        exit(1);
+      }
+      if (failed(convGenerator.hasWorkspace(b, verifierHasWorkspace))) {
+        llvm::errs() << "Getting workspace failed.\n";
+        exit(1);
+      }
+      if (originalHasWorkspace && !verifierHasWorkspace) {
+        valVars.resize(valVars.size() - 1);
+      }
+      auto kernelWrapperFunc = createGPUWrapper(module, kernelIFFuncs);
+      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       convGenerator.setKernelName(kernelBaseName);
     } else { // gemm GPU validation
       GenParams newParams = genParams;
@@ -3545,7 +3470,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
 
       KernelIF kernel(
           createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
-      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+      auto kernelWrapperFunc = createGPUWrapper(module, {kernel});
       b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
     }
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
