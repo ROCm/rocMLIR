@@ -3843,7 +3843,8 @@ static LogicalResult populateHostHarnessLogic(
       wrappedFuncs[kernel.func] = kernel.func;
     }
   }
-
+  llvm::dbgs() << "root0: \n";
+  root0.func.dump();
   // Redirect calls to kernel functions to point at wrapped functions.
   module.walk([&](CallOpInterface callOp) -> WalkResult {
     // Don't substitute the call inside the wrapper.
@@ -3856,7 +3857,9 @@ static LogicalResult populateHostHarnessLogic(
     Operation *callable = callOp.resolveCallable();
     if (callable) {
       func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
-      if (fop != root0.func) {
+      if (fop != root0.func and wrappedFuncs.contains(fop)) {
+        llvm::dbgs() << "fop : \n";
+        fop->dump();
         callOp->erase();
         return WalkResult::advance();
       }
