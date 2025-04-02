@@ -1325,8 +1325,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
                                              Value ignoredIv,
                                              ValueRange noArgs) {
     for (const auto &kernel : kernels) {
-      auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
-      wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
+      b.create<func::CallOp>(loc, kernel.func, gpuMem);
     }
     if (ignoredIv) { // we're creating an actual loop
       b.create<scf::YieldOp>(loc);
@@ -1398,8 +1397,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
   auto emitWrappedCall = [&kernel, &gpuMem](OpBuilder &b, Location loc,
                                             Value ignoredIv,
                                             ValueRange noArgs) {
-    auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
-    wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
+    b.create<func::CallOp>(loc, kernel.func, gpuMem);
     if (ignoredIv) { // we're creating an actual loop
       b.create<scf::YieldOp>(loc);
     }
@@ -3843,23 +3841,13 @@ static LogicalResult populateHostHarnessLogic(
       wrappedFuncs[kernel.func] = kernel.func;
     }
   }
-  llvm::dbgs() << "root0: \n";
-  root0.func.dump();
   // Redirect calls to kernel functions to point at wrapped functions.
-  module.walk([&](CallOpInterface callOp) -> WalkResult {
-    // Don't substitute the call inside the wrapper.
-    if (callOp->hasAttr("wrapped_call")) {
-      callOp->removeAttr("wrapped_call");
-      return WalkResult::advance();
-    }
-
+  func.walk([&](CallOpInterface callOp) -> WalkResult {
     // If the callee matches a wrapped function, update the call.
     Operation *callable = callOp.resolveCallable();
     if (callable) {
       func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
       if (fop != root0.func and wrappedFuncs.contains(fop)) {
-        llvm::dbgs() << "fop : \n";
-        fop->dump();
         callOp->erase();
         return WalkResult::advance();
       }
