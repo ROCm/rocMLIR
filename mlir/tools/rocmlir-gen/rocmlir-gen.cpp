@@ -1278,17 +1278,17 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
   return var;
 }
 static func::FuncOp createGPUWrapper(ModuleOp module,
+                                     const std::string &funcName,
                                      const SmallVector<KernelIF, 8> &kernels) {
   MLIRContext *context = module.getContext();
   OpBuilder b(context);
   auto loc = kernels[0].func->getLoc();
 
   // Create gpu wrapper function
-  auto kfunc = kernels[0].func;
-  std::string funcName = kfunc.getName().str() + "_gpu";
+  std::string funcNameGpu = funcName + "_gpu";
   auto gpuWrapperFuncType = b.getFunctionType(kernels[0].params, {});
   auto gpuWrapperFunc =
-      func::FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
+      func::FuncOp::create(loc, StringRef(funcNameGpu), gpuWrapperFuncType);
   module.push_back(gpuWrapperFunc);
 
   // Emit gpu convolution logic.
@@ -3448,7 +3448,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       if (originalHasWorkspace && !verifierHasWorkspace) {
         valVars.resize(valVars.size() - 1);
       }
-      auto kernelWrapperFunc = createGPUWrapper(module, kernelIFFuncs);
+      auto kernelWrapperFunc =
+          createGPUWrapper(module, kernelBaseName + "_ref", kernelIFFuncs);
       b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       convGenerator.setKernelName(kernelBaseName);
     } else { // gemm GPU validation
@@ -3470,7 +3471,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
 
       KernelIF kernel(
           createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
-      auto kernelWrapperFunc = createGPUWrapper(module, {kernel});
+      auto kernelWrapperFunc = createGPUWrapper(
+          module, kernel.func.getName().str() + "_ref", {kernel});
       b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
     }
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
@@ -3758,7 +3760,11 @@ static LogicalResult populateHostHarnessLogic(
 
   // Wrap the kernels and gather them to substitute in calls.
   llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
-  auto repeatedFunc = createGPUWrapper(module, kernels);
+  std::string kernelBaseName =
+      (genParams.convConfig.has_value())
+          ? genParams.convConfig.value()->kernelBaseName
+          : root0.func.getName().str();
+  auto repeatedFunc = createGPUWrapper(module, kernelBaseName, kernels);
   for (auto &kernel : kernels) {
     if (kernel.func->hasAttr("kernel")) {
       wrappedFuncs[kernel.func] = repeatedFunc;
