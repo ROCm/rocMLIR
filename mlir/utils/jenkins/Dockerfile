@@ -101,7 +101,7 @@ RUN groupadd -g 109 render
 # Add ROCm build distribution
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
 RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/rocm.list
-RUN echo "deb [arch=amd64] https://repo.radeon.com/amdgpu/6.0/ubuntu $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/amdgpu.list
+RUN echo "deb [arch=amd64] https://repo.radeon.com/amdgpu/6.3/ubuntu $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/amdgpu.list
 RUN echo 'Package: *' > /etc/apt/preferences.d/repo-radeon-pin-600 && \
     echo 'Pin: release o=repo.radeon.com' >> /etc/apt/preferences.d/repo-radeon-pin-600 && \
     echo 'Pin-Priority: 600' >> /etc/apt/preferences.d/repo-radeon-pin-600
