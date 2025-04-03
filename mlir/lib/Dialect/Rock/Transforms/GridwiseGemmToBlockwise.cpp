@@ -2955,10 +2955,11 @@ struct GridwiseGemmAccelRewritePattern
       arrayALen *= mRepeats;
       arrayBLen *= nRepeats;
       initiationInterval = 1;
-    } else if(scheduleVersion == 1) {
-      initiationInterval = 2; 
+    } else if (scheduleVersion == 1) {
+      initiationInterval = 2;
     } else {
-      llvm_unreachable("unknown gemm schedule version. only gemmScheduleVersions 1 or 2 are supported.");
+      llvm_unreachable("unknown gemm schedule version. only "
+                       "gemmScheduleVersions 1 or 2 are supported.");
     }
 
     auto arrayA = gpuAlloc(b, loc, arrayALen, argTypeA, AddressSpace::Private);
@@ -3067,7 +3068,8 @@ struct GridwiseGemmAccelRewritePattern
         // If we are running double-buffered pipelines, it makes sense to also
         // parallelize The LDSRead/MMA stages. We do this here, by splitting the
         // MMA loop in two separate stages
-        // TODO: In future refactor BlockwiseGemmAccelOp to take registers instead of LDS to merge both code paths.
+        // TODO: In future refactor BlockwiseGemmAccelOp to take registers
+        // instead of LDS to merge both code paths.
         auto stage2 = b.create<StageOp>(loc, "LDSRead");
         {
           // Read from LDS into registers
