@@ -25,7 +25,7 @@ prefix = "-t "
 [[axis]]
 name = "schedule_version"
 values = ["1", "2"]
-prefix = "--schedule_version"
+prefix = "--schedule_version  "
 
 ## Gemm variants
 [[suite]]
