@@ -28,13 +28,13 @@ name = "in_layout"
 values = ["ngchw", "nghwc", "hwcgn"]
 prefix = "-in_layout="
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version "
 
 [[suite]]
 name = "MixedConvLayouts"
 
 [[suite.test]]
 config = "-batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -t f32"
-
-[[suite.test]]
-config = "-batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -t f32 -perf_config v3:16,16,8,16,16,4,1,2,2,1,1"
-

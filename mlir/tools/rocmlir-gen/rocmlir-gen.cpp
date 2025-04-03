@@ -842,6 +842,17 @@ static llvm::cl::opt<F8TypesChoice> forceF8Types(
                                 "'OCP' or 'OFP8' types")),
     llvm::cl::init(F8TypesChoice::Arch));
 
+enum class GEMMScheduleVersion : int { V1 = 1, V2 = 2 };
+
+static llvm::cl::opt<GEMMScheduleVersion> gemmScheduleVersion(
+    "schedule_version",
+    llvm::cl::desc(
+        "select amongst different available scheduling strategies for GEMM"),
+    llvm::cl::values(
+        clEnumValN(GEMMScheduleVersion::V1, "1", "Select GEMM Schedule V1"),
+        clEnumValN(GEMMScheduleVersion::V2, "2", "Select GEMM Schedule V2")),
+    llvm::cl::init(GEMMScheduleVersion::V1));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -2222,6 +2233,11 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   b.getUnitAttr());
+
+  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
+    func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
+                  rock::ScheduleVersionAttr::get(
+                      b.getContext(), int(gemmScheduleVersion.getValue())));
 
   module.push_back(func);
   return func;
@@ -4010,7 +4026,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       }
 
       convGenerator = rock::ConvGenerator(
-          arch, chip, disableSplitKForTuning, triple, chipFeatures,
+          arch, chip, disableSplitKForTuning,
+          int(gemmScheduleVersion.getValue()), triple, chipFeatures,
           perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,

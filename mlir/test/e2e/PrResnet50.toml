@@ -16,6 +16,11 @@ name = "data type"
 values = ["f32", "f16"]
 prefix = "-t "
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version "
+
 [[suite]]
 name = "config"
 
@@ -23,30 +28,18 @@ name = "config"
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
 
-[[suite.test]]
-config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1 -perf_config v3:128,128,4,128,16,4,1,2,2,1,1"
-
 # reverse grid test
 [[suite.test]]
 config = "--reverse_grid -groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
-
-[[suite.test]]
-config = "--reverse_grid -groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1 -perf_config v3:128,128,4,128,16,4,1,2,2,1,1"
 
 # -n 256 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=512 -in_h=28 -in_w=28 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
 
-[[suite.test]]
-config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=512 -in_h=28 -in_w=28 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0 -perf_config v3:128,128,4,128,16,4,1,2,2,1,1"
-
 # Explicitly make sure swizzles work
 # -n 64 -c 64 -H 16 -W 16 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=64 -out_channels=64 -in_h=16 -in_w=16 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
-
-[[suite.test]]
-config = "-groupsize=1 -batchsize=64 -in_channels=64 -out_channels=64 -in_h=16 -in_w=16 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0 -perf_config v3:64,64,8,32,16,4,1,2,2,1,1"
 
 [[suite.test.exclude]]
 name = "operation"

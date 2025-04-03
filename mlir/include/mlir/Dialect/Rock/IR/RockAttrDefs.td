@@ -490,6 +490,17 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
   }];
 }
 
+def Rock_ScheduleVersionAttr: Rock_Attr<"ScheduleVersion">  {
+  let mnemonic = "schedule_version";
+  let parameters = (ins
+    "int64_t":$ScheduleVersion
+  );
+  let assemblyFormat = "`<` params `>`";
+  let description = [{
+    Attribute to express which GEMM Scheduling strategies a kernel lowering should use inside rocMLIR
+  }];
+}
+
 def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
   let mnemonic = "reverse_grid";
 }

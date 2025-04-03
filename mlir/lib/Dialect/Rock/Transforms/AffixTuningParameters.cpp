@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
@@ -118,17 +119,37 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmWrapperInterface op) {
   OpBuilder b(op.getContext());
-
+  auto scheduleVersionAttrName = rock::ScheduleVersionAttr::getMnemonic();
+  auto funcParent = op->getParentOfType<func::FuncOp>();
   std::string perfConfig;
+  if (funcParent->hasAttrOfType<rock::ScheduleVersionAttr>(
+          scheduleVersionAttrName) &&
+      op->hasAttrOfType<StringAttr>("perf_config")) {
+    op->emitError("kernel has both perf_config and schedule_version attribute "
+                  "set. Please modify schedule version directly inside "
+                  "perf_config and remove schedule_version\n");
+    signalPassFailure();
+    return;
+  }
   if (auto perfConfigAttr =
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
+  }
+  // by default rocMLIR selects GEMM Schedule V1
+  auto scheduleVersion = 1;
+  if (funcParent->hasAttrOfType<rock::ScheduleVersionAttr>(
+          scheduleVersionAttrName)) {
+    scheduleVersion = dyn_cast<rock::ScheduleVersionAttr>(
+                          funcParent->removeAttr(scheduleVersionAttrName))
+                          .getScheduleVersion();
   }
 
   GemmFeatures features = op.getGemmFeatures();
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
+    // set schedule version
+    validParams.gemmScheduleVersion = scheduleVersion;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
         op, perfConfig, validParams);
 
@@ -190,7 +211,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
   } else {
     InitParamsNonAccel validParams;
-
+    // set schedule version
+    validParams.gemmScheduleVersion = scheduleVersion;
     PopulateParams populateParams;
     LogicalResult status =
         populateParams.obtainTuningParameters(op, perfConfig, validParams);
