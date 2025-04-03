@@ -1992,6 +1992,7 @@ struct GridwiseAttentionAccelRewritePattern
         if (failed(statusLoadQ)) {
           return failure();
         }
+        rewriter.create<LDSBarrierOp>(loc);
 
         TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
