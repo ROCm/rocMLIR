@@ -3,8 +3,8 @@
 
 // CHECK: func.func @rock_conv_gkc01_ngc01_ngk01_0({{.*}}: memref<[[NFILTER:[0-9]+]]xf32>, {{.*}}: memref<[[NINPUT:[0-9]+]]xf32>, {{.*}}: memref<[[NOUTPUT:[0-9]+]]xf32>) attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"} {
 // CHECK: rock.conv({{.*}}) features = mfma|dot|atomic_add|atomic_add_f16 {[[PARMS:.*]]} : memref<[[FILTERDIMS:[x0-9]+]]xf32>, memref<[[INPUTDIMS:[x0-9]+]]xf32>, memref<[[OUTPUTDIMS:[x0-9]+]]xf32>
-// CHECK: call @rock_conv_gkc01_ngc01_ngk01_0_gpu({{.*}}) : (memref<[[NFILTER]]xf32>, memref<[[NINPUT]]xf32>, memref<[[NOUTPUT]]xf32>) -> ()
-// CHECK: call @rock_conv_gkc01_ngc01_ngk01_0_ver_gpu({{.*}}) : (memref<[[NFILTER]]xf32>, memref<[[NINPUT]]xf32>, memref<[[NOUTPUT]]xf32>) -> ()
+// CHECK: call @rock_conv_gkc01_ngc01_ngk01_gpu({{.*}}) : (memref<[[NFILTER]]xf32>, memref<[[NINPUT]]xf32>, memref<[[NOUTPUT]]xf32>) -> ()
+// CHECK: call @rock_conv_gkc01_ngc01_ngk01_ver_gpu({{.*}}) : (memref<[[NFILTER]]xf32>, memref<[[NINPUT]]xf32>, memref<[[NOUTPUT]]xf32>) -> ()
 // CHECK: func.func @rock_conv_gkc01_ngc01_ngk01_0_ver({{.*}}) attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"} {
 // CHECK: rock.conv({{.*}}) features = dot|atomic_add|atomic_add_f16 {{{.*}}} : memref<[[FILTERDIMS]]xf32>, memref<[[INPUTDIMS]]xf32>, memref<[[OUTPUTDIMS]]xf32>
 
@@ -31,8 +31,8 @@
 
 // F16-CHECK: func.func @rock_conv_gkc01_ngc01_ngk01_0({{.*}}: memref<[[NFILTER:[0-9]+]]xf16>, {{.*}}: memref<[[NINPUT:[0-9]+]]xf16>, {{.*}}: memref<[[NOUTPUT:[0-9]+]]xf16>) attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"} {
 // F16-CHECK: rock.conv({{.*}}) features = dot {[[PARMS:.*]]} : memref<[[FILTERDIMS:[x0-9]+]]xf16>, memref<[[INPUTDIMS:[x0-9]+]]xf16>, memref<[[OUTPUTDIMS:[x0-9]+]]xf16>
-// F16-CHECK: call @rock_conv_gkc01_ngc01_ngk01_0_gpu({{.*}}) : (memref<[[NFILTER]]xf16>, memref<[[NINPUT]]xf16>, memref<[[NOUTPUT]]xf16>) -> ()
-// F16-CHECK: call @rock_conv_gkc01_ngc01_ngk01_0_ver_gpu({{.*}}) : (memref<[[NFILTER]]xf32>, memref<[[NINPUT]]xf32>, memref<[[NOUTPUT]]xf32>) -> ()
+// F16-CHECK: call @rock_conv_gkc01_ngc01_ngk01_gpu({{.*}}) : (memref<[[NFILTER]]xf16>, memref<[[NINPUT]]xf16>, memref<[[NOUTPUT]]xf16>) -> ()
+// F16-CHECK: call @rock_conv_gkc01_ngc01_ngk01_ver_gpu({{.*}}) : (memref<[[NFILTER]]xf32>, memref<[[NINPUT]]xf32>, memref<[[NOUTPUT]]xf32>) -> ()
 // F16-CHECK: func.func @rock_conv_gkc01_ngc01_ngk01_0_ver({{.*}}) attributes {kernel = 0 : i32, mhal.arch = "{{.*}}"} {
 // F16-CHECK: rock.conv({{.*}}) features = dot {{{.*}} : memref<[[FILTERDIMS]]xf32>, memref<[[INPUTDIMS]]xf32>, memref<[[OUTPUTDIMS]]xf32>
 

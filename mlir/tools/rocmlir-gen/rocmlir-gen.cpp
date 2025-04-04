@@ -58,6 +58,7 @@
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/CommandLine.h"
@@ -1288,18 +1289,18 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
   return var;
 }
-
-static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
+static func::FuncOp createGPUWrapper(ModuleOp module,
+                                     const std::string &funcName,
+                                     const SmallVector<KernelIF, 8> &kernels) {
   MLIRContext *context = module.getContext();
   OpBuilder b(context);
-  auto loc = kernel.func->getLoc();
+  auto loc = kernels[0].func->getLoc();
 
   // Create gpu wrapper function
-  auto kfunc = kernel.func;
-  std::string funcName = kfunc.getName().str() + "_gpu";
-  auto gpuWrapperFuncType = b.getFunctionType(kernel.params, {});
+  std::string funcNameGpu = funcName + "_gpu";
+  auto gpuWrapperFuncType = b.getFunctionType(kernels[0].params, {});
   auto gpuWrapperFunc =
-      func::FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
+      func::FuncOp::create(loc, StringRef(funcNameGpu), gpuWrapperFuncType);
   module.push_back(gpuWrapperFunc);
 
   // Emit gpu convolution logic.
@@ -1314,7 +1315,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 
   SmallVector<Value, 4> cpuMem;
   SmallVector<Value, 4> gpuMem;
-  for (auto pair : llvm::enumerate(kernel.params)) {
+  for (auto pair : llvm::enumerate(kernels[0].params)) {
     Value arg = block->getArgument(pair.index());
     cpuMem.push_back(arg);
 
@@ -1332,11 +1333,12 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
   // Emit kernel function call, repeating it if needed.
   // We assume that the repeated atomic add usages in a wrw kernel will not
   // substantially impact performance as the result becomes large
-  auto emitWrappedCall = [&kernel, &gpuMem](OpBuilder &b, Location loc,
-                                            Value ignoredIv,
-                                            ValueRange noArgs) {
-    auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
-    wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
+  auto emitWrappedCall = [&kernels, &gpuMem](OpBuilder &b, Location loc,
+                                             Value ignoredIv,
+                                             ValueRange noArgs) {
+    for (const auto &kernel : kernels) {
+      b.create<func::CallOp>(loc, kernel.func, gpuMem);
+    }
     if (ignoredIv) { // we're creating an actual loop
       b.create<scf::YieldOp>(loc);
     }
@@ -1352,14 +1354,12 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
     emitWrappedCall(b, loc, nullptr, {});
   }
 
-  for (auto pair : llvm::enumerate(kernel.params)) {
+  for (auto pair : llvm::enumerate(kernels[0].params)) {
     uint32_t i = pair.index();
     b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{cpuMem[i], gpuMem[i]});
     b.create<gpu::DeallocOp>(loc, TypeRange{}, ValueRange{gpuMem[i]});
   }
-
   b.create<func::ReturnOp>(loc, ValueRange{});
-
   return gpuWrapperFunc;
 }
 
@@ -3440,6 +3440,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       // generate all sub-kernels, and get corresponding gemmId
       std::string kernelBaseName = genConfig.kernelBaseName;
+      SmallVector<KernelIF, 8> kernelIFFuncs;
       for (int i = kernelStart; i < kernelCount; ++i) {
         convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
         if (failed(convGenerator.genConvModule(module, i, true,
@@ -3447,28 +3448,26 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
-        KernelIF kernel(convGenerator.getKernelFunc());
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-
-        // Decide whether to trim the last workspace argument to the verifier
-        // GPU kernel.
-        rock::ConvGenerator originalConvGenerator(genConfig);
-        bool originalHasWorkspace = false, verifierHasWorkspace = false;
-        if (failed(
-                originalConvGenerator.hasWorkspace(b, originalHasWorkspace))) {
-          llvm::errs() << "Getting workspace failed.\n";
-          exit(1);
-        }
-        if (failed(convGenerator.hasWorkspace(b, verifierHasWorkspace))) {
-          llvm::errs() << "Getting workspace failed.\n";
-          exit(1);
-        }
-        if (originalHasWorkspace && !verifierHasWorkspace) {
-          valVars.resize(valVars.size() - 1);
-        }
-
-        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+        kernelIFFuncs.push_back(convGenerator.getKernelFunc());
       }
+      // Decide whether to trim the last workspace argument to the verifier
+      // GPU kernel.
+      rock::ConvGenerator originalConvGenerator(genConfig);
+      bool originalHasWorkspace = false, verifierHasWorkspace = false;
+      if (failed(originalConvGenerator.hasWorkspace(b, originalHasWorkspace))) {
+        llvm::errs() << "Getting workspace failed.\n";
+        exit(1);
+      }
+      if (failed(convGenerator.hasWorkspace(b, verifierHasWorkspace))) {
+        llvm::errs() << "Getting workspace failed.\n";
+        exit(1);
+      }
+      if (originalHasWorkspace && !verifierHasWorkspace) {
+        valVars.resize(valVars.size() - 1);
+      }
+      auto kernelWrapperFunc =
+          createGPUWrapper(module, kernelBaseName + "_ver", kernelIFFuncs);
+      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       convGenerator.setKernelName(kernelBaseName);
     } else { // gemm GPU validation
       GenParams newParams = genParams;
@@ -3489,7 +3488,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
 
       KernelIF kernel(
           createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
-      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+      auto kernelWrapperFunc =
+          createGPUWrapper(module, kernel.func.getName().str(), {kernel});
       b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
     }
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
@@ -3775,31 +3775,33 @@ static LogicalResult populateHostHarnessLogic(
 
   b.create<func::ReturnOp>(loc, ValueRange{});
 
-  // Wrap the kernels and gather them to substitute in calls.
-  llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
+  // Set of kernels
+  llvm::SmallSetVector<func::FuncOp, 4> kernelsSet;
+  std::string kernelBaseName =
+      (genParams.convConfig.has_value())
+          ? genParams.convConfig.value()->kernelBaseName
+          : root0.func.getName().str();
   for (auto &kernel : kernels) {
     if (kernel.func->hasAttr("kernel")) {
-      wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
-    } else {
-      wrappedFuncs[kernel.func] = kernel.func;
+      kernelsSet.insert(kernel.func);
     }
   }
-
+  func::FuncOp gpuWrapperFunc;
+  if (!kernelsSet.empty())
+    gpuWrapperFunc = createGPUWrapper(module, kernelBaseName, kernels);
   // Redirect calls to kernel functions to point at wrapped functions.
-  module.walk([&](CallOpInterface callOp) -> WalkResult {
-    // Don't substitute the call inside the wrapper.
-    if (callOp->hasAttr("wrapped_call")) {
-      callOp->removeAttr("wrapped_call");
-      return WalkResult::advance();
-    }
-
+  func.walk([&](CallOpInterface callOp) -> WalkResult {
     // If the callee matches a wrapped function, update the call.
     Operation *callable = callOp.resolveCallable();
     if (callable) {
       func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
-      if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
+      if (kernelsSet.contains(fop)) {
+        if (fop != root0.func) {
+          callOp->erase();
+          return WalkResult::advance();
+        }
         callOp->setAttr("callee", FlatSymbolRefAttr::get(
-                                      context, wrappedFuncs[fop].getSymName()));
+                                      context, gpuWrapperFunc.getSymName()));
       }
     }
     return WalkResult::advance();
