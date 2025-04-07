@@ -148,11 +148,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
-    // set schedule version
-    validParams.gemmScheduleVersion = scheduleVersion;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
         op, perfConfig, validParams);
-
+    // set schedule version
+    validParams.gemmScheduleVersion = scheduleVersion;
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
@@ -211,16 +210,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
   } else {
     InitParamsNonAccel validParams;
-    // set schedule version
-    validParams.gemmScheduleVersion = scheduleVersion;
     PopulateParams populateParams;
     LogicalResult status =
         populateParams.obtainTuningParameters(op, perfConfig, validParams);
-
     if (failed(status)) {
       signalPassFailure();
       return;
     }
+    // set schedule version
+    validParams.gemmScheduleVersion = scheduleVersion;
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);

@@ -1,6 +1,7 @@
 // The extra rocmlir-opt calls check IR validity
 
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation gemm -g 3 -m 1024 -k 769 -n 512 -pv | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK,NOTRA,NOTRB,NOTRC
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation gemm -g 3 -m 1024 -k 769 -n 512 -pv --schedule_version 2 | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK,NOTRA,NOTRB,NOTRC,SCHEDV2
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation gemm -g 3 -m 1024 -k 769 -n 512 -pv -transC | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK,NOTRA,NOTRB,TRC
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation gemm -g 3 -m 1024 -k 769 -n 512 -pv -transB | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK,NOTRA,TRB,NOTRC
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation gemm -g 3 -m 1024 -k 769 -n 512 -pv -transB -transC | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=CHECK,NOTRA,TRB,TRC
@@ -31,7 +32,9 @@
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 // CHECK-LABEL: func.func @rock_gemm
 // CHECK-SAME: (%[[aRaw:.*]]: memref<2362368xf32>, %[[bRaw:.*]]: memref<1181184xf32>, %[[cRaw:.*]]: memref<1572864xf32>)
-// CHECK-SAME: attributes {enable_splitk_for_tuning, kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {enable_splitk_for_tuning, kernel 
+// CHECK-SAME: mhal.arch = "[[$ARCH]]"
+// SCHEDV2-SAME: schedule_version = #rock.schedule_version<2>
 // CHECK-NEXT: %[[a:.*]] = rock.transform %[[aRaw]] by #[[$trMapAUnmerge]]
 // CHECK-NEXT: %[[b:.*]] = rock.transform %[[bRaw]] by #[[$trMapBUnmerge]]
 // CHECK-NEXT: %[[c:.*]] = rock.transform %[[cRaw]] by #[[$trMapCUnmerge]]
