@@ -150,8 +150,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
     InitParamsAccel validParams;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
         op, perfConfig, validParams);
-    // set schedule version
-    validParams.gemmScheduleVersion = scheduleVersion;
+    // update schedule version to what is provided by the user if and only if
+    // user hasn't provided perfConfig, otherwise just keep whatever is inside
+    // perfConfig
+    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
+      validParams.gemmScheduleVersion = scheduleVersion;
+    }
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
@@ -217,8 +221,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
       signalPassFailure();
       return;
     }
-    // set schedule version
-    validParams.gemmScheduleVersion = scheduleVersion;
+    // update schedule version to what is provided by the user if and only if
+    // user hasn't provided perfConfig, otherwise just keep whatever was
+    // obtained from perfConfig
+    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
+      validParams.gemmScheduleVersion = scheduleVersion;
+    }
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
