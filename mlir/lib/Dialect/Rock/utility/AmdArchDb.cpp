@@ -125,11 +125,14 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return gfx12Info;
   }
   if (major == "gfx9" && minor == "50") {
-    // TODO (gfx950): some of those information are not accurate and need to be
-    // adjusted after hardware release
     AmdArchInfo gfx950Info(cdna3Info);
     gfx950Info.hasFp8ConversionInstrs = false;
     gfx950Info.hasOcpFp8ConversionInstrs = true;
+    gfx950Info.maxWavesPerEU = 8;
+    gfx950Info.totalSGPRPerEU = 800;
+    gfx950Info.totalSharedMemPerCU = 163840;
+    gfx950Info.maxSharedMemPerWG = 163840;
+    // TODO: gfx950Info.minNumCU?
     gfx950Info.defaultFeatures =
         bitEnumSet(gfx950Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
     return gfx950Info;
