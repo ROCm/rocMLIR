@@ -51,6 +51,14 @@ static constexpr AmdArchInfo
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/228,
               /*hasFp8ConversionInstrs=*/true,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
+    gfx950Info(GemmFeatures::mfma | GemmFeatures::dot |
+                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
+                   GemmFeatures::atomic_add_bf16,
+               /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 800,
+               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 163840,
+               /*maxSharedMemPerWG*/ 163840, /*numEUPerCU=*/4, /*minNumCU=*/256,
+               /*hasFp8ConversionInstrs=*/false,
+               /*hasOcpFp8ConversionInstrs=*/true, /*maxNumXCC=*/8),
     // amdgpu target builds all RDNA in WGP Mode
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
                   /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
@@ -125,16 +133,6 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return gfx12Info;
   }
   if (major == "gfx9" && minor == "50") {
-    AmdArchInfo gfx950Info(cdna3Info);
-    gfx950Info.hasFp8ConversionInstrs = false;
-    gfx950Info.hasOcpFp8ConversionInstrs = true;
-    gfx950Info.maxWavesPerEU = 8;
-    gfx950Info.totalSGPRPerEU = 800;
-    gfx950Info.totalSharedMemPerCU = 163840;
-    gfx950Info.maxSharedMemPerWG = 163840;
-    // TODO: gfx950Info.minNumCU?
-    gfx950Info.defaultFeatures =
-        bitEnumSet(gfx950Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
     return gfx950Info;
   }
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
