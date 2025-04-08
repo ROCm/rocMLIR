@@ -1,5 +1,4 @@
-//===- TransformMapBuilderTests.cpp - Tests for the Rock Transform
-// Map Builder -----===//
+//===- AmdArchDbTests.cpp - Tests for the AMD arch database
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,6 +14,6 @@
 using namespace mlir::rock;
 
 TEST(AmdArchDbTest, NativeArch) {
-  auto info = lookupArchInfo("native");
-  EXPECT_EQ(info.totalVGPRPerEU, 256);
+  auto info = lookupArchInfo("native:1");
+  EXPECT_EQ(info.totalVGPRPerEU, 512);
 }

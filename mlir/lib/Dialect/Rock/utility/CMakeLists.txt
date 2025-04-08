@@ -20,6 +20,25 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRMHAL
 )
 
+target_include_directories(obj.MLIRRockUtility PUBLIC
+  ${LLVM_EXTERNAL_SRC_DIR}/llvm/lib/Target/AMDGPU
+  ${LLVM_EXTERNAL_BUILD_DIR}/llvm/lib/Target/AMDGPU
+)
+
+target_link_libraries(MLIRRockUtility PUBLIC
+  LLVMAMDGPUCodeGen
+  LLVMAMDGPUDesc
+  LLVMAMDGPUInfo
+  LLVMAMDGPUUtils
+  LLVMCodeGen
+  LLVMCodeGenTypes
+  LLVMCore
+  LLVMGlobalISel
+  LLVMMC
+  LLVMSupport
+  LLVMTargetParser
+)
+
 find_package(hip REQUIRED)
 # We do need both of these.  One is for linking, to get the HIP
 # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
@@ -29,3 +48,5 @@ target_link_libraries(MLIRRockUtility PUBLIC
 target_link_libraries(obj.MLIRRockUtility PUBLIC
   hip::host hip::amdhip64
 )
+
+add_subdirectory(Bindings)

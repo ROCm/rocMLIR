@@ -13,7 +13,12 @@
 #include "mlir/IR/TypeUtilities.h"
 
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/TargetSelect.h"
+
+#include "AMDGPUTargetMachine.h"
+#include "GCNSubtarget.h"
 
 #include "hip/hip_runtime_api.h"
 
@@ -87,41 +92,119 @@ static constexpr AmdArchInfo
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1);
 
-static AmdArchInfo fetchNativeArchInfo(unsigned long long deviceId = 0) {
+namespace {
+
+std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
+  std::tuple<StringRef, unsigned> ret("", 0);
+
+  StringRef firstPart, remainingParts;
+  std::tie(firstPart, remainingParts) = arch.split(':');
+  if (firstPart == "native") {
+    std::get<0>(ret) = firstPart;
+    if (unsigned long long deviceId;
+        !llvm::getAsUnsignedInteger(remainingParts, 0, deviceId)) {
+      std::get<1>(ret) = deviceId;
+    }
+    return ret;
+  }
+
+  if (firstPart.contains('-')) { // target triple
+    std::tie(firstPart, remainingParts) = remainingParts.split(':');
+  }
+
+  std::get<0>(ret) = firstPart;
+  return ret;
+}
+
+std::unique_ptr<const GCNTargetMachine>
+createTargetMachine(StringRef cpu, StringRef featureString = "") {
+  static std::once_flag flag;
+  std::call_once(flag, [] {
+    LLVMInitializeAMDGPUTargetInfo();
+    LLVMInitializeAMDGPUTarget();
+    LLVMInitializeAMDGPUTargetMC();
+  });
+
+  Triple triple("amdgcn-amd-");
+  std::string error;
+  const Target *target = TargetRegistry::lookupTarget(triple, error);
+  if (!target) {
+    llvm::errs() << "WARNING: Target registry lookup failed with error: "
+                 << error << ".\n";
+    return nullptr;
+  }
+
+  TargetOptions options;
+  return std::unique_ptr<GCNTargetMachine>(
+      static_cast<GCNTargetMachine *>(target->createTargetMachine(
+          triple, cpu, featureString, options, std::nullopt, std::nullopt)));
+}
+
+template <typename LHS, typename RHS>
+std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
+checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
+  if (lhs != static_cast<LHS>(rhs)) {
+    llvm::outs() << "NOTE: Value discrepancy for " << name << ": " << lhs
+                 << " != " << rhs << ". Proceeding with " << rhs << ".\n";
+    lhs = std::forward<RHS>(rhs);
+  }
+}
+
+AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
+  llvm::outs() << "Fetching native arch info for device " << deviceId
+               << "...\n";
+
   hipDeviceProp_t prop;
   if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
-    llvm::errs() << "hipGetDeviceProperties error: " << hipGetErrorString(err)
-                 << "; Device ID: " << deviceId
-                 << "; Falling back to defaults\n";
+    llvm::errs() << "WARNING: hipGetDeviceProperties failed with error: "
+                 << hipGetErrorString(err) << ". Falling back to defaults.\n";
     return gcnInfo;
   }
 
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
-  ret.waveSize = prop.warpSize;
-  // are these the correct values to use?
-  ret.totalSharedMemPerCU = prop.sharedMemPerMultiprocessor;
-  ret.maxSharedMemPerWG = prop.sharedMemPerBlock;
+
+  checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, prop.multiProcessorCount);
+  checkAndSetInfo("(HIP) waveSize", ret.waveSize, prop.warpSize);
+  checkAndSetInfo("(HIP) totalSharedMemPerCU", ret.totalSharedMemPerCU,
+                  prop.maxSharedMemoryPerMultiProcessor);
+  checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
+                  prop.sharedMemPerBlock);
+
+  auto tm = createTargetMachine(std::get<0>(parseArchString(prop.gcnArchName)));
+  if (!tm) {
+    llvm::errs() << "WARNING: Couldn't create target machine. Proceeding with "
+                    "HIP values.\n";
+    return ret;
+  }
+
+  GCNSubtarget st(tm->getTargetTriple(), std::string(tm->getTargetCPU()),
+                  std::string(tm->getTargetFeatureString()), *tm);
+
+  checkAndSetInfo("(LLVM) numEUPerCU", ret.numEUPerCU, st.getEUsPerCU());
+  checkAndSetInfo("(LLVM) maxWavesPerEU", ret.maxWavesPerEU,
+                  st.getMaxWavesPerEU());
+  checkAndSetInfo("(LLVM) totalSGPRPerEU", ret.totalSGPRPerEU,
+                  st.getTotalNumSGPRs());
+  checkAndSetInfo("(LLVM) totalVGPRPerEU", ret.totalVGPRPerEU,
+                  st.getTotalNumVGPRs());
+  checkAndSetInfo("(LLVM) waveSize", ret.waveSize, st.getWavefrontSize());
+  checkAndSetInfo("(LLVM) totalSharedMemPerCU", ret.totalSharedMemPerCU,
+                  st.getAddressableLocalMemorySize());
+  checkAndSetInfo("(LLVM) maxSharedMemPerWG", ret.maxSharedMemPerWG,
+                  st.getLocalMemorySize());
 
   return ret;
 }
 
+} // anonymous namespace
+
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
-  StringRef firstPart, remainingParts;
-  std::tie(firstPart, remainingParts) = arch.split(':');
-  if (firstPart == "native") {
-    unsigned long long deviceId;
-    if (!llvm::getAsUnsignedInteger(remainingParts, 0, deviceId)) {
-      return fetchNativeArchInfo(deviceId);
-    }
-    return fetchNativeArchInfo();
+  auto [chip, deviceId] = parseArchString(arch);
+  if (chip == "native") {
+    return fetchNativeArchInfo(deviceId);
   }
-  if (firstPart.contains('-')) { // target triple
-    std::tie(firstPart, remainingParts) = remainingParts.split(':');
-  }
-  StringRef chip = firstPart;
-
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
   if (major == "gfx9") {
