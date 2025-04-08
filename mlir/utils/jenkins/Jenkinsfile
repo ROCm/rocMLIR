@@ -418,13 +418,11 @@ pipeline {
 
 
         // Each below control whether to run a individual stage from parallel run
-        // They default to true or empty but deverloper can toggle them for debugging purpose
+        // They default to true or empty but developer can toggle them for debugging purpose
         booleanParam(name: 'sharedLib', defaultValue: true,
                      description: 'Run the shared library stage')
         booleanParam(name: 'staticLib', defaultValue: true,
                      description: 'Run the static library stage')
-        booleanParam(name: 'perfTest', defaultValue: true,
-                     description: 'Run the performance testing stage')
         booleanParam(name: 'checkMIGraphX', defaultValue: false,
                      description: 'Run the MIGraphX integration tests')
         booleanParam(name: 'checkCK', defaultValue: true,
@@ -817,7 +815,6 @@ pipeline {
                 }
                 when {
                     beforeAgent true;
-                    equals expected: true, actual: params.perfTest;
                     equals expected: true, actual: params.nightly;
                     expression { return shouldRunFromChip("${CHIP}")}
                 }
