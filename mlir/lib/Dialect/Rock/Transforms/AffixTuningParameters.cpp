@@ -165,8 +165,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       }
       if (failed(status)) {
         LLVM_DEBUG(llvm::dbgs() << "obtainTuningParameters call fails.\n");
-        signalPassFailure();
-        return;
+        return signalPassFailure();
       }
     }
 
@@ -188,8 +187,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       if (failed(res)) {
         LLVM_DEBUG(llvm::dbgs()
                    << "Invalid tuning parameters for computing KBlocks.\n");
-        signalPassFailure();
-        return;
+        return signalPassFailure();
       }
     }
 
@@ -218,8 +216,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     LogicalResult status =
         populateParams.obtainTuningParameters(op, perfConfig, validParams);
     if (failed(status)) {
-      signalPassFailure();
-      return;
+      return signalPassFailure();
     }
     // update schedule version to what is provided by the user if and only if
     // user hasn't provided perfConfig, otherwise just keep whatever was
