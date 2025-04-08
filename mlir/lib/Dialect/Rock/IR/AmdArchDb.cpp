@@ -90,7 +90,15 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1);
+              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+    gfx12Info(GemmFeatures::dot | GemmFeatures::atomic_add |
+                  GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma |
+                  GemmFeatures::atomic_add_f16 | GemmFeatures::atomic_add_bf16,
+              /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 800,
+              /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
+              /*hasFp8ConversionInstrs=*/false,
+              /*hasOcpFp8ConversionInstrs=*/true, /*maxNumXCC=*/1);
 
 namespace {
 
@@ -230,21 +238,6 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return gfx11Info;
   }
   if (major == "gfx12") {
-    // TODO (gfx12): some of those information are not accurate and need to be
-    // adjusted after hardware release
-    AmdArchInfo gfx12Info(gfx11Info);
-    gfx12Info.hasFp8ConversionInstrs = false;
-    gfx12Info.hasOcpFp8ConversionInstrs = true;
-    gfx12Info.totalVGPRPerEU = 1536;
-    gfx12Info.maxWavesPerEU = 16;
-    gfx12Info.totalSGPRPerEU = 800;
-    gfx12Info.totalSharedMemPerCU = 65536;
-    gfx12Info.maxSharedMemPerWG = 65536;
-    gfx12Info.defaultFeatures =
-        bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_f16);
-    gfx12Info.defaultFeatures =
-        bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
-
     return gfx12Info;
   }
   llvm_unreachable("unknown architecture");
