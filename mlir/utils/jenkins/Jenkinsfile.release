@@ -1,4 +1,5 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+// used for release CI
 void buildProject(String target, String cmakeOpts) {
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\

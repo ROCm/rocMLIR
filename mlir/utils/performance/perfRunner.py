@@ -1537,7 +1537,7 @@ def main(args=None):
     numCU = getNumCU(chip)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/conv-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR performance test runner",

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# used to build new docker image on docker hub
+
 set -x
 
 declare -a ARGS=("$@")

@@ -1,4 +1,5 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+// used for private CI
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -729,26 +730,26 @@ pipeline {
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/gemm-configs \
+                                        -c ../mlir/utils/performance/configs/gemm-configs \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/conv-configs \
+                                        -c ../mlir/utils/performance/configs/conv-configs \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune attention configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ../mlir/utils/performance/attention-configs \
+                                        -c ../mlir/utils/performance/configs/attention-configs \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/gemm-configs -s quick \
+                                        -c ../mlir/utils/performance/configs/gemm-configs -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
                                       [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs (quick tuning)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/conv-configs -s quick \
+                                        -c ../mlir/utils/performance/configs/conv-configs -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
                             }
                         }
@@ -880,12 +881,12 @@ pipeline {
                                 sh 'ls -l /dev/dri'
                                 // Run MLIR vs MIOpend perf benchmarks.
                                 sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                       --configs_file=${WORKSPACE}/mlir/utils/performance/conv-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/configs/conv-configs \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                 // Run MLIR vs rocBLAS perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                       --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                             }
@@ -913,7 +914,7 @@ pipeline {
                             dir('build') {
                                 // Run attention benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                       --configs_file=${WORKSPACE}/mlir/utils/performance/attention-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/configs/attention-configs \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
@@ -949,7 +950,7 @@ pipeline {
 
                                 dir('build') {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                --configs_file=${WORKSPACE}/mlir/utils/performance/gemm-configs \
+                                --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                     sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
                                 }
