@@ -1760,13 +1760,14 @@ struct GridwiseAttentionAccelRewritePattern
     if (doBypassLDSForQ) {
       ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
     }
-#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
-    // TODO: Workaround for issue
-    // https://github.com/ROCm/rocMLIR-internal/issues/1802 If sumRowBuffer and
-    // expMaxDiffRowBuffer are filled with doSwapThreadIterSubDims=true, it does
-    // not match with the second GEMM N dimension. Find a good solution to this.
-    ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
-#endif
+    if (op.getEnableSoftmax()) {
+      // TODO: Workaround for issue
+      // https://github.com/ROCm/rocMLIR-internal/issues/1802 If sumRowBuffer
+      // and expMaxDiffRowBuffer are filled with doSwapThreadIterSubDims=true,
+      // it does not match with the second GEMM N dimension. Find a good
+      // solution to this.
+      ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
+    }
     FailureOr<VectorDimInfo> maybeVectorDimInfoK =
         getVectorDim(rewriter, loc, inK, elemTypeK, blockSize, gemm0KPerBlock,
                      gemm0MPerBlock, gemm0kpack);
