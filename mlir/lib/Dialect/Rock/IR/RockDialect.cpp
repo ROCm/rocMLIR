@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -33,6 +34,7 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -46,6 +48,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
 #include <algorithm>
@@ -486,10 +489,13 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
     return ConvOpType::BwdWeight;
   case KernelType::Gemm:
     llvm_unreachable(
-        "Gemm ops shouldn't be in convolution-specific lowering passes");
+        "GEMM ops shouldn't be in convolution-specific lowering passes");
   case KernelType::Attention:
     llvm_unreachable(
         "Attention ops shouldn't be in convolution-specific lowering passes");
+  case KernelType::GemmElementwiseGemm:
+    llvm_unreachable(
+        "gemm+gemm ops shouldn't be in convolution-specific lowering passes");
   }
   llvm_unreachable("Unsuppported KernelType");
 }
@@ -566,17 +572,20 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
           "Mfma gridwise does not support E4M3/E5M2 data types ");
     }
   }
-  if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
-    return op->emitOpError("floating-point input type ")
-           << elemTypeA
-           << " requires a floating-point output type, but the output type is "
-           << elemTypeC;
-  }
-  if (isa<IntegerType>(elemTypeA) && !isa<IntegerType>(elemTypeC)) {
-    return op->emitOpError("integer input type ")
-           << elemTypeA
-           << " requires an integer output type, but the output type is "
-           << elemTypeC;
+  if (elemTypeC) {
+    if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
+      return op->emitOpError("floating-point input type ")
+             << elemTypeA
+             << " requires a floating-point output type, but the output type "
+                "is "
+             << elemTypeC;
+    }
+    if (isa<IntegerType>(elemTypeA) && !isa<IntegerType>(elemTypeC)) {
+      return op->emitOpError("integer input type ")
+             << elemTypeA
+             << " requires an integer output type, but the output type is "
+             << elemTypeC;
+    }
   }
   return success();
 }
@@ -2068,75 +2077,186 @@ LogicalResult BlockwiseFillOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// AttentionOp
+// GemmElementwiseGemmOp
 //===-----------------------------------------------------===//
 
-LogicalResult AttentionOp::verify() {
-  ShapedType qType = getQueries().getType();
+OpOperand *GemmElementwiseGemmOp::getOutArgument() {
+  return &(*this)->getOpOperand(getNumOperands() - 1);
+}
+
+Type GemmElementwiseGemmOp::getOutType() { return getOut().getType(); }
+
+Type GemmElementwiseGemmOp::getAType() { return getA().getType(); }
+
+Type GemmElementwiseGemmOp::getBType() { return getB().getType(); }
+
+Type GemmElementwiseGemmOp::getCType() { return getC().getType(); }
+
+bool GemmElementwiseGemmOp::getTransposedA() { return getATransposed(); }
+
+bool GemmElementwiseGemmOp::getTransposedB() { return getBTransposed(); }
+
+bool GemmElementwiseGemmOp::getTransposedC() { return getCTransposed(); }
+
+bool GemmElementwiseGemmOp::getTransposedOut() { return getOTransposed(); }
+
+KernelType GemmElementwiseGemmOp::getKernelType() {
+  return KernelType::GemmElementwiseGemm;
+}
+
+uint32_t GemmElementwiseGemmOp::getFirstGemmIndex() {
+  return getFirstGemmIdx();
+}
+
+GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
+  ShapedType typeA = getA().getType(), typeB = getB().getType(),
+             typeC = getC().getType();
+  ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
+                    dimsC = typeC.getShape();
+  int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
+          offsetB = dimsB.size() == 2 ? 0 : 1,
+          offsetC = dimsC.size() == 2 ? 0 : 1;
+  int64_t g = offsetA ? dimsA[0] : 1,
+          m = dimsA[offsetA + (getATransposed() ? 1 : 0)],
+          k = dimsA[offsetA + (getATransposed() ? 0 : 1)],
+          n = dimsB[offsetB + (getBTransposed() ? 0 : 1)],
+          o = dimsC[offsetC + (getCTransposed() ? 1 : 0)];
+  return GemmGemmSize(g, m, k, n, o);
+}
+
+static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
+                                              Value currentSeqLen) {
+  ShapedType qType = cast<ShapedType>(op.getAType());
   int64_t qBatchDim = qType.getShape().size() == 3 ? qType.getShape()[0] : 1;
   ArrayRef<int64_t> qLastDims = qType.getShape().slice(qType.getRank() - 2);
-  auto [queryM, queryK] = getQTransposed()
+  auto [queryM, queryK] = op.getTransposedA()
                               ? std::tuple{qLastDims[1], qLastDims[0]}
                               : std::tuple{qLastDims[0], qLastDims[1]};
 
-  ShapedType kType = getKeys().getType();
+  ShapedType kType = cast<ShapedType>(op.getBType());
   int64_t kBatchDim = kType.getShape().size() == 3 ? kType.getShape()[0] : 1;
   ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
-  auto [keyK, keyN] = getKTransposed() ? std::tuple{kLastDims[1], kLastDims[0]}
-                                       : std::tuple{kLastDims[0], kLastDims[1]};
+  auto [keyK, keyN] = op.getTransposedB()
+                          ? std::tuple{kLastDims[1], kLastDims[0]}
+                          : std::tuple{kLastDims[0], kLastDims[1]};
 
-  ShapedType vType = getValues().getType();
+  ShapedType vType = cast<ShapedType>(op.getCType());
   int64_t vBatchDim = vType.getShape().size() == 3 ? vType.getShape()[0] : 1;
   ArrayRef<int64_t> vLastDims = vType.getShape().slice(vType.getRank() - 2);
-  auto [valueK, valueN] = getVTransposed()
+  auto [valueK, valueN] = op.getTransposedC()
                               ? std::tuple{vLastDims[1], vLastDims[0]}
                               : std::tuple{vLastDims[0], vLastDims[1]};
 
   if (qBatchDim != kBatchDim || kBatchDim != vBatchDim) {
-    return emitError("Batch dimensions do not match");
+    return op.emitError("Batch dimensions do not match");
   }
   if (queryK != keyK) {
-    return emitError("reduction dimensions of first gemm do not match");
+    return op.emitError("reduction dimensions of first gemm do not match");
   }
   if (keyN != valueK) {
-    return emitError("reduction dimensions of second gemm do not match");
+    return op.emitError("reduction dimensions of second gemm do not match");
   }
 
   // check output type
-  ShapedType oType = getOut().getType();
+  ShapedType oType = cast<ShapedType>(op.getOutType());
   int64_t oBatchDim = oType.getShape().size() == 3 ? oType.getShape()[0] : 1;
 
   ArrayRef<int64_t> oLastDims = oType.getShape().slice(oType.getRank() - 2);
   auto [outputSeqLen, outputHeadDim] =
-      getOTransposed() ? std::tuple{oLastDims[1], oLastDims[0]}
-                       : std::tuple{oLastDims[0], oLastDims[1]};
+      op.getTransposedOut() ? std::tuple{oLastDims[1], oLastDims[0]}
+                            : std::tuple{oLastDims[0], oLastDims[1]};
 
   if (qType.getShape().size() != oType.getShape().size()) {
-    return emitError("Number of dimensions do not match (Q and Output)");
+    return op.emitError("Number of dimensions do not match (Q and Output)");
   }
   if (qBatchDim != oBatchDim) {
-    return emitError("Batch dimensions do not match (Q and Output)");
+    return op.emitError("Batch dimensions do not match (Q and Output)");
   }
   if (queryM != outputSeqLen) {
-    return emitError("Sequence length does not match (Q and Output)");
+    return op.emitError("Sequence length does not match (Q and Output)");
   }
   if (valueN != outputHeadDim) {
-    return emitError("Head dimensions do not match (V and Output)");
+    return op.emitError("Head dimensions do not match (V and Output)");
   }
 
   // check currentSeqLen (KV Cache)
-  auto currentSeqLen = getCurrentSeqLen();
   if (currentSeqLen) {
-    ShapedType seqLenType = currentSeqLen.getType();
+    ShapedType seqLenType = cast<ShapedType>(currentSeqLen.getType());
     if (seqLenType.getShape().size() != 1) {
-      return emitError("Number of dimensions is not one (currentSeqLen)");
+      return op.emitError("Number of dimensions is not one (currentSeqLen)");
     }
     if (seqLenType.getShape()[0] != oBatchDim) {
-      return emitError(
+      return op.emitError(
           "Batch dimensions do not match (currentSeqLen and Output)");
     }
   }
   return success();
+}
+
+LogicalResult GemmElementwiseGemmOp::verify() {
+  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr);
+}
+
+void GemmElementwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  effects.emplace_back(read, &getAMutable());
+  effects.emplace_back(read, &getBMutable());
+  effects.emplace_back(read, &getCMutable());
+  for (auto &regionArg : getElemwiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+//===-----------------------------------------------------===//
+// AttentionOp
+//===-----------------------------------------------------===//
+
+OpOperand *AttentionOp::getOutArgument() {
+  return &(*this)->getOpOperand(getNumOperands() - 1);
+}
+
+Type AttentionOp::getOutType() { return getOut().getType(); }
+
+Type AttentionOp::getAType() { return getQueries().getType(); }
+
+Type AttentionOp::getBType() { return getKeys().getType(); }
+
+Type AttentionOp::getCType() { return getValues().getType(); }
+
+bool AttentionOp::getTransposedA() { return getQTransposed(); }
+
+bool AttentionOp::getTransposedB() { return getKTransposed(); }
+
+bool AttentionOp::getTransposedC() { return getVTransposed(); }
+
+bool AttentionOp::getTransposedOut() { return getOTransposed(); }
+
+KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
+
+uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
+
+GemmGemmSize AttentionOp::getGemmGemmSize() {
+  ShapedType typeA = getQueries().getType(), typeB = getKeys().getType(),
+             typeC = getValues().getType();
+  ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
+                    dimsC = typeC.getShape();
+  int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
+          offsetB = dimsB.size() == 2 ? 0 : 1,
+          offsetC = dimsC.size() == 2 ? 0 : 1;
+  int64_t g = offsetA ? dimsA[0] : 1,
+          m = dimsA[offsetA + (getQTransposed() ? 1 : 0)],
+          k = dimsA[offsetA + (getQTransposed() ? 0 : 1)],
+          n = dimsB[offsetB + (getKTransposed() ? 0 : 1)],
+          o = dimsC[offsetC + (getVTransposed() ? 1 : 0)];
+  return GemmGemmSize(g, m, k, n, o);
+}
+
+LogicalResult AttentionOp::verify() {
+  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen());
 }
 
 void AttentionOp::getEffects(

@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
 include "mlir/Dialect/Rock/IR/RockConvInterface.td"
+include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.td"
 include "mlir/Dialect/Rock/IR/RockWriterOpInterface.td"
@@ -204,39 +205,44 @@ def Rock_ReduceOp :
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
   }];
 }
-
-def Rock_AttentionOp :
-  Rock_Op<"attention", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, RockFusionRoot, AttrSizedOperandSegments]>,
-  Arguments<(ins
-    TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
-    TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
-    TensorOrMemRefOf<[F32, F16, BF16]>:$values,
-    Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-    Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
-    TensorOrMemRefOf<[F32, BF16, F16]>:$out,
-    UnitAttr:$qTransposed,
-    UnitAttr:$kTransposed,
-    UnitAttr:$vTransposed,
-    UnitAttr:$oTransposed,
-    StrAttr:$arch,
-    Rock_GemmFeaturesAttr:$features,
-    OptionalAttr<I32Attr>:$numCU,
-    OptionalAttr<RockTuningParamAttrInterface>:$params0,
-    OptionalAttr<RockTuningParamAttrInterface>:$params1,
-    I32Attr:$firstGemmIdx
-  )>,
-  Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
+def Rock_AttentionOp
+    : Rock_Op<
+          "attention", [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
+                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                        RockFusionRoot, AttrSizedOperandSegments]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
+          TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$values,
+          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+          Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$qTransposed,
+          UnitAttr:$kTransposed, UnitAttr:$vTransposed, UnitAttr:$oTransposed,
+          StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
+          OptionalAttr<I32Attr>:$numCU,
+          OptionalAttr<RockTuningParamAttrInterface>:$params0,
+          OptionalAttr<RockTuningParamAttrInterface>:$params1,
+          I32Attr:$firstGemmIdx)>,
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
   let summary = "Attention operation of transformer models";
   let description = [{
-    Performs the operation out = SOFTMAX((queries * keys) .* scale) * values.
+    Performs the operation out = SOFTMAX(preSoftmaxBody(queries * keys, preSoftmaxElemWiseInputs)) * values.
 
-    This operation performs attention mechanism of transformer models.
+    This operation performs attention mechanism of transformer models. There is an optional element-wise 
+    fusion just before the softmax, defined by `preSoftmaxBody` with inputs `preSoftmaxElemWiseInputs`.
+
+    If none of the `transposed` attributes are set, then `queries` is [G] x seq_q x head_qk,
+    `keys` is [G] x head_qk x seq_k, `values` is [G] x seq_k x head_v and `out` is [G] x seq_q x head_v, 
+    where G is the optional group dimension (which is assumed to be 1 if not set).
+
+    The transpose attributes allow for the non-group dimensions of the matrix to be
+    transposed. For example, if `qTransposed` is set, then the argument `queries` should be
+    a [G] x head_qk x seq_q memory.
 
     Those creating a `rock.attention` must specify the GPU architecture being targetted
     and the number of compute units (numCu) available. The parameters
     `gridSize`, and `blockSize` are optional as they can be inferred by
     a tuning process or a heuristic, but they must be set before the `attention` is
-    lowered into the `gridwise_attention` stage of the code generation pipeline.
+    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -250,8 +256,56 @@ def Rock_AttentionOp :
         (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
     `}` attr-dict (`->` type($result)^)?
   }];
-  let extraClassDeclaration = [{
-    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperands().back(); }
+}
+
+def Rock_GemmElementwiseGemmOp
+    : Rock_Op<"gemm_elementwise_gemm",
+              [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
+      AllElementTypesMatch<["a", "b", "c"]>,
+      Arguments<(ins TensorOrMemRefOf<[F32]>:$a, TensorOrMemRefOf<[F32]>:$b,
+          TensorOrMemRefOf<[F32]>:$c,
+          Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
+          TensorOrMemRefOf<[F32]>:$out, UnitAttr:$aTransposed,
+          UnitAttr:$bTransposed, UnitAttr:$cTransposed, UnitAttr:$oTransposed,
+          StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
+          OptionalAttr<I32Attr>:$numCU,
+          OptionalAttr<RockTuningParamAttrInterface>:$params0,
+          OptionalAttr<RockTuningParamAttrInterface>:$params1,
+          I32Attr:$firstGemmIdx)>,
+      Results<(outs Optional<TensorOf<[F32]>>:$result)> {
+  let summary = "GEMM-elementwise-GEMM operation";
+  let description = [{
+    Performs the operation out = preSecondGemmBody(a * b, elemwiseInputs) * c.
+
+    This operation performs fused GEMM-elementwise-GEMM. There is an optional element-wise
+    fusion just before the second GEMM, defined by `preSecondGemmBody` with inputs `elemwiseInputs`.
+
+    If none of the `transposed` attributes are set, then `a` is [G] x M x K,
+    `b` is [G] x K x N, `c` is [G] x N x O and `out` is [G] x M x O, where G is the 
+    optional group dimension (which is assumed to be 1 if not set).
+
+    The transpose attributes allow for the non-group dimensions of the matrix to be
+    transposed. For example, if `aTransposed` is set, then the argument `a` should be
+    a [G] x K x M memory.
+
+    Those creating a `rock.gemm_elementwise_gemm` must specify the GPU architecture being targetted
+    and the number of compute units (numCu) available. The parameters
+    `gridSize`, and `blockSize` are optional as they can be inferred by
+    a tuning process or a heuristic, but they must be set before the `gemm_elementwise_gemm` is
+    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+
+    `features` specifies what hardware features can be used in the generated code.
+  }];
+  let hasVerifier = 1;
+  let regions = (region AnyRegion:$preSecondGemmBody);
+  let assemblyFormat = [{
+    `{` `\n`
+        ` ` `ab` `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b `:` type($a) `,` type($b) `\n`
+        (`ab` `=` `elementwise` (`otherIns` `(` $elemwiseInputs^ `:` type($elemwiseInputs) `)`)? $preSecondGemmBody^ `\n`)?
+        (`tr` $oTransposed^)? $out `=` `ab` `*` (`tr` $cTransposed^)? $c `:` type($c) `->` type($out) `\n`
+    `}` attr-dict (`->` type($result)^)?
   }];
 }
 
@@ -432,24 +486,23 @@ def Rock_GridwiseGemmAccelOp :
 }
 
 // gridwise_attention_accel
-def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, RockFusionRoot, AttrSizedOperandSegments]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
-                   MemRefRankOf<[F32, F16, BF16,], [3]>:$values,
-                   Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-                   Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
-                   MemRefRankOf<[F32, F16, BF16], [3]>:$out,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   I32Attr:$blockSize,
-                   I32Attr:$gridSize,
-                   UnitAttr:$disableQBypassLDS,
-                   OptionalAttr<IndexAttr>:$prePadG0M,
-                   OptionalAttr<IndexAttr>:$prePadG0N,
-                   RockAccelTuningParamAttrInterface:$params0,
-                   RockAccelTuningParamAttrInterface:$params1,
-                   I32Attr:$firstGemmIdx)> {
+def Rock_GridwiseAttentionAccelOp
+    : Rock_Op<"gridwise_attention_accel",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot, AttrSizedOperandSegments]>,
+      Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
+          MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
+          MemRefRankOf<[F32, F16, BF16], [3]>:$values,
+          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+          Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+          MemRefRankOf<[F32, F16, BF16], [3]>:$out, StrAttr:$arch,
+          Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
+          I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
+          OptionalAttr<IndexAttr>:$prePadG0M,
+          OptionalAttr<IndexAttr>:$prePadG0N,
+          RockAccelTuningParamAttrInterface:$params0,
+          RockAccelTuningParamAttrInterface:$params1, I32Attr:$firstGemmIdx,
+          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
