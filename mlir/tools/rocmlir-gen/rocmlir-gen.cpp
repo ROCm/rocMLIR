@@ -2421,6 +2421,18 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   return resultReshaped;
 }
 
+static Type getAccType(Type inputType, OpBuilder builder) {
+  Type accType;
+  if (isa<FloatType>(inputType)) {
+    accType = builder.getF32Type();
+  } else if (isa<IntegerType>(inputType)) {
+    accType = builder.getI32Type();
+  } else {
+    llvm_unreachable("not expected type");
+  }
+  return accType;
+}
+
 static Value broadcastGQATosa(OpBuilder builder, Location loc,
                               Value inputTensor) {
   assert(numHeadsQ % numHeadsKV == 0);
@@ -2757,7 +2769,13 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
                              ArrayRef<int32_t> perm) {
   auto elemType = cast<RankedTensorType>(src.getType()).getElementType();
-  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src, perm);
+  auto permutationAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get({(int64_t)perm.size()}, builder.getI32Type()),
+      perm);
+  Value permutationValue =
+      builder.create<arith::ConstantOp>(loc, permutationAttr);
+  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src,
+                                             permutationValue);
 }
 
 static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
@@ -2822,8 +2840,18 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   if (isQuantized) {
     firstGemmOutElemType = IntegerType::get(ctx, 32);
   }
-  Value qkTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, firstGemmOutElemType, queriesTensor, keysTensor);
+  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
+  // be more similar to what the gpu code does
+  // accumulate in 32 bit
+  Type firstAccType = getAccType(firstGemmOutElemType, builder);
+  assert(firstAccType == getAccType(params.types[1], builder));
+  Value qkTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstAccType, queriesTensor, keysTensor);
+  Value qkTensor = builder.createOrFold<tosa::CastOp>(
+      loc,
+      cast<ShapedType>(qkTensorBeforeConversion.getType())
+          .clone(firstGemmOutElemType),
+      qkTensorBeforeConversion);
 
   // get currentSeqLenTensor
   Value currentSeqLenTensor;
@@ -2911,8 +2939,18 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 #endif
   auto resultOutElementType =
       cast<ShapedType>(softmaxTensor.getType()).getElementType();
-  Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, resultOutElementType, softmaxTensor, valuesTensor);
+
+  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
+  // be more similar to what the gpu code does
+  // accumulate in 32 bit
+  Type secondAccType = getAccType(resultOutElementType, builder);
+  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondAccType, softmaxTensor, valuesTensor);
+  Value resultTensor = builder.createOrFold<tosa::CastOp>(
+      loc,
+      cast<ShapedType>(resultTensorBeforeConversion.getType())
+          .clone(resultOutElementType),
+      resultTensorBeforeConversion);
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
@@ -3146,14 +3184,15 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   if (isa<FloatType>(testElemType)) {
     constexpr float defaultRMSThreshold(0.00003f);
     constexpr float defaultRMSThresholdFP16(0.001f);
-    float RMSThresholdValue =
-        testElemType.isF16() ? defaultRMSThresholdFP16 : defaultRMSThreshold;
+    float RMSThresholdValue = isa<Float16Type, BFloat16Type>(testElemType)
+                                  ? defaultRMSThresholdFP16
+                                  : defaultRMSThreshold;
     if (RMSThreshold)
       RMSThresholdValue = RMSThreshold.getValue();
     Value thr_RMS = getF32Val(RMSThresholdValue);
     Value thr_absDiff = getF32Val(absDiffThreshold.getValue());
     Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
-    if (testElemType.isF16())
+    if (isa<Float16Type, BFloat16Type>(testElemType))
       thr_relDiff = getF32Val(100.0f);
 
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
