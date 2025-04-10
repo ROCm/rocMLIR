@@ -8,7 +8,7 @@
 
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 
-#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 
@@ -84,14 +84,14 @@ static constexpr AmdArchInfo
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/36,
              /*hasFp8ConversionInstrs=*/false,
              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
-    gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add |
+    rdna3Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32, /*maxWavesPerEU*/ 20, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
-    gfx12Info(GemmFeatures::dot | GemmFeatures::atomic_add |
+    rdna4Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma |
                   GemmFeatures::atomic_add_f16 | GemmFeatures::atomic_add_bf16,
               /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 800,
@@ -101,6 +101,26 @@ static constexpr AmdArchInfo
               /*hasOcpFp8ConversionInstrs=*/true, /*maxNumXCC=*/1);
 
 namespace {
+
+template <typename LHS, typename RHS>
+std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
+checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
+  if (lhs != static_cast<LHS>(rhs)) {
+    llvm::outs() << "NOTE: Value discrepancy for " << name << ": " << lhs
+                 << " != " << rhs << ". Proceeding with " << rhs << ".\n";
+    lhs = std::forward<RHS>(rhs);
+  }
+}
+
+GemmFeatures &operator|=(GemmFeatures &lhs, const GemmFeatures &rhs) {
+  lhs = lhs | rhs;
+  return lhs;
+}
+
+GemmFeatures &operator&=(GemmFeatures &lhs, const GemmFeatures &rhs) {
+  lhs = lhs & rhs;
+  return lhs;
+}
 
 std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tuple<StringRef, unsigned> ret("", 0);
@@ -113,19 +133,18 @@ std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
         !llvm::getAsUnsignedInteger(remainingParts, 0, deviceId)) {
       std::get<1>(ret) = deviceId;
     }
-    return ret;
+  } else {
+    if (firstPart.contains('-')) { // target triple
+      std::tie(firstPart, remainingParts) = remainingParts.split(':');
+    }
+    std::get<0>(ret) = firstPart;
   }
 
-  if (firstPart.contains('-')) { // target triple
-    std::tie(firstPart, remainingParts) = remainingParts.split(':');
-  }
-
-  std::get<0>(ret) = firstPart;
   return ret;
 }
 
 std::unique_ptr<const GCNTargetMachine>
-createTargetMachine(StringRef cpu, StringRef featureString = "") {
+createTargetMachine(StringRef chip, StringRef featureString = "") {
   static std::once_flag flag;
   std::call_once(flag, [] {
     LLVMInitializeAMDGPUTargetInfo();
@@ -133,7 +152,7 @@ createTargetMachine(StringRef cpu, StringRef featureString = "") {
     LLVMInitializeAMDGPUTargetMC();
   });
 
-  Triple triple("amdgcn-amd-");
+  Triple triple("amdgcn-amd-amdhsa");
   std::string error;
   const Target *target = TargetRegistry::lookupTarget(triple, error);
   if (!target) {
@@ -142,20 +161,8 @@ createTargetMachine(StringRef cpu, StringRef featureString = "") {
     return nullptr;
   }
 
-  TargetOptions options;
-  return std::unique_ptr<GCNTargetMachine>(
-      static_cast<GCNTargetMachine *>(target->createTargetMachine(
-          triple, cpu, featureString, options, std::nullopt, std::nullopt)));
-}
-
-template <typename LHS, typename RHS>
-std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
-checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
-  if (lhs != static_cast<LHS>(rhs)) {
-    llvm::outs() << "NOTE: Value discrepancy for " << name << ": " << lhs
-                 << " != " << rhs << ". Proceeding with " << rhs << ".\n";
-    lhs = std::forward<RHS>(rhs);
-  }
+  return std::unique_ptr<GCNTargetMachine>(static_cast<GCNTargetMachine *>(
+      target->createTargetMachine(triple, chip, featureString, {}, {}, {})));
 }
 
 AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
@@ -166,7 +173,7 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
   if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
     llvm::errs() << "WARNING: hipGetDeviceProperties failed with error: "
                  << hipGetErrorString(err) << ". Falling back to defaults.\n";
-    return gcnInfo;
+    return gcnInfo; // TODO fail
   }
 
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
@@ -178,28 +185,68 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
                   prop.sharedMemPerBlock);
 
-  auto tm = createTargetMachine(std::get<0>(parseArchString(prop.gcnArchName)));
-  if (!tm) {
+  auto chip = std::get<0>(parseArchString(prop.gcnArchName));
+  if (auto tm = createTargetMachine(chip); !tm) {
     llvm::errs() << "WARNING: Couldn't create target machine. Proceeding with "
                     "HIP values.\n";
-    return ret;
+  } else {
+    GCNSubtarget st(tm->getTargetTriple(), std::string(tm->getTargetCPU()),
+                    std::string(tm->getTargetFeatureString()), *tm);
+
+    checkAndSetInfo("(LLVM) numEUPerCU", ret.numEUPerCU, st.getEUsPerCU());
+    checkAndSetInfo("(LLVM) maxWavesPerEU", ret.maxWavesPerEU,
+                    st.getMaxWavesPerEU());
+    checkAndSetInfo("(LLVM) totalSGPRPerEU", ret.totalSGPRPerEU,
+                    st.getTotalNumSGPRs());
+    checkAndSetInfo("(LLVM) totalVGPRPerEU", ret.totalVGPRPerEU,
+                    st.getTotalNumVGPRs());
+    checkAndSetInfo("(LLVM) waveSize", ret.waveSize, st.getWavefrontSize());
+    checkAndSetInfo("(LLVM) totalSharedMemPerCU", ret.totalSharedMemPerCU,
+                    st.getLocalMemorySize());
+    checkAndSetInfo("(LLVM) maxSharedMemPerWG", ret.maxSharedMemPerWG,
+                    st.getAddressableLocalMemorySize());
+
+    auto features = ret.defaultFeatures;
+
+    if (st.hasAtomicFaddInsts()) {
+      features |= GemmFeatures::atomic_add;
+    } else {
+      features &= ~GemmFeatures::atomic_add;
+    }
+    if (st.hasAtomicBufferGlobalPkAddF16Insts() ||
+        st.hasAtomicBufferGlobalPkAddF16NoRtnInsts()) {
+      features |= GemmFeatures::atomic_add_f16;
+    } else {
+      features &= ~GemmFeatures::atomic_add_f16;
+    }
+    if (st.hasAtomicBufferPkAddBF16Inst()) {
+      features |= GemmFeatures::atomic_add_bf16;
+    } else {
+      features &= ~GemmFeatures::atomic_add_bf16;
+    }
+    if (st.hasAtomicFMinFMaxF32GlobalInsts()) {
+      features |= GemmFeatures::atomic_fmax_f32;
+    } else {
+      features &= ~GemmFeatures::atomic_fmax_f32;
+    }
+
+    checkAndSetInfo("(LLVM) defaultFeatures", ret.defaultFeatures, features);
+
+    checkAndSetInfo(
+        "(LLVM) hasFp8ConversionInstrs", ret.hasFp8ConversionInstrs,
+        st.hasFP8ConversionInsts()); // TODO double check the meaning of this
+    if (auto maybeChipset = amdgpu::Chipset::parse(chip);
+        failed(maybeChipset)) {
+      llvm::errs() << "WARNING: Failed parsing chipset. Proceeding with preset "
+                      "values.\n";
+    } else {
+      checkAndSetInfo("(LLVM) hasOcpFp8ConversionInstrs",
+                      ret.hasOcpFp8ConversionInstrs,
+                      amdgpu::hasOcpFp8(maybeChipset.value()));
+    }
   }
 
-  GCNSubtarget st(tm->getTargetTriple(), std::string(tm->getTargetCPU()),
-                  std::string(tm->getTargetFeatureString()), *tm);
-
-  checkAndSetInfo("(LLVM) numEUPerCU", ret.numEUPerCU, st.getEUsPerCU());
-  checkAndSetInfo("(LLVM) maxWavesPerEU", ret.maxWavesPerEU,
-                  st.getMaxWavesPerEU());
-  checkAndSetInfo("(LLVM) totalSGPRPerEU", ret.totalSGPRPerEU,
-                  st.getTotalNumSGPRs());
-  checkAndSetInfo("(LLVM) totalVGPRPerEU", ret.totalVGPRPerEU,
-                  st.getTotalNumVGPRs());
-  checkAndSetInfo("(LLVM) waveSize", ret.waveSize, st.getWavefrontSize());
-  checkAndSetInfo("(LLVM) totalSharedMemPerCU", ret.totalSharedMemPerCU,
-                  st.getAddressableLocalMemorySize());
-  checkAndSetInfo("(LLVM) maxSharedMemPerWG", ret.maxSharedMemPerWG,
-                  st.getLocalMemorySize());
+  // TODO maxNumXCC
 
   return ret;
 }
@@ -235,10 +282,10 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   }
   if (major == "gfx11") {
     // We know these chips have common features per backend
-    return gfx11Info;
+    return rdna3Info;
   }
   if (major == "gfx12") {
-    return gfx12Info;
+    return rdna4Info;
   }
   llvm_unreachable("unknown architecture");
 }
