@@ -221,3 +221,32 @@ func.func @test_mlir_slice_add_literal_weights_convolution(%arg0: memref<1638400
   memref.copy %10, %arg1 : memref<819200xf16> to memref<819200xf16>
   return
 }
+
+// CHECK-LABEL: test_gemm_gemm
+func.func @test_gemm_gemm(%arg0: memref<1024xf32>, %arg1: memref<1024xf32>, %arg2: memref<512xf32>, %arg3: memref<256xf32>) attributes {kernel, arch = ""} {
+  %0 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 8 + d1) * 64 + d2)> by [<Unmerge{1, 8, 64} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 8, 64] -> [512]> : memref<512xf32> to memref<1x8x64xf32>
+  %1 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["dim0", "dim2", "dim1"] at [0, 1, 2] -> ["dim0", "dim2", "dim1"] at [0, 2, 1]>] bounds = [1, 64, 8] -> [1, 8, 64]> : memref<1x8x64xf32> to memref<1x64x8xf32>
+  %2 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 64 + d1) * 16 + d2)> by [<Unmerge{1, 64, 16} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 64, 16] -> [1024]> : memref<1024xf32> to memref<1x64x16xf32>
+  %3 = rock.transform %2 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["dim0", "dim2", "dim1"] at [0, 1, 2] -> ["dim0", "dim2", "dim1"] at [0, 2, 1]>] bounds = [1, 16, 64] -> [1, 64, 16]> : memref<1x64x16xf32> to memref<1x16x64xf32>
+  %4 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 32 + d1) * 32 + d2)> by [<Unmerge{1, 32, 32} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 32, 32] -> [1024]> : memref<1024xf32> to memref<1x32x32xf32>
+  %5 = rock.transform %4 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["dim0", "dim2", "dim1"] at [0, 1, 2] -> ["dim0", "dim2", "dim1"] at [0, 2, 1]>] bounds = [1, 32, 32] -> [1, 32, 32]> : memref<1x32x32xf32> to memref<1x32x32xf32>
+  %6 = rock.transform %5 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<Slice{0, 1, 0, 32, 0, 16} ["dim0_sliced", "dim1_sliced", "dim2_sliced"] at [0, 1, 2] -> ["dim0", "dim1", "dim2"] at [0, 1, 2]>] bounds = [1, 32, 16] -> [1, 32, 32]> : memref<1x32x32xf32> to memref<1x32x16xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x32x8xf32>
+
+  // CHECK: %[[a:.*]] = rock.transform %{{.*}} memref<16x1x32xf32> to memref<1x16x32xf32>
+  // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<64x1x16xf32> to memref<1x64x16xf32>
+  // CHECK: rock.gemm_elementwise_gemm
+  // CHECK-NEXT: ab = tr %[[a]] * tr %[[b]]
+  rock.gemm_elementwise_gemm{
+    ab = %6 * %3 : memref<1x32x16xf32>, memref<1x16x64xf32>
+    ab = elementwise {
+  ^bb0(%arg4: memref<1x32x64xf32>, %arg5: memref<1x32x64xf32>):
+    memref.copy %arg4, %arg5 : memref<1x32x64xf32> to memref<1x32x64xf32>
+    rock.yield
+  }
+    %alloc = ab * %1 : memref<1x64x8xf32> -> memref<1x32x8xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIdx = 0 : i32}
+  %7 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 8, d0 mod 8)> by [<Merge{1, 32, 8} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [256] -> [1, 32, 8]> : memref<1x32x8xf32> to memref<256xf32>
+  memref.copy %7, %arg3 : memref<256xf32> to memref<256xf32>
+  return
+}

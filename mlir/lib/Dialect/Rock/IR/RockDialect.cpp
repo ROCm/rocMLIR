@@ -2108,6 +2108,10 @@ uint32_t GemmElementwiseGemmOp::getFirstGemmIndex() {
   return getFirstGemmIdx();
 }
 
+void GemmElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
+  setFirstGemmIdx(index);
+}
+
 GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
@@ -2238,6 +2242,8 @@ bool AttentionOp::getTransposedOut() { return getOTransposed(); }
 KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
 
 uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
+
+void AttentionOp::setFirstGemmIndex(uint32_t index) { setFirstGemmIdx(index); }
 
 GemmGemmSize AttentionOp::getGemmGemmSize() {
   ShapedType typeA = getQueries().getType(), typeB = getKeys().getType(),

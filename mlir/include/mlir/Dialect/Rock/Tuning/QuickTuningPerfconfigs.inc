@@ -72,55 +72,71 @@ static const InitParamsNonAccel initParametersConv[nInitParametersConv];
 
 // BEGIN_GEMM_XDL_f32_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersGemm[PopulateParamsXDL::nInitParametersGemm] = {
-    {64,64,8,16,16,4,1,1,2,true,true},
+    {64,64,8,64,16,4,1,1,2,true,true},
+    {128,128,8,32,16,4,1,1,2,true,true},
+    {64,128,8,32,16,4,1,1,2,true,true},
     {32,64,8,16,16,4,1,1,2,true,true},
     {32,32,8,16,16,8,1,1,2,true,true},
     {32,16,8,16,16,8,1,1,2,true,true},
     {16,32,8,16,16,8,1,1,2,true,true},
-    {64,64,8,64,16,8,1,1,2,true,true},
+    {32,64,8,32,16,8,1,1,2,true,true},
     {16,32,4,16,16,8,1,1,2,true,true},
-    {256,256,2,64,32,4,1,1,2,true,true}
+    {256,256,2,128,32,4,1,1,2,true,true},
+    {64,64,4,32,32,1,1,1,2,true,true}
 };
 // END_GEMM_XDL_f32_DEFS
 
 // BEGIN_CONV_XDL_f32_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersConv[PopulateParamsXDL::nInitParametersConv] = {
     {128,128,4,128,16,4,1,1,2,true,true},
+    {128,128,8,64,16,1,1,1,2,true,true},
+    {64,128,4,64,16,4,1,1,2,true,true},
     {64,64,8,32,16,4,1,1,2,true,true},
-    {64,64,4,32,32,8,1,1,2,true,true},
-    {64,128,2,32,32,8,1,1,2,true,true},
-    {64,64,4,64,16,4,1,1,2,true,true},
-    {64,128,8,64,32,1,1,1,2,true,true},
+    {64,64,8,32,32,4,1,1,2,true,true},
+    {64,64,4,16,16,4,1,1,2,true,true},
     {64,32,8,16,16,4,1,1,2,true,true},
-    {256,32,8,64,32,1,1,1,2,true,true},
-    {64,16,8,16,16,8,1,1,2,true,true},
-    {64,256,2,32,32,4,1,1,2,true,true},
-    {256,64,2,128,32,8,1,1,2,true,true},
+    {128,128,8,64,16,4,1,1,2,true,true},
+    {256,64,4,64,16,4,1,1,2,true,true},
+    {64,64,4,32,32,4,1,1,2,true,true},
     {64,256,4,64,16,4,1,1,2,true,true},
-    {64,64,8,16,16,8,1,1,2,true,true},
+    {128,256,8,64,16,1,1,1,2,true,true},
     {32,32,8,16,16,8,1,1,2,true,true},
+    {64,16,8,16,16,8,1,1,2,true,true},
+    {128,32,8,64,16,4,1,1,2,true,true},
+    {64,64,8,16,16,8,1,1,2,true,true},
+    {64,256,8,32,32,1,1,1,2,true,true},
+    {256,32,8,64,32,1,1,1,2,true,true},
+    {64,128,4,64,16,1,1,1,2,true,true},
+    {32,16,8,16,16,8,1,1,2,true,true},
     {256,128,4,64,32,4,1,1,2,true,true},
-    {128,64,4,128,16,8,1,1,2,true,true},
-    {32,16,4,16,16,8,1,1,2,true,true},
-    {16,16,8,16,16,8,1,1,2,true,true},
+    {256,128,2,128,32,4,1,1,2,true,true},
+    {16,32,8,16,16,8,1,1,2,true,true},
+    {32,16,8,16,16,4,1,1,2,true,true},
+    {32,128,4,32,16,4,1,1,2,true,true},
     {32,64,8,32,16,8,1,1,2,true,true},
-    {16,16,8,16,16,4,1,1,2,true,true}
+    {256,64,8,64,32,4,1,1,2,true,true},
+    {16,16,8,16,16,4,1,1,2,true,true},
+    {64,256,4,32,32,8,1,1,2,true,true}
 };
 // END_CONV_XDL_f32_DEFS
 
 // BEGIN_GEMM_XDL_f16_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersFp16Gemm[PopulateParamsXDL::nInitParametersFp16Gemm] = {
-    {64,128,4,32,32,8,1,1,2,true,true},
     {64,64,8,32,32,8,1,1,2,true,true},
+    {64,128,4,32,32,8,1,1,2,true,true},
     {128,128,4,128,16,8,1,1,2,true,true},
     {32,64,8,16,16,8,1,1,2,true,true},
     {16,64,8,16,16,8,1,1,2,true,true},
     {64,16,8,16,16,8,1,1,2,true,true},
+    {128,128,8,32,32,8,1,1,2,true,true},
     {128,256,2,128,32,8,1,1,2,true,true},
-    {128,128,8,64,16,8,1,1,2,true,true},
+    {128,256,4,64,16,8,1,1,2,true,true},
     {64,128,8,32,32,8,1,1,2,true,true},
     {16,16,8,16,16,8,1,1,2,true,true},
-    {128,256,4,64,16,8,1,1,2,true,true},
+    {128,256,4,32,16,8,1,1,2,true,true},
+    {256,128,8,128,16,8,1,1,2,true,true},
+    {128,256,8,32,32,8,1,1,2,true,true},
+    {128,128,2,128,32,8,1,1,2,true,true},
     {256,256,8,128,16,4,1,1,2,true,true}
 };
 // END_GEMM_XDL_f16_DEFS
@@ -128,34 +144,44 @@ const InitParamsAccel PopulateParamsXDL::initParametersFp16Gemm[PopulateParamsXD
 // BEGIN_CONV_XDL_f16_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersFp16Conv[PopulateParamsXDL::nInitParametersFp16Conv] = {
     {64,64,8,32,32,8,1,1,2,true,true},
-    {128,128,4,64,32,8,1,1,2,true,true},
     {128,128,4,64,16,8,1,1,2,true,true},
     {128,128,8,128,32,8,1,1,2,true,true},
+    {128,128,4,64,32,8,1,1,2,true,true},
+    {256,128,8,64,16,4,1,1,2,true,true},
+    {128,256,4,128,16,8,1,1,2,true,true},
+    {128,128,4,128,16,4,1,1,2,true,true},
+    {256,128,4,128,16,8,1,1,2,true,true},
+    {256,128,4,128,16,4,1,1,2,true,true},
     {128,32,8,32,32,8,1,1,2,true,true},
-    {256,128,4,128,32,4,1,1,2,true,true},
-    {128,128,4,32,32,4,1,1,2,true,true},
+    {128,128,8,128,32,4,1,1,2,true,true},
+    {128,256,4,64,32,4,1,1,2,true,true},
+    {128,64,8,64,16,8,1,1,2,true,true},
+    {64,128,8,64,16,8,1,1,2,true,true},
     {64,16,8,16,16,8,1,1,2,true,true},
-    {128,64,8,64,32,8,1,1,2,true,true},
     {256,128,2,128,32,4,1,1,2,true,true},
-    {64,32,8,32,32,8,1,1,2,true,true},
-    {256,128,4,128,32,8,1,1,2,true,true},
-    {64,128,8,32,16,8,1,1,2,true,true},
+    {128,64,4,32,32,8,1,1,2,true,true},
     {256,64,8,64,16,4,1,1,2,true,true},
-    {128,256,4,64,32,8,1,1,2,true,true},
-    {128,256,4,64,16,4,1,1,2,true,true},
-    {64,128,4,16,16,8,1,1,2,true,true},
-    {128,64,4,64,16,8,1,1,2,true,true},
-    {128,256,2,128,32,4,1,1,2,true,true},
+    {64,64,8,16,16,8,1,1,2,true,true},
+    {64,32,8,32,32,8,1,1,2,true,true},
+    {256,128,2,64,32,8,1,1,2,true,true},
     {32,32,8,16,16,8,1,1,2,true,true},
-    {64,32,8,16,16,8,1,1,2,true,true},
-    {256,128,8,128,16,4,1,1,2,true,true},
-    {64,64,4,32,32,8,1,1,2,true,true},
-    {32,64,8,32,16,4,1,1,2,true,true},
-    {256,64,4,64,32,8,1,1,2,true,true},
+    {128,64,4,128,16,8,1,1,2,true,true},
+    {64,256,4,64,16,4,1,1,2,true,true},
+    {64,128,4,32,16,8,1,1,2,true,true},
     {32,16,8,16,16,8,1,1,2,true,true},
-    {16,16,8,16,16,8,1,1,2,true,true},
-    {64,64,8,32,32,1,1,1,2,true,true},
-    {16,256,4,16,16,8,1,1,2,true,true}
+    {64,256,4,32,32,4,1,1,2,true,true},
+    {128,16,8,32,16,8,1,1,2,true,true},
+    {64,32,8,16,16,8,1,1,2,true,true},
+    {16,32,8,16,16,8,1,1,2,true,true},
+    {64,256,2,32,32,4,1,1,2,true,true},
+    {64,64,4,64,16,8,1,1,2,true,true},
+    {32,64,8,32,16,4,1,1,2,true,true},
+    {32,16,8,32,16,8,1,1,2,true,true},
+    {64,64,2,32,32,4,1,1,2,true,true},
+    {256,32,4,128,32,8,1,1,2,true,true},
+    {64,64,4,64,32,4,1,1,2,true,true},
+    {256,256,8,64,32,8,1,1,2,true,true},
+    {256,256,4,128,16,4,1,1,2,true,true}
 };
 // END_CONV_XDL_f16_DEFS
 
@@ -215,40 +241,56 @@ const InitParamsAccel PopulateParamsXDL::initParametersForwardFp8Conv[PopulatePa
 
 // BEGIN_GEMM_XDL_i8_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersI8Gemm[PopulateParamsXDL::nInitParametersI8Gemm] = {
-    {64,128,16,64,16,4,1,1,2,true,true},
-    {64,256,4,64,16,16,1,1,2,true,true},
+    {64,128,8,64,16,8,1,1,2,true,true},
+    {64,128,4,32,16,16,1,1,2,true,true},
+    {128,256,4,64,16,16,1,1,2,true,true},
+    {64,64,8,32,16,16,1,1,2,true,true},
     {64,64,16,32,16,4,1,1,2,true,true},
-    {64,128,32,64,32,4,1,1,2,true,true},
-    {32,64,8,16,16,16,1,1,2,true,true},
+    {128,128,8,32,16,16,1,1,2,true,true},
+    {64,128,8,16,16,16,1,1,2,true,true},
+    {64,16,16,16,16,16,1,1,2,true,true},
+    {32,64,16,16,16,4,1,1,2,true,true},
+    {32,64,8,32,16,16,1,1,2,true,true},
+    {32,32,16,16,16,16,1,1,2,true,true},
+    {32,256,4,16,16,16,1,1,2,true,true},
     {16,64,8,16,16,8,1,1,2,true,true},
-    {32,256,4,32,16,16,1,1,2,true,true},
-    {64,64,8,64,16,4,1,1,2,true,true},
     {64,16,8,16,16,16,1,1,2,true,true},
-    {32,32,32,16,16,8,1,1,2,true,true},
-    {32,16,16,16,16,16,1,1,2,true,true},
-    {16,32,32,16,16,4,1,1,2,true,true},
+    {64,32,16,32,16,16,1,1,2,true,true},
+    {128,64,4,32,32,8,1,1,2,true,true},
+    {16,32,32,16,16,8,1,1,2,true,true},
     {256,256,8,128,64,1,1,1,2,true,true},
-    {16,32,8,16,16,8,1,1,2,true,true}
+    {64,16,16,32,16,16,1,1,2,true,true},
+    {16,32,8,16,16,8,1,1,2,true,true},
+    {32,64,32,32,16,16,1,1,2,true,true}
 };
 // END_GEMM_XDL_i8_DEFS
 
 // BEGIN_CONV_XDL_i8_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersForwardI8Conv[PopulateParamsXDL::nInitParametersForwardI8Conv] = {
+    {128,128,8,64,16,16,1,1,2,true,true},
+    {128,128,4,64,16,16,1,1,2,true,true},
     {64,128,4,64,16,16,1,1,2,true,true},
-    {128,128,4,128,16,16,1,1,2,true,true},
     {64,64,8,32,32,16,1,1,2,true,true},
-    {128,64,4,32,32,16,1,1,2,true,true},
-    {128,32,4,32,32,16,1,1,2,true,true},
+    {64,64,16,32,32,16,1,1,2,true,true},
     {256,64,4,128,32,16,1,1,2,true,true},
-    {64,32,8,32,16,16,1,1,2,true,true},
-    {64,64,16,32,32,4,1,1,2,true,true},
-    {64,64,16,16,16,16,1,1,2,true,true},
-    {128,128,16,128,16,8,1,1,2,true,true},
+    {32,64,8,32,16,16,1,1,2,true,true},
+    {256,64,4,64,64,16,1,1,2,true,true},
+    {64,256,4,64,16,16,1,1,2,true,true},
+    {128,64,4,32,32,16,1,1,2,true,true},
+    {128,32,4,32,16,16,1,1,2,true,true},
+    {64,64,16,64,16,16,1,1,2,true,true},
+    {64,64,8,32,16,8,1,1,2,true,true},
+    {256,64,4,128,64,16,1,1,2,true,true},
+    {128,16,8,128,16,16,1,1,2,true,true},
+    {128,16,8,64,16,16,1,1,2,true,true},
+    {128,16,8,32,16,16,1,1,2,true,true},
+    {128,64,16,128,16,8,1,1,2,true,true},
     {64,32,4,64,16,16,1,1,2,true,true},
-    {64,256,4,32,16,4,1,1,2,true,true},
-    {32,32,16,32,16,16,1,1,2,true,true},
-    {64,128,32,64,16,4,1,1,2,true,true},
-    {64,16,8,32,16,8,1,1,2,true,true}
+    {32,16,8,16,16,16,1,1,2,true,true},
+    {64,256,4,32,32,8,1,1,2,true,true},
+    {256,32,4,64,16,16,1,1,2,true,true},
+    {32,32,32,32,16,16,1,1,2,true,true},
+    {16,32,16,16,16,16,1,1,2,true,true}
 };
 // END_CONV_XDL_i8_DEFS
 
@@ -257,22 +299,22 @@ const InitParamsAccel PopulateParamsXDL::initParametersForwardI8Conv[PopulatePar
 #ifdef XDL_DECLARATIONS_GEN
 
 // BEGIN_GEMM_XDL_f32_DECS
-static constexpr size_t nInitParametersGemm = 8;
+static constexpr size_t nInitParametersGemm = 11;
 static const InitParamsAccel initParametersGemm[nInitParametersGemm];
 // END_GEMM_XDL_f32_DECS
 
 // BEGIN_CONV_XDL_f32_DECS
-static constexpr size_t nInitParametersConv = 20;
+static constexpr size_t nInitParametersConv = 29;
 static const InitParamsAccel initParametersConv[nInitParametersConv];
 // END_CONV_XDL_f32_DECS
 
 // BEGIN_GEMM_XDL_f16_DECS
-static constexpr size_t nInitParametersFp16Gemm = 12;
+static constexpr size_t nInitParametersFp16Gemm = 16;
 static const InitParamsAccel initParametersFp16Gemm[nInitParametersFp16Gemm];
 // END_GEMM_XDL_f16_DECS
 
 // BEGIN_CONV_XDL_f16_DECS
-static constexpr size_t nInitParametersFp16Conv = 29;
+static constexpr size_t nInitParametersFp16Conv = 39;
 static const InitParamsAccel initParametersFp16Conv[nInitParametersFp16Conv];
 // END_CONV_XDL_f16_DECS
 
@@ -287,12 +329,12 @@ static const InitParamsAccel initParametersForwardFp8Conv[nInitParametersForward
 // END_CONV_XDL_fp8_DECS
 
 // BEGIN_GEMM_XDL_i8_DECS
-static constexpr size_t nInitParametersI8Gemm = 14;
+static constexpr size_t nInitParametersI8Gemm = 21;
 static const InitParamsAccel initParametersI8Gemm[nInitParametersI8Gemm];
 // END_GEMM_XDL_i8_DECS
 
 // BEGIN_CONV_XDL_i8_DECS
-static constexpr size_t nInitParametersForwardI8Conv = 15;
+static constexpr size_t nInitParametersForwardI8Conv = 24;
 static const InitParamsAccel initParametersForwardI8Conv[nInitParametersForwardI8Conv];
 // END_CONV_XDL_i8_DECS
 

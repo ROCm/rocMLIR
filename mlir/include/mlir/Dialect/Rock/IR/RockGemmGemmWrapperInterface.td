@@ -233,6 +233,16 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
         /*methodBody=*/"",
         /*defaultImplementation=*/ ""
       >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Set the index of the elementwise region argument that comes from the first GEMM.
+        }],
+        /*retType=*/"void",
+        /*methodName=*/"setFirstGemmIndex",
+        /*args=*/(ins "uint32_t":$index),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/ ""
+      >,
 
     // TODO: more methods here as needed
   ];
