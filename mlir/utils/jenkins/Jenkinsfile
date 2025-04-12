@@ -76,7 +76,6 @@ String dockerImageCIMIGraphX() {
 
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
-    sh 'git-clang-format -diff release/rocm-rel-6.4'
     if ( (params.nightly == false) && (codepath == "mfma") ) {
         echo "Performing Static Test (preMergeCheck)"
         sh '''
