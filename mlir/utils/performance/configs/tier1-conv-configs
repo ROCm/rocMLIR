@@ -1,640 +1,101 @@
 # from yolov10n
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f GNC01 -I 01NGC -O N01GC -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GNC01 -I 01NGC -O N01GC -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I 01NGC -O N01GC -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-convint8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convint8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GNC01 -I 01NGC -O NGC01 -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-convfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
-convfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8 -F 1 -f GNC01 -I 01NGC -O NGC01 -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
-convbfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
-convbfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GNC01 -I 01NGC -O NGC01 -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f GNC01 -I 01NGC -O N01GC -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from MaskRCNN
-convbfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f N01GC -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O N01GC -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I N01GC -O N01GC -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I 01NGC -O N01GC -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f N01GC -I N01GC -O N01GC -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp8_fp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f N01GC -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f N01GC -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f N01GC -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f N01GC -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
-convbfp8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 3 -H 1 -W 1 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 1 -W 1 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 8 -W 8 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 4 -W 4 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I 01NGC -O NGC01 -n 1 -c 256 -H 2 -W 2 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NGC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 1 -W 1 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f N01GC -I N01GC -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f GN01C -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 # from whisper-large encoder model
-convfp16 -F 1 -f NCG01 -I N01GC -O N01GC -n 1 -c 80 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 2 -v 1 -l 1 -j 1 -g 1
+-F 1 -f NCG01 -I N01GC -O N01GC -n 1 -c 80 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 2 -v 1 -l 1 -j 1 -g 1

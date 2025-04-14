@@ -1,49 +1,29 @@
 # from yolov10n
--t bf16 -out_datatype bf16 -transA false -transB true -g 2 -m 400 -n 400 -k 32
--t bf16 -out_datatype bf16 -transA true -transB true -g 2 -m 64 -n 400 -k 400
--t bf8 -out_datatype bf8 -transA false -transB true -g 2 -m 400 -n 400 -k 32
--t bf8 -out_datatype bf8 -transA true -transB true -g 2 -m 64 -n 400 -k 400
--t f16 -out_datatype f16 -transA false -transB true -g 2 -m 400 -n 400 -k 32
--t f16 -out_datatype f16 -transA true -transB true -g 2 -m 64 -n 400 -k 400
--t f32 -out_datatype f32 -transA false -transB true -g 2 -m 400 -n 400 -k 32
--t f32 -out_datatype f32 -transA true -transB true -g 2 -m 64 -n 400 -k 400
--t f8 -out_datatype f8 -transA false -transB false -g 2 -m 400 -n 400 -k 32
--t f8 -out_datatype f8 -transA false -transB true -g 2 -m 64 -n 400 -k 400
--t i8 -out_datatype i32 -transA false -transB false -g 2 -m 400 -n 400 -k 32
--t i8 -out_datatype i32 -transA false -transB true -g 2 -m 64 -n 400 -k 400
+-transA false -transB true -g 2 -m 400 -n 400 -k 32
+-transA true -transB true -g 2 -m 64 -n 400 -k 400
+-transA false -transB false -g 2 -m 400 -n 400 -k 32
+-transA false -transB true -g 2 -m 64 -n 400 -k 400
 
 # from phi3-3.8b model
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 48 -n 256 -k 1
+-transA false -transB false -g 1 -m 48 -n 256 -k 1
 
 # from MaskRCNN
--t bf16 -out_datatype bf16 -transA false -transB false -g 1 -m 258 -n 405 -k 1024
--t bf8 -out_datatype bf8 -transA false -transB false -g 1 -m 258 -n 405 -k 1024
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 258 -n 405 -k 1024
--t fp8_fp8 -out_datatype f32 -transA false -transB false -g 1 -m 258 -n 405 -k 1024
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 258 -n 405 -k 1024
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 258 -n 405 -k 1024
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 258 -n 405 -k 1024
+-transA false -transB false -g 1 -m 258 -n 405 -k 1024
 
 # from llama3-8b model
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 64 -n 256 -k 1
+-transA false -transB false -g 1 -m 64 -n 256 -k 1
 
 # from whisper-large decoder model
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 81920 -k 1280
--t f16 -out_datatype f16 -transA false -transB true -g 20 -m 216 -n 216 -k 64
--t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 216
--t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 1 -k 64
--t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 1
+-transA false -transB false -g 1 -m 1 -n 81920 -k 1280
+-transA false -transB true -g 20 -m 216 -n 216 -k 64
+-transA false -transB false -g 20 -m 216 -n 64 -k 216
+-transA false -transB false -g 20 -m 216 -n 1 -k 64
+-transA false -transB false -g 20 -m 216 -n 64 -k 1
 
 # from sd3 text encoder model
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
--t f16 -out_datatype f16 -transA false -transB true -g 12 -m 77 -n 77 -k 64
--t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 64 -k 77
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
--t i8 -out_datatype i8 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
--t i8 -out_datatype i8 -transA false -transB true -g 12 -m 77 -n 77 -k 64
--t i8 -out_datatype i8 -transA false -transB false -g 12 -m 77 -n 64 -k 77
--t i8 -out_datatype i8 -transA false -transB false -g 1 -m 77 -n 768 -k 768
--t i8 -out_datatype i8 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
--t i8 -out_datatype i8 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-transA false -transB false -g 1 -m 77 -n 2304 -k 768
+-transA false -transB true -g 12 -m 77 -n 77 -k 64
+-transA false -transB false -g 12 -m 77 -n 64 -k 77
+-transA false -transB false -g 1 -m 77 -n 768 -k 768
+-transA false -transB false -g 1 -m 77 -n 3072 -k 768
+-transA false -transB false -g 1 -m 1 -n 768 -k 768
