@@ -51,7 +51,7 @@ static constexpr AmdArchInfo
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/228,
               /*hasFp8ConversionInstrs=*/true,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
-    gfx950Info(GemmFeatures::mfma | GemmFeatures::dot |
+    cdna35Info(GemmFeatures::mfma | GemmFeatures::dot |
                    GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
                    GemmFeatures::atomic_add_bf16,
                /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 800,
@@ -93,11 +93,12 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
-  if (major == "gfx9" && minor != "50") {
+  if (major == "gfx9") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
         .Case("08", cdnaInfo)
         .Case("0a", cdna2Info)
         .Case("42", cdna3Info)
+        .Case("50", cdna35Info)
         // gfx906 has the dot product instructions, uniquely
         .Case("06", cdna50Info)
         .Default(gcnInfo);
@@ -131,9 +132,6 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
 
     return gfx12Info;
-  }
-  if (major == "gfx9" && minor == "50") {
-    return gfx950Info;
   }
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
                << arch << "\n";
