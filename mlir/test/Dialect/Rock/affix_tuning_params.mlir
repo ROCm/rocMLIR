@@ -386,9 +386,9 @@ func.func @rock_gemm_from_i8_conv(%a : memref<1x72x128xi8>, %b : memref<1x72x115
 func.func @rock_gemm_from_i8_conv_schedule_v2(%a : memref<1x72x128xi8>, %b : memref<1x72x115200xi8>, %c : memref<1x128x115200xi32>) attributes {schedule_version = #rock.schedule_version<2>} {
   // CHECK: rock.gemm
   // CHECK-SAME: derivedBlockSize = 256
-  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 4, mPerWave = 64, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, forceUnroll = true>
+  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 64, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, forceUnroll = true>
   // GRID: rock.gridwise_gemm
-  // GRID-SAME: gridSize = 3600
+  // GRID-SAME: gridSize = 1800
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx908",
     numCU = 120 : i32
