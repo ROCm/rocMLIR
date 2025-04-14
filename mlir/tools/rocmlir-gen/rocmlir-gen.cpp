@@ -3013,14 +3013,40 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   if (transposeC) {
     cTensor = transposeMatrix(builder, loc, cTensor, {0, 2, 1});
   }
+  auto aZp =
+      tosa::createZeroPointTensor(builder, loc, aTensor.getType(), 0).value();
+  auto bZp =
+      tosa::createZeroPointTensor(builder, loc, bTensor.getType(), 0).value();
 
+  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
+  // be more similar to what the gpu code does
   Type firstGemmOutElemType = params.types[2];
-  Value abTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, firstGemmOutElemType, aTensor, bTensor);
+  // accumulate in 32 bit
+  Type firstAccType = getAccType(params.types[0], builder);
+  assert(firstAccType == getAccType(params.types[1], builder));
+  Value abTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstAccType, aTensor, bTensor, aZp, bZp);
+  Value abTensor = builder.createOrFold<tosa::CastOp>(
+      loc,
+      cast<ShapedType>(abTensorBeforeConversion.getType())
+          .clone(firstGemmOutElemType),
+      abTensorBeforeConversion);
 
+  auto abZp =
+      tosa::createZeroPointTensor(builder, loc, abTensor.getType(), 0).value();
+  auto cZp =
+      tosa::createZeroPointTensor(builder, loc, cTensor.getType(), 0).value();
   Type secondGemmOutElemType = params.types[3];
-  Value resultTensor = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, secondGemmOutElemType, abTensor, cTensor);
+  // accumulate in 32 bit
+  Type secondAccType = getAccType(firstGemmOutElemType, builder);
+  assert(secondAccType == getAccType(params.types[2], builder));
+  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondAccType, abTensor, cTensor, abZp, cZp);
+  Value resultTensor = builder.createOrFold<tosa::CastOp>(
+      loc,
+      cast<ShapedType>(resultTensorBeforeConversion.getType())
+          .clone(secondGemmOutElemType),
+      resultTensorBeforeConversion);
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
