@@ -10,6 +10,7 @@
 #define ROCK_ATTRS
 
 include "mlir/Dialect/Rock/IR/RockBase.td"
+include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.td"
@@ -63,11 +64,13 @@ def KernelTypeConvBwdData : I32EnumAttrCase<"ConvBwdData", 1>;
 def KernelTypeConvBwdWeight : I32EnumAttrCase<"ConvBwdWeight", 2>;
 def KernelTypeGemm : I32EnumAttrCase<"Gemm", 3>;
 def KernelTypeAttention : I32EnumAttrCase<"Attention", 4>;
+def KernelTypeGemmElementwiseGemm : I32EnumAttrCase<"GemmElementwiseGemm", 5>;
 
-def KernelType : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
-  [KernelTypeConv, KernelTypeConvBwdData,
-    KernelTypeConvBwdWeight, KernelTypeGemm,
-    KernelTypeAttention]>;
+def KernelType
+    : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
+                   [KernelTypeConv, KernelTypeConvBwdData,
+                    KernelTypeConvBwdWeight, KernelTypeGemm,
+                    KernelTypeAttention, KernelTypeGemmElementwiseGemm]>;
 
 /// TransformType
 def PassThrough : I32EnumAttrCase<"PassThrough", 0>;

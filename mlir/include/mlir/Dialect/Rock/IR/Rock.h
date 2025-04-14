@@ -38,6 +38,7 @@ class PatternRewriter;
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
+#include "mlir/Dialect/Rock/IR/GemmGemmSize.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 
 namespace mlir {
@@ -48,12 +49,6 @@ class FusionRoot : public TraitBase<ConcreteType, FusionRoot> {};
 } // namespace rock
 } // namespace OpTrait
 } // namespace mlir
-
-// Following ifdef could be used to change
-// the attention operator to be a fused gemm-gemm
-// kernel for debugging purposes. This will also
-// adjust the test harness to verify the same as well
-// #define ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
 
 namespace mlir {
 namespace rock {
@@ -87,6 +82,7 @@ constexpr int64_t maxHardwareWorkgroupSize = 1024;
 
 #include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.h"
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockWriterOpInterface.h"
 

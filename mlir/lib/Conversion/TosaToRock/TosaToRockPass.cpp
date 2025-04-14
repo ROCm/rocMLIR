@@ -48,6 +48,13 @@ public:
     if (failed(applyPatternsGreedily(func, std::move(attentionPatterns))))
       signalPassFailure();
 
+    RewritePatternSet gemmGemmPatterns(&ctx);
+
+    mlir::tosa::populateTosaToRockGemmGemmConversionPatterns(&ctx,
+                                                             gemmGemmPatterns);
+    if (failed(applyPatternsGreedily(func, std::move(gemmGemmPatterns))))
+      signalPassFailure();
+
     RewritePatternSet tensorPatterns(&ctx);
 
     mlir::tosa::populateTosaToRockTensorConversionPatterns(&ctx,

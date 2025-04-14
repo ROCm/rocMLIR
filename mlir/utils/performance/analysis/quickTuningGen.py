@@ -279,9 +279,10 @@ class PerfConfigsFinder():
 
         targetColumns = []
         if self.op == "gemm":
-            targetColumns = ['TransA', 'TransB', 'G', 'M', 'K', 'N']
+            targetColumns = ['Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N']
         else:
             targetColumns = [
+                'Chip',
                 'Direction',
                 'InputLayout',
                 'N',

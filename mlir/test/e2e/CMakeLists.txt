@@ -33,6 +33,9 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrAttentionBF16
     PrAttentionI8
     PrGemmSplitK
+    PrGemmElementwiseGemmF32
+    PrGemmElementwiseGemmF16
+    PrGemmElementwiseGemmBF16
   )
   set(GEN_MODE "")
 endif()
