@@ -1081,12 +1081,14 @@ pipeline {
             when {
                 beforeAgent true;
                 equals expected: true, actual: params.runCodeCoverage;
+                equals expected: false, actual: params.weekly;
+                equals expected: false, actual: params.nightly;
             }
             matrix {
                 axes {
                     axis {
                         name 'CPATH'
-                        values 'mfma'           // 'navi3x' or hypothetical 'wmma' if needed
+                        values 'mfma', 'navi21', 'navi3x', 'navi4x'
                     }
                 }
                 agent {
