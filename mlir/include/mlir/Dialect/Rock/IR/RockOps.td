@@ -205,27 +205,22 @@ def Rock_ReduceOp :
   }];
 }
 
-def Rock_AttentionOp :
-  Rock_Op<"attention", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, RockFusionRoot, AttrSizedOperandSegments]>,
-  Arguments<(ins
-    TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
-    TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
-    TensorOrMemRefOf<[F32, F16, BF16]>:$values,
-    Variadic<TensorOrMemRefOf<[F32, F16, BF16, I8]>>:$preSoftmaxElemWiseInputs,
-    Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
-    TensorOrMemRefOf<[F32, BF16, F16]>:$out,
-    UnitAttr:$qTransposed,
-    UnitAttr:$kTransposed,
-    UnitAttr:$vTransposed,
-    UnitAttr:$oTransposed,
-    StrAttr:$arch,
-    Rock_GemmFeaturesAttr:$features,
-    OptionalAttr<I32Attr>:$numCU,
-    OptionalAttr<RockTuningParamAttrInterface>:$params0,
-    OptionalAttr<RockTuningParamAttrInterface>:$params1,
-    I32Attr:$firstGemmIdx
-  )>,
-  Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
+def Rock_AttentionOp
+    : Rock_Op<"attention", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                            RockFusionRoot, AttrSizedOperandSegments]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
+          TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$values,
+          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+          Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+          TensorOrMemRefOf<[F32, BF16, F16]>:$out, UnitAttr:$qTransposed,
+          UnitAttr:$kTransposed, UnitAttr:$vTransposed, UnitAttr:$oTransposed,
+          StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
+          OptionalAttr<I32Attr>:$numCU,
+          OptionalAttr<RockTuningParamAttrInterface>:$params0,
+          OptionalAttr<RockTuningParamAttrInterface>:$params1,
+          I32Attr:$firstGemmIdx)>,
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
   let summary = "Attention operation of transformer models";
   let description = [{
     Performs the operation out = SOFTMAX((queries * keys) .* scale) * values.
@@ -432,24 +427,22 @@ def Rock_GridwiseGemmAccelOp :
 }
 
 // gridwise_attention_accel
-def Rock_GridwiseAttentionAccelOp :
-    Rock_Op<"gridwise_attention_accel", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, RockFusionRoot, AttrSizedOperandSegments]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
-                   MemRefRankOf<[F32, F16, BF16,], [3]>:$values,
-                   Variadic<TensorOrMemRefOf<[F32, F16, BF16, I8]>>:$preSoftmaxElemWiseInputs,
-                   Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
-                   MemRefRankOf<[F32, F16, BF16], [3]>:$out,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   I32Attr:$blockSize,
-                   I32Attr:$gridSize,
-                   UnitAttr:$disableQBypassLDS,
-                   OptionalAttr<IndexAttr>:$prePadG0M,
-                   OptionalAttr<IndexAttr>:$prePadG0N,
-                   RockAccelTuningParamAttrInterface:$params0,
-                   RockAccelTuningParamAttrInterface:$params1,
-                   I32Attr:$firstGemmIdx)> {
+def Rock_GridwiseAttentionAccelOp
+    : Rock_Op<"gridwise_attention_accel",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot, AttrSizedOperandSegments]>,
+      Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
+          MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
+          MemRefRankOf<[F32, F16, BF16, ], [3]>:$values,
+          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+          Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+          MemRefRankOf<[F32, F16, BF16], [3]>:$out, StrAttr:$arch,
+          Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
+          I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
+          OptionalAttr<IndexAttr>:$prePadG0M,
+          OptionalAttr<IndexAttr>:$prePadG0N,
+          RockAccelTuningParamAttrInterface:$params0,
+          RockAccelTuningParamAttrInterface:$params1, I32Attr:$firstGemmIdx)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.

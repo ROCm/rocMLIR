@@ -905,6 +905,23 @@ static bool isElementwiseOp(Operation *op) {
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern<tosa::MatMulOp>::OpRewritePattern;
 
+  FailureOr<Value> getValueNonReshapeOpNonBroadcast(Value val) const {
+    while (val.getDefiningOp() &&
+           (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+            val.getDefiningOp<tensor::ExpandShapeOp>() ||
+            val.getDefiningOp<tosa::TransposeOp>() ||
+            val.getDefiningOp<tosa::AddOp>())) {
+      if (val.getDefiningOp<tosa::AddOp>()) {
+        auto maybeBroadcast = addBroadcast(val);
+        if (failed(maybeBroadcast))
+          return failure();
+        val = maybeBroadcast.value();
+      } else
+        val = val.getDefiningOp()->getOperand(0);
+    }
+    return val;
+  }
+
   Value getValueNonReshapeOp(Value val) const {
     while (val.getDefiningOp() &&
            (val.getDefiningOp<tensor::CollapseShapeOp>() ||
@@ -1004,8 +1021,35 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         if (failed(maybeNonZero2))
           return failure();
 
+        // check that the right dimensions are broadcasted
+        auto beforeBroadcastShape =
+            dyn_cast<ShapedType>(maybeNonZero2->getType());
+        if (beforeBroadcastShape) {
+          auto shape = beforeBroadcastShape.getShape();
+          if (beforeBroadcastShape.getRank() > 2 &&
+              !llvm::all_of(shape.slice(2), [](int32_t v) { return v == 1; }))
+            return failure();
+        } else {
+          return failure();
+        }
+
         Value currentSeqLen = getValueNonReshapeOp(maybeNonZero2.value());
         Value result = select.getOnFalse();
+
+        // currentSeqLen must be of i32 type
+        auto currentSeqLenShape = dyn_cast<ShapedType>(currentSeqLen.getType());
+        if (!currentSeqLenShape ||
+            !currentSeqLenShape.getElementType().isInteger(32))
+          return failure();
+
+        // we'll check now if currentSeqLen comes from a block argument
+        FailureOr<Value> mustBeBlockArg =
+            getValueNonReshapeOpNonBroadcast(currentSeqLen);
+
+        if (failed(mustBeBlockArg) ||
+            !isa<BlockArgument>(mustBeBlockArg.value()))
+          return failure();
+
         return std::make_pair(result, currentSeqLen);
       }
     }
@@ -1216,9 +1260,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   LogicalResult match(tosa::MatMulOp op) const override {
     FailureOr<std::tuple<Value, bool, Value>> softmaxInputResult =
         maybeSoftmax(op.getA());
-    if (failed(softmaxInputResult)) {
+    if (failed(softmaxInputResult))
       return failure();
-    }
 
     Value softmaxInput, currentSeqLen;
     bool hasReduceOp;
@@ -1245,12 +1288,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       LLVM_DEBUG(llvm::dbgs()
                  << "first matmul = " << maybeFirstMatMul.value() << "\n");
       LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
-      if (isDotProduct && hasReduceOp) {
+      if (isDotProduct && hasReduceOp)
         return failure();
-      }
-      if (!isDotProduct && !hasReduceOp) {
+      if (!isDotProduct && !hasReduceOp)
         return failure();
-      }
     } else {
       LLVM_DEBUG(llvm::dbgs() << "first matmul not found\n");
     }
