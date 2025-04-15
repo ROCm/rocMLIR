@@ -868,6 +868,9 @@ struct GridwiseAttentionAccelRewritePattern
         return failure();
       }
     } else {
+      assert(!ldsLayoutCfg.doSwapThreadIterSubDims &&
+             "doSwapThreadIterSubDims must be false if the destination buffer "
+             "is private memory");
       accel::AccelEmitterParams accelEmitterParams = accelEmitter.getParams();
       int64_t dRepeats = (nonKDimName == "m" ? accelEmitterParams.mRepeats
                                              : accelEmitterParams.nRepeats);
@@ -1754,6 +1757,16 @@ struct GridwiseAttentionAccelRewritePattern
     }
     LDSLayoutConfigDim ldsLayoutCfgNG0 = getLDSLayoutConfigDim(
         elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value());
+    if (doBypassLDSForQ) {
+      ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
+    }
+#ifndef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
+    // TODO: Workaround for issue
+    // https://github.com/ROCm/rocMLIR-internal/issues/1802 If sumRowBuffer and
+    // expMaxDiffRowBuffer are filled with doSwapThreadIterSubDims=true, it does
+    // not match with the second GEMM N dimension. Find a good solution to this.
+    ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
+#endif
     FailureOr<VectorDimInfo> maybeVectorDimInfoK =
         getVectorDim(rewriter, loc, inK, elemTypeK, blockSize, gemm0KPerBlock,
                      gemm0MPerBlock, gemm0kpack);
@@ -1828,7 +1841,7 @@ struct GridwiseAttentionAccelRewritePattern
     Value accRegBufferGemm0 =
         createBufferForAccelGemmOut(loc, accelParamsGemm0, rewriter);
     // Currently, there is a working assumption that this kernel is meant
-    // support fp32/fp16 This should be guranteed by op verifiers.
+    // support fp32/fp16/bf16. This should be guranteed by op verifiers.
     Type gemmOutElemType = elemTypeQxK;
     Type softmaxInElemType = elemTypeQxK;
     if (elemTypeQ == rewriter.getI8Type()) {
@@ -1979,12 +1992,13 @@ struct GridwiseAttentionAccelRewritePattern
         if (failed(statusLoadQ)) {
           return failure();
         }
+        rewriter.create<LDSBarrierOp>(loc);
 
         TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
             rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         loadGemmOperandsFromLDSToRegs(
             rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n", blockSize,
-            gemm0InMPerThread, *accelEmitterPtrGemm0.get(),
+            gemm0InNPerThread, *accelEmitterPtrGemm0.get(),
             ldsLayoutCfgNG0.doRotateWithK);
         rewriter.create<GpuDeallocOp>(loc, ldsByteBufferQ);
       }
