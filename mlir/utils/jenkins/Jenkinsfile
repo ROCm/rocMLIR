@@ -1088,7 +1088,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CPATH'
-                        values 'mfma', 'navi21', 'navi3x', 'navi4x'
+                        values 'mfma', 'navi3x', 'navi4x'
                     }
                 }
                 agent {
