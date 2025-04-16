@@ -16,6 +16,8 @@
 
 // RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 64 -n 64 -k 1024   2>&1 | FileCheck %s --check-prefix=M64_N64_K1024
 
+// RUN: mlir-mixr-split-k-test -t=DataType::F32 -m 1 -n 1 -k 1024   2>&1 | FileCheck %s --check-prefix=M1_N1_K1024
+
 // RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 1 -use-ew-op=false 2>&1 | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK1
 
 // RUN: mlir-mixr-split-k-test -t=DataType::F32 -split-k 4 -use-ew-op=false 2>&1 | FileCheck %s --check-prefix=F32_WITHOUT_EW_SK4
@@ -327,7 +329,8 @@ static bool constructAndTraverseIr(MlirContext ctx,
   std::cout << "splitk selection likelihood: " << likelihood << std::endl;
   // M1024_N1024_K64: splitk selection likelihood: maybe
   // M8192_N8192_K64: splitk selection likelihood: never
-  // M64_N64_K1024: splitk selection likelihood: always
+  // M64_N64_K1024: splitk selection likelihood: maybe
+  // M1_N1_K1024: splitk selection likelihood: always
 
   auto moduleOp = CRAIIWrapper<MlirModule>(
       makeAndDumpMIXR<ElementType>(ctx, location, options));
