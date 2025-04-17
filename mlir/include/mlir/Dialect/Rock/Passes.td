@@ -176,4 +176,16 @@ def RockSortDimensionsMemoryLayoutPass : Pass<"rock-sort-dimensions-memory-layou
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "arith::ArithDialect", "linalg::LinalgDialect"];
 }
 
+def RockWaveReduceLoweringPass : Pass<"rock-wave-reduce-lowering", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.wave_reduce op into architecture-specific code using DPP or other intrinsics.";
+  let description = [{
+    This pass lowers the `rock.wave_reduce` operation into architecture-specific instructions.
+    The chipset can be specified via the `--chipset` option to control target-specific lowering.
+  }];
+let dependentDialects = ["rock::RockDialect","func::FuncDialect", "arith::ArithDialect", "vector::VectorDialect",
+  "ROCDL::ROCDLDialect", "amdgpu::AMDGPUDialect"];
+let options = [Option<"chipset", "chipset", "std::string", "\"gfx000\"",
+           "Target GPU architecture to generate intrinsics for (examples: gfx90a, gfx942, gfx1100, etc.).">];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

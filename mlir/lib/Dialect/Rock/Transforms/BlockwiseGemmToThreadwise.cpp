@@ -39,10 +39,10 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+
 namespace mlir {
 namespace rock {
 #define GEN_PASS_DEF_ROCKBLOCKWISEGEMMTOTHREADWISEPASS
@@ -975,6 +975,7 @@ struct BlockwiseReduceRewritePattern
     // Get current workitem ID.
     WorkitemIdOp tid =
         rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+    ReduceMethod rMethod = op.getReduceMethod();
 
     // Create strides and bounds to iterate the virtual tensor
     TransformMapAttr lowerTr = cast<TransformMapAttr>(
@@ -1098,131 +1099,20 @@ struct BlockwiseReduceRewritePattern
                 vectorTypeOrSelf(elemType,
                                  std::max(rIterVectorLen, nrIterVectorLen)),
                 workspaceLDSBuffer, LDSLoadCoords);
-
-            Value BrodcastAll;
+            Value Reduced;
             if ((threadViewShape[rIterDim] / rIterVectorLen) > 1) {
-              auto vecType = dyn_cast<VectorType>(loadVal.getType());
-              auto vecLen = vecType.getNumElements();
-              SmallVector<Value, 4> scalarDppResults;
+              auto waveReductionOp = rewriter.create<rock::WaveReductionOp>(
+                  loc, loadVal.getType(), loadVal, initVal, rMethod);
+              Reduced = waveReductionOp->getResult(0);
 
-              for (int64_t i = 0; i < vecLen; ++i) {
-
-                Value scalarVal = rewriter.create<vector::ExtractElementOp>(
-                    loc, loadVal,
-                    rewriter.create<arith::ConstantIndexOp>(loc, i));
-                Value scalarInactiveValue = rewriter.create<arith::ConstantOp>(
-                    loc, vecType.getElementType(),
-                    rewriter.getFloatAttr(vecType.getElementType(), 0.0));
-
-                Value setInactiveScalar = rewriter.create<ROCDL::SetInactiveOp>(
-                    loc, vecType.getElementType(), scalarVal,
-                    scalarInactiveValue);
-
-                Value dppResult1 = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, setInactiveScalar, setInactiveScalar,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_shr),
-                    rewriter.getI32IntegerAttr(1),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-
-                Value dppResult = createReducingOp(op, setInactiveScalar,
-                                                   dppResult1, rewriter);
-
-                Value dppResult2 = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, setInactiveScalar, setInactiveScalar,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_shr),
-                    rewriter.getI32IntegerAttr(2),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-
-                dppResult =
-                    createReducingOp(op, dppResult, dppResult2, rewriter);
-
-                Value dppResult3 = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, setInactiveScalar, setInactiveScalar,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_shr),
-                    rewriter.getI32IntegerAttr(3),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-
-                dppResult =
-                    createReducingOp(op, dppResult, dppResult3, rewriter);
-
-                Value dppResult4 = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, dppResult, dppResult,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_shr),
-                    rewriter.getI32IntegerAttr(4),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xE),
-                    rewriter.getBoolAttr(false));
-
-                dppResult =
-                    createReducingOp(op, dppResult, dppResult4, rewriter);
-                Value dppResult5 = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, dppResult, dppResult,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_shr),
-                    rewriter.getI32IntegerAttr(8),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xC),
-                    rewriter.getBoolAttr(false));
-
-                dppResult =
-                    createReducingOp(op, dppResult, dppResult5, rewriter);
-
-                Value dppBrodcast = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, dppResult, dppResult,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_bcast_15),
-                    nullptr, rewriter.getI32IntegerAttr(0xA),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-
-                dppResult =
-                    createReducingOp(op, dppResult, dppBrodcast, rewriter);
-
-                dppBrodcast = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, dppResult, dppResult,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::row_bcast_31),
-                    nullptr, rewriter.getI32IntegerAttr(0xC),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-
-                dppResult =
-                    createReducingOp(op, dppResult, dppBrodcast, rewriter);
-
-                Value dppRotated = rewriter.create<amdgpu::DPPOp>(
-                    loc, elemType, dppResult, dppResult,
-                    amdgpu::DPPPermAttr::get(rewriter.getContext(),
-                                             amdgpu::DPPPerm::wave_ror),
-                    nullptr, rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getI32IntegerAttr(0xF),
-                    rewriter.getBoolAttr(false));
-
-                dppRotated = rewriter.create<ROCDL::StrictWWMOp>(loc, elemType,
-                                                                 dppRotated);
-                BrodcastAll = rewriter.create<ROCDL::ReadlaneOp>(
-                    loc, elemType, dppRotated,
-                    rewriter.create<mlir::arith::ConstantIntOp>(loc, 0, 32));
-              }
-              rewriter.create<InBoundsStoreOp>(loc, BrodcastAll,
-                                               workspaceLDSBuffer,
+              rewriter.create<InBoundsStoreOp>(loc, Reduced, workspaceLDSBuffer,
                                                reductionLoop.getLowerCoords(2));
             } else {
               Value loadAcc = rewriter.create<InBoundsLoadOp>(
                   loc, vectorTypeOrSelf(elemType, nrIterVectorLen), accReg,
                   zeroConstantOp);
-              BrodcastAll = createReducingOp(op, loadVal, loadAcc, rewriter);
-              rewriter.create<InBoundsStoreOp>(loc, BrodcastAll,
-                                               workspaceLDSBuffer,
+              Reduced = createReducingOp(op, loadVal, loadAcc, rewriter);
+              rewriter.create<InBoundsStoreOp>(loc, Reduced, workspaceLDSBuffer,
                                                reductionLoop.getLowerCoords(2));
             }
           }
@@ -1420,10 +1310,9 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<BlockwiseBroadcastReduceOp, BlockwiseFillOp>();
-    writeAllTarget.addLegalDialect<
-        arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
-        scf::SCFDialect, vector::VectorDialect, AffineDialect,
-        ROCDL::ROCDLDialect, amdgpu::AMDGPUDialect>();
+    writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
+                                   memref::MemRefDialect, scf::SCFDialect,
+                                   vector::VectorDialect, AffineDialect>();
     writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
@@ -1437,8 +1326,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          affine::AffineDialect, vector::VectorDialect,
-                         memref::MemRefDialect, ROCDL::ROCDLDialect,
-                         amdgpu::AMDGPUDialect>();
+                         memref::MemRefDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);

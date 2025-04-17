@@ -29,6 +29,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   ShuffleGemmForReductions.cpp
   GemmLinalgSplitkNormalizationPass.cpp
   SortDimensionsMemoryLayout.cpp
+  RockWaveReduce.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
@@ -67,4 +68,5 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRMHAL
   MLIRMHALTransforms
   MLIRCopyOpInterface
+  MLIRAMDGPUUtils
 )

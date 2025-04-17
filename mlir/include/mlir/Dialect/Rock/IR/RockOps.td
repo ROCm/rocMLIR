@@ -1379,7 +1379,6 @@ def Rock_ThreadwiseCopyOp :
   let hasVerifier = 1;
 }
 
-
 def Rock_StageOp :
   Rock_Op<"stage">,
   Arguments<(ins DefaultValuedStrAttr<StrAttr, "stage">:$name)>
@@ -1393,5 +1392,18 @@ def Rock_StageOp :
     let regions = (region AnyRegion:$region);
     let hasCustomAssemblyFormat = 1;
   }
+
+def Rock_WaveReductionOp : Rock_Op<"wave_reduce">,
+  Arguments<(ins AnyType:$input,
+                 AnyType:$init,
+                 ReduceMethodAttr:$reduceMethod)> {
+  let summary = "Wavefront-level reduction using DPP";
+  let description = [{
+    This op performs a wavefront-level reduction over a vector using DPP logic.
+    The reduction method is specified via the reduceMethod attribute.
+  }];
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$input `,` $init attr-dict `:` type($input) `,` type($init) `->` type($result)";
+}
 
 #endif // ROCK_OPS

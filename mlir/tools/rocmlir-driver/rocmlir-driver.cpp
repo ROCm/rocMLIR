@@ -172,7 +172,9 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
   }
   if (kernelPipelineSet.contains("gpu")) {
     // Set up the default lowering pipeline which goes down to GPU dialect.
-    rock::buildKernelPipeline(pm);
+    rock::KernelOptions opts;
+    opts.chip = devName.getChip().str();
+    rock::buildKernelPipeline(pm, opts);
   }
   bool isRocdlOnly = kernelPipelineSet.contains("rocdl") &&
                      !kernelPipelineSet.contains("binary");
