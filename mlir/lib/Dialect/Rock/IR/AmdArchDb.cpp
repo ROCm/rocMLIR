@@ -107,7 +107,8 @@ std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
 checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
   if (lhs != static_cast<LHS>(rhs)) {
     llvm::outs() << "NOTE: Value discrepancy for " << name << ": " << lhs
-                 << " != " << rhs << ". Proceeding with " << rhs << ".\n";
+                 << " (old) != " << rhs << " (new). Proceeding with " << rhs
+                 << ".\n";
     lhs = std::forward<RHS>(rhs);
   }
 }
@@ -173,7 +174,7 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
   if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
     llvm::errs() << "WARNING: hipGetDeviceProperties failed with error: "
                  << hipGetErrorString(err) << ". Falling back to defaults.\n";
-    return gcnInfo; // TODO fail
+    return gcnInfo; // TODO fail instead of default?
   }
 
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
@@ -246,7 +247,7 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
     }
   }
 
-  // TODO maxNumXCC
+  // TODO check and set maxNumXCC
 
   return ret;
 }
