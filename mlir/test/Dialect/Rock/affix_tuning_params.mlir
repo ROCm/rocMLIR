@@ -49,7 +49,7 @@ func.func @rock_conv_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x
 func.func @rock_conv_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
   // CHECK: rock.conv
   // CHECK-SAME: derivedBlockSize = 256
-  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 256, kpack = 8, mPerWave = 32, nPerWave = 128, mnPerXdl = 32, splitKFactor = 1, forceUnroll = true>
+  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 256, kpack = 4, mPerWave = 32, nPerWave = 128, mnPerXdl = 16, splitKFactor = 1, forceUnroll = true>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 900
   rock.conv(%filter, %input, %output) features = mfma|dot|atomic_add|atomic_add_f16 {
