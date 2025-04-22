@@ -233,7 +233,7 @@ const InitParamsAccel PopulateParamsXDL::initParametersForward8BitConv[PopulateP
     {128,64,16,128,16,8,1,true,true},
     {64,32,4,64,16,16,1,true,true},
     {32,16,8,16,16,16,1,true,true},
-	{64,256,4,32,16,4,1,true,true},
+    {64,256,4,32,16,4,1,true,true},
     {64,256,4,32,32,8,1,true,true},
     {256,32,4,64,16,16,1,true,true},
     {32,32,32,32,16,16,1,true,true},
