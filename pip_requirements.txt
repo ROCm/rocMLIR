@@ -6,3 +6,4 @@ ml_dtypes>=0.1.0, <=0.5.0   # provides several NumPy dtype extensions, including
 scipy
 pandas
 jinja2
+pybind11
