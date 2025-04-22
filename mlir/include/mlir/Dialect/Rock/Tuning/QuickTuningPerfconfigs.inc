@@ -233,6 +233,7 @@ const InitParamsAccel PopulateParamsXDL::initParametersForward8BitConv[PopulateP
     {128,64,16,128,16,8,1,true,true},
     {64,32,4,64,16,16,1,true,true},
     {32,16,8,16,16,16,1,true,true},
+	{64,256,4,32,16,4,1,true,true},
     {64,256,4,32,32,8,1,true,true},
     {256,32,4,64,16,16,1,true,true},
     {32,32,32,32,16,16,1,true,true},
@@ -270,7 +271,7 @@ static const InitParamsAccel initParametersI8Gemm[nInitParametersI8Gemm];
 // END_GEMM_XDL_i8_DECS
 
 // BEGIN_CONV_XDL_i8_DECS
-static constexpr size_t nInitParametersForward8BitConv = 24;
+static constexpr size_t nInitParametersForward8BitConv = 25;
 static const InitParamsAccel initParametersForward8BitConv[nInitParametersForward8BitConv];
 // END_CONV_XDL_i8_DECS
 
