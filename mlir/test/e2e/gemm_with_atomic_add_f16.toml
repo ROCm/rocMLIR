@@ -7,6 +7,11 @@ name = "storeMethod"
 values = ["set", "atomic_add"]
 prefix = "--store-method="
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version  "
+
 ## Gemm variants
 [[suite]]
 name = "gemm_variants_f16"

@@ -38,11 +38,12 @@ class Options:
 class PerfConfig:
     class Version(enum.Enum):
         V2 = 2
+        V3 = 4
 
-    def __init__(self, config: Sequence[int], version: Version = Version.V2):
+    def __init__(self, config: Sequence[int], version: Version = Version.V3):
         self._config = config
         self._version = version
-        self._version_map = {PerfConfig.Version.V2: "v2"}
+        self._version_map = {PerfConfig.Version.V2: "v2", PerfConfig.Version.V3: "v3"}
 
 
     def __str__(self):
@@ -325,7 +326,9 @@ WMMA_PERF_CONFIG = itertools.product(
     # KPack (exponent)
     range(2, 5),
     # splitKFactor (exponent)
-    range(0, 1)
+    range(0, 1),
+    # GEMM Schedule Version
+    range(1, 3)
 )
 
 MFMA_PERF_CONFIG = itertools.product(
@@ -348,18 +351,20 @@ MFMA_PERF_CONFIG = itertools.product(
     # KPack (exponent)
     range(1, 4),
     # splitKFactor (exponent)
-    range(0, 1)
+    range(0, 1),
+    # GEMM Schedule Version
+    range(1, 3)
 )
 def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave,\
-         n_per_wave, kpack, split_k = params
+         n_per_wave, kpack, split_k, gemm_schedule = params
     perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
-        1 << m_per_wave, 1 << n_per_wave, 1 << kpack, 1 << split_k, 1, 1)
+        1 << m_per_wave, 1 << n_per_wave, 1 << kpack, 1 << split_k, gemm_schedule, 2, 1, 1)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
         phr, pwl, pwr, dh, dw, g, options.arch,
-        PerfConfig(perf_config_tuple, PerfConfig.Version.V2))
+        PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
 
 VANILLA_PERF_CONFIG = itertools.product(
     # op
@@ -381,18 +386,21 @@ VANILLA_PERF_CONFIG = itertools.product(
     # NPerThread (exponent)
     range(1, 3),
     # splitKFactor (exponent)
-    range(0, 1)
+    range(0, 1),
+    # scheduleVersion
+    range(1, 3)
 )
+
 def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, block_size, m_per_block, n_per_block, k_per_block,\
-        m_per_thread,n_per_thread, split_k = params
+        m_per_thread,n_per_thread, split_k, schedule_version = params
     perf_config_tuple = (1 << block_size, 1 << m_per_block, 1 << n_per_block,
-        1 << k_per_block, 1 << m_per_thread, n_per_thread, 1 << split_k)
+        1 << k_per_block, 1 << m_per_thread, n_per_thread, 1 << split_k, schedule_version, 2)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
         phr, pwl, pwr, dh, dw, g, options.arch,
-        PerfConfig(perf_config_tuple, PerfConfig.Version.V2))
+        PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
 
 async def runConfig(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], MLIROnlyConfig],

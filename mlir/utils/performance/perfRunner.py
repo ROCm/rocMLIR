@@ -1336,7 +1336,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         # InitParamsAccel::visit().
         for (arch,config),perfConfig in tuningDb.items():
             splitPerf = perfConfig.split(',')
-            if perfConfig[0:3] == 'v2:' and int(splitPerf[6]) > 1:
+            if ((perfConfig[0:3] == 'v2:' or perfConfig[0:3] == 'v3:') and int(splitPerf[6]) > 1):
                 splitPerf[6] = '1'
                 tuningDb[arch,config] = ','.join(splitPerf)
 
@@ -1537,7 +1537,7 @@ def main(args=None):
     numCU = getNumCU(chip)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/conv-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR performance test runner",

@@ -16,6 +16,11 @@ name = "data type"
 values = ["f32", "f16"]
 prefix = "-t "
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version  "
+
 [[suite]]
 name = "config"
 

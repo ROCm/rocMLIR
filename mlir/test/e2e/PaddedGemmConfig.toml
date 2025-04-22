@@ -16,6 +16,11 @@ name = "data type"
 values = ["f32", "f16", "bf16", "i8"]
 prefix = "-t "
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version  "
+
 ## PaddedGemm
 [[suite]]
 name = "padded_gemm"
@@ -46,3 +51,4 @@ config = "-batchsize=64 -groupsize=1 -in_channels=3 -out_channels=64 -in_h=224 -
 
 [[suite.test]]
 config = "-batchsize=20 -groupsize=1 -in_channels=3 -out_channels=6 -in_h=32 -in_w=32 -fil_h=7 -fil_w=7 --dilation_h=1 --dilation_w=1 --padding_h=3 --padding_w=3 --conv_stride_h=2 --conv_stride_w=2"
+

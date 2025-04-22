@@ -1,3 +1,4 @@
+// used for public CI
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -24,7 +25,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm6.3-latest'
+    return 'rocm/mlir:rocm6.4-latest'
 }
 
 

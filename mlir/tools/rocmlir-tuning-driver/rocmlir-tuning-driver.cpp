@@ -86,7 +86,7 @@ static llvm::cl::opt<rock::TuningParamSetKind> tuningSpaceKind(
         clEnumValN(rock::TuningParamSetKind::Exhaustive, "exhaustive",
                    "All tuning space combinations, even inapplicable ones")),
     llvm::cl::value_desc("tuning space to use"),
-    llvm::cl::init(rock::TuningParamSetKind::Exhaustive));
+    llvm::cl::init(rock::TuningParamSetKind::Full));
 
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,

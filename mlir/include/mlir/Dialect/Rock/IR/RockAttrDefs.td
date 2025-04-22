@@ -482,7 +482,7 @@ def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
 // Misc Attrs
-def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
+def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
   let mnemonic = "pipeline";
   let parameters = (ins
     "int64_t":$InitiationInterval
@@ -490,6 +490,15 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
   let assemblyFormat = "`<` params `>`";
   let description = [{
     An attribute to express the properties of a loop to be pipelined
+  }];
+}
+
+def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
+  let mnemonic = "schedule_version";
+  let parameters = (ins "int64_t":$ScheduleVersion);
+  let assemblyFormat = "`<` params `>`";
+  let description = [{
+    Attribute to express which GEMM Scheduling strategies a kernel lowering should use inside rocMLIR
   }];
 }
 

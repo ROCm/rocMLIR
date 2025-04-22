@@ -25,6 +25,25 @@ func.func @rock_conv(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x
   return
 }
 
+// CHECK-LABEL: @rock_conv_schedulev2
+// GRID-LABEL: rock_conv_schedulev2
+func.func @rock_conv_schedulev2(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) attributes {schedule_version =  #rock.schedule_version<2>} {
+  // CHECK: rock.conv
+  // CHECK-SAME: params = #rock.general_gemm_params<blockSize = 128, kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 2, nPerThread = 4, kpack = 1, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2>
+  // GRID: rock.gridwise_gemm
+  // GRID-SAME: gridSize = 900
+  rock.conv(%filter, %input, %output) features = none {
+    arch = "amdgcn-amd-amdhsa:gfx906",
+    filter_layout = ["g", "k", "c", "0", "1"],
+    input_layout = ["ni", "gi", "ci", "0i", "1i"],
+    output_layout = ["no", "go", "ko", "0o", "1o"],
+    dilations = [1 : index, 1 : index],
+    strides = [1 : index, 1 : index],
+    padding = [0 : index, 0 : index, 0 : index, 0 : index]
+  } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
+  return
+}
+
 // CHECK-LABEL: func.func @rock_conv_f16
 // GRID-LABEL: func.func @rock_conv_f16
 func.func @rock_conv_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
@@ -353,6 +372,21 @@ func.func @rock_gemm_from_i8_conv(%a : memref<1x72x128xi8>, %b : memref<1x72x115
   // CHECK: rock.gemm
   // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 64, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  // GRID: rock.gridwise_gemm
+  // GRID-SAME: gridSize = 1800
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx908",
+    numCU = 120 : i32
+  } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_gemm_from_i8_conv_schedule_v2
+// GRID-LABEL: func.func @rock_gemm_from_i8_conv_schedule_v2
+func.func @rock_gemm_from_i8_conv_schedule_v2(%a : memref<1x72x128xi8>, %b : memref<1x72x115200xi8>, %c : memref<1x128x115200xi32>) attributes {schedule_version = #rock.schedule_version<2>} {
+  // CHECK: rock.gemm
+  // CHECK-SAME: derivedBlockSize = 256
+  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 64, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, forceUnroll = true>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 1800
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {

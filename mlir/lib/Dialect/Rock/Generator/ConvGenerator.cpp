@@ -39,10 +39,10 @@ using namespace mlir::rock;
 
 ConvGenerator::ConvGenerator(
     const std::string &arch, const std::string &chip,
-    bool disableSplitKForTuning, const std::string &triple,
-    const std::string &chipFeatures, const std::string &perfConfig,
-    std::optional<int> num_cu, bool reverseGrid, GemmFeatures features,
-    const std::optional<ConvOpType> operation,
+    bool disableSplitKForTuning, int64_t scheduleVersion,
+    const std::string &triple, const std::string &chipFeatures,
+    const std::string &perfConfig, std::optional<int> num_cu, bool reverseGrid,
+    GemmFeatures features, const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, ArrayRef<int> dilations,
     ArrayRef<int> strides, ArrayRef<int> paddingLeft,
@@ -52,6 +52,7 @@ ConvGenerator::ConvGenerator(
     : config{arch,
              chip,
              disableSplitKForTuning,
+             scheduleVersion,
              triple,
              chipFeatures,
              perfConfig,
@@ -840,6 +841,11 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   if (config.reverseGrid) {
     func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());
+  }
+  if (config.scheduleVersion != 1) {
+    func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
+                  rock::ScheduleVersionAttr::get(builder.getContext(),
+                                                 config.scheduleVersion));
   }
   module.push_back(func);
   if (!is_verifier)

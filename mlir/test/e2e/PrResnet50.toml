@@ -16,6 +16,11 @@ name = "data type"
 values = ["f32", "f16"]
 prefix = "-t "
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version  "
+
 [[suite]]
 name = "config"
 
@@ -35,6 +40,7 @@ config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=512 -in_h=28
 # -n 64 -c 64 -H 16 -W 16 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=64 -out_channels=64 -in_h=16 -in_w=16 -fil_h=1 -fil_w=1 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=0 -padding_h_r=0 -padding_w_l=0 -padding_w_r=0"
+
 [[suite.test.exclude]]
 name = "operation"
 values = ["conv_bwd_data", "conv_bwd_weight"]

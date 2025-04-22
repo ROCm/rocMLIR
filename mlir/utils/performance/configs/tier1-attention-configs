@@ -1,14 +1,14 @@
 # from llama2_7b decoder model
--t f16 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+-transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
 
 # from qwen1.5-7b model
--t f16 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+-transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
 
 # from phi3-3.8b model
--t f16 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 96 -head_dim_v 96
+-transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 96 -head_dim_v 96
 
 # from llama3-8b model
--t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+-transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
 
 # from whisper-large encoder model
--t f16 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1500 -seq_len_k 1500 -head_dim_qk 64 -head_dim_v 64
+-transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1500 -seq_len_k 1500 -head_dim_qk 64 -head_dim_v 64
