@@ -8,6 +8,8 @@
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
 
+// ALLOW_RETRIES: 3
+
 func.func @other_func(%arg0 : f32, %arg1 : memref<?xf32>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index

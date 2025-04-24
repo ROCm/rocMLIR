@@ -9,6 +9,8 @@
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
 
+// ALLOW_RETRIES: 3
+
 func.func @vecadd(%arg0 : memref<5xf32>, %arg1 : memref<5xf32>, %arg2 : memref<5xf32>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index

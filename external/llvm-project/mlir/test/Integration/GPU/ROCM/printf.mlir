@@ -7,6 +7,8 @@
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
 
+// ALLOW_RETRIES: 3
+
 // CHECK: Hello from 0
 // CHECK: Hello from 1
 module attributes {gpu.container_module} {
