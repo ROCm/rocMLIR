@@ -9,8 +9,11 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
 #include "gtest/gtest.h"
+#include "gtest/internal/gtest-internal.h"
 
 #include "hip/hip_runtime_api.h"
+
+#include <numeric>
 
 using namespace mlir::rock;
 
@@ -19,34 +22,56 @@ using namespace mlir::rock;
     auto v1 = (val1);                                                          \
     auto v2 = (val2);                                                          \
     if (!(v1 == v2)) {                                                         \
-      llvm::errs() << "(SOFT_CHECK_EQ) Expected equality of these values:\n"   \
-                   << "  " #val1 "\n    Which is: " << v1 << "\n"              \
-                   << "  " #val2 "\n    Which is: " << v2 << "\n\n";           \
+      GTEST_LOG_(INFO)                                                         \
+          << "(SOFT_CHECK_EQ) Expected equality of these values:\n"            \
+          << "  " #val1 "\n    Which is: " << v1 << "\n"                       \
+          << "  " #val2 "\n    Which is: " << v2 << "\n";                      \
     }                                                                          \
   } while (0)
 
-TEST(AmdArchDbTest, Native) {
-  hipDeviceProp_t prop;
-  if (auto err = hipGetDeviceProperties(&prop, 0); err != hipSuccess) {
-    FAIL() << "hipGetDeviceProperties failed with error: "
-           << hipGetErrorString(err);
+class NativeArchTest : public ::testing::TestWithParam<int> {
+public:
+  static auto getDeviceIds() {
+    int count;
+    if (auto err = hipGetDeviceCount(&count); err != hipSuccess) {
+      return ::testing::ValuesIn({0});
+    }
+    std::vector<int> ids(count);
+    std::iota(ids.begin(), ids.end(), 0);
+    return ::testing::ValuesIn(ids);
   }
 
-  auto presetInfo = lookupArchInfo(prop.gcnArchName);
-  auto nativeInfo = lookupArchInfo("native");
+protected:
+  void SetUp() override {
+    if (auto err = hipGetDeviceProperties(&prop, GetParam());
+        err != hipSuccess) {
+      FAIL() << "hipGetDeviceProperties failed with error: "
+             << hipGetErrorString(err);
+    }
+  }
 
-  SOFT_CHECK_EQ(presetInfo.defaultFeatures, nativeInfo.defaultFeatures);
-  SOFT_CHECK_EQ(presetInfo.waveSize, nativeInfo.waveSize);
+  hipDeviceProp_t prop;
+};
+
+TEST_P(NativeArchTest, NativeArchInfoMatchesPresetInfo) {
+  auto presetInfo = lookupArchInfo(prop.gcnArchName);
+  auto nativeInfo = lookupArchInfo("native:" + std::to_string(GetParam()));
+
+  EXPECT_EQ(presetInfo.defaultFeatures, nativeInfo.defaultFeatures);
+  EXPECT_EQ(presetInfo.waveSize, nativeInfo.waveSize);
   SOFT_CHECK_EQ(presetInfo.maxWavesPerEU, nativeInfo.maxWavesPerEU);
   SOFT_CHECK_EQ(presetInfo.totalSGPRPerEU, nativeInfo.totalSGPRPerEU);
   SOFT_CHECK_EQ(presetInfo.totalVGPRPerEU, nativeInfo.totalVGPRPerEU);
-  SOFT_CHECK_EQ(presetInfo.totalSharedMemPerCU, nativeInfo.totalSharedMemPerCU);
-  SOFT_CHECK_EQ(presetInfo.maxSharedMemPerWG, nativeInfo.maxSharedMemPerWG);
-  SOFT_CHECK_EQ(presetInfo.numEUPerCU, nativeInfo.numEUPerCU);
-  SOFT_CHECK_EQ(presetInfo.minNumCU, nativeInfo.minNumCU);
-  SOFT_CHECK_EQ(presetInfo.hasFp8ConversionInstrs,
-                nativeInfo.hasFp8ConversionInstrs);
-  SOFT_CHECK_EQ(presetInfo.hasOcpFp8ConversionInstrs,
-                nativeInfo.hasOcpFp8ConversionInstrs);
-  SOFT_CHECK_EQ(presetInfo.maxNumXCC, nativeInfo.maxNumXCC);
+  EXPECT_EQ(presetInfo.totalSharedMemPerCU, nativeInfo.totalSharedMemPerCU);
+  EXPECT_EQ(presetInfo.maxSharedMemPerWG, nativeInfo.maxSharedMemPerWG);
+  EXPECT_EQ(presetInfo.numEUPerCU, nativeInfo.numEUPerCU);
+  EXPECT_LE(presetInfo.minNumCU, nativeInfo.minNumCU);
+  EXPECT_EQ(presetInfo.hasFp8ConversionInstrs,
+            nativeInfo.hasFp8ConversionInstrs);
+  EXPECT_EQ(presetInfo.hasOcpFp8ConversionInstrs,
+            nativeInfo.hasOcpFp8ConversionInstrs);
+  EXPECT_EQ(presetInfo.maxNumXCC, nativeInfo.maxNumXCC);
 }
+
+INSTANTIATE_TEST_SUITE_P(NativeArchTests, NativeArchTest,
+                         NativeArchTest::getDeviceIds());

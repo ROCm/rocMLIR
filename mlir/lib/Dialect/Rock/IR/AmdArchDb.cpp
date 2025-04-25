@@ -172,9 +172,12 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
 
   hipDeviceProp_t prop;
   if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
-    llvm::report_fatal_error(hipGetErrorString(err));
+    auto reason = "hipGetDeviceProperties failed with error: " +
+                  std::string(hipGetErrorString(err));
+    llvm::report_fatal_error(reason.c_str());
   }
 
+  llvm::outs() << "gcnArchName: " << prop.gcnArchName << "\n";
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
 
   checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, prop.multiProcessorCount);
@@ -206,7 +209,6 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
                     st.getAddressableLocalMemorySize());
 
     auto features = ret.defaultFeatures;
-
     if (st.hasAtomicFaddInsts()) {
       features |= GemmFeatures::atomic_add;
     } else {
@@ -228,20 +230,27 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
     } else {
       features &= ~GemmFeatures::atomic_fmax_f32;
     }
-
     checkAndSetInfo("(LLVM) defaultFeatures", ret.defaultFeatures, features);
 
-    checkAndSetInfo(
-        "(LLVM) hasFp8ConversionInstrs", ret.hasFp8ConversionInstrs,
-        st.hasFP8ConversionInsts()); // TODO double check the meaning of this
-    if (auto maybeChipset = amdgpu::Chipset::parse(chip);
-        failed(maybeChipset)) {
-      llvm::errs() << "WARNING: Failed parsing chipset. Proceeding with preset "
-                      "values.\n";
+    if (st.hasFP8ConversionInsts()) {
+      if (auto maybeChipset = amdgpu::Chipset::parse(chip);
+          failed(maybeChipset)) {
+        llvm::errs()
+            << "WARNING: Failed parsing chipset. Proceeding with preset "
+               "values.\n";
+      } else {
+        checkAndSetInfo("(LLVM) hasOcpFp8ConversionInstrs",
+                        ret.hasOcpFp8ConversionInstrs,
+                        amdgpu::hasOcpFp8(maybeChipset.value()));
+        checkAndSetInfo("(LLVM) hasFp8ConversionInstrs",
+                        ret.hasFp8ConversionInstrs,
+                        !ret.hasOcpFp8ConversionInstrs);
+      }
     } else {
+      checkAndSetInfo("(LLVM) hasFp8ConversionInstrs",
+                      ret.hasFp8ConversionInstrs, false);
       checkAndSetInfo("(LLVM) hasOcpFp8ConversionInstrs",
-                      ret.hasOcpFp8ConversionInstrs,
-                      amdgpu::hasOcpFp8(maybeChipset.value()));
+                      ret.hasOcpFp8ConversionInstrs, false);
     }
   }
 
