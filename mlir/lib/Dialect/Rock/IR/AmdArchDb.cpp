@@ -172,9 +172,7 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
 
   hipDeviceProp_t prop;
   if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
-    llvm::errs() << "WARNING: hipGetDeviceProperties failed with error: "
-                 << hipGetErrorString(err) << ". Falling back to defaults.\n";
-    return gcnInfo; // TODO fail instead of default?
+    llvm::report_fatal_error(hipGetErrorString(err));
   }
 
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
