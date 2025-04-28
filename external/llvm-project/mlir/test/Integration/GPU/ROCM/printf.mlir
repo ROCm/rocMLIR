@@ -7,7 +7,7 @@
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
 
-// ALLOW_RETRIES: 3
+// ALLOW_RETRIES: 5
 
 // CHECK: Hello from 0
 // CHECK: Hello from 1

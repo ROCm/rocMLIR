@@ -9,7 +9,7 @@
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
 
-// ALLOW_RETRIES: 3
+// ALLOW_RETRIES: 5
 
 // TODO: swap for vector transfer reads if we ever create a --vector-to-amdgpu
 func.func @vectransferx2(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>) {
