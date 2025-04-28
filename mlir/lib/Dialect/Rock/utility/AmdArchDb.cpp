@@ -51,6 +51,14 @@ static constexpr AmdArchInfo
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/228,
               /*hasFp8ConversionInstrs=*/true,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
+    cdna35Info(GemmFeatures::mfma | GemmFeatures::dot |
+                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
+                   GemmFeatures::atomic_add_bf16,
+               /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 800,
+               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 163840,
+               /*maxSharedMemPerWG*/ 163840, /*numEUPerCU=*/4, /*minNumCU=*/256,
+               /*hasFp8ConversionInstrs=*/false,
+               /*hasOcpFp8ConversionInstrs=*/true, /*maxNumXCC=*/8),
     // amdgpu target builds all RDNA in WGP Mode
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
                   /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
@@ -85,11 +93,12 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
-  if (major == "gfx9" && minor != "50") {
+  if (major == "gfx9") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
         .Case("08", cdnaInfo)
         .Case("0a", cdna2Info)
         .Case("42", cdna3Info)
+        .Case("50", cdna35Info)
         // gfx906 has the dot product instructions, uniquely
         .Case("06", cdna50Info)
         .Default(gcnInfo);
@@ -123,16 +132,6 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
 
     return gfx12Info;
-  }
-  if (major == "gfx9" && minor == "50") {
-    // TODO (gfx950): some of those information are not accurate and need to be
-    // adjusted after hardware release
-    AmdArchInfo gfx950Info(cdna3Info);
-    gfx950Info.hasFp8ConversionInstrs = false;
-    gfx950Info.hasOcpFp8ConversionInstrs = true;
-    gfx950Info.defaultFeatures =
-        bitEnumSet(gfx950Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
-    return gfx950Info;
   }
   llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
                << arch << "\n";
