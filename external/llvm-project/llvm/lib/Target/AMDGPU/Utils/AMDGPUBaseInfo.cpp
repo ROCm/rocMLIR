@@ -134,6 +134,12 @@ unsigned getLoadcntStorecntBitShift(unsigned VersionMajor) {
   return VersionMajor >= 12 ? 8 : 0;
 }
 
+/// \returns VaSdst bit width
+inline unsigned getVaSdstBitWidth() { return 3; }
+
+/// \returns VaSdst bit shift
+inline unsigned getVaSdstBitShift() { return 9; }
+
 /// \returns VmVsrc bit width
 inline unsigned getVmVsrcBitWidth() { return 3; }
 
@@ -148,7 +154,11 @@ inline unsigned getVaVdstBitShift() { return 12; }
 
 /// \returns SaSdst bit width
 inline unsigned getSaSdstBitWidth() { return 1; }
+/// \returns VaVcc bit width
+inline unsigned getVaVccBitWidth() { return 1; }
 
+/// \returns VaVcc bit shift
+inline unsigned getVaVccBitShift() { return 1; }
 /// \returns SaSdst bit shift
 inline unsigned getSaSdstBitShift() { return 0; }
 
@@ -1723,6 +1733,14 @@ unsigned encodeFieldVmVsrc(unsigned Encoded, unsigned VmVsrc) {
   return packBits(VmVsrc, Encoded, getVmVsrcBitShift(), getVmVsrcBitWidth());
 }
 
+unsigned decodeFieldVaSdst(unsigned Encoded) {
+  return unpackBits(Encoded, getVaSdstBitShift(), getVaSdstBitWidth());
+}
+
+unsigned decodeFieldVaVcc(unsigned Encoded) {
+  return unpackBits(Encoded, getVaVccBitShift(), getVaVccBitWidth());
+}
+
 unsigned encodeFieldVmVsrc(unsigned VmVsrc) {
   return encodeFieldVmVsrc(0xffff, VmVsrc);
 }
@@ -1741,6 +1759,22 @@ unsigned encodeFieldSaSdst(unsigned Encoded, unsigned SaSdst) {
 
 unsigned encodeFieldSaSdst(unsigned SaSdst) {
   return encodeFieldSaSdst(0xffff, SaSdst);
+}
+
+unsigned encodeFieldVaSdst(unsigned Encoded, unsigned VaSdst) {
+  return packBits(VaSdst, Encoded, getVaSdstBitShift(), getVaSdstBitWidth());
+}
+
+unsigned encodeFieldVaSdst(unsigned VaSdst) {
+  return encodeFieldVaSdst(0xffff, VaSdst);
+}
+
+unsigned encodeFieldVaVcc(unsigned Encoded, unsigned VaVcc) {
+  return packBits(VaVcc, Encoded, getVaVccBitShift(), getVaVccBitWidth());
+}
+
+unsigned encodeFieldVaVcc(unsigned VaVcc) {
+  return encodeFieldVaVcc(0xffff, VaVcc);
 }
 
 } // namespace DepCtr

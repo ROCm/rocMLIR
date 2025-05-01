@@ -105,6 +105,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPUSplitModule.cpp
   AMDGPUSubtarget.cpp
   AMDGPUTargetMachine.cpp
+  AMDGPUWaitSGPRHazards.cpp
   AMDGPUTargetObjectFile.cpp
   AMDGPUTargetTransformInfo.cpp
   AMDGPUUnifyDivergentExitNodes.cpp
