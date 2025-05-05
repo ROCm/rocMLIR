@@ -24,7 +24,6 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -723,10 +722,10 @@ SliceConverter::matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
     size[axisInt] = axisEInt - axisSInt;
   }
 
-  auto startValue = tosa::getTosaConstShape(rewriter, loc, start);
-  auto sizeValue = tosa::getTosaConstShape(rewriter, loc, size);
   auto sliceOp = createOpAndInfer<tosa::SliceOp>(
-      rewriter, loc, newInType.getElementType(), input, startValue, sizeValue);
+      rewriter, loc, newInType.getElementType(), input,
+      rewriter.getDenseI64ArrayAttr(start),
+      rewriter.getDenseI64ArrayAttr(size));
   rewriter.replaceOp(op, sliceOp);
   return success();
 }
@@ -794,21 +793,9 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
       createNumElementsTosaConst(loc, input, axis, rewriter);
   auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
       rewriter, loc, elementType, tosaConstantNumElements);
-
-  // reshape tosaReciprocal to have same number of dimensions as the input
-  llvm::SmallVector<int64_t> newShape(input.getType().getRank(), 1);
-  Value tosaReciprocalReshaped = createOpAndInfer<tosa::ReshapeOp>(
-      rewriter, loc, elementType, tosaReciprocal,
-      rewriter.getDenseI64ArrayAttr(newShape));
-
-  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
-  Value constZero =
-      rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-  auto tosaMul = createOpAndInfer<tosa::MulOp>(
-      rewriter, loc, elementType, adaptor.getInput(), tosaReciprocalReshaped,
-      /*shift=*/constZero);
+  auto tosaMul = createOpAndInfer<tosa::MulOp>(rewriter, loc, elementType,
+                                               adaptor.getInput(),
+                                               tosaReciprocal, /*shift=*/0);
   auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
       rewriter, loc, elementType, tosaMul, axis);
   rewriter.replaceOp(op, tosaReduceSum);
@@ -882,13 +869,8 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
   }
   Value recip = createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc, elementType,
                                                      inBTensor);
-  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
-  Value constZero =
-      rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-  Value mul = createOpAndInfer<tosa::MulOp>(
-      rewriter, loc, elementType, inATensor, recip, /*shift=*/constZero);
+  Value mul = createOpAndInfer<tosa::MulOp>(rewriter, loc, elementType,
+                                            inATensor, recip, /*shift=*/0);
   rewriter.replaceOp(op, mul);
   return success();
 }
@@ -896,15 +878,9 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
 LogicalResult
 MulConverter::matchAndRewrite(migraphx::MulOp op, OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
-  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
-  Value constZero =
-      rewriter.create<tosa::ConstOp>(op->getLoc(), shiftType, shiftZeroAttr);
   rewriter.replaceOpWithNewOp<tosa::MulOp>(
       op, getTypeConverter()->convertType(op.getResult().getType()),
-      adaptor.getInA(), adaptor.getInB(),
-      /*shift=*/constZero);
+      adaptor.getInA(), adaptor.getInB(), /*shift=*/0);
   return success();
 }
 
@@ -993,13 +969,8 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
                                             upcastInput, upcastBias);
   }
 
-  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
-  Value constZero =
-      rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-  Value scaled = createOpAndInfer<tosa::MulOp>(
-      rewriter, loc, outputType, shifted, scale, /*shift=*/constZero);
+  Value scaled = createOpAndInfer<tosa::MulOp>(rewriter, loc, outputType,
+                                               shifted, scale, /*shift=*/0);
 
   rewriter.replaceOp(op, scaled);
   return success();
@@ -1021,21 +992,16 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   Type elementType = getShapedElementTy(input);
   Value inverseScale =
       createOpAndInfer<tosa::ReciprocalOp>(rewriter, loc, elementType, scale);
-  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
-  Value constZero =
-      rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   Value scaled = createOpAndInfer<tosa::MulOp>(
-      rewriter, loc, elementType, input, inverseScale, /*shift=*/constZero);
+      rewriter, loc, elementType, input, inverseScale, /*shift=*/0);
 
   Type origOutputType = getShapedElementTy(output);
   Type outputType = getTypeConverter()->convertType(origOutputType);
-  // If there is a bias, we upcast to the larger of the bias type and
-  // int32_t or float (which is what the bias type is in dequantize, the
-  // MLIR quantization implementation, and other ML frameworks) and then do
-  // a clamping truncation to the output type so that adding a bias
-  // saturates instead of overflowing.
+  // If there is a bias, we upcast to the larger of the bias type and int32_t
+  // or float (which is what the bias type is in dequantize, the MLIR
+  // quantization implementation, and other ML frameworks) and then do a
+  // clamping truncation to the output type so that adding a bias saturates
+  // instead of overflowing.
   Type biasType = outputType;
   if (bias) {
     biasType = getShapedElementTy(bias);
@@ -1165,13 +1131,8 @@ SoftmaxConverter::matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
       rewriter, loc, elementType, tosaExp, axisAttr);
   auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
       rewriter, loc, elementType, tosaReduceSum);
-  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
-  Value constZero =
-      rewriter.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   auto tosaMul = createOpAndInfer<tosa::MulOp>(
-      rewriter, loc, elementType, tosaExp, tosaReciprocal, /*shift=*/constZero);
+      rewriter, loc, elementType, tosaExp, tosaReciprocal, /*shift=*/0);
 
   rewriter.replaceOp(op, tosaMul);
   return success();
@@ -1402,11 +1363,9 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   if (transposedType.getShape() != ArrayRef(slicingShape)) {
     SmallVector<int64_t, 4> starts(permutation.size(), 0);
     RankedTensorType sliceType = resultType.clone(slicingShape);
-    auto startsValue = tosa::getTosaConstShape(rewriter, loc, starts);
-    auto slicingShapeValue =
-        tosa::getTosaConstShape(rewriter, loc, slicingShape);
     maybeSliced = rewriter.create<tosa::SliceOp>(
-        loc, sliceType, transposed, startsValue, slicingShapeValue);
+        loc, sliceType, transposed, rewriter.getDenseI64ArrayAttr(starts),
+        rewriter.getDenseI64ArrayAttr(slicingShape));
   }
   Value maybeBroadcast = maybeSliced;
   if (maybeSliced.getType() != resultType) {
