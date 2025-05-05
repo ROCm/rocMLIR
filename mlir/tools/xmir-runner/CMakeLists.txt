@@ -13,7 +13,10 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     ${rocmlir_dialect_libs}
     ${rocmlir_conversion_libs}
     ${rocmlir_test_libs}
+    LLVMX86CodeGen
     LLVMX86AsmParser
+    LLVMX86Desc
+    LLVMX86Info
     MLIRMHAL
     MLIRMHALTransforms
     MLIRMHALPipeline
