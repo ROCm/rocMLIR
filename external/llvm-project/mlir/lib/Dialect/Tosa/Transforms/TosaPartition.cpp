@@ -150,7 +150,7 @@ bool isLeadingOp(Operation *op, bool trailingOnly) {
 }
 
 bool isTrailingOp(Operation *op) {
-  return isTransposeOp(op) || isFuseableOp(op) || isConstantZero(op);
+  return isTransposeOp(op) || isFuseableOp(op);
 }
 
 class TosaPartitionPass
