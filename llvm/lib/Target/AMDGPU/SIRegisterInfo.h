@@ -72,8 +72,6 @@ public:
     return SpillSGPRToVGPR;
   }
 
-  bool isCFISavedRegsSpillEnabled() const;
-
   /// Return the largest available SGPR aligned to \p Align for the register
   /// class \p RC.
   MCRegister getAlignedHighSGPRForRC(const MachineFunction &MF,
@@ -160,8 +158,8 @@ public:
   /// free VGPR lane to spill.
   bool spillSGPR(MachineBasicBlock::iterator MI, int FI, RegScavenger *RS,
                  SlotIndexes *Indexes = nullptr, LiveIntervals *LIS = nullptr,
-                 bool OnlyToVGPR = false, bool SpillToPhysVGPRLane = false,
-                 bool NeedsCFI = false) const;
+                 bool OnlyToVGPR = false,
+                 bool SpillToPhysVGPRLane = false) const;
 
   bool restoreSGPR(MachineBasicBlock::iterator MI, int FI, RegScavenger *RS,
                    SlotIndexes *Indexes = nullptr, LiveIntervals *LIS = nullptr,
@@ -438,8 +436,8 @@ public:
                            unsigned LoadStoreOp, int Index, Register ValueReg,
                            bool ValueIsKill, MCRegister ScratchOffsetReg,
                            int64_t InstrOffset, MachineMemOperand *MMO,
-                           RegScavenger *RS, LiveRegUnits *LiveUnits = nullptr,
-                           bool NeedsCFI = false) const;
+                           RegScavenger *RS,
+                           LiveRegUnits *LiveUnits = nullptr) const;
 
   // Return alignment in register file of first register in a register tuple.
   unsigned getRegClassAlignmentNumBits(const TargetRegisterClass *RC) const {

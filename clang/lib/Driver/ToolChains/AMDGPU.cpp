@@ -246,8 +246,7 @@ RocmInstallationDetector::getInstallationPathCandidates() {
     // Some versions of the aomp package install to /opt/rocm/aomp/bin
     if (ParentName == "llvm" || ParentName.starts_with("aomp"))
       ParentDir = llvm::sys::path::parent_path(ParentDir);
-    // Some versions of the aomp package install to /opt/rocm/aomp/bin
-    // and it seems ParentDir is already pointing to correct place.
+
     return Candidate(ParentDir.str(), /*StrictChecking=*/true);
   };
 
@@ -670,8 +669,7 @@ void amdgpu::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 void amdgpu::getAMDGPUTargetFeatures(const Driver &D,
                                      const llvm::Triple &Triple,
                                      const llvm::opt::ArgList &Args,
-                                     std::vector<StringRef> &Features,
-                                     StringRef TcTargetID) {
+                                     std::vector<StringRef> &Features) {
   // Add target ID features to -target-feature options. No diagnostics should
   // be emitted here since invalid target ID is diagnosed at other places.
   StringRef TargetID;
@@ -679,10 +677,6 @@ void amdgpu::getAMDGPUTargetFeatures(const Driver &D,
     TargetID = Args.getLastArgValue(options::OPT_mcpu_EQ);
   else if (Args.hasArg(options::OPT_march_EQ))
     TargetID = Args.getLastArgValue(options::OPT_march_EQ);
-
-  // Use this toolchain's TargetID if mcpu is not defined
-  if (TargetID.empty() && !TcTargetID.empty())
-    TargetID = TcTargetID;
   if (!TargetID.empty()) {
     llvm::StringMap<bool> FeatureMap;
     auto OptionalGpuArch = parseTargetID(Triple, TargetID, &FeatureMap);
@@ -706,58 +700,12 @@ void amdgpu::getAMDGPUTargetFeatures(const Driver &D,
                    options::OPT_mno_wavefrontsize64, false))
     Features.push_back("+wavefrontsize64");
 
-  // TODO: Remove during upstreaming target id.
-  if (Args.getLastArg(options::OPT_msram_ecc_legacy)) {
-    Features.push_back("+sramecc");
-  }
-  if (Args.getLastArg(options::OPT_mno_sram_ecc_legacy)) {
-    Features.push_back("-sramecc");
-  }
   if (Args.hasFlag(options::OPT_mamdgpu_precise_memory_op,
                    options::OPT_mno_amdgpu_precise_memory_op, false))
     Features.push_back("+precise-memory");
 
   handleTargetFeaturesGroup(D, Triple, Args, Features,
                             options::OPT_m_amdgpu_Features_Group);
-}
-
-llvm::SmallVector<std::string, 12> amdgpu::dlr::getCommonDeviceLibNames(
-    const llvm::opt::ArgList &DriverArgs, const Driver &D,
-    const std::string &GPUArch, bool isOpenMP,
-    const RocmInstallationDetector &RocmInstallation) {
-  auto Kind = llvm::AMDGPU::parseArchAMDGCN(GPUArch);
-  const StringRef CanonArch = llvm::AMDGPU::getArchNameAMDGCN(Kind);
-
-  StringRef LibDeviceFile = RocmInstallation.getLibDeviceFile(CanonArch);
-  auto ABIVer = DeviceLibABIVersion::fromCodeObjectVersion(
-      getAMDGPUCodeObjectVersion(D, DriverArgs));
-  bool noGPULib = DriverArgs.hasArg(options::OPT_nogpulib);
-  if (!RocmInstallation.checkCommonBitcodeLibs(CanonArch, LibDeviceFile,
-                                               ABIVer, noGPULib))
-    return {};
-
-  // If --hip-device-lib is not set, add the default bitcode libraries.
-  // TODO: There are way too many flags that change this. Do we need to check
-  // them all?
-  bool DAZ = DriverArgs.hasFlag(
-      options::OPT_fgpu_flush_denormals_to_zero,
-      options::OPT_fno_gpu_flush_denormals_to_zero,
-      toolchains::AMDGPUToolChain::getDefaultDenormsAreZeroForTarget(Kind));
-  bool FiniteOnly = DriverArgs.hasFlag(
-      options::OPT_ffinite_math_only, options::OPT_fno_finite_math_only, false);
-  bool UnsafeMathOpt =
-      DriverArgs.hasFlag(options::OPT_funsafe_math_optimizations,
-                         options::OPT_fno_unsafe_math_optimizations, false);
-  bool FastRelaxedMath = DriverArgs.hasFlag(options::OPT_ffast_math,
-                                            options::OPT_fno_fast_math, false);
-  bool CorrectSqrt = DriverArgs.hasFlag(
-      options::OPT_fhip_fp32_correctly_rounded_divide_sqrt,
-      options::OPT_fno_hip_fp32_correctly_rounded_divide_sqrt, true);
-  bool Wave64 = toolchains::AMDGPUToolChain::isWave64(DriverArgs, Kind);
-
-  return RocmInstallation.getCommonBitcodeLibs(
-      DriverArgs, LibDeviceFile, Wave64, DAZ, FiniteOnly, UnsafeMathOpt,
-      FastRelaxedMath, CorrectSqrt, ABIVer, isOpenMP);
 }
 
 /// AMDGPU Toolchain
@@ -998,9 +946,8 @@ void ROCMToolChain::addClangTargetOptions(
   StringRef LibDeviceFile = RocmInstallation->getLibDeviceFile(CanonArch);
   auto ABIVer = DeviceLibABIVersion::fromCodeObjectVersion(
       getAMDGPUCodeObjectVersion(getDriver(), DriverArgs));
-  bool noGPULib = DriverArgs.hasArg(options::OPT_nogpulib);
   if (!RocmInstallation->checkCommonBitcodeLibs(CanonArch, LibDeviceFile,
-                                                ABIVer, noGPULib))
+                                                ABIVer))
     return;
 
   bool Wave64 = isWave64(DriverArgs, Kind);
@@ -1039,20 +986,17 @@ void ROCMToolChain::addClangTargetOptions(
 
 bool RocmInstallationDetector::checkCommonBitcodeLibs(
     StringRef GPUArch, StringRef LibDeviceFile,
-    DeviceLibABIVersion ABIVer, bool noGPULib) const {
+    DeviceLibABIVersion ABIVer) const {
   if (!hasDeviceLibrary()) {
-    if (!noGPULib)
-      D.Diag(diag::err_drv_no_rocm_device_lib) << 0;
+    D.Diag(diag::err_drv_no_rocm_device_lib) << 0;
     return false;
   }
   if (LibDeviceFile.empty()) {
-    if (!noGPULib)
-      D.Diag(diag::err_drv_no_rocm_device_lib) << 1 << GPUArch;
+    D.Diag(diag::err_drv_no_rocm_device_lib) << 1 << GPUArch;
     return false;
   }
   if (ABIVer.requiresLibrary() && getABIVersionPath(ABIVer).empty()) {
-    if (!noGPULib)
-      D.Diag(diag::err_drv_no_rocm_device_lib) << 2 << ABIVer.toString();
+    D.Diag(diag::err_drv_no_rocm_device_lib) << 2 << ABIVer.toString();
     return false;
   }
   return true;
@@ -1068,12 +1012,6 @@ RocmInstallationDetector::getCommonBitcodeLibs(
   auto AddBCLib = [&](StringRef BCFile) { BCLibs.push_back(BCFile.str()); };
 
   AddBCLib(getOCMLPath());
-  // FIXME: OpenMP has ockl and ocml contained in libomptarget.bc. However,
-  // we cannot exclude ocml here because of the crazy always-compile clang
-  // headers for cuda, hip, and openmp. A more sane approach is to use libm
-  // offload-arch-specific bitcode files as is done for FORTRAN. Currently,
-  // libomptarget-<offload-arch>.bc files is built by compiling headers with
-  // __BUILD_MATH_BUILTINS_LIB__ turning static libm functions to extern.
   if (!isOpenMP)
     AddBCLib(getOCKLPath());
   AddBCLib(getDenormalsAreZeroPath(DAZ));
@@ -1089,21 +1027,41 @@ RocmInstallationDetector::getCommonBitcodeLibs(
   return BCLibs;
 }
 
-bool AMDGPUToolChain::shouldSkipArgument(const llvm::opt::Arg *A) const {
-  Option O = A->getOption();
-  if (O.matches(options::OPT_fPIE) || O.matches(options::OPT_fpie))
-    return true;
-  return false;
-}
-
 llvm::SmallVector<std::string, 12>
 ROCMToolChain::getCommonDeviceLibNames(const llvm::opt::ArgList &DriverArgs,
                                        const std::string &GPUArch,
                                        bool isOpenMP) const {
-  RocmInstallationDetector RocmInstallation(getDriver(), getTriple(),
-                                            DriverArgs, true, true);
-  return amdgpu::dlr::getCommonDeviceLibNames(DriverArgs, getDriver(), GPUArch,
-                                              isOpenMP, RocmInstallation);
+  auto Kind = llvm::AMDGPU::parseArchAMDGCN(GPUArch);
+  const StringRef CanonArch = llvm::AMDGPU::getArchNameAMDGCN(Kind);
+
+  StringRef LibDeviceFile = RocmInstallation->getLibDeviceFile(CanonArch);
+  auto ABIVer = DeviceLibABIVersion::fromCodeObjectVersion(
+      getAMDGPUCodeObjectVersion(getDriver(), DriverArgs));
+  if (!RocmInstallation->checkCommonBitcodeLibs(CanonArch, LibDeviceFile,
+                                                ABIVer))
+    return {};
+
+  // If --hip-device-lib is not set, add the default bitcode libraries.
+  // TODO: There are way too many flags that change this. Do we need to check
+  // them all?
+  bool DAZ = DriverArgs.hasFlag(options::OPT_fgpu_flush_denormals_to_zero,
+                                options::OPT_fno_gpu_flush_denormals_to_zero,
+                                getDefaultDenormsAreZeroForTarget(Kind));
+  bool FiniteOnly = DriverArgs.hasFlag(
+      options::OPT_ffinite_math_only, options::OPT_fno_finite_math_only, false);
+  bool UnsafeMathOpt =
+      DriverArgs.hasFlag(options::OPT_funsafe_math_optimizations,
+                         options::OPT_fno_unsafe_math_optimizations, false);
+  bool FastRelaxedMath = DriverArgs.hasFlag(options::OPT_ffast_math,
+                                            options::OPT_fno_fast_math, false);
+  bool CorrectSqrt = DriverArgs.hasFlag(
+      options::OPT_fhip_fp32_correctly_rounded_divide_sqrt,
+      options::OPT_fno_hip_fp32_correctly_rounded_divide_sqrt, true);
+  bool Wave64 = isWave64(DriverArgs, Kind);
+
+  return RocmInstallation->getCommonBitcodeLibs(
+      DriverArgs, LibDeviceFile, Wave64, DAZ, FiniteOnly, UnsafeMathOpt,
+      FastRelaxedMath, CorrectSqrt, ABIVer, isOpenMP);
 }
 
 bool AMDGPUToolChain::shouldSkipSanitizeOption(

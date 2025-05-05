@@ -2091,6 +2091,9 @@
 // RUN: %clang -march=meteorlake -m32 -E -dM %s -o - 2>&1 \
 // RUN:     -target i386-unknown-linux \
 // RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_ADL_M32
+// RUN: %clang -march=gracemont -m32 -E -dM %s -o - 2>&1 \
+// RUN:     -target i386-unknown-linux \
+// RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_ADL_M32
 // CHECK_ADL_M32: #define __ADX__ 1
 // CHECK_ADL_M32: #define __AES__ 1
 // CHECK_ADL_M32: #define __AVX2__ 1
@@ -2157,6 +2160,9 @@
 // RUN:     -target i386-unknown-linux \
 // RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_ADL_M64
 // RUN: %clang -march=meteorlake -m64 -E -dM %s -o - 2>&1 \
+// RUN:     -target i386-unknown-linux \
+// RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_ADL_M64
+// RUN: %clang -march=gracemont -m64 -E -dM %s -o - 2>&1 \
 // RUN:     -target i386-unknown-linux \
 // RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_ADL_M64
 // CHECK_ADL_M64: #define __ADX__ 1
@@ -2574,6 +2580,9 @@
 // CHECK_SRF_M32: #define __AVX2__ 1
 // CHECK_SRF_M32-NOT: AVX512
 // CHECK_SRF_M32: #define __AVXIFMA__ 1
+// CHECK_SRF_M32: #define __AVXNECONVERT__ 1
+// CHECK_SRF_M32-NOT: #define __AVXVNNIINT16__ 1
+// CHECK_ARLS_M32: #define __AVXVNNIINT16__ 1
 // CHECK_SRF_M32: #define __AVXVNNIINT8__ 1
 // CHECK_SRF_M32: #define __AVXVNNI__ 1
 // CHECK_SRF_M32: #define __AVX__ 1
@@ -2612,8 +2621,14 @@
 // CHECK_SRF_M32: #define __RDSEED__ 1
 // CHECK_SRF_M32: #define __SERIALIZE__ 1
 // CHECK_SRF_M32: #define __SGX__ 1
+// CHECK_SRF_M32-NOT: #define __SHA512__ 1
+// CHECK_ARLS_M32: #define __SHA512__ 1
 // CHECK_SRF_M32: #define __SHA__ 1
 // CHECK_SRF_M32: #define __SHSTK__ 1
+// CHECK_SRF_M32-NOT: #define __SM3__ 1
+// CHECK_ARLS_M32: #define __SM3__ 1
+// CHECK_SRF_M32-NOT: #define __SM4__ 1
+// CHECK_ARLS_M32: #define __SM4__ 1
 // CHECK_SRF_M32: #define __SSE2__ 1
 // CHECK_SRF_M32: #define __SSE3__ 1
 // CHECK_SRF_M32: #define __SSE4_1__ 1
@@ -2667,6 +2682,9 @@
 // CHECK_SRF_M64: #define __AVX2__ 1
 // CHECK_SRF_M64-NOT: AVX512
 // CHECK_SRF_M64: #define __AVXIFMA__ 1
+// CHECK_SRF_M64: #define __AVXNECONVERT__ 1
+// CHECK_SRF_M64-NOT: #define __AVXVNNIINT16__ 1
+// CHECK_ARLS_M64: #define __AVXVNNIINT16__ 1
 // CHECK_SRF_M64: #define __AVXVNNIINT8__ 1
 // CHECK_SRF_M64: #define __AVXVNNI__ 1
 // CHECK_SRF_M64: #define __AVX__ 1
@@ -2705,8 +2723,14 @@
 // CHECK_SRF_M64: #define __RDSEED__ 1
 // CHECK_SRF_M64: #define __SERIALIZE__ 1
 // CHECK_SRF_M64: #define __SGX__ 1
+// CHECK_SRF_M64-NOT: #define __SHA512__ 1
+// CHECK_ARLS_M64: #define __SHA512__ 1
 // CHECK_SRF_M64: #define __SHA__ 1
 // CHECK_SRF_M64: #define __SHSTK__ 1
+// CHECK_SRF_M64-NOT: #define __SM3__ 1
+// CHECK_ARLS_M64: #define __SM3__ 1
+// CHECK_SRF_M64-NOT: #define __SM4__ 1
+// CHECK_ARLS_M64: #define __SM4__ 1
 // CHECK_SRF_M64: #define __SSE2_MATH__ 1
 // CHECK_SRF_M64: #define __SSE2__ 1
 // CHECK_SRF_M64: #define __SSE3__ 1
@@ -4367,6 +4391,21 @@
 // CHECK_SYSTEMZ_ARCH14: #define __s390x__ 1
 // CHECK_SYSTEMZ_ARCH14: #define __zarch__ 1
 
+// RUN: %clang -march=arch15 -E -dM %s -o - 2>&1 \
+// RUN:     -target s390x-unknown-linux \
+// RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_SYSTEMZ_ARCH15
+// CHECK_SYSTEMZ_ARCH15: #define __ARCH__ 15
+// CHECK_SYSTEMZ_ARCH15: #define __GCC_HAVE_SYNC_COMPARE_AND_SWAP_1 1
+// CHECK_SYSTEMZ_ARCH15: #define __GCC_HAVE_SYNC_COMPARE_AND_SWAP_2 1
+// CHECK_SYSTEMZ_ARCH15: #define __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4 1
+// CHECK_SYSTEMZ_ARCH15: #define __GCC_HAVE_SYNC_COMPARE_AND_SWAP_8 1
+// CHECK_SYSTEMZ_ARCH15: #define __HTM__ 1
+// CHECK_SYSTEMZ_ARCH15: #define __LONG_DOUBLE_128__ 1
+// CHECK_SYSTEMZ_ARCH15: #define __VX__ 1
+// CHECK_SYSTEMZ_ARCH15: #define __s390__ 1
+// CHECK_SYSTEMZ_ARCH15: #define __s390x__ 1
+// CHECK_SYSTEMZ_ARCH15: #define __zarch__ 1
+
 // RUN: %clang -mhtm -E -dM %s -o - 2>&1 \
 // RUN:     -target s390x-unknown-linux \
 // RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_SYSTEMZ_HTM
@@ -4383,7 +4422,7 @@
 // RUN: %clang -mzvector -E -dM %s -o - 2>&1 \
 // RUN:     -target s390x-unknown-linux \
 // RUN:   | FileCheck -match-full-lines %s -check-prefix=CHECK_SYSTEMZ_ZVECTOR
-// CHECK_SYSTEMZ_ZVECTOR: #define __VEC__ 10304
+// CHECK_SYSTEMZ_ZVECTOR: #define __VEC__ 10305
 
 // Begin nvptx tests ----------------
 

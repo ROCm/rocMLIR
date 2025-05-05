@@ -24,7 +24,6 @@
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/Analysis/TypeBasedAliasAnalysis.h"
-#include "llvm/IR/HeterogeneousDebugVerify.h"
 #include "llvm/CodeGen/GlobalMergeFunctions.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
@@ -170,7 +169,7 @@ static cl::opt<bool> EnableModuleInliner("enable-module-inliner",
                                          cl::desc("Enable module inliner"));
 
 static cl::opt<bool> PerformMandatoryInliningsFirst(
-    "mandatory-inlining-first", cl::init(true), cl::Hidden,
+    "mandatory-inlining-first", cl::init(false), cl::Hidden,
     cl::desc("Perform mandatory inlinings module-wide, before performing "
              "inlining"));
 
@@ -308,11 +307,6 @@ static cl::opt<std::string> InstrumentColdFuncOnlyPath(
 extern cl::opt<std::string> UseCtxProfile;
 extern cl::opt<bool> PGOInstrumentColdFunctionOnly;
 
-static cl::opt<bool> EnableEarlyOpenMPOpt(
-    "enable-early-openmp-opt", cl::init(false), cl::Hidden,
-    cl::desc("Enable early execution of the OpenMP optimization pass"
-             " (default = off)"));
-
 namespace llvm {
 extern cl::opt<bool> EnableMemProfContextDisambiguation;
 } // namespace llvm
@@ -364,6 +358,11 @@ void PassBuilder::invokeCGSCCOptimizerLateEPCallbacks(CGSCCPassManager &CGPM,
 void PassBuilder::invokeVectorizerStartEPCallbacks(FunctionPassManager &FPM,
                                                    OptimizationLevel Level) {
   for (auto &C : VectorizerStartEPCallbacks)
+    C(FPM, Level);
+}
+void PassBuilder::invokeVectorizerEndEPCallbacks(FunctionPassManager &FPM,
+                                                 OptimizationLevel Level) {
+  for (auto &C : VectorizerEndEPCallbacks)
     C(FPM, Level);
 }
 void PassBuilder::invokeOptimizerEarlyEPCallbacks(ModulePassManager &MPM,
@@ -1097,10 +1096,6 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   // frontend. Not necessary with LTO post link pipelines since the pre link
   // pipeline already cleaned up the frontend output.
   if (Phase != ThinOrFullLTOPhase::ThinLTOPostLink) {
-
-    if (EnableEarlyOpenMPOpt)
-      MPM.addPass(OpenMPOptPass());
-
     // Do basic inference of function attributes from known properties of system
     // libraries and other oracles.
     MPM.addPass(InferFunctionAttrsPass());
@@ -1255,6 +1250,8 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
   if (PGOOpt && (PGOOpt->Action == PGOOptions::IRUse ||
                  PGOOpt->Action == PGOOptions::SampleUse))
     MPM.addPass(PGOForceFunctionAttrsPass(PGOOpt->ColdOptType));
+
+  MPM.addPass(AlwaysInlinerPass(/*InsertLifetimeIntrinsics=*/true));
 
   if (EnableModuleInliner)
     MPM.addPass(buildModuleInlinerPipeline(Level, Phase));
@@ -1542,6 +1539,8 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
 
   addVectorPasses(Level, OptimizePM, /* IsFullLTO */ false);
 
+  invokeVectorizerEndEPCallbacks(OptimizePM, Level);
+
   // LoopSink pass sinks instructions hoisted by LICM, which serves as a
   // canonicalization pass that enables other optimizations. As a result,
   // LoopSink pass needs to be a very late IR pass to avoid undoing LICM
@@ -1602,9 +1601,7 @@ PassBuilder::buildModuleOptimizationPipeline(OptimizationLevel Level,
     MPM.addPass(CGProfilePass(LTOPhase == ThinOrFullLTOPhase::FullLTOPostLink ||
                               LTOPhase == ThinOrFullLTOPhase::ThinLTOPostLink));
 
-  // TODO: Relative look table converter pass caused an issue when full lto is
-  // enabled. See https://reviews.llvm.org/D94355 for more details.
-  // Until the issue fixed, disable this pass during pre-linking phase.
+  // RelLookupTableConverterPass runs later in LTO post-link pipeline.
   if (!LTOPreLink)
     MPM.addPass(RelLookupTableConverterPass());
 
@@ -1618,13 +1615,6 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
     return buildO0DefaultPipeline(Level, Phase);
 
   ModulePassManager MPM;
-
-  auto OptimizationLevelAsOptLevel =
-      CodeGenOpt::getLevel(Level.getSpeedupLevel());
-  auto CodeGenOptLevel =
-      TM ? TM->getOptLevel()
-         : OptimizationLevelAsOptLevel.value_or(CodeGenOptLevel::Aggressive);
-  MPM.addPass(HeterogeneousDebugVerify(CodeGenOptLevel));
 
   // Convert @llvm.global.annotations to !annotation metadata.
   MPM.addPass(Annotation2MetadataPass());
@@ -2063,6 +2053,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
   MainFPM.addPass(MoveAutoInitPass());
   MainFPM.addPass(MergedLoadStoreMotionPass());
 
+  invokeVectorizerStartEPCallbacks(MainFPM, Level);
+
   LoopPassManager LPM;
   if (EnableLoopFlatten && Level.getSpeedupLevel() > 1)
     LPM.addPass(LoopFlattenPass());
@@ -2082,6 +2074,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
   MainFPM.addPass(LoopDistributePass());
 
   addVectorPasses(Level, MainFPM, /* IsFullLTO */ true);
+
+  invokeVectorizerEndEPCallbacks(MainFPM, Level);
 
   // Run the OpenMPOpt CGSCC pass again late.
   MPM.addPass(createModuleToPostOrderCGSCCPassAdaptor(
@@ -2135,6 +2129,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level,
 
   if (PTO.MergeFunctions)
     MPM.addPass(MergeFunctionsPass());
+
+  MPM.addPass(RelLookupTableConverterPass());
 
   if (PTO.CallGraphProfile)
     MPM.addPass(CGProfilePass(/*InLTOPostLink=*/true));
@@ -2242,6 +2238,13 @@ PassBuilder::buildO0DefaultPipeline(OptimizationLevel Level,
   if (!VectorizerStartEPCallbacks.empty()) {
     FunctionPassManager FPM;
     invokeVectorizerStartEPCallbacks(FPM, Level);
+    if (!FPM.isEmpty())
+      MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
+  }
+
+  if (!VectorizerEndEPCallbacks.empty()) {
+    FunctionPassManager FPM;
+    invokeVectorizerEndEPCallbacks(FPM, Level);
     if (!FPM.isEmpty())
       MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
   }

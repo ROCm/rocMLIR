@@ -1001,7 +1001,7 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
   GetReturnInfo(CLI.CallConv, CLI.RetTy, getReturnAttrs(CLI), Outs, TLI, DL);
 
   bool CanLowerReturn = TLI.CanLowerReturn(
-      CLI.CallConv, *FuncInfo.MF, CLI.IsVarArg, Outs, CLI.RetTy->getContext());
+      CLI.CallConv, *FuncInfo.MF, CLI.IsVarArg, Outs, CLI.RetTy->getContext(), CLI.RetTy);
 
   // FIXME: sret demotion isn't supported yet - bail out.
   if (!CanLowerReturn)
@@ -1437,61 +1437,6 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
     assert(DI->getLabel() && "Missing label");
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
             TII.get(TargetOpcode::DBG_LABEL)).addMetadata(DI->getLabel());
-    return true;
-  }
-  case Intrinsic::dbg_def: {
-    const DbgDefInst &DDI = *cast<DbgDefInst>(II);
-    const Value *Referrer = DDI.getReferrer();
-    assert(Referrer);
-    if (const auto *UV = dyn_cast<UndefValue>(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addReg(Register());
-    } else if (const auto *CI = dyn_cast<ConstantInt>(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addCImm(CI);
-    } else if (auto *CFP = dyn_cast<ConstantFP>(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addFPImm(CFP);
-    } else if (const auto *AI = dyn_cast<AllocaInst>(Referrer)) {
-      auto SI = FuncInfo.StaticAllocaMap.find(AI);
-      if (SI != FuncInfo.StaticAllocaMap.end()) {
-        DILifetime *Lifetime = DDI.getLifetime();
-        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-                TII.get(TargetOpcode::DBG_DEF))
-            .addMetadata(Lifetime)
-            .addFrameIndex(SI->second);
-        // The translation from an alloca (semantically a pointer) to a frame
-        // index (semantically the stack slot itself) removes one level of
-        // indirection, which needs to be reflected in the expression.
-        Lifetime->setLocation(
-            Lifetime->getLocation()
-                ->builder()
-                .removeReferrerIndirection(AI->getAllocatedType())
-                .intoExpr());
-      } else {
-        LLVM_DEBUG(dbgs() << "Dropping debug info for alloca " << DDI << "\n");
-      }
-    } else if (Register Reg = lookUpRegForValue(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addReg(Reg);
-    } else {
-      LLVM_DEBUG(dbgs() << "Dropping debug info for " << DDI << "\n");
-    }
-    return true;
-  }
-  case Intrinsic::dbg_kill: {
-    const DbgKillInst &DKI = *cast<DbgKillInst>(II);
-    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-            TII.get(TargetOpcode::DBG_KILL))
-        .addMetadata(DKI.getLifetime());
     return true;
   }
   case Intrinsic::objectsize:

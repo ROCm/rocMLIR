@@ -36,12 +36,6 @@ elseif(${LIBOMPTARGET_GPU_LIBC_SUPPORT})
   endif()
 endif()
 
-# If we have OMPT enabled include it in the list of sources.
-if (OMPT_TARGET_DEFAULT AND LIBOMPTARGET_OMPT_SUPPORT)
-  target_sources(PluginCommon PRIVATE OMPT/OmptTracing.cpp)
-  target_include_directories(PluginCommon PUBLIC OMPT)
-endif()
-
 # Define the TARGET_NAME and DEBUG_PREFIX.
 target_compile_definitions(PluginCommon PRIVATE
   TARGET_NAME="PluginInterface"
@@ -50,11 +44,6 @@ target_compile_definitions(PluginCommon PRIVATE
 
 target_compile_options(PluginCommon PUBLIC ${offload_compile_flags})
 target_link_options(PluginCommon PUBLIC ${offload_link_flags})
-if (LLVM_LINK_LLVM_DYLIB)
-  target_link_libraries(PluginCommon PRIVATE LLVM)
-else()
-  target_link_libraries(PluginCommon PRIVATE LLVMProfileData)
-endif()
 
 target_include_directories(PluginCommon PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

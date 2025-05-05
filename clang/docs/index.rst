@@ -35,11 +35,13 @@ Using Clang as a Compiler
    UndefinedBehaviorSanitizer
    DataFlowSanitizer
    LeakSanitizer
+   TypeSanitizer
    RealtimeSanitizer
    SanitizerCoverage
    SanitizerStats
    SanitizerSpecialCaseList
    BoundsSafety
+   BoundsSafetyAdoptionGuide
    BoundsSafetyImplPlans
    ControlFlowIntegrity
    LTOVisibility
@@ -95,10 +97,8 @@ Using Clang Tools
    ClangFormat
    ClangFormatStyleOptions
    ClangLinkerWrapper
-   ClangNvlinkWrapper
-   ClangOffloadWrapper
+   ClangNVLinkWrapper
    ClangOffloadBundler
-   ClangOffloadWrapper
    ClangOffloadPackager
    ClangRepl
    ClangSYCLLinker

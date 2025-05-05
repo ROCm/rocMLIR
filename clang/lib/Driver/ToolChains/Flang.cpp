@@ -57,7 +57,9 @@ void Flang::addFortranDialectOptions(const ArgList &Args,
                             options::OPT_fno_automatic,
                             options::OPT_fhermetic_module_files,
                             options::OPT_frealloc_lhs,
-                            options::OPT_fno_realloc_lhs});
+                            options::OPT_fno_realloc_lhs,
+                            options::OPT_fsave_main_program,
+                            options::OPT_fno_save_main_program});
 }
 
 void Flang::addPreprocessingOptions(const ArgList &Args,
@@ -149,10 +151,15 @@ void Flang::addCodegenOptions(const ArgList &Args,
   if (shouldLoopVersion(Args))
     CmdArgs.push_back("-fversion-loops-for-stride");
 
-  Args.addAllArgs(CmdArgs, {options::OPT_flang_experimental_hlfir,
-                            options::OPT_flang_deprecated_no_hlfir,
-                            options::OPT_fno_ppc_native_vec_elem_order,
-                            options::OPT_fppc_native_vec_elem_order});
+  Args.addAllArgs(CmdArgs,
+                  {options::OPT_flang_experimental_hlfir,
+                   options::OPT_flang_deprecated_no_hlfir,
+                   options::OPT_fno_ppc_native_vec_elem_order,
+                   options::OPT_fppc_native_vec_elem_order,
+                   options::OPT_finit_global_zero,
+                   options::OPT_fno_init_global_zero, options::OPT_ftime_report,
+                   options::OPT_ftime_report_EQ, options::OPT_funroll_loops,
+                   options::OPT_fno_unroll_loops});
 }
 
 void Flang::addPicOptions(const ArgList &Args, ArgStringList &CmdArgs) const {
@@ -854,6 +861,9 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
 
       if (Args.hasArg(options::OPT_fopenmp_force_usm))
         CmdArgs.push_back("-fopenmp-force-usm");
+      // TODO: OpenMP support isn't "done" yet, so for now we warn that it
+      // is experimental.
+      D.Diag(diag::warn_openmp_experimental);
 
       // FIXME: Clang supports a whole bunch more flags here.
       break;
@@ -928,6 +938,7 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
       D.Diag(diag::warn_O4_is_O3);
     } else if (A->getOption().matches(options::OPT_Ofast)) {
       CmdArgs.push_back("-O3");
+      D.Diag(diag::warn_drv_deprecated_arg_ofast_for_flang);
     } else {
       A->render(Args, CmdArgs);
     }
@@ -973,17 +984,12 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
       Input.getInputArg().renderAsInput(Args, CmdArgs);
   }
 
-  checkForAMDProprietaryOptOptions(TC, D, Args, CmdArgs, false /*isLLD*/,
-                                   false /*checkOnly*/);
-
-  // TODO: Replace flang-new with flang once the new driver replaces the
-  // throwaway driver
-  const char *Exec = Args.MakeArgString(D.GetProgramPath("flang-new", TC));
+  const char *Exec = Args.MakeArgString(D.GetProgramPath("flang", TC));
   C.addCommand(std::make_unique<Command>(JA, *this,
                                          ResponseFileSupport::AtFileUTF8(),
                                          Exec, CmdArgs, Inputs, Output));
 }
 
-Flang::Flang(const ToolChain &TC) : Tool("flang-new", "flang frontend", TC) {}
+Flang::Flang(const ToolChain &TC) : Tool("flang", "flang frontend", TC) {}
 
 Flang::~Flang() {}

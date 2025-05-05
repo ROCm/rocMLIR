@@ -328,8 +328,6 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
 
   case Intrinsic::dbg_declare:
   case Intrinsic::dbg_label:
-  case Intrinsic::dbg_def:
-  case Intrinsic::dbg_kill:
     break;    // Simply strip out debugging intrinsics
 
   case Intrinsic::eh_typeid_for:

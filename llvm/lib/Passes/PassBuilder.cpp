@@ -46,6 +46,7 @@
 #include "llvm/Analysis/InlineAdvisor.h"
 #include "llvm/Analysis/InlineSizeEstimatorAnalysis.h"
 #include "llvm/Analysis/InstCount.h"
+#include "llvm/Analysis/KernelInfo.h"
 #include "llvm/Analysis/LastRunTrackingAnalysis.h"
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/Analysis/LazyValueInfo.h"
@@ -144,7 +145,6 @@
 #include "llvm/CodeGen/WinEHPrepare.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Dominators.h"
-#include "llvm/IR/HeterogeneousDebugVerify.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/PrintPasses.h"
 #include "llvm/IR/SafepointIRVerifier.h"
@@ -347,117 +347,6 @@
 #include <optional>
 
 using namespace llvm;
-
-// AOCC begin
-static cl::opt<bool>
-    EnableNaNsForSQRT("enable-nans-for-sqrt", cl::init(false), cl::Hidden,
-                       cl::desc("Enable NaNs for SQRT."));
-
-static cl::opt<bool> EnableBranchFuse(
-            "phi-elim-preserve-cmpjmp-glue", cl::init(false), cl::Hidden,
-                cl::desc("Place copy statements of PHI nodes before cmp"
-                         "statement during PHI elimination"));
-
-static cl::opt<bool> DelayVectorizationToLTO(
-    "delay-vectorization-to-lto", cl::init(false), cl::Hidden,
-    cl::desc("Delay Vectorization to LTO for resolving memory dependencies."));
-
-
-static cl::opt<bool> EnablePartialUnswitching(
-    "enable-partial-unswitch", cl::init(false), cl::Hidden,
-    cl::desc("Enable experimental partial loop unswitcing"));
-
-static cl::opt<bool> EnableAggressiveUnswitching(
-    "aggressive-loop-unswitch", cl::init(false), cl::Hidden,
-    cl::desc("Enable experimental aggressive loop unswitching"));
-
-static cl::opt<bool>
-    ConvertPowExpToInt("convert-pow-exp-to-int", cl::Hidden,
-                         cl::init(true),
-                         cl::desc("Allow converting exponent of pow "
-                                  "from float to int and call powi"));
-static cl::opt<bool> RunGlobalSLPVectorization(
-    "global-vectorize-slp", cl::init(false), cl::Hidden,
-    cl::desc("Run the Global SLP vectorization passes"));
-static cl::opt<bool> MoveLoadSliceGSLP(
-    "move-load-slice-gslp", cl::init(false), cl::Hidden,
-    cl::desc("Move Load Slices to aid global slp vectorization"));
-static cl::opt<int> EnableReduceArrayComputations(
-    "reduce-array-computations", cl::init(0), cl::Hidden,
-    cl::desc("Enable reduction of array computations"));
-
-static cl::opt<bool>
-RunArrayRemap("remap-arrays", cl::init(false), cl::Hidden,
-                     cl::desc("Run the Array Remap passes"));
-
-static cl::opt<int>
-InputStructPeelMemBlockSize("struct-peel-mem-block-size",
-    cl::init(0), cl::Hidden,
-    cl::desc("structure peeling memory block size."));
-
-static cl::opt<bool> EnableLVFunctionSpecialization(
-    "lv-function-specialization", cl::init(false), cl::Hidden,
-    cl::desc("Enable Linktime Function Specialization For Vectorization"));
-
-static cl::opt<bool> DisableI2DCallPromotion(
-    "disable-itodcalls", cl::init(false), cl::Hidden,
-    cl::desc("Disable indirect calls to direct calls promotion"));
-
-static cl::opt<bool> DisableI2DCallPromotionByClone(
-    "disable-itodcallsbyclone", cl::init(false), cl::Hidden,
-    cl::desc("Disable indirect calls to direct calls promotion by function cloning"));
-
-static cl::opt<bool> rvBoscc(
-    "rv-boscc", cl::init(true), cl::Hidden,
-    cl::desc("enable BOSCC transform with region vectorization"));
-
-static cl::opt<bool> rvVectorize(
-    "region-vectorize", cl::init(false), cl::Hidden,
-    cl::desc("enable region vectorization"));
-
-static cl::opt<bool> markOutlined(
-    "mark-rv-outline", cl::init(true), cl::Hidden,
-    cl::desc("mark outlined functions as inline"));
-
-static cl::opt<bool> rvOutline(
-    "rv-outline", cl::init(false), cl::Hidden,
-    cl::desc("outline conditional code in Region vectorization"));
-
-static cl::opt<unsigned>
-rvDepth("rv-depth", cl::init(0),
-        cl::Hidden,
-        cl::desc("vector factor for the RV vectorized loop"));
-
-static cl::opt<int>
-rvMaxVectorRegSizeOption("rv-max-reg-size", cl::init(128), cl::Hidden,
-    cl::desc("Attempt to vectorize for this register size in bits"));
-
-static cl::opt<bool> EnableBranchCombine("enable-branch-combine",
-    cl::desc("Enable branch fusion pass"),
-    cl::init(false), cl::Hidden);
-
-
-static cl::opt<bool>
-    noStoreSink("simplifycfg-no-storesink", cl::Hidden, cl::init(false),
-               cl::desc("Sink store instructions down to the end block generating phi nodes for address and value"));
-
-
-enum PrefetchLevel {
-    zero, one
-};
-
-static cl::opt<PrefetchLevel> EnablePrefetch("enable-X86-prefetching",
-    cl::desc("enable software prefetching on X86"),
-    cl::ValueOptional, cl::init(PrefetchLevel::zero));
-
-static cl::opt<bool>
-    EnableVRP("enable-licm-vrp", cl::Hidden, cl::init(false),
-    cl::desc("enable register pressure awareness in LICM pass"));
-
-static cl::opt<bool> DoFunctionSpecialize("function-specialize",
-    cl::init(true), cl::desc("Specialize function calls."), cl::Hidden);
-
-// AOCC end
 
 static const Regex DefaultAliasRegex(
     "^(default|thinlto-pre-link|thinlto|lto-pre-link|lto)<(O[0123sz])>$");
@@ -933,6 +822,75 @@ Expected<EmbedBitcodeOptions> parseEmbedBitcodePassOptions(StringRef Params) {
   return Result;
 }
 
+Expected<LowerAllowCheckPass::Options>
+parseLowerAllowCheckPassOptions(StringRef Params) {
+  LowerAllowCheckPass::Options Result;
+  while (!Params.empty()) {
+    StringRef ParamName;
+    std::tie(ParamName, Params) = Params.split(';');
+
+    // Format is <cutoffs[1,2,3]=70000;cutoffs[5,6,8]=90000>
+    //
+    // Parsing allows duplicate indices (last one takes precedence).
+    // It would technically be in spec to specify
+    //   cutoffs[0]=70000,cutoffs[1]=90000,cutoffs[0]=80000,...
+    if (ParamName.starts_with("cutoffs[")) {
+      StringRef IndicesStr;
+      StringRef CutoffStr;
+
+      std::tie(IndicesStr, CutoffStr) = ParamName.split("]=");
+      //       cutoffs[1,2,3
+      //                   70000
+
+      int cutoff;
+      if (CutoffStr.getAsInteger(0, cutoff))
+        return make_error<StringError>(
+            formatv("invalid LowerAllowCheck pass cutoffs parameter '{0}' "
+                    "({1})",
+                    CutoffStr, Params)
+                .str(),
+            inconvertibleErrorCode());
+
+      if (!IndicesStr.consume_front("cutoffs[") || IndicesStr == "")
+        return make_error<StringError>(
+            formatv("invalid LowerAllowCheck pass index parameter '{0}' "
+                    "({1})",
+                    IndicesStr, CutoffStr)
+                .str(),
+            inconvertibleErrorCode());
+
+      while (IndicesStr != "") {
+        StringRef firstIndexStr;
+        std::tie(firstIndexStr, IndicesStr) = IndicesStr.split('|');
+
+        unsigned int index;
+        if (firstIndexStr.getAsInteger(0, index))
+          return make_error<StringError>(
+              formatv("invalid LowerAllowCheck pass index parameter '{0}' "
+                      "({1}) {2}",
+                      firstIndexStr, IndicesStr)
+                  .str(),
+              inconvertibleErrorCode());
+
+        // In the common case (sequentially increasing indices), we will issue
+        // O(n) resize requests. We assume the underlying data structure has
+        // O(1) runtime for each added element.
+        if (index >= Result.cutoffs.size())
+          Result.cutoffs.resize(index + 1, 0);
+
+        Result.cutoffs[index] = cutoff;
+      }
+    } else {
+      return make_error<StringError>(
+          formatv("invalid LowerAllowCheck pass parameter '{0}' ", ParamName)
+              .str(),
+          inconvertibleErrorCode());
+    }
+  }
+
+  return Result;
+}
+
 Expected<MemorySanitizerOptions> parseMSanPassOptions(StringRef Params) {
   MemorySanitizerOptions Result;
   while (!Params.empty()) {
@@ -1154,6 +1112,8 @@ Expected<GVNOptions> parseGVNOptions(StringRef Params) {
       Result.setLoadPRESplitBackedge(Enable);
     } else if (ParamName == "memdep") {
       Result.setMemDep(Enable);
+    } else if (ParamName == "memoryssa") {
+      Result.setMemorySSA(Enable);
     } else {
       return make_error<StringError>(
           formatv("invalid GVN pass parameter '{0}' ", ParamName).str(),
@@ -1396,30 +1356,49 @@ parseRegAllocFastPassOptions(PassBuilder &PB, StringRef Params) {
   return Opts;
 }
 
-Expected<BoundsCheckingPass::BoundsCheckingOptions>
+Expected<BoundsCheckingPass::Options>
 parseBoundsCheckingOptions(StringRef Params) {
-  BoundsCheckingPass::BoundsCheckingOptions Options(
-      BoundsCheckingPass::ReportingMode::Trap, false);
+  BoundsCheckingPass::Options Options;
   while (!Params.empty()) {
     StringRef ParamName;
     std::tie(ParamName, Params) = Params.split(';');
     if (ParamName == "trap") {
-      Options.Mode = BoundsCheckingPass::ReportingMode::Trap;
+      Options.Rt = std::nullopt;
     } else if (ParamName == "rt") {
-      Options.Mode = BoundsCheckingPass::ReportingMode::FullRuntime;
+      Options.Rt = {
+          /*MinRuntime=*/false,
+          /*MayReturn=*/true,
+      };
     } else if (ParamName == "rt-abort") {
-      Options.Mode = BoundsCheckingPass::ReportingMode::FullRuntimeAbort;
+      Options.Rt = {
+          /*MinRuntime=*/false,
+          /*MayReturn=*/false,
+      };
     } else if (ParamName == "min-rt") {
-      Options.Mode = BoundsCheckingPass::ReportingMode::MinRuntime;
+      Options.Rt = {
+          /*MinRuntime=*/true,
+          /*MayReturn=*/true,
+      };
     } else if (ParamName == "min-rt-abort") {
-      Options.Mode = BoundsCheckingPass::ReportingMode::MinRuntimeAbort;
+      Options.Rt = {
+          /*MinRuntime=*/true,
+          /*MayReturn=*/false,
+      };
     } else if (ParamName == "merge") {
       Options.Merge = true;
     } else {
-      return make_error<StringError>(
-          formatv("invalid BoundsChecking pass parameter '{0}' ", ParamName)
-              .str(),
-          inconvertibleErrorCode());
+      StringRef ParamEQ;
+      StringRef Val;
+      std::tie(ParamEQ, Val) = ParamName.split('=');
+      int8_t Id;
+      if (ParamEQ == "guard" && !Val.getAsInteger(0, Id)) {
+        Options.GuardKind = Id;
+      } else {
+        return make_error<StringError>(
+            formatv("invalid BoundsChecking pass parameter '{0}' ", ParamName)
+                .str(),
+            inconvertibleErrorCode());
+      }
     }
   }
   return Options;

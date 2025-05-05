@@ -55,9 +55,7 @@ void AMDGCN::Linker::constructLlvmLinkCommand(Compilation &C,
   // for the extracted archive of bitcode to inputs.
   auto TargetID = Args.getLastArgValue(options::OPT_mcpu_EQ);
   AddStaticDeviceLibsLinking(C, *this, JA, Inputs, Args, LlvmLinkArgs, "amdgcn",
-                             TargetID,
-                             /*IsBitCodeSDL=*/true,
-                             /*PostClangLink=*/false);
+                             TargetID, /*IsBitCodeSDL=*/true);
 
   const char *LlvmLink =
     Args.MakeArgString(getToolChain().GetProgramPath("llvm-link"));
@@ -108,11 +106,6 @@ void AMDGCN::Linker::constructLldCommand(Compilation &C, const JobAction &JA,
   if (IsThinLTO)
     LldArgs.push_back(Args.MakeArgString("-plugin-opt=-force-import-all"));
 
-  if (Arg *A = Args.getLastArgNoClaim(options::OPT_g_Group))
-    if (!A->getOption().matches(options::OPT_g0) &&
-        !A->getOption().matches(options::OPT_ggdb0))
-      LldArgs.push_back("-plugin-opt=-amdgpu-spill-cfi-saved-regs");
-
   for (const Arg *A : Args.filtered(options::OPT_mllvm)) {
     LldArgs.push_back(
         Args.MakeArgString(Twine("-plugin-opt=") + A->getValue(0)));
@@ -155,9 +148,7 @@ void AMDGCN::Linker::constructLldCommand(Compilation &C, const JobAction &JA,
   // for the extracted archive of bitcode to inputs.
   auto TargetID = Args.getLastArgValue(options::OPT_mcpu_EQ);
   AddStaticDeviceLibsLinking(C, *this, JA, Inputs, Args, LldArgs, "amdgcn",
-                             TargetID,
-                             /*IsBitCodeSDL=*/true,
-                             /*PostClangLink=*/false);
+                             TargetID, /*IsBitCodeSDL=*/true);
 
   LldArgs.push_back("--no-whole-archive");
 
@@ -185,7 +176,6 @@ void AMDGCN::Linker::constructLinkAndEmitSpirvCommand(
   llvm::opt::ArgStringList TrArgs{
       "--spirv-max-version=1.6",
       "--spirv-ext=+all",
-      "--spirv-allow-extra-diexpressions",
       "--spirv-allow-unknown-intrinsics",
       "--spirv-lower-const-expr",
       "--spirv-preserve-auxdata",
@@ -237,11 +227,6 @@ HIPAMDToolChain::HIPAMDToolChain(const Driver &D, const llvm::Triple &Triple,
       D.getDiags().Report(clang::diag::warn_drv_unsupported_option_for_target)
           << A->getAsString(Args) << getTriple().str();
   }
-}
-
-void HIPAMDToolChain::addActionsFromClangTargetOptions(
-    const llvm::opt::ArgList &DriverArgs, llvm::opt::ArgStringList &CC1Args,
-    const JobAction &JA, Compilation &C, const InputInfoList &Inputs) const {
 }
 
 void HIPAMDToolChain::addClangTargetOptions(
@@ -417,7 +402,12 @@ HIPAMDToolChain::getDeviceLibs(const llvm::opt::ArgList &DriverArgs) const {
         getSanitizerArgs(DriverArgs).needsAsanRt()) {
       auto AsanRTL = RocmInstallation->getAsanRTLPath();
       if (AsanRTL.empty()) {
-        getDriver().Diag(diag::err_drv_no_asan_rt_lib);
+        unsigned DiagID = getDriver().getDiags().getCustomDiagID(
+            DiagnosticsEngine::Error,
+            "AMDGPU address sanitizer runtime library (asanrtl) is not found. "
+            "Please install ROCm device library which supports address "
+            "sanitizer");
+        getDriver().Diag(DiagID);
         return {};
       } else
         BCLibs.emplace_back(AsanRTL, /*ShouldInternalize=*/false);

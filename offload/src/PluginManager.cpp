@@ -11,9 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "PluginManager.h"
-#include "OpenMP/OMPT/Callback.h"
-#include "OpenMP/OMPT/OmptCommonDefs.h"
-#include "OpenMP/OMPT/OmptTracing.h"
 #include "Shared/Debug.h"
 #include "Shared/Profile.h"
 #include "device.h"
@@ -43,28 +40,12 @@ void PluginManager::init() {
   } while (false);
 #include "Shared/Targets.def"
 
-// At this point, we don't know whether OMPT tracing will be turned ON.
-// So we create the top-level tracing manager as long as OMPT is built in --
-// the construction itself is inexpensive.
-#ifdef OMPT_SUPPORT
-  assert(TraceRecordManager == nullptr &&
-         "Expected trace record manager to be null");
-  TraceRecordManager = new OmptTracingBufferMgr();
-#endif
-
   DP("RTLs loaded!\n");
 }
 
 void PluginManager::deinit() {
   TIMESCOPE();
   DP("Unloading RTLs...\n");
-
-#ifdef OMPT_SUPPORT
-  assert(TraceRecordManager != nullptr &&
-         "Trace record manager should have been non-null");
-  delete TraceRecordManager;
-  TraceRecordManager = nullptr;
-#endif
 
   for (auto &Plugin : Plugins) {
     if (!Plugin->is_initialized())
@@ -143,21 +124,76 @@ void PluginManager::initializeAllDevices() {
   }
 }
 
+// Returns a pointer to the binary descriptor, upgrading from a legacy format if
+// necessary.
+__tgt_bin_desc *PluginManager::upgradeLegacyEntries(__tgt_bin_desc *Desc) {
+  struct LegacyEntryTy {
+    void *Address;
+    char *SymbolName;
+    size_t Size;
+    int32_t Flags;
+    int32_t Data;
+  };
+
+  if (UpgradedDescriptors.contains(Desc))
+    return &UpgradedDescriptors[Desc];
+
+  if (Desc->HostEntriesBegin == Desc->HostEntriesEnd ||
+      Desc->HostEntriesBegin->Reserved == 0)
+    return Desc;
+
+  // The new format mandates that each entry starts with eight bytes of zeroes.
+  // This allows us to detect the old format as this is a null pointer.
+  llvm::SmallVector<llvm::offloading::EntryTy, 0> &NewEntries =
+      LegacyEntries.emplace_back();
+  for (LegacyEntryTy &Entry : llvm::make_range(
+           reinterpret_cast<LegacyEntryTy *>(Desc->HostEntriesBegin),
+           reinterpret_cast<LegacyEntryTy *>(Desc->HostEntriesEnd))) {
+    llvm::offloading::EntryTy &NewEntry = NewEntries.emplace_back();
+
+    NewEntry.Address = Entry.Address;
+    NewEntry.Flags = Entry.Flags;
+    NewEntry.Data = Entry.Data;
+    NewEntry.Size = Entry.Size;
+    NewEntry.SymbolName = Entry.SymbolName;
+  }
+
+  // Create a new image struct so we can update the entries list.
+  llvm::SmallVector<__tgt_device_image, 0> &NewImages =
+      LegacyImages.emplace_back();
+  for (int32_t Image = 0; Image < Desc->NumDeviceImages; ++Image)
+    NewImages.emplace_back(
+        __tgt_device_image{Desc->DeviceImages[Image].ImageStart,
+                           Desc->DeviceImages[Image].ImageEnd,
+                           NewEntries.begin(), NewEntries.end()});
+
+  // Create the new binary descriptor containing the newly created memory.
+  __tgt_bin_desc &NewDesc = UpgradedDescriptors[Desc];
+  NewDesc.DeviceImages = NewImages.begin();
+  NewDesc.NumDeviceImages = Desc->NumDeviceImages;
+  NewDesc.HostEntriesBegin = NewEntries.begin();
+  NewDesc.HostEntriesEnd = NewEntries.end();
+
+  return &NewDesc;
+}
+
 void PluginManager::registerLib(__tgt_bin_desc *Desc) {
   PM->RTLsMtx.lock();
 
+  // Upgrade the entries from the legacy implementation if necessary.
+  Desc = upgradeLegacyEntries(Desc);
+
   // Add in all the OpenMP requirements associated with this binary.
-  for (__tgt_offload_entry &Entry :
+  for (llvm::offloading::EntryTy &Entry :
        llvm::make_range(Desc->HostEntriesBegin, Desc->HostEntriesEnd))
-    if (Entry.flags == OMP_REGISTER_REQUIRES)
-      PM->addRequirements(Entry.data);
+    if (Entry.Flags == OMP_REGISTER_REQUIRES)
+      PM->addRequirements(Entry.Data);
 
   // Extract the exectuable image and extra information if availible.
   for (int32_t i = 0; i < Desc->NumDeviceImages; ++i)
     PM->addDeviceImage(*Desc, Desc->DeviceImages[i]);
 
   // Register the images with the RTLs that understand them, if any.
-  bool FoundCompatibleImage = false;
   for (DeviceImageTy &DI : PM->deviceImages()) {
     // Obtain the image and information that was previously extracted.
     __tgt_device_image *Img = &DI.getExecutableImage();
@@ -217,44 +253,23 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
         // Register the image for this target type and invalidate the table.
         TT.TargetsImages[UserId] = Img;
         TT.TargetsTable[UserId] = nullptr;
-        PM->TrlTblMtx.unlock();
-        FoundRTL = &R;
-      }
 
-      if (FoundRTL) {
         PM->UsedImages.insert(Img);
-        break;
+        FoundRTL = &R;
+
+        PM->TrlTblMtx.unlock();
       }
     }
-    if (!FoundRTL) {
+    if (!FoundRTL)
       DP("No RTL found for image " DPxMOD "!\n", DPxPTR(Img->ImageStart));
-    } else {
-      FoundCompatibleImage = true;
-    }
   }
-
-  // Check if I can report any XNACK related image failures. The report
-  // should happen only when we have not found a compatible RTL with
-  // matching XNACK and we were expecting to have a match (i.e. the
-  // image was hoping to find an RTL for an AMD GPU with XNACK support).
-  if (!FoundCompatibleImage) {
-    for (DeviceImageTy &DI : PM->deviceImages()) {
-      __tgt_device_image *Img = &DI.getExecutableImage();
-      for (auto &R : PM->plugins())
-        R.check_invalid_image(Img);
-    }
-  }
-
   PM->RTLsMtx.unlock();
 
   bool UseAutoZeroCopy = Plugins.size() > 0;
-  bool IsAPU = Plugins.size() > 0;
 
   auto ExclusiveDevicesAccessor = getExclusiveDevicesAccessor();
-  for (const auto &Device : *ExclusiveDevicesAccessor) {
+  for (const auto &Device : *ExclusiveDevicesAccessor)
     UseAutoZeroCopy &= Device->useAutoZeroCopy();
-    IsAPU &= Device->checkIfAPU();
-  }
 
   // Auto Zero-Copy can only be currently triggered when the system is an
   // homogeneous APU architecture without attached discrete GPUs.
@@ -263,53 +278,17 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
   if (UseAutoZeroCopy)
     addRequirements(OMPX_REQ_AUTO_ZERO_COPY);
 
-  bool EagerMapsRequested = BoolEnvar("OMPX_EAGER_ZERO_COPY_MAPS", false).get();
-
-  // Eager Zero-Copy Maps makes a "copy" execution turn into
-  // an automatic zero-copy. It also applies to unified_shared_memory.
-  // It is only available on APUs.
-  if (IsAPU && EagerMapsRequested) {
-    addRequirements(OMPX_REQ_EAGER_ZERO_COPY_MAPS);
-    if (!(getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY))
-      addRequirements(OMPX_REQ_AUTO_ZERO_COPY);
-  }
-
-  // Sanity checks for zero-copy depend on specific devices: request it here
-  if ((ExclusiveDevicesAccessor->size() > 0) &&
-      ((getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY) ||
-       (getRequirements() & OMPX_REQ_AUTO_ZERO_COPY))) {
-    // APUs are assumed to be a homogeneous set of GPUs: ask
-    // the first device in the system to run a sanity check.
-    auto &Device = *(*ExclusiveDevicesAccessor)[0];
-    // just skip checks if no devices are found in the system
-    Device.zeroCopySanityChecksAndDiag(
-        (getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY),
-        (getRequirements() & OMPX_REQ_AUTO_ZERO_COPY),
-        (getRequirements() & OMPX_REQ_EAGER_ZERO_COPY_MAPS));
-  }
-
-  // Add the flag for multi-device.
-  if (ExclusiveDevicesAccessor->size() > 0) {
-    auto &Device = *(*ExclusiveDevicesAccessor)[0];
-    if (Device.getNumMultiDevices() > 0)
-      addRequirements(OMPX_REQ_MULTI_DEVICE_ENABLED);
-  }
-
   DP("Done registering entries!\n");
 }
 
 // Temporary forward declaration, old style CTor/DTor handling is going away.
 int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
-           KernelArgsTy &KernelArgs, AsyncInfoTy &AsyncInfo,
-           bool InMultiDeviceMode, bool &IsMultiDeviceKernel);
+           KernelArgsTy &KernelArgs, AsyncInfoTy &AsyncInfo);
 
 void PluginManager::unregisterLib(__tgt_bin_desc *Desc) {
   DP("Unloading target library!\n");
 
-  // Flush in-process OMPT trace records and shut down helper threads
-  // before unloading the library.
-  OMPT_IF_TRACING_ENABLED(
-      PM->getTraceRecordManager()->flushAndShutdownHelperThreads(););
+  Desc = upgradeLegacyEntries(Desc);
 
   PM->RTLsMtx.lock();
   // Find which RTL understands each image, if any.
@@ -347,9 +326,9 @@ void PluginManager::unregisterLib(__tgt_bin_desc *Desc) {
 
   // Remove entries from PM->HostPtrToTableMap
   PM->TblMapMtx.lock();
-  for (__tgt_offload_entry *Cur = Desc->HostEntriesBegin;
+  for (llvm::offloading::EntryTy *Cur = Desc->HostEntriesBegin;
        Cur < Desc->HostEntriesEnd; ++Cur) {
-    PM->HostPtrToTableMap.erase(Cur->addr);
+    PM->HostPtrToTableMap.erase(Cur->Address);
   }
 
   // Remove translation table for this descriptor.
@@ -415,35 +394,36 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
       }
 
       // 3) Create the translation table.
-      llvm::SmallVector<__tgt_offload_entry> &DeviceEntries =
+      llvm::SmallVector<llvm::offloading::EntryTy> &DeviceEntries =
           TransTable->TargetsEntries[DeviceId];
-      for (__tgt_offload_entry &Entry :
+      for (llvm::offloading::EntryTy &Entry :
            llvm::make_range(Img->EntriesBegin, Img->EntriesEnd)) {
         __tgt_device_binary &Binary = *BinaryOrErr;
 
-        __tgt_offload_entry DeviceEntry = Entry;
-        if (Entry.size) {
-          if (Device.RTL->get_global(Binary, Entry.size, Entry.name,
-                                     &DeviceEntry.addr) != OFFLOAD_SUCCESS)
-            REPORT("Failed to load symbol %s\n", Entry.name);
+        llvm::offloading::EntryTy DeviceEntry = Entry;
+        if (Entry.Size) {
+          if (Device.RTL->get_global(Binary, Entry.Size, Entry.SymbolName,
+                                     &DeviceEntry.Address) != OFFLOAD_SUCCESS)
+            REPORT("Failed to load symbol %s\n", Entry.SymbolName);
 
           // If unified memory is active, the corresponding global is a device
           // reference to the host global. We need to initialize the pointer on
           // the device to point to the memory on the host.
           if ((PM->getRequirements() & OMP_REQ_UNIFIED_SHARED_MEMORY) ||
               (PM->getRequirements() & OMPX_REQ_AUTO_ZERO_COPY)) {
-            if (Device.RTL->data_submit(DeviceId, DeviceEntry.addr, Entry.addr,
-                                        Entry.size) != OFFLOAD_SUCCESS)
-              REPORT("Failed to write symbol for USM %s\n", Entry.name);
+            if (Device.RTL->data_submit(DeviceId, DeviceEntry.Address,
+                                        Entry.Address,
+                                        Entry.Size) != OFFLOAD_SUCCESS)
+              REPORT("Failed to write symbol for USM %s\n", Entry.SymbolName);
           }
-        } else if (Entry.addr) {
-          if (Device.RTL->get_function(Binary, Entry.name, &DeviceEntry.addr) !=
-              OFFLOAD_SUCCESS)
-            REPORT("Failed to load kernel %s\n", Entry.name);
+        } else if (Entry.Address) {
+          if (Device.RTL->get_function(Binary, Entry.SymbolName,
+                                       &DeviceEntry.Address) != OFFLOAD_SUCCESS)
+            REPORT("Failed to load kernel %s\n", Entry.SymbolName);
         }
         DP("Entry point " DPxMOD " maps to%s %s (" DPxMOD ")\n",
-           DPxPTR(Entry.addr), (Entry.size) ? " global" : "", Entry.name,
-           DPxPTR(DeviceEntry.addr));
+           DPxPTR(Entry.Address), (Entry.Size) ? " global" : "",
+           Entry.SymbolName, DPxPTR(DeviceEntry.Address));
 
         DeviceEntries.emplace_back(DeviceEntry);
       }
@@ -475,30 +455,31 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
           Device.getMappingInfo().HostDataToTargetMap.getExclusiveAccessor();
 
       __tgt_target_table *HostTable = &TransTable->HostTable;
-      for (__tgt_offload_entry *CurrDeviceEntry = TargetTable->EntriesBegin,
-                               *CurrHostEntry = HostTable->EntriesBegin,
-                               *EntryDeviceEnd = TargetTable->EntriesEnd;
+      for (llvm::offloading::EntryTy *
+               CurrDeviceEntry = TargetTable->EntriesBegin,
+              *CurrHostEntry = HostTable->EntriesBegin,
+              *EntryDeviceEnd = TargetTable->EntriesEnd;
            CurrDeviceEntry != EntryDeviceEnd;
            CurrDeviceEntry++, CurrHostEntry++) {
-        if (CurrDeviceEntry->size == 0)
+        if (CurrDeviceEntry->Size == 0)
           continue;
 
-        assert(CurrDeviceEntry->size == CurrHostEntry->size &&
+        assert(CurrDeviceEntry->Size == CurrHostEntry->Size &&
                "data size mismatch");
 
         // Fortran may use multiple weak declarations for the same symbol,
         // therefore we must allow for multiple weak symbols to be loaded from
         // the fat binary. Treat these mappings as any other "regular"
         // mapping. Add entry to map.
-        if (Device.getMappingInfo().getTgtPtrBegin(HDTTMap, CurrHostEntry->addr,
-                                                   CurrHostEntry->size))
+        if (Device.getMappingInfo().getTgtPtrBegin(
+                HDTTMap, CurrHostEntry->Address, CurrHostEntry->Size))
           continue;
 
-        void *CurrDeviceEntryAddr = CurrDeviceEntry->addr;
+        void *CurrDeviceEntryAddr = CurrDeviceEntry->Address;
 
         // For indirect mapping, follow the indirection and map the actual
         // target.
-        if (CurrDeviceEntry->flags & OMP_DECLARE_TARGET_INDIRECT) {
+        if (CurrDeviceEntry->Flags & OMP_DECLARE_TARGET_INDIRECT) {
           AsyncInfoTy AsyncInfo(Device);
           void *DevPtr;
           Device.retrieveData(&DevPtr, CurrDeviceEntryAddr, sizeof(void *),
@@ -510,19 +491,21 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
 
         DP("Add mapping from host " DPxMOD " to device " DPxMOD " with size %zu"
            ", name \"%s\"\n",
-           DPxPTR(CurrHostEntry->addr), DPxPTR(CurrDeviceEntry->addr),
-           CurrDeviceEntry->size, CurrDeviceEntry->name);
+           DPxPTR(CurrHostEntry->Address), DPxPTR(CurrDeviceEntry->Address),
+           CurrDeviceEntry->Size, CurrDeviceEntry->SymbolName);
         HDTTMap->emplace(new HostDataToTargetTy(
-            (uintptr_t)CurrHostEntry->addr /*HstPtrBase*/,
-            (uintptr_t)CurrHostEntry->addr /*HstPtrBegin*/,
-            (uintptr_t)CurrHostEntry->addr + CurrHostEntry->size /*HstPtrEnd*/,
+            (uintptr_t)CurrHostEntry->Address /*HstPtrBase*/,
+            (uintptr_t)CurrHostEntry->Address /*HstPtrBegin*/,
+            (uintptr_t)CurrHostEntry->Address +
+                CurrHostEntry->Size /*HstPtrEnd*/,
             (uintptr_t)CurrDeviceEntryAddr /*TgtAllocBegin*/,
             (uintptr_t)CurrDeviceEntryAddr /*TgtPtrBegin*/,
-            false /*UseHoldRefCount*/, CurrHostEntry->name,
+            false /*UseHoldRefCount*/, CurrHostEntry->SymbolName,
             true /*IsRefCountINF*/));
 
         // Notify about the new mapping.
-        if (Device.notifyDataMapped(CurrHostEntry->addr, CurrHostEntry->size))
+        if (Device.notifyDataMapped(CurrHostEntry->Address,
+                                    CurrHostEntry->Size))
           return OFFLOAD_FAIL;
       }
     }

@@ -33,8 +33,6 @@
 
 #define OFFLOAD_DEVICE_DEFAULT -1
 
-#define HOST_DEVICE                -10
-
 // Don't format out enums and structs.
 // clang-format off
 
@@ -275,7 +273,6 @@ struct __tgt_target_non_contig {
 extern "C" {
 #endif
 
-int ompx_get_team_procs(int device_num);
 void ompx_dump_mapping_tables(void);
 int omp_get_num_devices(void);
 int omp_get_device_num(void);
@@ -299,8 +296,6 @@ int omp_target_disassociate_ptr(const void *HostPtr, int DeviceNum);
 
 /// Explicit target memory allocators
 /// Using the llvm_ prefix until they become part of the OpenMP standard.
-void *llvm_omp_target_lock_mem(void *ptr, size_t size, int device_num);
-void llvm_omp_target_unlock_mem(void *ptr, int device_num);
 void *llvm_omp_target_alloc_device(size_t Size, int DeviceNum);
 void *llvm_omp_target_alloc_host(size_t Size, int DeviceNum);
 void *llvm_omp_target_alloc_shared(size_t Size, int DeviceNum);

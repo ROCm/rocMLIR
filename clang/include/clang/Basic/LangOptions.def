@@ -160,7 +160,6 @@ LANGOPT(GNUAsm            , 1, 1, "GNU-style inline assembly")
 LANGOPT(Coroutines        , 1, 0, "C++20 coroutines")
 LANGOPT(CoroAlignedAllocation, 1, 0, "prefer Aligned Allocation according to P2014 Option 2")
 LANGOPT(DllExportInlines  , 1, 1, "dllexported classes dllexport inline methods")
-LANGOPT(RelaxedTemplateTemplateArgs, 1, 1, "C++17 relaxed matching of template template arguments")
 LANGOPT(ExperimentalLibrary, 1, 0, "enable unstable and experimental library features")
 LANGOPT(RetainSubstTemplateTypeParmTypeAstNodes, 1, 0, "retain SubstTemplateTypeParmType nodes in the AST's representation of alias template specializations")
 
@@ -260,7 +259,6 @@ LANGOPT(OpenCLGenericAddressSpace, 1, 0, "OpenCL generic keyword")
 LANGOPT(OpenCLPipes              , 1, 0, "OpenCL pipes language constructs and built-ins")
 LANGOPT(NativeHalfType    , 1, 0, "Native half type support")
 LANGOPT(NativeHalfArgsAndReturns, 1, 0, "Native half args and returns")
-LANGOPT(HalfArgsAndReturns, 1, 0, "half args and returns")
 LANGOPT(CUDA              , 1, 0, "CUDA")
 LANGOPT(HIP               , 1, 0, "HIP")
 LANGOPT(OpenMP            , 32, 0, "OpenMP support and version of OpenMP (31, 40 or 45)")
@@ -273,16 +271,7 @@ LANGOPT(OpenMPIRBuilder   , 1, 0, "Use the experimental OpenMP-IR-Builder codege
 LANGOPT(OpenMPCUDANumSMs  , 32, 0, "Number of SMs for CUDA devices.")
 LANGOPT(OpenMPCUDABlocksPerSM  , 32, 0, "Number of blocks per SM for CUDA devices.")
 LANGOPT(OpenMPCUDAReductionBufNum , 32, 1024, "Number of the reduction records in the intermediate reduction buffer used for the teams reductions.")
-LANGOPT(OpenMPGPUThreadsPerTeam, 32, 256, "Number of threads per team for GPUs.")
-LANGOPT(OpenMPTargetXteamReductionBlockSize, 32, 1024, "Number of threads in a block used by cross-team reduction.")
 LANGOPT(OpenMPTargetDebug , 32, 0, "Enable debugging in the OpenMP offloading device RTL")
-LANGOPT(OpenMPTargetIgnoreEnvVars , 1, 0, "Generate code assuming that device related environment variables can be ignored.")
-LANGOPT(OpenMPTargetBigJumpLoop , 1, 1, "Use big jump loop code generation technique.")
-LANGOPT(OpenMPTargetNoLoop , 1, 1, "Use no-loop code generation technique.")
-LANGOPT(OpenMPTargetXteamReduction , 1, 1, "Use cross-team code generation technique.")
-LANGOPT(OpenMPTargetFastReduction , 1, 0, "Use fast reduction code generation technique.")
-LANGOPT(OpenMPTargetMultiDevice , 1, 0, "Offload the iteration space of a single target region across multiple GPU devices.")
-LANGOPT(OpenMPTargetXteamScan , 1, 0, "Use the cross-team scan code generation technique.")
 LANGOPT(OpenMPOptimisticCollapse  , 1, 0, "Use at most 32 bits to represent the collapsed loop nest counter.")
 LANGOPT(OpenMPThreadSubscription  , 1, 0, "Assume work-shared loops do not have more iterations than participating threads.")
 LANGOPT(OpenMPTeamSubscription  , 1, 0, "Assume distributed loops do not have more iterations than participating teams.")
@@ -290,8 +279,6 @@ LANGOPT(OpenMPNoThreadState  , 1, 0, "Assume that no thread in a parallel region
 LANGOPT(OpenMPNoNestedParallelism  , 1, 0, "Assume that no thread in a parallel region will encounter a parallel region")
 LANGOPT(OpenMPOffloadMandatory  , 1, 0, "Assert that offloading is mandatory and do not create a host fallback.")
 LANGOPT(OpenMPForceUSM     , 1, 0, "Enable OpenMP unified shared memory mode via compiler.")
-LANGOPT(OpenMPKernelIO , 1, 1, "Enable OpenMP host-exec Device IO.")
-
 LANGOPT(NoGPULib  , 1, 0, "Indicate a build without the standard GPU libraries.")
 
 LANGOPT(HLSL, 1, 0, "HLSL")
@@ -419,6 +406,7 @@ VALUE_LANGOPT(TrivialAutoVarInitMaxSize, 32, 0,
              "stop trivial automatic variable initialization if var size exceeds the specified size (in bytes). Must be greater than 0.")
 ENUM_LANGOPT(SignedOverflowBehavior, SignedOverflowBehaviorTy, 2, SOB_Undefined,
              "signed integer overflow handling")
+LANGOPT(PointerOverflowDefined, 1, 0, "make pointer overflow defined")
 ENUM_LANGOPT(ThreadModel  , ThreadModelKind, 2, ThreadModelKind::POSIX, "Thread Model")
 
 BENIGN_LANGOPT(ArrowDepth, 32, 256,
@@ -543,6 +531,8 @@ BENIGN_LANGOPT(CheckConstexprFunctionBodies, 1, 1,
                "be used in a constant expression.")
 
 LANGOPT(BoundsSafety, 1, 0, "Bounds safety extension for C")
+
+LANGOPT(PreserveVec3Type, 1, 0, "Preserve 3-component vector type")
 
 #undef LANGOPT
 #undef COMPATIBLE_LANGOPT

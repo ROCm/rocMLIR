@@ -25,34 +25,12 @@
 #endif
 #endif // !defined(__HIPCC_RTC__)
 
-// __DEVICE__ is a helper macro with common set of attributes for the wrappers
-// we implement in this file. We need static in order to avoid emitting unused
-// functions and __forceinline__ helps inlining these wrappers at -O1.
 #pragma push_macro("__DEVICE__")
-#pragma push_macro("__DEVICE_NOCE__")
 
 #ifdef __OPENMP_AMDGCN__
-#if defined(__cplusplus)
-#ifdef __BUILD_MATH_BUILTINS_LIB__
-#define __DEVICE__ extern "C" __attribute__((always_inline, nothrow))
-#define __DEVICE_NOCE__ __DEVICE__
+#define __DEVICE__ static inline __attribute__((always_inline, nothrow))
 #else
-#define __DEVICE__ static constexpr __attribute__((always_inline, nothrow))
-#define __DEVICE_NOCE__ static __attribute__((always_inline, nothrow))
-#endif
-#else // !defined(__cplusplus), c openmp compilation
-// Special case to build c-only device function lib for FORTRAN.
-#ifdef __BUILD_MATH_BUILTINS_LIB__
-#define __DEVICE__ extern __attribute__((always_inline, nothrow))
-#define __DEVICE_NOCE__ __DEVICE__
-#else
-#define __DEVICE__ static __attribute__((always_inline, nothrow))
-#define __DEVICE_NOCE__ __DEVICE__
-#endif
-#endif
-#else // !__OPENMP_AMDGCN__, so this is for HIP-Clang which is always C++.
 #define __DEVICE__ static __device__ inline __attribute__((always_inline))
-#define __DEVICE_NOCE__ __DEVICE__
 #endif
 
 // Device library provides fast low precision and slow full-recision
@@ -84,15 +62,10 @@ template<bool>
 struct __compare_result{};
 template<>
 struct __compare_result<true> {
-  static const bool valid;
+  static const __device__ bool valid;
 };
 
-// All following c-capable function defs have one of two macro modifiers:
-// __DEVICE__
-// __DEVICE_NOCE__ same as __DEVICE__ but no constexpr for those functions
-//                 that cannot return constexpr in c++.
-
-__DEVICE_NOCE__
+__DEVICE__
 void __suppress_unused_warning(bool b){};
 template <unsigned int S, unsigned int T>
 __DEVICE__ void __static_assert_equal_size() {
@@ -108,7 +81,7 @@ __DEVICE__ void __static_assert_equal_size() {
 
 #endif
 
-__DEVICE_NOCE__
+__DEVICE__
 uint64_t __make_mantissa_base8(const char *__tagp __attribute__((nonnull))) {
   uint64_t __r = 0;
   while (*__tagp != '\0') {
@@ -125,7 +98,7 @@ uint64_t __make_mantissa_base8(const char *__tagp __attribute__((nonnull))) {
   return __r;
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 uint64_t __make_mantissa_base10(const char *__tagp __attribute__((nonnull))) {
   uint64_t __r = 0;
   while (*__tagp != '\0') {
@@ -142,7 +115,7 @@ uint64_t __make_mantissa_base10(const char *__tagp __attribute__((nonnull))) {
   return __r;
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 uint64_t __make_mantissa_base16(const char *__tagp __attribute__((nonnull))) {
   uint64_t __r = 0;
   while (*__tagp != '\0') {
@@ -325,7 +298,7 @@ float __powf(float __x, float __y) { return __ocml_pow_f32(__x, __y); }
 __DEVICE__
 float __saturatef(float __x) { return (__x < 0) ? 0 : ((__x > 1) ? 1 : __x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 void __sincosf(float __x, float *__sinptr, float *__cosptr) {
   *__sinptr = __ocml_native_sin_f32(__x);
   *__cosptr = __ocml_native_cos_f32(__x);
@@ -453,7 +426,7 @@ float fminf(float __x, float __y) { return __builtin_fminf(__x, __y); }
 __DEVICE__
 float fmodf(float __x, float __y) { return __ocml_fmod_f32(__x, __y); }
 
-__DEVICE_NOCE__
+__DEVICE__
 float frexpf(float __x, int *__nptr) {
   return __builtin_frexpf(__x, __nptr);
 }
@@ -479,7 +452,7 @@ float j0f(float __x) { return __ocml_j0_f32(__x); }
 __DEVICE__
 float j1f(float __x) { return __ocml_j1_f32(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 float jnf(int __n, float __x) { // TODO: we could use Ahmes multiplication
                                 // and the Miller & Brown algorithm
   //       for linear recurrences to get O(log n) steps, but it's unclear if
@@ -533,7 +506,7 @@ long int lrintf(float __x) { return __builtin_rintf(__x); }
 __DEVICE__
 long int lroundf(float __x) { return __builtin_roundf(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 float modff(float __x, float *__iptr) {
   float __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -545,8 +518,6 @@ float modff(float __x, float *__iptr) {
   return __r;
 }
 
-// FIXME need a c version of nanf
-#if defined(__cplusplus)
 __DEVICE__
 float nanf(const char *__tagp __attribute__((nonnull))) {
   union {
@@ -567,7 +538,6 @@ float nanf(const char *__tagp __attribute__((nonnull))) {
 
   return __tmp.val;
 }
-#endif
 
 __DEVICE__
 float nearbyintf(float __x) { return __builtin_nearbyintf(__x); }
@@ -593,7 +563,7 @@ float normcdff(float __x) { return __ocml_ncdf_f32(__x); }
 __DEVICE__
 float normcdfinvf(float __x) { return __ocml_ncdfinv_f32(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 float normf(int __dim,
             const float *__a) { // TODO: placeholder until OCML adds support.
   float __r = 0;
@@ -619,7 +589,7 @@ float remainderf(float __x, float __y) {
   return __ocml_remainder_f32(__x, __y);
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 float remquof(float __x, float __y, int *__quo) {
   int __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -648,7 +618,7 @@ float rnorm4df(float __x, float __y, float __z, float __w) {
   return __ocml_rlen4_f32(__x, __y, __z, __w);
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 float rnormf(int __dim,
              const float *__a) { // TODO: placeholder until OCML adds support.
   float __r = 0;
@@ -678,7 +648,7 @@ float scalbnf(float __x, int __n) { return __builtin_amdgcn_ldexpf(__x, __n); }
 __DEVICE__
 __RETURN_TYPE __signbitf(float __x) { return __builtin_signbitf(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 void sincosf(float __x, float *__sinptr, float *__cosptr) {
   float __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -693,7 +663,7 @@ void sincosf(float __x, float *__sinptr, float *__cosptr) {
 #endif
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 void sincospif(float __x, float *__sinptr, float *__cosptr) {
   float __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -734,7 +704,7 @@ float y0f(float __x) { return __ocml_y0_f32(__x); }
 __DEVICE__
 float y1f(float __x) { return __ocml_y1_f32(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 float ynf(int __n, float __x) { // TODO: we could use Ahmes multiplication
                                 // and the Miller & Brown algorithm
   //       for linear recurrences to get O(log n) steps, but it's unclear if
@@ -857,7 +827,7 @@ double fmin(double __x, double __y) { return __builtin_fmin(__x, __y); }
 __DEVICE__
 double fmod(double __x, double __y) { return __ocml_fmod_f64(__x, __y); }
 
-__DEVICE_NOCE__
+__DEVICE__
 double frexp(double __x, int *__nptr) {
   return __builtin_frexp(__x, __nptr);
 }
@@ -883,7 +853,7 @@ double j0(double __x) { return __ocml_j0_f64(__x); }
 __DEVICE__
 double j1(double __x) { return __ocml_j1_f64(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 double jn(int __n, double __x) { // TODO: we could use Ahmes multiplication
                                  // and the Miller & Brown algorithm
   //       for linear recurrences to get O(log n) steps, but it's unclear if
@@ -937,7 +907,7 @@ long int lrint(double __x) { return __builtin_rint(__x); }
 __DEVICE__
 long int lround(double __x) { return __builtin_round(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 double modf(double __x, double *__iptr) {
   double __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -950,8 +920,6 @@ double modf(double __x, double *__iptr) {
   return __r;
 }
 
-// FIXME need a c version of nan
-#if defined(__cplusplus)
 __DEVICE__
 double nan(const char *__tagp) {
 #if !_WIN32
@@ -979,7 +947,6 @@ double nan(const char *__tagp) {
   return *reinterpret_cast<double *>(&__val);
 #endif
 }
-#endif
 
 __DEVICE__
 double nearbyint(double __x) { return __builtin_nearbyint(__x); }
@@ -989,7 +956,7 @@ double nextafter(double __x, double __y) {
   return __ocml_nextafter_f64(__x, __y);
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 double norm(int __dim,
             const double *__a) { // TODO: placeholder until OCML adds support.
   double __r = 0;
@@ -1031,7 +998,7 @@ double remainder(double __x, double __y) {
   return __ocml_remainder_f64(__x, __y);
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 double remquo(double __x, double __y, int *__quo) {
   int __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -1050,7 +1017,7 @@ double rhypot(double __x, double __y) { return __ocml_rhypot_f64(__x, __y); }
 __DEVICE__
 double rint(double __x) { return __builtin_rint(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 double rnorm(int __dim,
              const double *__a) { // TODO: placeholder until OCML adds support.
   double __r = 0;
@@ -1092,7 +1059,7 @@ __RETURN_TYPE __signbit(double __x) { return __builtin_signbit(__x); }
 __DEVICE__
 double sin(double __x) { return __ocml_sin_f64(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 void sincos(double __x, double *__sinptr, double *__cosptr) {
   double __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -1103,7 +1070,7 @@ void sincos(double __x, double *__sinptr, double *__cosptr) {
   *__cosptr = __tmp;
 }
 
-__DEVICE_NOCE__
+__DEVICE__
 void sincospi(double __x, double *__sinptr, double *__cosptr) {
   double __tmp;
 #ifdef __OPENMP_AMDGCN__
@@ -1141,7 +1108,7 @@ double y0(double __x) { return __ocml_y0_f64(__x); }
 __DEVICE__
 double y1(double __x) { return __ocml_y1_f64(__x); }
 
-__DEVICE_NOCE__
+__DEVICE__
 double yn(int __n, double __x) { // TODO: we could use Ahmes multiplication
                                  // and the Miller & Brown algorithm
   //       for linear recurrences to get O(log n) steps, but it's unclear if
@@ -1315,8 +1282,7 @@ double __fma_rn(double __x, double __y, double __z) {
   _Generic((__x), float : __signbitf, double : __signbit)(__x)
 #endif // !defined(__cplusplus) && __STDC_VERSION__ >= 201112L
 
-#if defined(__cplusplus) && !defined(__BUILD_MATH_BUILTINS_LIB__)
-#ifndef __OPENMP_AMDGCN__
+#if defined(__cplusplus)
 template <class T> __DEVICE__ T min(T __arg1, T __arg2) {
   return (__arg1 < __arg2) ? __arg1 : __arg2;
 }
@@ -1324,7 +1290,6 @@ template <class T> __DEVICE__ T min(T __arg1, T __arg2) {
 template <class T> __DEVICE__ T max(T __arg1, T __arg2) {
   return (__arg1 > __arg2) ? __arg1 : __arg2;
 }
-#endif
 
 __DEVICE__ int min(int __arg1, int __arg2) {
   return (__arg1 < __arg2) ? __arg1 : __arg2;
@@ -1356,7 +1321,6 @@ __host__ inline static int max(int __arg1, int __arg2) {
 #endif // !defined(__HIPCC_RTC__) && !defined(__OPENMP_AMDGCN__)
 #endif
 
-#pragma pop_macro("__DEVICE_NOCE__")
 #pragma pop_macro("__DEVICE__")
 #pragma pop_macro("__RETURN_TYPE")
 #pragma pop_macro("__FAST_OR_SLOW")
