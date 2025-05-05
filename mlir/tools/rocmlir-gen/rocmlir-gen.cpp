@@ -2635,17 +2635,27 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
           builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
       qkTensor = createOpAndInfer<tosa::CastOp>(
           builder, loc, Float16Type::get(ctx), qkTensor);
-      qkTensor =
-          createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
-                                        qkTensor, quantScaleF16, /*shift=*/0);
+      auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+      auto shiftZeroAttr = DenseElementsAttr::get(
+          shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+      Value constZero =
+          builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
+      qkTensor = createOpAndInfer<tosa::MulOp>(
+          builder, loc, Float16Type::get(ctx), qkTensor, quantScaleF16,
+          /*shift=*/constZero);
     }
     if (hasAttnScale) {
       Value scaleTensor =
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
+      auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+      auto shiftZeroAttr = DenseElementsAttr::get(
+          shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+      Value constZero =
+          builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
       qkTensor = createOpAndInfer<tosa::MulOp>(
           builder, loc,
           cast<ShapedType>(scaleTensor.getType()).getElementType(), qkTensor,
-          scaleTensor, /*shift=*/0);
+          scaleTensor, /*shift=*/constZero);
     }
     if (hasAttnBias) {
       Value biasTensor =
@@ -2883,9 +2893,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc,
                                               Float16Type::get(ctx), qkTensor);
     auto quantScaleF16 = getTensorForBlockArg(optionalArgsCounter++);
-    qkTensor =
-        createOpAndInfer<tosa::MulOp>(builder, loc, Float16Type::get(ctx),
-                                      qkTensor, quantScaleF16, /*shift=*/0);
+    auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+    auto shiftZeroAttr = DenseElementsAttr::get(
+        shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+    Value constZero =
+        builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
+    qkTensor = createOpAndInfer<tosa::MulOp>(
+        builder, loc, Float16Type::get(ctx), qkTensor, quantScaleF16,
+        /*shift=*/constZero);
   }
   if (hasAttnScale) {
     auto scaleTensor = getTensorForBlockArg(optionalArgsCounter++);
@@ -2893,9 +2908,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       scaleTensor =
           maskKVCacheTosa(builder, loc, scaleTensor, currentSeqLenTensor, 1.0f);
 
+    auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+    auto shiftZeroAttr = DenseElementsAttr::get(
+        shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+    Value constZero =
+        builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
     qkTensor = createOpAndInfer<tosa::MulOp>(
         builder, loc, cast<ShapedType>(scaleTensor.getType()).getElementType(),
-        qkTensor, scaleTensor, /*shift=*/0);
+        qkTensor, scaleTensor, /*shift=*/constZero);
   }
 
   if (hasAttnBias) {
@@ -2931,9 +2951,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(
       builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
       expsSums);
+
+  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+  Value constZero =
+      builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
       builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
-      expsTensor, invExpsSums, /*shift=*/0);
+      expsTensor, invExpsSums, /*shift=*/constZero);
 #ifdef ROCK_DEBUG_ATTENTION_REMOVE_SOFTMAX
   softmaxTensor = qkTensor;
 #endif
