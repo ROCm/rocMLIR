@@ -49,11 +49,7 @@ template <typename ValueTy> class StringMapEntryStorage;
 class Type;
 
 enum LLVMConstants : uint32_t {
-  // Current debug info version number.
-  DEBUG_METADATA_VERSION = 3,
-  // Debug info version number used for DWARF extensions for
-  // heterogeneous debugging.
-  DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF = 4
+  DEBUG_METADATA_VERSION = 3 // Current debug info version number.
 };
 
 /// Magic number in the value profile metadata showing a target has been
@@ -142,6 +138,10 @@ public:
   void printAsOperand(raw_ostream &OS, ModuleSlotTracker &MST,
                       const Module *M = nullptr) const;
   /// @}
+
+  /// Metadata IDs that may generate poison.
+  constexpr static const unsigned PoisonGeneratingIDs[] = {
+      LLVMContext::MD_range, LLVMContext::MD_nonnull, LLVMContext::MD_align};
 };
 
 // Create wrappers for C Binding types (see CBindingWrapping.h).

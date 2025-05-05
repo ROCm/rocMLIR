@@ -134,7 +134,7 @@ TEST(StripTest, LoopMetadata) {
   // we update the terminator's metadata correctly, we should be able to
   // observe the change in emission kind for the CU.
   auto getEmissionKind = [&]() {
-    Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHI();
+    Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHIIt();
     MDNode *LoopMD = I.getMetadata(LLVMContext::MD_loop);
     return cast<DILocation>(LoopMD->getOperand(1))
         ->getScope()
@@ -183,7 +183,7 @@ TEST(MetadataTest, DeleteInstUsedByDbgRecord) {
 )");
 
   // Find %b = add ...
-  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHI();
+  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHIIt();
 
   // Find the dbg.value using %b.
   SmallVector<DbgValueInst *, 1> DVIs;
@@ -268,7 +268,7 @@ TEST(MetadataTest, DeleteInstUsedByDbgVariableRecord) {
     !11 = !DILocation(line: 1, column: 1, scope: !6)
 )");
 
-  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHI();
+  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHIIt();
 
   // Find the DbgVariableRecords using %b.
   SmallVector<DbgValueInst *, 2> DVIs;
@@ -319,7 +319,7 @@ TEST(MetadataTest, OrderingOfDbgVariableRecords) {
     !12 = !DILocalVariable(name: "bar", scope: !6, file: !1, line: 1, type: !10)
 )");
 
-  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHI();
+  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHIIt();
 
   SmallVector<DbgValueInst *, 2> DVIs;
   SmallVector<DbgVariableRecord *, 2> DVRs;
@@ -436,9 +436,8 @@ TEST(DIBuilder, CreateStringType) {
       DINode::FlagZero, DISubprogram::SPFlagZero, nullptr);
   DIFile *F = DIB.createFile("main.c", "/");
   StringRef StrName = "string";
-  DIVariable *StringLen =
-      DIB.createAutoVariable(Scope, StrName, F, 0, nullptr, false,
-                             DINode::FlagZero, dwarf::DW_MSPACE_LLVM_none, 0);
+  DIVariable *StringLen = DIB.createAutoVariable(Scope, StrName, F, 0, nullptr,
+                                                 false, DINode::FlagZero, 0);
   auto getDIExpression = [&DIB](int offset) {
     SmallVector<uint64_t, 4> ops;
     ops.push_back(llvm::dwarf::DW_OP_push_object_address);
@@ -541,24 +540,6 @@ TEST(DbgAssignIntrinsicTest, replaceVariableLocationOp) {
       C, {dwarf::DW_OP_LLVM_arg, 0, dwarf::DW_OP_stack_value}));
   TEST_REPLACE(/*Old*/ P1, /*New*/ P2, /*Value*/ V1, /*Address*/ P2);
 #undef TEST_REPLACE
-}
-
-TEST(IsHeterogeneousDebugTest, V3Module) {
-  LLVMContext C;
-  std::unique_ptr<Module> M = parseIR(C, R"(
-    !llvm.module.flags = !{!0}
-    !0 = !{i32 2, !"Debug Info Version", i32 3}
-)");
-  EXPECT_FALSE(isHeterogeneousDebug(*M));
-}
-
-TEST(IsHeterogeneousDebugTest, V4Module) {
-  LLVMContext C;
-  std::unique_ptr<Module> M = parseIR(C, R"(
-    !llvm.module.flags = !{!0}
-    !0 = !{i32 2, !"Debug Info Version", i32 4}
-)");
-  EXPECT_TRUE(isHeterogeneousDebug(*M));
 }
 
 TEST(AssignmentTrackingTest, Utils) {
@@ -921,7 +902,7 @@ TEST(MetadataTest, ConvertDbgToDbgVariableRecord) {
 )");
 
   // Find the first dbg.value,
-  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHI();
+  Instruction &I = *M->getFunction("f")->getEntryBlock().getFirstNonPHIIt();
   const DILocalVariable *Var = nullptr;
   const DIExpression *Expr = nullptr;
   const DILocation *Loc = nullptr;

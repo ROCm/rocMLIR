@@ -351,9 +351,6 @@ class Verifier : public InstVisitor<Verifier>, VerifierSupport {
   /// Whether the current function has a DISubprogram attached to it.
   bool HasDebugInfo = false;
 
-  /// The Debug Info Version of the module being verified.
-  std::optional<unsigned> DebugInfoVersion;
-
   /// Stores the count of how many objects were passed to llvm.localescape for a
   /// given function and the largest index passed to llvm.localrecover.
   DenseMap<Function *, std::pair<unsigned, unsigned>> FrameEscapeInfo;
@@ -384,10 +381,6 @@ class Verifier : public InstVisitor<Verifier>, VerifierSupport {
   // Keeps track of duplicate function argument debug info.
   SmallVector<const DILocalVariable *, 16> DebugFnArgs;
 
-  // Track which bounded DILifetimes we have seen defs for, so we can diagnose
-  // repeated defs.
-  SmallPtrSet<const DILifetime *, 32> DefinedDebugLifetimes;
-
   TBAAVerifier TBAAVerifyHelper;
   ConvergenceVerifier ConvergenceVerifyHelper;
 
@@ -401,20 +394,6 @@ public:
       : VerifierSupport(OS, M), LandingPadResultTy(nullptr),
         SawFrameEscape(false), TBAAVerifyHelper(this) {
     TreatBrokenDebugInfoAsError = ShouldTreatBrokenDebugInfoAsError;
-    if (NamedMDNode *ModFlags = M.getModuleFlagsMetadata()) {
-      auto OpIt = find_if(ModFlags->operands(), [](const MDNode *Flag) {
-        if (Flag->getNumOperands() < 3)
-          return false;
-        if (MDString *K = dyn_cast_or_null<MDString>(Flag->getOperand(1)))
-          return K->getString() == "Debug Info Version";
-        return false;
-      });
-      if (OpIt != ModFlags->op_end()) {
-        const MDOperand &ValOp = (*OpIt)->getOperand(2);
-        if (auto *CI = mdconst::dyn_extract_or_null<ConstantInt>(ValOp))
-          DebugInfoVersion = CI->getZExtValue();
-      }
-    }
   }
 
   bool hasBrokenDebugInfo() const { return BrokenDebugInfo; }
@@ -619,7 +598,6 @@ private:
   void visitVPIntrinsic(VPIntrinsic &VPI);
   void visitDbgIntrinsic(StringRef Kind, DbgVariableIntrinsic &DII);
   void visitDbgLabelIntrinsic(StringRef Kind, DbgLabelInst &DLI);
-  void visitDbgDefKillIntrinsic(StringRef Kind, DbgDefKillIntrinsic &DDI);
   void visitAtomicCmpXchgInst(AtomicCmpXchgInst &CXI);
   void visitAtomicRMWInst(AtomicRMWInst &RMWI);
   void visitFenceInst(FenceInst &FI);
@@ -930,14 +908,6 @@ void Verifier::visitGlobalVariable(const GlobalVariable &GV) {
   SmallVector<MDNode *, 1> MDs;
   GV.getMetadata(LLVMContext::MD_dbg, MDs);
   for (auto *MD : MDs) {
-    if (auto *GVE = dyn_cast<DIGlobalVariableExpression>(MD)) {
-      if (auto *E = dyn_cast_or_null<DIExpression>(GVE->getRawExpression())) {
-        SmallVector<const Value *> Arguments{&GV};
-        DIExpressionEnv Env{GVE->getVariable(), Arguments, DL};
-        CheckDI(E->isValid(Env, dbgs()),
-                "invalid DIExpression in DIGlobalVariableExpression", &GV);
-      }
-    }
     if (auto *GVE = dyn_cast<DIGlobalVariableExpression>(MD))
       visitDIGlobalVariableExpression(*GVE);
     else
@@ -1056,16 +1026,11 @@ void Verifier::visitNamedMDNode(const NamedMDNode &NMD) {
   // There used to be various other llvm.dbg.* nodes, but we don't support
   // upgrading them and we want to reserve the namespace for future uses.
   if (NMD.getName().starts_with("llvm.dbg."))
-    CheckDI(NMD.getName() == "llvm.dbg.cu" ||
-                 NMD.getName() == "llvm.dbg.retainedNodes",
-             "unrecognized named metadata node in the llvm.dbg namespace",
-             &NMD);
+    CheckDI(NMD.getName() == "llvm.dbg.cu",
+            "unrecognized named metadata node in the llvm.dbg namespace", &NMD);
   for (const MDNode *MD : NMD.operands()) {
     if (NMD.getName() == "llvm.dbg.cu")
       CheckDI(MD && isa<DICompileUnit>(MD), "invalid compile unit", &NMD, MD);
-    if (NMD.getName() == "llvm.dbg.retainedNodes")
-      CheckDI(MD && isa<DILifetime>(MD), "invalid module retained node", &NMD,
-               MD);
 
     if (!MD)
       continue;
@@ -1082,24 +1047,6 @@ void Verifier::visitMDNode(const MDNode &MD, AreDebugLocsAllowed AllowLocs) {
 
   Check(&MD.getContext() == &Context,
         "MDNode context does not match Module context!", &MD);
-
-  if (DebugInfoVersion) {
-    unsigned V = *DebugInfoVersion;
-    switch (MD.getMetadataID()) {
-    default:
-      break;
-    case Metadata::DIExpressionKind:
-      CheckDI(V == DEBUG_METADATA_VERSION,
-              "MDNode incompatible with Debug Info Version", &MD, V);
-      break;
-    case Metadata::DIExprKind:
-    case Metadata::DIFragmentKind:
-    case Metadata::DILifetimeKind:
-      CheckDI(V == DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF,
-              "MDNode incompatible with Debug Info Version", &MD, V);
-      break;
-    }
-  }
 
   switch (MD.getMetadataID()) {
   default:
@@ -1327,14 +1274,6 @@ void Verifier::visitDIDerivedType(const DIDerivedType &N) {
             "DWARF address space only applies to pointer or reference types",
             &N);
   }
-
-  if (N.getDWARFMemorySpace() != dwarf::DW_MSPACE_LLVM_none) {
-    CheckDI(N.getTag() == dwarf::DW_TAG_pointer_type ||
-                N.getTag() == dwarf::DW_TAG_reference_type ||
-                N.getTag() == dwarf::DW_TAG_rvalue_reference_type,
-            "DWARF memory space only applies to pointer or reference types",
-            &N);
-  }
 }
 
 /// Detect mutually exclusive flags.
@@ -1380,6 +1319,8 @@ void Verifier::visitDICompositeType(const DICompositeType &N) {
   unsigned DIBlockByRefStruct = 1 << 4;
   CheckDI((N.getFlags() & DIBlockByRefStruct) == 0,
           "DIBlockByRefStruct on DICompositeType is no longer supported", &N);
+  CheckDI(llvm::all_of(N.getElements(), [](const DINode *N) { return N; }),
+          "DISubprogram contains null entry in `elements` field", &N);
 
   if (N.isVector()) {
     const DINodeArray Elements = N.getElements();
@@ -1482,11 +1423,10 @@ void Verifier::visitDICompileUnit(const DICompileUnit &N) {
   if (auto *Array = N.getRawRetainedTypes()) {
     CheckDI(isa<MDTuple>(Array), "invalid retained type list", &N, Array);
     for (Metadata *Op : N.getRetainedTypes()->operands()) {
-      CheckDI(Op && (isa<DIType>(Op) ||
-                     (isa<DISubprogram>(Op) &&
-                      !cast<DISubprogram>(Op)->isDefinition()) ||
-                     isa<DILifetime>(Op)),
-              "invalid retained type", &N, Op);
+      CheckDI(
+          Op && (isa<DIType>(Op) || (isa<DISubprogram>(Op) &&
+                                     !cast<DISubprogram>(Op)->isDefinition())),
+          "invalid retained type", &N, Op);
     }
   }
   if (auto *Array = N.getRawGlobalVariables()) {
@@ -1533,8 +1473,8 @@ void Verifier::visitDISubprogram(const DISubprogram &N) {
     CheckDI(Node, "invalid retained nodes list", &N, RawNode);
     for (Metadata *Op : Node->operands()) {
       CheckDI(Op && (isa<DILocalVariable>(Op) || isa<DILabel>(Op) ||
-                  isa<DILifetime>(Op) || isa<DIImportedEntity>(Op) ),
-              "invalid retained nodes, expected DILocalVariable, DILabel, "
+                     isa<DIImportedEntity>(Op)),
+              "invalid retained nodes, expected DILocalVariable, DILabel or "
               "DIImportedEntity",
               &N, Node, Op);
     }
@@ -1710,15 +1650,8 @@ void Verifier::visitDILabel(const DILabel &N) {
           "label requires a valid scope", &N, N.getRawScope());
 }
 
-void Verifier::visitDIFragment(const DIFragment &N) {}
-
 void Verifier::visitDIExpression(const DIExpression &N) {
   CheckDI(N.isValid(), "invalid expression", &N);
-}
-
-void Verifier::visitDIExpr(const DIExpr &N) {
-  // TODO: Strictly limit where DIExpr may occur, forbidding it anywhere except
-  // as the `location:` parameter to DILifetime.
 }
 
 void Verifier::visitDIGlobalVariableExpression(
@@ -1749,33 +1682,6 @@ void Verifier::visitDIImportedEntity(const DIImportedEntity &N) {
     CheckDI(isa<DIScope>(S), "invalid scope for imported entity", &N, S);
   CheckDI(isDINode(N.getRawEntity()), "invalid imported entity", &N,
           N.getRawEntity());
-}
-
-void Verifier::visitDILifetime(const DILifetime &N) {
-  // TODO: Validate that the the reachable lifetime graph contains no cycles.
-  auto *Obj = N.getRawObject();
-  CheckDI(Obj, "missing object", &N);
-  CheckDI(isa<DIObject>(Obj), "object must be a DIObject", &N, Obj);
-  auto *Loc = N.getRawLocation();
-  CheckDI(Loc, "missing location expression", &N);
-  CheckDI(isa<DIExpr>(Loc), "location expression must be a DIExpr", &N, Loc);
-  unsigned NumArgs = 0;
-  SmallDenseSet<Metadata *> RawArgObjectOperands;
-  for (const MDOperand &Operand : N.rawArgObjects()) {
-    Metadata *A = Operand.get();
-    CheckDI(A, "missing argObject", &N);
-    // FIXME: This should also permit DICode, once that is implemented
-    CheckDI(isa<DIObject>(A), "each argObject must be a DIObject", &N, A);
-    NumArgs++;
-  }
-  for (DIOp::Variant Op : cast<DIExpr>(Loc)->builder()) {
-    if (auto *A = std::get_if<DIOp::Arg>(&Op)) {
-      CheckDI(A->getIndex() < NumArgs,
-              "debug location expression cannot reference an out-of-bounds "
-              "argObjects index",
-              &N);
-    }
-  }
 }
 
 void Verifier::visitComdat(const Comdat &C) {
@@ -2820,7 +2726,7 @@ static Instruction *getSuccPad(Instruction *Terminator) {
     UnwindDest = CSI->getUnwindDest();
   else
     UnwindDest = cast<CleanupReturnInst>(Terminator)->getUnwindDest();
-  return UnwindDest->getFirstNonPHI();
+  return &*UnwindDest->getFirstNonPHIIt();
 }
 
 void Verifier::verifySiblingFuncletUnwinds() {
@@ -4679,7 +4585,7 @@ void Verifier::visitCatchPadInst(CatchPadInst &CPI) {
 
   // The catchpad instruction must be the first non-PHI instruction in the
   // block.
-  Check(BB->getFirstNonPHI() == &CPI,
+  Check(&*BB->getFirstNonPHIIt() == &CPI,
         "CatchPadInst not the first non-PHI instruction in the block.", &CPI);
 
   visitEHPadPredecessors(CPI);
@@ -4703,7 +4609,7 @@ void Verifier::visitCleanupPadInst(CleanupPadInst &CPI) {
 
   // The cleanuppad instruction must be the first non-PHI instruction in the
   // block.
-  Check(BB->getFirstNonPHI() == &CPI,
+  Check(&*BB->getFirstNonPHIIt() == &CPI,
         "CleanupPadInst not the first non-PHI instruction in the block.", &CPI);
 
   auto *ParentPad = CPI.getParentPad();
@@ -4758,7 +4664,7 @@ void Verifier::visitFuncletPadInst(FuncletPadInst &FPI) {
       Value *UnwindPad;
       bool ExitsFPI;
       if (UnwindDest) {
-        UnwindPad = UnwindDest->getFirstNonPHI();
+        UnwindPad = &*UnwindDest->getFirstNonPHIIt();
         if (!cast<Instruction>(UnwindPad)->isEHPad())
           continue;
         Value *UnwindParent = getParentPad(UnwindPad);
@@ -4861,7 +4767,7 @@ void Verifier::visitFuncletPadInst(FuncletPadInst &FPI) {
       BasicBlock *SwitchUnwindDest = CatchSwitch->getUnwindDest();
       Value *SwitchUnwindPad;
       if (SwitchUnwindDest)
-        SwitchUnwindPad = SwitchUnwindDest->getFirstNonPHI();
+        SwitchUnwindPad = &*SwitchUnwindDest->getFirstNonPHIIt();
       else
         SwitchUnwindPad = ConstantTokenNone::get(FPI.getContext());
       Check(SwitchUnwindPad == FirstUnwindPad,
@@ -4884,7 +4790,7 @@ void Verifier::visitCatchSwitchInst(CatchSwitchInst &CatchSwitch) {
 
   // The catchswitch instruction must be the first non-PHI instruction in the
   // block.
-  Check(BB->getFirstNonPHI() == &CatchSwitch,
+  Check(&*BB->getFirstNonPHIIt() == &CatchSwitch,
         "CatchSwitchInst not the first non-PHI instruction in the block.",
         &CatchSwitch);
 
@@ -4893,14 +4799,14 @@ void Verifier::visitCatchSwitchInst(CatchSwitchInst &CatchSwitch) {
         "CatchSwitchInst has an invalid parent.", ParentPad);
 
   if (BasicBlock *UnwindDest = CatchSwitch.getUnwindDest()) {
-    Instruction *I = UnwindDest->getFirstNonPHI();
+    BasicBlock::iterator I = UnwindDest->getFirstNonPHIIt();
     Check(I->isEHPad() && !isa<LandingPadInst>(I),
           "CatchSwitchInst must unwind to an EH block which is not a "
           "landingpad.",
           &CatchSwitch);
 
     // Record catchswitch sibling unwinds for verifySiblingFuncletUnwinds
-    if (getParentPad(I) == ParentPad)
+    if (getParentPad(&*I) == ParentPad)
       SiblingFuncletInfo[&CatchSwitch] = &CatchSwitch;
   }
 
@@ -4908,7 +4814,7 @@ void Verifier::visitCatchSwitchInst(CatchSwitchInst &CatchSwitch) {
         "CatchSwitchInst cannot have empty handler list", &CatchSwitch);
 
   for (BasicBlock *Handler : CatchSwitch.handlers()) {
-    Check(isa<CatchPadInst>(Handler->getFirstNonPHI()),
+    Check(isa<CatchPadInst>(Handler->getFirstNonPHIIt()),
           "CatchSwitchInst handlers must be catchpads", &CatchSwitch, Handler);
   }
 
@@ -4922,7 +4828,7 @@ void Verifier::visitCleanupReturnInst(CleanupReturnInst &CRI) {
         CRI.getOperand(0));
 
   if (BasicBlock *UnwindDest = CRI.getUnwindDest()) {
-    Instruction *I = UnwindDest->getFirstNonPHI();
+    BasicBlock::iterator I = UnwindDest->getFirstNonPHIIt();
     Check(I->isEHPad() && !isa<LandingPadInst>(I),
           "CleanupReturnInst must unwind to an EH block which is not a "
           "landingpad.",
@@ -5645,12 +5551,6 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
     break;
   case Intrinsic::dbg_label: // llvm.dbg.label
     visitDbgLabelIntrinsic("label", cast<DbgLabelInst>(Call));
-    break;
-  case Intrinsic::dbg_def: // llvm.dbg.def
-    visitDbgDefKillIntrinsic("def", cast<DbgDefKillIntrinsic>(Call));
-    break;
-  case Intrinsic::dbg_kill: // llvm.dbg.kill
-    visitDbgDefKillIntrinsic("kill", cast<DbgDefKillIntrinsic>(Call));
     break;
   case Intrinsic::memcpy:
   case Intrinsic::memcpy_inline:
@@ -6621,8 +6521,10 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
       const ColorVector &CV = BlockEHFuncletColors.find(CallBB)->second;
       assert(CV.size() > 0 && "Uncolored block");
       for (BasicBlock *ColorFirstBB : CV)
-        if (dyn_cast_or_null<FuncletPadInst>(ColorFirstBB->getFirstNonPHI()))
-          InEHFunclet = true;
+        if (auto It = ColorFirstBB->getFirstNonPHIIt();
+            It != ColorFirstBB->end())
+          if (dyn_cast_or_null<FuncletPadInst>(&*It))
+            InEHFunclet = true;
 
       // Check for funclet operand bundle
       bool HasToken = false;
@@ -7002,10 +6904,6 @@ void Verifier::visitConstrainedFPIntrinsic(ConstrainedFPIntrinsic &FPI) {
 }
 
 void Verifier::visitDbgIntrinsic(StringRef Kind, DbgVariableIntrinsic &DII) {
-  if (DebugInfoVersion)
-    CheckDI(*DebugInfoVersion == DEBUG_METADATA_VERSION,
-            "debug intrinsic incompatible with Debug Info Version", &DII,
-            *DebugInfoVersion);
   auto *MD = DII.getRawLocation();
   CheckDI(isa<ValueAsMetadata>(MD) || isa<DIArgList>(MD) ||
               (isa<MDNode>(MD) && !cast<MDNode>(MD)->getNumOperands()),
@@ -7015,14 +6913,6 @@ void Verifier::visitDbgIntrinsic(StringRef Kind, DbgVariableIntrinsic &DII) {
           DII.getRawVariable());
   CheckDI(isa<DIExpression>(DII.getRawExpression()),
           "invalid llvm.dbg." + Kind + " intrinsic expression", &DII,
-          DII.getRawExpression());
-
-  // This is redundant with the preprocessor-generated check, but here we
-  // can include arguments for DIOp-based expression checking.
-  SmallVector<const Value *> Arguments{DII.location_ops()};
-  DIExpressionEnv Env{DII.getVariable(), Arguments, DL};
-  CheckDI(DII.getExpression()->isValid(Env, dbgs()),
-          "invalid DIExpression in llvm.dbg." + Kind + " intrinsic", &DII,
           DII.getRawExpression());
 
   if (auto *DAI = dyn_cast<DbgAssignIntrinsic>(&DII)) {
@@ -7170,27 +7060,6 @@ void Verifier::verifyFragmentExpression(const DIVariable &V,
   CheckDI(FragSize + FragOffset <= *VarSize,
           "fragment is larger than or outside of variable", Desc, &V);
   CheckDI(FragSize != *VarSize, "fragment covers entire variable", Desc, &V);
-
-  auto MSpace = V.getDWARFMemorySpace();
-  CheckDI(MSpace <= dwarf::DW_MSPACE_LLVM_hi_user, "invalid memory space", &V);
-}
-
-void Verifier::visitDbgDefKillIntrinsic(StringRef Kind,
-                                        DbgDefKillIntrinsic &DDI) {
-  if (DebugInfoVersion)
-    CheckDI(*DebugInfoVersion == DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF,
-            "debug intrinsic incompatible with Debug Info Version", &DDI,
-            *DebugInfoVersion);
-  CheckDI(isa<DILifetime>(DDI.getRawLifetime()),
-          "invalid llvm.dbg." + Kind + " intrinsic lifetime", &DDI,
-          DDI.getRawLifetime());
-  if (DbgDefInst *D = dyn_cast<DbgDefInst>(&DDI)) {
-    CheckDI(isa<ValueAsMetadata>(D->getRawReferrer()),
-            "invalid llvm.dbg.def intrinsic referrer", D, D->getRawReferrer());
-    CheckDI(DefinedDebugLifetimes.insert(D->getLifetime()).second,
-            "invalid llvm.dbg.def refers to an already-defined lifetime",
-            D->getLifetime());
-  }
 }
 
 void Verifier::verifyFnArgs(const DbgVariableIntrinsic &I) {

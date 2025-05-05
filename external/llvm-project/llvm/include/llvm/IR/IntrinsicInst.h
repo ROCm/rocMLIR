@@ -111,8 +111,6 @@ public:
     case Intrinsic::dbg_declare:
     case Intrinsic::dbg_value:
     case Intrinsic::dbg_label:
-    case Intrinsic::dbg_def:
-    case Intrinsic::dbg_kill:
     case Intrinsic::invariant_start:
     case Intrinsic::invariant_end:
     case Intrinsic::lifetime_start:
@@ -173,8 +171,6 @@ static inline bool isDbgInfoIntrinsic(Intrinsic::ID ID) {
   case Intrinsic::dbg_value:
   case Intrinsic::dbg_label:
   case Intrinsic::dbg_assign:
-  case Intrinsic::dbg_def:
-  case Intrinsic::dbg_kill:
     return true;
   default:
     return false;
@@ -559,64 +555,6 @@ public:
   /// @{
   static bool classof(const IntrinsicInst *I) {
     return I->getIntrinsicID() == Intrinsic::dbg_label;
-  }
-  static bool classof(const Value *V) {
-    return isa<IntrinsicInst>(V) && classof(cast<IntrinsicInst>(V));
-  }
-  /// @}
-};
-
-/// The common base class for the llvm.dbg.def and llvm.dbg.kill instructions.
-class DbgDefKillIntrinsic : public DbgInfoIntrinsic {
-public:
-  Metadata *getRawLifetime() const {
-    return cast<MetadataAsValue>(getArgOperand(0))->getMetadata();
-  }
-  DILifetime *getLifetime() const { return cast<DILifetime>(getRawLifetime()); }
-  /// \name Casting methods
-  /// @{
-  static bool classof(const IntrinsicInst *I) {
-    switch (I->getIntrinsicID()) {
-    case Intrinsic::dbg_def:
-    case Intrinsic::dbg_kill:
-      return true;
-    default:
-      return false;
-    }
-  }
-  static bool classof(const Value *V) {
-    return isa<IntrinsicInst>(V) && classof(cast<IntrinsicInst>(V));
-  }
-  /// @}
-};
-
-/// This represents the llvm.dbg.def instruction.
-class DbgDefInst : public DbgDefKillIntrinsic {
-public:
-  Metadata *getRawReferrer() const {
-    return cast<MetadataAsValue>(getArgOperand(1))->getMetadata();
-  }
-  Value *getReferrer() const {
-    return cast<ValueAsMetadata>(getRawReferrer())->getValue();
-  }
-  /// \name Casting methods
-  /// @{
-  static bool classof(const IntrinsicInst *I) {
-    return I->getIntrinsicID() == Intrinsic::dbg_def;
-  }
-  static bool classof(const Value *V) {
-    return isa<IntrinsicInst>(V) && classof(cast<IntrinsicInst>(V));
-  }
-  /// @}
-};
-
-/// This represents the llvm.dbg.kill instruction.
-class DbgKillInst : public DbgDefKillIntrinsic {
-public:
-  /// \name Casting methods
-  /// @{
-  static bool classof(const IntrinsicInst *I) {
-    return I->getIntrinsicID() == Intrinsic::dbg_kill;
   }
   static bool classof(const Value *V) {
     return isa<IntrinsicInst>(V) && classof(cast<IntrinsicInst>(V));
@@ -1935,13 +1873,13 @@ public:
     return isa<IntrinsicInst>(V) && classof(cast<IntrinsicInst>(V));
   }
 
-  bool isAnchor() {
+  bool isAnchor() const {
     return getIntrinsicID() == Intrinsic::experimental_convergence_anchor;
   }
-  bool isEntry() {
+  bool isEntry() const {
     return getIntrinsicID() == Intrinsic::experimental_convergence_entry;
   }
-  bool isLoop() {
+  bool isLoop() const {
     return getIntrinsicID() == Intrinsic::experimental_convergence_loop;
   }
 };

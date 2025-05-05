@@ -424,7 +424,7 @@
 // CHECK-WARNING-DAG: optimization flag '-fno-devirtualize-speculatively' is not supported
 // CHECK-WARNING-DAG: the flag '-fslp-vectorize-aggressive' has been deprecated and will be ignored
 // CHECK-WARNING-DAG: the flag '-fno-slp-vectorize-aggressive' has been deprecated and will be ignored
-// CHECK-WARNING-DAG: argument '-forder-file-instrumentation' is deprecated, use '-mllvm -pgo-temporal-instrumentation' instead
+// CHECK-WARNING-DAG: argument '-forder-file-instrumentation' is deprecated, use '-ftemporal-profile' instead
 
 // Test that we mute the warning on these
 // RUN: %clang -### -finline-limit=1000 -Wno-invalid-command-line-argument              \
@@ -623,6 +623,10 @@
 // RUN: %clang -### --target=aarch64-windows-msvc %s 2>&1 | FileCheck -check-prefix=CHECK-NO-MS-VOLATILE %s
 // RUN: %clang -### --target=aarch64-windows-msvc -fms-volatile %s 2>&1 | FileCheck -check-prefix=CHECK-MS-VOLATILE %s
 // RUN: %clang -### --target=aarch64-windows-msvc -fno-ms-volatile %s 2>&1 | FileCheck -check-prefix=CHECK-NO-MS-VOLATILE %s
+// RUN: %clang -### --target=x86_64-windows-msvc %s 2>&1 | FileCheck -check-prefix=CHECK-MS-VOLATILE %s
+// RUN: %clang -### --target=x86_64-windows-msvc -fno-ms-volatile %s 2>&1 | FileCheck -check-prefix=CHECK-NO-MS-VOLATILE %s
+// RUN: %clang -### --target=i686-windows-msvc %s 2>&1 | FileCheck -check-prefix=CHECK-MS-VOLATILE %s
+// RUN: %clang -### --target=i686-windows-msvc -fno-ms-volatile %s 2>&1 | FileCheck -check-prefix=CHECK-NO-MS-VOLATILE %s
 // CHECK-MS-VOLATILE: -fms-volatile
 // CHECK-NO-MS-VOLATILE-NOT: -fms-volatile
 

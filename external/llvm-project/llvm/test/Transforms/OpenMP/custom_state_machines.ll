@@ -138,7 +138,7 @@
 @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @1, ptr null }
 @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @1, ptr null }
 
-define weak void @__omp_offloading_14_a36502b_no_state_machine_needed_l14(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_no_state_machine_needed_l14(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -197,7 +197,7 @@ declare i32 @__kmpc_global_thread_num(ptr) #3
 
 declare void @__kmpc_target_deinit()
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_l22(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_simple_state_machine_l22(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -290,7 +290,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -367,7 +367,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -453,7 +453,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -537,7 +537,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_pure_l77(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_simple_state_machine_pure_l77(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -624,7 +624,7 @@ entry:
   ret void
 }
 
-define weak void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -679,7 +679,7 @@ return:                                           ; preds = %if.end, %if.then
 
 declare i32 @omp_get_thread_num(...) #4
 
-define weak void @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112(ptr %dyn) #0 {
+define weak ptx_kernel void @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112(ptr %dyn) #0 {
 entry:
   %.zero.addr = alloca i32, align 4
   %.threadid_temp. = alloca i32, align 4
@@ -812,7 +812,6 @@ attributes #8 = { convergent "llvm.assume"="omp_no_openmp" }
 attributes #9 = { convergent nounwind readonly willreturn }
 
 !omp_offload.info = !{!0, !1, !2, !3, !4, !5, !6, !7}
-!nvvm.annotations = !{!8, !9, !10, !11, !12, !13, !14, !15}
 !llvm.module.flags = !{!16, !17, !18}
 
 !0 = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural", i32 39, i32 2}
@@ -823,14 +822,6 @@ attributes #9 = { convergent nounwind readonly willreturn }
 !5 = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural_nested_recursive", i32 92, i32 6}
 !6 = !{i32 0, i32 20, i32 171331627, !"no_state_machine_weak_callee", i32 112, i32 7}
 !7 = !{i32 0, i32 20, i32 171331627, !"simple_state_machine", i32 22, i32 1}
-!8 = !{ptr @__omp_offloading_14_a36502b_no_state_machine_needed_l14, !"kernel", i32 1}
-!9 = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_l22, !"kernel", i32 1}
-!10 = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39, !"kernel", i32 1}
-!11 = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55, !"kernel", i32 1}
-!12 = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66, !"kernel", i32 1}
-!13 = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_pure_l77, !"kernel", i32 1}
-!14 = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92, !"kernel", i32 1}
-!15 = !{ptr @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112, !"kernel", i32 1}
 !16 = !{i32 1, !"wchar_size", i32 4}
 !17 = !{i32 7, !"openmp", i32 50}
 !18 = !{i32 7, !"openmp-device", i32 50}
@@ -840,28 +831,46 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU: @[[GLOB2:[0-9]+]] = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 2, i32 0, ptr @[[GLOB0]] }, align 8
 ; AMDGPU: @G = external global i32, align 4
 ; AMDGPU: @[[GLOB3:[0-9]+]] = private unnamed_addr constant %struct.ident_t { i32 0, i32 322, i32 2, i32 0, ptr @[[GLOB0]] }, align 8
-; AMDGPU: @__omp_offloading_14_a36502b_no_state_machine_needed_l14_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_l22_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_pure_l77_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 3, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; AMDGPU: @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_no_state_machine_needed_l14_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_l22_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_pure_l77_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 3, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; AMDGPU: @__omp_outlined__2_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__3_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__5_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__7_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__8_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__10_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__11_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__13_wrapper.ID = private constant i8 undef
+; AMDGPU: @__omp_outlined__14_wrapper.ID = private constant i8 undef
 ;.
 ; NVPTX: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [23 x i8] c"
 ; NVPTX: @[[GLOB1:[0-9]+]] = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, ptr @[[GLOB0]] }, align 8
 ; NVPTX: @[[GLOB2:[0-9]+]] = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 2, i32 0, ptr @[[GLOB0]] }, align 8
 ; NVPTX: @G = external global i32, align 4
 ; NVPTX: @[[GLOB3:[0-9]+]] = private unnamed_addr constant %struct.ident_t { i32 0, i32 322, i32 2, i32 0, ptr @[[GLOB0]] }, align 8
-; NVPTX: @__omp_offloading_14_a36502b_no_state_machine_needed_l14_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_l22_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_pure_l77_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 1, i8 3, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
-; NVPTX: @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_no_state_machine_needed_l14_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_l22_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_pure_l77_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 1, i8 3, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_kernel_environment = local_unnamed_addr constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 0, i8 1, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr @[[GLOB1]], ptr null }
+; NVPTX: @__omp_outlined__2_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__3_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__5_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__7_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__8_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__10_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__11_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__13_wrapper.ID = private constant i8 undef
+; NVPTX: @__omp_outlined__14_wrapper.ID = private constant i8 undef
 ;.
 ; AMDGPU-DISABLED: @[[GLOB0:[0-9]+]] = private unnamed_addr constant [23 x i8] c"
 ; AMDGPU-DISABLED: @[[GLOB1:[0-9]+]] = private unnamed_addr constant %struct.ident_t { i32 0, i32 2, i32 0, i32 0, ptr @[[GLOB0]] }, align 8
@@ -963,9 +972,49 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_l22
 ; AMDGPU-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_l22_kernel_environment, ptr [[DYN]])
+; AMDGPU-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; AMDGPU:       is_worker_check:
+; AMDGPU-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; AMDGPU-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; AMDGPU-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; AMDGPU-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; AMDGPU:       worker_state_machine.begin:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
+; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; AMDGPU:       worker_state_machine.finished:
+; AMDGPU-NEXT:    ret void
+; AMDGPU:       worker_state_machine.is_active.check:
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check:
+; AMDGPU-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__2_wrapper.ID
+; AMDGPU-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute:
+; AMDGPU-NEXT:    call void @__omp_outlined__2_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check1:
+; AMDGPU-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute2:
+; AMDGPU-NEXT:    call void @__omp_outlined__3_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.check3:
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.end:
+; AMDGPU-NEXT:    call void @__kmpc_kernel_end_parallel()
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; AMDGPU:       worker_state_machine.done.barrier:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; AMDGPU:       thread.user_code.check:
 ; AMDGPU-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; AMDGPU-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; AMDGPU:       user_code.entry:
@@ -985,9 +1034,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
 ; AMDGPU-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__2, ptr @__omp_outlined__2_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__2, ptr @__omp_outlined__2_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; AMDGPU-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR9]]
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__3, ptr @__omp_outlined__3_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__3, ptr @__omp_outlined__3_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; AMDGPU-NEXT:    ret void
 ;
 ;
@@ -1041,9 +1090,55 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39
 ; AMDGPU-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39_kernel_environment, ptr [[DYN]])
+; AMDGPU-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; AMDGPU:       is_worker_check:
+; AMDGPU-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; AMDGPU-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; AMDGPU-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; AMDGPU-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; AMDGPU:       worker_state_machine.begin:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
+; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; AMDGPU:       worker_state_machine.finished:
+; AMDGPU-NEXT:    ret void
+; AMDGPU:       worker_state_machine.is_active.check:
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check:
+; AMDGPU-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__17_wrapper
+; AMDGPU-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute:
+; AMDGPU-NEXT:    call void @__omp_outlined__17_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check1:
+; AMDGPU-NEXT:    [[WORKER_CHECK_PARALLEL_REGION4:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__5_wrapper.ID
+; AMDGPU-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION4]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute2:
+; AMDGPU-NEXT:    call void @__omp_outlined__5_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.check3:
+; AMDGPU-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE5:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK6:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute5:
+; AMDGPU-NEXT:    call void @__omp_outlined__18_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.check6:
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.end:
+; AMDGPU-NEXT:    call void @__kmpc_kernel_end_parallel()
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; AMDGPU:       worker_state_machine.done.barrier:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; AMDGPU:       thread.user_code.check:
 ; AMDGPU-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; AMDGPU-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; AMDGPU:       user_code.entry:
@@ -1064,7 +1159,7 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
 ; AMDGPU-NEXT:    call void @simple_state_machine_interprocedural_before.internalized() #[[ATTR9]]
 ; AMDGPU-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR9]]
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__5, ptr @__omp_outlined__5_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__5, ptr @__omp_outlined__5_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; AMDGPU-NEXT:    call void @simple_state_machine_interprocedural_after.internalized() #[[ATTR9]]
 ; AMDGPU-NEXT:    ret void
 ;
@@ -1136,9 +1231,51 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55
 ; AMDGPU-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55_kernel_environment, ptr [[DYN]])
+; AMDGPU-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; AMDGPU:       is_worker_check:
+; AMDGPU-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; AMDGPU-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; AMDGPU-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; AMDGPU-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; AMDGPU:       worker_state_machine.begin:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
+; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; AMDGPU:       worker_state_machine.finished:
+; AMDGPU-NEXT:    ret void
+; AMDGPU:       worker_state_machine.is_active.check:
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check:
+; AMDGPU-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__7_wrapper.ID
+; AMDGPU-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute:
+; AMDGPU-NEXT:    call void @__omp_outlined__7_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check1:
+; AMDGPU-NEXT:    [[WORKER_CHECK_PARALLEL_REGION4:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__8_wrapper.ID
+; AMDGPU-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION4]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_FALLBACK_EXECUTE:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute2:
+; AMDGPU-NEXT:    call void @__omp_outlined__8_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.fallback.execute:
+; AMDGPU-NEXT:    call void [[WORKER_WORK_FN]](i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.end:
+; AMDGPU-NEXT:    call void @__kmpc_kernel_end_parallel()
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; AMDGPU:       worker_state_machine.done.barrier:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; AMDGPU:       thread.user_code.check:
 ; AMDGPU-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; AMDGPU-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; AMDGPU:       user_code.entry:
@@ -1157,9 +1294,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca ptr, align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__7, ptr @__omp_outlined__7_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__7, ptr @__omp_outlined__7_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; AMDGPU-NEXT:    [[CALL:%.*]] = call i32 @unknown() #[[ATTR11]]
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__8, ptr @__omp_outlined__8_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__8, ptr @__omp_outlined__8_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; AMDGPU-NEXT:    ret void
 ;
 ;
@@ -1213,9 +1350,49 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66
 ; AMDGPU-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66_kernel_environment, ptr [[DYN]])
+; AMDGPU-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; AMDGPU:       is_worker_check:
+; AMDGPU-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; AMDGPU-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; AMDGPU-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; AMDGPU-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; AMDGPU:       worker_state_machine.begin:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
+; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; AMDGPU:       worker_state_machine.finished:
+; AMDGPU-NEXT:    ret void
+; AMDGPU:       worker_state_machine.is_active.check:
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check:
+; AMDGPU-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__10_wrapper.ID
+; AMDGPU-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute:
+; AMDGPU-NEXT:    call void @__omp_outlined__10_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check1:
+; AMDGPU-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute2:
+; AMDGPU-NEXT:    call void @__omp_outlined__11_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.check3:
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.end:
+; AMDGPU-NEXT:    call void @__kmpc_kernel_end_parallel()
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; AMDGPU:       worker_state_machine.done.barrier:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; AMDGPU:       thread.user_code.check:
 ; AMDGPU-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; AMDGPU-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; AMDGPU:       user_code.entry:
@@ -1234,9 +1411,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca ptr, align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__10, ptr @__omp_outlined__10_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__10, ptr @__omp_outlined__10_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; AMDGPU-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__11, ptr @__omp_outlined__11_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__11, ptr @__omp_outlined__11_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; AMDGPU-NEXT:    ret void
 ;
 ;
@@ -1290,9 +1467,49 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_pure_l77
 ; AMDGPU-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_pure_l77_kernel_environment, ptr [[DYN]])
+; AMDGPU-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; AMDGPU:       is_worker_check:
+; AMDGPU-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; AMDGPU-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; AMDGPU-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; AMDGPU-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; AMDGPU:       worker_state_machine.begin:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
+; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; AMDGPU:       worker_state_machine.finished:
+; AMDGPU-NEXT:    ret void
+; AMDGPU:       worker_state_machine.is_active.check:
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check:
+; AMDGPU-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__13_wrapper.ID
+; AMDGPU-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute:
+; AMDGPU-NEXT:    call void @__omp_outlined__13_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.check1:
+; AMDGPU-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.execute2:
+; AMDGPU-NEXT:    call void @__omp_outlined__14_wrapper(i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.check3:
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; AMDGPU:       worker_state_machine.parallel_region.end:
+; AMDGPU-NEXT:    call void @__kmpc_kernel_end_parallel()
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; AMDGPU:       worker_state_machine.done.barrier:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; AMDGPU:       thread.user_code.check:
 ; AMDGPU-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; AMDGPU-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; AMDGPU:       user_code.entry:
@@ -1312,8 +1529,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; AMDGPU-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
 ; AMDGPU-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__13, ptr @__omp_outlined__13_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
-; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__14, ptr @__omp_outlined__14_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__13, ptr @__omp_outlined__13_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; AMDGPU-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__14, ptr @__omp_outlined__14_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; AMDGPU-NEXT:    ret void
 ;
 ;
@@ -1438,9 +1655,39 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112
 ; AMDGPU-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; AMDGPU-NEXT:  entry:
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; AMDGPU-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; AMDGPU-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_kernel_environment, ptr [[DYN]])
+; AMDGPU-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; AMDGPU:       is_worker_check:
+; AMDGPU-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; AMDGPU-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; AMDGPU-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; AMDGPU-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; AMDGPU-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; AMDGPU:       worker_state_machine.begin:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN_ADDR_GENERIC:%.*]] = addrspacecast ptr addrspace(5) [[WORKER_WORK_FN_ADDR]] to ptr
+; AMDGPU-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR_GENERIC]])
+; AMDGPU-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR_GENERIC]], align 8
+; AMDGPU-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; AMDGPU:       worker_state_machine.finished:
+; AMDGPU-NEXT:    ret void
+; AMDGPU:       worker_state_machine.is_active.check:
+; AMDGPU-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_FALLBACK_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.fallback.execute:
+; AMDGPU-NEXT:    call void [[WORKER_WORK_FN]](i16 0, i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; AMDGPU:       worker_state_machine.parallel_region.end:
+; AMDGPU-NEXT:    call void @__kmpc_kernel_end_parallel()
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; AMDGPU:       worker_state_machine.done.barrier:
+; AMDGPU-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; AMDGPU-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; AMDGPU:       thread.user_code.check:
 ; AMDGPU-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; AMDGPU-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; AMDGPU:       user_code.entry:
@@ -1630,9 +1877,48 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_l22
 ; NVPTX-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
+; NVPTX-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_l22_kernel_environment, ptr [[DYN]])
+; NVPTX-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; NVPTX-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; NVPTX:       is_worker_check:
+; NVPTX-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; NVPTX-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; NVPTX-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; NVPTX-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; NVPTX-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; NVPTX:       worker_state_machine.begin:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR]])
+; NVPTX-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR]], align 8
+; NVPTX-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; NVPTX-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; NVPTX:       worker_state_machine.finished:
+; NVPTX-NEXT:    ret void
+; NVPTX:       worker_state_machine.is_active.check:
+; NVPTX-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check:
+; NVPTX-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__2_wrapper.ID
+; NVPTX-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute:
+; NVPTX-NEXT:    call void @__omp_outlined__2_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check1:
+; NVPTX-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute2:
+; NVPTX-NEXT:    call void @__omp_outlined__3_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.check3:
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.end:
+; NVPTX-NEXT:    call void @__kmpc_kernel_end_parallel()
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; NVPTX:       worker_state_machine.done.barrier:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; NVPTX:       thread.user_code.check:
 ; NVPTX-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; NVPTX-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; NVPTX:       user_code.entry:
@@ -1652,9 +1938,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
 ; NVPTX-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__2, ptr @__omp_outlined__2_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__2, ptr @__omp_outlined__2_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; NVPTX-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR9]]
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__3, ptr @__omp_outlined__3_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__3, ptr @__omp_outlined__3_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; NVPTX-NEXT:    ret void
 ;
 ;
@@ -1708,9 +1994,54 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39
 ; NVPTX-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
+; NVPTX-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39_kernel_environment, ptr [[DYN]])
+; NVPTX-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; NVPTX-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; NVPTX:       is_worker_check:
+; NVPTX-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; NVPTX-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; NVPTX-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; NVPTX-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; NVPTX-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; NVPTX:       worker_state_machine.begin:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR]])
+; NVPTX-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR]], align 8
+; NVPTX-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; NVPTX-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; NVPTX:       worker_state_machine.finished:
+; NVPTX-NEXT:    ret void
+; NVPTX:       worker_state_machine.is_active.check:
+; NVPTX-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check:
+; NVPTX-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__17_wrapper
+; NVPTX-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute:
+; NVPTX-NEXT:    call void @__omp_outlined__17_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check1:
+; NVPTX-NEXT:    [[WORKER_CHECK_PARALLEL_REGION4:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__5_wrapper.ID
+; NVPTX-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION4]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute2:
+; NVPTX-NEXT:    call void @__omp_outlined__5_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.check3:
+; NVPTX-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE5:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK6:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute5:
+; NVPTX-NEXT:    call void @__omp_outlined__18_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.check6:
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.end:
+; NVPTX-NEXT:    call void @__kmpc_kernel_end_parallel()
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; NVPTX:       worker_state_machine.done.barrier:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; NVPTX:       thread.user_code.check:
 ; NVPTX-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; NVPTX-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; NVPTX:       user_code.entry:
@@ -1731,7 +2062,7 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
 ; NVPTX-NEXT:    call void @simple_state_machine_interprocedural_before.internalized() #[[ATTR9]]
 ; NVPTX-NEXT:    call void @no_parallel_region_in_here.internalized() #[[ATTR9]]
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__5, ptr @__omp_outlined__5_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__5, ptr @__omp_outlined__5_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; NVPTX-NEXT:    call void @simple_state_machine_interprocedural_after.internalized() #[[ATTR9]]
 ; NVPTX-NEXT:    ret void
 ;
@@ -1803,9 +2134,50 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55
 ; NVPTX-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
+; NVPTX-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55_kernel_environment, ptr [[DYN]])
+; NVPTX-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; NVPTX-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; NVPTX:       is_worker_check:
+; NVPTX-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; NVPTX-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; NVPTX-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; NVPTX-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; NVPTX-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; NVPTX:       worker_state_machine.begin:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR]])
+; NVPTX-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR]], align 8
+; NVPTX-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; NVPTX-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; NVPTX:       worker_state_machine.finished:
+; NVPTX-NEXT:    ret void
+; NVPTX:       worker_state_machine.is_active.check:
+; NVPTX-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check:
+; NVPTX-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__7_wrapper.ID
+; NVPTX-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute:
+; NVPTX-NEXT:    call void @__omp_outlined__7_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check1:
+; NVPTX-NEXT:    [[WORKER_CHECK_PARALLEL_REGION4:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__8_wrapper.ID
+; NVPTX-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION4]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_FALLBACK_EXECUTE:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute2:
+; NVPTX-NEXT:    call void @__omp_outlined__8_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.fallback.execute:
+; NVPTX-NEXT:    call void [[WORKER_WORK_FN]](i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.end:
+; NVPTX-NEXT:    call void @__kmpc_kernel_end_parallel()
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; NVPTX:       worker_state_machine.done.barrier:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; NVPTX:       thread.user_code.check:
 ; NVPTX-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; NVPTX-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; NVPTX:       user_code.entry:
@@ -1824,9 +2196,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__7, ptr @__omp_outlined__7_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__7, ptr @__omp_outlined__7_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; NVPTX-NEXT:    [[CALL:%.*]] = call i32 @unknown() #[[ATTR11]]
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__8, ptr @__omp_outlined__8_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__8, ptr @__omp_outlined__8_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; NVPTX-NEXT:    ret void
 ;
 ;
@@ -1880,9 +2252,48 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66
 ; NVPTX-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
+; NVPTX-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66_kernel_environment, ptr [[DYN]])
+; NVPTX-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; NVPTX-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; NVPTX:       is_worker_check:
+; NVPTX-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; NVPTX-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; NVPTX-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; NVPTX-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; NVPTX-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; NVPTX:       worker_state_machine.begin:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR]])
+; NVPTX-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR]], align 8
+; NVPTX-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; NVPTX-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; NVPTX:       worker_state_machine.finished:
+; NVPTX-NEXT:    ret void
+; NVPTX:       worker_state_machine.is_active.check:
+; NVPTX-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check:
+; NVPTX-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__10_wrapper.ID
+; NVPTX-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute:
+; NVPTX-NEXT:    call void @__omp_outlined__10_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check1:
+; NVPTX-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute2:
+; NVPTX-NEXT:    call void @__omp_outlined__11_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.check3:
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.end:
+; NVPTX-NEXT:    call void @__kmpc_kernel_end_parallel()
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; NVPTX:       worker_state_machine.done.barrier:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; NVPTX:       thread.user_code.check:
 ; NVPTX-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; NVPTX-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; NVPTX:       user_code.entry:
@@ -1901,9 +2312,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-NEXT:    [[DOTBOUND_TID__ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__10, ptr @__omp_outlined__10_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__10, ptr @__omp_outlined__10_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
 ; NVPTX-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__11, ptr @__omp_outlined__11_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__11, ptr @__omp_outlined__11_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; NVPTX-NEXT:    ret void
 ;
 ;
@@ -1957,9 +2368,48 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_simple_state_machine_pure_l77
 ; NVPTX-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
+; NVPTX-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_simple_state_machine_pure_l77_kernel_environment, ptr [[DYN]])
+; NVPTX-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; NVPTX-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; NVPTX:       is_worker_check:
+; NVPTX-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; NVPTX-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; NVPTX-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; NVPTX-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; NVPTX-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; NVPTX:       worker_state_machine.begin:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR]])
+; NVPTX-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR]], align 8
+; NVPTX-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; NVPTX-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; NVPTX:       worker_state_machine.finished:
+; NVPTX-NEXT:    ret void
+; NVPTX:       worker_state_machine.is_active.check:
+; NVPTX-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check:
+; NVPTX-NEXT:    [[WORKER_CHECK_PARALLEL_REGION:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], @__omp_outlined__13_wrapper.ID
+; NVPTX-NEXT:    br i1 [[WORKER_CHECK_PARALLEL_REGION]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK1:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute:
+; NVPTX-NEXT:    call void @__omp_outlined__13_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.check1:
+; NVPTX-NEXT:    br i1 true, label [[WORKER_STATE_MACHINE_PARALLEL_REGION_EXECUTE2:%.*]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_CHECK3:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.execute2:
+; NVPTX-NEXT:    call void @__omp_outlined__14_wrapper(i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.check3:
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END]]
+; NVPTX:       worker_state_machine.parallel_region.end:
+; NVPTX-NEXT:    call void @__kmpc_kernel_end_parallel()
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; NVPTX:       worker_state_machine.done.barrier:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; NVPTX:       thread.user_code.check:
 ; NVPTX-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; NVPTX-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; NVPTX:       user_code.entry:
@@ -1979,8 +2429,8 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS:%.*]] = alloca [0 x ptr], align 8
 ; NVPTX-NEXT:    [[CAPTURED_VARS_ADDRS1:%.*]] = alloca [0 x ptr], align 8
 ; NVPTX-NEXT:    call void @unknown_no_openmp() #[[ATTR10]]
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__13, ptr @__omp_outlined__13_wrapper, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
-; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__14, ptr @__omp_outlined__14_wrapper, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__13, ptr @__omp_outlined__13_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS]], i64 0)
+; NVPTX-NEXT:    call void @__kmpc_parallel_51(ptr @[[GLOB1]], i32 undef, i32 1, i32 -1, i32 -1, ptr @__omp_outlined__14, ptr @__omp_outlined__14_wrapper.ID, ptr [[CAPTURED_VARS_ADDRS1]], i64 0)
 ; NVPTX-NEXT:    ret void
 ;
 ;
@@ -2105,9 +2555,38 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-LABEL: define {{[^@]+}}@__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112
 ; NVPTX-SAME: (ptr [[DYN:%.*]]) #[[ATTR0]] {
 ; NVPTX-NEXT:  entry:
+; NVPTX-NEXT:    [[WORKER_WORK_FN_ADDR:%.*]] = alloca ptr, align 8
 ; NVPTX-NEXT:    [[DOTZERO_ADDR:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[DOTTHREADID_TEMP_:%.*]] = alloca i32, align 4
 ; NVPTX-NEXT:    [[TMP0:%.*]] = call i32 @__kmpc_target_init(ptr @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112_kernel_environment, ptr [[DYN]])
+; NVPTX-NEXT:    [[THREAD_IS_WORKER:%.*]] = icmp ne i32 [[TMP0]], -1
+; NVPTX-NEXT:    br i1 [[THREAD_IS_WORKER]], label [[IS_WORKER_CHECK:%.*]], label [[THREAD_USER_CODE_CHECK:%.*]]
+; NVPTX:       is_worker_check:
+; NVPTX-NEXT:    [[BLOCK_HW_SIZE:%.*]] = call i32 @__kmpc_get_hardware_num_threads_in_block()
+; NVPTX-NEXT:    [[WARP_SIZE:%.*]] = call i32 @__kmpc_get_warp_size()
+; NVPTX-NEXT:    [[BLOCK_SIZE:%.*]] = sub i32 [[BLOCK_HW_SIZE]], [[WARP_SIZE]]
+; NVPTX-NEXT:    [[THREAD_IS_MAIN_OR_WORKER:%.*]] = icmp slt i32 [[TMP0]], [[BLOCK_SIZE]]
+; NVPTX-NEXT:    br i1 [[THREAD_IS_MAIN_OR_WORKER]], label [[WORKER_STATE_MACHINE_BEGIN:%.*]], label [[WORKER_STATE_MACHINE_FINISHED:%.*]]
+; NVPTX:       worker_state_machine.begin:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    [[WORKER_IS_ACTIVE:%.*]] = call i1 @__kmpc_kernel_parallel(ptr [[WORKER_WORK_FN_ADDR]])
+; NVPTX-NEXT:    [[WORKER_WORK_FN:%.*]] = load ptr, ptr [[WORKER_WORK_FN_ADDR]], align 8
+; NVPTX-NEXT:    [[WORKER_IS_DONE:%.*]] = icmp eq ptr [[WORKER_WORK_FN]], null
+; NVPTX-NEXT:    br i1 [[WORKER_IS_DONE]], label [[WORKER_STATE_MACHINE_FINISHED]], label [[WORKER_STATE_MACHINE_IS_ACTIVE_CHECK:%.*]]
+; NVPTX:       worker_state_machine.finished:
+; NVPTX-NEXT:    ret void
+; NVPTX:       worker_state_machine.is_active.check:
+; NVPTX-NEXT:    br i1 [[WORKER_IS_ACTIVE]], label [[WORKER_STATE_MACHINE_PARALLEL_REGION_FALLBACK_EXECUTE:%.*]], label [[WORKER_STATE_MACHINE_DONE_BARRIER:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.fallback.execute:
+; NVPTX-NEXT:    call void [[WORKER_WORK_FN]](i16 0, i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_PARALLEL_REGION_END:%.*]]
+; NVPTX:       worker_state_machine.parallel_region.end:
+; NVPTX-NEXT:    call void @__kmpc_kernel_end_parallel()
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_DONE_BARRIER]]
+; NVPTX:       worker_state_machine.done.barrier:
+; NVPTX-NEXT:    call void @__kmpc_barrier_simple_generic(ptr @[[GLOB1]], i32 [[TMP0]])
+; NVPTX-NEXT:    br label [[WORKER_STATE_MACHINE_BEGIN]]
+; NVPTX:       thread.user_code.check:
 ; NVPTX-NEXT:    [[EXEC_USER_CODE:%.*]] = icmp eq i32 [[TMP0]], -1
 ; NVPTX-NEXT:    br i1 [[EXEC_USER_CODE]], label [[USER_CODE_ENTRY:%.*]], label [[WORKER_EXIT:%.*]]
 ; NVPTX:       user_code.entry:
@@ -3619,17 +4098,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU: [[META5:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural_nested_recursive", i32 92, i32 6}
 ; AMDGPU: [[META6:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"no_state_machine_weak_callee", i32 112, i32 7}
 ; AMDGPU: [[META7:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine", i32 22, i32 1}
-; AMDGPU: [[META8:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_needed_l14, !"kernel", i32 1}
-; AMDGPU: [[META9:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_l22, !"kernel", i32 1}
-; AMDGPU: [[META10:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39, !"kernel", i32 1}
-; AMDGPU: [[META11:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55, !"kernel", i32 1}
-; AMDGPU: [[META12:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66, !"kernel", i32 1}
-; AMDGPU: [[META13:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_pure_l77, !"kernel", i32 1}
-; AMDGPU: [[META14:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92, !"kernel", i32 1}
-; AMDGPU: [[META15:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112, !"kernel", i32 1}
-; AMDGPU: [[META16:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; AMDGPU: [[META17:![0-9]+]] = !{i32 7, !"openmp", i32 50}
-; AMDGPU: [[META18:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
+; AMDGPU: [[META8:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
+; AMDGPU: [[META9:![0-9]+]] = !{i32 7, !"openmp", i32 50}
+; AMDGPU: [[META10:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
 ;.
 ; NVPTX: [[META0:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural", i32 39, i32 2}
 ; NVPTX: [[META1:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_no_openmp_attr", i32 66, i32 4}
@@ -3639,17 +4110,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX: [[META5:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural_nested_recursive", i32 92, i32 6}
 ; NVPTX: [[META6:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"no_state_machine_weak_callee", i32 112, i32 7}
 ; NVPTX: [[META7:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine", i32 22, i32 1}
-; NVPTX: [[META8:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_needed_l14, !"kernel", i32 1}
-; NVPTX: [[META9:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_l22, !"kernel", i32 1}
-; NVPTX: [[META10:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39, !"kernel", i32 1}
-; NVPTX: [[META11:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55, !"kernel", i32 1}
-; NVPTX: [[META12:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66, !"kernel", i32 1}
-; NVPTX: [[META13:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_pure_l77, !"kernel", i32 1}
-; NVPTX: [[META14:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92, !"kernel", i32 1}
-; NVPTX: [[META15:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112, !"kernel", i32 1}
-; NVPTX: [[META16:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; NVPTX: [[META17:![0-9]+]] = !{i32 7, !"openmp", i32 50}
-; NVPTX: [[META18:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
+; NVPTX: [[META8:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
+; NVPTX: [[META9:![0-9]+]] = !{i32 7, !"openmp", i32 50}
+; NVPTX: [[META10:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
 ;.
 ; AMDGPU-DISABLED: [[META0:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural", i32 39, i32 2}
 ; AMDGPU-DISABLED: [[META1:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_no_openmp_attr", i32 66, i32 4}
@@ -3659,17 +4122,9 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; AMDGPU-DISABLED: [[META5:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural_nested_recursive", i32 92, i32 6}
 ; AMDGPU-DISABLED: [[META6:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"no_state_machine_weak_callee", i32 112, i32 7}
 ; AMDGPU-DISABLED: [[META7:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine", i32 22, i32 1}
-; AMDGPU-DISABLED: [[META8:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_needed_l14, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META9:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_l22, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META10:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META11:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META12:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META13:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_pure_l77, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META14:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META15:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112, !"kernel", i32 1}
-; AMDGPU-DISABLED: [[META16:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; AMDGPU-DISABLED: [[META17:![0-9]+]] = !{i32 7, !"openmp", i32 50}
-; AMDGPU-DISABLED: [[META18:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
+; AMDGPU-DISABLED: [[META8:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
+; AMDGPU-DISABLED: [[META9:![0-9]+]] = !{i32 7, !"openmp", i32 50}
+; AMDGPU-DISABLED: [[META10:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
 ;.
 ; NVPTX-DISABLED: [[META0:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural", i32 39, i32 2}
 ; NVPTX-DISABLED: [[META1:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_no_openmp_attr", i32 66, i32 4}
@@ -3679,15 +4134,7 @@ attributes #9 = { convergent nounwind readonly willreturn }
 ; NVPTX-DISABLED: [[META5:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine_interprocedural_nested_recursive", i32 92, i32 6}
 ; NVPTX-DISABLED: [[META6:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"no_state_machine_weak_callee", i32 112, i32 7}
 ; NVPTX-DISABLED: [[META7:![0-9]+]] = !{i32 0, i32 20, i32 171331627, !"simple_state_machine", i32 22, i32 1}
-; NVPTX-DISABLED: [[META8:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_needed_l14, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META9:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_l22, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META10:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_l39, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META11:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_with_fallback_l55, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META12:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_no_openmp_attr_l66, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META13:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_pure_l77, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META14:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_simple_state_machine_interprocedural_nested_recursive_l92, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META15:![0-9]+]] = !{ptr @__omp_offloading_14_a36502b_no_state_machine_weak_callee_l112, !"kernel", i32 1}
-; NVPTX-DISABLED: [[META16:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
-; NVPTX-DISABLED: [[META17:![0-9]+]] = !{i32 7, !"openmp", i32 50}
-; NVPTX-DISABLED: [[META18:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
+; NVPTX-DISABLED: [[META8:![0-9]+]] = !{i32 1, !"wchar_size", i32 4}
+; NVPTX-DISABLED: [[META9:![0-9]+]] = !{i32 7, !"openmp", i32 50}
+; NVPTX-DISABLED: [[META10:![0-9]+]] = !{i32 7, !"openmp-device", i32 50}
 ;.

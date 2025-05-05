@@ -1,4 +1,3 @@
-
 # See docs/CMake.html for instructions about how to build LLVM with CMake.
 
 cmake_minimum_required(VERSION 3.20.0)
@@ -19,21 +18,6 @@ if(NOT LLVM_NO_INSTALL_NAME_DIR_FOR_BUILD_TREE)
 endif()
 
 include(${LLVM_COMMON_CMAKE_UTILS}/Modules/LLVMVersion.cmake)
-
-# TODO: Remove the following block of llvm versions once build_lightning script
-# has been updated to lookup above LLVMVersion.cmake file instead of this file.
-if(NOT DEFINED LLVM_VERSION_MAJOR)
-  set(LLVM_VERSION_MAJOR 19)
-endif()
-if(NOT DEFINED LLVM_VERSION_MINOR)
-  set(LLVM_VERSION_MINOR 0)
-endif()
-if(NOT DEFINED LLVM_VERSION_PATCH)
-  set(LLVM_VERSION_PATCH 0)
-endif()
-if(NOT DEFINED LLVM_VERSION_SUFFIX)
-  set(LLVM_VERSION_SUFFIX git)
-endif()
 
 set_directory_properties(PROPERTIES LLVM_VERSION_MAJOR "${LLVM_VERSION_MAJOR}")
 
@@ -171,6 +155,13 @@ if ("libc" IN_LIST LLVM_ENABLE_PROJECTS)
     "become a fatal error in the LLVM 21 release.  Please use "
     "-DLLVM_ENABLE_RUNTIMES=libc or see the instructions at "
     "https://libc.llvm.org/ for building the runtimes.")
+endif()
+
+if ("compiler-rt" IN_LIST LLVM_ENABLE_PROJECTS)
+  message(WARNING "Using LLVM_ENABLE_PROJECTS=compiler-rt is deprecated now, and will "
+    "become a fatal error in the LLVM 21 release.  Please use "
+    "-DLLVM_ENABLE_RUNTIMES=compiler-rt or see the instructions at "
+    "https://compiler-rt.llvm.org/ for building the runtimes.")
 endif()
 
 # Select the runtimes to build
@@ -502,6 +493,7 @@ set(LLVM_ALL_TARGETS
   PowerPC
   RISCV
   Sparc
+  SPIRV
   SystemZ
   VE
   WebAssembly
@@ -514,7 +506,6 @@ set(LLVM_ALL_EXPERIMENTAL_TARGETS
   CSKY
   DirectX
   M68k
-  SPIRV
   Xtensa
 )
 
@@ -959,22 +950,20 @@ endif()
 set(LLVM_TARGET_TRIPLE_ENV CACHE STRING "The name of environment variable to override default target. Disabled by blank.")
 mark_as_advanced(LLVM_TARGET_TRIPLE_ENV)
 
-#if(CMAKE_SYSTEM_NAME MATCHES "BSD|Linux|OS390")
-#  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default ON)
-#else()
-#  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default OFF)
-#endif()
-#set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR ${LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default} CACHE BOOL
-#  "Enable per-target runtimes directory")
-set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR OFF CACHE BOOL
+if(CMAKE_SYSTEM_NAME MATCHES "BSD|Linux|OS390")
+  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default ON)
+else()
+  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default OFF)
+endif()
+set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR ${LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default} CACHE BOOL
   "Enable per-target runtimes directory")
 
 set(LLVM_PROFDATA_FILE "" CACHE FILEPATH
   "Profiling data file to use when compiling in order to improve runtime performance.")
 
 if(LLVM_INCLUDE_TESTS)
-  # Lit test suite requires at least python 3.6
-  set(LLVM_MINIMUM_PYTHON_VERSION 3.6)
+  # All LLVM Python files should be compatible down to this minimum version.
+  set(LLVM_MINIMUM_PYTHON_VERSION 3.8)
 else()
   # FIXME: it is unknown if this is the actual minimum bound
   set(LLVM_MINIMUM_PYTHON_VERSION 3.0)
@@ -1116,9 +1105,9 @@ configure_file(
   )
 
 # They are not referenced. See set_output_directory().
-set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/bin )
-set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
-set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
+set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_TOOLS_BINARY_DIR} )
+set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_LIBRARY_DIR} )
+set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_LIBRARY_DIR} )
 
 # For up-to-date instructions for installing the TFLite dependency, refer to
 # the bot setup script: https://github.com/google/ml-compiler-opt/blob/main/buildbot/buildbot_init.sh
@@ -1144,6 +1133,8 @@ if (NOT TENSORFLOW_AOT_PATH STREQUAL "")
   add_subdirectory(${TENSORFLOW_AOT_PATH}/xla_aot_runtime_src
     ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/tf_runtime)
   install(TARGETS tf_xla_runtime EXPORT LLVMExports
+    ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT tf_xla_runtime)
+  install(TARGETS tf_xla_runtime EXPORT LLVMDevelopmentExports
     ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT tf_xla_runtime)
   set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS tf_xla_runtime)
   # Once we add more modules, we should handle this more automatically.
@@ -1464,18 +1455,6 @@ endif()
 
 if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
   add_subdirectory(utils/llvm-locstats)
-endif()
-
-# Following variables are required for ROCM backwards compatibility,
-# and should be removed in ROCM 7.0 release.
-set(ROCM_LLVM_BACKWARD_COMPAT_LINK "" CACHE STRING "Old rocm-llvm install path")
-set(ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET "" CACHE STRING "New rocm-llvm install path")
-if (NOT ROCM_LLVM_BACKWARD_COMPAT_LINK STREQUAL "" AND
-    NOT ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET STREQUAL "")
-  install(CODE "execute_process(\
-                COMMAND ${CMAKE_COMMAND} -E create_symlink \
-                ${ROCM_LLVM_BACKWARD_COMPAT_LINK_TARGET} \
-                ${ROCM_LLVM_BACKWARD_COMPAT_LINK})")
 endif()
 
 if (XCODE)

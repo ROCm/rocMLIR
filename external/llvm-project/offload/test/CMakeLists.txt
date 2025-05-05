@@ -63,5 +63,3 @@ add_offload_testsuite(check-offload
   EXCLUDE_FROM_CHECK_ALL
   DEPENDS llvm-offload-device-info omptarget ${OMP_DEPEND} ${LIBOMPTARGET_TESTED_PLUGINS}
   ARGS ${LIBOMPTARGET_LIT_ARG_LIST})
-
-add_subdirectory(ompTest)

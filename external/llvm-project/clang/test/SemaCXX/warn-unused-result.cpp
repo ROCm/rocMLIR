@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify -std=c++11 %s
-// XFAIL: *
+
 int f() __attribute__((warn_unused_result));
 
 struct S {
@@ -108,7 +108,7 @@ void lazy() {
   (void)DoAnotherThing();
   (void)DoYetAnotherThing();
 
-  DoSomething(); // expected-warning {{ignoring return value}}
+  DoSomething(); // expected-warning {{ignoring return value of type 'Status' declared with 'warn_unused_result'}}
   DoSomethingElse();
   DoAnotherThing();
   DoYetAnotherThing();
@@ -120,11 +120,11 @@ class [[clang::warn_unused_result]] StatusOr {
 StatusOr<int> doit();
 void test() {
   Foo f;
-  f.doStuff(); // expected-warning {{ignoring return value}}
-  doit(); // expected-warning {{ignoring return value}}
+  f.doStuff(); // expected-warning {{ignoring return value of type 'Status' declared with 'warn_unused_result'}}
+  doit(); // expected-warning {{ignoring return value of type 'StatusOr<int>' declared with 'warn_unused_result'}}
 
   auto func = []() { return Status(); };
-  func(); // expected-warning {{ignoring return value}}
+  func(); // expected-warning {{ignoring return value of type 'Status' declared with 'warn_unused_result'}}
 }
 }
 
@@ -139,7 +139,7 @@ struct Status {};
 
 void Bar() {
   Foo f;
-  f.Bar(); // expected-warning {{ignoring return value}}
+  f.Bar(); // expected-warning {{ignoring return value of type 'Status' declared with 'warn_unused_result'}}
 };
 
 }
@@ -215,18 +215,18 @@ P operator--(const P &) { return {}; };
 void f() {
   S s;
   P p;
-  s.DoThing(); // expected-warning {{ignoring return value}}
-  p.DoThing(); // expected-warning {{ignoring return value}}
+  s.DoThing(); // expected-warning {{ignoring return value of type 'S' declared with 'warn_unused_result'}}
+  p.DoThing(); // expected-warning {{ignoring return value of type 'P' declared with 'warn_unused_result'}}
   // Only postfix is expected to warn when written correctly.
-  s++; // expected-warning {{ignoring return value}}
-  s--; // expected-warning {{ignoring return value}}
-  p++; // expected-warning {{ignoring return value}}
-  p--; // expected-warning {{ignoring return value}}
+  s++; // expected-warning {{ignoring return value of type 'S' declared with 'warn_unused_result'}}
+  s--; // expected-warning {{ignoring return value of type 'S' declared with 'warn_unused_result'}}
+  p++; // expected-warning {{ignoring return value of type 'P' declared with 'warn_unused_result'}}
+  p--; // expected-warning {{ignoring return value of type 'P' declared with 'warn_unused_result'}}
   // Improperly written prefix operators should still warn.
-  ++s; // expected-warning {{ignoring return value}}
-  --s; // expected-warning {{ignoring return value}}
-  ++p; // expected-warning {{ignoring return value}}
-  --p; // expected-warning {{ignoring return value}}
+  ++s; // expected-warning {{ignoring return value of type 'S' declared with 'warn_unused_result'}}
+  --s; // expected-warning {{ignoring return value of type 'S' declared with 'warn_unused_result'}}
+  ++p; // expected-warning {{ignoring return value of type 'P' declared with 'warn_unused_result'}}
+  --p; // expected-warning {{ignoring return value of type 'P' declared with 'warn_unused_result'}}
 
   // Silencing the warning by cast to void still works.
   (void)s.DoThing();
@@ -243,7 +243,7 @@ namespace PR39837 {
 void g() {
   int a[2];
   for (int b : a)
-    f(b); // expected-warning {{ignoring return value}}
+    f(b); // expected-warning {{ignoring return value of function declared with 'warn_unused_result'}}
 }
 } // namespace PR39837
 
@@ -261,12 +261,12 @@ typedef a indirect;
 a af1();
 indirect indirectf1();
 void af2() {
-  af1(); // expected-warning {{ignoring return value}}
+  af1(); // expected-warning {{ignoring return value of type 'a' declared with 'warn_unused_result'}}
   void *(*a1)();
   a1(); // no warning
   a (*a2)();
-  a2(); // expected-warning {{ignoring return value}}
-  indirectf1(); // expected-warning {{ignoring return value}}
+  a2(); // expected-warning {{ignoring return value of type 'a' declared with 'warn_unused_result'}}
+  indirectf1(); // expected-warning {{ignoring return value of type 'a' declared with 'warn_unused_result'}}
 }
 [[nodiscard]] typedef void *b1; // expected-warning {{'[[nodiscard]]' attribute ignored when applied to a typedef; consider using '__attribute__((warn_unused_result))' or '[[clang::warn_unused_result]]' instead}}
 [[gnu::warn_unused_result]] typedef void *b2; // expected-warning {{'[[gnu::warn_unused_result]]' attribute ignored when applied to a typedef; consider using '__attribute__((warn_unused_result))' or '[[clang::warn_unused_result]]' instead}}
@@ -279,11 +279,11 @@ void bf2() {
 __attribute__((warn_unused_result)) typedef void *c;
 c cf1();
 void cf2() {
-  cf1(); // expected-warning {{ignoring return value}}
+  cf1(); // expected-warning {{ignoring return value of type 'c' declared with 'warn_unused_result'}}
   void *(*c1)();
   c1();
   c (*c2)();
-  c2(); // expected-warning {{ignoring return value}}
+  c2(); // expected-warning {{ignoring return value of type 'c' declared with 'warn_unused_result'}}
 }
 }
 

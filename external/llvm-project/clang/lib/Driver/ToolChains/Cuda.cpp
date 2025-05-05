@@ -9,7 +9,6 @@
 #include "Cuda.h"
 #include "CommonArgs.h"
 #include "clang/Basic/Cuda.h"
-#include "clang/Basic/TargetID.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Distro.h"
@@ -90,6 +89,8 @@ CudaVersion getCudaVersion(uint32_t raw_version) {
     return CudaVersion::CUDA_125;
   if (raw_version < 12070)
     return CudaVersion::CUDA_126;
+  if (raw_version < 12090)
+    return CudaVersion::CUDA_128;
   return CudaVersion::NEW;
 }
 
@@ -397,9 +398,6 @@ void NVPTX::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
     GPUArchName = JA.getOffloadingArch();
   } else {
     GPUArchName = Args.getLastArgValue(options::OPT_march_EQ);
-    if (GPUArchName.empty())
-      GPUArchName = getProcessorFromTargetID(TC.getTriple(), TC.getTargetID());
-      
     if (GPUArchName.empty()) {
       C.getDriver().Diag(diag::err_drv_offload_missing_gpu_arch)
           << getToolChain().getArchName() << getShortName();
@@ -510,7 +508,7 @@ void NVPTX::Assembler::ConstructJob(Compilation &C, const JobAction &JA,
 static bool shouldIncludePTX(const ArgList &Args, StringRef InputArch) {
   // The new driver does not include PTX by default to avoid overhead.
   bool includePTX = !Args.hasFlag(options::OPT_offload_new_driver,
-                                  options::OPT_no_offload_new_driver, false);
+                                  options::OPT_no_offload_new_driver, true);
   for (Arg *A : Args.filtered(options::OPT_cuda_include_ptx_EQ,
                               options::OPT_no_cuda_include_ptx_EQ)) {
     A->claim();
@@ -603,10 +601,6 @@ void NVPTX::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-v");
 
   StringRef GPUArch = Args.getLastArgValue(options::OPT_march_EQ);
-  if (GPUArch.empty())
-    GPUArch = getProcessorFromTargetID(getToolChain().getTriple(),
-                                       getToolChain().getTargetID());
-
   if (GPUArch.empty() && !C.getDriver().isUsingLTO()) {
     C.getDriver().Diag(diag::err_drv_offload_missing_gpu_arch)
         << getToolChain().getArchName() << getShortName();
@@ -644,6 +638,9 @@ void NVPTX::Linker::ConstructJob(Compilation &C, const JobAction &JA,
                          Features);
   CmdArgs.push_back(
       Args.MakeArgString("--plugin-opt=-mattr=" + llvm::join(Features, ",")));
+
+  // Enable ctor / dtor lowering for the direct / freestanding NVPTX target.
+  CmdArgs.append({"-mllvm", "--nvptx-lower-global-ctor-dtor"});
 
   // Add paths for the default clang library path.
   SmallString<256> DefaultLibPath =
@@ -690,6 +687,7 @@ void NVPTX::getNVPTXTargetFeatures(const Driver &D, const llvm::Triple &Triple,
   case CudaVersion::CUDA_##CUDA_VER:                                           \
     PtxFeature = "+ptx" #PTX_VER;                                              \
     break;
+    CASE_CUDA_VERSION(128, 87);
     CASE_CUDA_VERSION(126, 85);
     CASE_CUDA_VERSION(125, 85);
     CASE_CUDA_VERSION(124, 84);
@@ -736,19 +734,6 @@ NVPTXToolChain::NVPTXToolChain(const Driver &D, const llvm::Triple &Triple,
   // Lookup binaries into the driver directory, this is used to
   // discover the 'nvptx-arch' executable.
   getProgramPaths().push_back(getDriver().Dir);
-}
-
-NVPTXToolChain::NVPTXToolChain(const Driver &D, const llvm::Triple &Triple,
-                               const llvm::Triple &HostTriple,
-                               const ArgList &Args,
-                               const std::string TargetID)
-    : ToolChain(D, Triple, Args), CudaInstallation(D, HostTriple, Args) {
-  if (CudaInstallation.isValid())
-    getProgramPaths().push_back(std::string(CudaInstallation.getBinPath()));
-  // Lookup binaries into the driver directory, this is used to
-  // discover the clang-offload-bundler executable.
-  getProgramPaths().push_back(getDriver().Dir);
-  this->TargetID = std::move(TargetID);
 }
 
 /// We only need the host triple to locate the CUDA binary utilities, use the
@@ -801,7 +786,7 @@ void NVPTXToolChain::addClangTargetOptions(
   // If we are compiling with a standalone NVPTX toolchain we want to try to
   // mimic a standard environment as much as possible. So we enable lowering
   // ctor / dtor functions to global symbols that can be registered.
-  if (Freestanding)
+  if (Freestanding && !getDriver().isUsingLTO())
     CC1Args.append({"-mllvm", "--nvptx-lower-global-ctor-dtor"});
 }
 
@@ -861,11 +846,6 @@ NVPTXToolChain::getSystemGPUArchs(const ArgList &Args) const {
 /// CUDA toolchain.  Our assembler is ptxas, and our "linker" is fatbinary,
 /// which isn't properly a linker but nonetheless performs the step of stitching
 /// together object files from the assembler into a single blob.
-
-CudaToolChain::CudaToolChain(const Driver &D, const llvm::Triple &Triple,
-                             const ToolChain &HostTC, const ArgList &Args,
-                             const std::string TargetID)
-    : NVPTXToolChain(D, Triple, HostTC.getTriple(), Args, TargetID), HostTC(HostTC) {}
 
 CudaToolChain::CudaToolChain(const Driver &D, const llvm::Triple &Triple,
                              const ToolChain &HostTC, const ArgList &Args)
@@ -940,9 +920,6 @@ void CudaToolChain::addClangTargetOptions(
 
     addOpenMPDeviceRTL(getDriver(), DriverArgs, CC1Args, GpuArch.str(),
                        getTriple(), HostTC);
-    AddStaticDeviceLibsPostLinking(getDriver(), DriverArgs, CC1Args, "nvptx",
-                                   GpuArch, /*isBitCodeSDL=*/true,
-                                   /*postClangLink=*/true);
   }
 }
 

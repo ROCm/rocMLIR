@@ -19,6 +19,7 @@
 
 #include "llvm/Transforms/IPO/OpenMPOpt.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/EnumeratedArray.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
@@ -36,6 +37,7 @@
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/Assumptions.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
@@ -110,7 +112,7 @@ static cl::opt<bool> DisableOpenMPOptFolding(
 static cl::opt<bool> DisableOpenMPOptStateMachineRewrite(
     "openmp-opt-disable-state-machine-rewrite",
     cl::desc("Disable OpenMP optimizations that replace the state machine."),
-    cl::Hidden, cl::init(true));
+    cl::Hidden, cl::init(false));
 
 static cl::opt<bool> DisableOpenMPOptBarrierElimination(
     "openmp-opt-disable-barrier-elimination",
@@ -1178,15 +1180,12 @@ private:
 
       OpenMPIRBuilder::LocationDescription Loc(
           InsertPointTy(ParentBB, ParentBB->end()), DL);
-      OpenMPIRBuilder::InsertPointOrErrorTy SeqAfterIP =
-          OMPInfoCache.OMPBuilder.createMaster(Loc, BodyGenCB, FiniCB);
-      assert(SeqAfterIP && "Unexpected error creating master");
+      OpenMPIRBuilder::InsertPointTy SeqAfterIP = cantFail(
+          OMPInfoCache.OMPBuilder.createMaster(Loc, BodyGenCB, FiniCB));
+      cantFail(
+          OMPInfoCache.OMPBuilder.createBarrier(SeqAfterIP, OMPD_parallel));
 
-      OpenMPIRBuilder::InsertPointOrErrorTy BarrierAfterIP =
-          OMPInfoCache.OMPBuilder.createBarrier(*SeqAfterIP, OMPD_parallel);
-      assert(BarrierAfterIP && "Unexpected error creating barrier");
-
-      BranchInst::Create(SeqAfterBB, SeqAfterIP->getBlock());
+      BranchInst::Create(SeqAfterBB, SeqAfterIP.getBlock());
 
       LLVM_DEBUG(dbgs() << TAG << "After sequential inlining " << *OuterFn
                         << "\n");
@@ -1256,12 +1255,11 @@ private:
           OriginalFn->getEntryBlock().getFirstInsertionPt());
       // Create the merged parallel region with default proc binding, to
       // avoid overriding binding settings, and without explicit cancellation.
-      OpenMPIRBuilder::InsertPointOrErrorTy AfterIP =
-          OMPInfoCache.OMPBuilder.createParallel(
+      OpenMPIRBuilder::InsertPointTy AfterIP =
+          cantFail(OMPInfoCache.OMPBuilder.createParallel(
               Loc, AllocaIP, BodyGenCB, PrivCB, FiniCB, nullptr, nullptr,
-              OMP_PROC_BIND_default, /* IsCancellable */ false);
-      assert(AfterIP && "Unexpected error creating parallel");
-      BranchInst::Create(AfterBB, AfterIP->getBlock());
+              OMP_PROC_BIND_default, /* IsCancellable */ false));
+      BranchInst::Create(AfterBB, AfterIP.getBlock());
 
       // Perform the actual outlining.
       OMPInfoCache.OMPBuilder.finalize(OriginalFn);
@@ -1297,12 +1295,10 @@ private:
         if (CI != MergableCIs.back()) {
           // TODO: Remove barrier if the merged parallel region includes the
           // 'nowait' clause.
-          OpenMPIRBuilder::InsertPointOrErrorTy AfterIP =
-              OMPInfoCache.OMPBuilder.createBarrier(
-                  InsertPointTy(NewCI->getParent(),
-                                NewCI->getNextNode()->getIterator()),
-                  OMPD_parallel);
-          assert(AfterIP && "Unexpected error creating barrier");
+          cantFail(OMPInfoCache.OMPBuilder.createBarrier(
+              InsertPointTy(NewCI->getParent(),
+                            NewCI->getNextNode()->getIterator()),
+              OMPD_parallel));
         }
 
         CI->eraseFromParent();
@@ -1870,7 +1866,7 @@ private:
       if (!ReplVal)
         return false;
       assert(IP && "Expected insertion point!");
-      cast<Instruction>(ReplVal)->moveBefore(IP);
+      cast<Instruction>(ReplVal)->moveBefore(IP->getIterator());
     }
 
     // If we use a call as a replacement value we need to make sure the ident is
@@ -4128,7 +4124,7 @@ struct AAKernelInfoFunction : AAKernelInfo {
         LastEffect = &*IP;
       }
       for (auto &Reorder : Reorders)
-        Reorder.first->moveBefore(Reorder.second);
+        Reorder.first->moveBefore(Reorder.second->getIterator());
     }
 
     SmallVector<std::pair<Instruction *, Instruction *>, 4> GuardedRegions;
@@ -4292,33 +4288,6 @@ struct AAKernelInfoFunction : AAKernelInfo {
            "Initially non-SPMD kernel has SPMD exec mode!");
     setExecModeOfKernelEnvironment(
         ConstantInt::get(ExecModeC->getIntegerType(),
-                         ExecModeVal | OMP_TGT_EXEC_MODE_GENERIC_SPMD));
-
-    // The global variable needs to be set too.
-    GlobalVariable *ExecMode = Kernel->getParent()->getGlobalVariable(
-        (Kernel->getName() + "_exec_mode").str());
-
-    if (!ExecMode) { // likely fortran missing exec mode
-      auto Remark = [&](OptimizationRemark OR) {
-        return OR << "Could not transform generic-mode kernel to SPMD-mode. Missing mode.";
-      };
-      A.emitRemark<OptimizationRemark>(KernelInitCB, "OMP122", Remark);
-    return false;
-    }
-    assert(ExecMode && "Kernel without exec mode?");
-    assert(ExecMode->getInitializer() && "ExecMode doesn't have initializer!");
-
-    // Set the global exec mode flag to indicate SPMD-Generic mode.
-    assert(isa<ConstantInt>(ExecMode->getInitializer()) &&
-           "ExecMode is not an integer!");
-
-    // Adjust the global exec mode flag that tells the runtime what mode this
-    // kernel is executed in.
-    assert(cast<ConstantInt>(ExecMode->getInitializer())->getSExtValue() ==
-               OMP_TGT_EXEC_MODE_GENERIC &&
-           "Initially non-SPMD kernel has SPMD exec mode!");
-    ExecMode->setInitializer(
-        ConstantInt::get(ExecMode->getInitializer()->getType(),
                          ExecModeVal | OMP_TGT_EXEC_MODE_GENERIC_SPMD));
 
     ++NumOpenMPTargetRegionKernelsSPMD;
@@ -5607,13 +5576,11 @@ void OpenMPOpt::registerAAsForFunction(Attributor &A, const Function &F) {
           IRPosition::value(*LI->getPointerOperand()));
       continue;
     }
-#if 0 // fixme snap2 mi-teams nest_call_par2
     if (auto *CI = dyn_cast<CallBase>(&I)) {
       if (CI->isIndirectCall())
         A.getOrCreateAAFor<AAIndirectCallInfo>(
             IRPosition::callsite_function(*CI));
     }
-#endif
     if (auto *SI = dyn_cast<StoreInst>(&I)) {
       A.getOrCreateAAFor<AAIsDead>(IRPosition::value(*SI));
       A.getOrCreateAAFor<AAAddressSpace>(
@@ -5939,33 +5906,19 @@ bool llvm::omp::isOpenMPKernel(Function &Fn) {
 }
 
 KernelSet llvm::omp::getDeviceKernels(Module &M) {
-  // TODO: Create a more cross-platform way of determining device kernels.
-  NamedMDNode *MD = M.getNamedMetadata("nvvm.annotations");
   KernelSet Kernels;
 
-  if (!MD)
-    return Kernels;
-
-  for (auto *Op : MD->operands()) {
-    if (Op->getNumOperands() < 2)
-      continue;
-    MDString *KindID = dyn_cast<MDString>(Op->getOperand(1));
-    if (!KindID || KindID->getString() != "kernel")
-      continue;
-
-    Function *KernelFn =
-        mdconst::dyn_extract_or_null<Function>(Op->getOperand(0));
-    if (!KernelFn)
-      continue;
-
-    // We are only interested in OpenMP target regions. Others, such as kernels
-    // generated by CUDA but linked together, are not interesting to this pass.
-    if (isOpenMPKernel(*KernelFn)) {
-      ++NumOpenMPTargetRegionKernels;
-      Kernels.insert(KernelFn);
-    } else
-      ++NumNonOpenMPTargetRegionKernels;
-  }
+  for (Function &F : M)
+    if (F.hasKernelCallingConv()) {
+      // We are only interested in OpenMP target regions. Others, such as
+      // kernels generated by CUDA but linked together, are not interesting to
+      // this pass.
+      if (isOpenMPKernel(F)) {
+        ++NumOpenMPTargetRegionKernels;
+        Kernels.insert(&F);
+      } else
+        ++NumNonOpenMPTargetRegionKernels;
+    }
 
   return Kernels;
 }

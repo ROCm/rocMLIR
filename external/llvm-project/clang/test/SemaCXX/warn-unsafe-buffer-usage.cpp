@@ -11,9 +11,6 @@
 #define INCLUDED
 #pragma clang system_header
 
-// Xfail buffer warns until MIOPEN GTEST compiles ok
-// XFAIL: *
-
 // no spanification warnings for system headers
 void foo(...);  // let arguments of `foo` to hold testing expressions
 void testAsSystemHeader(char *p) {
@@ -269,11 +266,11 @@ void testPointerArithmetic(int * p, const int **q, T * x) {
 void testTemplate(int * p) {
   int *a[10];
   foo(f(p, &p, a, a)[1]); // expected-warning{{unsafe buffer access}}
-                          // expected-note@-1{{in instantiation of function template specialization 'f<int *, 10>' requested here}}
+                          // FIXME: expected note@-1{{in instantiation of function template specialization 'f<int *, 10>' requested here}}
 
   const int **q = const_cast<const int **>(&p);
 
-  testPointerArithmetic(p, q, p); //expected-note{{in instantiation of}}
+  testPointerArithmetic(p, q, p); //FIXME: expected note{{in instantiation of}}
 }
 
 void testPointerToMember() {

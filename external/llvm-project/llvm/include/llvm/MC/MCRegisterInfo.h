@@ -528,7 +528,7 @@ public:
 
   MCSubRegIterator(MCRegister Reg, const MCRegisterInfo *MCRI,
                    bool IncludeSelf = false) {
-    assert(MCRegister::isPhysicalRegister(Reg.id()));
+    assert(Reg.isPhysical());
     I.init(Reg.id(), MCRI->DiffLists + MCRI->get(Reg).SubRegs);
     // Initially, the iterator points to Reg itself.
     Val = MCPhysReg(*I);
@@ -598,7 +598,7 @@ public:
 
   MCSuperRegIterator(MCRegister Reg, const MCRegisterInfo *MCRI,
                      bool IncludeSelf = false) {
-    assert(MCRegister::isPhysicalRegister(Reg.id()));
+    assert(Reg.isPhysical());
     I.init(Reg.id(), MCRI->DiffLists + MCRI->get(Reg).SuperRegs);
     // Initially, the iterator points to Reg itself.
     Val = MCPhysReg(*I);
@@ -644,8 +644,7 @@ public:
   MCRegUnitIterator() = default;
 
   MCRegUnitIterator(MCRegister Reg, const MCRegisterInfo *MCRI) {
-    assert(Reg && "Null register has no regunits");
-    assert(MCRegister::isPhysicalRegister(Reg.id()));
+    assert(Reg.isPhysical());
     // Decode the RegUnits MCRegisterDesc field.
     unsigned RU = MCRI->get(Reg).RegUnits;
     unsigned FirstRU = RU & ((1u << RegUnitBits) - 1);

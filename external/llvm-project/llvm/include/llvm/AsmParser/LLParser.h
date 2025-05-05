@@ -379,6 +379,7 @@ namespace llvm {
                                     bool inAttrGrp, LocTy &BuiltinLoc);
     bool parseRangeAttr(AttrBuilder &B);
     bool parseInitializesAttr(AttrBuilder &B);
+    bool parseCapturesAttr(AttrBuilder &B);
     bool parseRequiredTypeAttr(AttrBuilder &B, lltok::Kind AttrToken,
                                Attribute::AttrKind AttrKind);
 
@@ -457,7 +458,6 @@ namespace llvm {
       Loc = Lex.getLoc();
       return parseType(Result, AllowVoid);
     }
-    bool parseFirstClassType(Type *&Result);
     bool parseAnonStructType(Type *&Result, bool Packed);
     bool parseStructBody(SmallVectorImpl<Type *> &Body);
     bool parseStructDefinition(SMLoc TypeLoc, StringRef Name,
@@ -598,8 +598,6 @@ namespace llvm {
     bool parseMDFieldsImpl(ParserTy ParseField, LocTy &ClosingLoc);
     bool parseSpecializedMDNode(MDNode *&N, bool IsDistinct = false);
     bool parseDIExpressionBody(MDNode *&Result, bool IsDistinct);
-
-    bool parseDIOpExpression(MDNode *&Result, bool IsDIExpr);
 
 #define HANDLE_SPECIALIZED_MDNODE_LEAF(CLASS)                                  \
   bool parse##CLASS(MDNode *&Result, bool IsDistinct);

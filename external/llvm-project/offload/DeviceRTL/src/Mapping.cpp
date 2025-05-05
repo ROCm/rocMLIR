@@ -10,7 +10,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "Mapping.h"
-#include "Debug.h"
 #include "DeviceTypes.h"
 #include "DeviceUtils.h"
 #include "Interface.h"
@@ -276,13 +275,8 @@ uint32_t mapping::getWarpSize() { return impl::getWarpSize(); }
 
 uint32_t mapping::getMaxTeamThreads(bool IsSPMD) {
   uint32_t BlockSize = mapping::getNumberOfThreadsInBlock();
-  if (IsSPMD)
-    return BlockSize;
-  // Trim off the odd lanes in the last warp
-  if (BlockSize % mapping::getWarpSize())
-    return BlockSize - (BlockSize % mapping::getWarpSize());
   // If we are in SPMD mode, remove one warp.
-  return BlockSize - impl::getWarpSize();
+  return BlockSize - (!IsSPMD * impl::getWarpSize());
 }
 uint32_t mapping::getMaxTeamThreads() {
   return mapping::getMaxTeamThreads(mapping::isSPMDMode());
@@ -356,10 +350,6 @@ extern "C" {
 [[gnu::noinline]] uint32_t __kmpc_get_warp_size() {
   return impl::getWarpSize();
 }
-
-__attribute__((noinline)) uint32_t __kmpc_get_hardware_num_blocks() {
-  return impl::getNumberOfBlocksInKernel(0);
-}
 }
 
 #define _TGT_KERNEL_LANGUAGE(NAME, MAPPER_NAME)                                \
@@ -381,8 +371,8 @@ int ompx_shfl_down_sync_i(uint64_t mask, int var, unsigned delta, int width) {
 
 float ompx_shfl_down_sync_f(uint64_t mask, float var, unsigned delta,
                             int width) {
-  return utils::convertViaPun<float>(utils::shuffleDown(
-      mask, utils::convertViaPun<int32_t>(var), delta, width));
+  return utils::bitCast<float>(
+      utils::shuffleDown(mask, utils::bitCast<int32_t>(var), delta, width));
 }
 
 long ompx_shfl_down_sync_l(uint64_t mask, long var, unsigned delta, int width) {
@@ -391,8 +381,8 @@ long ompx_shfl_down_sync_l(uint64_t mask, long var, unsigned delta, int width) {
 
 double ompx_shfl_down_sync_d(uint64_t mask, double var, unsigned delta,
                              int width) {
-  return utils::convertViaPun<double>(utils::shuffleDown(
-      mask, utils::convertViaPun<int64_t>(var), delta, width));
+  return utils::bitCast<double>(
+      utils::shuffleDown(mask, utils::bitCast<int64_t>(var), delta, width));
 }
 }
 

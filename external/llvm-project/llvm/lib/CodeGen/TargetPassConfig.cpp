@@ -27,7 +27,6 @@
 #include "llvm/CodeGen/MachinePassRegistry.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
-#include "llvm/IR/HeterogeneousDebugVerify.h"
 #include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/PassInstrumentation.h"
@@ -261,6 +260,11 @@ static cl::opt<bool> DisableSelectOptimize(
 static cl::opt<bool>
     GCEmptyBlocks("gc-empty-basic-blocks", cl::init(false), cl::Hidden,
                   cl::desc("Enable garbage-collecting empty basic blocks"));
+
+static cl::opt<bool>
+    SplitStaticData("split-static-data", cl::Hidden, cl::init(false),
+                    cl::desc("Split static data sections into hot and cold "
+                             "sections using profile information"));
 
 /// Allow standard passes to be disabled by command line options. This supports
 /// simple binary flags that either suppress the pass or do nothing.
@@ -1013,7 +1017,7 @@ bool TargetPassConfig::addCoreISelPasses() {
   if (Selector != SelectorType::GlobalISel || !isGlobalISelAbortEnabled())
     DebugifyIsSafe = false;
 
-  // Add instruction selector passes.
+  // Add instruction selector passes for global isel if enabled.
   if (Selector == SelectorType::GlobalISel) {
     SaveAndRestore SavedAddingMachinePasses(AddingMachinePasses, true);
     if (addIRTranslator())
@@ -1035,18 +1039,19 @@ bool TargetPassConfig::addCoreISelPasses() {
 
     if (addGlobalInstructionSelect())
       return true;
+  }
 
-    // Pass to reset the MachineFunction if the ISel failed.
+  // Pass to reset the MachineFunction if the ISel failed. Outside of the above
+  // if so that the verifier is not added to it.
+  if (Selector == SelectorType::GlobalISel)
     addPass(createResetMachineFunctionPass(
         reportDiagnosticWhenGlobalISelFallback(), isGlobalISelAbortEnabled()));
 
-    // Provide a fallback path when we do not want to abort on
-    // not-yet-supported input.
-    if (!isGlobalISelAbortEnabled() && addInstSelector())
+  // Run the SDAG InstSelector, providing a fallback path when we do not want to
+  // abort on not-yet-supported input.
+  if (Selector != SelectorType::GlobalISel || !isGlobalISelAbortEnabled())
+    if (addInstSelector())
       return true;
-
-  } else if (addInstSelector())
-    return true;
 
   // Expand pseudo-instructions emitted by ISel. Don't run the verifier before
   // FinalizeISel.
@@ -1059,8 +1064,6 @@ bool TargetPassConfig::addCoreISelPasses() {
 }
 
 bool TargetPassConfig::addISelPasses() {
-  addPass(createHeterogeneousDebugVerifyLegacyPass(TM->getOptLevel()));
-
   if (TM->useEmulatedTLS())
     addPass(createLowerEmuTLSPass());
 
@@ -1254,6 +1257,8 @@ void TargetPassConfig::addMachinePasses() {
       }
     }
     addPass(createMachineFunctionSplitterPass());
+    if (SplitStaticData || TM->Options.EnableStaticDataPartitioning)
+      addPass(createStaticDataSplitterPass());
   }
   // We run the BasicBlockSections pass if either we need BB sections or BB
   // address map (or both).

@@ -14,7 +14,6 @@
 #define LLVM_LIB_CODEGEN_ASMPRINTER_DWARFEXPRESSION_H
 
 #include "ByteStreamer.h"
-#include "DwarfDebug.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -67,7 +66,6 @@ protected:
   /// Whether we are currently emitting an entry value operation.
   bool IsEmittingEntryValue = false;
 
-  const AsmPrinter &AP;
   DwarfCompileUnit &CU;
 
   /// The register location, if any.
@@ -124,9 +122,6 @@ protected:
   /// Add masking operations to stencil out a subregister.
   void maskSubRegister();
 
-  /// Emit DW_OP_LLVM_user followed by the SubOp \p UserOp.
-  void emitUserOp(uint8_t UserOp, const char *Comment = nullptr);
-
   /// Output a dwarf operand and an optional assembler comment.
   virtual void emitOp(uint8_t Op, const char *Comment = nullptr) = 0;
 
@@ -139,9 +134,6 @@ protected:
   virtual void emitData1(uint8_t Value) = 0;
 
   virtual void emitBaseTypeRef(uint64_t Idx) = 0;
-
-  /// Emit a dwarf op address for the given GlobalValue \p GV.
-  virtual void emitOpAddress(const GlobalVariable *GV) = 0;
 
   /// Start emitting data to the temporary buffer. The data stored in the
   /// temporary buffer can be committed to the main output using
@@ -229,10 +221,10 @@ protected:
   ~DwarfExpression() = default;
 
 public:
-  DwarfExpression(const AsmPrinter &AP, DwarfCompileUnit &CU)
-      : AP(AP), CU(CU), SubRegisterSizeInBits(0), SubRegisterOffsetInBits(0),
+  DwarfExpression(unsigned DwarfVersion, DwarfCompileUnit &CU)
+      : CU(CU), SubRegisterSizeInBits(0), SubRegisterOffsetInBits(0),
         LocationKind(Unknown), SavedLocationKind(Unknown),
-        LocationFlags(Unknown), DwarfVersion(AP.getDwarfVersion()) {}
+        LocationFlags(Unknown), DwarfVersion(DwarfVersion) {}
 
   /// This needs to be called last to commit any pending changes.
   void finalize();
@@ -298,13 +290,6 @@ public:
       DIExpressionCursor &&Expr,
       llvm::function_ref<bool(unsigned, DIExpressionCursor &)> InsertArg);
 
-  /// Emit all operations in \p Expr, indexing into \p ArgLocEntries to
-  /// implement any DIOpArg operations. Function local locations require \p
-  /// TRI present to translate register identifiers.
-  void addExpression(DIExpression::NewElementsRef Expr,
-                     ArrayRef<DbgValueLocEntry> ArgLocEntries,
-                     const TargetRegisterInfo *TRI = nullptr);
-
   /// If applicable, emit an empty DW_OP_piece / DW_OP_bit_piece to advance to
   /// the fragment described by \c Expr.
   void addFragmentOffset(const DIExpression *Expr);
@@ -315,151 +300,6 @@ public:
   /// Emit location information expressed via WebAssembly location + offset
   /// The Index is an identifier for locals, globals or operand stack.
   void addWasmLocation(unsigned Index, uint64_t Offset);
-
-  // Note: All following members are to support expressions containg
-  // DIExpression::NewElements (i.e. DIOp* expressions).
-public:
-  class Node {
-  private:
-    DIOp::Variant Element;
-    SmallVector<std::unique_ptr<Node>> Children;
-
-    bool IsLowered = false;
-    Type *ResultType = nullptr;
-
-  public:
-    Node(DIOp::Variant Element) : Element(Element) {}
-
-    const DIOp::Variant &getElement() const { return Element; }
-    const SmallVector<std::unique_ptr<Node>> &getChildren() const {
-      return Children;
-    }
-
-    DIOp::Variant &getElement() { return Element; }
-    SmallVector<std::unique_ptr<Node>> &getChildren() { return Children; }
-
-    const bool &isLowered() const { return IsLowered; }
-    const Type *getResultType() const { return ResultType; }
-
-    bool &isLowered() { return IsLowered; }
-    Type *getResultType() { return ResultType; }
-
-    void setIsLowered(bool IL = true) {
-      IsLowered = IL;
-    }
-    void setResultType(Type *RT) { ResultType = RT; }
-  };
-
-  // An `std::optional<const TargetRegisterInfo&>` where `nullptr` represents
-  // `None`. Only present when in a function context.
-  const TargetRegisterInfo *TRI;
-
-  std::unique_ptr<Node> ASTRoot;
-  ArrayRef<DbgValueLocEntry> ArgLocEntries;
-  // This is a temporary boolean variable that indicates whether the lowering of
-  // this expression is supported or not. If the lowering is supported, then
-  // the expression lowers as expected. If the lowering is not supported, it
-  // is terminated by a DW_OP_LLVM_undefined operation.
-  bool IsImplemented = true;
-  bool IsFragment = false;
-
-  /// Set when emitting a fragment/non-fragment expression that contains a
-  /// DW_OP_LLVM_poison operation. This matters for correctness in the fragment
-  /// case, since we need to ensure that we don't add any registers or constants
-  /// onto the stack. In the non-fragment case it's simply an optimization.
-  bool IsPoisonedExpr = false;
-
-  void buildAST(DIExpression::NewElementsRef Elements);
-
-  /// Describes a kind of value on the DWARF expression stack. ValueKind::Value
-  /// is a DWARF5-style value, and ValueKind::LocationDesc is a location
-  /// description.
-  enum class ValueKind {
-    Value,
-    LocationDesc,
-  };
-
-  /// The result of evaluating a DIExpr operation. Describes the value that the
-  /// operation will push onto the DWARF expression stack.
-  struct OpResult {
-    Type *Ty;
-    ValueKind VK;
-  };
-
-  /// Optionally emit DWARF operations to convert the value at the top of the
-  /// stack to RequiredVK. Nop if Res.VK is RequiredVK.
-  OpResult convertValueKind(const OpResult &Res, ValueKind RequiredVK);
-
-  void readToValue(Type *Ty);
-  void readToValue(Node *OpNode);
-
-  using ChildrenT = ArrayRef<std::unique_ptr<Node>>;
-
-  /// Dispatch to a specific traverse() function, and convert the result to
-  /// ReqVK if non-nullopt.
-  std::optional<OpResult> traverse(Node *OpNode,
-                                   std::optional<ValueKind> ReqVK);
-
-  std::optional<OpResult> traverse(DIOp::Arg Arg, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Constant Constant, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::PushLane PushLane, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Referrer Referrer, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::TypeObject TypeObject,
-                                   ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::AddrOf AddrOf, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Convert Convert, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::ZExt ZExt, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::SExt SExt, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Deref Deref, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Extend Extend, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Read Read, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Reinterpret Reinterpret,
-                                   ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Select Select, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Composite Composite,
-                                   ChildrenT Children);
-
-  std::optional<OpResult> traverseMathOp(uint8_t DwarfOp, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Add Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_plus, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Div Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_div, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Mul Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_mul, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Shl Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_shl, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::LShr Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_shr, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::AShr Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_shra, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Sub Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_minus, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::And Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_and, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Or Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_or, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Xor Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_xor, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Mod Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_mod, Children);
-  }
-
-  std::optional<OpResult> traverse(DIOp::BitOffset BitOffset,
-                                   ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::ByteOffset ByteOffset,
-                                   ChildrenT Children);
-
-  std::optional<OpResult> traverse(DIOp::Fragment Fragment, ChildrenT Children);
 };
 
 /// DwarfExpression implementation for .debug_loc entries.
@@ -486,8 +326,6 @@ class DebugLocDwarfExpression final : public DwarfExpression {
   void emitData1(uint8_t Value) override;
   void emitBaseTypeRef(uint64_t Idx) override;
 
-  void emitOpAddress(const GlobalVariable *GV) override;
-
   void enableTemporaryBuffer() override;
   void disableTemporaryBuffer() override;
   unsigned getTemporaryBufferSize() override;
@@ -497,13 +335,14 @@ class DebugLocDwarfExpression final : public DwarfExpression {
                        llvm::Register MachineReg) override;
 
 public:
-  DebugLocDwarfExpression(const AsmPrinter &AP, BufferByteStreamer &BS,
+  DebugLocDwarfExpression(unsigned DwarfVersion, BufferByteStreamer &BS,
                           DwarfCompileUnit &CU)
-      : DwarfExpression(AP, CU), OutBS(BS) {}
+      : DwarfExpression(DwarfVersion, CU), OutBS(BS) {}
 };
 
 /// DwarfExpression implementation for singular DW_AT_location.
 class DIEDwarfExpression final : public DwarfExpression {
+  const AsmPrinter &AP;
   DIELoc &OutDIE;
   DIELoc TmpDIE;
   bool IsBuffering = false;
@@ -517,8 +356,6 @@ class DIEDwarfExpression final : public DwarfExpression {
   void emitData1(uint8_t Value) override;
   void emitBaseTypeRef(uint64_t Idx) override;
 
-  void emitOpAddress(const GlobalVariable *GV) override;
-
   void enableTemporaryBuffer() override;
   void disableTemporaryBuffer() override;
   unsigned getTemporaryBufferSize() override;
@@ -531,279 +368,8 @@ public:
   DIEDwarfExpression(const AsmPrinter &AP, DwarfCompileUnit &CU, DIELoc &DIE);
 
   DIELoc *finalize() {
-    if (!IsImplemented) {
-      emitUserOp(dwarf::DW_OP_LLVM_USER_undefined);
-    }
     DwarfExpression::finalize();
     return &OutDIE;
-  }
-};
-
-class DwarfExprAST {
-public:
-  class Node {
-  private:
-    DIOp::Variant Element;
-    // FIXME(KZHURAVL): Use pool/arena allocator instead of individual smart
-    // pointers?
-    SmallVector<std::unique_ptr<Node>> Children;
-
-    bool IsLowered = false;
-    Type *ResultType = nullptr;
-
-  public:
-    Node(DIOp::Variant Element)
-        : Element(Element) {}
-
-    const DIOp::Variant &getElement() const {
-      return Element;
-    }
-    const SmallVector<std::unique_ptr<Node>> &getChildren() const {
-      return Children;
-    }
-
-    DIOp::Variant &getElement() {
-      return Element;
-    }
-    SmallVector<std::unique_ptr<Node>> &getChildren() {
-      return Children;
-    }
-
-    const bool &isLowered() const {
-      return IsLowered;
-    }
-    const Type *getResultType() const {
-      return ResultType;
-    }
-
-    bool &isLowered() {
-      return IsLowered;
-    }
-    Type *getResultType() {
-      return ResultType;
-    }
-
-    void setIsLowered(bool IL = true) {
-      IsLowered = IL;
-    }
-    void setResultType(Type *RT) { ResultType = RT; }
-  };
-
-  const AsmPrinter &AP;
-  // An `std::optional<const TargetRegisterInfo&>` where `nullptr` represents
-  // `None`. Only present when in a function context.
-  const TargetRegisterInfo *TRI;
-  DwarfCompileUnit &CU;
-  const DILifetime &Lifetime;
-  // An `std::optional<MachineOperand>` where `nullptr` represents `None`.
-  // Only present when in a function context.
-  const MachineOperand *Referrer;
-  // An `std::optional<const DenseMap<_, _>&>` where `nullptr` represents
-  // `None`. Only present and applicable as part of an optimization for
-  // DIFragments which refer to global variable fragments.
-  const DwarfDebug::GVFragmentMapTy *GVFragmentMap;
-  std::unique_ptr<DwarfExprAST::Node> Root;
-  // FIXME(KZHURAVL): This is a temporary boolean variable that indicates
-  // whether the lowering of this expression is supported or not. If the
-  // lowering is supported, then a valid DIE is returned, otherwise an empty
-  // DIE is returned (which indicates that there is no debug information
-  // available).
-  bool IsImplemented = true;
-
-  void buildDIExprAST();
-
-  /// Describes a kind of value on the DWARF expression stack. ValueKind::Value
-  /// is a DWARF5-style value, and ValueKind::LocationDesc is a location
-  /// description.
-  enum class ValueKind {
-    Value,
-    LocationDesc,
-  };
-
-  /// The result of evaluating a DIExpr operation. Describes the value that the
-  /// operation will push onto the DWARF expression stack.
-  struct OpResult {
-    Type *Ty;
-    ValueKind VK;
-  };
-
-  /// Optionally emit DWARF operations to convert the value at the top of the
-  /// stack to RequiredVK. Nop if Res.VK is RequiredVK.
-  OpResult convertValueKind(const OpResult &Res, ValueKind RequiredVK);
-
-  void readToValue(Type *Ty);
-  void readToValue(Node *OpNode);
-
-  using ChildrenT = ArrayRef<std::unique_ptr<DwarfExprAST::Node>>;
-
-  /// Dispatch to a specific traverse() function, and convert the result to
-  /// ReqVK if non-nullopt.
-  std::optional<OpResult> traverse(Node *OpNode,
-                                   std::optional<ValueKind> ReqVK);
-
-  std::optional<OpResult> traverse(DIOp::Arg Arg, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Constant Constant, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::PushLane PushLane, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Referrer Referrer, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::TypeObject TypeObject,
-                                   ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::AddrOf AddrOf, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Convert Convert, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::ZExt ZExt, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::SExt SExt, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Deref Deref, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Extend Extend, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Read Read, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Reinterpret Reinterpret,
-                                   ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Select Select, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Composite Composite,
-                                   ChildrenT Children);
-
-  std::optional<OpResult> traverseMathOp(uint8_t DwarfOp, ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::Add Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_plus, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Div Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_div, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Mul Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_mul, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Shl Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_shl, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::LShr Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_shr, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::AShr Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_shra, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Sub Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_minus, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::And Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_and, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Or Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_or, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Xor Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_xor, Children);
-  }
-  std::optional<OpResult> traverse(DIOp::Mod Op, ChildrenT Children) {
-    return traverseMathOp(dwarf::DW_OP_mod, Children);
-  }
-
-  std::optional<OpResult> traverse(DIOp::BitOffset BitOffset,
-                                   ChildrenT Children);
-  std::optional<OpResult> traverse(DIOp::ByteOffset ByteOffset,
-                                   ChildrenT Children);
-
-  std::optional<OpResult> traverse(DIOp::Fragment Fragment, ChildrenT Children);
-
-  void emitReg(int32_t DwarfReg, const char *Comment = nullptr);
-  void emitSigned(int64_t SignedValue);
-  void emitUnsigned(uint64_t UnsignedValue);
-  virtual void emitDwarfData1(uint8_t Data1Value) = 0;
-  virtual void emitDwarfOp(uint8_t DwarfOpValue,
-                           const char *Comment = nullptr) = 0;
-  virtual void emitDwarfSigned(int64_t SignedValue) = 0;
-  virtual void emitDwarfUnsigned(uint64_t UnsignedValue) = 0;
-  virtual void emitDwarfAddr(const MCSymbol *Sym) = 0;
-  virtual void emitDwarfOpAddrx(unsigned Index) = 0;
-  virtual void emitDwarfLabelDelta(const MCSymbol *Hi, const MCSymbol *Lo) = 0;
-
-public:
-  DwarfExprAST(const AsmPrinter &AP, const TargetRegisterInfo *TRI,
-               DwarfCompileUnit &CU, const DILifetime &Lifetime,
-               const MachineOperand *Referrer,
-               const DwarfDebug::GVFragmentMapTy *GVFragmentMap)
-      : AP(AP), TRI(TRI), CU(CU), Lifetime(Lifetime), Referrer(Referrer),
-        GVFragmentMap(GVFragmentMap) {
-    buildDIExprAST();
-  }
-  virtual ~DwarfExprAST() {}
-};
-
-class DebugLocDwarfExprAST final : DwarfExprAST {
-  BufferByteStreamer &OutBS;
-
-  ByteStreamer &getActiveStreamer();
-
-  void emitDwarfData1(uint8_t Data1Value) override;
-  void emitDwarfOp(uint8_t DwarfOpValue, const char *Comment = nullptr) override;
-  void emitDwarfSigned(int64_t SignedValue) override;
-  void emitDwarfUnsigned(uint64_t UnsignedValue) override;
-  void emitDwarfAddr(const MCSymbol *Sym) override;
-  void emitDwarfOpAddrx(unsigned Index) override;
-  void emitDwarfLabelDelta(const MCSymbol *Hi, const MCSymbol *Lo) override;
-
-  DebugLocDwarfExprAST(const AsmPrinter &AP, const TargetRegisterInfo *TRI,
-                       DwarfCompileUnit &CU, BufferByteStreamer &BS,
-                       const DILifetime &Lifetime,
-                       const MachineOperand *Referrer,
-                       const DwarfDebug::GVFragmentMapTy *GVFragmentMap)
-      : DwarfExprAST(AP, TRI, CU, Lifetime, Referrer, GVFragmentMap),
-        OutBS(BS) {}
-
-public:
-  DebugLocDwarfExprAST(const AsmPrinter &AP, const TargetRegisterInfo &TRI,
-                       DwarfCompileUnit &CU, BufferByteStreamer &BS,
-                       const DILifetime &Lifetime,
-                       const MachineOperand &Referrer)
-      : DebugLocDwarfExprAST(AP, &TRI, CU, BS, Lifetime, &Referrer, nullptr) {}
-  DebugLocDwarfExprAST(const AsmPrinter &AP, DwarfCompileUnit &CU,
-                       BufferByteStreamer &BS, const DILifetime &Lifetime,
-                       const DwarfDebug::GVFragmentMapTy &GVFragmentMap)
-      : DebugLocDwarfExprAST(AP, nullptr, CU, BS, Lifetime, nullptr,
-                             &GVFragmentMap) {}
-  DebugLocDwarfExprAST(const DebugLocDwarfExprAST &) = delete;
-  ~DebugLocDwarfExprAST() {}
-
-  bool finalize() {
-    traverse(Root.get(), ValueKind::LocationDesc);
-    return IsImplemented;
-  }
-};
-
-// FIXME(KZHURAVL): Write documentation for DIEDwarfExprAST.
-class DIEDwarfExprAST final : DwarfExprAST {
-  DIELoc &OutDIE;
-
-  DIELoc &getActiveDIE();
-
-  void emitDwarfData1(uint8_t Data1Value) override;
-  void emitDwarfOp(uint8_t DwarfOpValue, const char *Comment = nullptr) override;
-  void emitDwarfSigned(int64_t SignedValue) override;
-  void emitDwarfUnsigned(uint64_t UnsignedValue) override;
-  void emitDwarfAddr(const MCSymbol *Sym) override;
-  void emitDwarfOpAddrx(unsigned Index) override;
-  void emitDwarfLabelDelta(const MCSymbol *Hi, const MCSymbol *Lo) override;
-
-  DIEDwarfExprAST(const AsmPrinter &AP, const TargetRegisterInfo *TRI,
-                  DwarfCompileUnit &CU, DIELoc &DIE, const DILifetime &Lifetime,
-                  const MachineOperand *Referrer,
-                  const DwarfDebug::GVFragmentMapTy *GVFragmentMap)
-      : DwarfExprAST(AP, TRI, CU, Lifetime, Referrer, GVFragmentMap),
-        OutDIE(DIE) {}
-
-public:
-  DIEDwarfExprAST(const AsmPrinter &AP, const TargetRegisterInfo &TRI,
-                  DwarfCompileUnit &CU, DIELoc &DIE, const DILifetime &Lifetime,
-                  const MachineOperand &Referrer)
-      : DIEDwarfExprAST(AP, &TRI, CU, DIE, Lifetime, &Referrer, nullptr) {}
-  DIEDwarfExprAST(const AsmPrinter &AP, DwarfCompileUnit &CU, DIELoc &DIE,
-                  const DILifetime &Lifetime,
-                  const DwarfDebug::GVFragmentMapTy &GVFragmentMap)
-      : DIEDwarfExprAST(AP, nullptr, CU, DIE, Lifetime, nullptr,
-                        &GVFragmentMap) {}
-  DIEDwarfExprAST(const DIEDwarfExprAST &) = delete;
-  ~DIEDwarfExprAST() {}
-
-  DIELoc *finalize() {
-    traverse(Root.get(), ValueKind::LocationDesc);
-    return IsImplemented ? &OutDIE : nullptr;
   }
 };
 

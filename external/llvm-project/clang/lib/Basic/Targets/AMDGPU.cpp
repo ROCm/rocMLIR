@@ -59,6 +59,7 @@ const LangASMap AMDGPUTargetInfo::AMDGPUDefIsGenMap = {
     llvm::AMDGPUAS::FLAT_ADDRESS,     // ptr32_uptr
     llvm::AMDGPUAS::FLAT_ADDRESS,     // ptr64
     llvm::AMDGPUAS::FLAT_ADDRESS,     // hlsl_groupshared
+    llvm::AMDGPUAS::CONSTANT_ADDRESS, // hlsl_constant
 };
 
 const LangASMap AMDGPUTargetInfo::AMDGPUDefIsPrivMap = {
@@ -74,16 +75,16 @@ const LangASMap AMDGPUTargetInfo::AMDGPUDefIsPrivMap = {
     llvm::AMDGPUAS::CONSTANT_ADDRESS, // cuda_constant
     llvm::AMDGPUAS::LOCAL_ADDRESS,    // cuda_shared
     // SYCL address space values for this map are dummy
-    llvm::AMDGPUAS::FLAT_ADDRESS, // sycl_global
-    llvm::AMDGPUAS::FLAT_ADDRESS, // sycl_global_device
-    llvm::AMDGPUAS::FLAT_ADDRESS, // sycl_global_host
-    llvm::AMDGPUAS::FLAT_ADDRESS, // sycl_local
-    llvm::AMDGPUAS::FLAT_ADDRESS, // sycl_private
-    llvm::AMDGPUAS::FLAT_ADDRESS, // ptr32_sptr
-    llvm::AMDGPUAS::FLAT_ADDRESS, // ptr32_uptr
-    llvm::AMDGPUAS::FLAT_ADDRESS, // ptr64
-    llvm::AMDGPUAS::FLAT_ADDRESS, // hlsl_groupshared
-
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // sycl_global
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // sycl_global_device
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // sycl_global_host
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // sycl_local
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // sycl_private
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // ptr32_sptr
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // ptr32_uptr
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // ptr64
+    llvm::AMDGPUAS::FLAT_ADDRESS,     // hlsl_groupshared
+    llvm::AMDGPUAS::CONSTANT_ADDRESS, // hlsl_constant
 };
 } // namespace targets
 } // namespace clang
@@ -260,9 +261,9 @@ AMDGPUTargetInfo::AMDGPUTargetInfo(const llvm::Triple &Triple,
 void AMDGPUTargetInfo::adjust(DiagnosticsEngine &Diags, LangOptions &Opts) {
   TargetInfo::adjust(Diags, Opts);
   // ToDo: There are still a few places using default address space as private
-  // address space in OpenCL, which needs to be cleaned up, then Opts.OpenCL
-  // can be removed from the following line.
-  setAddressSpaceMap(/*DefaultIsPrivate=*/Opts.OpenCL ||
+  // address space in OpenCL, which needs to be cleaned up, then the references
+  // to OpenCL can be removed from the following line.
+  setAddressSpaceMap((Opts.OpenCL && !Opts.OpenCLGenericAddressSpace) ||
                      !isAMDGCN(getTriple()));
 }
 

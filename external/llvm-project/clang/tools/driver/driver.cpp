@@ -198,22 +198,6 @@ static void FixupDiagPrefixExeName(TextDiagnosticPrinter *DiagClient,
   DiagClient->setPrefix(std::string(ExeBasename));
 }
 
-// This lets us create the DiagnosticsEngine with a properly-filled-out
-// DiagnosticOptions instance.
-static DiagnosticOptions *CreateAndPopulateDiagOpts(ArrayRef<const char *> argv,
-                                                    InputArgList &Args) {
-  auto *DiagOpts = new DiagnosticOptions;
-  unsigned MissingArgIndex, MissingArgCount;
-  Args = getDriverOptTable().ParseArgs(argv.slice(1), MissingArgIndex,
-                                       MissingArgCount);
-  // We ignore MissingArgCount and the return value of ParseDiagnosticArgs.
-  // Any errors that would be diagnosed here will also be diagnosed later,
-  // when the DiagnosticsEngine actually exists.
-  (void)ParseDiagnosticArgs(*DiagOpts, Args);
-
-  return DiagOpts;
-}
-
 static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV,
                           const llvm::ToolContext &ToolContext) {
   // If we call the cc1 tool from the clangDriver library (through
@@ -332,9 +316,8 @@ int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
                            .Case("-fintegrated-cc1", false)
                            .Default(UseNewCC1Process);
 
-  InputArgList ArgList;
   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts =
-      CreateAndPopulateDiagOpts(Args, ArgList);
+      CreateAndPopulateDiagOpts(Args);
 
   TextDiagnosticPrinter *DiagClient
     = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
@@ -343,12 +326,6 @@ int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
-  unsigned NumParallelJobs =
-      getLastArgIntValue(ArgList, options::OPT_parallel_jobs_EQ, 1, Diags);
-  UseNewCC1Process =
-      ArgList.hasFlag(clang::driver::options::OPT_fno_integrated_cc1,
-                      clang::driver::options::OPT_fintegrated_cc1,
-                      /*Default=*/NumParallelJobs > 1 ? true : CLANG_SPAWN_CC1);
 
   if (!DiagOpts->DiagnosticSerializationFile.empty()) {
     auto SerializedConsumer =
@@ -378,10 +355,12 @@ int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
   if (!SetBackdoorDriverOutputsFromEnvVars(TheDriver))
     return 1;
 
+  auto ExecuteCC1WithContext =
+      [&ToolContext](SmallVectorImpl<const char *> &ArgV) {
+        return ExecuteCC1Tool(ArgV, ToolContext);
+      };
   if (!UseNewCC1Process) {
-    TheDriver.CC1Main = [ToolContext](SmallVectorImpl<const char *> &ArgV) {
-      return ExecuteCC1Tool(ArgV, ToolContext);
-    };
+    TheDriver.CC1Main = ExecuteCC1WithContext;
     // Ensure the CC1Command actually catches cc1 crashes
     llvm::CrashRecoveryContext::Enable();
   }
@@ -460,7 +439,7 @@ int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext) {
   if (!UseNewCC1Process && IsCrash) {
     // When crashing in -fintegrated-cc1 mode, bury the timer pointers, because
     // the internal linked list might point to already released stack frames.
-    llvm::BuryPointer(llvm::TimerGroup::aquireDefaultGroup());
+    llvm::BuryPointer(llvm::TimerGroup::acquireTimerGlobals());
   } else {
     // If any timers were active but haven't been destroyed yet, print their
     // results now.  This happens in -disable-free mode.

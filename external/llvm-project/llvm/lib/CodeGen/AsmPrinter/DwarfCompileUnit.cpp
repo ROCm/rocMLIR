@@ -207,8 +207,6 @@ DIE *DwarfCompileUnit::getOrCreateGlobalVariableDIE(
 
   addAnnotation(*VariableDIE, GV->getAnnotations());
 
-  addMemorySpaceAttribute(*VariableDIE, GV->getDWARFMemorySpace());
-
   if (uint32_t AlignInBytes = GV->getAlignInBytes())
     addUInt(*VariableDIE, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
             AlignInBytes);
@@ -218,76 +216,6 @@ DIE *DwarfCompileUnit::getOrCreateGlobalVariableDIE(
 
   // Add location.
   addLocationAttribute(VariableDIE, GV, GlobalExprs);
-
-  return VariableDIE;
-}
-
-DIE *DwarfCompileUnit::getOrCreateGlobalVariableDIE(
-    const DILifetime &Lifetime,
-    const DwarfDebug::GVFragmentMapTy &GVFragmentMap) {
-
-  const DIGlobalVariable *GV = dyn_cast<DIGlobalVariable>(Lifetime.getObject());
-
-  // Check for pre-existence.
-  if (DIE *Die = getDIE(GV))
-    return Die;
-
-  assert(GV);
-
-  auto *GVContext = GV->getScope();
-  const DIType *GTy = GV->getType();
-
-  auto *CB = GVContext ? dyn_cast<DICommonBlock>(GVContext) : nullptr;
-  DIE *ContextDIE = CB ? getOrCreateCommonBlock(CB, Lifetime, GVFragmentMap)
-                       : getOrCreateContextDIE(GVContext);
-
-  // Add to map.
-  DIE *VariableDIE = &createAndAddDIE(GV->getTag(), *ContextDIE, GV);
-  DIScope *DeclContext;
-  if (auto *SDMDecl = GV->getStaticDataMemberDeclaration()) {
-    DeclContext = SDMDecl->getScope();
-    assert(SDMDecl->isStaticMember() && "Expected static member decl");
-    assert(GV->isDefinition());
-    // We need the declaration DIE that is in the static member's class.
-    DIE *VariableSpecDIE = getOrCreateStaticMemberDIE(SDMDecl);
-    addDIEEntry(*VariableDIE, dwarf::DW_AT_specification, *VariableSpecDIE);
-    // If the global variable's type is different from the one in the class
-    // member type, assume that it's more specific and also emit it.
-    if (GTy != SDMDecl->getBaseType())
-      addType(*VariableDIE, GTy);
-  } else {
-    DeclContext = GV->getScope();
-    // Add name and type.
-    addString(*VariableDIE, dwarf::DW_AT_name, GV->getDisplayName());
-    if (GTy)
-      addType(*VariableDIE, GTy);
-
-    // Add scoping info.
-    if (!GV->isLocalToUnit())
-      addFlag(*VariableDIE, dwarf::DW_AT_external);
-
-    // Add line number info.
-    addSourceLine(*VariableDIE, GV);
-  }
-
-  if (!GV->isDefinition())
-    addFlag(*VariableDIE, dwarf::DW_AT_declaration);
-  else
-    addGlobalName(GV->getName(), *VariableDIE, DeclContext);
-
-  addAnnotation(*VariableDIE, GV->getAnnotations());
-
-  addMemorySpaceAttribute(*VariableDIE, GV->getDWARFMemorySpace());
-
-  if (uint32_t AlignInBytes = GV->getAlignInBytes())
-    addUInt(*VariableDIE, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
-            AlignInBytes);
-
-  if (MDTuple *TP = GV->getTemplateParams())
-    addTemplateParams(*VariableDIE, DINodeArray(TP));
-
-  // Add location.
-  addLocationAttribute(VariableDIE, GV, Lifetime, GVFragmentMap);
 
   return VariableDIE;
 }
@@ -352,27 +280,6 @@ void DwarfCompileUnit::addLocationAttribute(
         }
       }
       DwarfExpr->addFragmentOffset(Expr);
-
-      std::optional<DIExpression::NewElementsRef> NewElementsRef =
-          Expr ? Expr->getNewElementsRef() : std::nullopt;
-      if (NewElementsRef) {
-        SmallVector<DbgValueLocEntry> ArgLocEntries;
-        if (Global)
-          ArgLocEntries.emplace_back(Global);
-        DwarfExpr->addExpression(*NewElementsRef, ArgLocEntries);
-        continue;
-      }
-    }
-
-    // FIXME: This is a workaround to avoid generating symbols for non-global
-    // address spaces, e.g. LDS. Generate a 'DW_OP_constu' with a dummy
-    // constant value (0) for now.
-    unsigned AMDGPUGlobalAddrSpace = 1;
-    if ((Asm->TM.getTargetTriple().getArch() == Triple::amdgcn) &&
-        (Global->getAddressSpace() != AMDGPUGlobalAddrSpace)) {
-      addUInt(*Loc, dwarf::DW_FORM_data1, dwarf::DW_OP_constu);
-      addUInt(*Loc, dwarf::DW_FORM_udata, 0);
-      continue;
     }
 
     if (Global) {
@@ -493,32 +400,6 @@ void DwarfCompileUnit::addLocationAttribute(
   }
 }
 
-void DwarfCompileUnit::addLocationAttribute(
-    DIE *VariableDIE, const DIGlobalVariable *GV, const DILifetime &Lifetime,
-    const DwarfDebug::GVFragmentMapTy &GVFragmentMap) {
-  // FIXME: Determine when this is appropriate, considering the existing
-  // implementation.
-  bool AddToAccelTable = true;
-  DIELoc *ActualLoc = new (DIEValueAllocator) DIELoc;
-  DIELoc *EmptyLoc = new (DIEValueAllocator) DIELoc;
-  DIEDwarfExprAST ExprAST(*Asm, *this, *ActualLoc, Lifetime, GVFragmentMap);
-  addBlock(*VariableDIE, dwarf::DW_AT_location,
-           ExprAST.finalize() ? ActualLoc : EmptyLoc);
-
-  if (DD->useAllLinkageNames())
-    addLinkageName(*VariableDIE, GV->getLinkageName());
-
-  if (AddToAccelTable) {
-    DD->addAccelName(*this, CUNode->getNameTableKind(), GV->getName(), *VariableDIE);
-
-    // If the linkage name is different than the name, go ahead and output
-    // that as well into the name table.
-    if (GV->getLinkageName() != "" && GV->getName() != GV->getLinkageName() &&
-        DD->useAllLinkageNames())
-      DD->addAccelName(*this, CUNode->getNameTableKind(), GV->getLinkageName(), *VariableDIE);
-  }
-}
-
 DIE *DwarfCompileUnit::getOrCreateCommonBlock(
     const DICommonBlock *CB, ArrayRef<GlobalExpr> GlobalExprs) {
   // Check for pre-existence.
@@ -533,24 +414,6 @@ DIE *DwarfCompileUnit::getOrCreateCommonBlock(
     addSourceLine(NDie, CB->getLineNo(), CB->getFile());
   if (DIGlobalVariable *V = CB->getDecl())
     getCU().addLocationAttribute(&NDie, V, GlobalExprs);
-  return &NDie;
-}
-
-DIE *DwarfCompileUnit::getOrCreateCommonBlock(
-    const DICommonBlock *CB, const DILifetime &Lifetime,
-    const DwarfDebug::GVFragmentMapTy &GVFragmentMap) {
-  // Check for pre-existence.
-  if (DIE *NDie = getDIE(CB))
-    return NDie;
-  DIE *ContextDIE = getOrCreateContextDIE(CB->getScope());
-  DIE &NDie = createAndAddDIE(dwarf::DW_TAG_common_block, *ContextDIE, CB);
-  StringRef Name = CB->getName().empty() ? "_BLNK_" : CB->getName();
-  addString(NDie, dwarf::DW_AT_name, Name);
-  addGlobalName(Name, NDie, CB->getScope());
-  if (CB->getFile())
-    addSourceLine(NDie, CB->getLineNo(), CB->getFile());
-  if (DIGlobalVariable *V = CB->getDecl())
-    getCU().addLocationAttribute(&NDie, V, Lifetime, GVFragmentMap);
   return &NDie;
 }
 
@@ -928,8 +791,6 @@ DIE *DwarfCompileUnit::constructVariableDIE(DbgVariable &DV, bool Abstract) {
 void DwarfCompileUnit::applyConcreteDbgVariableAttributes(
     const Loc::Single &Single, const DbgVariable &DV, DIE &VariableDie) {
   const DbgValueLoc *DVal = &Single.getValueLoc();
-  const DIExpression *Expr = Single.getExpr();
-
   if (Asm->TM.getTargetTriple().isNVPTX() && DD->tuneForGDB() &&
       !Single.getExpr()) {
     // Lack of expression means it is a register.  Registers for PTX need to
@@ -976,22 +837,13 @@ void DwarfCompileUnit::applyConcreteDbgVariableAttributes(
         return Entry.isLocation() && !Entry.getLoc().getReg();
       }))
     return;
+  const DIExpression *Expr = Single.getExpr();
   assert(Expr && "Variadic Debug Value must have an Expression.");
   DIELoc *Loc = new (DIEValueAllocator) DIELoc;
-
   DIEDwarfExpression DwarfExpr(*Asm, *this, *Loc);
   DwarfExpr.addFragmentOffset(Expr);
-  const TargetRegisterInfo &TRI = *Asm->MF->getSubtarget().getRegisterInfo();
-
-  if (Expr) {
-    if (auto NewElementsRef = Expr->getNewElementsRef()) {
-      DwarfExpr.addExpression(*NewElementsRef, DVal->getLocEntries(), &TRI);
-      addBlock(VariableDie, dwarf::DW_AT_location, DwarfExpr.finalize());
-      return;
-    }
-  }
-
   DIExpressionCursor Cursor(Expr);
+  const TargetRegisterInfo &TRI = *Asm->MF->getSubtarget().getRegisterInfo();
 
   auto AddEntry = [&](const DbgValueLocEntry &Entry,
                       DIExpressionCursor &Cursor) {
@@ -1058,15 +910,6 @@ void DwarfCompileUnit::applyConcreteDbgVariableAttributes(const Loc::MMI &MMI,
   std::optional<unsigned> NVPTXAddressSpace;
   DIELoc *Loc = new (DIEValueAllocator) DIELoc;
   DIEDwarfExpression DwarfExpr(*Asm, *this, *Loc);
-  auto PoisonedExpr =
-      find_if(MMI.getFrameIndexExprs(), [](const auto &Fragment) {
-        return Fragment.Expr->holdsOldElements() && Fragment.Expr->isPoisoned();
-      });
-  if (PoisonedExpr != MMI.getFrameIndexExprs().end()) {
-    DwarfExpr.addExpression(PoisonedExpr->Expr);
-    addBlock(VariableDie, dwarf::DW_AT_location, DwarfExpr.finalize());
-    return;
-  }
   for (const auto &Fragment : MMI.getFrameIndexExprs()) {
     Register FrameReg;
     const DIExpression *Expr = Fragment.Expr;
@@ -1076,22 +919,6 @@ void DwarfCompileUnit::applyConcreteDbgVariableAttributes(const Loc::MMI &MMI,
     DwarfExpr.addFragmentOffset(Expr);
 
     auto *TRI = Asm->MF->getSubtarget().getRegisterInfo();
-
-    if (Expr->holdsNewElements()) {
-      // TODO: support frame symbol
-      assert(!Asm->getFunctionFrameSymbol());
-      SmallVector<DbgValueLocEntry> ArgLocEntries;
-      if (FrameReg)
-        ArgLocEntries.push_back({MachineLocation{FrameReg}});
-      else
-        ArgLocEntries.push_back({int64_t{0}});
-      DIExpression *UpdatedExpr =
-          TFI->lowerFIArgToFPArg(*Asm->MF, Expr, /*ArgIndex=*/0u, Offset);
-      DwarfExpr.addExpression(*UpdatedExpr->getNewElementsRef(), ArgLocEntries,
-                              TRI);
-      continue;
-    }
-
     SmallVector<uint64_t, 8> Ops;
     TRI->getOffsetOpcodes(Offset, Ops);
 
@@ -1152,22 +979,6 @@ void DwarfCompileUnit::applyConcreteDbgVariableAttributes(
     DwarfExpr.addExpression(std::move(Cursor));
   }
   addBlock(VariableDie, dwarf::DW_AT_location, DwarfExpr.finalize());
-}
-
-void DwarfCompileUnit::applyConcreteDbgVariableAttributes(const Loc::Def &Def,
-                                                          const DbgVariable &DV,
-                                                          DIE &VariableDie) {
-  for (auto &DbgDefProxy : Def.DbgDefProxies) {
-    DIELoc *ActualLoc = new (DIEValueAllocator) DIELoc;
-    // FIXME(KZHURAVL): Remove EmptyLoc once we implement full
-    // lowering support.
-    DIELoc *EmptyLoc = new (DIEValueAllocator) DIELoc;
-    DIEDwarfExprAST ExprAST(*Asm, *Asm->MF->getSubtarget().getRegisterInfo(),
-                            *this, *ActualLoc, DbgDefProxy.Lifetime,
-                            DbgDefProxy.Referrer);
-    addBlock(VariableDie, dwarf::DW_AT_location,
-             ExprAST.finalize() ? ActualLoc : EmptyLoc);
-  }
 }
 
 void DwarfCompileUnit::applyConcreteDbgVariableAttributes(
@@ -1781,9 +1592,6 @@ void DwarfCompileUnit::addVariableAddress(const DbgVariable &DV, DIE &Die,
 /// Add an address attribute to a die based on the location provided.
 void DwarfCompileUnit::addAddress(DIE &Die, dwarf::Attribute Attribute,
                                   const MachineLocation &Location) {
-  if (DisableDwarfLocations)
-    return;
-
   DIELoc *Loc = new (DIEValueAllocator) DIELoc;
   DIEDwarfExpression DwarfExpr(*Asm, *this, *Loc);
   if (Location.isIndirect())
@@ -1810,9 +1618,6 @@ void DwarfCompileUnit::addAddress(DIE &Die, dwarf::Attribute Attribute,
 void DwarfCompileUnit::addComplexAddress(const DIExpression *DIExpr, DIE &Die,
                                          dwarf::Attribute Attribute,
                                          const MachineLocation &Location) {
-  if (DisableDwarfLocations)
-    return;
-
   DIELoc *Loc = new (DIEValueAllocator) DIELoc;
   DIEDwarfExpression DwarfExpr(*Asm, *this, *Loc);
   DwarfExpr.addFragmentOffset(DIExpr);
@@ -1839,9 +1644,6 @@ void DwarfCompileUnit::addComplexAddress(const DIExpression *DIExpr, DIE &Die,
 /// Add a Dwarf loclistptr attribute data and value.
 void DwarfCompileUnit::addLocationList(DIE &Die, dwarf::Attribute Attribute,
                                        unsigned Index) {
-  if (DisableDwarfLocations)
-    return;
-
   dwarf::Form Form = (DD->getDwarfVersion() >= 5)
                          ? dwarf::DW_FORM_loclistx
                          : DD->getDwarfSectionOffsetForm();
@@ -1855,7 +1657,6 @@ void DwarfCompileUnit::applyCommonDbgVariableAttributes(const DbgVariable &Var,
     addString(VariableDie, dwarf::DW_AT_name, Name);
   const auto *DIVar = Var.getVariable();
   if (DIVar) {
-    addMemorySpaceAttribute(VariableDie, DIVar->getDWARFMemorySpace());
     if (uint32_t AlignInBytes = DIVar->getAlignInBytes())
       addUInt(VariableDie, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
               AlignInBytes);

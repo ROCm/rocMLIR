@@ -202,10 +202,17 @@ enum Kind {
   kw_argmem,
   kw_inaccessiblemem,
 
-  // Legacy memory attributes:
+  // Legacy attributes:
   kw_argmemonly,
   kw_inaccessiblememonly,
   kw_inaccessiblemem_or_argmemonly,
+  kw_nocapture,
+
+  // Captures attribute:
+  kw_address,
+  kw_address_is_null,
+  kw_provenance,
+  kw_read_provenance,
 
   // nofpclass attribute:
   kw_all,
@@ -483,7 +490,6 @@ enum Kind {
   DwarfVirtuality,  // DW_VIRTUALITY_foo
   DwarfLang,        // DW_LANG_foo
   DwarfCC,          // DW_CC_foo
-  DwarfMSpaceLLVM,  // DW_MSPACE_LLVM_foo
   EmissionKind,     // lineTablesOnly
   NameTableKind,    // GNU
   DwarfOp,          // DW_OP_foo
@@ -491,7 +497,6 @@ enum Kind {
   DISPFlag,         // DISPFlagFoo
   DwarfMacinfo,     // DW_MACINFO_foo
   ChecksumKind,     // CSK_foo
-  DIOp,             // DIOpFoo
   DbgRecordType,    // dbg_foo
 
   // Type valued tokens (TyVal).
