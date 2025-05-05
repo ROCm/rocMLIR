@@ -53,9 +53,8 @@ static constexpr AmdArchInfo
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot |
-                  GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
-                  GemmFeatures::direct_to_lds_32b,
-              /*waveSize=*/64, /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
+                  GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16,
+              /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 800,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
               /*hasFp8ConversionInstrs=*/true,
@@ -135,7 +134,10 @@ std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
       std::get<1>(ret) = deviceId;
     }
   } else {
-    if (firstPart.contains('-')) { // target triple
+    auto chipPos = firstPart.find("gfx");
+    if (chipPos != StringRef::npos) {
+      firstPart = firstPart.substr(chipPos);
+    } else {
       std::tie(firstPart, remainingParts) = remainingParts.split(':');
     }
     std::get<0>(ret) = firstPart;
@@ -264,6 +266,9 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
+  if (arch.empty()) {
+    return gcnInfo;
+  }
   auto [chip, deviceId] = parseArchString(arch);
   if (chip == "native") {
     return fetchNativeArchInfo(deviceId);
@@ -295,7 +300,8 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   if (major == "gfx12") {
     return rdna4Info;
   }
-  llvm_unreachable("unknown architecture");
+  auto msg = "Unsupported architecture: " + arch.str();
+  llvm_unreachable(msg.c_str());
 }
 
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {

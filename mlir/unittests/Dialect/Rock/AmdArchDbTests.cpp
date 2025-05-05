@@ -59,9 +59,9 @@ TEST_P(NativeArchTest, NativeArchInfoMatchesPresetInfo) {
 
   EXPECT_EQ(presetInfo.defaultFeatures, nativeInfo.defaultFeatures);
   EXPECT_EQ(presetInfo.waveSize, nativeInfo.waveSize);
-  SOFT_CHECK_EQ(presetInfo.maxWavesPerEU, nativeInfo.maxWavesPerEU);
-  SOFT_CHECK_EQ(presetInfo.totalSGPRPerEU, nativeInfo.totalSGPRPerEU);
-  SOFT_CHECK_EQ(presetInfo.totalVGPRPerEU, nativeInfo.totalVGPRPerEU);
+  EXPECT_EQ(presetInfo.maxWavesPerEU, nativeInfo.maxWavesPerEU);
+  EXPECT_EQ(presetInfo.totalSGPRPerEU, nativeInfo.totalSGPRPerEU);
+  EXPECT_EQ(presetInfo.totalVGPRPerEU, nativeInfo.totalVGPRPerEU);
   EXPECT_EQ(presetInfo.totalSharedMemPerCU, nativeInfo.totalSharedMemPerCU);
   EXPECT_EQ(presetInfo.maxSharedMemPerWG, nativeInfo.maxSharedMemPerWG);
   EXPECT_EQ(presetInfo.numEUPerCU, nativeInfo.numEUPerCU);
