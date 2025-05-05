@@ -353,10 +353,10 @@ static Type strToType(StringRef dataTypeStr, OpBuilder &builder) {
           .Case("bf16", builder.getBF16Type())
           .Case("i32", builder.getI32Type())
           .Case("i8", builder.getI8Type())
-          .Case("f8E5M2", builder.getFloat8E5M2Type())
-          .Case("f8E4M3FN", builder.getFloat8E4M3FNType())
-          .Case("f8E5M2FNUZ", builder.getFloat8E5M2FNUZType())
-          .Case("f8E4M3FNUZ", builder.getFloat8E4M3FNUZType())
+          .Case("f8E5M2", builder.getType<Float8E5M2Type>())
+          .Case("f8E4M3FN", builder.getType<Float8E4M3FNType>())
+          .Case("f8E5M2FNUZ", builder.getType<Float8E5M2FNUZType>())
+          .Case("f8E4M3FNUZ", builder.getType<Float8E4M3FNUZType>())
           .Default(std::nullopt);
   if (!type) {
     llvm::errs() << "Unknown data type: " << dataTypeStr << "\n";

@@ -523,9 +523,8 @@ bool TosaValidation::isValidElementType(Type type) {
   if (isa<FloatType>(type)) {
     if (!isEnabledProfile(TosaProfileEnum::MainInference))
       return false;
-    return type.isF32() || type.isF16() || type.isBF16() ||
-           type.isFloat8E4M3FNUZ() || type.isFloat8E5M2FNUZ() ||
-           type.isFloat8E4M3FN() || type.isFloat8E5M2();
+    return isa<Float32Type, Float16Type, BFloat16Type, Float8E4M3FNType,
+               Float8E5M2Type, Float8E4M3FNUZType, Float8E5M2FNUZType>(type);
   } else if (auto intTy = dyn_cast<IntegerType>(type)) {
     if (intTy.isSignless()) {
       switch (intTy.getWidth()) {
@@ -544,46 +543,46 @@ bool TosaValidation::isValidElementType(Type type) {
   return false;
 }
 
-  void TosaValidation::runOnOperation() {
-    configLevelAndProfile();
+void TosaValidation::runOnOperation() {
+  configLevelAndProfile();
 
-    TosaDialect *tosaDialect = getContext().getLoadedDialect<TosaDialect>();
-    if (!tosaDialect)
+  TosaDialect *tosaDialect = getContext().getLoadedDialect<TosaDialect>();
+  if (!tosaDialect)
+    return;
+
+  getOperation().walk([&](Operation *op) {
+    if (op->getDialect() != tosaDialect)
       return;
 
-    getOperation().walk([&](Operation *op) {
-      if (op->getDialect() != tosaDialect)
-        return;
-
-      for (Value operand : op->getOperands()) {
-        auto elementTy = getElementTypeOrSelf(operand);
-        if (!isValidElementType(elementTy)) {
-          op->emitOpError() << "is not profile-aligned: element type "
-                            << elementTy << " is not legal";
-          return signalPassFailure();
-        }
+    for (Value operand : op->getOperands()) {
+      auto elementTy = getElementTypeOrSelf(operand);
+      if (!isValidElementType(elementTy)) {
+        op->emitOpError() << "is not profile-aligned: element type "
+                          << elementTy << " is not legal";
+        return signalPassFailure();
       }
-      for (Type resultTy : op->getResultTypes()) {
-        auto elementTy = getElementTypeOrSelf(resultTy);
-        if (!isValidElementType(elementTy)) {
-          op->emitOpError() << "is not profile-aligned: element type "
-                            << elementTy << " is not legal";
-          return signalPassFailure();
-        }
+    }
+    for (Type resultTy : op->getResultTypes()) {
+      auto elementTy = getElementTypeOrSelf(resultTy);
+      if (!isValidElementType(elementTy)) {
+        op->emitOpError() << "is not profile-aligned: element type "
+                          << elementTy << " is not legal";
+        return signalPassFailure();
       }
+    }
 
-      // Some uses of TOSA rely on the constant operands of particular
-      // operations.
-      if (StrictOperationSpecAlignment && failed(applyConstantOperandCheck(op)))
-        signalPassFailure();
+    // Some uses of TOSA rely on the constant operands of particular
+    // operations.
+    if (StrictOperationSpecAlignment && failed(applyConstantOperandCheck(op)))
+      signalPassFailure();
 
-      // do level checks
-      if (failed(applyLevelCheck(op)))
-        signalPassFailure();
+    // do level checks
+    if (failed(applyLevelCheck(op)))
+      signalPassFailure();
 
-      // do variable type checks
-      if (failed(applyVariableCheck(op)))
-        signalPassFailure();
-    });
-  }
+    // do variable type checks
+    if (failed(applyVariableCheck(op)))
+      signalPassFailure();
+  });
+}
 } // namespace

@@ -351,6 +351,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
       rewriter.create<ROCDL::BarrierSignalOp>(loc, -1);
       rewriter.replaceOpWithNewOp<ROCDL::BarrierWaitOp>(op, -1);
     }
+
     return success();
   }
 };
@@ -411,7 +412,7 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
   if (elemType.isBF16())
     llvmInput = rewriter.create<LLVM::BitcastOp>(
         loc, vectorType.clone(rewriter.getI16Type()), llvmInput);
-  if (elemType.getIntOrFloatBitWidth() != 8) {
+  if (!elemType.isInteger(8)) {
     operands.push_back(llvmInput);
     return;
   }
@@ -465,20 +466,6 @@ static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
   } else if (elemType.isInteger(32)) {
     operands.push_back(createI1Constant(rewriter, loc, clamp));
   }
-}
-
-/// Return true if `type` is the E5M2 variant of an 8-bit float that is
-/// supported by the `_bf8` instructions on the given `chipset`.
-static bool isNativeBf8(Chipset chipset, Type type) {
-  return (chipset.isGfx940() && type.isFloat8E5M2FNUZ()) ||
-         (chipset.hasOcpFp8() && type.isFloat8E5M2());
-}
-
-/// Return true if `type` is the E4M3FN variant of an 8-bit float that is
-/// supported by the `_fp8` instructions on the given `chipset`.
-static bool isNativeFp8(Chipset chipset, Type type) {
-  return (chipset.isGfx940() && type.isFloat8E4M3FNUZ()) ||
-         (chipset.hasOcpFp8() && type.isFloat8E4M3FN());
 }
 
 /// Return the `rocdl` intrinsic corresponding to a MFMA operation `mfma`
@@ -788,7 +775,7 @@ LogicalResult ExtPackedFp8OpLowering::matchAndRewrite(
     ExtPackedFp8Op op, ExtPackedFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
+  if (chipset.majorVersion != 9 || chipset < kGfx940)
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -832,7 +819,7 @@ LogicalResult PackedTrunc2xFp8OpLowering::matchAndRewrite(
     PackedTrunc2xFp8Op op, PackedTrunc2xFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
+  if (chipset.majorVersion != 9 || chipset < kGfx940)
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
@@ -869,7 +856,7 @@ LogicalResult PackedStochRoundFp8OpLowering::matchAndRewrite(
     PackedStochRoundFp8Op op, PackedStochRoundFp8OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  if (!(chipset.isGfx940() || chipset.hasOcpFp8()))
+  if (chipset.majorVersion != 9 || chipset < kGfx940)
     return rewriter.notifyMatchFailure(
         loc, "Fp8 conversion instructions are not available on target "
              "architecture and their emulation is not implemented");
