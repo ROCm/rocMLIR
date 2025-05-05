@@ -45,7 +45,6 @@ def Tosa_Dialect : Dialect {
   let cppNamespace = "mlir::tosa";
   let hasConstantMaterializer = 1;
   let useDefaultAttributePrinterParser = 1;
-  let useDefaultTypePrinterParser = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -135,18 +134,6 @@ def Tosa_ConvOpQuantInfoBuilder : OpBuilder<
                              pad, stride, dilation, acc_type);
   }]>;
 
-// Handles grouped convolution
-def Tosa_ConvOpGroupQuantBuilder : OpBuilder<
-  (ins "::mlir::Type":$outputType, "::mlir::Value":$input,
-       "::mlir::Value":$weight, "::mlir::Value":$bias,
-       "::mlir::DenseI64ArrayAttr":$pad, "::mlir::DenseI64ArrayAttr":$stride,
-       "::mlir::DenseI64ArrayAttr":$dilation, "::mlir::IntegerAttr":$group),
-  [{
-    buildConvOpWithQuantInfo($_builder, $_state, outputType,
-                             input, weight, bias,
-                             pad, stride, dilation, group);
-  }]>;
-
 // Handles tosa.transpose_conv2d which has an outpad and output shape attribute.
 def Tosa_TransConvOpQuantInfoBuilder : OpBuilder<
   (ins "::mlir::Type":$outputType, "::mlir::Value":$input,
@@ -231,26 +218,18 @@ def TosaElementwiseOperator : NativeOpTrait<"TosaElementwiseOperator"> {
 }
 
 //===----------------------------------------------------------------------===//
-// TOSA Operator Trait.
-//===----------------------------------------------------------------------===//
-// Op operands with TOSA shape types must be compile time resolvable
-def TosaResolvableShapeOperands : NativeOpTrait<"TosaResolvableShapeOperands"> {
-  let cppNamespace = "mlir::OpTrait::tosa";
-}
-
-//===----------------------------------------------------------------------===//
 // TOSA Operator Class.
 //===----------------------------------------------------------------------===//
 
 class Tosa_Op<string mnemonic, list<Trait> traits = []> :
-    Op<Tosa_Dialect, mnemonic, !listconcat(traits, [TosaOpInterface,
-    TosaResolvableShapeOperands])> {
+    Op<Tosa_Dialect, mnemonic, !listconcat(traits, [TosaOpInterface])> {
 }
 
 class Tosa_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     Tosa_Op<mnemonic, !listconcat(traits, [
               DeclareOpInterfaceMethods<InferShapedTypeOpInterface,
                                         ["inferReturnTypeComponents"]>,
+              ResultsBroadcastableShape,
               TosaElementwiseOperator,
               Pure])> {
   let assemblyFormat =
@@ -260,8 +239,6 @@ class Tosa_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
 class Tosa_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     Tosa_ElementwiseOp<mnemonic, !listconcat(traits, [
               SameOperandsAndResultShape,
-              ResultsBroadcastableShape,
-              SameOperandsAndResultRank,
               SameOperandsAndResultElementType])> {}
 
 class Tosa_InferTensorTypeOp<string mnemonic, list<Trait> traits = []>

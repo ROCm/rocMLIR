@@ -523,8 +523,7 @@ bool TosaValidation::isValidElementType(Type type) {
   if (isa<FloatType>(type)) {
     if (!isEnabledProfile(TosaProfileEnum::MainInference))
       return false;
-    return isa<Float32Type, Float16Type, BFloat16Type, Float8E4M3FNType,
-               Float8E5M2Type, Float8E4M3FNUZType, Float8E5M2FNUZType>(type);
+    return type.isF32() || type.isF16() || type.isBF16();
   } else if (auto intTy = dyn_cast<IntegerType>(type)) {
     if (intTy.isSignless()) {
       switch (intTy.getWidth()) {
@@ -537,8 +536,6 @@ bool TosaValidation::isValidElementType(Type type) {
         return true;
       }
     }
-  } else if (mlir::isa<tosa::shapeType>(type)) {
-    return true;
   }
   return false;
 }
