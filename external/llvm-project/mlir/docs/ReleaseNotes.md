@@ -10,7 +10,7 @@ specifically, it is a snapshot of the MLIR development at the time of the releas
 
 ## LLVM 20
 
-All the MLIR runners other than `mlir-cpu-runner` have been removed, as their functionality has been merged into it, and it has been renamed to `mlir-runner`.
+All the MLIR runners other than `mlir-runner` have been removed, as their functionality has been merged into it, and it has been renamed to `mlir-runner`.
 
 ## LLVM 18
 
