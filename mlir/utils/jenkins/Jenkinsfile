@@ -506,99 +506,110 @@ pipeline {
                     // This stage acquires the node and runs docker
                     stage("Run Build and Test in Docker (${CODEPATH})") {
                         steps {
-                            script {
-                                String requiredLabel = getLabelFromCodepath("${CODEPATH}")
-                                String dockerImageName = dockerImage()
-                                def dockerEnvVars = [
-                                    'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins',
-                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
-                                ]
-                                def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
+                            							script {
+								String requiredLabel = getLabelFromCodepath("${CODEPATH}")
+								String dockerImageName = dockerImage()
+								def dockerEnvVars = [
+														'PATH': "/opt/rocm/llvm/bin:/opt/rocm/bin:${env.PATH}", // Added /opt/rocm/bin
+									'HOME': '/home/jenkins',
+														'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}" // Added LD_LIBRARY_PATH
+								]
+								def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
-                                // Acquire a healthy node and execute steps inside docker
-                                nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                    echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
-                                    docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
-                                        // Steps now run directly inside the container environment
-                                        echo "===== Environment for ${CODEPATH} ====="
-                                        showEnv()
+								// Acquire a healthy node and execute steps inside docker
+								nodeChecker.acquireHealthyNode(requiredLabel, 3) {
+									echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
+									docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+										echo "===== Environment for ${CODEPATH} ====="
+										showEnv()
 
-                                        // Equivalent of "Shared Library: fixed E2E tests" stage
-                                        if (params.sharedLib) {
-                                            echo "===== Starting: Shared Library fixed E2E tests for ${CODEPATH} ====="
-                                            build_fixedE2ETests("${CODEPATH}")
-                                            preMergeCheck("${CODEPATH}")
-                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                sh 'cd build; ninja check-mlir check-rocmlir'
-                                            }
-                                            echo "===== Finished: Shared Library fixed E2E tests for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Shared Library fixed E2E tests for ${CODEPATH} ====="
-                                        }
+															// +++++ Debugging commands inserted here +++++
+										echo "+++++ Debugging Library Path +++++"
+										sh 'echo ">>> LD_LIBRARY_PATH inside container: $LD_LIBRARY_PATH"'
+										sh 'echo ">>> PATH inside container: $PATH"'
+										sh 'ls -ld /opt/rocm/lib /opt/rocm/hip/lib || echo ">>> /opt/rocm/lib or /opt/rocm/hip/lib not found or inaccessible"'
+										sh 'find /opt/rocm -name libamdhip64.so -ls || echo ">>> libamdhip64.so not found in /opt/rocm"'
+										sh 'ldd /opt/rocm/bin/rocminfo || echo ">>> ldd on rocminfo failed (maybe rocminfo not found or linkage issue)"'
+										sh 'ldconfig -p | grep libamdhip64 || echo ">>> libamdhip64 not found by ldconfig"'
+										echo "+++++ End Debugging Library Path +++++"
+															// +++++ End of debugging commands +++++
 
-                                        // Equivalent of "Shared Library: random E2E tests" stage
-                                        if (params.sharedLib && params.nightly) {
-                                            echo "===== Starting: Shared Library random E2E tests for ${CODEPATH} ====="
-                                            check_randomE2ETests("${CODEPATH}")
-                                            echo "===== Finished: Shared Library random E2E tests for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Shared Library random E2E tests for ${CODEPATH} ====="
-                                        }
 
-                                        // Equivalent of "Tune selected rocmlir configs" stage
-                                        if (params.sharedLib && !params.nightly) {
-                                            echo "===== Starting: Tune selected rocmlir configs for ${CODEPATH} ====="
-                                            buildProject('ci-performance-scripts', '')
-                                            dir('MITuna') {
-                                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                            }
-                                            dir('build') {
-                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv && \\
-                                                            [ -f tuning_gemm.tsv ] || echo 'Tuning gemm failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv && \\
-                                                            [ -f tuning_conv.tsv ] || echo 'Tuning conv failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
-                                                         -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \\
-                                                         -t ${WORKSPACE}/MITuna -f tuning_attention.tsv && \\
-                                                         [ -f tuning_attention.tsv ] || echo 'Tuning attention failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick && \\
-                                                            [ -f quick_tuning_gemm.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick && \\
-                                                            [ -f quick_tuning_conv.tsv ] || echo 'Quick Tuning conv failed or file not found' """
-                                                }
-                                            }
-                                            echo "===== Finished: Tune selected rocmlir configs for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Tune selected rocmlir configs for ${CODEPATH} ====="
-                                        }
+															// Equivalent of "Shared Library: fixed E2E tests" stage (RUNS INSIDE DOCKER)
+										if (params.sharedLib) {
+											echo "===== Starting: Shared Library fixed E2E tests for ${CODEPATH} ====="
+											build_fixedE2ETests("${CODEPATH}")
+											preMergeCheck("${CODEPATH}")
+											timeout(time: 60, activity: true, unit: 'MINUTES') {
+												sh 'cd build; ninja check-mlir check-rocmlir'
+											}
+											echo "===== Finished: Shared Library fixed E2E tests for ${CODEPATH} ====="
+										} else {
+											echo "===== Skipping: Shared Library fixed E2E tests for ${CODEPATH} ====="
+										}
 
-                                        // Equivalent of "Static Library: build rocMLIR packages" stage
-                                        if (params.staticLib && !params.nightly) {
-                                            echo "===== Starting: Static Library build rocMLIR packages for ${CODEPATH} ====="
-                                            sh 'rm -f build/CMakeCache.txt'
-                                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                            preMergeCheckPackage("${CODEPATH}")
-                                            echo "Running tests on the newly-built static library"
-                                            dir ('build') {
-                                                sh 'ninja check-rocmlir'
-                                            }
-                                            echo "===== Finished: Static Library build rocMLIR packages for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Static Library build rocMLIR packages for ${CODEPATH} ====="
-                                        }
-                                    }
-                                }
-                            }
+															// Equivalent of "Shared Library: random E2E tests" stage (RUNS INSIDE DOCKER)
+										if (params.sharedLib && params.nightly) {
+											echo "===== Starting: Shared Library random E2E tests for ${CODEPATH} ====="
+											check_randomE2ETests("${CODEPATH}")
+											echo "===== Finished: Shared Library random E2E tests for ${CODEPATH} ====="
+										} else {
+																 echo "===== Skipping: Shared Library random E2E tests for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}) ====="
+										}
+
+															// Equivalent of "Tune selected rocmlir configs" stage (RUNS INSIDE DOCKER)
+															if (params.sharedLib && !params.nightly && !params.weekly) { // Tune only for PRs
+											echo "===== Starting: Tune selected rocmlir configs for ${CODEPATH} ====="
+											buildProject('ci-performance-scripts', '')
+											dir('MITuna') {
+												git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+											}
+											dir('build') {
+												timeout(time: 60, activity: true, unit: 'MINUTES') {
+													sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+															-c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
+															-t ${WORKSPACE}/MITuna -f tuning_gemm.tsv && \\
+															[ -f tuning_gemm.tsv ] || echo 'Tuning gemm failed or file not found' """
+													sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+															-c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
+															-t ${WORKSPACE}/MITuna -f tuning_conv.tsv && \\
+															[ -f tuning_conv.tsv ] || echo 'Tuning conv failed or file not found' """
+													sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
+														 -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \\
+														 -t ${WORKSPACE}/MITuna -f tuning_attention.tsv && \\
+														 [ -f tuning_attention.tsv ] || echo 'Tuning attention failed or file not found' """
+													sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+															-c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
+															-t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick && \\
+															[ -f quick_tuning_gemm.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
+													sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+															-c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
+															-t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick && \\
+															[ -f quick_tuning_conv.tsv ] || echo 'Quick Tuning conv failed or file not found' """
+												}
+											}
+											echo "===== Finished: Tune selected rocmlir configs for ${CODEPATH} ====="
+										} else {
+																echo "===== Skipping: Tune selected rocmlir configs for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
+										}
+
+															// Equivalent of "Static Library: build rocMLIR packages" stage (RUNS INSIDE DOCKER)
+															if (params.staticLib && !params.nightly && !params.weekly) { // Package only for PRs
+											echo "===== Starting: Static Library build rocMLIR packages for ${CODEPATH} ====="
+																sh 'rm -f build/CMakeCache.txt || true'
+											buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+											preMergeCheckPackage("${CODEPATH}")
+											echo "Running tests on the newly-built static library"
+											dir ('build') {
+												sh 'ninja check-rocmlir'
+											}
+											echo "===== Finished: Static Library build rocMLIR packages for ${CODEPATH} ====="
+										} else {
+																echo "===== Skipping: Static Library build rocMLIR packages for ${CODEPATH} (staticLib=${params.staticLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
+										}
+									}
+								}
+							}
                         }
                          post {
                             unsuccessful {
