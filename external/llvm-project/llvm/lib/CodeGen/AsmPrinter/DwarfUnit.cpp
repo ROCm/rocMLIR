@@ -38,16 +38,9 @@ using namespace llvm;
 
 #define DEBUG_TYPE "dwarfdebug"
 
-bool llvm::DisableDwarfLocations;
-static cl::opt<bool, true> DisableDwarfLocationsOpt(
-    "disable-dwarf-locations",
-    cl::desc("Disable emitting DWARF location DIE attributes"),
-    cl::ReallyHidden, cl::location(DisableDwarfLocations),
-    cl::init(false));
-
 DIEDwarfExpression::DIEDwarfExpression(const AsmPrinter &AP,
                                        DwarfCompileUnit &CU, DIELoc &DIE)
-    : DwarfExpression(AP, CU), OutDIE(DIE) {}
+    : DwarfExpression(AP.getDwarfVersion(), CU), AP(AP), OutDIE(DIE) {}
 
 void DIEDwarfExpression::emitOp(uint8_t Op, const char* Comment) {
   CU.addUInt(getActiveDIE(), dwarf::DW_FORM_data1, Op);
@@ -67,10 +60,6 @@ void DIEDwarfExpression::emitData1(uint8_t Value) {
 
 void DIEDwarfExpression::emitBaseTypeRef(uint64_t Idx) {
   CU.addBaseTypeRef(getActiveDIE(), Idx);
-}
-
-void DIEDwarfExpression::emitOpAddress(const GlobalVariable *GV) {
-  CU.addOpAddress(getActiveDIE(), AP.getSymbol(GV));
 }
 
 void DIEDwarfExpression::enableTemporaryBuffer() {
@@ -220,11 +209,6 @@ void DwarfUnit::insertDIE(const DINode *Desc, DIE *D) {
 
 void DwarfUnit::insertDIE(DIE *D) {
   MDNodeToDieMap.insert(std::make_pair(nullptr, D));
-}
-
-void DwarfUnit::addMemorySpaceAttribute(DIE &D, dwarf::MemorySpace MS) {
-  if (MS != dwarf::DW_MSPACE_LLVM_none)
-    addUInt(D, dwarf::DW_AT_LLVM_memory_space, dwarf::DW_FORM_data4, MS);
 }
 
 void DwarfUnit::addFlag(DIE &Die, dwarf::Attribute Attribute) {
@@ -407,8 +391,6 @@ DIE &DwarfUnit::createAndAddDIE(dwarf::Tag Tag, DIE &Parent, const DINode *N) {
 void DwarfUnit::addBlock(DIE &Die, dwarf::Attribute Attribute, DIELoc *Loc) {
   Loc->computeSize(Asm->getDwarfFormParams());
   DIELocs.push_back(Loc); // Memoize so we can call the destructor later on.
-  if (DisableDwarfLocations)
-    return;
   addAttribute(Die, Attribute, Loc->BestForm(DD->getDwarfVersion()), Loc);
 }
 
@@ -845,12 +827,9 @@ void DwarfUnit::constructTypeDIE(DIE &Buffer, const DIDerivedType *DTy) {
   // If DWARF address space value is other than None, add it.  The IR
   // verifier checks that DWARF address space only exists for pointer
   // or reference types.
-  if (auto AS = DTy->getDWARFAddressSpace()) {
-    // TODO: Drop address_class once the debugger adopts address_space
-    for (auto ASTag :
-         {dwarf::DW_AT_address_class, dwarf::DW_AT_LLVM_address_space})
-      addUInt(Buffer, ASTag, dwarf::DW_FORM_data4, *AS);
-  }
+  if (DTy->getDWARFAddressSpace())
+    addUInt(Buffer, dwarf::DW_AT_address_class, dwarf::DW_FORM_data4,
+            *DTy->getDWARFAddressSpace());
 
   // Add template alias template parameters.
   if (Tag == dwarf::DW_TAG_template_alias)
@@ -868,8 +847,6 @@ void DwarfUnit::constructTypeDIE(DIE &Buffer, const DIDerivedType *DTy) {
     if (PtrAuthData->authenticatesNullValues())
       addFlag(Buffer, dwarf::DW_AT_LLVM_ptrauth_authenticates_null_values);
   }
-
-  addMemorySpaceAttribute(Buffer, DTy->getDWARFMemorySpace());
 }
 
 void DwarfUnit::constructSubprogramArguments(DIE &Buffer, DITypeRefArray Args) {
@@ -1381,12 +1358,6 @@ void DwarfUnit::applySubprogramAttributes(const DISubprogram *SP, DIE &SPDie,
 
     // Add arguments. Do not add arguments for subprogram definition. They will
     // be handled while processing variables.
-    // FIXME: If no DBG_* intrinsic survives for a param into AsmPrinter then
-    // the argument doesn't get added at all. As an example, the following
-    // produces DWARF without mention of the "d" param:
-    // echo 'struct c {int x; c(const c&)=delete; c(c&&)=delete; }; void \
-    // f(c d) { }' | clang -x c++ - -o - -m32 -O0 -g -emit-llvm -S | \
-    // build/bin/llc -O0 -filetype=obj | build/bin/llvm-dwarfdump -a -
     constructSubprogramArguments(SPDie, Args);
   }
 

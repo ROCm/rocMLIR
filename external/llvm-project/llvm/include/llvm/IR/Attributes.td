@@ -180,8 +180,8 @@ def NoBuiltin : EnumAttr<"nobuiltin", IntersectPreserve, [FnAttr]>;
 /// Function cannot enter into caller's translation unit.
 def NoCallback : EnumAttr<"nocallback", IntersectAnd, [FnAttr]>;
 
-/// Function creates no aliases of pointer.
-def NoCapture : EnumAttr<"nocapture", IntersectAnd, [ParamAttr]>;
+/// Specify how the pointer may be captured.
+def Captures : IntAttr<"captures", IntersectCustom, [ParamAttr]>;
 
 /// Function is not a source of divergence.
 def NoDivergenceSource : EnumAttr<"nodivergencesource", IntersectAnd, [FnAttr]>;
@@ -328,9 +328,6 @@ def SanitizeHWAddress : EnumAttr<"sanitize_hwaddress", IntersectPreserve, [FnAtt
 
 /// MemTagSanitizer is on.
 def SanitizeMemTag : EnumAttr<"sanitize_memtag", IntersectPreserve, [FnAttr]>;
-
-/// Attribute to identify global variables instrumented by Sanitizers.
-def SanitizedPaddedGlobal : EnumAttr<"sanitized_padded_global", IntersectPreserve, [FnAttr]>;
 
 /// NumericalStabilitySanitizer is on.
 def SanitizeNumericalStability : EnumAttr<"sanitize_numerical_stability", IntersectPreserve, [FnAttr]>;

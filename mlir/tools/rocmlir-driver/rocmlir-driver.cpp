@@ -386,7 +386,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   // Run host code lowering that makes the result of this operation accetable
-  // to mlir-cpu-runner. Explicitly aborts in the case of multiple mhal
+  // to mlir-runner. Explicitly aborts in the case of multiple mhal
   // targets to prevent confusing behavior.
   if (hostPipelineSet.contains("runner")) {
     if (targetList.size() > 1) {

@@ -48,7 +48,7 @@ SIMachineFunctionInfo::SIMachineFunctionInfo(const Function &F,
   MaxNumWorkGroups = ST.getMaxNumWorkGroups(F);
   assert(MaxNumWorkGroups.size() == 3);
 
-  Occupancy = ST.computeOccupancy(F, getLDSSize());
+  Occupancy = ST.computeOccupancy(F, getLDSSize()).second;
   CallingConv::ID CC = F.getCallingConv();
 
   VRegFlags.reserve(1024);
@@ -185,8 +185,7 @@ MachineFunctionInfo *SIMachineFunctionInfo::clone(
 void SIMachineFunctionInfo::limitOccupancy(const MachineFunction &MF) {
   limitOccupancy(getMaxWavesPerEU());
   const GCNSubtarget& ST = MF.getSubtarget<GCNSubtarget>();
-  limitOccupancy(ST.getOccupancyWithLocalMemSize(getLDSSize(),
-                 MF.getFunction()));
+  limitOccupancy(ST.getOccupancyWithWorkGroupSizes(MF).second);
 }
 
 Register SIMachineFunctionInfo::addPrivateSegmentBuffer(
@@ -262,6 +261,8 @@ SmallVectorImpl<MCRegister> *SIMachineFunctionInfo::addPreloadedKernArg(
   // If the available register tuples are aligned with the kernarg to be
   // preloaded use that register, otherwise we need to use a set of SGPRs and
   // merge them.
+  if (!ArgInfo.FirstKernArgPreloadReg)
+    ArgInfo.FirstKernArgPreloadReg = getNextUserSGPR();
   Register PreloadReg =
       TRI.getMatchingSuperReg(getNextUserSGPR(), AMDGPU::sub0, RC);
   if (PreloadReg &&
@@ -354,9 +355,6 @@ void SIMachineFunctionInfo::shiftWwmVGPRsToLowestRange(
     if (RegItr != SpillPhysVGPRs.end()) {
       unsigned Idx = std::distance(SpillPhysVGPRs.begin(), RegItr);
       SpillPhysVGPRs[Idx] = NewReg;
-
-      // For replacing registers used in the CFI instructions.
-      MF.replaceFrameInstRegister(Reg, NewReg);
     }
 
     // The generic `determineCalleeSaves` might have set the old register if it
@@ -537,8 +535,7 @@ bool SIMachineFunctionInfo::allocateVGPRSpillToAGPR(MachineFunction &MF,
 }
 
 bool SIMachineFunctionInfo::removeDeadFrameIndices(
-    MachineFunction &MF, bool ResetSGPRSpillStackIDs) {
-  MachineFrameInfo &MFI = MF.getFrameInfo();
+    MachineFrameInfo &MFI, bool ResetSGPRSpillStackIDs) {
   // Remove dead frame indices from function frame, however keep FP & BP since
   // spills for them haven't been inserted yet. And also make sure to remove the
   // frame indices from `SGPRSpillsToVirtualVGPRLanes` data structure,
@@ -717,7 +714,7 @@ yaml::SIMachineFunctionInfo::SIMachineFunctionInfo(
       ArgInfo(convertArgumentInfo(MFI.getArgInfo(), TRI)),
       PSInputAddr(MFI.getPSInputAddr()), PSInputEnable(MFI.getPSInputEnable()),
       MaxMemoryClusterDWords(MFI.getMaxMemoryClusterDWords()),
-      Mode(MFI.getMode()) {
+      Mode(MFI.getMode()), HasInitWholeWave(MFI.hasInitWholeWave()) {
   for (Register Reg : MFI.getSGPRSpillPhysVGPRs())
     SpillPhysVGPRS.push_back(regToString(Reg, TRI));
 

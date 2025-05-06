@@ -2,25 +2,25 @@
 // RUN: sed -e 's/##TYPE##/f8E4M3FNUZ/g' -e 's/##OCP##/false/g' %s | \
 // RUN: rocmlir-opt -emulate-fp8-ext-trunc - | \
 // RUN: rocmlir-driver --host-pipeline=runner | \
-// RUN: mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
+// RUN: mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
 // RUN: FileCheck %s --check-prefixes=CHECK,F8E4M3FNUZ
 
 // RUN: sed -e 's/##TYPE##/f8E5M2FNUZ/g' -e 's/##OCP##/false/g' %s | \
 // RUN: rocmlir-opt -emulate-fp8-ext-trunc - | \
 // RUN: rocmlir-driver --host-pipeline=runner | \
-// RUN: mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
+// RUN: mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
 // RUN: FileCheck %s --check-prefixes=CHECK,F8E5M2FNUZ
 
 // RUN: sed -e 's/##TYPE##/f8E4M3FN/g'  -e 's/##OCP##/true/g' %s | \
 // RUN: rocmlir-opt -emulate-fp8-ext-trunc - | \
 // RUN: rocmlir-driver --host-pipeline=runner | \
-// RUN: mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
+// RUN: mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
 // RUN: FileCheck %s --check-prefixes=CHECK,F8E4M3FN
 
 // RUN: sed -e 's/##TYPE##/f8E5M2/g' -e 's/##OCP##/true/g' %s | \
 // RUN: rocmlir-opt -emulate-fp8-ext-trunc - | \
 // RUN: rocmlir-driver --host-pipeline=runner | \
-// RUN: mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
+// RUN: mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | \
 // RUN: FileCheck %s --check-prefixes=CHECK,F8E5M2
 
 

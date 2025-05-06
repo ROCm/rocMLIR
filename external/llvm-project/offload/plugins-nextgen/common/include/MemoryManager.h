@@ -35,6 +35,7 @@ public:
   virtual void *allocate(size_t Size, void *HstPtr,
                          TargetAllocTy Kind = TARGET_ALLOC_DEFAULT) = 0;
 
+  /// Delete the pointer \p TgtPtr on the device
   virtual int free(void *TgtPtr, TargetAllocTy Kind = TARGET_ALLOC_DEFAULT) = 0;
 };
 
@@ -323,7 +324,7 @@ public:
   /// manager explicitly by setting the var to 0. If user doesn't specify
   /// anything, returns <0, true>.
   static std::pair<size_t, bool> getSizeThresholdFromEnv() {
-    static UInt32Envar MemoryManagerThreshold(
+    static UInt64Envar MemoryManagerThreshold(
         "LIBOMPTARGET_MEMORY_MANAGER_THRESHOLD", 0);
 
     size_t Threshold = MemoryManagerThreshold.get();

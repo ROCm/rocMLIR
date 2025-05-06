@@ -63,13 +63,13 @@ std::pair<APFloat, llvm::detail::opStatus> createAPFloat(Type elemType,
     semantics = APFloat::S_IEEEhalf;
   } else if (elemType.isBF16()) {
     semantics = APFloat::S_BFloat;
-  } else if (elemType.isFloat8E4M3FNUZ()) {
+  } else if (isa<Float8E4M3FNUZType>(elemType)) {
     semantics = APFloat::S_Float8E4M3FNUZ;
-  } else if (elemType.isFloat8E5M2FNUZ()) {
+  } else if (isa<Float8E5M2FNUZType>(elemType)) {
     semantics = APFloat::S_Float8E5M2FNUZ;
-  } else if (elemType.isFloat8E4M3FN()) {
+  } else if (isa<Float8E4M3FNType>(elemType)) {
     semantics = APFloat::S_Float8E4M3FN;
-  } else if (elemType.isFloat8E5M2()) {
+  } else if (isa<Float8E5M2Type>(elemType)) {
     semantics = APFloat::S_Float8E5M2;
   } else {
     llvm_unreachable("Unexpected float semantics");

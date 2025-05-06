@@ -2,7 +2,7 @@
 ;
 ; Verify we change it to SPMD mode but also avoid propagating the old mode (=generic) into the __kmpc_target_init function.
 ;
-; CHECK: @__omp_offloading_20_11e3950_main_l12_kernel_environment = local_unnamed_addr addrspace(1) constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 1, i8 0, i8 3, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr addrspacecast (ptr addrspace(1) @1 to ptr), ptr null }
+; CHECK: @__omp_offloading_20_11e3950_main_l12_kernel_environment = local_unnamed_addr addrspace(1) constant %struct.KernelEnvironmentTy { %struct.ConfigurationEnvironmentTy { i8 0, i8 0, i8 3, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0 }, ptr addrspacecast (ptr addrspace(1) @1 to ptr), ptr null }
 ; CHECK-NOT: store i32 0, ptr addrspace(3) @IsSPMDMode
 ; CHECK-NOT: store i32 0, ptr addrspace(3) @IsSPMDMode
 ; CHECK: store i32 1, ptr addrspace(3) @IsSPMDMode
@@ -297,12 +297,10 @@ attributes #14 = { convergent nounwind "llvm.assume"="ompx_aligned_barrier,ompx_
 attributes #15 = { convergent nounwind }
 
 !omp_offload.info = !{!0}
-!nvvm.annotations = !{!1}
 !llvm.module.flags = !{!2, !3, !4, !5}
 !llvm.ident = !{!6}
 
 !0 = !{i32 0, i32 32, i32 18757968, !"main", i32 12, i32 0}
-!1 = !{ptr @__omp_offloading_20_11e3950_main_l12, !"kernel", i32 1}
 !2 = !{i32 1, !"wchar_size", i32 4}
 !3 = !{i32 7, !"openmp", i32 50}
 !4 = !{i32 7, !"openmp-device", i32 50}

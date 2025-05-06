@@ -1865,7 +1865,7 @@ static uint64_t getRawAttributeMask(Attribute::AttrKind Val) {
   case Attribute::StackProtect:    return 1 << 14;
   case Attribute::StackProtectReq: return 1 << 15;
   case Attribute::Alignment:       return 31 << 16;
-  case Attribute::NoCapture:       return 1 << 21;
+  // 1ULL << 21 is NoCapture, which is upgraded separately.
   case Attribute::NoRedZone:       return 1 << 22;
   case Attribute::NoImplicitFloat: return 1 << 23;
   case Attribute::Naked:           return 1 << 24;
@@ -1986,6 +1986,12 @@ static void decodeLLVMAttributesForBitcode(AttrBuilder &B,
       B.addMemoryAttr(ME);
   }
 
+  // Upgrade nocapture to captures(none).
+  if (Attrs & (1ULL << 21)) {
+    Attrs &= ~(1ULL << 21);
+    B.addCapturesAttr(CaptureInfo::none());
+  }
+
   addRawAttributeValue(B, Attrs);
 }
 
@@ -2098,8 +2104,6 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::NoBuiltin;
   case bitc::ATTR_KIND_NO_CALLBACK:
     return Attribute::NoCallback;
-  case bitc::ATTR_KIND_NO_CAPTURE:
-    return Attribute::NoCapture;
   case bitc::ATTR_KIND_NO_DIVERGENCE_SOURCE:
     return Attribute::NoDivergenceSource;
   case bitc::ATTR_KIND_NO_DUPLICATE:
@@ -2152,8 +2156,6 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::NullPointerIsValid;
   case bitc::ATTR_KIND_OPTIMIZE_FOR_DEBUGGING:
     return Attribute::OptimizeForDebugging;
-  case bitc::ATTR_KIND_SANITIZED_PADDED_GLOBAL:
-    return Attribute::SanitizedPaddedGlobal;
   case bitc::ATTR_KIND_OPT_FOR_FUZZING:
     return Attribute::OptForFuzzing;
   case bitc::ATTR_KIND_OPTIMIZE_FOR_SIZE:
@@ -2252,6 +2254,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::CoroElideSafe;
   case bitc::ATTR_KIND_NO_EXT:
     return Attribute::NoExt;
+  case bitc::ATTR_KIND_CAPTURES:
+    return Attribute::Captures;
   }
 }
 
@@ -2349,6 +2353,11 @@ Error BitcodeReader::parseAttributeGroupBlock() {
               upgradeOldMemoryAttribute(ME, EncodedKind))
             continue;
 
+          if (EncodedKind == bitc::ATTR_KIND_NO_CAPTURE) {
+            B.addCapturesAttr(CaptureInfo::none());
+            continue;
+          }
+
           if (Error Err = parseAttrKind(EncodedKind, &Kind))
             return Err;
 
@@ -2391,6 +2400,8 @@ Error BitcodeReader::parseAttributeGroupBlock() {
             B.addAllocKindAttr(static_cast<AllocFnKind>(Record[++i]));
           else if (Kind == Attribute::Memory)
             B.addMemoryAttr(MemoryEffects::createFromIntValue(Record[++i]));
+          else if (Kind == Attribute::Captures)
+            B.addCapturesAttr(CaptureInfo::createFromIntValue(Record[++i]));
           else if (Kind == Attribute::NoFPClass)
             B.addNoFPClassAttr(
                 static_cast<FPClassTest>(Record[++i] & fcAllFlags));
@@ -2596,7 +2607,7 @@ Error BitcodeReader::parseTypeTableBody() {
           !PointerType::isValidElementType(ResultTy))
         return error("Invalid type");
       ContainedIDs.push_back(Record[0]);
-      ResultTy = PointerType::get(ResultTy, AddressSpace);
+      ResultTy = PointerType::get(ResultTy->getContext(), AddressSpace);
       break;
     }
     case bitc::TYPE_CODE_OPAQUE_POINTER: { // OPAQUE_POINTER: [addrspace]
@@ -6690,7 +6701,8 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
         DIExpression *AddrExpr =
             cast<DIExpression>(getFnMetadataByID(Record[Slot++]));
         Metadata *Addr = getFnMetadataByID(Record[Slot++]);
-        DVR = new DbgVariableRecord(RawLocation, Var, Expr, ID, Addr, AddrExpr, DIL);
+        DVR = new DbgVariableRecord(RawLocation, Var, Expr, ID, Addr, AddrExpr,
+                                    DIL);
         break;
       }
       default:
@@ -7144,6 +7156,8 @@ Error BitcodeReader::materializeModule() {
   UpgradeDebugInfo(*TheModule);
 
   UpgradeModuleFlags(*TheModule);
+
+  UpgradeNVVMAnnotations(*TheModule);
 
   UpgradeARCRuntime(*TheModule);
 

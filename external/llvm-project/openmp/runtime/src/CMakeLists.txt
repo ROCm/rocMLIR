@@ -149,7 +149,6 @@ libomp_append(LIBOMP_SOURCE_FILES libomp.rc WIN32)
 libomp_get_cxxflags(LIBOMP_CONFIGURED_CXXFLAGS)
 libomp_get_asmflags(LIBOMP_CONFIGURED_ASMFLAGS)
 # Set the compiler flags for each type of source
-set(LIBOMP_CONFIGURED_CXXFLAGS "${LIBOMP_CONFIGURED_CXXFLAGS} ${OPENMP_SOURCE_DEBUG_MAP}")
 set_source_files_properties(${LIBOMP_CXXFILES} PROPERTIES COMPILE_FLAGS "${LIBOMP_CONFIGURED_CXXFLAGS}")
 set_source_files_properties(${LIBOMP_ASMFILES} ${LIBOMP_GNUASMFILES} PROPERTIES COMPILE_FLAGS "${LIBOMP_CONFIGURED_ASMFLAGS}")
 
@@ -453,11 +452,7 @@ if(WIN32)
   endforeach()
 else()
 
-  if(${CMAKE_SYSTEM_NAME} MATCHES "AIX")
-    install(FILES ${LIBOMP_LIBRARY_DIR}/libomp.a DESTINATION "${OPENMP_INSTALL_LIBDIR}" COMPONENT runtime)
-  else()
-    install(TARGETS omp ${export_to_llvmexports} ${LIBOMP_INSTALL_KIND} DESTINATION "${OPENMP_INSTALL_LIBDIR}")
-  endif()
+  install(TARGETS omp ${export_to_llvmexports} ${LIBOMP_INSTALL_KIND} DESTINATION "${OPENMP_INSTALL_LIBDIR}")
 
   if(${LIBOMP_INSTALL_ALIASES})
     # Create aliases (symlinks) of the library for backwards compatibility
@@ -466,7 +461,7 @@ else()
     foreach(alias IN LISTS LIBOMP_ALIASES)
       install(CODE "execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink \"${LIBOMP_LIB_FILE}\"
         \"${alias}${LIBOMP_LIBRARY_SUFFIX}\" WORKING_DIRECTORY
-        \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${RUN_PACKAGE}${OPENMP_INSTALL_LIBDIR}\")")
+        \"\$ENV{DESTDIR}${outdir}\")")
     endforeach()
     if(LIBOMP_ENABLE_SHARED)
       install(CODE "execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink \"${LIBOMP_LIB_FILE}\"
@@ -496,6 +491,6 @@ if(${BUILD_FORTRAN_MODULES})
     ${CMAKE_CURRENT_BINARY_DIR}/omp_lib.h
     ${CMAKE_CURRENT_BINARY_DIR}/omp_lib.mod
     ${CMAKE_CURRENT_BINARY_DIR}/omp_lib_kinds.mod
-    DESTINATION ${DEVEL_PACKAGE}${destination}
+    DESTINATION ${destination}
   )
 endif()

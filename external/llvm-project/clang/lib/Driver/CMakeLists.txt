@@ -5,7 +5,6 @@ set(LLVM_LINK_COMPONENTS
   Option
   ProfileData
   Support
-  Object
   TargetParser
   WindowsDriver
   )
@@ -45,11 +44,9 @@ add_clang_library(clangDriver
   ToolChains/AIX.cpp
   ToolChains/AMDGPU.cpp
   ToolChains/AMDGPUOpenMP.cpp
-  ToolChains/AmdOptArgs.cpp
   ToolChains/AVR.cpp
   ToolChains/BareMetal.cpp
   ToolChains/Clang.cpp
-  ToolChains/OpaqueOffloadLinker.cpp
   ToolChains/CommonArgs.cpp
   ToolChains/CrossWindows.cpp
   ToolChains/CSKYToolChain.cpp
@@ -103,5 +100,4 @@ add_clang_library(clangDriver
   LINK_LIBS
   clangBasic
   ${system_libs}
-  ${LLVM_PTHREAD_LIB}
   )

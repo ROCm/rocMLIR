@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "CommonArgs.h"
-#include "AmdOptArgs.h"
 #include "Arch/AArch64.h"
 #include "Arch/ARM.h"
 #include "Arch/CSKY.h"
@@ -50,16 +49,13 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/Magic.h"
 #include "llvm/Config/llvm-config.h"
-#include "llvm/Object/Archive.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/Option.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Compression.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
@@ -567,12 +563,7 @@ void tools::AddTargetFeature(const ArgList &Args,
 static std::string getAMDGPUTargetGPU(const llvm::Triple &T,
                                       const ArgList &Args) {
   Arg *MArch = Args.getLastArg(options::OPT_march_EQ);
-  Arg *A = Args.getLastArg(options::OPT_mcpu_EQ);
-  if (!A)
-    A = Args.getLastArg(options::OPT_march_EQ);
-  if (!A)
-    A = Args.getLastArg(options::OPT_offload_arch_EQ);
-  if (A) {
+  if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
     auto GPUName = getProcessorFromTargetID(T, A->getValue());
     return llvm::StringSwitch<std::string>(GPUName)
         .Cases("rv630", "rv635", "r600")
@@ -735,8 +726,7 @@ static void getWebAssemblyTargetFeatures(const Driver &D,
 
 void tools::getTargetFeatures(const Driver &D, const llvm::Triple &Triple,
                               const ArgList &Args, ArgStringList &CmdArgs,
-                              bool ForAS, bool IsAux,
-                              const StringRef TcTargetID) {
+                              bool ForAS, bool IsAux) {
   std::vector<StringRef> Features;
   switch (Triple.getArch()) {
   default:
@@ -789,7 +779,7 @@ void tools::getTargetFeatures(const Driver &D, const llvm::Triple &Triple,
     break;
   case llvm::Triple::r600:
   case llvm::Triple::amdgcn:
-    amdgpu::getAMDGPUTargetFeatures(D, Triple, Args, Features, TcTargetID);
+    amdgpu::getAMDGPUTargetFeatures(D, Triple, Args, Features);
     break;
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
@@ -870,15 +860,10 @@ void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
   const bool IsAMDGCN = Triple.isAMDGCN();
   const char *Linker = Args.MakeArgString(ToolChain.GetLinkerPath());
   const Driver &D = ToolChain.getDriver();
-  bool ClosedNeeded =
-    checkForAMDProprietaryOptOptions(ToolChain, D, Args, CmdArgs,
-                                     false /*isLLD*/, true /*checkOnly*/);
-
   const bool IsFatLTO = Args.hasArg(options::OPT_ffat_lto_objects);
   const bool IsUnifiedLTO = Args.hasArg(options::OPT_funified_lto);
   if (llvm::sys::path::filename(Linker) != "ld.lld" &&
-      llvm::sys::path::stem(Linker) != "ld.lld" && !ClosedNeeded &&
-      !Triple.isOSOpenBSD()) {
+      llvm::sys::path::stem(Linker) != "ld.lld" && !Triple.isOSOpenBSD()) {
     // Tell the linker to load the plugin. This has to come before
     // AddLinkerInputs as gold requires -plugin and AIX ld requires -bplugin to
     // come before any -plugin-opt/-bplugin_opt that -Wl might forward.
@@ -1224,86 +1209,10 @@ void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
   if (ImplicitMapSyms)
     CmdArgs.push_back(
         Args.MakeArgString(Twine(PluginOptPrefix) + "-implicit-mapsyms"));
-}
 
-void tools::addOpenMPRuntimeSpecificRPath(const ToolChain &TC,
-                                          const ArgList &Args,
-                                          ArgStringList &CmdArgs) {
-  const Driver &D = TC.getDriver();
-  std::string LibSuffix = "lib";
-  if (TC.getSanitizerArgs(Args).needsAsanRt())
-    LibSuffix.append("/asan");
-  if (Arg *A = Args.getLastArg(options::OPT_fopenmp_runtimelib_EQ)) {
-    LibSuffix = A->getValue();
-    if (LibSuffix != "lib-perf" && LibSuffix != "lib-debug" && LibSuffix != "lib")
-      D.Diag(diag::err_drv_unsupported_option_argument)
-        << A->getSpelling() << LibSuffix;
-    if (TC.getSanitizerArgs(Args).needsAsanRt())
-      LibSuffix.append("/asan");
-  }
-
-  // Check if the device library can be found in
-  // one of the LIBRARY_PATH directories.
-  ArgStringList EnvLibraryPaths;
-  addDirectoryList(Args, EnvLibraryPaths, "", "LIBRARY_PATH");
-  for (auto &EnvLibraryPath : EnvLibraryPaths) {
-    if (llvm::sys::fs::exists(EnvLibraryPath)) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(EnvLibraryPath));
-    }
-  }
-
-  if (Args.hasFlag(options::OPT_fopenmp_implicit_rpath,
-                   options::OPT_fno_openmp_implicit_rpath, true)) {
-    // Default to clang lib / lib64 folder, i.e. the same location as device
-    // runtime
-    SmallString<256> DefaultLibPath =
-        llvm::sys::path::parent_path(TC.getDriver().Dir);
-    llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
-    if (TC.getSanitizerArgs(Args).needsAsanRt()) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(TC.getCompilerRTPath()));
-    }
-
-    // In case LibSuffix was not built, try lib
-    std::string CandidateRPath_suf = D.Dir + "/../" + LibSuffix;
-    CmdArgs.push_back("-rpath");
-    CmdArgs.push_back(Args.MakeArgString(CandidateRPath_suf.c_str()));
-
-    // Add lib directory in case LibSuffix does not exist
-    std::string CandidateRPath_lib = D.Dir + "/../lib";
-    if ((!llvm::sys::fs::exists(CandidateRPath_suf)) &&
-        (llvm::sys::fs::exists(CandidateRPath_lib))) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(CandidateRPath_lib.c_str()));
-    }
-
-    std::string rocmPath =
-        Args.getLastArgValue(clang::driver::options::OPT_rocm_path_EQ).str();
-    if (rocmPath.size() != 0) {
-      std::string rocmPath_lib = rocmPath + "/lib";
-      std::string rocmPath_suf = rocmPath + "/" + LibSuffix;
-      if (llvm::sys::fs::exists(rocmPath_suf)) {
-        CmdArgs.push_back("-rpath");
-        CmdArgs.push_back(Args.MakeArgString(rocmPath_suf.c_str()));
-      } else if (llvm::sys::fs::exists(rocmPath_lib)) {
-        CmdArgs.push_back("-rpath");
-        CmdArgs.push_back(Args.MakeArgString(rocmPath_lib.c_str()));
-      }
-    }
-
-    // Add Default lib path to ensure llvm dynamic library is picked up for
-    // lib-debug/lib-perf
-    if (LibSuffix != "lib" && llvm::sys::fs::exists(DefaultLibPath)) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(DefaultLibPath.c_str()));
-    }
-
-    if (llvm::find_if(CmdArgs, [](StringRef str) {
-          return !str.compare("--enable-new-dtags");
-        }) == CmdArgs.end())
-      CmdArgs.push_back("--disable-new-dtags");
-  }
+  if (Args.hasArg(options::OPT_ftime_report))
+    CmdArgs.push_back(
+        Args.MakeArgString(Twine(PluginOptPrefix) + "-time-passes"));
 }
 
 void tools::addOpenMPRuntimeLibraryPath(const ToolChain &TC,
@@ -1314,15 +1223,7 @@ void tools::addOpenMPRuntimeLibraryPath(const ToolChain &TC,
   SmallString<256> DefaultLibPath =
       llvm::sys::path::parent_path(TC.getDriver().Dir);
   llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
-  if (TC.getSanitizerArgs(Args).needsAsanRt()) {
-    SmallString<256> ASanLibPath[2];
-    ASanLibPath[0].assign((DefaultLibPath + "/../../asan").str());
-    ASanLibPath[1].assign((DefaultLibPath + "/asan").str());
-    for (auto Path : ASanLibPath)
-      if (llvm::sys::fs::exists(Path))
-        CmdArgs.push_back(Args.MakeArgString("-L" + Path));
-  } else
-    CmdArgs.push_back(Args.MakeArgString("-L" + DefaultLibPath));
+  CmdArgs.push_back(Args.MakeArgString("-L" + DefaultLibPath));
 }
 
 void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
@@ -1341,35 +1242,6 @@ void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
       CmdArgs.push_back(Args.MakeArgString(CandidateRPath));
     }
   }
-}
-
-bool requiresCOMGrLinking(const ToolChain &TC, const ArgList &Args) {
-  std::vector<std::string> extractValues =
-      Args.getAllArgValues(options::OPT_Xopenmp_target_EQ);
-  std::vector<std::string>::iterator itr;
-  if (!extractValues.empty()) {
-    itr = extractValues.begin();
-    while ((itr = std::find(itr, extractValues.end(), "amdgcn-amd-amdhsa")) !=
-           extractValues.end()) {
-      StringRef archVal(*(itr + 1));
-      if (archVal.contains("xnack+") && TC.getSanitizerArgs(Args).needsAsanRt())
-        return true;
-      itr += 2;
-    }
-  } else {
-    std::string tgtArch =
-        getAMDGPUTargetGPU(llvm::Triple("amdgcn-amd-amdhsa"), Args);
-    extractValues = Args.getAllArgValues(options::OPT_offload_arch_EQ);
-    itr = extractValues.begin();
-    while (itr != extractValues.end()) {
-      StringRef archVal(*itr);
-      if (!tgtArch.empty() && archVal.contains("xnack+") &&
-          TC.getSanitizerArgs(Args).needsAsanRt())
-        return true;
-      itr++;
-    }
-  }
-  return false;
 }
 
 bool tools::addOpenMPRuntime(const Compilation &C, ArgStringList &CmdArgs,
@@ -1404,9 +1276,6 @@ bool tools::addOpenMPRuntime(const Compilation &C, ArgStringList &CmdArgs,
   case Driver::OMPRT_IOMP5:
     CmdArgs.push_back("-liomp5");
     break;
-  case Driver::OMPRT_BOLT:
-    CmdArgs.push_back("-lbolt");
-    break;
   case Driver::OMPRT_Unknown:
     break;
   }
@@ -1417,23 +1286,14 @@ bool tools::addOpenMPRuntime(const Compilation &C, ArgStringList &CmdArgs,
   if (RTKind == Driver::OMPRT_GOMP && GompNeedsRT)
       CmdArgs.push_back("-lrt");
 
-  if (RTKind == Driver::OMPRT_BOLT)
-    CmdArgs.push_back("-lbolt");
-
-  if (IsOffloadingHost) {
-    if (requiresCOMGrLinking(TC, Args)) {
-      CmdArgs.push_back("-lamd_comgr");
-    }
+  if (IsOffloadingHost)
     CmdArgs.push_back("-lomptarget");
-  }
 
   if (IsOffloadingHost && !Args.hasArg(options::OPT_nogpulib))
     CmdArgs.push_back("-lomptarget.devicertl");
 
   addArchSpecificRPath(TC, Args, CmdArgs);
 
-  if (RTKind == Driver::OMPRT_OMP || RTKind == Driver::OMPRT_BOLT)
-    addOpenMPRuntimeSpecificRPath(TC, Args, CmdArgs);
   addOpenMPRuntimeLibraryPath(TC, Args, CmdArgs);
 
   return true;
@@ -2003,18 +1863,6 @@ tools::ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
   // Android-specific defaults for PIC/PIE
   if (Triple.isAndroid()) {
     switch (Triple.getArch()) {
-    case llvm::Triple::arm:
-    case llvm::Triple::armeb:
-    case llvm::Triple::thumb:
-    case llvm::Triple::thumbeb:
-    case llvm::Triple::aarch64:
-    case llvm::Triple::mips:
-    case llvm::Triple::mipsel:
-    case llvm::Triple::mips64:
-    case llvm::Triple::mips64el:
-      PIC = true; // "-fpic"
-      break;
-
     case llvm::Triple::x86:
     case llvm::Triple::x86_64:
       PIC = true; // "-fPIC"
@@ -2022,6 +1870,7 @@ tools::ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
       break;
 
     default:
+      PIC = true; // "-fpic"
       break;
     }
   }
@@ -2051,10 +1900,6 @@ tools::ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
       break;
     }
   }
-
-  // AMDGPU-specific defaults for PIC.
-  if (Triple.isAMDGCN())
-    PIC = true;
 
   // The last argument relating to either PIC or PIE wins, and no
   // other argument is used. If the last argument is any flavor of the
@@ -2582,8 +2427,8 @@ void tools::addX86AlignBranchArgs(const Driver &D, const ArgList &Args,
 static bool SDLSearch(const Driver &D, const llvm::opt::ArgList &DriverArgs,
                       llvm::opt::ArgStringList &CC1Args,
                       const SmallVectorImpl<std::string> &LibraryPaths,
-                      StringRef Lib, StringRef Arch, StringRef TargetID,
-                      bool isBitCodeSDL, bool postClangLink) {
+                      StringRef Lib, StringRef Arch, StringRef Target,
+                      bool isBitCodeSDL) {
   SmallVector<std::string, 12> SDLs;
 
   std::string LibDeviceLoc = "/libdevice";
@@ -2608,7 +2453,7 @@ static bool SDLSearch(const Driver &D, const llvm::opt::ArgList &DriverArgs,
     for (StringRef Base : {LibBcPrefix, LibPrefix}) {
       const auto *Ext = Base.contains(LibBcPrefix) ? ".a" : ".bc";
 
-      for (auto Suffix : {Twine(Lib + "-" + Arch + "-" + TargetID).str(),
+      for (auto Suffix : {Twine(Lib + "-" + Arch + "-" + Target).str(),
                           Twine(Lib + "-" + Arch).str(), Twine(Lib).str()}) {
         SDLs.push_back(Twine(LibDeviceLoc + Base + Suffix + Ext).str());
         SDLs.push_back(Twine(Base + Suffix + Ext).str());
@@ -2623,7 +2468,7 @@ static bool SDLSearch(const Driver &D, const llvm::opt::ArgList &DriverArgs,
 
     const auto *Ext = ".a";
 
-    for (auto Suffix : {Twine(Lib + "-" + Arch + "-" + TargetID).str(),
+    for (auto Suffix : {Twine(Lib + "-" + Arch + "-" + Target).str(),
                         Twine(Lib + "-" + Arch).str()}) {
       SDLs.push_back(Twine(LibDeviceLoc + LibPrefix + Suffix + Ext).str());
       SDLs.push_back(Twine(LibPrefix + Suffix + Ext).str());
@@ -2642,8 +2487,6 @@ static bool SDLSearch(const Driver &D, const llvm::opt::ArgList &DriverArgs,
     for (auto SDL : SDLs) {
       auto FullName = Twine(LPath + SDL).str();
       if (llvm::sys::fs::exists(FullName)) {
-        if (postClangLink)
-          CC1Args.push_back("-mlink-builtin-bitcode");
         CC1Args.push_back(DriverArgs.MakeArgString(FullName));
         FoundSDL = true;
         break;
@@ -2664,8 +2507,7 @@ static void GetSDLFromOffloadArchive(
     const InputInfoList &Inputs, const llvm::opt::ArgList &DriverArgs,
     llvm::opt::ArgStringList &CC1Args,
     const SmallVectorImpl<std::string> &LibraryPaths, StringRef Lib,
-    StringRef Arch, StringRef Target, bool isBitCodeSDL,
-    bool postClangLink, bool unpackage) {
+    StringRef Arch, StringRef Target, bool isBitCodeSDL) {
 
   // We don't support bitcode archive bundles for nvptx
   if (isBitCodeSDL && Arch.contains("nvptx"))
@@ -2679,7 +2521,7 @@ static void GetSDLFromOffloadArchive(
   auto Ext = IsMSVC ? ".lib" : ".a";
   if (!Lib.starts_with(":") && !Lib.starts_with("-l")) {
     if (llvm::sys::fs::exists(Lib)) {
-      ArchiveOfBundles = Lib.str();
+      ArchiveOfBundles = Lib;
       FoundAOB = true;
     }
   } else {
@@ -2710,31 +2552,6 @@ static void GetSDLFromOffloadArchive(
   auto EC = llvm::identify_magic(ArchiveOfBundles, Magic);
   if (EC || Magic != llvm::file_magic::archive)
     return;
-
-  if (unpackage) {
-    std::string OutputLib =
-        D.GetTemporaryPath(Twine("lib" + llvm::sys::path::filename(Lib) + "-" +
-                                 Arch + "-" + Target)
-                               .str(),
-                           "a");
-
-    ArgStringList UPArgs;
-    const char *UPProgram = DriverArgs.MakeArgString(
-        T.getToolChain().GetProgramPath("clang-offload-packager"));
-    UPArgs.push_back(C.getArgs().MakeArgString(ArchiveOfBundles.c_str()));
-    UPArgs.push_back(C.getArgs().MakeArgString("--archive"));
-    std::string OutputArg("--image=file=" + OutputLib +
-                          ",triple=amdgcn-amd-amdhsa,arch=" + Target.str() +
-                          ",kind=openmp");
-    UPArgs.push_back(C.getArgs().MakeArgString(OutputArg));
-
-    C.addCommand(std::make_unique<Command>(
-        JA, T, ResponseFileSupport::AtFileCurCP(), UPProgram, UPArgs, Inputs,
-        InputInfo(&JA, C.getArgs().MakeArgString(OutputLib))));
-
-    CC1Args.push_back(DriverArgs.MakeArgString(OutputLib));
-    return;
-  }
 
   StringRef Prefix = isBitCodeSDL ? "libbc-" : "lib";
   std::string OutputLib =
@@ -2792,39 +2609,16 @@ static void GetSDLFromOffloadArchive(
   return;
 }
 
-// Wrapper function used by opaque-offload-linker  for adding SDLs
-// during link phase.
-void tools::AddStaticDeviceLibsLinking(
-    Compilation &C, const Tool &T, const JobAction &JA,
-    const InputInfoList &Inputs, const llvm::opt::ArgList &DriverArgs,
-    llvm::opt::ArgStringList &CC1Args, StringRef Arch, StringRef TargetID,
-    bool isBitCodeSDL, bool postClangLink, bool unpackage) {
-  AddStaticDeviceLibs(&C, &T, &JA, &Inputs, C.getDriver(), DriverArgs, CC1Args,
-                      Arch, TargetID, isBitCodeSDL, postClangLink, unpackage);
-}
-
 // Wrapper function used by driver for adding SDLs during link phase.
 void tools::AddStaticDeviceLibsLinking(Compilation &C, const Tool &T,
                                        const JobAction &JA,
                                        const InputInfoList &Inputs,
                                        const llvm::opt::ArgList &DriverArgs,
                                        llvm::opt::ArgStringList &CC1Args,
-                                       StringRef Arch, StringRef TargetID,
-                                       bool isBitCodeSDL, bool postClangLink) {
+                                       StringRef Arch, StringRef Target,
+                                       bool isBitCodeSDL) {
   AddStaticDeviceLibs(&C, &T, &JA, &Inputs, C.getDriver(), DriverArgs, CC1Args,
-                      Arch, TargetID, isBitCodeSDL, postClangLink);
-}
-
-// Wrapper function used for post clang linking of bitcode SDLS for nvptx by
-// the CUDA toolchain.
-void tools::AddStaticDeviceLibsPostLinking(const Driver &D,
-                                           const llvm::opt::ArgList &DriverArgs,
-                                           llvm::opt::ArgStringList &CC1Args,
-                                           StringRef Arch, StringRef TargetID,
-                                           bool isBitCodeSDL,
-                                           bool postClangLink) {
-  AddStaticDeviceLibs(nullptr, nullptr, nullptr, nullptr, D, DriverArgs,
-                      CC1Args, Arch, TargetID, isBitCodeSDL, postClangLink);
+                      Arch, Target, isBitCodeSDL);
 }
 
 // User defined Static Device Libraries(SDLs) can be passed to clang for
@@ -2856,8 +2650,7 @@ void tools::AddStaticDeviceLibs(Compilation *C, const Tool *T,
                                 const llvm::opt::ArgList &DriverArgs,
                                 llvm::opt::ArgStringList &CC1Args,
                                 StringRef Arch, StringRef Target,
-                                bool isBitCodeSDL, bool postClangLink,
-                                bool unpackage) {
+                                bool isBitCodeSDL) {
 
   SmallVector<std::string, 8> LibraryPaths;
   // Add search directories from LIBRARY_PATH env variable
@@ -2875,7 +2668,7 @@ void tools::AddStaticDeviceLibs(Compilation *C, const Tool *T,
   for (std::string Search_Dir : DriverArgs.getAllArgValues(options::OPT_L))
     LibraryPaths.emplace_back(Search_Dir);
 
-  // Add path to lib* folders
+  // Add path to lib-debug folders
   SmallString<256> DefaultLibPath = llvm::sys::path::parent_path(D.Dir);
   llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
   LibraryPaths.emplace_back(DefaultLibPath.c_str());
@@ -2913,10 +2706,10 @@ void tools::AddStaticDeviceLibs(Compilation *C, const Tool *T,
   for (auto SDLName : SDLNames) {
     // This is the only call to SDLSearch
     if (!SDLSearch(D, DriverArgs, CC1Args, LibraryPaths, SDLName, Arch, Target,
-                   isBitCodeSDL, postClangLink) && !postClangLink) {
+                   isBitCodeSDL)) {
       GetSDLFromOffloadArchive(*C, D, *T, *JA, *Inputs, DriverArgs, CC1Args,
                                LibraryPaths, SDLName, Arch, Target,
-                               isBitCodeSDL, postClangLink, unpackage);
+                               isBitCodeSDL);
     }
   }
 }
@@ -2940,23 +2733,22 @@ void tools::checkAMDGPUCodeObjectVersion(const Driver &D,
       if (Remnant || CodeObjVer < MinCodeObjVer || CodeObjVer > MaxCodeObjVer)
         D.Diag(diag::err_drv_invalid_int_value)
             << CodeObjArg->getAsString(Args) << CodeObjArg->getValue();
+
+      // COV6 is only supported by LLVM at the time of writing this, and it's
+      // expected to take some time before all ROCm components fully
+      // support it. In the meantime, make sure users are aware of this.
+      if (CodeObjVer == 6)
+        D.Diag(diag::warn_drv_amdgpu_cov6);
     }
   }
 }
 
 unsigned tools::getAMDGPUCodeObjectVersion(const Driver &D,
                                            const llvm::opt::ArgList &Args) {
-  unsigned CodeObjVer = 6; // default
+  unsigned CodeObjVer = 5; // default
   if (auto *CodeObjArg = getAMDGPUCodeObjectArgument(D, Args))
     StringRef(CodeObjArg->getValue()).getAsInteger(0, CodeObjVer);
   return CodeObjVer;
-}
-
-unsigned tools::getOrCheckAMDGPUCodeObjectVersion(
-    const Driver &D, const llvm::opt::ArgList &Args, bool Diagnose) {
-  if (Diagnose)
-    checkAMDGPUCodeObjectVersion(D, Args);
-  return getAMDGPUCodeObjectVersion(D, Args);
 }
 
 bool tools::haveAMDGPUCodeObjectVersionArgument(
@@ -3043,7 +2835,6 @@ void tools::addOpenMPDeviceRTL(const Driver &D,
       Triple.isAMDGCN()  ? options::OPT_libomptarget_amdgpu_bc_path_EQ
       : Triple.isNVPTX() ? options::OPT_libomptarget_nvptx_bc_path_EQ
                          : options::OPT_libomptarget_spirv_bc_path_EQ;
-
 
   StringRef ArchPrefix = Triple.isAMDGCN()  ? "amdgpu"
                          : Triple.isNVPTX() ? "nvptx"
@@ -3304,12 +3095,19 @@ void tools::renderCommonIntegerOverflowOptions(const ArgList &Args,
                                                ArgStringList &CmdArgs) {
   // -fno-strict-overflow implies -fwrapv if it isn't disabled, but
   // -fstrict-overflow won't turn off an explicitly enabled -fwrapv.
+  bool StrictOverflow = Args.hasFlag(options::OPT_fstrict_overflow,
+                                     options::OPT_fno_strict_overflow, true);
   if (Arg *A = Args.getLastArg(options::OPT_fwrapv, options::OPT_fno_wrapv)) {
     if (A->getOption().matches(options::OPT_fwrapv))
       CmdArgs.push_back("-fwrapv");
-  } else if (Arg *A = Args.getLastArg(options::OPT_fstrict_overflow,
-                                      options::OPT_fno_strict_overflow)) {
-    if (A->getOption().matches(options::OPT_fno_strict_overflow))
-      CmdArgs.push_back("-fwrapv");
+  } else if (!StrictOverflow) {
+    CmdArgs.push_back("-fwrapv");
+  }
+  if (Arg *A = Args.getLastArg(options::OPT_fwrapv_pointer,
+                               options::OPT_fno_wrapv_pointer)) {
+    if (A->getOption().matches(options::OPT_fwrapv_pointer))
+      CmdArgs.push_back("-fwrapv-pointer");
+  } else if (!StrictOverflow) {
+    CmdArgs.push_back("-fwrapv-pointer");
   }
 }

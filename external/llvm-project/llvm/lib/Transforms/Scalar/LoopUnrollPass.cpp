@@ -220,6 +220,7 @@ TargetTransformInfo::UnrollingPreferences llvm::gatherUnrollingPreferences(
   UP.UnrollAndJamInnerLoopThreshold = 60;
   UP.MaxIterationsCountToAnalyze = UnrollMaxIterationsCountToAnalyze;
   UP.SCEVExpansionBudget = SCEVCheapExpansionBudget;
+  UP.RuntimeUnrollMultiExit = false;
 
   // Override with any target specific settings
   TTI.getUnrollingPreferences(L, SE, UP, &ORE);
@@ -796,7 +797,7 @@ static unsigned getFullUnrollBoostingFactor(const EstimatedUnrollCost &Cost,
 static std::optional<unsigned>
 shouldPragmaUnroll(Loop *L, const PragmaInfo &PInfo,
                    const unsigned TripMultiple, const unsigned TripCount,
-                   const UnrollCostEstimator UCE,
+                   unsigned MaxTripCount, const UnrollCostEstimator UCE,
                    const TargetTransformInfo::UnrollingPreferences &UP) {
 
   // Using unroll pragma
@@ -825,6 +826,10 @@ shouldPragmaUnroll(Loop *L, const PragmaInfo &PInfo,
 
     return TripCount;
   }
+
+  if (PInfo.PragmaEnableUnroll && !TripCount && MaxTripCount &&
+      MaxTripCount <= UP.MaxUpperBound)
+    return MaxTripCount;
 
   // if didn't return until here, should continue to other priorties
   return std::nullopt;
@@ -952,7 +957,7 @@ bool llvm::computeUnrollCount(
   // 1st priority is unroll count set by "unroll-count" option.
   // 2nd priority is unroll count set by pragma.
   if (auto UnrollFactor = shouldPragmaUnroll(L, PInfo, TripMultiple, TripCount,
-                                             UCE, UP)) {
+                                             MaxTripCount, UCE, UP)) {
     UP.Count = *UnrollFactor;
 
     if (UserUnrollCount || (PragmaCount > 0)) {
@@ -1348,6 +1353,7 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
   ULO.ForgetAllSCEV = ForgetAllSCEV;
   ULO.Heart = getLoopConvergenceHeart(L);
   ULO.SCEVExpansionBudget = UP.SCEVExpansionBudget;
+  ULO.RuntimeUnrollMultiExit = UP.RuntimeUnrollMultiExit;
   LoopUnrollResult UnrollResult = UnrollLoop(
       L, ULO, LI, &SE, &DT, &AC, &TTI, &ORE, PreserveLCSSA, &RemainderLoop, AA);
   if (UnrollResult == LoopUnrollResult::Unmodified)

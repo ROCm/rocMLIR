@@ -273,31 +273,6 @@ set(CLANG_DEFAULT_OBJCOPY "objcopy" CACHE STRING
 set(CLANG_DEFAULT_OPENMP_RUNTIME "libomp" CACHE STRING
   "Default OpenMP runtime used by -fopenmp.")
 
-# OpenMP offloading requires at least sm_35 because we use shuffle instructions
-# to generate efficient code for reductions and the atomicMax instruction on
-# 64-bit integers in the implementation of conditional lastprivate.
-set(CUDA_ARCH_FLAGS "sm_35")
-
-# Try to find the highest Nvidia GPU architecture the system supports
-if (NOT DEFINED CLANG_OPENMP_NVPTX_DEFAULT_ARCH)
-  find_package(CUDA QUIET)
-  if (CUDA_FOUND)
-    cuda_select_nvcc_arch_flags(CUDA_ARCH_FLAGS)
-  endif()
-else()
-  set(CUDA_ARCH_FLAGS ${CLANG_OPENMP_NVPTX_DEFAULT_ARCH})
-endif()
-
-string(REGEX MATCH "sm_([0-9]+)" CUDA_ARCH_MATCH ${CUDA_ARCH_FLAGS})
-if (NOT DEFINED CUDA_ARCH_MATCH OR "${CMAKE_MATCH_1}" LESS 35)
-  set(CLANG_OPENMP_NVPTX_DEFAULT_ARCH "sm_35" CACHE STRING
-    "Default architecture for OpenMP offloading to Nvidia GPUs." FORCE)
-  message(WARNING "Resetting default architecture for OpenMP offloading to Nvidia GPUs to sm_35")
-else()
-  set(CLANG_OPENMP_NVPTX_DEFAULT_ARCH ${CUDA_ARCH_MATCH} CACHE STRING
-    "Default architecture for OpenMP offloading to Nvidia GPUs.")
-endif()
-
 set(CLANG_SYSTEMZ_DEFAULT_ARCH "z10" CACHE STRING "SystemZ Default Arch")
 
 set(CLANG_VENDOR ${PACKAGE_VENDOR} CACHE STRING
@@ -356,6 +331,7 @@ if(NOT DEFINED CLANG_VERSION_SUFFIX)
   set(CLANG_VERSION_SUFFIX ${LLVM_VERSION_SUFFIX})
 endif()
 set(CLANG_VERSION "${CLANG_VERSION_MAJOR}.${CLANG_VERSION_MINOR}.${CLANG_VERSION_PATCHLEVEL}${CLANG_VERSION_SUFFIX}")
+set(MAX_CLANG_ABI_COMPAT_VERSION "${LLVM_VERSION_MAJOR}")
 message(STATUS "Clang version: ${CLANG_VERSION}")
 
 # Configure the Version.inc file.
@@ -895,58 +871,6 @@ if (CLANG_ENABLE_BOOTSTRAP)
 
     ExternalProject_Add_StepTargets(${NEXT_CLANG_STAGE} ${target})
   endforeach()
-endif()
-
-set(CLANG_BOLT OFF CACHE STRING "Apply BOLT optimization to Clang. \
-  May be specified as Instrument or Perf or LBR to use a particular profiling \
-  mechanism.")
-string(TOUPPER "${CLANG_BOLT}" CLANG_BOLT)
-
-if (CLANG_BOLT AND NOT LLVM_BUILD_INSTRUMENTED)
-  set(CLANG_PATH ${LLVM_RUNTIME_OUTPUT_INTDIR}/clang)
-  set(CLANG_INSTRUMENTED ${LLVM_RUNTIME_OUTPUT_INTDIR}/${CLANG_BOLT_INSTRUMENTED})
-  set(BOLT_FDATA ${CMAKE_CURRENT_BINARY_DIR}/utils/perf-training/prof.fdata)
-
-  # Pass extra flag in no-LBR mode
-  if (CLANG_BOLT STREQUAL "PERF")
-    set(BOLT_NO_LBR "-nl")
-  endif()
-
-  if (CLANG_BOLT STREQUAL "INSTRUMENT")
-    # Instrument clang with BOLT
-    add_custom_target(clang-instrumented
-      DEPENDS ${CLANG_INSTRUMENTED}
-    )
-    add_custom_command(OUTPUT ${CLANG_INSTRUMENTED}
-      DEPENDS clang llvm-bolt
-      COMMAND llvm-bolt ${CLANG_PATH} -o ${CLANG_INSTRUMENTED}
-        -instrument --instrumentation-file-append-pid
-        --instrumentation-file=${BOLT_FDATA}
-      COMMENT "Instrumenting clang binary with BOLT"
-      USES_TERMINAL
-      VERBATIM
-    )
-    add_custom_target(clang-bolt-training-deps DEPENDS clang-instrumented)
-  else() # perf or LBR
-    add_custom_target(clang-bolt-training-deps DEPENDS clang)
-  endif()
-
-  # Optimize original (pre-bolt) Clang using the collected profile
-  add_custom_target(clang-bolt
-    DEPENDS clang-bolt-profile
-    COMMAND ${CMAKE_COMMAND} -E rename $<TARGET_FILE:clang> ${CLANG_PATH}-prebolt
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CLANG_PATH}-prebolt ${CLANG_PATH}++-prebolt
-    COMMAND llvm-bolt ${CLANG_PATH}-prebolt
-      -o $<TARGET_FILE:clang>
-      -data ${BOLT_FDATA}
-      -reorder-blocks=ext-tsp -reorder-functions=cdsort -split-functions
-      -split-all-cold -split-eh -dyno-stats -use-gnu-stack
-      -update-debug-sections
-      ${BOLT_NO_LBR}
-    COMMENT "Optimizing Clang with BOLT"
-    USES_TERMINAL
-    VERBATIM
-  )
 endif()
 
 if (LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION)

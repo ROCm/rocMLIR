@@ -11,7 +11,7 @@
 // RUN: | FileCheck -check-prefixes=BIN,NRD,OLD %s
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --offload-new-driver --cuda-gpu-arch=gfx803 %s 2>&1 \
-// RUN: | FileCheck -check-prefixes=BIN,NRD %s
+// RUN: | FileCheck -check-prefixes=BIN,NRD,NEW %s
 //
 // RUN: %clang -x hip --target=x86_64-unknown-linux-gnu -ccc-print-phases \
 // RUN: --no-offload-new-driver --cuda-gpu-arch=gfx803 -fgpu-rdc %s 2>&1 \
@@ -39,9 +39,8 @@
 // NRD-DAG: [[P12:[0-9]+]]: backend, {[[P11]]}, assembler, (host-[[T]])
 // NRD-DAG: [[P13:[0-9]+]]: assembler, {[[P12]]}, object, (host-[[T]])
 // OLD-DAG: [[P14:[0-9]+]]: linker, {[[P13]]}, image, (host-[[T]])
-// COM: Disabling checking for lines to be produced by new driver, till it becomes default.
-// COM: NEW-DAG: [[P14:[0-9]+]]: clang-linker-wrapper, {[[P13]]}, image, (host-[[T]])
-// COM: RDC-DAG: [[P14:[0-9]+]]: linker, {[[P13]], [[P11]]}, image, (host-[[T]])
+// NEW-DAG: [[P14:[0-9]+]]: clang-linker-wrapper, {[[P13]]}, image, (host-[[T]])
+// RDC-DAG: [[P14:[0-9]+]]: linker, {[[P13]], [[P11]]}, image, (host-[[T]])
 
 //
 // Test single gpu architecture up to the assemble phase.
@@ -626,9 +625,9 @@
 //
 // Test the bindings using the new driver in LTO-mode.
 //
-// R-UN: %clang -### --target=x86_64-linux-gnu --offload-new-driver -ccc-print-phases \
-// R-UN:        --offload-arch=gfx90a --offload-arch=gfx908 -foffload-lto -fgpu-rdc -c %s 2>&1 \
-// R-UN: | FileCheck -check-prefix=LTO %s
+// RUN: %clang -### --target=x86_64-linux-gnu --offload-new-driver -ccc-print-phases \
+// RUN:        --offload-arch=gfx90a --offload-arch=gfx908 -foffload-lto -fgpu-rdc -c %s 2>&1 \
+// RUN: | FileCheck -check-prefix=LTO %s
 //      LTO: 0: input, "[[INPUT:.+]]", hip, (host-hip)
 // LTO-NEXT: 1: preprocessor, {0}, hip-cpp-output, (host-hip)
 // LTO-NEXT: 2: compiler, {1}, ir, (host-hip)

@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -243,9 +244,10 @@ void createGemmTuningRangeBF(TuningParamSet *newSpace,
     PopulateParamsXDL tuningInfo;
     // XDLOPS
     Type inTypeA = gemmOp.getAType();
-    bool is8BitReduction = inTypeA.isInteger(8) || inTypeA.isFloat8E5M2FNUZ() ||
-                           inTypeA.isFloat8E4M3FNUZ() ||
-                           inTypeA.isFloat8E5M2() || inTypeA.isFloat8E4M3FN();
+    bool is8BitReduction =
+        inTypeA.isInteger(8) || isa<Float8E5M2FNUZType>(inTypeA) ||
+        isa<Float8E4M3FNUZType>(inTypeA) || isa<Float8E5M2Type>(inTypeA) ||
+        isa<Float8E4M3FNType>(inTypeA);
     const std::vector<std::vector<uint32_t>> &xdlopsParams =
         is8BitReduction ? validRangeAccelGemmParams8BitReduction
                         : validRangeAccelGemmParams;
@@ -650,9 +652,9 @@ LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   Operation *gemmOp = gemmIF.getOperation();
 
   auto f8TypeStr = [](const Type &type) -> std::optional<StringLiteral> {
-    if (type.isFloat8E4M3FNUZ() || type.isFloat8E4M3FN())
+    if (isa<Float8E4M3FNType>(type) || isa<Float8E4M3FNUZType>(type))
       return StringLiteral("fp8");
-    if (type.isFloat8E5M2FNUZ() || type.isFloat8E5M2())
+    if (isa<Float8E5M2Type>(type) || isa<Float8E5M2FNUZType>(type))
       return StringLiteral("bf8");
     return std::nullopt;
   };

@@ -20,12 +20,11 @@
  * forward declarations
  ****************************************************************************/
 
+/// Entrypoint used by libomptarget to register callbacks in libomp, if not
+/// done already
 void __ompt_force_initialization();
 
-int __ompt_set_frame_enter_internal(void *addr, int flags, int state);
-
 void __ompt_team_assign_id(kmp_team_t *team, ompt_data_t ompt_pid);
-
 void __ompt_thread_assign_wait_id(void *variable);
 
 void __ompt_lw_taskteam_init(ompt_lw_taskteam_t *lwt, kmp_info_t *thr, int gtid,
@@ -88,8 +87,7 @@ inline void *__ompt_load_return_address(int gtid) {
   if (ompt_enabled.enabled && gtid >= 0 && __kmp_threads[gtid] &&              \
       !__kmp_threads[gtid]->th.ompt_thread_info.return_address)                \
   __kmp_threads[gtid]->th.ompt_thread_info.return_address =                    \
-  __builtin_return_address(0)*/
-
+      __builtin_return_address(0)*/
 #define OMPT_STORE_RETURN_ADDRESS(gtid)                                        \
   OmptReturnAddressGuard ReturnAddressGuard{gtid, __builtin_return_address(0)};
 #define OMPT_LOAD_RETURN_ADDRESS(gtid) __ompt_load_return_address(gtid)

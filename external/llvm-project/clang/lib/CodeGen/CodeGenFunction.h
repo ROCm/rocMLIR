@@ -28,6 +28,7 @@
 #include "clang/AST/ExprOpenMP.h"
 #include "clang/AST/StmtOpenACC.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/AST/StmtSYCL.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/ABI.h"
 #include "clang/Basic/CapturedStmt.h"
@@ -450,7 +451,7 @@ public:
              "EBB should be entry block of the current code gen function");
       PostAllocaInsertPt = AllocaInsertPt->clone();
       PostAllocaInsertPt->setName("postallocapt");
-      PostAllocaInsertPt->insertAfter(AllocaInsertPt);
+      PostAllocaInsertPt->insertAfter(AllocaInsertPt->getIterator());
     }
 
     return PostAllocaInsertPt;
@@ -719,6 +720,20 @@ public:
 
     void Emit(CodeGenFunction &CGF, Flags flags) override {
       CGF.EmitLifetimeEnd(Size, Addr);
+    }
+  };
+
+  // We are using objects of this 'cleanup' class to emit fake.use calls
+  // for -fextend-variable-liveness. They are placed at the end of a variable's
+  // scope analogous to lifetime markers.
+  class FakeUse final : public EHScopeStack::Cleanup {
+    Address Addr;
+
+  public:
+    FakeUse(Address addr) : Addr(addr) {}
+
+    void Emit(CodeGenFunction &CGF, Flags flags) override {
+      CGF.EmitFakeUse(Addr);
     }
   };
 
@@ -1118,11 +1133,6 @@ public:
       QualType VarTy = LocalVD->getType();
       if (VarTy->isReferenceType()) {
         Address Temp = CGF.CreateMemTemp(VarTy);
-        if (Temp.getElementType() != TempAddr.emitRawPointer(CGF)->getType())
-          Temp = Address(CGF.Builder.CreatePointerBitCastOrAddrSpaceCast(
-                             Temp.emitRawPointer(CGF),
-                             TempAddr.emitRawPointer(CGF)->getType()->getPointerTo()),
-                         CGF.Int8Ty, TempAddr.getAlignment());
         CGF.Builder.CreateStore(TempAddr.emitRawPointer(CGF), Temp);
         TempAddr = Temp;
       }
@@ -1629,6 +1639,13 @@ private:
                                             uint64_t LoopCount) const;
 
 public:
+  auto getIsCounterPair(const Stmt *S) const { return PGO.getIsCounterPair(S); }
+
+  void markStmtAsUsed(bool Skipped, const Stmt *S) {
+    PGO.markStmtAsUsed(Skipped, S);
+  }
+  void markStmtMaybeUsed(const Stmt *S) { PGO.markStmtMaybeUsed(S); }
+
   /// Increment the profiler's counter for the given statement by \p StepV.
   /// If \p StepV is null, the default increment is 1.
   void incrementProfileCounter(const Stmt *S, llvm::Value *StepV = nullptr) {
@@ -2989,10 +3006,6 @@ public:
                          AggValueSlot::Overlap_t MayOverlap,
                          bool isVolatile = false);
 
-  bool hasAddrOfLocalVar(const VarDecl *VD) {
-    return LocalDeclMap.find(VD) != LocalDeclMap.end();
-  }
-
   /// GetAddrOfLocalVar - Return the address of a local variable.
   Address GetAddrOfLocalVar(const VarDecl *VD) {
     auto it = LocalDeclMap.find(VD);
@@ -3471,13 +3484,11 @@ public:
     static ParamValue forDirect(llvm::Value *value) {
       return ParamValue(value);
     }
-    static ParamValue forIndirect(Address addr,
-                                  std::optional<Address> DebugAddr = std::nullopt) {
+    static ParamValue forIndirect(Address addr) {
       assert(!addr.getAlignment().isZero());
       return ParamValue(addr);
     }
 
-    std::optional<Address> DebugAddr;
     bool isIndirect() const { return IsIndirect; }
     llvm::Value *getAnyValue() const {
       if (!isIndirect())
@@ -3495,8 +3506,6 @@ public:
       assert(isIndirect());
       return Addr;
     }
-
-    std::optional<Address> getDebugAddr() const { return DebugAddr; }
   };
 
   /// EmitParmDecl - Emit a ParmVarDecl or an ImplicitParamDecl.
@@ -3547,60 +3556,6 @@ public:
   /// calling EmitBlock, EmitBranch, or EmitStmt.
   void EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs = {});
 
-  /// EmitOptKernel - For an OpenMP target directive, emit the optimized
-  /// kernel code assuming that related runtime environment variables
-  /// can be ignored. This function should be called after ensuring that
-  /// legality conditions for a no-loop kernel are met. There are 3 kinds of
-  /// optimized kernels that may be generated: No-Loop, Big-Jump-Loop, and Xteam
-  /// reduction.
-  void EmitOptKernel(const OMPExecutableDirective &D,
-                     const ForStmt *CapturedForStmt,
-                     llvm::omp::OMPTgtExecModeFlags OptKernelMode,
-                     SourceLocation Loc, const FunctionArgList *Args);
-
-  void EmitOptKernelCode(const OMPExecutableDirective &D,
-                         const ForStmt *CapturedForStmt,
-                         llvm::omp::OMPTgtExecModeFlags OptKernelMode,
-                         SourceLocation Loc, const FunctionArgList *Args);
-
-  void EmitNoLoopCode(const OMPExecutableDirective &D,
-                      const ForStmt *CapturedForStmt, SourceLocation Loc,
-                      const FunctionArgList *Args);
-
-  void EmitBigJumpLoopCode(const OMPExecutableDirective &D,
-                           const ForStmt *CapturedForStmt, SourceLocation Loc,
-                           const FunctionArgList *Args);
-
-  void EmitXteamRedCode(const OMPExecutableDirective &D,
-                        const ForStmt *CapturedForStmt, SourceLocation Loc,
-                        const FunctionArgList *Args);
-
-  void EmitNoLoopXteamScanInit(const OMPLoopDirective &D,
-                               const ForStmt *CapturedForStmt,
-                               const FunctionArgList *Args,
-                               llvm::Value *&GpuThreadId,
-                               llvm::Value *&GlobalGpuThreadId,
-                               llvm::Value *&WorkGroupId);
-
-  void EmitNoLoopXteamScanPhaseOneCode(const OMPExecutableDirective &D,
-                                       const ForStmt *CapturedForStmt,
-                                       SourceLocation Loc,
-                                       const FunctionArgList *Args);
-
-  void EmitNoLoopXteamScanPhaseTwoCode(const OMPExecutableDirective &D,
-                                       const ForStmt *CapturedForStmt,
-                                       SourceLocation Loc,
-                                       const FunctionArgList *Args);
-
-  /// Used in No-Loop and Xteam codegen to emit the loop iteration and the
-  /// associated variables. Returns the loop iteration variable and its address.
-  std::pair<const VarDecl *, Address> EmitNoLoopIV(const OMPLoopDirective &LD,
-                                                   const FunctionArgList *Args);
-
-  /// Emit updates of the original loop indices. Used by both
-  /// BigJumpLoop and Xteam reduction kernel codegen.
-  void EmitBigJumpLoopUpdates(const ForStmt &FStmt);
-
   /// EmitSimpleStmt - Try to emit a "simple" statement which does not
   /// necessarily require an insertion point or debug information; typically
   /// because the statement amounts to a jump or a container of other
@@ -3629,8 +3584,6 @@ public:
   void EmitWhileStmt(const WhileStmt &S, ArrayRef<const Attr *> Attrs = {});
   void EmitDoStmt(const DoStmt &S, ArrayRef<const Attr *> Attrs = {});
   void EmitForStmt(const ForStmt &S, ArrayRef<const Attr *> Attrs = {});
-  void EmitForStmtWithArgs(const ForStmt &S, const FunctionArgList *Args,
-                           ArrayRef<const Attr *> Attrs = {});
   void EmitReturnStmt(const ReturnStmt &S);
   void EmitDeclStmt(const DeclStmt &S);
   void EmitBreakStmt(const BreakStmt &S);
@@ -3728,19 +3681,10 @@ public:
   llvm::Function *EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K);
   llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S);
   Address GenerateCapturedStmtArgument(const CapturedStmt &S);
-  llvm::Function *GenerateOpenMPCapturedStmtFunction(
-      const CapturedStmt &S, const OMPExecutableDirective &D,
-      SourceLocation Loc, bool TopLevel, bool IsTopKernel);
+  llvm::Function *GenerateOpenMPCapturedStmtFunction(const CapturedStmt &S,
+                                                     SourceLocation Loc);
   void GenerateOpenMPCapturedVars(const CapturedStmt &S,
-                                  SmallVectorImpl<llvm::Value *> &CapturedVars,
-                                  const Stmt *XteamRedNestKey);
-  void GenerateOpenMPCapturedVarsDevice(
-      const CapturedStmt &S, SmallVectorImpl<llvm::Value *> &CapturedVars,
-      SmallVectorImpl<llvm::Value *> &MultiTargetVars,
-      const Stmt *XteamRedNestKey);
-  void
-  InitializeXteamRedCapturedVars(SmallVectorImpl<llvm::Value *> &CapturedVars,
-                                 QualType RedVarQualType);
+                                  SmallVectorImpl<llvm::Value *> &CapturedVars);
   void emitOMPSimpleStore(LValue LVal, RValue RVal, QualType RValTy,
                           SourceLocation Loc);
   /// Perform element by element copying of arrays with type \a
@@ -3781,14 +3725,12 @@ public:
   /// \param AO Atomic ordering of the generated atomic instructions.
   /// \param CommonGen Code generator for complex expressions that cannot be
   /// expressed through atomicrmw instruction.
-  /// \param Hint OpenMP atomic hint expression
   /// \returns <true, OldAtomicValue> if simple 'atomicrmw' instruction was
   /// generated, <false, RValue::get(nullptr)> otherwise.
   std::pair<bool, RValue> EmitOMPAtomicSimpleUpdateExpr(
       LValue X, RValue E, BinaryOperatorKind BO, bool IsXLHSInRHSPart,
       llvm::AtomicOrdering AO, SourceLocation Loc,
-      const llvm::function_ref<RValue(RValue)> CommonGen,
-      const Expr *Hint = nullptr);
+      const llvm::function_ref<RValue(RValue)> CommonGen);
   bool EmitOMPFirstprivateClause(const OMPExecutableDirective &D,
                                  OMPPrivateScope &PrivateScope);
   void EmitOMPPrivateClause(const OMPExecutableDirective &D,
@@ -3947,12 +3889,19 @@ public:
   void EmitOMPTaskLoopDirective(const OMPTaskLoopDirective &S);
   void EmitOMPTaskLoopSimdDirective(const OMPTaskLoopSimdDirective &S);
   void EmitOMPMasterTaskLoopDirective(const OMPMasterTaskLoopDirective &S);
+  void EmitOMPMaskedTaskLoopDirective(const OMPMaskedTaskLoopDirective &S);
   void
   EmitOMPMasterTaskLoopSimdDirective(const OMPMasterTaskLoopSimdDirective &S);
+  void
+  EmitOMPMaskedTaskLoopSimdDirective(const OMPMaskedTaskLoopSimdDirective &S);
   void EmitOMPParallelMasterTaskLoopDirective(
       const OMPParallelMasterTaskLoopDirective &S);
+  void EmitOMPParallelMaskedTaskLoopDirective(
+      const OMPParallelMaskedTaskLoopDirective &S);
   void EmitOMPParallelMasterTaskLoopSimdDirective(
       const OMPParallelMasterTaskLoopSimdDirective &S);
+  void EmitOMPParallelMaskedTaskLoopSimdDirective(
+      const OMPParallelMaskedTaskLoopSimdDirective &S);
   void EmitOMPDistributeDirective(const OMPDistributeDirective &S);
   void EmitOMPDistributeParallelForDirective(
       const OMPDistributeParallelForDirective &S);
@@ -3978,9 +3927,8 @@ public:
       const OMPTargetTeamsDistributeParallelForSimdDirective &S);
   void EmitOMPTargetTeamsDistributeSimdDirective(
       const OMPTargetTeamsDistributeSimdDirective &S);
-  void EmitOMPGenericLoopDirective(const OMPLoopDirective &S);
-  void EmitOMPParallelGenericLoopDirective(
-      const OMPLoopDirective &S);
+  void EmitOMPGenericLoopDirective(const OMPGenericLoopDirective &S);
+  void EmitOMPParallelGenericLoopDirective(const OMPLoopDirective &S);
   void EmitOMPTargetParallelGenericLoopDirective(
       const OMPTargetParallelGenericLoopDirective &S);
   void EmitOMPTargetTeamsGenericLoopDirective(
@@ -4068,22 +4016,6 @@ public:
       const llvm::function_ref<void(CodeGenFunction &)> BodyGen,
       const llvm::function_ref<void(CodeGenFunction &)> PostIncGen);
 
-  /// Emit inner loop of the worksharing/simd construct.
-  ///
-  /// \param S Directive, for which the inner loop must be emitted.
-  /// \param RequiresCleanup true, if directive has some associated private
-  /// variables.
-  /// \param LoopCond Bollean condition for loop continuation.
-  /// \param IncExpr Increment expression for loop control variable.
-  /// \param BodyGen Generator for the inner body of the inner loop.
-  /// \param PostIncGen Genrator for post-increment code (required for ordered
-  /// loop directvies).
-  void EmitOMPMultiDeviceInnerLoop(
-      const OMPExecutableDirective &S, bool RequiresCleanup,
-      const Expr *LoopCond, const Expr *IncExpr, const VarDecl *IVDecl,
-      const llvm::function_ref<void(CodeGenFunction &)> BodyGen,
-      const llvm::function_ref<void(CodeGenFunction &)> PostIncGen);
-
   JumpDest getOMPCancelDestination(OpenMPDirectiveKind Kind);
   /// Emit initial code for loop counters of loop-based directives.
   void EmitOMPPrivateLoopCounters(const OMPLoopDirective &S,
@@ -4091,11 +4023,6 @@ public:
 
   /// Helper for the OpenMP loop directives.
   void EmitOMPLoopBody(const OMPLoopDirective &D, JumpDest LoopExit);
-
-  /// Helper for OpenMP NoLoop kernel CodeGen
-  void EmitOMPNoLoopBody(const OMPLoopDirective &D);
-
-  void EmitOMPXteamScanNoLoopBody(const OMPLoopDirective &D);
 
   /// Emit code for the worksharing loop-based directive.
   /// \return true, if this construct has any lastprivate clause, false -
@@ -4716,18 +4643,8 @@ public:
                                 ReturnValueSlot ReturnValue,
                                 llvm::CallBase **CallOrInvoke);
 
-  RValue EmitNVPTXDevicePrintfCallExpr(const CallExpr *E,
-                                       ReturnValueSlot ReturnValue);
-  RValue EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E,
-                                        ReturnValueSlot ReturnValue);
-
-  std::vector<std::string> HostexecFns{
-      "printf",          "fprintf",        "hostexec",      "hostexec_uint",
-      "hostexec_uint64", "hostexec_int",   "hostexec_long", "hostexec_float",
-      "hostexec_double", "hostexec_fortrt"};
-  RValue EmitHostexecAllocAndExecFns(const CallExpr *E,
-                                     const char *allocate_name,
-                                     const char *execute_name);
+  RValue EmitNVPTXDevicePrintfCallExpr(const CallExpr *E);
+  RValue EmitAMDGPUDevicePrintfCallExpr(const CallExpr *E);
 
   RValue EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
                          const CallExpr *E, ReturnValueSlot ReturnValue);
@@ -4789,6 +4706,21 @@ public:
                             SmallVectorImpl<llvm::Value*> &O,
                             const char *name,
                             unsigned shift = 0, bool rightshift = false);
+  llvm::Value *EmitFP8NeonCall(unsigned IID, ArrayRef<llvm::Type *> Tys,
+                               SmallVectorImpl<llvm::Value *> &O,
+                               const CallExpr *E, const char *name);
+  llvm::Value *EmitFP8NeonCvtCall(unsigned IID, llvm::Type *Ty0,
+                                  llvm::Type *Ty1, bool Extract,
+                                  SmallVectorImpl<llvm::Value *> &Ops,
+                                  const CallExpr *E, const char *name);
+  llvm::Value *EmitFP8NeonFDOTCall(unsigned IID, bool ExtendLaneArg,
+                                   llvm::Type *RetTy,
+                                   SmallVectorImpl<llvm::Value *> &Ops,
+                                   const CallExpr *E, const char *name);
+  llvm::Value *EmitFP8NeonFMLACall(unsigned IID, bool ExtendLaneArg,
+                                   llvm::Type *RetTy,
+                                   SmallVectorImpl<llvm::Value *> &Ops,
+                                   const CallExpr *E, const char *name);
   llvm::Value *EmitNeonSplat(llvm::Value *V, llvm::Constant *Idx,
                              const llvm::ElementCount &Count);
   llvm::Value *EmitNeonSplat(llvm::Value *V, llvm::Constant *Idx);
@@ -5157,6 +5089,8 @@ public:
 
   RValue EmitAtomicExpr(AtomicExpr *E);
 
+  void EmitFakeUse(Address Addr);
+
   //===--------------------------------------------------------------------===//
   //                         Annotations Emission
   //===--------------------------------------------------------------------===//
@@ -5292,14 +5226,17 @@ public:
   /// Create a basic block that will either trap or call a handler function in
   /// the UBSan runtime with the provided arguments, and create a conditional
   /// branch to it.
-  void EmitCheck(ArrayRef<std::pair<llvm::Value *, SanitizerMask>> Checked,
-                 SanitizerHandler Check, ArrayRef<llvm::Constant *> StaticArgs,
-                 ArrayRef<llvm::Value *> DynamicArgs);
+  void
+  EmitCheck(ArrayRef<std::pair<llvm::Value *, SanitizerKind::SanitizerOrdinal>>
+                Checked,
+            SanitizerHandler Check, ArrayRef<llvm::Constant *> StaticArgs,
+            ArrayRef<llvm::Value *> DynamicArgs);
 
   /// Emit a slow path cross-DSO CFI check which calls __cfi_slowpath
   /// if Cond if false.
-  void EmitCfiSlowPathCheck(SanitizerMask Kind, llvm::Value *Cond,
-                            llvm::ConstantInt *TypeId, llvm::Value *Ptr,
+  void EmitCfiSlowPathCheck(SanitizerKind::SanitizerOrdinal Ordinal,
+                            llvm::Value *Cond, llvm::ConstantInt *TypeId,
+                            llvm::Value *Ptr,
                             ArrayRef<llvm::Constant *> StaticArgs);
 
   /// Emit a reached-unreachable diagnostic if \p Loc is valid and runtime
@@ -5531,25 +5468,6 @@ private:
   llvm::Value *EmitX86CpuSupports(ArrayRef<StringRef> FeatureStrs);
   llvm::Value *EmitX86CpuSupports(std::array<uint32_t, 4> FeatureMask);
   llvm::Value *EmitX86CpuInit();
-
-  llvm::Value *applyNoLoopInc(const Expr *Inc, const VarDecl *IVDecl,
-                              llvm::Value *CurrVal);
-  /// Emit the starting index of a BigJumpLoop which is used in
-  /// BigJumpLoop and Xteam reduction kernels.
-  std::pair<const VarDecl *, Address>
-  EmitBigJumpLoopStartingIndex(const ForStmt &FStmt,
-                               const FunctionArgList *Args);
-  /// Emit the increment of a BigJumpLoop which is used in BigJumpLoop
-  /// and Xteam reduction kernels.
-  void EmitBigJumpLoopInc(const ForStmt &FStmt, const VarDecl *LoopVar,
-                          const Address &NoLoopIvAddr);
-  void EmitXteamLocalAggregator(const ForStmt *FStmt);
-  void EmitXteamRedSum(const ForStmt *FStmt, const FunctionArgList &Args,
-                       int BlockSize);
-  void EmitXteamScanSum(const ForStmt *FStmt, const FunctionArgList &Args,
-                        int BlockSize);
-  bool EmitXteamRedStmt(const Stmt *S);
-
   llvm::Value *FormX86ResolverCondition(const FMVResolverOption &RO);
   llvm::Value *EmitAArch64CpuInit();
   llvm::Value *FormAArch64ResolverCondition(const FMVResolverOption &RO);

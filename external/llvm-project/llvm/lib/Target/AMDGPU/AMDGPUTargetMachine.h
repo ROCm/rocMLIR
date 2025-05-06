@@ -61,9 +61,6 @@ public:
 
   bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const override;
 
-  std::optional<dwarf::AddressSpace>
-  mapToDWARFAddrSpace(unsigned LLVMAddrSpace) const override;
-
   unsigned getAssumedAddrSpace(const Value *V) const override;
 
   std::pair<const Value *, unsigned>
@@ -179,6 +176,7 @@ public:
   void addAsmPrinter(AddMachinePass &, CreateMCStreamer) const;
   Error addInstSelector(AddMachinePass &) const;
   void addMachineSSAOptimization(AddMachinePass &) const;
+  void addPostRegAlloc(AddMachinePass &) const;
 
   /// Check if a pass is enabled given \p Opt option. The option always
   /// overrides defaults if explicitly used. Otherwise its default will be used

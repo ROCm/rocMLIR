@@ -52,6 +52,17 @@ public:
   void computeInfo(CGFunctionInfo &FI) const override;
   RValue EmitVAArg(CodeGenFunction &CGF, Address VAListAddr, QualType Ty,
                    AggValueSlot Slot) const override;
+
+  llvm::FixedVectorType *
+  getOptimalVectorMemoryType(llvm::FixedVectorType *T,
+                             const LangOptions &Opt) const override {
+    // We have legal instructions for 96-bit so 3x32 can be supported.
+    // FIXME: This check should be a subtarget feature as technically SI doesn't
+    // support it.
+    if (T->getNumElements() == 3 && getDataLayout().getTypeSizeInBits(T) == 96)
+      return T;
+    return DefaultABIInfo::getOptimalVectorMemoryType(T, Opt);
+  }
 };
 
 bool AMDGPUABIInfo::isHomogeneousAggregateBaseType(QualType Ty) const {
@@ -425,9 +436,15 @@ void AMDGPUTargetCodeGenInfo::emitTargetGlobals(
       CGM.getModule(), Type, true, llvm::GlobalValue::WeakODRLinkage, COV, Name,
       nullptr, llvm::GlobalValue::ThreadLocalMode::NotThreadLocal,
       CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant));
-
   GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Local);
   GV->setVisibility(llvm::GlobalValue::VisibilityTypes::HiddenVisibility);
+
+  // Replace any external references to this variable with the new global.
+  if (OriginalGV) {
+    OriginalGV->replaceAllUsesWith(GV);
+    GV->takeName(OriginalGV);
+    OriginalGV->eraseFromParent();
+  }
 }
 
 void AMDGPUTargetCodeGenInfo::setTargetAttributes(

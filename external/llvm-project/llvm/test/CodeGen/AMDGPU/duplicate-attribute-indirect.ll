@@ -26,6 +26,7 @@ define amdgpu_kernel void @test_simple_indirect_call() #0 {
 ; ATTRIBUTOR_GCN-SAME: () #[[ATTR1:[0-9]+]] {
 ; ATTRIBUTOR_GCN-NEXT:    [[FPTR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; ATTRIBUTOR_GCN-NEXT:    store ptr @indirect, ptr addrspace(5) [[FPTR]], align 8
+; ATTRIBUTOR_GCN-NEXT:    [[FP:%.*]] = load ptr, ptr addrspace(5) [[FPTR]], align 8
 ; ATTRIBUTOR_GCN-NEXT:    call void @indirect()
 ; ATTRIBUTOR_GCN-NEXT:    ret void
 ;

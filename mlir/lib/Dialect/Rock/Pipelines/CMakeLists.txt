@@ -8,6 +8,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRComplexToLLVM
   MLIRIndexToLLVM
   MLIRMathTransforms
+  MLIRMathToEmitC
   MLIRTensorToLinalg
   MLIRTosaToRock
   MLIRTosaToArith

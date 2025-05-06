@@ -1,4 +1,3 @@
-; REQUIRES: jenkins-permissions-issue
 ; UNSUPPORTED: system-windows
 ; REQUIRES: shell, non-root-user
 ; RUN: llvm-as %s -o %t.bc

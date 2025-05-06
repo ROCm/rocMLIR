@@ -109,7 +109,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
 
     mlir_rocm_runtime
     conv-validation-wrappers
-    mlir-cpu-runner
+    mlir-runner
     xmir-runner
     # Not strictly a test dependency, included so we don't break it during compiles
     rocmlir-tuning-driver

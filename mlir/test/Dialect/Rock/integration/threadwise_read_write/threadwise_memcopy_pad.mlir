@@ -1,4 +1,4 @@
-// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -gO 2 -arch %arch -c  | rocmlir-opt --canonicalize| mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -gO 2 -arch %arch -c  | rocmlir-opt --canonicalize| mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK-COUNT-493: 2
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1 - 2, d2 - 1)> by [<Pad{2, 1, 1, 2} ["0", "z"] at [1, 2] -> ["0", "z"] at [1, 2]>, <PassThrough ["1"] at [0] -> ["1"] at [0]>] bounds = [1, 20, 32] -> [1, 17, 29]>
