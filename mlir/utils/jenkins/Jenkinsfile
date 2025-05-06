@@ -534,6 +534,24 @@ pipeline {
 									docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
 										
                                         ensureHip()
+
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+
                                         
                                         echo "===== Environment for ${CODEPATH} ====="
 										showEnv()
@@ -666,6 +684,23 @@ pipeline {
                                         
                                         ensureHip()
                                         
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+
                                         echo "===== Environment for Parameter Sweep ${CODEPATH} ====="
                                         showEnv()
 
@@ -739,6 +774,23 @@ pipeline {
                                         
                                         ensureHip()
                                         
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+
                                         echo "===== Environment for Tuning ${ARCH} ====="
                                         showEnv()
 
@@ -865,6 +917,23 @@ pipeline {
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
                                         
                                         ensureHip()
+
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
 
                                         echo "===== Environment for Benchmarks ${CHIP} ====="
                                         showEnv()
@@ -1048,6 +1117,23 @@ pipeline {
                                         
                                         ensureHip()
 
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+
                                         echo "===== Environment for MIGraphX (${CODEPATH}) ====="
                                         showEnv()
 
@@ -1151,6 +1237,23 @@ pipeline {
                                         echo "===== Environment for Code Coverage ${CPATH} ====="
                                         showEnv()
 
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+                                        
                                         echo "===== Starting: Run tests and collect coverage for ${CPATH} ====="
                                         try {
                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
