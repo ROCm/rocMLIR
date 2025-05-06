@@ -457,7 +457,6 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
   }];
 }
 
-
 // GEMM Features
 /// Keep in sync with Python bindings in
 /// mlir/lib/Dialect/Rock/utility/Bindings/AmdArchDbBindings.cpp
