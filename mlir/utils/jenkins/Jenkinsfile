@@ -401,6 +401,18 @@ void collectCoverageData(String profdata, String cov, String cpath) {
        """
 }
 
+// helper
+def ensureHip() {
+    sh '''
+        if ! ldconfig -p | grep -q "libamdhip64.so$"; then
+            echo "[CI] Installing HIP runtime into container…"
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                hip-runtime-amd hip-dev
+            ldconfig   # make the new libs visible in the same shell
+        fi
+    '''
+}
 
 pipeline {
     agent none
@@ -510,9 +522,9 @@ pipeline {
 								String requiredLabel = getLabelFromCodepath("${CODEPATH}")
 								String dockerImageName = dockerImage()
 								def dockerEnvVars = [
-														'PATH': "/opt/rocm/llvm/bin:/opt/rocm/bin:${env.PATH}", // Added /opt/rocm/bin
+									'PATH': "/opt/rocm/llvm/bin:/opt/rocm/bin:${env.PATH}", // Added /opt/rocm/bin
 									'HOME': '/home/jenkins',
-														'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}" // Added LD_LIBRARY_PATH
+									'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
 								]
 								def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -520,22 +532,12 @@ pipeline {
 								nodeChecker.acquireHealthyNode(requiredLabel, 3) {
 									echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
 									docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
-										echo "===== Environment for ${CODEPATH} ====="
+										
+                                        ensureHip()
+                                        
+                                        echo "===== Environment for ${CODEPATH} ====="
 										showEnv()
 
-															// +++++ Debugging commands inserted here +++++
-										echo "+++++ Debugging Library Path +++++"
-										sh 'echo ">>> LD_LIBRARY_PATH inside container: $LD_LIBRARY_PATH"'
-										sh 'echo ">>> PATH inside container: $PATH"'
-										sh 'ls -ld /opt/rocm/lib /opt/rocm/hip/lib || echo ">>> /opt/rocm/lib or /opt/rocm/hip/lib not found or inaccessible"'
-										sh 'find /opt/rocm -name libamdhip64.so -ls || echo ">>> libamdhip64.so not found in /opt/rocm"'
-										sh 'ldd /opt/rocm/bin/rocminfo || echo ">>> ldd on rocminfo failed (maybe rocminfo not found or linkage issue)"'
-										sh 'ldconfig -p | grep libamdhip64 || echo ">>> libamdhip64 not found by ldconfig"'
-										echo "+++++ End Debugging Library Path +++++"
-															// +++++ End of debugging commands +++++
-
-
-															// Equivalent of "Shared Library: fixed E2E tests" stage (RUNS INSIDE DOCKER)
 										if (params.sharedLib) {
 											echo "===== Starting: Shared Library fixed E2E tests for ${CODEPATH} ====="
 											build_fixedE2ETests("${CODEPATH}")
@@ -548,17 +550,15 @@ pipeline {
 											echo "===== Skipping: Shared Library fixed E2E tests for ${CODEPATH} ====="
 										}
 
-															// Equivalent of "Shared Library: random E2E tests" stage (RUNS INSIDE DOCKER)
 										if (params.sharedLib && params.nightly) {
 											echo "===== Starting: Shared Library random E2E tests for ${CODEPATH} ====="
 											check_randomE2ETests("${CODEPATH}")
 											echo "===== Finished: Shared Library random E2E tests for ${CODEPATH} ====="
 										} else {
-																 echo "===== Skipping: Shared Library random E2E tests for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}) ====="
+											echo "===== Skipping: Shared Library random E2E tests for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}) ====="
 										}
 
-															// Equivalent of "Tune selected rocmlir configs" stage (RUNS INSIDE DOCKER)
-															if (params.sharedLib && !params.nightly && !params.weekly) { // Tune only for PRs
+										if (params.sharedLib && !params.nightly && !params.weekly) {
 											echo "===== Starting: Tune selected rocmlir configs for ${CODEPATH} ====="
 											buildProject('ci-performance-scripts', '')
 											dir('MITuna') {
@@ -590,11 +590,10 @@ pipeline {
 											}
 											echo "===== Finished: Tune selected rocmlir configs for ${CODEPATH} ====="
 										} else {
-																echo "===== Skipping: Tune selected rocmlir configs for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
+											echo "===== Skipping: Tune selected rocmlir configs for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
 										}
 
-															// Equivalent of "Static Library: build rocMLIR packages" stage (RUNS INSIDE DOCKER)
-															if (params.staticLib && !params.nightly && !params.weekly) { // Package only for PRs
+										if (params.staticLib && !params.nightly && !params.weekly) { // Package only for PRs
 											echo "===== Starting: Static Library build rocMLIR packages for ${CODEPATH} ====="
 																sh 'rm -f build/CMakeCache.txt || true'
 											buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
@@ -605,7 +604,7 @@ pipeline {
 											}
 											echo "===== Finished: Static Library build rocMLIR packages for ${CODEPATH} ====="
 										} else {
-																echo "===== Skipping: Static Library build rocMLIR packages for ${CODEPATH} (staticLib=${params.staticLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
+											echo "===== Skipping: Static Library build rocMLIR packages for ${CODEPATH} (staticLib=${params.staticLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
 										}
 									}
 								}
@@ -655,7 +654,7 @@ pipeline {
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
                                     'HOME': '/home/jenkins',
-                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -664,6 +663,9 @@ pipeline {
                                     setHeartbeat()
                                     echo "Executing Parameter Sweep for ${CODEPATH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+                                        
                                         echo "===== Environment for Parameter Sweep ${CODEPATH} ====="
                                         showEnv()
 
@@ -723,7 +725,7 @@ pipeline {
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
                                     'HOME': '/home/jenkins',
-                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -734,6 +736,9 @@ pipeline {
                                     }
                                     echo "Executing Tuning for ${ARCH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+                                        
                                         echo "===== Environment for Tuning ${ARCH} ====="
                                         showEnv()
 
@@ -851,13 +856,15 @@ pipeline {
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
                                     'HOME': '/home/jenkins',
-                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
                                 nodeChecker.acquireHealthyNode(requiredLabel, 3) {
                                     echo "Executing Benchmarks for ${CHIP} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
 
                                         echo "===== Environment for Benchmarks ${CHIP} ====="
                                         showEnv()
@@ -1031,13 +1038,16 @@ pipeline {
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
                                     'HOME': '/home/jenkins',
                                     'PYTHONPATH': "${WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH ?: ''}",
-                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
                                 nodeChecker.acquireHealthyNode(requiredLabel, 3) {
                                     echo "Executing MIGraphX tests for ${CODEPATH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+
                                         echo "===== Environment for MIGraphX (${CODEPATH}) ====="
                                         showEnv()
 
@@ -1128,13 +1138,16 @@ pipeline {
                                     'LLVM_PROFILE_FILE':"${WORKSPACE}/build/%m-%p.profraw",
                                     'LLVM_PROFDATA':"/opt/rocm/llvm/bin/llvm-profdata",
                                     'LLVM_COV':"/opt/rocm/llvm/bin/llvm-cov",
-                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
                                 nodeChecker.acquireHealthyNode(requiredLabel, 3) {
                                     echo "Executing Code Coverage for ${CPATH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+
                                         echo "===== Environment for Code Coverage ${CPATH} ====="
                                         showEnv()
 
