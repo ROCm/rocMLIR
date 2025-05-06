@@ -412,7 +412,7 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
   if (elemType.isBF16())
     llvmInput = rewriter.create<LLVM::BitcastOp>(
         loc, vectorType.clone(rewriter.getI16Type()), llvmInput);
-  if (!elemType.isInteger(8)) {
+  if (elemType.getIntOrFloatBitWidth() != 8) {
     operands.push_back(llvmInput);
     return;
   }
