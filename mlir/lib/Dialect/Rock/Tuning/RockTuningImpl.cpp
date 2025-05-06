@@ -946,22 +946,24 @@ static int64_t retrieveSplitKValueImpl(StringRef perfConfig) {
   return params.splitKFactor;
 }
 
-static int64_t retrieveSplitKValue(rock::RockGemmWrapperInterface op,
+static int64_t retrieveSplitKValue(rock::GemmFeatures features,
                                    StringRef perfConfig) {
-  rock::GemmFeatures features = op.getGemmFeatures();
   if (isAccel(features)) {
     return retrieveSplitKValueImpl<rock::InitParamsAccel>(perfConfig);
   }
   return retrieveSplitKValueImpl<rock::InitParamsNonAccel>(perfConfig);
 }
 
+bool isSplitKRequested(rock::GemmFeatures features, StringRef perfConfig) {
+  return retrieveSplitKValue(features, perfConfig) > 1;
+}
+
 bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
   WalkResult gemmWalkResult =
       mod.walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        int64_t splitKFactor = retrieveSplitKValue(op, perfConfig);
-        if (splitKFactor > 1) {
+        if (isSplitKRequested(op.getGemmFeatures(), perfConfig))
           return WalkResult::interrupt();
-        }
+
         return WalkResult::advance();
       });
 

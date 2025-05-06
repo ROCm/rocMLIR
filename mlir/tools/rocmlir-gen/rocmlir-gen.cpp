@@ -1501,7 +1501,7 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
 static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
                                                    ModuleOp module,
                                                    Type elemType, Value toFill,
-                                                   int idx) {
+                                                   int idx, bool zeroInit) {
   llvm::SmallDenseMap<short, Value> i16vals;
   auto getI16Val = [&](short v) {
     if (i16vals.find(v) == i16vals.end()) {
@@ -1543,18 +1543,22 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
 
   affine::buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
-      [elemType, randFunc, toFillFlat, minConst,
+      [zeroInit, elemType, randFunc, toFillFlat, minConst,
        maxConst](OpBuilder &b, Location loc, ValueRange ivs) {
-        auto randFloatCall = b.create<func::CallOp>(
-            loc, randFunc, ValueRange{minConst, maxConst});
-        Value randFloat = randFloatCall.getResult(0);
         Value randVal;
-        if (elemType.isIntOrIndex())
-          randVal = b.create<arith::FPToSIOp>(loc, elemType, randFloat);
-        else if (!elemType.isF32())
-          randVal = b.create<arith::TruncFOp>(loc, elemType, randFloat);
-        else
-          randVal = randFloat;
+        if (zeroInit) {
+          randVal = rock::createZeroConstantOp(b, loc, elemType);
+        } else {
+          auto randFloatCall = b.create<func::CallOp>(
+              loc, randFunc, ValueRange{minConst, maxConst});
+          Value randFloat = randFloatCall.getResult(0);
+          if (elemType.isIntOrIndex())
+            randVal = b.create<arith::FPToSIOp>(loc, elemType, randFloat);
+          else if (!elemType.isF32())
+            randVal = b.create<arith::TruncFOp>(loc, elemType, randFloat);
+          else
+            randVal = randFloat;
+        }
 
         b.create<memref::StoreOp>(loc, randVal, toFillFlat, ivs);
       });
@@ -3538,6 +3542,10 @@ static LogicalResult populateHostHarnessLogic(
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
+  bool isSplitK =
+      (genParams.perfConfig.empty())
+          ? false
+          : rock::isSplitKRequested(genParams.features, genParams.perfConfig);
 
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
@@ -3609,12 +3617,17 @@ static LogicalResult populateHostHarnessLogic(
         b.create<memref::StoreOp>(loc, value, lvar, ValueRange{index});
       }
     } else if (!isRandom) {
-      SmallVector<float, 3> initPattern = getTensorInitPattern(elemType, idx);
+      bool zeroInit = llvm::is_contained(outIndices, idx) && isSplitK;
+      SmallVector<float> zeroPattern = {0.0f};
+      SmallVector<float> tensorPattern = getTensorInitPattern(elemType, idx);
+      auto initPattern = zeroInit ? zeroPattern : tensorPattern;
+
       if (failed(populateTensorFillLogic(b, loc, initPattern, elemType, lvar)))
         return failure();
     } else {
+      bool zeroInit = llvm::is_contained(outIndices, idx) && isSplitK;
       if (failed(populateRandomTensorFillLogic(b, loc, module, elemType, lvar,
-                                               idx)))
+                                               idx, zeroInit)))
         return failure();
     }
 
