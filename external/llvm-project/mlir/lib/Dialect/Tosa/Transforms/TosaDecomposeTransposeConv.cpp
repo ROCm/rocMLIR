@@ -75,7 +75,7 @@ public:
           loc, resultTy, input, reverse2, bias,
           rewriter.getDenseI64ArrayAttr(convPad),
           rewriter.getDenseI64ArrayAttr(stride),
-          rewriter.getDenseI64ArrayAttr({1, 1}),
+          rewriter.getDenseI64ArrayAttr({1, 1}), nullptr,
           /* acc_type = */ op.getAccType(), *op.getQuantizationInfo());
     } else {
       conv2d = rewriter.create<tosa::Conv2DOp>(
@@ -240,6 +240,7 @@ public:
                    /*pad=*/rewriter.getDenseI64ArrayAttr({0, 0, 0, 0}),
                    /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
                    /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
+                   /*group=*/nullptr,
                    /* acc_type = */ op.getAccType(), *op.getQuantizationInfo())
                    .getResult();
     } else {
