@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -122,7 +123,6 @@ LogicalResult mlir::rock::checkValidOutputFusion(
 
 LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
   auto analysis = BufferDependencyAnalysis(func.getOperation());
-  const auto &readersTable = analysis.getReadersTable();
   const auto &writersTable = analysis.getWritersTable();
 
   // can't fuse reduce_max with split-k
@@ -154,36 +154,39 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
             return WalkResult::interrupt();
         }
 
+        // GEMM result could come from a block argument, so if it fails, we call
+        // WalkResult::advance()
         auto maybeAlloc = findMemrefAlloc(gemmResult);
-        if (failed(maybeAlloc)) {
+        if (failed(maybeAlloc))
           return WalkResult::advance();
-        }
-
-        // save all `linalg::GenericOp` that read from a gemm output
-        SmallVector<linalg::GenericOp> genericOps;
-        if (readersTable.contains(*maybeAlloc)) {
-          for (OpOperand *op : readersTable.at(*maybeAlloc)) {
-            if (isa<linalg::GenericOp>(op->getOwner())) {
-              genericOps.push_back(
-                  llvm::dyn_cast<linalg::GenericOp>(op->getOwner()));
-            }
-          }
-        }
 
         // make sure that no `linalg::GenericOp` writes to a gemm output
         if (writersTable.contains(maybeAlloc.value())) {
           for (OpOperand *op : writersTable.at(*maybeAlloc)) {
-            if (isa<linalg::GenericOp>(op->getOwner())) {
+            if (isa<linalg::GenericOp>(op->getOwner()))
               return WalkResult::interrupt();
-            }
           }
         }
 
+        // save all `linalg::GenericOp` that read from a gemm output
+        auto genericOpOperands =
+            traceGemmOutputToGenericOps(gemmResult, func, analysis);
+
+        // GEMM result could come from a block argument, so if it fails, we call
+        // WalkResult::advance()
+        if (failed(genericOpOperands))
+          return WalkResult::advance();
+
         // check if generic ops are valid fusions
-        for (auto genericOp : genericOps) {
+        for (OpOperand *genericOpOperand : genericOpOperands.value()) {
           SmallVector<std::tuple<Operation *, int>> adds;
-          if (failed(checkValidOutputFusion(genericOp, maybeAlloc.value(),
-                                            gemmOp.getGemmFeatures(), adds)))
+          auto inputAlloc = findMemrefAlloc(genericOpOperand->get());
+          if (failed(inputAlloc))
+            return WalkResult::interrupt();
+
+          if (failed(checkValidOutputFusion(
+                  cast<linalg::GenericOp>(genericOpOperand->getOwner()),
+                  inputAlloc.value(), gemmOp.getGemmFeatures(), adds)))
             return WalkResult::interrupt();
         }
 

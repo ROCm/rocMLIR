@@ -10,13 +10,11 @@
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
 #include "mlir/Analysis/BufferDependencyAnalysis.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
-#include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
 class Operation;
@@ -212,6 +210,11 @@ traceGemmOutputToArgs(Value matC, func::FuncOp func,
 
 // Trace value to a block argument, going through view-like operations
 FailureOr<BlockArgument> findBlockArgument(Value value);
+
+// Trace gemm output to all linalg.generic that happen after it (output fusions)
+FailureOr<SmallVector<OpOperand *>>
+traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
+                            const BufferDependencyAnalysis &deps);
 
 } // end namespace rock
 } // end namespace mlir

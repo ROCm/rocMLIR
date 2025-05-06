@@ -3287,7 +3287,9 @@ void insertPrefills(func::FuncOp fut) {
             auto elementType = cast<MemRefType>(type).getElementType();
             Attribute init;
             if (llvm::isa<FloatType>(elementType)) {
-              init = builder.getFloatAttr(elementType, 100.0);
+              // TODO: to be fixed in
+              // https://github.com/ROCm/rocMLIR-internal/issues/1770
+              init = builder.getFloatAttr(elementType, 0.0);
             } else {
               assert(llvm::isa<IntegerType>(elementType) &&
                      "expecting `int` element type");

@@ -277,7 +277,7 @@ def getConvConfigurations(fileName):
                 
                 # Skip unsupported datatypes
                 if datatype == 'convfp8':
-                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
+                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
                     if getChip() in unsupported_chips:
                         continue
 
@@ -577,7 +577,7 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OU
 
                 # Skip unsupported datatypes
                 if datatype == 'fp8':
-                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
+                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
                      if getChip() in unsupported_chips:
                         continue
 
