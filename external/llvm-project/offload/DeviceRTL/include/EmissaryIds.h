@@ -20,6 +20,7 @@ typedef enum {
   EMIS_ID_PRINT,
   EMIS_ID_MPI,
   EMIS_ID_HDF5,
+  EMIS_ID_RESERVE,
 } offload_emis_id_t;
 
 typedef enum {
@@ -51,6 +52,26 @@ typedef enum {
   _FortranAioOutputLogical_idx,
   _FortranAAbort_idx,
   _FortranAStopStatementText_idx,
+  _FortranAioBeginExternalFormattedOutput_idx,
 } offload_emis_fortrt_idx;
+
+/// This structure is created by emisExtractArgBuf to make it easier
+/// to get values from the data buffer passed by rpc.
+typedef struct {
+  unsigned int DataLen;
+  unsigned int NumArgs;
+  unsigned int emisid;
+  unsigned int emisfnid;
+  unsigned long long data_not_used;
+  char *keyptr;
+  char *argptr;
+  char *strptr;
+} emisArgBuf_t;
+
+typedef unsigned long long emis_return_t;
+typedef unsigned long long emis_argptr_t;
+typedef emis_return_t emisfn_t(void *, ...);
+
+#define MAXVARGS 32
 
 #endif // OFFLOAD_EMISSARY_IDS_H

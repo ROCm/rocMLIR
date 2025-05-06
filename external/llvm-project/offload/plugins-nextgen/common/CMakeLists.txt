@@ -1,6 +1,5 @@
 
 if(OFFLOAD_ENABLE_EMISSARY_APIS)
-	#set(emissary_include_dir ${CMAKE_CURRENT_SOURCE_DIR}/../../emissary/include)
   set(emissary_sources
     src/Emissary.cpp
     src/EmissaryFortrt.cpp
@@ -32,26 +31,13 @@ if (NOT LLVM_LINK_LLVM_DYLIB)
   endforeach()
 endif()
 
-# Include the RPC server from the `libc` project if available.
+# Include the RPC server from the `libc` project.
 include(FindLibcCommonUtils)
 target_link_libraries(PluginCommon PRIVATE llvm-libc-common-utilities)
 if(OFFLOAD_ENABLE_EMISSARY_APIS)
   target_link_libraries(PluginCommon PRIVATE flang_rt.runtime
   -L${CMAKE_BINARY_DIR}/../../lib  -L${CMAKE_INSTALL_PREFIX}/lib)
 endif()
-if(TARGET llvmlibc_rpc_server AND ${LIBOMPTARGET_GPU_LIBC_SUPPORT})
-	target_link_libraries(PluginCommon PRIVATE llvmlibc_rpc_server)
-	target_compile_definitions(PluginCommon PRIVATE LIBOMPTARGET_RPC_SUPPORT)
-elseif(${LIBOMPTARGET_GPU_LIBC_SUPPORT})
-  find_library(llvmlibc_rpc_server NAMES llvmlibc_rpc_server
-               PATHS ${LIBOMPTARGET_LLVM_LIBRARY_DIR} NO_DEFAULT_PATH)
-  if(llvmlibc_rpc_server)
-    target_link_libraries(PluginCommon PRIVATE ${llvmlibc_rpc_server})
-		target_compile_definitions(PluginCommon PRIVATE LIBOMPTARGET_RPC_SUPPORT)
-  endif()
-endif()
-
-# If we have OMPT enabled include it in the list of sources.
 if (OMPT_TARGET_DEFAULT AND LIBOMPTARGET_OMPT_SUPPORT)
   target_sources(PluginCommon PRIVATE OMPT/OmptTracing.cpp)
   target_include_directories(PluginCommon PUBLIC OMPT)
@@ -76,7 +62,6 @@ target_include_directories(PluginCommon PUBLIC
   ${LIBOMPTARGET_LLVM_INCLUDE_DIRS}
   ${LIBOMPTARGET_BINARY_INCLUDE_DIR}
   ${LIBOMPTARGET_INCLUDE_DIR}
-  #  ${emissary_include_dir}
 )
 
 set_target_properties(PluginCommon PROPERTIES POSITION_INDEPENDENT_CODE ON)

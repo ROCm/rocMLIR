@@ -6,8 +6,8 @@
 module {
   func.func private @forward__part_1(%arg0: tensor<1x32x32x64xf32> {mhal.read_access}, %arg1: tensor<64x3x3x64xf32> {mhal.read_access}) -> (tensor<1x32x32x64xf32> {mhal.write_access}) {
     %cst = arith.constant dense<0.000000e+00> : tensor<64xf32>
-    %input_zp = "tosa.const"() {value = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>
-    %weight_zp = "tosa.const"() {value = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>
+    %input_zp = "tosa.const"() {values = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>
+    %weight_zp = "tosa.const"() {values = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>
     %0 = tosa.conv2d %arg0, %arg1, %cst, %input_zp, %weight_zp {acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>} : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x32x32x64xf32>
     %1 = tosa.clamp %0 {max_val = 6.000000e+00 : f32, min_val = 0.000000e+00 : f32} : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
     return %1 : tensor<1x32x32x64xf32>

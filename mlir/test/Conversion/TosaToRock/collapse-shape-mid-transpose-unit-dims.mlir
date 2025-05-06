@@ -5,7 +5,9 @@ func.func @mlir_transpose_dot(%arg0: tensor<1x1x5x4xf32>, %arg1: tensor<1x1x5x3x
   %collapsed = tensor.collapse_shape %0 [[0, 1], [2], [3]] : tensor<1x1x4x5xf32> into tensor<1x4x5xf32>
   %collapsed_0 = tensor.collapse_shape %arg1 [[0, 1], [2], [3]] : tensor<1x1x5x3xf32> into tensor<1x5x3xf32>
   // CHECK: rock.gemm
-  %1 = "tosa.matmul"(%collapsed, %collapsed_0) : (tensor<1x4x5xf32>, tensor<1x5x3xf32>) -> tensor<1x4x3xf32>
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %1 = "tosa.matmul"(%collapsed, %collapsed_0, %a_zp, %b_zp) : (tensor<1x4x5xf32>, tensor<1x5x3xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x4x3xf32>
   %expanded = tensor.expand_shape %1 [[0, 1], [2], [3]] output_shape [1, 1, 4, 3] : tensor<1x4x3xf32> into tensor<1x1x4x3xf32>
   return %expanded : tensor<1x1x4x3xf32>
 }

@@ -5,12 +5,14 @@
 
 module {
   func.func private @forward__part_0(%arg0: tensor<1x1x1x512xf32> {mhal.read_access}) -> (tensor<1x1000xf32> {mhal.write_access}) {
-    %const_shape = "tosa.const_shape"() { value = dense<[1, 1, 512]> : tensor<3xindex> } : () -> !tosa.shape<3>
+    %const_shape = "tosa.const_shape"() { values = dense<[1, 1, 512]> : tensor<3xindex> } : () -> !tosa.shape<3>
     %0 = tosa.reshape %arg0, %const_shape : (tensor<1x1x1x512xf32>, !tosa.shape<3>) -> tensor<1x1x512xf32>
-    %1 = "tosa.const"() <{value = dense<-0.0184740368> : tensor<1x512x1000xf32>}> : () -> tensor<1x512x1000xf32>
-    %2 = "tosa.const"() <{value = dense<-0.00263410225> : tensor<1x1000xf32>}> : () -> tensor<1x1000xf32>
-    %3 = tosa.matmul %0, %1 : (tensor<1x1x512xf32>, tensor<1x512x1000xf32>) -> tensor<1x1x1000xf32>
-    %const_shape2 = "tosa.const_shape"() { value = dense<[1, 1000]> : tensor<2xindex> } : () -> !tosa.shape<2>
+    %1 = "tosa.const"() <{values = dense<-0.0184740368> : tensor<1x512x1000xf32>}> : () -> tensor<1x512x1000xf32>
+    %2 = "tosa.const"() <{values = dense<-0.00263410225> : tensor<1x1000xf32>}> : () -> tensor<1x1000xf32>
+    %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+    %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+    %3 = tosa.matmul %0, %1, %a_zp, %b_zp : (tensor<1x1x512xf32>, tensor<1x512x1000xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x1x1000xf32>
+    %const_shape2 = "tosa.const_shape"() { values = dense<[1, 1000]> : tensor<2xindex> } : () -> !tosa.shape<2>
     %4 = tosa.reshape %3, %const_shape2 : (tensor<1x1x1000xf32>, !tosa.shape<2>) -> tensor<1x1000xf32>
     %5 = tosa.add %4, %2 : (tensor<1x1000xf32>, tensor<1x1000xf32>) -> tensor<1x1000xf32>
     return %5 : tensor<1x1000xf32>
