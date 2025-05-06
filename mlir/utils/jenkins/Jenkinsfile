@@ -511,7 +511,8 @@ pipeline {
                                 String dockerImageName = dockerImage()
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
+                                    'HOME': '/home/jenkins',
+                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -642,7 +643,8 @@ pipeline {
                                 String dockerImageName = dockerImage()
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
+                                    'HOME': '/home/jenkins',
+                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -709,7 +711,8 @@ pipeline {
                                 String dockerImageName = dockerImage()
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
+                                    'HOME': '/home/jenkins',
+                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -836,7 +839,8 @@ pipeline {
                                 String dockerImageName = dockerImage()
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
+                                    'HOME': '/home/jenkins',
+                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -1015,7 +1019,8 @@ pipeline {
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
                                     'HOME': '/home/jenkins',
-                                    'PYTHONPATH': "${WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH ?: ''}"
+                                    'PYTHONPATH': "${WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH ?: ''}",
+                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -1111,7 +1116,8 @@ pipeline {
                                     'HOME': '/home/jenkins',
                                     'LLVM_PROFILE_FILE':"${WORKSPACE}/build/%m-%p.profraw",
                                     'LLVM_PROFDATA':"/opt/rocm/llvm/bin/llvm-profdata",
-                                    'LLVM_COV':"/opt/rocm/llvm/bin/llvm-cov"
+                                    'LLVM_COV':"/opt/rocm/llvm/bin/llvm-cov",
+                                    'LD_LIBRARY_PATH': "/opt/rocm/lib:${env.LD_LIBRARY_PATH ?: ''}"
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
