@@ -180,21 +180,14 @@ def Rock_GemmOp :
   }];
 }
 
-
-def Rock_ReduceOp :
-  Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
-  Arguments<(ins
-    Arg<TensorOrMemRefOf<[F16, F32]>, "input", [MemRead]>:$in,
-    Arg<TensorOrMemRefOf<[F16, F32]>, "output", [MemRead, MemWrite]>:$out,
-    Rock_GemmFeaturesAttr:$features,
-    ReduceMethodAttr:$reduceMethod,
-    IndexAttr:$axis,
-    I32Attr:$blockSize,
-    I32Attr:$gridSize,
-    UnitAttr:$useLDS,
-    UnitAttr:$useDPP
-  )>,
-  Results<(outs Optional<TensorOf<[F16, F32]>>:$result)> {
+def Rock_ReduceOp
+    : Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
+      Arguments<(ins Arg<TensorOrMemRefOf<[F16, F32]>, "input", [MemRead]>:$in,
+          Arg<TensorOrMemRefOf<[F16, F32]>, "output", [MemRead, MemWrite]>:$out,
+          Rock_GemmFeaturesAttr:$features, ReduceMethodAttr:$reduceMethod,
+          IndexAttr:$axis, I32Attr:$blockSize, I32Attr:$gridSize,
+          UnitAttr:$useLDS, UnitAttr:$useDPP)>,
+      Results<(outs Optional<TensorOf<[F16, F32]>>:$result)> {
   let summary = "Axes-wide reduction operation";
   let hasVerifier = 1;
   let assemblyFormat = [{

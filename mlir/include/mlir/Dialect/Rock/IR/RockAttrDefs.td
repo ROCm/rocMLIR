@@ -64,10 +64,11 @@ def KernelTypeConvBwdWeight : I32EnumAttrCase<"ConvBwdWeight", 2>;
 def KernelTypeGemm : I32EnumAttrCase<"Gemm", 3>;
 def KernelTypeAttention : I32EnumAttrCase<"Attention", 4>;
 
-def KernelType : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
-  [KernelTypeConv, KernelTypeConvBwdData,
-    KernelTypeConvBwdWeight, KernelTypeGemm,
-    KernelTypeAttention]>;
+def KernelType
+    : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
+                   [KernelTypeConv, KernelTypeConvBwdData,
+                    KernelTypeConvBwdWeight, KernelTypeGemm,
+                    KernelTypeAttention]>;
 
 /// TransformType
 def PassThrough : I32EnumAttrCase<"PassThrough", 0>;
@@ -226,17 +227,10 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - nPerThread: The number of values of n to process as a unit on each thread
     - kpack: The number of values of k to pack contiguously into the shared buffer
   }];
-  let parameters = (ins
-    "uint32_t":$blockSize,
-    "int64_t":$kPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kPerThread,
-    "int64_t":$mPerThread,
-    "int64_t":$nPerThread,
-    "int64_t":$kpack,
-    "int64_t":$splitKFactor
-  );
+  let parameters = (ins "uint32_t":$blockSize, "int64_t":$kPerBlock,
+      "int64_t":$mPerBlock, "int64_t":$nPerBlock, "int64_t":$kPerThread,
+      "int64_t":$mPerThread, "int64_t":$nPerThread, "int64_t":$kpack,
+      "int64_t":$splitKFactor);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -302,16 +296,9 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
   }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$splitKFactor,
-    "bool":$forceUnroll
-  );
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$mnPerXdl, "int64_t":$splitKFactor, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -338,17 +325,10 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
   }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$splitKFactor,
-    "bool":$forceUnroll
-  );
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
+      "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -365,8 +345,8 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
     }
   }];
 
-  let builders = [
-      AttrBuilderWithInferredContext<(ins  "XdlopsGemmParamsAttr":$params), [{
+  let builders = [AttrBuilderWithInferredContext<
+      (ins "XdlopsGemmParamsAttr":$params), [{
       int64_t mPerWave = params.getMPerWave();
       int64_t mPerBlock = params.getMPerBlock();
       int64_t nPerBlock = params.getNPerBlock();
@@ -388,8 +368,7 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
         params.getSplitKFactor(),
         params.getForceUnroll()
       );
-    }]>
-  ];
+    }]>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -401,16 +380,9 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
   let description = [{
     The tuning parameters for an wmma-based matrix multiplication.
   }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "int64_t":$splitKFactor,
-    "bool":$forceUnroll
-  );
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$splitKFactor, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
@@ -438,14 +410,18 @@ def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;
 def Rock_GemmFeatures_Mfma : I32BitEnumAttrCaseBit<"mfma", 0>;
 def Rock_GemmFeatures_Dot : I32BitEnumAttrCaseBit<"dot", 1>;
 def Rock_GemmFeatures_AtomicAdd : I32BitEnumAttrCaseBit<"atomic_add", 2>;
-def Rock_GemmFeatures_AtomicFmaxF32 : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 4>;
+def Rock_GemmFeatures_AtomicFmaxF32
+    : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 4>;
 def Rock_GemmFeatures_AtomicAddF16 : I32BitEnumAttrCaseBit<"atomic_add_f16", 8>;
 def Rock_GemmFeatures_Wmma : I32BitEnumAttrCaseBit<"wmma", 5>;
 
-def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
-    "Features that can be enabled on GEMM-based operations",
-    [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma,
-     Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicFmaxF32, Rock_GemmFeatures_AtomicAddF16, Rock_GemmFeatures_Wmma]> {
+def Rock_GemmFeatures
+    : I32BitEnumAttr<"GemmFeatures",
+                     "Features that can be enabled on GEMM-based operations",
+                     [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma,
+                      Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd,
+                      Rock_GemmFeatures_AtomicFmaxF32,
+                      Rock_GemmFeatures_AtomicAddF16, Rock_GemmFeatures_Wmma]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }
@@ -453,7 +429,7 @@ def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
 // Misc Attrs
-def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
+def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
   let mnemonic = "pipeline";
   let parameters = (ins
     "int64_t":$InitiationInterval
