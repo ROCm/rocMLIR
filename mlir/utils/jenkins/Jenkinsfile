@@ -66,8 +66,16 @@ void showEnv() {
 }
 
 String dockerArgs() {
-    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+    return """
+      --privileged --ipc=host \
+      --device=/dev/kfd \
+      --device=/dev/dri/renderD128 --device=/dev/dri/renderD129 \
+      --device=/dev/dri/card0      --device=/dev/dri/card1      \ 
+      --group-add video --group-add render \
+      -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro
+    """.trim()
 }
+
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
@@ -518,7 +526,7 @@ pipeline {
                     // This stage acquires the node and runs docker
                     stage("Run Build and Test in Docker (${CODEPATH})") {
                         steps {
-                            	script {
+                                script {
                                     String requiredLabel = getLabelFromCodepath("${CODEPATH}")
                                     String dockerImageName = dockerImage()
                                     def dockerEnvVars = [
