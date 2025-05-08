@@ -12,6 +12,28 @@ void buildProject(String target, String cmakeOpts) {
 
 }
 
+def resetGPUs() {
+    sh '''
+    reset_all_gpus() {
+        echo "Scanning GPUs..."
+        GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
+
+        if [ -z "$GPU_IDS" ]; then
+            echo "No GPUs found to reset."
+            return 1
+        fi
+
+        for id in $GPU_IDS; do
+            echo "Resetting GPU ID: $id"
+            rocm-smi --gpureset -d $id
+            sleep 2
+        done
+    }
+
+    reset_all_gpus
+    '''
+}
+
 void showEnv() {
     echo "$env.NODE_NAME"
     sh 'cat /etc/os-release'
@@ -37,6 +59,11 @@ pipeline {
         string(name: 'releaseBranch', defaultValue: '', description: 'release branch name')
     }
     stages {
+        stage('Reset all GPUs') {
+            steps {
+                resetGPUs() 
+            }
+        }
         stage("Set System Property") {
             steps {
                 script {

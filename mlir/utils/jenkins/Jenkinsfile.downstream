@@ -20,6 +20,28 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm-smi'
 }
 
+def resetGPUs() {
+    sh '''
+    reset_all_gpus() {
+        echo "Scanning GPUs..."
+        GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
+
+        if [ -z "$GPU_IDS" ]; then
+            echo "No GPUs found to reset."
+            return 1
+        fi
+
+        for id in $GPU_IDS; do
+            echo "Resetting GPU ID: $id"
+            rocm-smi --gpureset -d $id
+            sleep 2
+        done
+    }
+
+    reset_all_gpus
+    '''
+}
+
 String dockerArgs() {
     return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
@@ -54,6 +76,11 @@ pipeline {
         stage('Kill old PR builds') {
             steps {
                 resetBuild()
+            }
+        }
+        stage('Reset all GPUs') {
+            steps {
+                resetGPUs() 
             }
         }
         stage('Build and Test') {
