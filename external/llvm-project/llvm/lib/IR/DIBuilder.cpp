@@ -27,7 +27,6 @@ using namespace llvm::dwarf;
 DIBuilder::DIBuilder(Module &m, bool AllowUnresolvedNodes, DICompileUnit *CU)
     : M(m), VMContext(M.getContext()), CUNode(CU), DeclareFn(nullptr),
       ValueFn(nullptr), LabelFn(nullptr), AssignFn(nullptr),
-      DefFn(nullptr), KillFn(nullptr),
       AllowUnresolvedNodes(AllowUnresolvedNodes) {
   if (CUNode) {
     if (const auto &ETs = CUNode->getEnumTypes())
@@ -297,7 +296,7 @@ DIStringType *DIBuilder::createStringType(StringRef Name,
 
 DIDerivedType *DIBuilder::createQualifiedType(unsigned Tag, DIType *FromTy) {
   return DIDerivedType::get(VMContext, Tag, "", nullptr, 0, nullptr, FromTy, 0,
-                            0, 0, std::nullopt, dwarf::DW_MSPACE_LLVM_none, std::nullopt, DINode::FlagZero);
+                            0, 0, std::nullopt, std::nullopt, DINode::FlagZero);
 }
 
 DIDerivedType *DIBuilder::createPtrAuthQualifiedType(
@@ -306,7 +305,6 @@ DIDerivedType *DIBuilder::createPtrAuthQualifiedType(
     bool AuthenticatesNullValues) {
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_LLVM_ptrauth_type, "",
                             nullptr, 0, nullptr, FromTy, 0, 0, 0, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none, 
                             std::optional<DIDerivedType::PtrAuthData>(
                                 std::in_place, Key, IsAddressDiscriminated,
                                 ExtraDiscriminator, IsaPointer,
@@ -318,12 +316,11 @@ DIDerivedType *
 DIBuilder::createPointerType(DIType *PointeeTy, uint64_t SizeInBits,
                              uint32_t AlignInBits,
                              std::optional<unsigned> DWARFAddressSpace,
-                             dwarf::MemorySpace DWARFMemorySpace,
                              StringRef Name, DINodeArray Annotations) {
   // FIXME: Why is there a name here?
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_pointer_type, Name,
                             nullptr, 0, nullptr, PointeeTy, SizeInBits,
-                            AlignInBits, 0, DWARFAddressSpace, DWARFMemorySpace, std::nullopt,
+                            AlignInBits, 0, DWARFAddressSpace, std::nullopt,
                             DINode::FlagZero, nullptr, Annotations);
 }
 
@@ -334,17 +331,17 @@ DIDerivedType *DIBuilder::createMemberPointerType(DIType *PointeeTy,
                                                   DINode::DIFlags Flags) {
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_ptr_to_member_type, "",
                             nullptr, 0, nullptr, PointeeTy, SizeInBits,
-                            AlignInBits, 0, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none, std::nullopt, Flags, Base);
+                            AlignInBits, 0, std::nullopt, std::nullopt, Flags,
+                            Base);
 }
 
-DIDerivedType *DIBuilder::createReferenceType(
-    unsigned Tag, DIType *RTy, uint64_t SizeInBits, uint32_t AlignInBits,
-    std::optional<unsigned> DWARFAddressSpace, dwarf::MemorySpace MS) {
-
+DIDerivedType *
+DIBuilder::createReferenceType(unsigned Tag, DIType *RTy, uint64_t SizeInBits,
+                               uint32_t AlignInBits,
+                               std::optional<unsigned> DWARFAddressSpace) {
   assert(RTy && "Unable to create reference type");
   return DIDerivedType::get(VMContext, Tag, "", nullptr, 0, nullptr, RTy,
-                            SizeInBits, AlignInBits, 0, DWARFAddressSpace, MS, {},
+                            SizeInBits, AlignInBits, 0, DWARFAddressSpace, {},
                             DINode::FlagZero);
 }
 
@@ -355,8 +352,8 @@ DIDerivedType *DIBuilder::createTypedef(DIType *Ty, StringRef Name,
                                         DINodeArray Annotations) {
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_typedef, Name, File,
                             LineNo, getNonCompileUnitScope(Context), Ty, 0,
-                            AlignInBits, 0, std::nullopt, dwarf::DW_MSPACE_LLVM_none, std::nullopt, 
-                            Flags, nullptr, Annotations);
+                            AlignInBits, 0, std::nullopt, std::nullopt, Flags,
+                            nullptr, Annotations);
 }
 
 DIDerivedType *
@@ -366,9 +363,7 @@ DIBuilder::createTemplateAlias(DIType *Ty, StringRef Name, DIFile *File,
                                DINode::DIFlags Flags, DINodeArray Annotations) {
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_template_alias, Name, File,
                             LineNo, getNonCompileUnitScope(Context), Ty, 0,
-                            AlignInBits, 0, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none,
-                            std::nullopt, Flags,
+                            AlignInBits, 0, std::nullopt, std::nullopt, Flags,
                             TParams.get(), Annotations);
 }
 
@@ -376,8 +371,8 @@ DIDerivedType *DIBuilder::createFriend(DIType *Ty, DIType *FriendTy) {
   assert(Ty && "Invalid type!");
   assert(FriendTy && "Invalid friend type!");
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_friend, "", nullptr, 0, Ty,
-                            FriendTy, 0, 0, 0, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none, std::nullopt, DINode::FlagZero);
+                            FriendTy, 0, 0, 0, std::nullopt, std::nullopt,
+                            DINode::FlagZero);
 }
 
 DIDerivedType *DIBuilder::createInheritance(DIType *Ty, DIType *BaseTy,
@@ -389,17 +384,17 @@ DIDerivedType *DIBuilder::createInheritance(DIType *Ty, DIType *BaseTy,
       ConstantInt::get(IntegerType::get(VMContext, 32), VBPtrOffset));
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_inheritance, "", nullptr,
                             0, Ty, BaseTy, 0, 0, BaseOffset, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none, std::nullopt, Flags, ExtraData);
+                            std::nullopt, Flags, ExtraData);
 }
 
 DIDerivedType *DIBuilder::createMemberType(
     DIScope *Scope, StringRef Name, DIFile *File, unsigned LineNumber,
     uint64_t SizeInBits, uint32_t AlignInBits, uint64_t OffsetInBits,
     DINode::DIFlags Flags, DIType *Ty, DINodeArray Annotations) {
-  return DIDerivedType::get(
-      VMContext, dwarf::DW_TAG_member, Name, File, LineNumber,
-      getNonCompileUnitScope(Scope), Ty, SizeInBits, AlignInBits, OffsetInBits,
-      std::nullopt, dwarf::DW_MSPACE_LLVM_none, std::nullopt, Flags, nullptr, Annotations);
+  return DIDerivedType::get(VMContext, dwarf::DW_TAG_member, Name, File,
+                            LineNumber, getNonCompileUnitScope(Scope), Ty,
+                            SizeInBits, AlignInBits, OffsetInBits, std::nullopt,
+                            std::nullopt, Flags, nullptr, Annotations);
 }
 
 static ConstantAsMetadata *getConstantOrNull(Constant *C) {
@@ -412,11 +407,10 @@ DIDerivedType *DIBuilder::createVariantMemberType(
     DIScope *Scope, StringRef Name, DIFile *File, unsigned LineNumber,
     uint64_t SizeInBits, uint32_t AlignInBits, uint64_t OffsetInBits,
     Constant *Discriminant, DINode::DIFlags Flags, DIType *Ty) {
-  return DIDerivedType::get(VMContext, dwarf::DW_TAG_member, Name, File,
-                            LineNumber, getNonCompileUnitScope(Scope), Ty,
-                            SizeInBits, AlignInBits, OffsetInBits, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none, std::nullopt, Flags,
-                            getConstantOrNull(Discriminant));
+  return DIDerivedType::get(
+      VMContext, dwarf::DW_TAG_member, Name, File, LineNumber,
+      getNonCompileUnitScope(Scope), Ty, SizeInBits, AlignInBits, OffsetInBits,
+      std::nullopt, std::nullopt, Flags, getConstantOrNull(Discriminant));
 }
 
 DIDerivedType *DIBuilder::createBitFieldMemberType(
@@ -427,7 +421,7 @@ DIDerivedType *DIBuilder::createBitFieldMemberType(
   return DIDerivedType::get(
       VMContext, dwarf::DW_TAG_member, Name, File, LineNumber,
       getNonCompileUnitScope(Scope), Ty, SizeInBits, /*AlignInBits=*/0,
-      OffsetInBits, std::nullopt, dwarf::DW_MSPACE_LLVM_none, std::nullopt, Flags,
+      OffsetInBits, std::nullopt, std::nullopt, Flags,
       ConstantAsMetadata::get(ConstantInt::get(IntegerType::get(VMContext, 64),
                                                StorageOffsetInBits)),
       Annotations);
@@ -441,8 +435,8 @@ DIBuilder::createStaticMemberType(DIScope *Scope, StringRef Name, DIFile *File,
   Flags |= DINode::FlagStaticMember;
   return DIDerivedType::get(VMContext, Tag, Name, File, LineNumber,
                             getNonCompileUnitScope(Scope), Ty, 0, AlignInBits,
-                            0, std::nullopt, dwarf::DW_MSPACE_LLVM_none, std::nullopt, 
-                            Flags, getConstantOrNull(Val));
+                            0, std::nullopt, std::nullopt, Flags,
+                            getConstantOrNull(Val));
 }
 
 DIDerivedType *
@@ -453,7 +447,7 @@ DIBuilder::createObjCIVar(StringRef Name, DIFile *File, unsigned LineNumber,
   return DIDerivedType::get(VMContext, dwarf::DW_TAG_member, Name, File,
                             LineNumber, getNonCompileUnitScope(File), Ty,
                             SizeInBits, AlignInBits, OffsetInBits, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none, std::nullopt, Flags, PropertyNode);
+                            std::nullopt, Flags, PropertyNode);
 }
 
 DIObjCProperty *
@@ -594,7 +588,7 @@ DIDerivedType *DIBuilder::createSetType(DIScope *Scope, StringRef Name,
   auto *R = DIDerivedType::get(VMContext, dwarf::DW_TAG_set_type, Name, File,
                                LineNo, getNonCompileUnitScope(Scope), Ty,
                                SizeInBits, AlignInBits, 0, std::nullopt,
-                               dwarf::DW_MSPACE_LLVM_none, std::nullopt, DINode::FlagZero);
+                               std::nullopt, DINode::FlagZero);
   trackIfUnresolved(R);
   return R;
 }
@@ -650,11 +644,15 @@ DIType *DIBuilder::createArtificialType(DIType *Ty) {
   return createTypeWithFlags(Ty, DINode::FlagArtificial);
 }
 
-DIType *DIBuilder::createObjectPointerType(DIType *Ty) {
+DIType *DIBuilder::createObjectPointerType(DIType *Ty, bool Implicit) {
   // FIXME: Restrict this to the nodes where it's valid.
   if (Ty->isObjectPointer())
     return Ty;
-  DINode::DIFlags Flags = DINode::FlagObjectPointer | DINode::FlagArtificial;
+  DINode::DIFlags Flags = DINode::FlagObjectPointer;
+
+  if (Implicit)
+    Flags |= DINode::FlagArtificial;
+
   return createTypeWithFlags(Ty, Flags);
 }
 
@@ -750,10 +748,6 @@ DIGenericSubrange *DIBuilder::getOrCreateGenericSubrange(
                                 ConvToMetadata(Stride));
 }
 
-DIFragment *DIBuilder::createFragment() {
-  return DIFragment::getDistinct(VMContext);
-}
-
 static void checkGlobalVariableScope(DIScope *Context) {
 #ifndef NDEBUG
   if (auto *CT =
@@ -763,30 +757,17 @@ static void checkGlobalVariableScope(DIScope *Context) {
 #endif
 }
 
-DIGlobalVariable *DIBuilder::createGlobalVariable(
-    DIScope *Context, StringRef Name, StringRef LinkageName, DIFile *F,
-    unsigned LineNumber, DIType *Ty, bool IsLocalToUnit, bool isDefined,
-    MDNode *Decl, MDTuple *TemplateParams, dwarf::MemorySpace MS,
-    uint32_t AlignInBits, DINodeArray Annotations) {
-  checkGlobalVariableScope(Context);
-  return DIGlobalVariable::getDistinct(
-      VMContext, cast_or_null<DIScope>(Context), Name, LinkageName, F,
-      LineNumber, Ty, IsLocalToUnit, isDefined,
-      cast_or_null<DIDerivedType>(Decl), TemplateParams, MS, AlignInBits,
-      Annotations);
-}
-
 DIGlobalVariableExpression *DIBuilder::createGlobalVariableExpression(
     DIScope *Context, StringRef Name, StringRef LinkageName, DIFile *F,
     unsigned LineNumber, DIType *Ty, bool IsLocalToUnit, bool isDefined,
     DIExpression *Expr, MDNode *Decl, MDTuple *TemplateParams,
-    dwarf::MemorySpace MS, uint32_t AlignInBits, DINodeArray Annotations) {
+    uint32_t AlignInBits, DINodeArray Annotations) {
   checkGlobalVariableScope(Context);
 
   auto *GV = DIGlobalVariable::getDistinct(
       VMContext, cast_or_null<DIScope>(Context), Name, LinkageName, F,
       LineNumber, Ty, IsLocalToUnit, isDefined,
-      cast_or_null<DIDerivedType>(Decl), TemplateParams, MS, AlignInBits,
+      cast_or_null<DIDerivedType>(Decl), TemplateParams, AlignInBits,
       Annotations);
   if (!Expr)
     Expr = createExpression();
@@ -798,13 +779,13 @@ DIGlobalVariableExpression *DIBuilder::createGlobalVariableExpression(
 DIGlobalVariable *DIBuilder::createTempGlobalVariableFwdDecl(
     DIScope *Context, StringRef Name, StringRef LinkageName, DIFile *F,
     unsigned LineNumber, DIType *Ty, bool IsLocalToUnit, MDNode *Decl,
-    MDTuple *TemplateParams, dwarf::MemorySpace MS, uint32_t AlignInBits) {
+    MDTuple *TemplateParams, uint32_t AlignInBits) {
   checkGlobalVariableScope(Context);
 
   return DIGlobalVariable::getTemporary(
              VMContext, cast_or_null<DIScope>(Context), Name, LinkageName, F,
              LineNumber, Ty, IsLocalToUnit, false,
-             cast_or_null<DIDerivedType>(Decl), TemplateParams, MS, AlignInBits,
+             cast_or_null<DIDerivedType>(Decl), TemplateParams, AlignInBits,
              nullptr)
       .release();
 }
@@ -814,13 +795,12 @@ static DILocalVariable *createLocalVariable(
     SmallVectorImpl<TrackingMDNodeRef> &PreservedNodes,
     DIScope *Context, StringRef Name, unsigned ArgNo, DIFile *File,
     unsigned LineNo, DIType *Ty, bool AlwaysPreserve, DINode::DIFlags Flags,
-    dwarf::MemorySpace MS, uint32_t AlignInBits,
-    DINodeArray Annotations = nullptr) {
+    uint32_t AlignInBits, DINodeArray Annotations = nullptr) {
   // FIXME: Why doesn't this check for a subprogram or lexical block (AFAICT
   // the only valid scopes)?
   auto *Scope = cast<DILocalScope>(Context);
   auto *Node = DILocalVariable::get(VMContext, Scope, Name, File, LineNo, Ty,
-                                    ArgNo, Flags, MS, AlignInBits, Annotations);
+                                    ArgNo, Flags, AlignInBits, Annotations);
   if (AlwaysPreserve) {
     // The optimizer may remove local variables. If there is an interest
     // to preserve variable info in such situation then stash it in a
@@ -834,25 +814,24 @@ DILocalVariable *DIBuilder::createAutoVariable(DIScope *Scope, StringRef Name,
                                                DIFile *File, unsigned LineNo,
                                                DIType *Ty, bool AlwaysPreserve,
                                                DINode::DIFlags Flags,
-                                               dwarf::MemorySpace MS,
                                                uint32_t AlignInBits) {
   assert(Scope && isa<DILocalScope>(Scope) &&
          "Unexpected scope for a local variable.");
   return createLocalVariable(
       VMContext, getSubprogramNodesTrackingVector(Scope), Scope, Name,
-      /* ArgNo */ 0, File, LineNo, Ty, AlwaysPreserve, Flags, MS, AlignInBits);
+      /* ArgNo */ 0, File, LineNo, Ty, AlwaysPreserve, Flags, AlignInBits);
 }
 
 DILocalVariable *DIBuilder::createParameterVariable(
     DIScope *Scope, StringRef Name, unsigned ArgNo, DIFile *File,
     unsigned LineNo, DIType *Ty, bool AlwaysPreserve, DINode::DIFlags Flags,
-    dwarf::MemorySpace MS, DINodeArray Annotations) {
+    DINodeArray Annotations) {
   assert(ArgNo && "Expected non-zero argument number for parameter");
   assert(Scope && isa<DILocalScope>(Scope) &&
          "Unexpected scope for a local variable.");
   return createLocalVariable(
       VMContext, getSubprogramNodesTrackingVector(Scope), Scope, Name, ArgNo,
-      File, LineNo, Ty, AlwaysPreserve, Flags, MS, /*AlignInBits=*/0, Annotations);
+      File, LineNo, Ty, AlwaysPreserve, Flags, /*AlignInBits=*/0, Annotations);
 }
 
 DILabel *DIBuilder::createLabel(DIScope *Context, StringRef Name, DIFile *File,
@@ -1034,7 +1013,7 @@ DbgInstPtr DIBuilder::insertDbgAssign(Instruction *LinkedInstr, Value *Val,
   B.SetCurrentDebugLocation(DL);
 
   auto *DVI = cast<DbgAssignIntrinsic>(B.CreateCall(AssignFn, Args));
-  DVI->insertAfter(LinkedInstr);
+  DVI->insertAfter(LinkedInstr->getIterator());
   return DVI;
 }
 
@@ -1253,93 +1232,4 @@ void DIBuilder::replaceArrays(DICompositeType *&T, DINodeArray Elements,
     trackIfUnresolved(Elements.get());
   if (TParams)
     trackIfUnresolved(TParams.get());
-}
-
-DILifetime *DIBuilder::createBoundedLifetime(DIObject *Obj, DIExpr *Loc,
-                                      ArrayRef<Metadata *> Args) {
-  return DILifetime::getDistinct(VMContext, Obj, Loc, Args);
-}
-
-void DIBuilder::createComputedLifetime(DIObject *Obj, DIExpr *Loc,
-                                       ArrayRef<Metadata *> Args) {
-  DILifetime *Lifetime = DILifetime::getDistinct(VMContext, Obj, Loc, Args);
-
-  NamedMDNode *NMD = M.getOrInsertNamedMetadata("llvm.dbg.retainedNodes");
-  NMD->addOperand(Lifetime);
-  trackIfUnresolved(Lifetime);
-}
-
-static Function *getDefIntrin(Module &M) {
-  return Intrinsic::getOrInsertDeclaration(&M, Intrinsic::dbg_def);
-}
-
-Instruction *DIBuilder::insertDef(DILifetime *Lifetime, llvm::Value *Referrer,
-                                  const DILocation *DL, BasicBlock *InsertBB,
-                                  Instruction *InsertBefore) {
-  assert(Lifetime && "Empty or invalid Lifetime passed to dbg.def");
-  assert(Referrer && "Empty or invalid Referrer passed to dbg.def");
-  assert(DL && "Empty or invalid DL passed to dbg.def");
-
-  if (!DefFn)
-    DefFn = getDefIntrin(M);
-
-  trackIfUnresolved(Lifetime);
-
-  // Ideally, the intrinsic would be able to handle any type of
-  // pointer. However, SelectionDAGBuilder::visitIntrinsicCall (for dbg_def) and
-  // InstEmitter::EmitDbgDefKill expect the intrinsic to refer directly to the
-  // alloca / argument and have problems handling addrspacecasts
-  Referrer = Referrer->stripPointerCasts();
-
-  Value *Args[] = {MetadataAsValue::get(VMContext, Lifetime),
-                   getDbgIntrinsicValueImpl(VMContext, Referrer)};
-
-  IRBuilder<> B(DL->getContext());
-  initIRBuilder(B, DL, InsertBB, InsertBefore);
-  return B.CreateCall(DefFn, Args);
-}
-
-Instruction *DIBuilder::insertDef(DILifetime *Lifetime, llvm::Value *Referrer,
-                                  const DILocation *DL,
-                                  BasicBlock *InsertAtEnd) {
-  return insertDef(Lifetime, Referrer, DL, InsertAtEnd,
-                   InsertAtEnd->getTerminator());
-}
-
-Instruction *DIBuilder::insertDef(DILifetime *Lifetime, llvm::Value *Referrer,
-                                  const DILocation *DL,
-                                  Instruction *InsertBefore) {
-  return insertDef(Lifetime, Referrer, DL, InsertBefore->getParent(),
-                   InsertBefore);
-}
-
-static Function *getKillIntrin(Module &M) {
-  return Intrinsic::getOrInsertDeclaration(&M, Intrinsic::dbg_kill);
-}
-
-Instruction *DIBuilder::insertKill(DILifetime *Lifetime, const DILocation *DL,
-                                   BasicBlock *InsertBB,
-                                   Instruction *InsertBefore) {
-  assert(Lifetime && "Empty or invalid Lifetime passed to dbg.kill");
-  assert(DL && "Empty or invalid DL passed to dbg.kill");
-
-  if (!KillFn)
-    KillFn = getKillIntrin(M);
-
-  trackIfUnresolved(Lifetime);
-  Value *Args[] = {MetadataAsValue::get(VMContext, Lifetime)};
-
-  IRBuilder<> B(DL->getContext());
-  initIRBuilder(B, DL, InsertBB, InsertBefore);
-  return B.CreateCall(KillFn, Args);
-}
-
-Instruction *DIBuilder::insertKill(DILifetime *Lifetime, const DILocation *DL,
-                                   BasicBlock *InsertAtEnd) {
-  return insertKill(Lifetime, DL, InsertAtEnd, InsertAtEnd->getTerminator());
-}
-
-Instruction *DIBuilder::insertKill(DILifetime *Lifetime, const DILocation *DL,
-                                   Instruction *InsertBefore) {
-  return insertKill(Lifetime, DL, InsertBefore->getParent(), InsertBefore);
 }

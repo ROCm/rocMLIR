@@ -58,14 +58,6 @@
 
 using namespace llvm;
 
-namespace llvm {
-cl::opt<bool> EmitHeterogeneousDwarfAsUserOps(
-    "emit-heterogeneous-dwarf-as-user-ops", cl::init(true), cl::Hidden,
-    cl::desc("When emitting heterogeneous dwarf extension operations, encode "
-             "them as DW_OP_LLVM_user suboperations. The default is false, "
-             "which means we use the old top-level encodings. "));
-} // namespace llvm
-
 static void defaultDiagHandler(const SMDiagnostic &SMD, bool, const SourceMgr &,
                                std::vector<const MDNode *> &) {
   SMD.print(nullptr, errs());
@@ -93,7 +85,7 @@ MCContext::MCContext(const Triple &TheTriple, const MCAsmInfo *mai,
     Env = IsMachO;
     break;
   case Triple::COFF:
-    if (!TheTriple.isOSWindows() && !TheTriple.isUEFI())
+    if (!TheTriple.isOSWindowsOrUEFI())
       report_fatal_error(
           "Cannot initialize MC for non-Windows COFF object files.");
 

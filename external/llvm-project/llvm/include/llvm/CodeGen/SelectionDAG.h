@@ -61,7 +61,7 @@ class Type;
 template <class GraphType> struct GraphTraits;
 template <typename T, unsigned int N> class SmallSetVector;
 template <typename T, typename Enable> struct FoldingSetTrait;
-class AAResults;
+class BatchAAResults;
 class BlockAddress;
 class BlockFrequencyInfo;
 class Constant;
@@ -83,9 +83,6 @@ class ProfileSummaryInfo;
 class SDDbgValue;
 class SDDbgOperand;
 class SDDbgLabel;
-class SDDbgDefKill;
-class SDDbgDef;
-class SDDbgKill;
 class SelectionDAG;
 class SelectionDAGTargetInfo;
 class TargetLibraryInfo;
@@ -167,7 +164,6 @@ class SDDbgInfo {
   SmallVector<SDDbgValue*, 32> DbgValues;
   SmallVector<SDDbgValue*, 32> ByvalParmDbgValues;
   SmallVector<SDDbgLabel*, 4> DbgLabels;
-  SmallVector<SDDbgDefKill *, 32> DbgDefKills;
   using DbgValMapType = DenseMap<const SDNode *, SmallVector<SDDbgValue *, 2>>;
   DbgValMapType DbgValMap;
 
@@ -180,8 +176,6 @@ public:
 
   void add(SDDbgLabel *L) { DbgLabels.push_back(L); }
 
-  void add(SDDbgDefKill *DK) { DbgDefKills.push_back(DK); }
-
   /// Invalidate all DbgValues attached to the node and remove
   /// it from the Node-to-DbgValues map.
   void erase(const SDNode *Node);
@@ -191,15 +185,13 @@ public:
     DbgValues.clear();
     ByvalParmDbgValues.clear();
     DbgLabels.clear();
-    DbgDefKills.clear();
     Alloc.Reset();
   }
 
   BumpPtrAllocator &getAlloc() { return Alloc; }
 
   bool empty() const {
-    return DbgValues.empty() && ByvalParmDbgValues.empty() &&
-           DbgLabels.empty() && DbgDefKills.empty();
+    return DbgValues.empty() && ByvalParmDbgValues.empty() && DbgLabels.empty();
   }
 
   ArrayRef<SDDbgValue*> getSDDbgValues(const SDNode *Node) const {
@@ -211,7 +203,6 @@ public:
 
   using DbgIterator = SmallVectorImpl<SDDbgValue*>::iterator;
   using DbgLabelIterator = SmallVectorImpl<SDDbgLabel*>::iterator;
-  using DbgDefKillIterator = SmallVectorImpl<SDDbgDefKill *>::iterator;
 
   DbgIterator DbgBegin() { return DbgValues.begin(); }
   DbgIterator DbgEnd()   { return DbgValues.end(); }
@@ -219,8 +210,6 @@ public:
   DbgIterator ByvalParmDbgEnd()   { return ByvalParmDbgValues.end(); }
   DbgLabelIterator DbgLabelBegin() { return DbgLabels.begin(); }
   DbgLabelIterator DbgLabelEnd()   { return DbgLabels.end(); }
-  DbgDefKillIterator DbgDefKillBegin() { return DbgDefKills.begin(); }
-  DbgDefKillIterator DbgDefKillEnd() { return DbgDefKills.end(); }
 };
 
 void checkForCycles(const SelectionDAG *DAG, bool force = false);
@@ -298,12 +287,14 @@ class SelectionDAG {
   SDDbgInfo *DbgInfo;
 
   using CallSiteInfo = MachineFunction::CallSiteInfo;
+  using CalledGlobalInfo = MachineFunction::CalledGlobalInfo;
 
   struct NodeExtraInfo {
     CallSiteInfo CSInfo;
     MDNode *HeapAllocSite = nullptr;
     MDNode *PCSections = nullptr;
     MDNode *MMRA = nullptr;
+    CalledGlobalInfo CalledGlobal{};
     bool NoMerge = false;
   };
   /// Out-of-line extra information for SDNodes.
@@ -611,7 +602,8 @@ public:
   /// certain types of nodes together, or eliminating superfluous nodes.  The
   /// Level argument controls whether Combine is allowed to produce nodes and
   /// types that are illegal on the target.
-  void Combine(CombineLevel Level, AAResults *AA, CodeGenOptLevel OptLevel);
+  void Combine(CombineLevel Level, BatchAAResults *BatchAA,
+               CodeGenOptLevel OptLevel);
 
   /// This transforms the SelectionDAG into a SelectionDAG that
   /// only uses types natively supported by the target.
@@ -1211,12 +1203,14 @@ public:
   /* \p CI if not null is the memset call being lowered.
    * \p OverrideTailCall is an optional parameter that can be used to override
    * the tail call optimization decision. */
-  SDValue
-  getMemcpy(SDValue Chain, const SDLoc &dl, SDValue Dst, SDValue Src,
-            SDValue Size, Align Alignment, bool isVol, bool AlwaysInline,
-            const CallInst *CI, std::optional<bool> OverrideTailCall,
-            MachinePointerInfo DstPtrInfo, MachinePointerInfo SrcPtrInfo,
-            const AAMDNodes &AAInfo = AAMDNodes(), AAResults *AA = nullptr);
+  SDValue getMemcpy(SDValue Chain, const SDLoc &dl, SDValue Dst, SDValue Src,
+                    SDValue Size, Align Alignment, bool isVol,
+                    bool AlwaysInline, const CallInst *CI,
+                    std::optional<bool> OverrideTailCall,
+                    MachinePointerInfo DstPtrInfo,
+                    MachinePointerInfo SrcPtrInfo,
+                    const AAMDNodes &AAInfo = AAMDNodes(),
+                    BatchAAResults *BatchAA = nullptr);
 
   /* \p CI if not null is the memset call being lowered.
    * \p OverrideTailCall is an optional parameter that can be used to override
@@ -1227,7 +1221,7 @@ public:
                      MachinePointerInfo DstPtrInfo,
                      MachinePointerInfo SrcPtrInfo,
                      const AAMDNodes &AAInfo = AAMDNodes(),
-                     AAResults *AA = nullptr);
+                     BatchAAResults *BatchAA = nullptr);
 
   SDValue getMemset(SDValue Chain, const SDLoc &dl, SDValue Dst, SDValue Src,
                     SDValue Size, Align Alignment, bool isVol,
@@ -1790,13 +1784,6 @@ public:
   /// Creates a SDDbgLabel node.
   SDDbgLabel *getDbgLabel(DILabel *Label, const DebugLoc &DL, unsigned O);
 
-  /// Creates a SDDbgDef node.
-  SDDbgDef *getDbgDef(DILifetime *LT, unsigned O, const Value *Ref,
-                      DebugLoc DLoc);
-
-  /// Creates a SDDbgKill node.
-  SDDbgKill *getDbgKill(DILifetime *LT, unsigned O, DebugLoc DLoc);
-
   /// Transfer debug values from one node to another, while optionally
   /// generating fragment expressions for split-up values. If \p InvalidateDbg
   /// is set, debug values are invalidated after they are transferred.
@@ -1874,9 +1861,6 @@ public:
   /// Add a dbg_label SDNode.
   void AddDbgLabel(SDDbgLabel *DB);
 
-  /// Add a dbg_def/kill.
-  void AddDbgDefKill(SDDbgDefKill *DB);
-
   /// Get the debug values which reference the given SDNode.
   ArrayRef<SDDbgValue*> GetDbgValues(const SDNode* SD) const {
     return DbgInfo->getSDDbgValues(SD);
@@ -1902,13 +1886,6 @@ public:
   }
   SDDbgInfo::DbgLabelIterator DbgLabelEnd() const {
     return DbgInfo->DbgLabelEnd();
-  }
-
-  SDDbgInfo::DbgDefKillIterator DbgDefKillBegin() const {
-    return DbgInfo->DbgDefKillBegin();
-  }
-  SDDbgInfo::DbgDefKillIterator DbgDefKillEnd() const {
-    return DbgInfo->DbgDefKillEnd();
   }
 
   /// To be invoked on an SDNode that is slated to be erased. This
@@ -2400,6 +2377,18 @@ public:
   MDNode *getMMRAMetadata(const SDNode *Node) const {
     auto It = SDEI.find(Node);
     return It != SDEI.end() ? It->second.MMRA : nullptr;
+  }
+  /// Set CalledGlobal to be associated with Node.
+  void addCalledGlobal(const SDNode *Node, const GlobalValue *GV,
+                       unsigned OpFlags) {
+    SDEI[Node].CalledGlobal = {GV, OpFlags};
+  }
+  /// Return CalledGlobal associated with Node, or a nullopt if none exists.
+  std::optional<CalledGlobalInfo> getCalledGlobal(const SDNode *Node) {
+    auto I = SDEI.find(Node);
+    return I != SDEI.end()
+               ? std::make_optional(std::move(I->second).CalledGlobal)
+               : std::nullopt;
   }
   /// Set NoMergeSiteInfo to be associated with Node if NoMerge is true.
   void addNoMergeSiteInfo(const SDNode *Node, bool NoMerge) {

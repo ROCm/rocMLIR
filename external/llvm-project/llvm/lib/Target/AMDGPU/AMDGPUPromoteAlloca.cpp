@@ -333,22 +333,26 @@ bool AMDGPUPromoteAllocaImpl::run(Function &F, bool PromoteToLDS) {
   bool Changed = false;
   for (AllocaInst *AI : Allocas) {
     const unsigned AllocaCost = DL->getTypeSizeInBits(AI->getAllocatedType());
-    if (AllocaCost > VectorizationBudget) {
-      LLVM_DEBUG(dbgs() << "  Alloca too big for vectorization: " << *AI
-                        << "\n");
-      return Changed;
+    // First, check if we have enough budget to vectorize this alloca.
+    if (AllocaCost <= VectorizationBudget) {
+      // If we do, attempt vectorization, otherwise, fall through and try
+      // promoting to LDS instead.
+      if (tryPromoteAllocaToVector(*AI)) {
+        Changed = true;
+        assert((VectorizationBudget - AllocaCost) < VectorizationBudget &&
+               "Underflow!");
+        VectorizationBudget -= AllocaCost;
+        LLVM_DEBUG(dbgs() << "  Remaining vectorization budget:"
+                          << VectorizationBudget << "\n");
+        continue;
+      }
+    } else {
+      LLVM_DEBUG(dbgs() << "Alloca too big for vectorization (size:"
+                        << AllocaCost << ", budget:" << VectorizationBudget
+                        << "): " << *AI << "\n");
     }
 
-    if (tryPromoteAllocaToVector(*AI)) {
-      Changed = true;
-      assert((VectorizationBudget - AllocaCost) < VectorizationBudget &&
-             "Underflow!");
-      VectorizationBudget -= AllocaCost;
-      LLVM_DEBUG(dbgs() << "  Remaining vectorization budget:"
-                        << VectorizationBudget << "\n");
-      if (VectorizationBudget == 0)
-        break;
-    } else if (PromoteToLDS && tryPromoteAllocaToLDS(*AI, SufficientLDS))
+    if (PromoteToLDS && tryPromoteAllocaToLDS(*AI, SufficientLDS))
       Changed = true;
   }
 
@@ -1340,7 +1344,7 @@ bool AMDGPUPromoteAllocaImpl::hasSufficientLocalMem(const Function &F) {
   }
 
   unsigned MaxOccupancy =
-      ST.getOccupancyWithLocalMemSize(CurrentLocalMemUsage, F);
+      ST.getOccupancyWithWorkGroupSizes(CurrentLocalMemUsage, F).second;
 
   // Restrict local memory usage so that we don't drastically reduce occupancy,
   // unless it is already significantly reduced.
@@ -1552,12 +1556,24 @@ bool AMDGPUPromoteAllocaImpl::tryPromoteAllocaToLDS(AllocaInst &I,
     case Intrinsic::invariant_start:
     case Intrinsic::invariant_end:
     case Intrinsic::launder_invariant_group:
-    case Intrinsic::strip_invariant_group:
+    case Intrinsic::strip_invariant_group: {
+      SmallVector<Value *> Args;
+      if (Intr->getIntrinsicID() == Intrinsic::invariant_start) {
+        Args.emplace_back(Intr->getArgOperand(0));
+      } else if (Intr->getIntrinsicID() == Intrinsic::invariant_end) {
+        Args.emplace_back(Intr->getArgOperand(0));
+        Args.emplace_back(Intr->getArgOperand(1));
+      }
+      Args.emplace_back(Offset);
+      Function *F = Intrinsic::getOrInsertDeclaration(
+          Intr->getModule(), Intr->getIntrinsicID(), Offset->getType());
+      CallInst *NewIntr =
+          CallInst::Create(F, Args, Intr->getName(), Intr->getIterator());
+      Intr->mutateType(NewIntr->getType());
+      Intr->replaceAllUsesWith(NewIntr);
       Intr->eraseFromParent();
-      // FIXME: I think the invariant marker should still theoretically apply,
-      // but the intrinsics need to be changed to accept pointers with any
-      // address space.
       continue;
+    }
     case Intrinsic::objectsize: {
       Value *Src = Intr->getOperand(0);
 

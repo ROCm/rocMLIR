@@ -1,16 +1,6 @@
 cmake_minimum_required(VERSION 3.20.0)
 set(LLVM_SUBPROJECT_TITLE "OpenMP")
 
-if(DEFINED LIBOMP_SHARED_LINKER_FLAGS)
-  set(CMAKE_SHARED_LINKER_FLAGS "${LIBOMP_SHARED_LINKER_FLAGS}")
-endif()
-
-if(DEFINED LIBOMP_INSTALL_RPATH)
-  set(CMAKE_INSTALL_RPATH "${LIBOMP_INSTALL_RPATH}")
-endif()
-
-# Add cmake directory to search for custom cmake functions.
-#set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 set(LLVM_COMMON_CMAKE_UTILS ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
 
 # Add path for custom modules
@@ -98,33 +88,6 @@ else()
   set(CMAKE_CXX_EXTENSIONS NO)
 endif()
 
-if (OPENMP_STANDALONE_BUILD)
-  if((CMAKE_BUILD_TYPE MATCHES Debug) AND (${LIBOMPTARGET_NVPTX_DEBUG}))
-    if(SANITIZER_AMDGPU)
-      set(OPENMP_LIBDIR_SUFFIX "-debug/asan")
-      set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
-    else()
-      set(OPENMP_LIBDIR_SUFFIX "-debug")
-      set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
-    endif()
-  endif()
-
-  if((CMAKE_BUILD_TYPE MATCHES Release) AND (${LIBOMPTARGET_PERF}))
-    if(SANITIZER_AMDGPU)
-      set(OPENMP_LIBDIR_SUFFIX "-perf/asan")
-      set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
-    else()
-      set(OPENMP_LIBDIR_SUFFIX "-perf")
-      set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
-    endif()
-  endif()
-
-  if((CMAKE_BUILD_TYPE MATCHES Release) AND (NOT (${LIBOMPTARGET_PERF})) AND (${SANITIZER_AMDGPU}))
-    set(OPENMP_LIBDIR_SUFFIX "/asan")
-    set(OPENMP_INSTALL_LIBDIR "lib${OPENMP_LIBDIR_SUFFIX}")
-  endif()
-endif()
-
 # Check and set up common compiler flags.
 include(config-ix)
 include(HandleOpenMPOptions)
@@ -176,8 +139,10 @@ if (OPENMP_ENABLE_OMPT_TOOLS)
 endif()
 
 # Propagate OMPT support to offload
-set(LIBOMP_HAVE_OMPT_SUPPORT ${LIBOMP_HAVE_OMPT_SUPPORT} PARENT_SCOPE)
-set(LIBOMP_OMP_TOOLS_INCLUDE_DIR ${LIBOMP_OMP_TOOLS_INCLUDE_DIR} PARENT_SCOPE)
+if(NOT ${OPENMP_STANDALONE_BUILD})
+  set(LIBOMP_HAVE_OMPT_SUPPORT ${LIBOMP_HAVE_OMPT_SUPPORT} PARENT_SCOPE)
+  set(LIBOMP_OMP_TOOLS_INCLUDE_DIR ${LIBOMP_OMP_TOOLS_INCLUDE_DIR} PARENT_SCOPE)
+endif()
 
 option(OPENMP_MSVC_NAME_SCHEME "Build dll with MSVC naming scheme." OFF)
 

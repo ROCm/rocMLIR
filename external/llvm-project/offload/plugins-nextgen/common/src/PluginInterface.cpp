@@ -9,7 +9,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "PluginInterface.h"
-#include "OpenMP/OMPT/OmptCommonDefs.h"
 
 #include "Shared/APITypes.h"
 #include "Shared/Debug.h"
@@ -21,13 +20,9 @@
 #include "Shared/Utils.h"
 #include "Utils/ELF.h"
 #include "omptarget.h"
-#include "print_tracing.h"
-#include "trace.h"
 
 #ifdef OMPT_SUPPORT
-#include "OmptDeviceTracing.h"
 #include "OpenMP/OMPT/Callback.h"
-#include "OpenMP/OMPT/Interface.h"
 #include "omp-tools.h"
 #endif
 
@@ -35,6 +30,7 @@
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
@@ -46,35 +42,6 @@ using namespace llvm;
 using namespace omp;
 using namespace target;
 using namespace plugin;
-
-#ifdef OMPT_SUPPORT
-using namespace ompt;
-extern void ompt::setOmptTimestamp(uint64_t Start, uint64_t End);
-extern void ompt::setOmptGrantedNumTeams(uint64_t NumTeams);
-
-extern uint64_t getSystemTimestampInNs();
-
-/// RAII used for timing certain plugin functionality and transferring the
-/// information to libomptarget
-struct OmptTimestampRAII {
-  OmptTimestampRAII() { OMPT_IF_TRACING_ENABLED(setStart();); }
-  ~OmptTimestampRAII() { OMPT_IF_ENABLED(setTimestamp();); }
-
-private:
-  uint64_t StartTime = 0;
-  void setStart() { StartTime = getSystemTimestampInNs(); }
-  void setTimestamp() {
-    uint64_t EndTime = getSystemTimestampInNs();
-    ompt::setOmptTimestamp(StartTime, EndTime);
-  }
-};
-#endif
-
-namespace llvm::omp::target::plugin {
-// Used for kernel tracing implementation
-int PrintKernelTrace = 0;
-} // namespace llvm::omp::target::plugin
-
 
 // TODO: Fix any thread safety issues for multi-threaded kernel recording.
 namespace llvm::omp::target::plugin {
@@ -409,24 +376,24 @@ setupIndirectCallTable(GenericPluginTy &Plugin, GenericDeviceTy &Device,
                        DeviceImageTy &Image) {
   GenericGlobalHandlerTy &Handler = Plugin.getGlobalHandler();
 
-  llvm::ArrayRef<__tgt_offload_entry> Entries(Image.getTgtImage()->EntriesBegin,
-                                              Image.getTgtImage()->EntriesEnd);
+  llvm::ArrayRef<llvm::offloading::EntryTy> Entries(
+      Image.getTgtImage()->EntriesBegin, Image.getTgtImage()->EntriesEnd);
   llvm::SmallVector<std::pair<void *, void *>> IndirectCallTable;
   for (const auto &Entry : Entries) {
-    if (Entry.size == 0 || !(Entry.flags & OMP_DECLARE_TARGET_INDIRECT))
+    if (Entry.Size == 0 || !(Entry.Flags & OMP_DECLARE_TARGET_INDIRECT))
       continue;
 
-    assert(Entry.size == sizeof(void *) && "Global not a function pointer?");
+    assert(Entry.Size == sizeof(void *) && "Global not a function pointer?");
     auto &[HstPtr, DevPtr] = IndirectCallTable.emplace_back();
 
-    GlobalTy DeviceGlobal(Entry.name, Entry.size);
+    GlobalTy DeviceGlobal(Entry.SymbolName, Entry.Size);
     if (auto Err =
             Handler.getGlobalMetadataFromDevice(Device, Image, DeviceGlobal))
       return std::move(Err);
 
-    HstPtr = Entry.addr;
+    HstPtr = Entry.Address;
     if (auto Err = Device.dataRetrieve(&DevPtr, DeviceGlobal.getPtr(),
-                                       Entry.size, nullptr))
+                                       Entry.Size, nullptr))
       return std::move(Err);
   }
 
@@ -450,34 +417,19 @@ setupIndirectCallTable(GenericPluginTy &Plugin, GenericDeviceTy &Device,
 AsyncInfoWrapperTy::AsyncInfoWrapperTy(GenericDeviceTy &Device,
                                        __tgt_async_info *AsyncInfoPtr)
     : Device(Device),
-      AsyncInfoPtr(AsyncInfoPtr ? AsyncInfoPtr : &LocalAsyncInfo) {
-  LocalAsyncInfo.OmptEventInfo = nullptr;
-}
+      AsyncInfoPtr(AsyncInfoPtr ? AsyncInfoPtr : &LocalAsyncInfo) {}
 
 void AsyncInfoWrapperTy::finalize(Error &Err) {
   assert(AsyncInfoPtr && "AsyncInfoWrapperTy already finalized");
 
-  // If we used a local async info object we want synchronous behavior. (No need
-  // to check the env-var OMPX_FORCE_SYNC_REGIONS since that was done by
-  // libomptarget.) In that case, and assuming the current status code is
-  // correct, we will synchronize explicitly when the object is deleted. Update
-  // the error with the result of the synchronize operation.
-  if (AsyncInfoPtr == &LocalAsyncInfo && LocalAsyncInfo.Queue && !Err) {
-    DP("Synchronizing Operation for LOCAL\n");
+  // If we used a local async info object we want synchronous behavior. In that
+  // case, and assuming the current status code is correct, we will synchronize
+  // explicitly when the object is deleted. Update the error with the result of
+  // the synchronize operation.
+  if (AsyncInfoPtr == &LocalAsyncInfo && LocalAsyncInfo.Queue && !Err)
     Err = Device.synchronize(&LocalAsyncInfo);
-    // Invalidate the wrapper object.
-  }
 
-  // This case is used to transfer information about OMPT down from libomptarget
-  // to the plugins / other parts of the runtime for asynchronous profiling.
-  // Since we want to maintain the possibility to enforce synchronous mode,
-  // This was introduced.
-  else if (AsyncInfoPtr && !AsyncInfoPtr->ExecAsync && AsyncInfoPtr->Queue &&
-           !Err) {
-    DP("Synchronizing Operation for EXECASYNC\n");
-    Err = Device.synchronize(AsyncInfoPtr);
-  }
-
+  // Invalidate the wrapper object.
   AsyncInfoPtr = nullptr;
 }
 
@@ -499,41 +451,6 @@ Error GenericKernelTy::init(GenericDeviceTy &GenericDevice,
     assert(KernelEnvironment.Configuration.ReductionDataSize == 0 &&
            "Default initialization failed.");
     IsBareKernel = true;
-  }
-
-  // Create a metadata object for the exec mode global (auto-generated).
-  StaticGlobalTy<llvm::omp::OMPTgtExecModeFlags> ExecModeGlobal(Name,
-                                                                "_exec_mode");
-
-  // Retrieve execution mode for the kernel. This may fail since some kernels
-  // may not have an execution mode.
-  if (auto Err =
-          GHandler.readGlobalFromImage(GenericDevice, Image, ExecModeGlobal)) {
-    // Consume the error since it is acceptable to fail.
-    [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
-    DP("Failed to read execution mode for '%s': %s\n"
-       "Using default SPMD (2) execution mode\n",
-       Name, ErrStr.data());
-
-    ExecutionMode = OMP_TGT_EXEC_MODE_SPMD;
-  } else {
-    // Check that the retrieved execution mode is valid.
-    if (!GenericKernelTy::isValidExecutionMode(ExecModeGlobal.getValue()))
-      return Plugin::error("Invalid execution mode %d for '%s'",
-                           ExecModeGlobal.getValue(), Name);
-    ExecutionMode = ExecModeGlobal.getValue();
-  }
-
-  // Create a metadata object for the multi-device global (auto-generated).
-  StaticGlobalTy<int8_t> MultiDeviceGlobal(Name, "_multi_device");
-  if (auto Err = GHandler.readGlobalFromImage(GenericDevice, Image,
-                                              MultiDeviceGlobal)) {
-    DP("Missing symbol %s, continue execution anyway.\n",
-       MultiDeviceGlobal.getName().data());
-    consumeError(std::move(Err));
-    IsMultiDeviceKernel = false;
-  } else {
-    IsMultiDeviceKernel = MultiDeviceGlobal.getValue();
   }
 
   // Max = Config.Max > 0 ? min(Config.Max, Device.Max) : Device.Max;
@@ -562,13 +479,6 @@ GenericKernelTy::getKernelLaunchEnvironment(
   if (GenericDevice.Plugin.getRecordReplay().isReplaying() ||
       Version < OMP_KERNEL_ARG_MIN_VERSION_WITH_DYN_PTR)
     return nullptr;
-
-  // Specialized kernels don't use the kernel launch environment. Check for
-  // these execution modes before accessing the kernel environment. Since the
-  // dynamic pointer is still generated by the compiler for these execution
-  // modes, ~0 is returned.
-  if (isBigJumpLoopMode() || isNoLoopMode() || isXTeamReductionsMode())
-    return reinterpret_cast<KernelLaunchEnvironmentTy *>(~0);
 
   if (!KernelEnvironment.Configuration.ReductionDataSize ||
       !KernelEnvironment.Configuration.ReductionBufferLength)
@@ -606,25 +516,6 @@ GenericKernelTy::getKernelLaunchEnvironment(
        DPxPTR(&LocalKLE), DPxPTR(*AllocOrErr),
        sizeof(KernelLaunchEnvironmentTy));
 
-  // The OmptEventInfo at this point will have a callback for a kernel launch,
-  // not a data-op. This is due to the "external" operation being a kernel
-  // launch and the data submit here being an implementation detail. We
-  // temporarily set the OmptEventInfo to nullptr, such that we disable the
-  // timing etc further down to not trigger assertions or report implementation
-  // detail.
-  __tgt_async_info *AI = AsyncInfoWrapper;
-  if (AI && AI->OmptEventInfo) {
-    auto LocalOEI = AI->OmptEventInfo;
-    AI->OmptEventInfo = nullptr;
-    auto Err = GenericDevice.dataSubmit(*AllocOrErr, &LocalKLE,
-                                        sizeof(KernelLaunchEnvironmentTy),
-                                        AsyncInfoWrapper);
-    if (Err)
-      return Err;
-    AI->OmptEventInfo = LocalOEI;
-    return static_cast<KernelLaunchEnvironmentTy *>(*AllocOrErr);
-  }
-
   auto Err = GenericDevice.dataSubmit(*AllocOrErr, &LocalKLE,
                                       sizeof(KernelLaunchEnvironmentTy),
                                       AsyncInfoWrapper);
@@ -636,25 +527,20 @@ GenericKernelTy::getKernelLaunchEnvironment(
 Error GenericKernelTy::printLaunchInfo(GenericDeviceTy &GenericDevice,
                                        KernelArgsTy &KernelArgs,
                                        uint32_t NumThreads[3],
-                                       uint32_t NumBlocks[3],
-                                       int64_t MultiDeviceLB,
-                                       int64_t MultiDeviceUB) const {
+                                       uint32_t NumBlocks[3]) const {
   INFO(OMP_INFOTYPE_PLUGIN_KERNEL, GenericDevice.getDeviceId(),
        "Launching kernel %s with [%u,%u,%u] blocks and [%u,%u,%u] threads in "
        "%s mode\n",
        getName(), NumBlocks[0], NumBlocks[1], NumBlocks[2], NumThreads[0],
-       NumThreads[1], NumThreads[2], getExecutionModeName(),
-       isMultiDeviceKernel() ? " in multi-device mode" : "");
+       NumThreads[1], NumThreads[2], getExecutionModeName());
   return printLaunchInfoDetails(GenericDevice, KernelArgs, NumThreads,
-                                NumBlocks, MultiDeviceLB, MultiDeviceUB);
+                                NumBlocks);
 }
 
 Error GenericKernelTy::printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
                                               KernelArgsTy &KernelArgs,
                                               uint32_t NumThreads[3],
-                                              uint32_t NumBlocks[3],
-                                              int64_t MultiDeviceLB,
-                                              int64_t MultiDeviceUB) const {
+                                              uint32_t NumBlocks[3]) const {
   return Plugin::success();
 }
 
@@ -669,45 +555,10 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
   if (!KernelLaunchEnvOrErr)
     return KernelLaunchEnvOrErr.takeError();
 
-  // If the multi-device mode is not enabled for this kernel then there is no
-  // need to overwrite any arguments.
-  int32_t NumMultiDevices = GenericDevice.getNumMultiDevices();
-  int64_t MultiDeviceLB = -1;
-  int64_t MultiDeviceUB = -1;
-  if (isMultiDeviceKernel() && NumMultiDevices > 0) {
-    // Compute the chunk size based on how many devices we are targeting and
-    // the length of the loop trip count.
-    int32_t DeviceId = GenericDevice.getDeviceId();
-    if (KernelArgs.Tripcount < NumMultiDevices) {
-      ArgPtrs[0] = (void *)0;
-      ArgPtrs[1] = (void *)(KernelArgs.Tripcount - 1);
-    } else {
-      int64_t Chunk = (int64_t)KernelArgs.Tripcount / NumMultiDevices;
-
-      // Set the lower bound. Consider the case where the LB of the loop is not
-      // zero.
-      ArgPtrs[0] = (void *)(DeviceId * Chunk);
-
-      // Set the upper bound. If this is the last device then leave the upper
-      // limit unchanged because it is already set to the loop UB.
-      // TODO: support case where the first device is not device 0.
-      if (DeviceId < NumMultiDevices - 1)
-        ArgPtrs[1] = (void *)(((DeviceId + 1) * Chunk) - 1);
-      else if (DeviceId == NumMultiDevices - 1)
-        ArgPtrs[1] = (void *)(KernelArgs.Tripcount - 1);
-      else
-        assert(false && "Upper bound could not be set");
-    }
-
-    MultiDeviceLB = (int64_t)ArgPtrs[0];
-    MultiDeviceUB = (int64_t)ArgPtrs[1];
-  }
-
   KernelLaunchParamsTy LaunchParams;
 
   // Kernel languages don't use indirection.
   if (KernelArgs.Flags.IsCUDA) {
-    assert(!isMultiDeviceKernel() && "Multi-device not supported");
     LaunchParams =
         *reinterpret_cast<KernelLaunchParamsTy *>(KernelArgs.ArgPtrs);
   } else {
@@ -716,30 +567,16 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
                     Args, Ptrs, *KernelLaunchEnvOrErr);
   }
 
-  // Get max occupancy for this kernel
-  computeMaxOccupancy(GenericDevice);
-
   uint32_t NumThreads[3] = {KernelArgs.ThreadLimit[0],
                             KernelArgs.ThreadLimit[1],
                             KernelArgs.ThreadLimit[2]};
   uint32_t NumBlocks[3] = {KernelArgs.NumTeams[0], KernelArgs.NumTeams[1],
                            KernelArgs.NumTeams[2]};
-
-  // TODO fix workaround since IsBareKernel is not properly set for legacy
-  // flang and specialized kernels since they don't use kernel-env. While
-  // we can check for specialized kernels, we can't for legacy flang. So,
-  // on amd-staging, all kernels including bare ones use this codepath.
-  NumThreads[0] = getNumThreads(GenericDevice, NumThreads);
-
-  std::pair<bool, uint32_t> AdjustInfo = adjustNumThreadsForLowTripCount(
-      GenericDevice, NumThreads[0], KernelArgs.Tripcount,
-      KernelArgs.ThreadLimit);
-  if (AdjustInfo.first)
-    NumThreads[0] = AdjustInfo.second;
-
-  NumBlocks[0] = getNumBlocks(GenericDevice, NumBlocks, KernelArgs.Tripcount,
-                              NumThreads[0], KernelArgs.ThreadLimit[0] > 0);
-  // }
+  if (!IsBareKernel) {
+    NumThreads[0] = getNumThreads(GenericDevice, NumThreads);
+    NumBlocks[0] = getNumBlocks(GenericDevice, NumBlocks, KernelArgs.Tripcount,
+                                NumThreads[0], KernelArgs.ThreadLimit[0] > 0);
+  }
 
   // Record the kernel description after we modified the argument count and num
   // blocks/threads.
@@ -752,22 +589,9 @@ Error GenericKernelTy::launch(GenericDeviceTy &GenericDevice, void **ArgPtrs,
                                  KernelArgs.Tripcount);
   }
 
-  // Get achieved occupancy for this kernel.
-  computeAchievedOccupancy(GenericDevice, NumThreads[0], NumBlocks[0]);
-
-  if (auto Err = printLaunchInfo(GenericDevice, KernelArgs, NumThreads,
-                                 NumBlocks, MultiDeviceLB, MultiDeviceUB))
+  if (auto Err =
+          printLaunchInfo(GenericDevice, KernelArgs, NumThreads, NumBlocks))
     return Err;
-
-  OMPT_IF_TRACING_ENABLED(if (llvm::omp::target::ompt::isTracedDevice(
-                                  getDeviceId(&GenericDevice))) {
-    __tgt_async_info *AI = AsyncInfoWrapper;
-    if (AI->OmptEventInfo != nullptr) {
-      // Set number of granted teams for OMPT
-      setOmptGrantedNumTeams(NumBlocks[0]);
-      AI->OmptEventInfo->NumTeams = NumBlocks[0];
-    }
-  });
 
   return launchImpl(GenericDevice, NumThreads, NumBlocks, KernelArgs,
                     LaunchParams, AsyncInfoWrapper);
@@ -802,18 +626,13 @@ KernelLaunchParamsTy GenericKernelTy::prepareArgs(
 
 uint32_t GenericKernelTy::getNumThreads(GenericDeviceTy &GenericDevice,
                                         uint32_t ThreadLimitClause[3]) const {
-  // TODO fix workaround since IsBareKernel is not properly set for all kernels.
-  // assert(!IsBareKernel && "bare kernel should not call this function");
+  assert(!IsBareKernel && "bare kernel should not call this function");
 
   assert(ThreadLimitClause[1] == 1 && ThreadLimitClause[2] == 1 &&
          "Multi dimensional launch not supported yet.");
 
-  if (ThreadLimitClause[0] > 0 && isGenericMode()) {
-    if (ThreadLimitClause[0] == (uint32_t)-1)
-      ThreadLimitClause[0] = PreferredNumThreads;
-    else
-      ThreadLimitClause[0] += GenericDevice.getWarpSize();
-  }
+  if (ThreadLimitClause[0] > 0 && isGenericMode())
+    ThreadLimitClause[0] += GenericDevice.getWarpSize();
 
   return std::min(MaxNumThreads, (ThreadLimitClause[0] > 0)
                                      ? ThreadLimitClause[0]
@@ -825,8 +644,7 @@ uint32_t GenericKernelTy::getNumBlocks(GenericDeviceTy &GenericDevice,
                                        uint64_t LoopTripCount,
                                        uint32_t &NumThreads,
                                        bool IsNumThreadsFromUser) const {
-  // TODO fix workaround since IsBareKernel is not properly set for all kernels.
-  // assert(!IsBareKernel && "bare kernel should not call this function");
+  assert(!IsBareKernel && "bare kernel should not call this function");
 
   assert(NumTeamsClause[1] == 1 && NumTeamsClause[2] == 1 &&
          "Multi dimensional launch not supported yet.");
@@ -925,8 +743,6 @@ GenericDeviceTy::GenericDeviceTy(GenericPluginTy &Plugin, int32_t DeviceId,
       // By default, the initial number of streams and events is 1.
       OMPX_InitialNumStreams("LIBOMPTARGET_NUM_INITIAL_STREAMS", 1),
       OMPX_InitialNumEvents("LIBOMPTARGET_NUM_INITIAL_EVENTS", 1),
-      OMPX_NumMultiDevices("LIBOMPTARGET_NUM_MULTI_DEVICES", 0),
-      OMPX_EnableRuntimeAutotuning("OMPX_ENABLE_RUNTIME_AUTOTUNING", false),
       DeviceId(DeviceId), GridValues(OMPGridValues),
       PeerAccesses(NumDevices, PeerAccessState::PENDING), PeerAccessesLock(),
       PinnedAllocs(*this), RPCServer(nullptr) {
@@ -937,21 +753,11 @@ GenericDeviceTy::GenericDeviceTy(GenericPluginTy &Plugin, int32_t DeviceId,
   if (ompt::Initialized && ompt::lookupCallbackByCode) {                       \
     ompt::lookupCallbackByCode((ompt_callbacks_t)(Code),                       \
                                ((ompt_callback_t *)&(Name##_fn)));             \
-    DP("class bound %s=%p\n", #Name, ((void *)(uint64_t)Name##_fn));           \
+    DP("OMPT: class bound %s=%p\n", #Name, ((void *)(uint64_t)Name##_fn));     \
   }
 
   FOREACH_OMPT_DEVICE_EVENT(bindOmptCallback);
 #undef bindOmptCallback
-
-#define bindOmptTracingFunction(FunctionName)                                  \
-  if (ompt::Initialized && ompt::lookupDeviceTracingFn) {                      \
-    FunctionName##_fn = ompt::lookupDeviceTracingFn(#FunctionName);            \
-    DP("device tracing fn bound %s=%p\n", #FunctionName,                       \
-       ((void *)(uint64_t)FunctionName##_fn));                                 \
-  }
-
-  FOREACH_OMPT_DEVICE_TRACING_FN_COMMON(bindOmptTracingFunction);
-#undef bindOmptTracingFunction
 
 #endif
 }
@@ -961,15 +767,13 @@ Error GenericDeviceTy::init(GenericPluginTy &Plugin) {
     return Err;
 
 #ifdef OMPT_SUPPORT
-  auto DevicePtr = reinterpret_cast<ompt_device_t *>(this);
-  ompt::setDeviceId(DevicePtr, Plugin.getUserId(DeviceId));
   if (ompt::Initialized) {
     bool ExpectedStatus = false;
     if (OmptInitialized.compare_exchange_strong(ExpectedStatus, true))
       performOmptCallback(device_initialize, Plugin.getUserId(DeviceId),
                           /*type=*/getComputeUnitKind().c_str(),
-                          /*device=*/DevicePtr,
-                          /*lookup=*/ompt::lookupDeviceTracingFn,
+                          /*device=*/reinterpret_cast<ompt_device_t *>(this),
+                          /*lookup=*/ompt::lookupCallbackByName,
                           /*documentation=*/nullptr);
   }
 #endif
@@ -1080,7 +884,6 @@ Error GenericDeviceTy::deinit(GenericPluginTy &Plugin) {
     if (OmptInitialized.compare_exchange_strong(ExpectedStatus, false))
       performOmptCallback(device_finalize, Plugin.getUserId(DeviceId));
   }
-  ompt::removeDeviceId(reinterpret_cast<ompt_device_t *>(this));
 #endif
 
   return deinitImpl();
@@ -1187,17 +990,6 @@ Error GenericDeviceTy::setupDeviceEnvironment(GenericPluginTy &Plugin,
        DevEnvGlobal.getName().data());
     consumeError(std::move(Err));
   }
-
-  // From the image, read whether fast reduction is enabled.
-  StaticGlobalTy<int8_t> IsFastRedGlobal("__omp_plugin_enable_fast_reduction");
-  if (auto Err = GHandler.readGlobalFromImage(*this, Image, IsFastRedGlobal)) {
-    DP("Missing symbol %s, continue execution anyway.\n",
-       IsFastRedGlobal.getName().data());
-    consumeError(std::move(Err));
-  } else {
-    IsFastReductionEnabled = IsFastRedGlobal.getValue();
-  }
-
   return Plugin::success();
 }
 
@@ -1263,6 +1055,9 @@ Error GenericDeviceTy::setupRPCServer(GenericPluginTy &Plugin,
     return Plugin::success();
 
   if (auto Err = Server.initDevice(*this, Plugin.getGlobalHandler(), Image))
+    return Err;
+
+  if (auto Err = Server.startThread())
     return Err;
 
   RPCServer = &Server;
@@ -1446,7 +1241,7 @@ Error PinnedAllocationMapTy::lockMappedHostBuffer(void *HstPtr, size_t Size) {
   // If pinned, just insert the entry representing the whole pinned buffer.
   if (*IsPinnedOrErr)
     return insertEntry(BaseHstPtr, BaseDevAccessiblePtr, BaseSize,
-                       /* Externally locked */ true);
+                       /*Externallylocked=*/true);
 
   // Not externally pinned. Do nothing if locking of mapped buffers is disabled.
   if (!LockMappedBuffers)
@@ -1750,40 +1545,6 @@ Error GenericDeviceTy::initDeviceInfo(__tgt_device_info *DeviceInfo) {
   return initDeviceInfoImpl(DeviceInfo);
 }
 
-Error GenericDeviceTy::setCoarseGrainMemory(void *ptr, int64_t size) {
-  assert(ptr != nullptr);
-  assert(size > 0);
-
-  return setCoarseGrainMemoryImpl(ptr, size);
-}
-
-uint32_t GenericDeviceTy::queryCoarseGrainMemory(const void *ptr,
-                                                 int64_t size) {
-  assert(ptr != nullptr);
-  assert(size > 0);
-
-  return queryCoarseGrainMemoryImpl(ptr, size);
-}
-
-bool GenericDeviceTy::hasAPUDevice() { return hasAPUDeviceImpl(); }
-
-bool GenericDeviceTy::hasGfx90aDevice() { return hasGfx90aDeviceImpl(); }
-
-bool GenericDeviceTy::supportsUnifiedMemory() {
-  return supportsUnifiedMemoryImpl();
-}
-
-bool GenericDeviceTy::IsFineGrainedMemoryEnabled() {
-  return IsFineGrainedMemoryEnabledImpl();
-}
-
-Error GenericDeviceTy::prepopulatePageTable(void *ptr, int64_t size) {
-  assert(ptr != nullptr);
-  assert(size > 0);
-
-  return prepopulatePageTableImpl(ptr, size);
-}
-
 Error GenericDeviceTy::printInfo() {
   InfoQueueTy InfoQueue;
 
@@ -1827,20 +1588,6 @@ Error GenericDeviceTy::syncEvent(void *EventPtr) {
 }
 
 bool GenericDeviceTy::useAutoZeroCopy() { return useAutoZeroCopyImpl(); }
-
-Error GenericDeviceTy::zeroCopySanityChecksAndDiag(bool isUnifiedSharedMemory,
-                                                   bool isAutoZeroCopy,
-                                                   bool isEagerMaps) {
-  return zeroCopySanityChecksAndDiagImpl(isUnifiedSharedMemory, isAutoZeroCopy,
-                                         isEagerMaps);
-}
-
-bool GenericDeviceTy::getMultiDeviceKernelValue(void *EntryPtr) {
-  GenericKernelTy &GenericKernel =
-      *reinterpret_cast<GenericKernelTy *>(EntryPtr);
-
-  return GenericKernel.isMultiDeviceKernel();
-}
 
 Error GenericPluginTy::init() {
   if (Initialized)
@@ -1886,10 +1633,12 @@ Error GenericPluginTy::deinit() {
   if (GlobalHandler)
     delete GlobalHandler;
 
-#if RPC_FIXME
+  if (RPCServer && RPCServer->Thread->Running.load(std::memory_order_relaxed))
+    if (Error Err = RPCServer->shutDown())
+      return Err;
+
   if (RPCServer)
     delete RPCServer;
-#endif
 
   if (RecordReplay)
     delete RecordReplay;
@@ -1961,94 +1710,74 @@ Expected<bool> GenericPluginTy::checkBitcodeImage(StringRef Image) const {
 
 int32_t GenericPluginTy::is_initialized() const { return Initialized; }
 
-void GenericPluginTy::check_invalid_image(__tgt_device_image *InvalidImage) {
-  // Check if the image was rejected because of conflicting XNACK modes.
-  checkInvalidImage(InvalidImage);
-}
-
-int32_t GenericPluginTy::supports_empty_images() {
-  return supportsEmptyImages();
-}
-
 int32_t GenericPluginTy::is_plugin_compatible(__tgt_device_image *Image) {
-  auto T = logger::log<int32_t>(__func__, Image);
-  auto R = [&]() {
-    StringRef Buffer(reinterpret_cast<const char *>(Image->ImageStart),
-                     utils::getPtrDiff(Image->ImageEnd, Image->ImageStart));
+  StringRef Buffer(reinterpret_cast<const char *>(Image->ImageStart),
+                   utils::getPtrDiff(Image->ImageEnd, Image->ImageStart));
 
-    auto HandleError = [&](Error Err) -> bool {
-      [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
-      DP("Failure to check validity of image %p: %s", Image, ErrStr.c_str());
-      return false;
-    };
-    switch (identify_magic(Buffer)) {
-    case file_magic::elf:
-    case file_magic::elf_relocatable:
-    case file_magic::elf_executable:
-    case file_magic::elf_shared_object:
-    case file_magic::elf_core: {
-      auto MatchOrErr = checkELFImage(Buffer);
-      if (Error Err = MatchOrErr.takeError())
-        return HandleError(std::move(Err));
-      return *MatchOrErr;
-    }
-    case file_magic::bitcode: {
-      auto MatchOrErr = checkBitcodeImage(Buffer);
-      if (Error Err = MatchOrErr.takeError())
-        return HandleError(std::move(Err));
-      return *MatchOrErr;
-    }
-    default:
-      return false;
-    }
-  }();
-  T.res(R);
-  return R;
+  auto HandleError = [&](Error Err) -> bool {
+    [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
+    DP("Failure to check validity of image %p: %s", Image, ErrStr.c_str());
+    return false;
+  };
+  switch (identify_magic(Buffer)) {
+  case file_magic::elf:
+  case file_magic::elf_relocatable:
+  case file_magic::elf_executable:
+  case file_magic::elf_shared_object:
+  case file_magic::elf_core: {
+    auto MatchOrErr = checkELFImage(Buffer);
+    if (Error Err = MatchOrErr.takeError())
+      return HandleError(std::move(Err));
+    return *MatchOrErr;
+  }
+  case file_magic::bitcode: {
+    auto MatchOrErr = checkBitcodeImage(Buffer);
+    if (Error Err = MatchOrErr.takeError())
+      return HandleError(std::move(Err));
+    return *MatchOrErr;
+  }
+  default:
+    return false;
+  }
 }
 
 int32_t GenericPluginTy::is_device_compatible(int32_t DeviceId,
                                               __tgt_device_image *Image) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, Image);
-  auto R = [&]() {
-    StringRef Buffer(reinterpret_cast<const char *>(Image->ImageStart),
-                     utils::getPtrDiff(Image->ImageEnd, Image->ImageStart));
+  StringRef Buffer(reinterpret_cast<const char *>(Image->ImageStart),
+                   utils::getPtrDiff(Image->ImageEnd, Image->ImageStart));
 
-    auto HandleError = [&](Error Err) -> bool {
-      [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
-      DP("Failure to check validity of image %p: %s", Image, ErrStr.c_str());
+  auto HandleError = [&](Error Err) -> bool {
+    [[maybe_unused]] std::string ErrStr = toString(std::move(Err));
+    DP("Failure to check validity of image %p: %s", Image, ErrStr.c_str());
+    return false;
+  };
+  switch (identify_magic(Buffer)) {
+  case file_magic::elf:
+  case file_magic::elf_relocatable:
+  case file_magic::elf_executable:
+  case file_magic::elf_shared_object:
+  case file_magic::elf_core: {
+    auto MatchOrErr = checkELFImage(Buffer);
+    if (Error Err = MatchOrErr.takeError())
+      return HandleError(std::move(Err));
+    if (!*MatchOrErr)
       return false;
-    };
-    switch (identify_magic(Buffer)) {
-    case file_magic::elf:
-    case file_magic::elf_relocatable:
-    case file_magic::elf_executable:
-    case file_magic::elf_shared_object:
-    case file_magic::elf_core: {
-      auto MatchOrErr = checkELFImage(Buffer);
-      if (Error Err = MatchOrErr.takeError())
-        return HandleError(std::move(Err));
-      if (!*MatchOrErr)
-        return false;
 
-      // Perform plugin-dependent checks for the specific architecture if
-      // needed.
-      auto CompatibleOrErr = isELFCompatible(DeviceId, Buffer);
-      if (Error Err = CompatibleOrErr.takeError())
-        return HandleError(std::move(Err));
-      return *CompatibleOrErr;
-    }
-    case file_magic::bitcode: {
-      auto MatchOrErr = checkBitcodeImage(Buffer);
-      if (Error Err = MatchOrErr.takeError())
-        return HandleError(std::move(Err));
-      return *MatchOrErr;
-    }
-    default:
-      return false;
-    }
-  }();
-  T.res(R);
-  return R;
+    // Perform plugin-dependent checks for the specific architecture if needed.
+    auto CompatibleOrErr = isELFCompatible(DeviceId, Buffer);
+    if (Error Err = CompatibleOrErr.takeError())
+      return HandleError(std::move(Err));
+    return *CompatibleOrErr;
+  }
+  case file_magic::bitcode: {
+    auto MatchOrErr = checkBitcodeImage(Buffer);
+    if (Error Err = MatchOrErr.takeError())
+      return HandleError(std::move(Err));
+    return *MatchOrErr;
+  }
+  default:
+    return false;
+  }
 }
 
 int32_t GenericPluginTy::is_device_initialized(int32_t DeviceId) const {
@@ -2056,76 +1785,21 @@ int32_t GenericPluginTy::is_device_initialized(int32_t DeviceId) const {
 }
 
 int32_t GenericPluginTy::init_device(int32_t DeviceId) {
-  auto T = logger::log<int32_t>(__func__, DeviceId);
-  auto R = [&]() {
-    auto Err = initDevice(DeviceId);
-    if (Err) {
-      REPORT("Failure to initialize device %d: %s\n", DeviceId,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = initDevice(DeviceId);
+  if (Err) {
+    REPORT("Failure to initialize device %d: %s\n", DeviceId,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
-int32_t GenericPluginTy::number_of_devices() {
-  auto T = logger::log<int32_t>(__func__);
-  auto R = [&]() { return getNumDevices(); }();
-  T.res(R);
-  return R;
-}
-
-int GenericPluginTy::number_of_team_procs(int DeviceId) {
-  auto T = logger::log<int>(__func__, DeviceId);
-  auto R = [&]() { return getDevice(DeviceId).getNumComputeUnits(); }();
-  T.res(R);
-  return R;
-}
-
-bool GenericPluginTy::has_apu_device(int32_t DeviceId) {
-  auto T = logger::log<bool>(__func__, DeviceId);
-  auto R = [&]() { return getDevice(DeviceId).hasAPUDevice(); }();
-  T.res(R);
-  return R;
-}
-
-bool GenericPluginTy::is_gfx90a(int32_t DeviceId) {
-  auto T = logger::log<bool>(__func__, DeviceId);
-  auto R = [&]() { return getDevice(DeviceId).hasGfx90aDeviceImpl(); }();
-  T.res(R);
-  return R;
-}
-
-bool GenericPluginTy::supports_unified_memory(int32_t DeviceId) {
-  auto T = logger::log<bool>(__func__, DeviceId);
-  auto R = [&]() { return getDevice(DeviceId).supportsUnifiedMemory(); }();
-  T.res(R);
-  return R;
-}
-
-bool GenericPluginTy::is_fine_grained_memory_enabled(int32_t DeviceId) {
-  auto T = logger::log<bool>(__func__, DeviceId);
-  auto R = [&]() { return getDevice(DeviceId).IsFineGrainedMemoryEnabled(); }();
-  T.res(R);
-  return R;
-}
-
-bool GenericPluginTy::is_system_supporting_managed_memory(int32_t DeviceId) {
-  auto T = logger::log<bool>(__func__, DeviceId);
-  auto R = [&]() { return IsSystemSupportingManagedMemory(); }();
-  T.res(R);
-  return R;
-}
+int32_t GenericPluginTy::number_of_devices() { return getNumDevices(); }
 
 int32_t GenericPluginTy::is_data_exchangable(int32_t SrcDeviceId,
                                              int32_t DstDeviceId) {
-  auto T = logger::log<int32_t>(__func__, SrcDeviceId, DstDeviceId);
-  auto R = [&]() { return isDataExchangable(SrcDeviceId, DstDeviceId); }();
-  T.res(R);
-  return R;
+  return isDataExchangable(SrcDeviceId, DstDeviceId);
 }
 
 int32_t GenericPluginTy::initialize_record_replay(int32_t DeviceId,
@@ -2133,13 +1807,10 @@ int32_t GenericPluginTy::initialize_record_replay(int32_t DeviceId,
                                                   void *VAddr, bool isRecord,
                                                   bool SaveOutput,
                                                   uint64_t &ReqPtrArgOffset) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, MemorySize, VAddr, isRecord,
-                                SaveOutput, &ReqPtrArgOffset);
-  auto R = [&]() {
-    GenericDeviceTy &Device = getDevice(DeviceId);
-    RecordReplayTy::RRStatusTy Status =
-        isRecord ? RecordReplayTy::RRStatusTy::RRRecording
-                 : RecordReplayTy::RRStatusTy::RRReplaying;
+  GenericDeviceTy &Device = getDevice(DeviceId);
+  RecordReplayTy::RRStatusTy Status =
+      isRecord ? RecordReplayTy::RRStatusTy::RRRecording
+               : RecordReplayTy::RRStatusTy::RRReplaying;
 
   if (auto Err = RecordReplay->init(&Device, MemorySize, VAddr, Status,
                                     SaveOutput, ReqPtrArgOffset)) {
@@ -2148,338 +1819,220 @@ int32_t GenericPluginTy::initialize_record_replay(int32_t DeviceId,
            MemorySize, toString(std::move(Err)).data());
     RecordReplay->setStatus(RecordReplayTy::RRStatusTy::RRDeactivated);
 
-      if (!isRecord) {
-        return OFFLOAD_FAIL;
-      }
+    if (!isRecord) {
+      return OFFLOAD_FAIL;
     }
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  }
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::load_binary(int32_t DeviceId,
                                      __tgt_device_image *TgtImage,
                                      __tgt_device_binary *Binary) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, TgtImage, Binary);
-  auto R = [&]() {
-    GenericDeviceTy &Device = getDevice(DeviceId);
+  GenericDeviceTy &Device = getDevice(DeviceId);
 
-    auto ImageOrErr = Device.loadBinary(*this, TgtImage);
-    if (!ImageOrErr) {
-      auto Err = ImageOrErr.takeError();
-      REPORT("Failure to load binary image %p on device %d: %s\n", TgtImage,
-             DeviceId, toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto ImageOrErr = Device.loadBinary(*this, TgtImage);
+  if (!ImageOrErr) {
+    auto Err = ImageOrErr.takeError();
+    REPORT("Failure to load binary image %p on device %d: %s\n", TgtImage,
+           DeviceId, toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    DeviceImageTy *Image = *ImageOrErr;
-    assert(Image != nullptr && "Invalid Image");
+  DeviceImageTy *Image = *ImageOrErr;
+  assert(Image != nullptr && "Invalid Image");
 
-    *Binary = __tgt_device_binary{reinterpret_cast<uint64_t>(Image)};
+  *Binary = __tgt_device_binary{reinterpret_cast<uint64_t>(Image)};
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 void *GenericPluginTy::data_alloc(int32_t DeviceId, int64_t Size, void *HostPtr,
                                   int32_t Kind) {
-  auto T = logger::log<void *>(__func__, DeviceId, Size, HostPtr, Kind);
-  auto R = [&]() -> void * {
-#ifdef OMPT_SUPPORT
-    // If OMPT is enabled, collect start and end times for the allocation.
-    OmptTimestampRAII Ts;
-#endif
-    auto AllocOrErr =
-        getDevice(DeviceId).dataAlloc(Size, HostPtr, (TargetAllocTy)Kind);
-    if (!AllocOrErr) {
-      auto Err = AllocOrErr.takeError();
-      REPORT("Failure to allocate device memory: %s\n",
-             toString(std::move(Err)).data());
-      return nullptr;
-    }
-    assert(*AllocOrErr && "Null pointer upon successful allocation");
+  auto AllocOrErr =
+      getDevice(DeviceId).dataAlloc(Size, HostPtr, (TargetAllocTy)Kind);
+  if (!AllocOrErr) {
+    auto Err = AllocOrErr.takeError();
+    REPORT("Failure to allocate device memory: %s\n",
+           toString(std::move(Err)).data());
+    return nullptr;
+  }
+  assert(*AllocOrErr && "Null pointer upon successful allocation");
 
-    // Method has no effect when the CUDA Plugin is used.
-    // This method can only be called if HostPtr is not null.
-    if (HostPtr && Kind == TARGET_ALLOC_SHARED)
-      set_coarse_grain_mem_region(DeviceId, HostPtr, Size);
-
-    return *AllocOrErr;
-  }();
-  T.res(R);
-  return R;
+  return *AllocOrErr;
 }
 
 int32_t GenericPluginTy::data_delete(int32_t DeviceId, void *TgtPtr,
                                      int32_t Kind) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, TgtPtr, Kind);
-  auto R = [&]() {
-#ifdef OMPT_SUPPORT
-    // If OMPT is enabled, collect start and end times for the data delete.
-    OmptTimestampRAII Ts;
-#endif
-    auto Err = getDevice(DeviceId).dataDelete(TgtPtr, (TargetAllocTy)Kind);
-    if (Err) {
-      REPORT("Failure to deallocate device pointer %p: %s\n", TgtPtr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err =
+      getDevice(DeviceId).dataDelete(TgtPtr, static_cast<TargetAllocTy>(Kind));
+  if (Err) {
+    REPORT("Failure to deallocate device pointer %p: %s\n", TgtPtr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::data_lock(int32_t DeviceId, void *Ptr, int64_t Size,
                                    void **LockedPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, Ptr, Size, LockedPtr);
-  auto R = [&]() {
-    auto LockedPtrOrErr = getDevice(DeviceId).dataLock(Ptr, Size);
-    if (!LockedPtrOrErr) {
-      auto Err = LockedPtrOrErr.takeError();
-      REPORT("Failure to lock memory %p: %s\n", Ptr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto LockedPtrOrErr = getDevice(DeviceId).dataLock(Ptr, Size);
+  if (!LockedPtrOrErr) {
+    auto Err = LockedPtrOrErr.takeError();
+    REPORT("Failure to lock memory %p: %s\n", Ptr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    if (!(*LockedPtrOrErr)) {
-      REPORT("Failure to lock memory %p: obtained a null locked pointer\n",
-             Ptr);
-      return OFFLOAD_FAIL;
-    }
-    *LockedPtr = *LockedPtrOrErr;
+  if (!(*LockedPtrOrErr)) {
+    REPORT("Failure to lock memory %p: obtained a null locked pointer\n", Ptr);
+    return OFFLOAD_FAIL;
+  }
+  *LockedPtr = *LockedPtrOrErr;
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::data_unlock(int32_t DeviceId, void *Ptr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, Ptr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).dataUnlock(Ptr);
-    if (Err) {
-      REPORT("Failure to unlock memory %p: %s\n", Ptr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).dataUnlock(Ptr);
+  if (Err) {
+    REPORT("Failure to unlock memory %p: %s\n", Ptr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::data_notify_mapped(int32_t DeviceId, void *HstPtr,
                                             int64_t Size) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, HstPtr, Size);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).notifyDataMapped(HstPtr, Size);
-    if (Err) {
-      REPORT("Failure to notify data mapped %p: %s\n", HstPtr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).notifyDataMapped(HstPtr, Size);
+  if (Err) {
+    REPORT("Failure to notify data mapped %p: %s\n", HstPtr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::data_notify_unmapped(int32_t DeviceId, void *HstPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, HstPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).notifyDataUnmapped(HstPtr);
-    if (Err) {
-      REPORT("Failure to notify data unmapped %p: %s\n", HstPtr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).notifyDataUnmapped(HstPtr);
+  if (Err) {
+    REPORT("Failure to notify data unmapped %p: %s\n", HstPtr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::data_submit(int32_t DeviceId, void *TgtPtr,
                                      void *HstPtr, int64_t Size) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, TgtPtr, HstPtr, Size);
-  auto R = [&]() {
-    return data_submit_async(DeviceId, TgtPtr, HstPtr, Size,
-                             /*AsyncInfoPtr=*/nullptr);
-  }();
-  T.res(R);
-  return R;
+  return data_submit_async(DeviceId, TgtPtr, HstPtr, Size,
+                           /*AsyncInfoPtr=*/nullptr);
 }
 
 int32_t GenericPluginTy::data_submit_async(int32_t DeviceId, void *TgtPtr,
                                            void *HstPtr, int64_t Size,
                                            __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, TgtPtr, HstPtr, Size,
-                                AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err =
-        getDevice(DeviceId).dataSubmit(TgtPtr, HstPtr, Size, AsyncInfoPtr);
-    if (Err) {
-      REPORT("Failure to copy data from host to device. Pointers: host "
-             "= " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
-             DPxPTR(HstPtr), DPxPTR(TgtPtr), Size,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).dataSubmit(TgtPtr, HstPtr, Size, AsyncInfoPtr);
+  if (Err) {
+    REPORT("Failure to copy data from host to device. Pointers: host "
+           "= " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
+           DPxPTR(HstPtr), DPxPTR(TgtPtr), Size,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::data_retrieve(int32_t DeviceId, void *HstPtr,
                                        void *TgtPtr, int64_t Size) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, HstPtr, TgtPtr, Size);
-  auto R = [&]() {
-    return data_retrieve_async(DeviceId, HstPtr, TgtPtr, Size,
-                               /*AsyncInfoPtr=*/nullptr);
-  }();
-  T.res(R);
-  return R;
+  return data_retrieve_async(DeviceId, HstPtr, TgtPtr, Size,
+                             /*AsyncInfoPtr=*/nullptr);
 }
 
 int32_t GenericPluginTy::data_retrieve_async(int32_t DeviceId, void *HstPtr,
                                              void *TgtPtr, int64_t Size,
                                              __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, HstPtr, TgtPtr, Size,
-                                AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err =
-        getDevice(DeviceId).dataRetrieve(HstPtr, TgtPtr, Size, AsyncInfoPtr);
-    if (Err) {
-      REPORT("Faliure to copy data from device to host. Pointers: host "
-             "= " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
-             DPxPTR(HstPtr), DPxPTR(TgtPtr), Size,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err =
+      getDevice(DeviceId).dataRetrieve(HstPtr, TgtPtr, Size, AsyncInfoPtr);
+  if (Err) {
+    REPORT("Faliure to copy data from device to host. Pointers: host "
+           "= " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
+           DPxPTR(HstPtr), DPxPTR(TgtPtr), Size,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::data_exchange(int32_t SrcDeviceId, void *SrcPtr,
                                        int32_t DstDeviceId, void *DstPtr,
                                        int64_t Size) {
-  auto T = logger::log<int32_t>(__func__, SrcDeviceId, SrcPtr, DstDeviceId,
-                                DstPtr, Size);
-  auto R = [&]() {
-    return data_exchange_async(SrcDeviceId, SrcPtr, DstDeviceId, DstPtr, Size,
-                               /*AsyncInfoPtr=*/nullptr);
-  }();
-  T.res(R);
-  return R;
+  return data_exchange_async(SrcDeviceId, SrcPtr, DstDeviceId, DstPtr, Size,
+                             /*AsyncInfoPtr=*/nullptr);
 }
 
 int32_t GenericPluginTy::data_exchange_async(int32_t SrcDeviceId, void *SrcPtr,
                                              int DstDeviceId, void *DstPtr,
                                              int64_t Size,
                                              __tgt_async_info *AsyncInfo) {
-  auto T = logger::log<int32_t>(__func__, SrcDeviceId, SrcPtr, DstDeviceId,
-                                DstPtr, Size, AsyncInfo);
-  auto R = [&]() {
-    GenericDeviceTy &SrcDevice = getDevice(SrcDeviceId);
-    GenericDeviceTy &DstDevice = getDevice(DstDeviceId);
-    auto Err =
-        SrcDevice.dataExchange(SrcPtr, DstDevice, DstPtr, Size, AsyncInfo);
-    if (Err) {
-      REPORT("Failure to copy data from device (%d) to device (%d). Pointers: "
-             "host = " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
-             SrcDeviceId, DstDeviceId, DPxPTR(SrcPtr), DPxPTR(DstPtr), Size,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  GenericDeviceTy &SrcDevice = getDevice(SrcDeviceId);
+  GenericDeviceTy &DstDevice = getDevice(DstDeviceId);
+  auto Err = SrcDevice.dataExchange(SrcPtr, DstDevice, DstPtr, Size, AsyncInfo);
+  if (Err) {
+    REPORT("Failure to copy data from device (%d) to device (%d). Pointers: "
+           "host = " DPxMOD ", device = " DPxMOD ", size = %" PRId64 ": %s\n",
+           SrcDeviceId, DstDeviceId, DPxPTR(SrcPtr), DPxPTR(DstPtr), Size,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-int32_t GenericPluginTy::launch_kernel_sync(int32_t DeviceId, void *TgtEntryPtr,
-                                            void **TgtArgs,
-                                            ptrdiff_t *TgtOffsets,
-                                            KernelArgsTy *KernelArgs) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, TgtEntryPtr, TgtArgs,
-                                TgtOffsets, KernelArgs);
-  auto R = [&]() {
-    __tgt_async_info *AsyncInfoPtr = nullptr;
-    return launch_kernel(DeviceId, TgtEntryPtr, TgtArgs, TgtOffsets, KernelArgs,
-                         AsyncInfoPtr);
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::launch_kernel(int32_t DeviceId, void *TgtEntryPtr,
                                        void **TgtArgs, ptrdiff_t *TgtOffsets,
                                        KernelArgsTy *KernelArgs,
                                        __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, TgtEntryPtr, TgtArgs,
-                                TgtOffsets, KernelArgs, AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).launchKernel(
-        TgtEntryPtr, TgtArgs, TgtOffsets, *KernelArgs, AsyncInfoPtr);
-    if (Err) {
-      REPORT("Failure to run target region " DPxMOD " in device %d: %s\n",
-             DPxPTR(TgtEntryPtr), DeviceId, toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).launchKernel(TgtEntryPtr, TgtArgs, TgtOffsets,
+                                              *KernelArgs, AsyncInfoPtr);
+  if (Err) {
+    REPORT("Failure to run target region " DPxMOD " in device %d: %s\n",
+           DPxPTR(TgtEntryPtr), DeviceId, toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::synchronize(int32_t DeviceId,
                                      __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).synchronize(AsyncInfoPtr);
-    if (Err) {
-      REPORT("Failure to synchronize stream %p: %s\n", AsyncInfoPtr->Queue,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).synchronize(AsyncInfoPtr);
+  if (Err) {
+    REPORT("Failure to synchronize stream %p: %s\n", AsyncInfoPtr->Queue,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::query_async(int32_t DeviceId,
                                      __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).queryAsync(AsyncInfoPtr);
-    if (Err) {
-      REPORT("Failure to query stream %p: %s\n", AsyncInfoPtr->Queue,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).queryAsync(AsyncInfoPtr);
+  if (Err) {
+    REPORT("Failure to query stream %p: %s\n", AsyncInfoPtr->Queue,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 void GenericPluginTy::print_device_info(int32_t DeviceId) {
@@ -2489,321 +2042,153 @@ void GenericPluginTy::print_device_info(int32_t DeviceId) {
 }
 
 int32_t GenericPluginTy::create_event(int32_t DeviceId, void **EventPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).createEvent(EventPtr);
-    if (Err) {
-      REPORT("Failure to create event: %s\n", toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).createEvent(EventPtr);
+  if (Err) {
+    REPORT("Failure to create event: %s\n", toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::record_event(int32_t DeviceId, void *EventPtr,
                                       __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr, AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).recordEvent(EventPtr, AsyncInfoPtr);
-    if (Err) {
-      REPORT("Failure to record event %p: %s\n", EventPtr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).recordEvent(EventPtr, AsyncInfoPtr);
+  if (Err) {
+    REPORT("Failure to record event %p: %s\n", EventPtr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::wait_event(int32_t DeviceId, void *EventPtr,
                                     __tgt_async_info *AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr, AsyncInfoPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).waitEvent(EventPtr, AsyncInfoPtr);
-    if (Err) {
-      REPORT("Failure to wait event %p: %s\n", EventPtr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).waitEvent(EventPtr, AsyncInfoPtr);
+  if (Err) {
+    REPORT("Failure to wait event %p: %s\n", EventPtr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::sync_event(int32_t DeviceId, void *EventPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).syncEvent(EventPtr);
-    if (Err) {
-      REPORT("Failure to synchronize event %p: %s\n", EventPtr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).syncEvent(EventPtr);
+  if (Err) {
+    REPORT("Failure to synchronize event %p: %s\n", EventPtr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::destroy_event(int32_t DeviceId, void *EventPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, EventPtr);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).destroyEvent(EventPtr);
-    if (Err) {
-      REPORT("Failure to destroy event %p: %s\n", EventPtr,
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).destroyEvent(EventPtr);
+  if (Err) {
+    REPORT("Failure to destroy event %p: %s\n", EventPtr,
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
+}
+
+void GenericPluginTy::set_info_flag(uint32_t NewInfoLevel) {
+  std::atomic<uint32_t> &InfoLevel = getInfoLevelInternal();
+  InfoLevel.store(NewInfoLevel);
 }
 
 int32_t GenericPluginTy::init_async_info(int32_t DeviceId,
                                          __tgt_async_info **AsyncInfoPtr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, AsyncInfoPtr);
-  auto R = [&]() {
-    assert(AsyncInfoPtr && "Invalid async info");
+  assert(AsyncInfoPtr && "Invalid async info");
 
-    auto Err = getDevice(DeviceId).initAsyncInfo(AsyncInfoPtr);
-    if (Err) {
-      REPORT("Failure to initialize async info at " DPxMOD
-             " on device %d: %s\n",
-             DPxPTR(*AsyncInfoPtr), DeviceId, toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  auto Err = getDevice(DeviceId).initAsyncInfo(AsyncInfoPtr);
+  if (Err) {
+    REPORT("Failure to initialize async info at " DPxMOD " on device %d: %s\n",
+           DPxPTR(*AsyncInfoPtr), DeviceId, toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
+
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::init_device_info(int32_t DeviceId,
                                           __tgt_device_info *DeviceInfo,
                                           const char **ErrStr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, DeviceInfo, ErrStr);
-  auto R = [&]() {
-    *ErrStr = "";
+  *ErrStr = "";
 
-    auto Err = getDevice(DeviceId).initDeviceInfo(DeviceInfo);
-    if (Err) {
-      REPORT("Failure to initialize device info at " DPxMOD
-             " on device %d: %s\n",
-             DPxPTR(DeviceInfo), DeviceId, toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  auto Err = getDevice(DeviceId).initDeviceInfo(DeviceInfo);
+  if (Err) {
+    REPORT("Failure to initialize device info at " DPxMOD " on device %d: %s\n",
+           DPxPTR(DeviceInfo), DeviceId, toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-// Register mapped or allocated memory (with omp_target_alloc or omp_alloc)
-// as coarse grain
-// \arg DeviceId is the ID of the device for which the memory should be switched
-// to coarse grain mode. \arg ptr is the base pointer of the region to be
-// registered as coarse grain \arg size is the size of the memory region to be
-// registered as coarse grain
-int GenericPluginTy::set_coarse_grain_mem_region(int32_t DeviceId, void *ptr,
-                                                 int64_t size) {
-  auto T = logger::log<int>(__func__, DeviceId, ptr, size);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).setCoarseGrainMemory(ptr, size);
-
-    if (Err) {
-      REPORT("Failure switching memory region to coarse grain mode (ptr: %p, "
-             "size: %ld)\n",
-             ptr, size);
-      return OFFLOAD_FAIL;
-    }
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-// Request GPU driver to add all pages underlying memory [ptr,ptr+size[ to the
-// \arg DeviceId page table
-// \arg DeviceId is the ID of the device for which the memory should be switched
-// to coarse grain mode. \arg ptr is the base pointer of the region to be
-// registered as coarse grain \arg size is the size of the memory region to be
-// registered as coarse grain
-int GenericPluginTy::prepopulate_page_table(int32_t DeviceId, void *ptr,
-                                            int64_t size) {
-  auto T = logger::log<int>(__func__, DeviceId, ptr, size);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).prepopulatePageTable(ptr, size);
-
-    if (Err) {
-      REPORT("Failure prepopulating GPU page table (ptr: %p, "
-             "size: %ld)\n",
-             ptr, size);
-      return OFFLOAD_FAIL;
-    }
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::set_device_identifier(int32_t UserId,
                                                int32_t DeviceId) {
   UserDeviceIds[DeviceId] = UserId;
+
   return OFFLOAD_SUCCESS;
 }
 
-// Query if [ptr, ptr+size] belongs to coarse grain memory region
-int32_t GenericPluginTy::query_coarse_grain_mem_region(int32_t DeviceId,
-                                                       const void *ptr,
-                                                       int64_t size) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, ptr, size);
-  auto R = [&]() {
-    auto QueryCoarseGrainReturnValue =
-        getDevice(DeviceId).queryCoarseGrainMemory(ptr, size);
-
-    return QueryCoarseGrainReturnValue;
-  }();
-  T.res(R);
-  return R;
-}
-
-// set coarse grain mem for tracking on memory whose memtype attribute
-// has already been set
-void GenericPluginTy::set_coarse_grain_mem(int32_t DeviceId, const void *ptr,
-                                           int64_t size, bool set_attr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, ptr, size);
-  if (auto Err = getDevice(DeviceId).setCoarseGrainMemoryImpl((void *)ptr, size,
-                                                              set_attr))
-    REPORT("Failure to setCoarseGrainMemory: %s\n",
-           toString(std::move(Err)).data());
-  T.res(0);
-  return;
+int32_t GenericPluginTy::use_auto_zero_copy(int32_t DeviceId) {
+  return getDevice(DeviceId).useAutoZeroCopy();
 }
 
 int32_t GenericPluginTy::get_global(__tgt_device_binary Binary, uint64_t Size,
                                     const char *Name, void **DevicePtr) {
-  auto T = logger::log<int32_t>(__func__, Binary.handle, Size, Name, DevicePtr);
-  auto R = [&]() {
-    assert(Binary.handle && "Invalid device binary handle");
-    DeviceImageTy &Image = *reinterpret_cast<DeviceImageTy *>(Binary.handle);
+  assert(Binary.handle && "Invalid device binary handle");
+  DeviceImageTy &Image = *reinterpret_cast<DeviceImageTy *>(Binary.handle);
 
-    GenericDeviceTy &Device = Image.getDevice();
+  GenericDeviceTy &Device = Image.getDevice();
 
-    GlobalTy DeviceGlobal(Name, Size);
-    GenericGlobalHandlerTy &GHandler = getGlobalHandler();
-    if (auto Err =
-            GHandler.getGlobalMetadataFromDevice(Device, Image, DeviceGlobal)) {
-      REPORT("Failure to look up global address: %s\n",
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
+  GlobalTy DeviceGlobal(Name, Size);
+  GenericGlobalHandlerTy &GHandler = getGlobalHandler();
+  if (auto Err =
+          GHandler.getGlobalMetadataFromDevice(Device, Image, DeviceGlobal)) {
+    REPORT("Failure to look up global address: %s\n",
+           toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    *DevicePtr = DeviceGlobal.getPtr();
-    assert(DevicePtr && "Invalid device global's address");
+  *DevicePtr = DeviceGlobal.getPtr();
+  assert(DevicePtr && "Invalid device global's address");
 
-    // Save the loaded globals if we are recording.
-    RecordReplayTy &RecordReplay = Device.Plugin.getRecordReplay();
-    if (RecordReplay.isRecording())
-      RecordReplay.addEntry(Name, Size, *DevicePtr);
+  // Save the loaded globals if we are recording.
+  RecordReplayTy &RecordReplay = Device.Plugin.getRecordReplay();
+  if (RecordReplay.isRecording())
+    RecordReplay.addEntry(Name, Size, *DevicePtr);
 
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
+  return OFFLOAD_SUCCESS;
 }
 
 int32_t GenericPluginTy::get_function(__tgt_device_binary Binary,
                                       const char *Name, void **KernelPtr) {
-  auto T = logger::log<int32_t>(__func__, Binary.handle, Name, KernelPtr);
-  auto R = [&]() {
-    assert(Binary.handle && "Invalid device binary handle");
-    DeviceImageTy &Image = *reinterpret_cast<DeviceImageTy *>(Binary.handle);
+  assert(Binary.handle && "Invalid device binary handle");
+  DeviceImageTy &Image = *reinterpret_cast<DeviceImageTy *>(Binary.handle);
 
-    GenericDeviceTy &Device = Image.getDevice();
+  GenericDeviceTy &Device = Image.getDevice();
 
-    auto KernelOrErr = Device.constructKernel(Name);
-    if (Error Err = KernelOrErr.takeError()) {
-      REPORT("Failure to look up kernel: %s\n",
-             toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
-
-    GenericKernelTy &Kernel = *KernelOrErr;
-    if (auto Err = Kernel.init(Device, Image)) {
-      REPORT("Failure to init kernel: %s\n", toString(std::move(Err)).data());
-      return OFFLOAD_FAIL;
-    }
-
-    // Note that this is not the kernel's device address.
-    *KernelPtr = &Kernel;
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-int32_t GenericPluginTy::use_auto_zero_copy(int32_t DeviceId) {
-  auto T = logger::log<int32_t>(__func__, DeviceId);
-  auto R = [&]() { return getDevice(DeviceId).useAutoZeroCopy(); }();
-  T.res(R);
-  return R;
-}
-
-int32_t GenericPluginTy::enable_access_to_all_agents(int32_t DeviceId,
-                                                     void *ptr) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, ptr);
-  auto R = [&]() {
-    // Not implemented yet.
+  auto KernelOrErr = Device.constructKernel(Name);
+  if (Error Err = KernelOrErr.takeError()) {
+    REPORT("Failure to look up kernel: %s\n", toString(std::move(Err)).data());
     return OFFLOAD_FAIL;
-  }();
-  T.res(R);
-  return R;
-}
+  }
 
-int32_t GenericPluginTy::zero_copy_sanity_checks_and_diag(
-    int32_t DeviceId, bool isUnifiedSharedMemory, bool isAutoZeroCopy,
-    bool isEagerMaps) {
-  auto T = logger::log<int32_t>(__func__, DeviceId, isUnifiedSharedMemory,
-                                isAutoZeroCopy, isEagerMaps);
-  auto R = [&]() {
-    auto Err = getDevice(DeviceId).zeroCopySanityChecksAndDiag(
-        isUnifiedSharedMemory, isAutoZeroCopy, isEagerMaps);
+  GenericKernelTy &Kernel = *KernelOrErr;
+  if (auto Err = Kernel.init(Device, Image)) {
+    REPORT("Failure to init kernel: %s\n", toString(std::move(Err)).data());
+    return OFFLOAD_FAIL;
+  }
 
-    if (Err) {
-      REPORT("Failure in zero-copy sanity checks\n");
-      return OFFLOAD_FAIL;
-    }
-
-    return OFFLOAD_SUCCESS;
-  }();
-  T.res(R);
-  return R;
-}
-
-int32_t GenericPluginTy::get_num_multi_devices(int32_t DeviceId) {
-  auto T = logger::log<int32_t>(__func__);
-  auto R = [&]() { return getDevice(DeviceId).getNumMultiDevices(); }();
-  T.res(R);
-  return R;
-}
-
-bool GenericPluginTy::kernel_is_multi_device(int32_t DeviceId,
-                                             void *TgtEntryPtr) {
-  auto T = logger::log<bool>(__func__, DeviceId, TgtEntryPtr);
-  auto R = [&]() {
-    return getDevice(DeviceId).getMultiDeviceKernelValue(TgtEntryPtr);
-  }();
-  T.res(R);
-  return R;
+  // Note that this is not the kernel's device address.
+  *KernelPtr = &Kernel;
+  return OFFLOAD_SUCCESS;
 }

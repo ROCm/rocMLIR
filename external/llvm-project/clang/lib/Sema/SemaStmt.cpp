@@ -200,23 +200,30 @@ static bool DiagnoseUnusedComparison(Sema &S, const Expr *E) {
   return true;
 }
 
-static bool DiagnoseNoDiscard(Sema &S, const WarnUnusedResultAttr *A,
-                              SourceLocation Loc, SourceRange R1,
-                              SourceRange R2, bool IsCtor) {
+static bool DiagnoseNoDiscard(Sema &S, const NamedDecl *OffendingDecl,
+                              const WarnUnusedResultAttr *A, SourceLocation Loc,
+                              SourceRange R1, SourceRange R2, bool IsCtor) {
   if (!A)
     return false;
   StringRef Msg = A->getMessage();
 
   if (Msg.empty()) {
+    if (OffendingDecl)
+      return S.Diag(Loc, diag::warn_unused_return_type)
+             << IsCtor << A << OffendingDecl << false << R1 << R2;
     if (IsCtor)
-      return S.Diag(Loc, diag::warn_unused_constructor) << A << R1 << R2;
-    return S.Diag(Loc, diag::warn_unused_result) << A << R1 << R2;
+      return S.Diag(Loc, diag::warn_unused_constructor)
+             << A << false << R1 << R2;
+    return S.Diag(Loc, diag::warn_unused_result) << A << false << R1 << R2;
   }
 
+  if (OffendingDecl)
+    return S.Diag(Loc, diag::warn_unused_return_type)
+           << IsCtor << A << OffendingDecl << true << Msg << R1 << R2;
   if (IsCtor)
-    return S.Diag(Loc, diag::warn_unused_constructor_msg) << A << Msg << R1
-                                                          << R2;
-  return S.Diag(Loc, diag::warn_unused_result_msg) << A << Msg << R1 << R2;
+    return S.Diag(Loc, diag::warn_unused_constructor)
+           << A << true << Msg << R1 << R2;
+  return S.Diag(Loc, diag::warn_unused_result) << A << true << Msg << R1 << R2;
 }
 
 namespace {
@@ -288,9 +295,10 @@ void DiagnoseUnused(Sema &S, const Expr *E, std::optional<unsigned> DiagID) {
     if (E->getType()->isVoidType())
       return;
 
-    if (DiagnoseNoDiscard(S, cast_or_null<WarnUnusedResultAttr>(
-                                     CE->getUnusedResultAttr(S.Context)),
-                          Loc, R1, R2, /*isCtor=*/false))
+    auto [OffendingDecl, A] = CE->getUnusedResultAttr(S.Context);
+    if (DiagnoseNoDiscard(S, OffendingDecl,
+                          cast_or_null<WarnUnusedResultAttr>(A), Loc, R1, R2,
+                          /*isCtor=*/false))
       return;
 
     // If the callee has attribute pure, const, or warn_unused_result, warn with
@@ -311,15 +319,20 @@ void DiagnoseUnused(Sema &S, const Expr *E, std::optional<unsigned> DiagID) {
     }
   } else if (const auto *CE = dyn_cast<CXXConstructExpr>(E)) {
     if (const CXXConstructorDecl *Ctor = CE->getConstructor()) {
+      const NamedDecl *OffendingDecl = nullptr;
       const auto *A = Ctor->getAttr<WarnUnusedResultAttr>();
-      A = A ? A : Ctor->getParent()->getAttr<WarnUnusedResultAttr>();
-      if (DiagnoseNoDiscard(S, A, Loc, R1, R2, /*isCtor=*/true))
+      if (!A) {
+        OffendingDecl = Ctor->getParent();
+        A = OffendingDecl->getAttr<WarnUnusedResultAttr>();
+      }
+      if (DiagnoseNoDiscard(S, OffendingDecl, A, Loc, R1, R2,
+                            /*isCtor=*/true))
         return;
     }
   } else if (const auto *ILE = dyn_cast<InitListExpr>(E)) {
     if (const TagDecl *TD = ILE->getType()->getAsTagDecl()) {
 
-      if (DiagnoseNoDiscard(S, TD->getAttr<WarnUnusedResultAttr>(), Loc, R1,
+      if (DiagnoseNoDiscard(S, TD, TD->getAttr<WarnUnusedResultAttr>(), Loc, R1,
                             R2, /*isCtor=*/false))
         return;
     }
@@ -334,8 +347,9 @@ void DiagnoseUnused(Sema &S, const Expr *E, std::optional<unsigned> DiagID) {
     }
     const ObjCMethodDecl *MD = ME->getMethodDecl();
     if (MD) {
-      if (DiagnoseNoDiscard(S, MD->getAttr<WarnUnusedResultAttr>(), Loc, R1,
-                            R2, /*isCtor=*/false))
+      if (DiagnoseNoDiscard(S, nullptr, MD->getAttr<WarnUnusedResultAttr>(),
+                            Loc, R1, R2,
+                            /*isCtor=*/false))
         return;
     }
   } else if (const PseudoObjectExpr *POE = dyn_cast<PseudoObjectExpr>(E)) {
@@ -2702,8 +2716,10 @@ StmtResult Sema::BuildCXXForRangeStmt(
     // them in properly when we instantiate the loop.
     if (!LoopVar->isInvalidDecl() && Kind != BFRK_Check) {
       if (auto *DD = dyn_cast<DecompositionDecl>(LoopVar))
-        for (auto *Binding : DD->bindings())
-          Binding->setType(Context.DependentTy);
+        for (auto *Binding : DD->bindings()) {
+          if (!Binding->isParameterPack())
+            Binding->setType(Context.DependentTy);
+        }
       LoopVar->setType(SubstAutoTypeDependent(LoopVar->getType()));
     }
   } else if (!BeginDeclStmt.get()) {
@@ -4554,9 +4570,27 @@ buildCapturedStmtCaptureList(Sema &S, CapturedRegionScopeInfo *RSI,
   return false;
 }
 
+static std::optional<int>
+isOpenMPCapturedRegionInArmSMEFunction(Sema const &S, CapturedRegionKind Kind) {
+  if (!S.getLangOpts().OpenMP || Kind != CR_OpenMP)
+    return {};
+  if (const FunctionDecl *FD = S.getCurFunctionDecl(/*AllowLambda=*/true)) {
+    if (IsArmStreamingFunction(FD, /*IncludeLocallyStreaming=*/true))
+      return /* in streaming functions */ 0;
+    if (hasArmZAState(FD))
+      return /* in functions with ZA state */ 1;
+    if (hasArmZT0State(FD))
+      return /* in fuctions with ZT0 state */ 2;
+  }
+  return {};
+}
+
 void Sema::ActOnCapturedRegionStart(SourceLocation Loc, Scope *CurScope,
                                     CapturedRegionKind Kind,
                                     unsigned NumParams) {
+  if (auto ErrorIndex = isOpenMPCapturedRegionInArmSMEFunction(*this, Kind))
+    Diag(Loc, diag::err_sme_openmp_captured_region) << *ErrorIndex;
+
   CapturedDecl *CD = nullptr;
   RecordDecl *RD = CreateCapturedStmtRecordDecl(CD, Loc, NumParams);
 
@@ -4588,6 +4622,9 @@ void Sema::ActOnCapturedRegionStart(SourceLocation Loc, Scope *CurScope,
                                     CapturedRegionKind Kind,
                                     ArrayRef<CapturedParamNameType> Params,
                                     unsigned OpenMPCaptureLevel) {
+  if (auto ErrorIndex = isOpenMPCapturedRegionInArmSMEFunction(*this, Kind))
+    Diag(Loc, diag::err_sme_openmp_captured_region) << *ErrorIndex;
+
   CapturedDecl *CD = nullptr;
   RecordDecl *RD = CreateCapturedStmtRecordDecl(CD, Loc, Params.size());
 

@@ -542,46 +542,46 @@ bool TosaValidation::isValidElementType(Type type) {
   return false;
 }
 
-  void TosaValidation::runOnOperation() {
-    configLevelAndProfile();
+void TosaValidation::runOnOperation() {
+  configLevelAndProfile();
 
-    TosaDialect *tosaDialect = getContext().getLoadedDialect<TosaDialect>();
-    if (!tosaDialect)
+  TosaDialect *tosaDialect = getContext().getLoadedDialect<TosaDialect>();
+  if (!tosaDialect)
+    return;
+
+  getOperation().walk([&](Operation *op) {
+    if (op->getDialect() != tosaDialect)
       return;
 
-    getOperation().walk([&](Operation *op) {
-      if (op->getDialect() != tosaDialect)
-        return;
-
-      for (Value operand : op->getOperands()) {
-        auto elementTy = getElementTypeOrSelf(operand);
-        if (!isValidElementType(elementTy)) {
-          op->emitOpError() << "is not profile-aligned: element type "
-                            << elementTy << " is not legal";
-          return signalPassFailure();
-        }
+    for (Value operand : op->getOperands()) {
+      auto elementTy = getElementTypeOrSelf(operand);
+      if (!isValidElementType(elementTy)) {
+        op->emitOpError() << "is not profile-aligned: element type "
+                          << elementTy << " is not legal";
+        return signalPassFailure();
       }
-      for (Type resultTy : op->getResultTypes()) {
-        auto elementTy = getElementTypeOrSelf(resultTy);
-        if (!isValidElementType(elementTy)) {
-          op->emitOpError() << "is not profile-aligned: element type "
-                            << elementTy << " is not legal";
-          return signalPassFailure();
-        }
+    }
+    for (Type resultTy : op->getResultTypes()) {
+      auto elementTy = getElementTypeOrSelf(resultTy);
+      if (!isValidElementType(elementTy)) {
+        op->emitOpError() << "is not profile-aligned: element type "
+                          << elementTy << " is not legal";
+        return signalPassFailure();
       }
+    }
 
-      // Some uses of TOSA rely on the constant operands of particular
-      // operations.
-      if (StrictOperationSpecAlignment && failed(applyConstantOperandCheck(op)))
-        signalPassFailure();
+    // Some uses of TOSA rely on the constant operands of particular
+    // operations.
+    if (StrictOperationSpecAlignment && failed(applyConstantOperandCheck(op)))
+      signalPassFailure();
 
-      // do level checks
-      if (failed(applyLevelCheck(op)))
-        signalPassFailure();
+    // do level checks
+    if (failed(applyLevelCheck(op)))
+      signalPassFailure();
 
-      // do variable type checks
-      if (failed(applyVariableCheck(op)))
-        signalPassFailure();
-    });
-  }
+    // do variable type checks
+    if (failed(applyVariableCheck(op)))
+      signalPassFailure();
+  });
+}
 } // namespace

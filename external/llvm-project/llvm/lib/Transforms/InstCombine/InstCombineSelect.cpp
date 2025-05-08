@@ -423,24 +423,34 @@ Instruction *InstCombinerImpl::foldSelectOpOp(SelectInst &SI, Instruction *TI,
       }
     }
 
+    auto CreateCmpSel = [&](std::optional<CmpPredicate> P,
+                            bool Swapped) -> CmpInst * {
+      if (!P)
+        return nullptr;
+      auto *MatchOp = getCommonOp(TI, FI, ICmpInst::isEquality(*P),
+                                  ICmpInst::isRelational(*P) && Swapped);
+      if (!MatchOp)
+        return nullptr;
+      Value *NewSel = Builder.CreateSelect(Cond, OtherOpT, OtherOpF,
+                                           SI.getName() + ".v", &SI);
+      return new ICmpInst(MatchIsOpZero ? *P
+                                        : ICmpInst::getSwappedCmpPredicate(*P),
+                          MatchOp, NewSel);
+    };
+
     // icmp with a common operand also can have the common operand
     // pulled after the select.
     CmpPredicate TPred, FPred;
     if (match(TI, m_ICmp(TPred, m_Value(), m_Value())) &&
         match(FI, m_ICmp(FPred, m_Value(), m_Value()))) {
-      // FIXME: Use CmpPredicate::getMatching here.
-      CmpInst::Predicate T = TPred, F = FPred;
-      if (T == F || T == ICmpInst::getSwappedCmpPredicate(F)) {
-        bool Swapped = T != F;
-        if (Value *MatchOp =
-                getCommonOp(TI, FI, ICmpInst::isEquality(TPred), Swapped)) {
-          Value *NewSel = Builder.CreateSelect(Cond, OtherOpT, OtherOpF,
-                                               SI.getName() + ".v", &SI);
-          return new ICmpInst(
-              MatchIsOpZero ? TPred : ICmpInst::getSwappedCmpPredicate(TPred),
-              MatchOp, NewSel);
-        }
-      }
+      if (auto *R =
+              CreateCmpSel(CmpPredicate::getMatching(TPred, FPred), false))
+        return R;
+      if (auto *R =
+              CreateCmpSel(CmpPredicate::getMatching(
+                               TPred, ICmpInst::getSwappedCmpPredicate(FPred)),
+                           true))
+        return R;
     }
   }
 
@@ -713,25 +723,32 @@ static Value *foldSelectICmpLshrAshr(const ICmpInst *IC, Value *TrueVal,
 }
 
 /// We want to turn:
-///   (select (icmp eq (and X, C1), 0), Y, (or Y, C2))
+///   (select (icmp eq (and X, C1), 0), Y, (BinOp Y, C2))
 /// into:
-///   (or (shl (and X, C1), C3), Y)
+///   IF C2 u>= C1
+///     (BinOp Y, (shl (and X, C1), C3))
+///   ELSE
+///     (BinOp Y, (lshr (and X, C1), C3))
 /// iff:
+///   0 on the RHS is the identity value (i.e add, xor, shl, etc...)
 ///   C1 and C2 are both powers of 2
 /// where:
-///   C3 = Log(C2) - Log(C1)
+///   IF C2 u>= C1
+///     C3 = Log(C2) - Log(C1)
+///   ELSE
+///     C3 = Log(C1) - Log(C2)
 ///
 /// This transform handles cases where:
 /// 1. The icmp predicate is inverted
 /// 2. The select operands are reversed
 /// 3. The magnitude of C2 and C1 are flipped
-static Value *foldSelectICmpAndOr(const ICmpInst *IC, Value *TrueVal,
+static Value *foldSelectICmpAndBinOp(const ICmpInst *IC, Value *TrueVal,
                                   Value *FalseVal,
                                   InstCombiner::BuilderTy &Builder) {
   // Only handle integer compares. Also, if this is a vector select, we need a
   // vector compare.
   if (!TrueVal->getType()->isIntOrIntVectorTy() ||
-      TrueVal->getType()->isVectorTy() != IC->getType()->isVectorTy())
+     TrueVal->getType()->isVectorTy() != IC->getType()->isVectorTy())
     return nullptr;
 
   Value *CmpLHS = IC->getOperand(0);
@@ -760,20 +777,28 @@ static Value *foldSelectICmpAndOr(const ICmpInst *IC, Value *TrueVal,
     NeedAnd = true;
   }
 
-  Value *Or, *Y, *V = CmpLHS;
+  Value *Y, *V = CmpLHS;
+  BinaryOperator *BinOp;
   const APInt *C2;
   bool NeedXor;
-  if (match(FalseVal, m_Or(m_Specific(TrueVal), m_Power2(C2)))) {
+  if (match(FalseVal, m_BinOp(m_Specific(TrueVal), m_Power2(C2)))) {
     Y = TrueVal;
-    Or = FalseVal;
+    BinOp = cast<BinaryOperator>(FalseVal);
     NeedXor = Pred == ICmpInst::ICMP_NE;
-  } else if (match(TrueVal, m_Or(m_Specific(FalseVal), m_Power2(C2)))) {
+  } else if (match(TrueVal, m_BinOp(m_Specific(FalseVal), m_Power2(C2)))) {
     Y = FalseVal;
-    Or = TrueVal;
+    BinOp = cast<BinaryOperator>(TrueVal);
     NeedXor = Pred == ICmpInst::ICMP_EQ;
   } else {
     return nullptr;
   }
+
+  // Check that 0 on RHS is identity value for this binop.
+  auto *IdentityC =
+      ConstantExpr::getBinOpIdentity(BinOp->getOpcode(), BinOp->getType(),
+                                     /*AllowRHSConstant*/ true);
+  if (IdentityC == nullptr || !IdentityC->isNullValue())
+    return nullptr;
 
   unsigned C2Log = C2->logBase2();
 
@@ -783,7 +808,7 @@ static Value *foldSelectICmpAndOr(const ICmpInst *IC, Value *TrueVal,
 
   // Make sure we don't create more instructions than we save.
   if ((NeedShift + NeedXor + NeedZExtTrunc + NeedAnd) >
-      (IC->hasOneUse() + Or->hasOneUse()))
+      (IC->hasOneUse() + BinOp->hasOneUse()))
     return nullptr;
 
   if (NeedAnd) {
@@ -804,7 +829,7 @@ static Value *foldSelectICmpAndOr(const ICmpInst *IC, Value *TrueVal,
   if (NeedXor)
     V = Builder.CreateXor(V, *C2);
 
-  return Builder.CreateOr(V, Y);
+  return Builder.CreateBinOp(BinOp->getOpcode(), Y, V);
 }
 
 /// Canonicalize a set or clear of a masked set of constant bits to
@@ -1674,8 +1699,7 @@ tryToReuseConstantFromSelectInComparison(SelectInst &Sel, ICmpInst &Cmp,
     return nullptr;
 
   // Check the constant we'd have with flipped-strictness predicate.
-  auto FlippedStrictness =
-      InstCombiner::getFlippedStrictnessPredicateAndConstant(Pred, C0);
+  auto FlippedStrictness = getFlippedStrictnessPredicateAndConstant(Pred, C0);
   if (!FlippedStrictness)
     return nullptr;
 
@@ -1828,92 +1852,6 @@ static Instruction *foldSelectICmpEq(SelectInst &SI, ICmpInst *ICI,
           foldSelectWithExtremeEqCond(CmpLHS, CmpRHS, TrueVal, FalseVal))
     return Res;
 
-  // Transform (X == C) ? X : Y -> (X == C) ? C : Y
-  // specific handling for Bitwise operation.
-  // x&y -> (x|y) ^ (x^y)  or  (x|y) & ~(x^y)
-  // x|y -> (x&y) | (x^y)  or  (x&y) ^  (x^y)
-  // x^y -> (x|y) ^ (x&y)  or  (x|y) & ~(x&y)
-  Value *X, *Y;
-  if (!match(CmpLHS, m_BitwiseLogic(m_Value(X), m_Value(Y))) ||
-      !match(TrueVal, m_c_BitwiseLogic(m_Specific(X), m_Specific(Y))))
-    return nullptr;
-
-  const unsigned AndOps = Instruction::And, OrOps = Instruction::Or,
-                 XorOps = Instruction::Xor, NoOps = 0;
-  enum NotMask { None = 0, NotInner, NotRHS };
-
-  auto matchFalseVal = [&](unsigned OuterOpc, unsigned InnerOpc,
-                           unsigned NotMask) {
-    auto matchInner = m_c_BinOp(InnerOpc, m_Specific(X), m_Specific(Y));
-    if (OuterOpc == NoOps)
-      return match(CmpRHS, m_Zero()) && match(FalseVal, matchInner);
-
-    if (NotMask == NotInner) {
-      return match(FalseVal, m_c_BinOp(OuterOpc, m_NotForbidPoison(matchInner),
-                                       m_Specific(CmpRHS)));
-    } else if (NotMask == NotRHS) {
-      return match(FalseVal, m_c_BinOp(OuterOpc, matchInner,
-                                       m_NotForbidPoison(m_Specific(CmpRHS))));
-    } else {
-      return match(FalseVal,
-                   m_c_BinOp(OuterOpc, matchInner, m_Specific(CmpRHS)));
-    }
-  };
-
-  // (X&Y)==C ? X|Y : X^Y -> (X^Y)|C : X^Y  or (X^Y)^ C : X^Y
-  // (X&Y)==C ? X^Y : X|Y -> (X|Y)^C : X|Y  or (X|Y)&~C : X|Y
-  if (match(CmpLHS, m_And(m_Value(X), m_Value(Y)))) {
-    if (match(TrueVal, m_c_Or(m_Specific(X), m_Specific(Y)))) {
-      // (X&Y)==C ? X|Y : (X^Y)|C -> (X^Y)|C : (X^Y)|C -> (X^Y)|C
-      // (X&Y)==C ? X|Y : (X^Y)^C -> (X^Y)^C : (X^Y)^C -> (X^Y)^C
-      if (matchFalseVal(OrOps, XorOps, None) ||
-          matchFalseVal(XorOps, XorOps, None))
-        return IC.replaceInstUsesWith(SI, FalseVal);
-    } else if (match(TrueVal, m_c_Xor(m_Specific(X), m_Specific(Y)))) {
-      // (X&Y)==C ? X^Y : (X|Y)^ C -> (X|Y)^ C : (X|Y)^ C -> (X|Y)^ C
-      // (X&Y)==C ? X^Y : (X|Y)&~C -> (X|Y)&~C : (X|Y)&~C -> (X|Y)&~C
-      if (matchFalseVal(XorOps, OrOps, None) ||
-          matchFalseVal(AndOps, OrOps, NotRHS))
-        return IC.replaceInstUsesWith(SI, FalseVal);
-    }
-  }
-
-  // (X|Y)==C ? X&Y : X^Y -> (X^Y)^C : X^Y  or  ~(X^Y)&C : X^Y
-  // (X|Y)==C ? X^Y : X&Y -> (X&Y)^C : X&Y  or  ~(X&Y)&C : X&Y
-  if (match(CmpLHS, m_Or(m_Value(X), m_Value(Y)))) {
-    if (match(TrueVal, m_c_And(m_Specific(X), m_Specific(Y)))) {
-      // (X|Y)==C ? X&Y: (X^Y)^C -> (X^Y)^C: (X^Y)^C ->  (X^Y)^C
-      // (X|Y)==C ? X&Y:~(X^Y)&C ->~(X^Y)&C:~(X^Y)&C -> ~(X^Y)&C
-      if (matchFalseVal(XorOps, XorOps, None) ||
-          matchFalseVal(AndOps, XorOps, NotInner))
-        return IC.replaceInstUsesWith(SI, FalseVal);
-    } else if (match(TrueVal, m_c_Xor(m_Specific(X), m_Specific(Y)))) {
-      // (X|Y)==C ? X^Y : (X&Y)^C ->  (X&Y)^C : (X&Y)^C ->  (X&Y)^C
-      // (X|Y)==C ? X^Y :~(X&Y)&C -> ~(X&Y)&C :~(X&Y)&C -> ~(X&Y)&C
-      if (matchFalseVal(XorOps, AndOps, None) ||
-          matchFalseVal(AndOps, AndOps, NotInner))
-        return IC.replaceInstUsesWith(SI, FalseVal);
-    }
-  }
-
-  // (X^Y)==C ? X&Y : X|Y -> (X|Y)^C : X|Y  or (X|Y)&~C : X|Y
-  // (X^Y)==C ? X|Y : X&Y -> (X&Y)|C : X&Y  or (X&Y)^ C : X&Y
-  if (match(CmpLHS, m_Xor(m_Value(X), m_Value(Y)))) {
-    if ((match(TrueVal, m_c_And(m_Specific(X), m_Specific(Y))))) {
-      // (X^Y)==C ? X&Y : (X|Y)^C -> (X|Y)^C
-      // (X^Y)==C ? X&Y : (X|Y)&~C -> (X|Y)&~C
-      if (matchFalseVal(XorOps, OrOps, None) ||
-          matchFalseVal(AndOps, OrOps, NotRHS))
-        return IC.replaceInstUsesWith(SI, FalseVal);
-    } else if (match(TrueVal, m_c_Or(m_Specific(X), m_Specific(Y)))) {
-      // (X^Y)==C ? (X|Y) : (X&Y)|C -> (X&Y)|C
-      // (X^Y)==C ? (X|Y) : (X&Y)^C -> (X&Y)^C
-      if (matchFalseVal(OrOps, AndOps, None) ||
-          matchFalseVal(XorOps, AndOps, None))
-        return IC.replaceInstUsesWith(SI, FalseVal);
-    }
-  }
-
   return nullptr;
 }
 
@@ -1955,8 +1893,7 @@ static Value *foldSelectWithConstOpToBinOp(ICmpInst *Cmp, Value *TrueVal,
   Value *RHS;
   SelectPatternFlavor SPF;
   const DataLayout &DL = BOp->getDataLayout();
-  auto Flipped =
-      InstCombiner::getFlippedStrictnessPredicateAndConstant(Predicate, C1);
+  auto Flipped = getFlippedStrictnessPredicateAndConstant(Predicate, C1);
 
   if (C3 == ConstantFoldBinaryOpOperands(Opcode, C1, C2, DL)) {
     SPF = getSelectPattern(Predicate).Flavor;
@@ -2034,7 +1971,7 @@ Instruction *InstCombinerImpl::foldSelectInstWithICmp(SelectInst &SI,
   if (Instruction *V = foldSelectZeroOrOnes(ICI, TrueVal, FalseVal, Builder))
     return V;
 
-  if (Value *V = foldSelectICmpAndOr(ICI, TrueVal, FalseVal, Builder))
+  if (Value *V = foldSelectICmpAndBinOp(ICI, TrueVal, FalseVal, Builder))
     return replaceInstUsesWith(SI, V);
 
   if (Value *V = foldSelectICmpLshrAshr(ICI, TrueVal, FalseVal, Builder))

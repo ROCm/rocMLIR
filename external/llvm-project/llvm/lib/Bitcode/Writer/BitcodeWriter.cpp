@@ -366,19 +366,10 @@ private:
                              unsigned Abbrev);
   void writeDILocalVariable(const DILocalVariable *N,
                             SmallVectorImpl<uint64_t> &Record, unsigned Abbrev);
-  void writeDIFragment(const DIFragment *N, SmallVectorImpl<uint64_t> &Record,
-                       unsigned Abbrev);
   void writeDILabel(const DILabel *N,
                     SmallVectorImpl<uint64_t> &Record, unsigned Abbrev);
-
-  void writeOneDIOpToRecord(SmallVectorImpl<uint64_t> &Record,
-                            DIOp::Variant Op);
-  void writeNewDIExpression(const DIExpression *N,
-                            SmallVectorImpl<uint64_t> &Record, unsigned Abbrev);
   void writeDIExpression(const DIExpression *N,
                          SmallVectorImpl<uint64_t> &Record, unsigned Abbrev);
-  void writeDIExpr(const DIExpr *N, SmallVectorImpl<uint64_t> &Record,
-                   unsigned Abbrev);
   void writeDIGlobalVariableExpression(const DIGlobalVariableExpression *N,
                                        SmallVectorImpl<uint64_t> &Record,
                                        unsigned Abbrev);
@@ -387,8 +378,6 @@ private:
   void writeDIImportedEntity(const DIImportedEntity *N,
                              SmallVectorImpl<uint64_t> &Record,
                              unsigned Abbrev);
-  void writeDILifetime(const DILifetime *N, SmallVectorImpl<uint64_t> &Record,
-                       unsigned Abbrev);
   unsigned createNamedMetadataAbbrev();
   void writeNamedMetadata(SmallVectorImpl<uint64_t> &Record);
   unsigned createMetadataStringsAbbrev();
@@ -505,6 +494,9 @@ public:
     // are currently saved in the index in terms of GUID.
     forEachSummary([&](GVInfo I, bool IsAliasee) {
       GUIDToValueIdMap[I.first] = ++GlobalValueId;
+      // If this is invoked for an aliasee, we want to record the above mapping,
+      // but not the information needed for its summary entry (if the aliasee is
+      // to be imported, we will invoke this separately with IsAliasee=false).
       if (IsAliasee)
         return;
       auto *FS = dyn_cast<FunctionSummary>(I.second);
@@ -776,8 +768,6 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_NO_BUILTIN;
   case Attribute::NoCallback:
     return bitc::ATTR_KIND_NO_CALLBACK;
-  case Attribute::NoCapture:
-    return bitc::ATTR_KIND_NO_CAPTURE;
   case Attribute::NoDivergenceSource:
     return bitc::ATTR_KIND_NO_DIVERGENCE_SOURCE;
   case Attribute::NoDuplicate:
@@ -866,8 +856,6 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_SANITIZE_TYPE;
   case Attribute::SanitizeMemory:
     return bitc::ATTR_KIND_SANITIZE_MEMORY;
-  case Attribute::SanitizedPaddedGlobal:
-    return bitc::ATTR_KIND_SANITIZED_PADDED_GLOBAL;
   case Attribute::SanitizeNumericalStability:
     return bitc::ATTR_KIND_SANITIZE_NUMERICAL_STABILITY;
   case Attribute::SanitizeRealtime:
@@ -920,6 +908,8 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_INITIALIZES;
   case Attribute::NoExt:
     return bitc::ATTR_KIND_NO_EXT;
+  case Attribute::Captures:
+    return bitc::ATTR_KIND_CAPTURES;
   case Attribute::EndAttrKinds:
     llvm_unreachable("Can not encode end-attribute kinds marker.");
   case Attribute::None:
@@ -1929,7 +1919,6 @@ void ModuleBitcodeWriter::writeDIDerivedType(const DIDerivedType *N,
     Record.push_back(0);
 
   Record.push_back(VE.getMetadataOrNullID(N->getAnnotations().get()));
-  Record.push_back(static_cast<uint64_t>(N->getDWARFMemorySpace()));
 
   if (auto PtrAuthData = N->getPtrAuthData())
     Record.push_back(PtrAuthData->RawData);
@@ -2221,7 +2210,6 @@ void ModuleBitcodeWriter::writeDIGlobalVariable(
   Record.push_back(VE.getMetadataOrNullID(N->getTemplateParams()));
   Record.push_back(N->getAlignInBits());
   Record.push_back(VE.getMetadataOrNullID(N->getAnnotations().get()));
-  Record.push_back(N->getDWARFMemorySpace());
 
   Stream.EmitRecord(bitc::METADATA_GLOBAL_VAR, Record, Abbrev);
   Record.clear();
@@ -2254,17 +2242,8 @@ void ModuleBitcodeWriter::writeDILocalVariable(
   Record.push_back(N->getFlags());
   Record.push_back(N->getAlignInBits());
   Record.push_back(VE.getMetadataOrNullID(N->getAnnotations().get()));
-  Record.push_back(N->getDWARFMemorySpace());
 
   Stream.EmitRecord(bitc::METADATA_LOCAL_VAR, Record, Abbrev);
-  Record.clear();
-}
-
-void ModuleBitcodeWriter::writeDIFragment(const DIFragment *N,
-                                          SmallVectorImpl<uint64_t> &Record,
-                                          unsigned Abbrev) {
-  assert(N->isDistinct() && "Expected distinct fragment");
-  Stream.EmitRecord(bitc::METADATA_FRAGMENT, Record, Abbrev);
   Record.clear();
 }
 
@@ -2281,108 +2260,15 @@ void ModuleBitcodeWriter::writeDILabel(
   Record.clear();
 }
 
-void ModuleBitcodeWriter::writeOneDIOpToRecord(
-    SmallVectorImpl<uint64_t> &Record, DIOp::Variant Op) {
-  Record.push_back(DIOp::getBitcodeID(Op));
-  std::visit(
-      makeVisitor(
-#define HANDLE_OP0(NAME) [](DIOp::NAME) {},
-#include "llvm/IR/DIExprOps.def"
-#undef HANDLE_OP0
-          [&](DIOp::Referrer Referrer) {
-            Record.push_back(VE.getTypeID(Referrer.getResultType()));
-          },
-          [&](DIOp::Arg Arg) {
-            Record.push_back(VE.getTypeID(Arg.getResultType()));
-            Record.push_back(Arg.getIndex());
-          },
-          [&](DIOp::TypeObject TypeObject) {
-            Record.push_back(VE.getTypeID(TypeObject.getResultType()));
-          },
-          [&](DIOp::Constant Constant) {
-            Record.push_back(
-                VE.getTypeID(Constant.getLiteralValue()->getType()));
-            Record.push_back(VE.getValueID(Constant.getLiteralValue()));
-          },
-          [&](DIOp::Convert Convert) {
-            Record.push_back(VE.getTypeID(Convert.getResultType()));
-          },
-          [&](DIOp::ZExt ZExt) {
-            Record.push_back(VE.getTypeID(ZExt.getResultType()));
-          },
-          [&](DIOp::SExt SExt) {
-            Record.push_back(VE.getTypeID(SExt.getResultType()));
-          },
-          [&](DIOp::Reinterpret Reinterpret) {
-            Record.push_back(VE.getTypeID(Reinterpret.getResultType()));
-          },
-          [&](DIOp::BitOffset BitOffset) {
-            Record.push_back(VE.getTypeID(BitOffset.getResultType()));
-          },
-          [&](DIOp::ByteOffset ByteOffset) {
-            Record.push_back(VE.getTypeID(ByteOffset.getResultType()));
-          },
-          [&](DIOp::Composite Composite) {
-            Record.push_back(VE.getTypeID(Composite.getResultType()));
-            Record.push_back(Composite.getCount());
-          },
-          [&](DIOp::Extend Extend) { Record.push_back(Extend.getCount()); },
-          [&](DIOp::AddrOf AddrOf) {
-            Record.push_back(AddrOf.getAddressSpace());
-          },
-          [&](DIOp::Deref Deref) {
-            Record.push_back(VE.getTypeID(Deref.getResultType()));
-          },
-          [&](DIOp::PushLane PushLane) {
-            Record.push_back(VE.getTypeID(PushLane.getResultType()));
-          },
-          [&](DIOp::Fragment Fragment) {
-            Record.push_back(Fragment.getBitOffset());
-            Record.push_back(Fragment.getBitSize());
-          }),
-      Op);
-}
-
-void ModuleBitcodeWriter::writeNewDIExpression(
-    const DIExpression *N, SmallVectorImpl<uint64_t> &Record, unsigned Abbrev) {
-  assert(N->holdsNewElements());
-
-  // Use version 16 for DIOp DIExpressions. This is just an arbitrary large
-  // number to avoid any merge issues if the upstream version increases from 3.
-  const uint64_t Version = 16 << 1;
-  Record.push_back((uint64_t)N->isDistinct() | Version);
-  auto Elements = N->getNewElementsRef();
-  for (auto &Elem : *Elements)
-    writeOneDIOpToRecord(Record, Elem);
-
-  Stream.EmitRecord(bitc::METADATA_EXPRESSION, Record, Abbrev);
-  Record.clear();
-}
-
 void ModuleBitcodeWriter::writeDIExpression(const DIExpression *N,
                                             SmallVectorImpl<uint64_t> &Record,
                                             unsigned Abbrev) {
-  if (N->holdsNewElements())
-    return writeNewDIExpression(N, Record, Abbrev);
-
   Record.reserve(N->getElements().size() + 1);
   const uint64_t Version = 3 << 1;
   Record.push_back((uint64_t)N->isDistinct() | Version);
   Record.append(N->elements_begin(), N->elements_end());
 
   Stream.EmitRecord(bitc::METADATA_EXPRESSION, Record, Abbrev);
-  Record.clear();
-}
-
-void ModuleBitcodeWriter::writeDIExpr(const DIExpr *N,
-                                      SmallVectorImpl<uint64_t> &Record,
-                                      unsigned Abbrev) {
-  assert(!N->isDistinct() && "Expected non-distinct expr");
-  const unsigned Version = 0;
-  Record.push_back(Version);
-  for (auto &Op : N->builder())
-    writeOneDIOpToRecord(Record, Op);
-  Stream.EmitRecord(bitc::METADATA_EXPR, Record, Abbrev);
   Record.clear();
 }
 
@@ -2426,18 +2312,6 @@ void ModuleBitcodeWriter::writeDIImportedEntity(
   Record.push_back(VE.getMetadataOrNullID(N->getElements().get()));
 
   Stream.EmitRecord(bitc::METADATA_IMPORTED_ENTITY, Record, Abbrev);
-  Record.clear();
-}
-
-void ModuleBitcodeWriter::writeDILifetime(const DILifetime *N,
-                                          SmallVectorImpl<uint64_t> &Record,
-                                          unsigned Abbrev) {
-  Record.push_back(VE.getMetadataID(N->getObject()));
-  Record.push_back(VE.getMetadataID(N->getLocation()));
-  for (const auto &I : N->argObjects())
-    Record.push_back(VE.getMetadataID(I));
-
-  Stream.EmitRecord(bitc::METADATA_LIFETIME, Record, Abbrev);
   Record.clear();
 }
 
@@ -3777,7 +3651,8 @@ void ModuleBitcodeWriter::writeFunction(
         /// without the ValueAsMetadata wrapper.
         auto PushValueOrMetadata = [&Vals, InstID,
                                     this](Metadata *RawLocation) {
-          assert(RawLocation && "RawLocation unexpectedly null in DPValue");
+          assert(RawLocation &&
+                 "RawLocation unexpectedly null in DbgVariableRecord");
           if (ValueAsMetadata *VAM = dyn_cast<ValueAsMetadata>(RawLocation)) {
             SmallVector<unsigned, 2> ValAndType;
             // If the value is a fwd-ref the type is also pushed. We don't
@@ -4973,6 +4848,11 @@ void IndexBitcodeWriter::writeCombinedGlobalValueSummary() {
   // radix tree array are identified based on this order.
   MapVector<CallStackId, llvm::SmallVector<LinearFrameId>> CallStacks;
   forEachSummary([&](GVInfo I, bool IsAliasee) {
+    // Don't collect this when invoked for an aliasee, as it is not needed for
+    // the alias summary. If the aliasee is to be imported, we will invoke this
+    // separately with IsAliasee=false.
+    if (IsAliasee)
+      return;
     GlobalValueSummary *S = I.second;
     assert(S);
     auto *FS = dyn_cast<FunctionSummary>(S);

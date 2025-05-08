@@ -97,6 +97,7 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
   case Decl::Friend:
   case Decl::FriendTemplate:
   case Decl::Block:
+  case Decl::OutlinedFunction:
   case Decl::Captured:
   case Decl::UsingShadow:
   case Decl::ConstructorUsingShadow:
@@ -163,9 +164,10 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
            "Should not see file-scope variables inside a function!");
     EmitVarDecl(VD);
     if (auto *DD = dyn_cast<DecompositionDecl>(&VD))
-      for (auto *B : DD->bindings())
+      for (auto *B : DD->flat_bindings())
         if (auto *HD = B->getHoldingVar())
           EmitVarDecl(*HD);
+
     return;
   }
 
@@ -361,6 +363,8 @@ CodeGenFunction::AddInitializerToStaticVarDecl(const VarDecl &D,
     return GV;
   }
 
+  PGO.markStmtMaybeUsed(D.getInit()); // FIXME: Too lazy
+
 #ifndef NDEBUG
   CharUnits VarSize = CGM.getContext().getTypeSizeInChars(D.getType()) +
                       D.getFlexibleArrayInitChars(getContext());
@@ -422,12 +426,6 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
   // If this value has an initializer, emit it.
   if (D.getInit() && !isCudaSharedVar)
     var = AddInitializerToStaticVarDecl(D, var);
-  // amdgcn does not support initializers in LDS
-  if ((var->getType()->getAddressSpace() ==
-       CGM.getContext().getTargetAddressSpace(LangAS::cuda_shared)) &&
-      (CGM.getContext().getTargetInfo().getTriple().isAMDGCN()))
-    var->setInitializer(
-        llvm::UndefValue::get(var->getValueType()));
 
   var->setAlignment(alignment.getAsAlign());
 
@@ -766,7 +764,7 @@ void CodeGenFunction::EmitNullabilityCheck(LValue LHS, llvm::Value *RHS,
       EmitCheckSourceLocation(Loc), EmitCheckTypeDescriptor(LHS.getType()),
       llvm::ConstantInt::get(Int8Ty, 0), // The LogAlignment info is unused.
       llvm::ConstantInt::get(Int8Ty, TCK_NonnullAssign)};
-  EmitCheck({{IsNotNull, SanitizerKind::NullabilityAssign}},
+  EmitCheck({{IsNotNull, SanitizerKind::SO_NullabilityAssign}},
             SanitizerHandler::TypeMismatch, StaticData, RHS);
 }
 
@@ -1358,6 +1356,14 @@ void CodeGenFunction::EmitLifetimeEnd(llvm::Value *Size, llvm::Value *Addr) {
   C->setDoesNotThrow();
 }
 
+void CodeGenFunction::EmitFakeUse(Address Addr) {
+  auto NL = ApplyDebugLocation::CreateEmpty(*this);
+  llvm::Value *V = Builder.CreateLoad(Addr, "fake.use");
+  llvm::CallInst *C = Builder.CreateCall(CGM.getLLVMFakeUseFn(), {V});
+  C->setDoesNotThrow();
+  C->setTailCallKind(llvm::CallInst::TCK_NoTail);
+}
+
 void CodeGenFunction::EmitAndRegisterVariableArrayDimensions(
     CGDebugInfo *DI, const VarDecl &D, bool EmitDebugInfo) {
   // For each dimension stores its QualType and corresponding
@@ -1415,6 +1421,39 @@ void CodeGenFunction::EmitAndRegisterVariableArrayDimensions(
     assert(MD && "No Size expression debug node created");
     DI->registerVLASizeExpression(VlaSize.Type, MD);
   }
+}
+
+/// Return the maximum size of an aggregate for which we generate a fake use
+/// intrinsic when -fextend-variable-liveness is in effect.
+static uint64_t maxFakeUseAggregateSize(const ASTContext &C) {
+  return 4 * C.getTypeSize(C.UnsignedIntTy);
+}
+
+// Helper function to determine whether a variable's or parameter's lifetime
+// should be extended.
+static bool shouldExtendLifetime(const ASTContext &Context,
+                                 const Decl *FuncDecl, const VarDecl &D,
+                                 ImplicitParamDecl *CXXABIThisDecl) {
+  // When we're not inside a valid function it is unlikely that any
+  // lifetime extension is useful.
+  if (!FuncDecl)
+    return false;
+  if (FuncDecl->isImplicit())
+    return false;
+  // Do not extend compiler-created variables except for the this pointer.
+  if (D.isImplicit() && &D != CXXABIThisDecl)
+    return false;
+  QualType Ty = D.getType();
+  // No need to extend volatiles, they have a memory location.
+  if (Ty.isVolatileQualified())
+    return false;
+  // Don't extend variables that exceed a certain size.
+  if (Context.getTypeSize(Ty) > maxFakeUseAggregateSize(Context))
+    return false;
+  // Do not extend variables in nodebug or optnone functions.
+  if (FuncDecl->hasAttr<NoDebugAttr>() || FuncDecl->hasAttr<OptimizeNoneAttr>())
+    return false;
+  return true;
 }
 
 /// EmitAutoVarAlloca - Emit the alloca and debug information for a
@@ -1647,29 +1686,16 @@ CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
 
   // Emit debug info for local var declaration.
   if (EmitDebugInfo && HaveInsertPoint()) {
+    Address DebugAddr = address;
+    bool UsePointerValue = NRVO && ReturnValuePointer.isValid();
     DI->setLocation(D.getLocation());
 
-    // Even for NRVO, we may not have ReturnValuePointer if the sret parameter
-    // is also byval.
-    bool UsePointerValue = NRVO && ReturnValuePointer.isValid();
-    Address DebugAddr = Address::invalid();
+    // If NRVO, use a pointer to the return address.
     if (UsePointerValue) {
       DebugAddr = ReturnValuePointer;
-    } else {
-      // We are either in an alloca, and AllocaAddr is valid, or we are in:
-      // * An sret+byval NRVO return parameter.
-      // * A runtime-managed OpenMP allocation.
-      // FIXME: The assert condition here is overly broad.
-      // FIXME: Can the cases where OpenMP requires this be eliminated?
-      assert(AllocaAddr.isValid() || NRVO ||
-             getLangOpts().OpenMP &&
-                 "Expected either an alloca, sret+byval NRVO parameter, or "
-                 "OpenMP runtime allocation.");
-      RawAddress rawAddress = RawAddress(address.emitRawPointer(*this),
-                      address.getElementType(), address.getAlignment());
-      DebugAddr = AllocaAddr.isValid() ? AllocaAddr : rawAddress;
+      AllocaAddr = ReturnValuePointer;
     }
-    (void)DI->EmitDeclareOfAutoVariable(&D, DebugAddr.emitRawPointer(*this), Builder,
+    (void)DI->EmitDeclareOfAutoVariable(&D, AllocaAddr.getPointer(), Builder,
                                         UsePointerValue);
   }
 
@@ -1681,6 +1707,18 @@ CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
     EHStack.pushCleanup<CallLifetimeEnd>(NormalEHLifetimeMarker,
                                          emission.getOriginalAllocatedAddress(),
                                          emission.getSizeForLifetimeMarkers());
+
+  // Analogous to lifetime markers, we use a 'cleanup' to emit fake.use
+  // calls for local variables. We are exempting volatile variables and
+  // non-scalars larger than 4 times the size of an unsigned int. Larger
+  // non-scalars are often allocated in memory and may create unnecessary
+  // overhead.
+  if (CGM.getCodeGenOpts().getExtendVariableLiveness() ==
+      CodeGenOptions::ExtendVariableLivenessKind::All) {
+    if (shouldExtendLifetime(getContext(), CurCodeDecl, D, CXXABIThisDecl))
+      EHStack.pushCleanup<FakeUse>(NormalFakeUse,
+                                   emission.getAllocatedAddress());
+  }
 
   return emission;
 }
@@ -1887,7 +1925,10 @@ void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
   // If we are at an unreachable point, we don't need to emit the initializer
   // unless it contains a label.
   if (!HaveInsertPoint()) {
-    if (!Init || !ContainsLabel(Init)) return;
+    if (!Init || !ContainsLabel(Init)) {
+      PGO.markStmtMaybeUsed(Init);
+      return;
+    }
     EnsureInsertPoint();
   }
 
@@ -1997,6 +2038,8 @@ void CodeGenFunction::EmitAutoVarInit(const AutoVarEmission &emission) {
     lv.setNonGC(true);
     return EmitExprAsInit(Init, &D, lv, capturedByInit);
   }
+
+  PGO.markStmtMaybeUsed(Init);
 
   if (!emission.IsConstantAggregate) {
     // For simple scalar/complex initialization, store the value directly.
@@ -2543,6 +2586,15 @@ llvm::Function *CodeGenModule::getLLVMLifetimeEndFn() {
   return LifetimeEndFn;
 }
 
+/// Lazily declare the @llvm.fake.use intrinsic.
+llvm::Function *CodeGenModule::getLLVMFakeUseFn() {
+  if (FakeUseFn)
+    return FakeUseFn;
+  FakeUseFn = llvm::Intrinsic::getOrInsertDeclaration(
+      &getModule(), llvm::Intrinsic::fake_use);
+  return FakeUseFn;
+}
+
 namespace {
   /// A cleanup to perform a release of an object at the end of a
   /// function.  This is used to balance out the incoming +1 of a
@@ -2596,7 +2648,6 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
   }
 
   Address DeclPtr = Address::invalid();
-  RawAddress DebugPtr = Address::invalid();
   RawAddress AllocaPtr = Address::invalid();
   bool DoStore = false;
   bool IsScalar = hasScalarEvaluationKind(Ty);
@@ -2605,10 +2656,6 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
   // If we already have a pointer to the argument, reuse the input pointer.
   if (Arg.isIndirect()) {
     DeclPtr = Arg.getIndirectAddress();
-    if (auto DebugAddr = Arg.getDebugAddr())
-      DebugPtr = *DebugAddr;
-    else
-      DebugPtr = DeclPtr;
     DeclPtr = DeclPtr.withElementType(ConvertTypeForMem(Ty));
     // Indirect argument is in alloca address space, which may be different
     // from the default address space.
@@ -2623,10 +2670,9 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
       UseIndirectDebugAddress = !ArgInfo.getIndirectByVal();
     if (UseIndirectDebugAddress) {
       auto PtrTy = getContext().getPointerType(Ty);
-      Address StackHomedPtr =
-          CreateMemTemp(PtrTy, getContext().getTypeAlignInChars(PtrTy),
-                        D.getName() + ".indirect_addr", &DebugPtr);
-      EmitStoreOfScalar(V, StackHomedPtr, /* Volatile */ false, PtrTy);
+      AllocaPtr = CreateMemTemp(PtrTy, getContext().getTypeAlignInChars(PtrTy),
+                                D.getName() + ".indirect_addr");
+      EmitStoreOfScalar(V, AllocaPtr, /* Volatile */ false, PtrTy);
     }
 
     auto SrcLangAS = getLangOpts().OpenCL ? LangAS::opencl_private : AllocaAS;
@@ -2665,11 +2711,12 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
             ? CGM.getOpenMPRuntime().getAddressOfLocalVariable(*this, &D)
             : Address::invalid();
     if (getLangOpts().OpenMP && OpenMPLocalAddr.isValid()) {
-      DeclPtr = DebugPtr = OpenMPLocalAddr;
+      DeclPtr = OpenMPLocalAddr;
+      AllocaPtr = DeclPtr;
     } else {
       // Otherwise, create a temporary to hold the value.
       DeclPtr = CreateMemTemp(Ty, getContext().getDeclAlign(&D),
-                              D.getName() + ".addr", &DebugPtr);
+                              D.getName() + ".addr", &AllocaPtr);
     }
     DoStore = true;
   }
@@ -2741,12 +2788,24 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
 
   setAddrOfLocalVar(&D, DeclPtr);
 
+  // Push a FakeUse 'cleanup' object onto the EHStack for the parameter,
+  // which may be the 'this' pointer. This causes the emission of a fake.use
+  // call with the parameter as argument at the end of the function.
+  if (CGM.getCodeGenOpts().getExtendVariableLiveness() ==
+          CodeGenOptions::ExtendVariableLivenessKind::All ||
+      (CGM.getCodeGenOpts().getExtendVariableLiveness() ==
+           CodeGenOptions::ExtendVariableLivenessKind::This &&
+       &D == CXXABIThisDecl)) {
+    if (shouldExtendLifetime(getContext(), CurCodeDecl, D, CXXABIThisDecl))
+      EHStack.pushCleanup<FakeUse>(NormalFakeUse, DeclPtr);
+  }
+
   // Emit debug info for param declarations in non-thunk functions.
   if (CGDebugInfo *DI = getDebugInfo()) {
     if (CGM.getCodeGenOpts().hasReducedDebugInfo() && !CurFuncIsThunk &&
         !NoDebugInfo) {
       llvm::DILocalVariable *DILocalVar = DI->EmitDeclareOfArgVariable(
-          &D, DebugPtr.getPointer(), ArgNo, Builder, UseIndirectDebugAddress);
+          &D, AllocaPtr.getPointer(), ArgNo, Builder, UseIndirectDebugAddress);
       if (const auto *Var = dyn_cast_or_null<ParmVarDecl>(&D))
         DI->getParamDbgMappings().insert({Var, DILocalVar});
     }

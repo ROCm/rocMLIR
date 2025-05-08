@@ -202,7 +202,7 @@ llvm::DIDerivedType *DebugTranslation::translateImpl(DIDerivedTypeAttr attr) {
       /*File=*/nullptr, /*Line=*/0,
       /*Scope=*/nullptr, translate(attr.getBaseType()), attr.getSizeInBits(),
       attr.getAlignInBits(), attr.getOffsetInBits(),
-      attr.getDwarfAddressSpace(), llvm::dwarf::DW_MSPACE_LLVM_none, /*PtrAuthData=*/std::nullopt,
+      attr.getDwarfAddressSpace(), /*PtrAuthData=*/std::nullopt,
       /*Flags=*/llvm::DINode::FlagZero, translate(attr.getExtraData()));
 }
 
@@ -253,7 +253,6 @@ DebugTranslation::translateImpl(DILocalVariableAttr attr) {
       llvmCtx, translate(attr.getScope()), getMDStringOrNull(attr.getName()),
       translate(attr.getFile()), attr.getLine(), translate(attr.getType()),
       attr.getArg(), static_cast<llvm::DINode::DIFlags>(attr.getFlags()),
-      llvm::dwarf::DW_MSPACE_LLVM_none,
       attr.getAlignInBits(),
       /*Annotations=*/nullptr);
 }
@@ -264,8 +263,7 @@ DebugTranslation::translateImpl(DIGlobalVariableAttr attr) {
       llvmCtx, translate(attr.getScope()), getMDStringOrNull(attr.getName()),
       getMDStringOrNull(attr.getLinkageName()), translate(attr.getFile()),
       attr.getLine(), translate(attr.getType()), attr.getIsLocalToUnit(),
-      attr.getIsDefined(), nullptr, nullptr, llvm::dwarf::DW_MSPACE_LLVM_none,
-      attr.getAlignInBits(), nullptr);
+      attr.getIsDefined(), nullptr, nullptr, attr.getAlignInBits(), nullptr);
 }
 
 llvm::DINode *

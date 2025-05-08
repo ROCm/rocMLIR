@@ -18,11 +18,11 @@
 #include "PluginManager.h"
 #include "Shared/Debug.h"
 #include "Shared/EnvironmentVar.h"
+#include "Shared/Utils.h"
 #include "device.h"
 #include "private.h"
 #include "rtl.h"
 
-#include "Shared/APITypes.h"
 #include "Shared/Profile.h"
 
 #include "OpenMP/Mapping.h"
@@ -38,7 +38,6 @@
 #include <vector>
 
 using llvm::SmallVector;
-
 #ifdef OMPT_SUPPORT
 using namespace llvm::omp::target::ompt;
 #endif
@@ -149,9 +148,31 @@ void handleTargetOutcome(bool Success, ident_t *Loc) {
         FAILURE_MESSAGE("Consult https://openmp.llvm.org/design/Runtimes.html "
                         "for debugging options.\n");
 
-      if (!PM->getNumActivePlugins())
+      if (!PM->getNumActivePlugins()) {
         FAILURE_MESSAGE(
             "No images found compatible with the installed hardware. ");
+
+        llvm::SmallVector<llvm::StringRef> Archs;
+        for (auto &Image : PM->deviceImages()) {
+          const char *Start = reinterpret_cast<const char *>(
+              Image.getExecutableImage().ImageStart);
+          uint64_t Length =
+              utils::getPtrDiff(Start, Image.getExecutableImage().ImageEnd);
+          llvm::MemoryBufferRef Buffer(llvm::StringRef(Start, Length),
+                                       /*Identifier=*/"");
+
+          auto ObjectOrErr = llvm::object::ObjectFile::createObjectFile(Buffer);
+          if (auto Err = ObjectOrErr.takeError()) {
+            llvm::consumeError(std::move(Err));
+            continue;
+          }
+
+          if (auto CPU = (*ObjectOrErr)->tryGetCPUName())
+            Archs.push_back(*CPU);
+        }
+        fprintf(stderr, "Found %zu image(s): (%s)\n", Archs.size(),
+                llvm::join(Archs, ",").c_str());
+      }
 
       SourceInfo Info(Loc);
       if (Info.isAvailible())
@@ -284,11 +305,11 @@ int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase, void *Arg,
   // Construct new arrays for args_base, args, arg_sizes and arg_types
   // using the information in MapperComponents and call the corresponding
   // targetData* function using these new arrays.
-  std::vector<void *> MapperArgsBase(MapperComponents.Components.size());
-  std::vector<void *> MapperArgs(MapperComponents.Components.size());
-  std::vector<int64_t> MapperArgSizes(MapperComponents.Components.size());
-  std::vector<int64_t> MapperArgTypes(MapperComponents.Components.size());
-  std::vector<void *> MapperArgNames(MapperComponents.Components.size());
+  SmallVector<void *> MapperArgsBase(MapperComponents.Components.size());
+  SmallVector<void *> MapperArgs(MapperComponents.Components.size());
+  SmallVector<int64_t> MapperArgSizes(MapperComponents.Components.size());
+  SmallVector<int64_t> MapperArgTypes(MapperComponents.Components.size());
+  SmallVector<void *> MapperArgNames(MapperComponents.Components.size());
 
   for (unsigned I = 0, E = MapperComponents.Components.size(); I < E; ++I) {
     auto &C = MapperComponents.Components[I];
@@ -306,38 +327,6 @@ int targetDataMapper(ident_t *Loc, DeviceTy &Device, void *ArgBase, void *Arg,
                               AsyncInfo, /*FromMapper=*/true);
 
   return Rc;
-}
-
-static int prepareAndSubmitData(DeviceTy &Device, void *HstPtrBegin,
-                                void *HstPtrBase, void *LocalTgtPtrBegin,
-                                TargetPointerResultTy &PointerTpr,
-                                void *PointerHstPtrBegin,
-                                void *PointerTgtPtrBegin,
-                                AsyncInfoTy &AsyncInfo) {
-  uint64_t Delta = (uint64_t)HstPtrBegin - (uint64_t)HstPtrBase;
-  void *ExpectedTgtPtrBase = (void *)((uint64_t)LocalTgtPtrBegin - Delta);
-
-  if (PointerTpr.getEntry()->addShadowPointer(
-          ShadowPtrInfoTy{(void **)PointerHstPtrBegin, HstPtrBase,
-                          (void **)PointerTgtPtrBegin, ExpectedTgtPtrBase})) {
-    DP("USM_SPECIAL: Update pointer (" DPxMOD ") -> [" DPxMOD "]\n",
-       DPxPTR(PointerTgtPtrBegin), DPxPTR(LocalTgtPtrBegin));
-
-    void *&LocalTgtPtrBase = AsyncInfo.getVoidPtrLocation();
-    LocalTgtPtrBase = ExpectedTgtPtrBase;
-
-    int Ret =
-        Device.submitData(PointerTgtPtrBegin, &LocalTgtPtrBase, sizeof(void *),
-                          AsyncInfo, PointerTpr.getEntry());
-    if (Ret != OFFLOAD_SUCCESS) {
-      REPORT("Copying data to device failed.\n");
-      return OFFLOAD_FAIL;
-    }
-    if (PointerTpr.getEntry()->addEventIfNecessary(Device, AsyncInfo) !=
-        OFFLOAD_SUCCESS)
-      return OFFLOAD_FAIL;
-  }
-  return OFFLOAD_SUCCESS;
 }
 
 /// Internal function to do the mapping and transfer the data to the device
@@ -433,9 +422,9 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       // when HasPresentModifier.
       PointerTpr = Device.getMappingInfo().getTargetPointer(
           HDTTMap, HstPtrBase, HstPtrBase, /*TgtPadding=*/0, sizeof(void *),
-          /*HstPtrName=*/nullptr, /*HasFlagTo=*/false, /*HasFlagAlways=*/false,
-          IsImplicit, UpdateRef, HasCloseModifier, HasPresentModifier,
-          HasHoldModifier, AsyncInfo,
+          /*HstPtrName=*/nullptr,
+          /*HasFlagTo=*/false, /*HasFlagAlways=*/false, IsImplicit, UpdateRef,
+          HasCloseModifier, HasPresentModifier, HasHoldModifier, AsyncInfo,
           /*OwnedTPR=*/nullptr, /*ReleaseHDTTMap=*/false);
       PointerTgtPtrBegin = PointerTpr.TargetPointer;
       IsHostPtr = PointerTpr.Flags.IsHostPointer;
@@ -454,8 +443,8 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       HstPtrBase = *(void **)HstPtrBase;
       // No need to update pointee ref count for the first element of the
       // subelement that comes from mapper.
-      // subsequently update ref count of pointee
-      UpdateRef = (!FromMapper || I != 0);
+      UpdateRef =
+          (!FromMapper || I != 0); // subsequently update ref count of pointee
     }
 
     const bool HasFlagTo = ArgTypes[I] & OMP_TGT_MAPTYPE_TO;
@@ -475,10 +464,9 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
                                 : "device failure or illegal mapping");
       return OFFLOAD_FAIL;
     }
-    DP("There are %" PRId64 " bytes allocated at %s address " DPxMOD
+    DP("There are %" PRId64 " bytes allocated at target address " DPxMOD
        " - is%s new\n",
-       DataSize, (IsHostPtr ? "host" : "target"), DPxPTR(TgtPtrBegin),
-       (TPR.Flags.IsNewEntry ? "" : " not"));
+       DataSize, DPxPTR(TgtPtrBegin), (TPR.Flags.IsNewEntry ? "" : " not"));
 
     if (ArgTypes[I] & OMP_TGT_MAPTYPE_RETURN_PARAM) {
       uintptr_t Delta = (uintptr_t)HstPtrBegin - (uintptr_t)HstPtrBase;
@@ -487,12 +475,32 @@ int targetDataBegin(ident_t *Loc, DeviceTy &Device, int32_t ArgNum,
       ArgsBase[I] = TgtPtrBase;
     }
 
-    if (ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ && !IsHostPtr)
-      if (prepareAndSubmitData(Device, HstPtrBegin, HstPtrBase, TgtPtrBegin,
-                               PointerTpr, PointerHstPtrBegin,
-                               PointerTgtPtrBegin,
-                               AsyncInfo) != OFFLOAD_SUCCESS)
-        return OFFLOAD_FAIL;
+    if (ArgTypes[I] & OMP_TGT_MAPTYPE_PTR_AND_OBJ && !IsHostPtr) {
+
+      uint64_t Delta = (uint64_t)HstPtrBegin - (uint64_t)HstPtrBase;
+      void *ExpectedTgtPtrBase = (void *)((uint64_t)TgtPtrBegin - Delta);
+
+      if (PointerTpr.getEntry()->addShadowPointer(ShadowPtrInfoTy{
+              (void **)PointerHstPtrBegin, HstPtrBase,
+              (void **)PointerTgtPtrBegin, ExpectedTgtPtrBase})) {
+        DP("Update pointer (" DPxMOD ") -> [" DPxMOD "]\n",
+           DPxPTR(PointerTgtPtrBegin), DPxPTR(TgtPtrBegin));
+
+        void *&TgtPtrBase = AsyncInfo.getVoidPtrLocation();
+        TgtPtrBase = ExpectedTgtPtrBase;
+
+        int Ret =
+            Device.submitData(PointerTgtPtrBegin, &TgtPtrBase, sizeof(void *),
+                              AsyncInfo, PointerTpr.getEntry());
+        if (Ret != OFFLOAD_SUCCESS) {
+          REPORT("Copying data to device failed.\n");
+          return OFFLOAD_FAIL;
+        }
+        if (PointerTpr.getEntry()->addEventIfNecessary(Device, AsyncInfo) !=
+            OFFLOAD_SUCCESS)
+          return OFFLOAD_FAIL;
+      }
+    }
 
     // Check if variable can be used on the device:
     bool IsStructMember = ArgTypes[I] & OMP_TGT_MAPTYPE_MEMBER_OF;
@@ -969,9 +977,9 @@ TableMap *getTableMap(void *HostPtr) {
     TranslationTable *TransTable = &Itr->second;
     // iterate over all the host table entries to see if we can locate the
     // host_ptr.
-    __tgt_offload_entry *Cur = TransTable->HostTable.EntriesBegin;
+    llvm::offloading::EntryTy *Cur = TransTable->HostTable.EntriesBegin;
     for (uint32_t I = 0; Cur < TransTable->HostTable.EntriesEnd; ++Cur, ++I) {
-      if (Cur->addr != HostPtr)
+      if (Cur->Address != HostPtr)
         continue;
       // we got a match, now fill the HostPtrToTableMap so that we
       // may avoid this search next time.
@@ -1015,12 +1023,12 @@ class PrivateArgumentManagerTy {
   };
 
   /// A vector of target pointers for all private arguments
-  std::vector<void *> TgtPtrs;
+  SmallVector<void *> TgtPtrs;
 
   /// A vector of information of all first-private arguments to be packed
-  std::vector<FirstPrivateArgInfoTy> FirstPrivateArgInfo;
+  SmallVector<FirstPrivateArgInfoTy> FirstPrivateArgInfo;
   /// Host buffer for all arguments to be packed
-  std::vector<char> FirstPrivateArgBuffer;
+  SmallVector<char> FirstPrivateArgBuffer;
   /// The total size of all arguments to be packed
   int64_t FirstPrivateArgSize = 0;
 
@@ -1124,12 +1132,12 @@ public:
 
   /// Pack first-private arguments, replace place holder pointers in \p TgtArgs,
   /// and start the transfer.
-  int packAndTransfer(std::vector<void *> &TgtArgs) {
+  int packAndTransfer(SmallVector<void *> &TgtArgs) {
     if (!FirstPrivateArgInfo.empty()) {
       assert(FirstPrivateArgSize != 0 &&
              "FirstPrivateArgSize is 0 but FirstPrivateArgInfo is empty");
       FirstPrivateArgBuffer.resize(FirstPrivateArgSize, 0);
-      auto Itr = FirstPrivateArgBuffer.begin();
+      auto *Itr = FirstPrivateArgBuffer.begin();
       // Copy all host data to this buffer
       for (FirstPrivateArgInfoTy &Info : FirstPrivateArgInfo) {
         // First pad the pointer as we (have to) pad it on the device too.
@@ -1196,8 +1204,8 @@ static int processDataBefore(ident_t *Loc, int64_t DeviceId, void *HostPtr,
                              int32_t ArgNum, void **ArgBases, void **Args,
                              int64_t *ArgSizes, int64_t *ArgTypes,
                              map_var_info_t *ArgNames, void **ArgMappers,
-                             std::vector<void *> &TgtArgs,
-                             std::vector<ptrdiff_t> &TgtOffsets,
+                             SmallVector<void *> &TgtArgs,
+                             SmallVector<ptrdiff_t> &TgtOffsets,
                              PrivateArgumentManagerTy &PrivateArgumentManager,
                              AsyncInfoTy &AsyncInfo) {
 
@@ -1213,7 +1221,7 @@ static int processDataBefore(ident_t *Loc, int64_t DeviceId, void *HostPtr,
   }
 
   // List of (first-)private arrays allocated for this target region
-  std::vector<int> TgtArgsPositions(ArgNum, -1);
+  SmallVector<int> TgtArgsPositions(ArgNum, -1);
 
   for (int32_t I = 0; I < ArgNum; ++I) {
     if (!(ArgTypes[I] & OMP_TGT_MAPTYPE_TARGET_PARAM)) {
@@ -1371,8 +1379,7 @@ static int processDataAfter(ident_t *Loc, int64_t DeviceId, void *HostPtr,
 /// returns 0 if it was able to transfer the execution to a target and an
 /// integer different from zero otherwise.
 int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
-           KernelArgsTy &KernelArgs, AsyncInfoTy &AsyncInfo,
-           bool InMultiDeviceMode, bool &IsMultiDeviceKernel) {
+           KernelArgsTy &KernelArgs, AsyncInfoTy &AsyncInfo) {
   int32_t DeviceId = Device.DeviceID;
   TableMap *TM = getTableMap(HostPtr);
   // No map for this host pointer found!
@@ -1403,8 +1410,8 @@ int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
   // begin addresses, not bases. That's why we pass args and offsets as two
   // separate entities so that each plugin can do what it needs. This behavior
   // was introdued via https://reviews.llvm.org/D33028 and commit 1546d319244c.
-  std::vector<void *> TgtArgs;
-  std::vector<ptrdiff_t> TgtOffsets;
+  SmallVector<void *> TgtArgs;
+  SmallVector<ptrdiff_t> TgtOffsets;
 
   PrivateArgumentManagerTy PrivateArgumentManager(Device, AsyncInfo);
 
@@ -1430,9 +1437,10 @@ int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
   }
 
   // Launch device execution.
-  void *TgtEntryPtr = TargetTable->EntriesBegin[TM->Index].addr;
+  void *TgtEntryPtr = TargetTable->EntriesBegin[TM->Index].Address;
   DP("Launching target execution %s with pointer " DPxMOD " (index=%d).\n",
-     TargetTable->EntriesBegin[TM->Index].name, DPxPTR(TgtEntryPtr), TM->Index);
+     TargetTable->EntriesBegin[TM->Index].SymbolName, DPxPTR(TgtEntryPtr),
+     TM->Index);
 
   {
     assert(KernelArgs.NumArgs == TgtArgs.size() && "Argument count mismatch!");
@@ -1449,29 +1457,11 @@ int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
     // No need to guard this with OMPT_IF_BUILT
     InterfaceRAII TargetSubmitRAII(
         RegionInterface.getCallbacks<ompt_callback_target_submit>(), NumTeams);
-
-    // Calls "begin" for the OMPT trace record and let the plugin
-    // enqueue the stop operation for after the kernel is done. The stop
-    // operation completes the trace record entry with the information from
-    // within the plugin, eg., kernel timing info.
-    // Only if 'TracedDeviceId' is actually traced, AsyncInfo->OmptEventInfo is
-    // set and a trace record generated. Otherwise: No OMPT device tracing.
-    TracerInterfaceRAII TargetTraceRAII(
-        RegionInterface.getTraceGenerators<ompt_callback_target_submit>(),
-        AsyncInfo, /*TracedDeviceId=*/DeviceId,
-        /*EventType=*/ompt_callback_target_submit, DeviceId, NumTeams);
 #endif
+
     Ret = Device.launchKernel(TgtEntryPtr, TgtArgs.data(), TgtOffsets.data(),
                               KernelArgs, AsyncInfo);
-
-    // If we are in multidevice mode the check the value of the global variable
-    // for this kernel to see if the kernel is indeed a multi device kernel.
-    if (InMultiDeviceMode)
-      IsMultiDeviceKernel = Device.isMultiDeviceKernel(TgtEntryPtr);
   }
-
-  // Reset number of arguments just in case the kernel launch changed it.
-  KernelArgs.NumArgs = NumClangLaunchArgs;
 
   if (Ret != OFFLOAD_SUCCESS) {
     REPORT("Executing target region abort target.\n");
@@ -1536,9 +1526,10 @@ int target_replay(ident_t *Loc, DeviceTy &Device, void *HostPtr,
 
   // Retrieve the target kernel pointer, allocate and store the recorded device
   // memory data, and launch device execution.
-  void *TgtEntryPtr = TargetTable->EntriesBegin[TM->Index].addr;
+  void *TgtEntryPtr = TargetTable->EntriesBegin[TM->Index].Address;
   DP("Launching target execution %s with pointer " DPxMOD " (index=%d).\n",
-     TargetTable->EntriesBegin[TM->Index].name, DPxPTR(TgtEntryPtr), TM->Index);
+     TargetTable->EntriesBegin[TM->Index].SymbolName, DPxPTR(TgtEntryPtr),
+     TM->Index);
 
   void *TgtPtr = Device.allocData(DeviceMemorySize, /*HstPtr=*/nullptr,
                                   TARGET_ALLOC_DEFAULT);

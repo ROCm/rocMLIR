@@ -105,6 +105,13 @@ llvm::raw_fd_ostream Ctx::openAuxiliaryFile(llvm::StringRef filename,
   using namespace llvm::sys::fs;
   OpenFlags flags =
       auxiliaryFiles.insert(filename).second ? OF_None : OF_Append;
+  if (e.disableOutput && filename == "-") {
+#ifdef _WIN32
+    filename = "NUL";
+#else
+    filename = "/dev/null";
+#endif
+  }
   return {filename, ec, flags};
 }
 
@@ -579,7 +586,7 @@ static void checkZOptions(Ctx &ctx, opt::InputArgList &args) {
 
 constexpr const char *saveTempsValues[] = {
     "resolution", "preopt",     "promote", "internalize",  "import",
-    "opt",        "precodegen", "prelink", "combinedindex", "asm" };
+    "opt",        "precodegen", "prelink", "combinedindex"};
 
 LinkerDriver::LinkerDriver(Ctx &ctx) : ctx(ctx) {}
 
@@ -1398,25 +1405,12 @@ static void readConfigs(Ctx &ctx, opt::InputArgList &args) {
     for (const char *s : saveTempsValues)
       ctx.arg.saveTempsArgs.insert(s);
   } else {
-    llvm::DenseSet<llvm::StringRef> toRemove;
     for (auto *arg : args.filtered(OPT_save_temps_eq)) {
-      llvm::DenseSet<llvm::StringRef> *set = &ctx.arg.saveTempsArgs;
       StringRef s = arg->getValue();
-      if (s.consume_front("no-")) {
-        set = &toRemove;
-      }
       if (llvm::is_contained(saveTempsValues, s))
-        set->insert(s);
+        ctx.arg.saveTempsArgs.insert(s);
       else
         ErrAlways(ctx) << "unknown --save-temps value: " << s;
-    }
-    // All subtractive values implies starting with all temps
-    if (ctx.arg.saveTempsArgs.empty() && !toRemove.empty()) {
-      for (const char *s : saveTempsValues)
-        ctx.arg.saveTempsArgs.insert(s);
-    }
-    for (auto rm : toRemove) {
-      ctx.arg.saveTempsArgs.erase(rm);
     }
   }
 
@@ -1469,13 +1463,14 @@ static void readConfigs(Ctx &ctx, opt::InputArgList &args) {
   }
   ctx.arg.thinLTOModulesToCompile =
       args::getStrings(args, OPT_thinlto_single_module_eq);
-  ctx.arg.timeTraceEnabled = args.hasArg(OPT_time_trace_eq);
+  ctx.arg.timeTraceEnabled =
+      args.hasArg(OPT_time_trace_eq) && !ctx.e.disableOutput;
   ctx.arg.timeTraceGranularity =
       args::getInteger(args, OPT_time_trace_granularity, 500);
   ctx.arg.trace = args.hasArg(OPT_trace);
   ctx.arg.undefined = args::getStrings(args, OPT_undefined);
   ctx.arg.undefinedVersion =
-      args.hasFlag(OPT_undefined_version, OPT_no_undefined_version, true);
+      args.hasFlag(OPT_undefined_version, OPT_no_undefined_version, false);
   ctx.arg.unique = args.hasArg(OPT_unique);
   ctx.arg.useAndroidRelrTags = args.hasFlag(
       OPT_use_android_relr_tags, OPT_no_use_android_relr_tags, false);
@@ -2168,9 +2163,12 @@ static void excludeLibs(Ctx &ctx, opt::InputArgList &args) {
     ArrayRef<Symbol *> symbols = file->getSymbols();
     if (isa<ELFFileBase>(file))
       symbols = cast<ELFFileBase>(file)->getGlobalSymbols();
-    for (Symbol *sym : symbols)
-      if (!sym->isUndefined() && sym->file == file)
+    for (Symbol *sym : symbols) {
+      if (!sym->isUndefined() && sym->file == file) {
         sym->versionId = VER_NDX_LOCAL;
+        sym->isExported = false;
+      }
+    }
   };
 
   for (ELFFileBase *file : ctx.objectFiles)
@@ -2437,8 +2435,10 @@ static void findKeepUniqueSections(Ctx &ctx, opt::InputArgList &args) {
         unsigned size;
         const char *err = nullptr;
         uint64_t symIndex = decodeULEB128(cur, &size, contents.end(), &err);
-        if (err)
-          Fatal(ctx) << f << ": could not decode addrsig section: " << err;
+        if (err) {
+          Err(ctx) << f << ": could not decode addrsig section: " << err;
+          break;
+        }
         markAddrsig(icfSafe, syms[symIndex]);
         cur += size;
       }
@@ -2554,11 +2554,17 @@ void LinkerDriver::compileBitcodeFiles(bool skipLinkedOutput) {
     auto *obj = cast<ObjFile<ELFT>>(file.get());
     obj->parse(/*ignoreComdats=*/true);
 
-    // Parse '@' in symbol names for non-relocatable output.
+    // For defined symbols in non-relocatable output,
+    // compute isExported and parse '@'.
     if (!ctx.arg.relocatable)
-      for (Symbol *sym : obj->getGlobalSymbols())
+      for (Symbol *sym : obj->getGlobalSymbols()) {
+        if (!sym->isDefined())
+          continue;
+        if (ctx.hasDynsym && sym->includeInDynsym(ctx))
+          sym->isExported = true;
         if (sym->hasVersionSuffix)
           sym->parseSymbolVersion(ctx);
+      }
     ctx.objectFiles.push_back(obj);
   }
 }
@@ -2899,8 +2905,12 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
 
   parseFiles(ctx, files);
 
+  // Dynamic linking is used if there is an input DSO,
+  // or -shared or non-static pie is specified.
+  ctx.hasDynsym = !ctx.sharedFiles.empty() || ctx.arg.shared ||
+                  (ctx.arg.pie && !ctx.arg.noDynamicLinker);
   // Create dynamic sections for dynamic linking and static PIE.
-  ctx.arg.hasDynSymTab = !ctx.sharedFiles.empty() || ctx.arg.isPic;
+  ctx.arg.hasDynSymTab = ctx.hasDynsym || ctx.arg.isPic;
 
   // If an entry symbol is in a static archive, pull out that file now.
   if (Symbol *sym = ctx.symtab->find(ctx.arg.entry))
@@ -3070,7 +3080,7 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
 
   // Handle --exclude-libs again because lto.tmp may reference additional
   // libcalls symbols defined in an excluded archive. This may override
-  // versionId set by scanVersionScript().
+  // versionId set by scanVersionScript() and isExported.
   if (args.hasArg(OPT_exclude_libs))
     excludeLibs(ctx, args);
 

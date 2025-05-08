@@ -76,7 +76,10 @@ ENV LC_ALL en_US.UTF-8
 
 # Install python dependencies for the scripts. ADD will check contents of a file for changes.
 # TODO: that should be done during the build as it will pull this repo anyway and will have latest version.
-ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" requirements.txt
+ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" llvm-requirements.txt
+RUN pip3 install -r llvm-requirements.txt
+
+ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/refs/heads/develop/mlir/requirements.txt" requirements.txt
 RUN pip3 install -r requirements.txt
 
 # --------------------- Section 2: Rock dialect setups -----------------
@@ -90,6 +93,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt upgrade -y \
     && python3 -m pip install --upgrade pip \
     && pip3 install pandas numpy scipy jinja2 tomli \
+    && pip3 install -r llvm-requirements.txt \
     && pip3 install -r requirements.txt
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
     # Has a copy of the requirements.txt install bit for the new python version

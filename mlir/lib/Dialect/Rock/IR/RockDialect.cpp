@@ -554,30 +554,32 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
   }
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     bool isGfx95 = arch.contains("gfx95");
-    if (isGfx95 &&
-        (elemTypeA.isFloat8E4M3FNUZ() || elemTypeA.isFloat8E5M2FNUZ() ||
-         elemTypeB.isFloat8E4M3FNUZ() || elemTypeB.isFloat8E5M2FNUZ())) {
+    if (isGfx95 && (isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeA) ||
+                    isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeB))) {
       return op->emitOpError(
           "Mfma gridwise does not support E4M3FNUZ/E5M2FNUZ data types");
     }
     if (!isGfx95 && arch.contains("gfx9") &&
-        (elemTypeA.isFloat8E4M3FN() || elemTypeA.isFloat8E5M2() ||
-         elemTypeB.isFloat8E4M3FN() || elemTypeB.isFloat8E5M2())) {
+        (isa<Float8E4M3FNType, Float8E5M2Type>(elemTypeA) ||
+         isa<Float8E4M3FNType, Float8E5M2Type>(elemTypeB))) {
       return op->emitOpError(
           "Mfma gridwise does not support E4M3/E5M2 data types ");
     }
   }
-  if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
-    return op->emitOpError("floating-point input type ")
-           << elemTypeA
-           << " requires a floating-point output type, but the output type is "
-           << elemTypeC;
-  }
-  if (isa<IntegerType>(elemTypeA) && !isa<IntegerType>(elemTypeC)) {
-    return op->emitOpError("integer input type ")
-           << elemTypeA
-           << " requires an integer output type, but the output type is "
-           << elemTypeC;
+  if (elemTypeC) {
+    if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
+      return op->emitOpError("floating-point input type ")
+             << elemTypeA
+             << " requires a floating-point output type, but the output type "
+                "is "
+             << elemTypeC;
+    }
+    if (isa<IntegerType>(elemTypeA) && !isa<IntegerType>(elemTypeC)) {
+      return op->emitOpError("integer input type ")
+             << elemTypeA
+             << " requires an integer output type, but the output type is "
+             << elemTypeC;
+    }
   }
   return success();
 }

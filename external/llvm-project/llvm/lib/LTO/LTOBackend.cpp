@@ -44,7 +44,6 @@
 #include "llvm/TargetParser/SubtargetFeature.h"
 #include "llvm/Transforms/IPO/WholeProgramDevirt.h"
 #include "llvm/Transforms/Scalar/LoopPassManager.h"
-#include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 #include "llvm/Transforms/Utils/SplitModule.h"
 #include <optional>
@@ -99,10 +98,6 @@ Error Config::addSaveTemps(std::string OutputFileName, bool UseInputModulePath,
       ResolutionFile.reset();
       return errorCodeToError(EC);
     }
-  }
-
-  if (SaveTempsArgs.contains("asm")) {
-    AsmFile = OutputFileName;
   }
 
   auto setHook = [&](std::string PathSuffix, ModuleHookFn &Hook) {
@@ -356,6 +351,14 @@ static void runNewPMPasses(const Config &Conf, Module &Mod, TargetMachine *TM,
   MPM.run(Mod, MAM);
 }
 
+static bool isEmptyModule(const Module &Mod) {
+  // Module is empty if it has no functions, no globals, no inline asm and no
+  // named metadata (aliases and ifuncs require functions or globals so we
+  // don't need to check those explicitly).
+  return Mod.empty() && Mod.global_empty() && Mod.named_metadata_empty() &&
+         Mod.getModuleInlineAsm().empty();
+}
+
 bool lto::opt(const Config &Conf, TargetMachine *TM, unsigned Task, Module &Mod,
               bool IsThinLTO, ModuleSummaryIndex *ExportSummary,
               const ModuleSummaryIndex *ImportSummary,
@@ -377,30 +380,20 @@ bool lto::opt(const Config &Conf, TargetMachine *TM, unsigned Task, Module &Mod,
                                /*EmbedBitcode*/ true, /*EmbedCmdline*/ true,
                                /*Cmdline*/ CmdArgs);
   }
-  // FIXME: Plumb the combined index into the new pass manager.
-  runNewPMPasses(Conf, Mod, TM, Conf.OptLevel, IsThinLTO, ExportSummary,
-                 ImportSummary);
+  // No need to run any opt passes if the module is empty.
+  // In theory these passes should take almost no time for an empty
+  // module, however, this guards against doing any unnecessary summary-based
+  // analysis in the case of a ThinLTO build where this might be an empty
+  // regular LTO combined module, with a large combined index from ThinLTO.
+  if (!isEmptyModule(Mod)) {
+    // FIXME: Plumb the combined index into the new pass manager.
+    runNewPMPasses(Conf, Mod, TM, Conf.OptLevel, IsThinLTO, ExportSummary,
+                   ImportSummary);
+  }
   return !Conf.PostOptModuleHook || Conf.PostOptModuleHook(Task, Mod);
 }
 
-struct CodegenConfig {
-  const Config &Conf;
-  CodeGenFileType CGFileType;
-  std::string DwoDir;
-  Config::ModuleHookFn PreCodeGenModuleHook;
-  std::function<void(legacy::PassManager &)> PreCodeGenPassesHook;
-  std::string SplitDwarfFile;
-  std::string SplitDwarfOutput;
-  CodegenConfig(const Config &Conf) : Conf(Conf) {
-    CGFileType           = Conf.CGFileType;
-    DwoDir               = Conf.DwoDir;
-    PreCodeGenModuleHook = Conf.PreCodeGenModuleHook;
-    PreCodeGenPassesHook = Conf.PreCodeGenPassesHook;
-    SplitDwarfFile       = Conf.SplitDwarfFile;
-    SplitDwarfOutput     = Conf.SplitDwarfOutput;
-  }
-};
-static void codegen(const CodegenConfig &Conf, TargetMachine *TM,
+static void codegen(const Config &Conf, TargetMachine *TM,
                     AddStreamFn AddStream, unsigned Task, Module &Mod,
                     const ModuleSummaryIndex &CombinedIndex) {
   if (Conf.PreCodeGenModuleHook && !Conf.PreCodeGenModuleHook(Task, Mod))
@@ -444,8 +437,14 @@ static void codegen(const CodegenConfig &Conf, TargetMachine *TM,
   legacy::PassManager CodeGenPasses;
   TargetLibraryInfoImpl TLII(Triple(Mod.getTargetTriple()));
   CodeGenPasses.add(new TargetLibraryInfoWrapperPass(TLII));
-  CodeGenPasses.add(
-      createImmutableModuleSummaryIndexWrapperPass(&CombinedIndex));
+  // No need to make index available if the module is empty.
+  // In theory these passes should not use the index for an empty
+  // module, however, this guards against doing any unnecessary summary-based
+  // analysis in the case of a ThinLTO build where this might be an empty
+  // regular LTO combined module, with a large combined index from ThinLTO.
+  if (!isEmptyModule(Mod))
+    CodeGenPasses.add(
+        createImmutableModuleSummaryIndexWrapperPass(&CombinedIndex));
   if (Conf.PreCodeGenPassesHook)
     Conf.PreCodeGenPassesHook(CodeGenPasses);
   if (TM->addPassesToEmitFile(CodeGenPasses, *Stream->OS,
@@ -458,7 +457,7 @@ static void codegen(const CodegenConfig &Conf, TargetMachine *TM,
     DwoOut->keep();
 }
 
-static void splitCodeGen(const CodegenConfig &CodegenC, TargetMachine *TM,
+static void splitCodeGen(const Config &C, TargetMachine *TM,
                          AddStreamFn AddStream,
                          unsigned ParallelCodeGenParallelismLevel, Module &Mod,
                          const ModuleSummaryIndex &CombinedIndex) {
@@ -482,7 +481,7 @@ static void splitCodeGen(const CodegenConfig &CodegenC, TargetMachine *TM,
         // Enqueue the task
         CodegenThreadPool.async(
             [&](const SmallString<0> &BC, unsigned ThreadId) {
-              LTOLLVMContext Ctx(CodegenC.Conf);
+              LTOLLVMContext Ctx(C);
               Expected<std::unique_ptr<Module>> MOrErr =
                   parseBitcodeFile(MemoryBufferRef(BC.str(), "ld-temp.o"), Ctx);
               if (!MOrErr)
@@ -490,9 +489,9 @@ static void splitCodeGen(const CodegenConfig &CodegenC, TargetMachine *TM,
               std::unique_ptr<Module> MPartInCtx = std::move(MOrErr.get());
 
               std::unique_ptr<TargetMachine> TM =
-                  createTargetMachine(CodegenC.Conf, T, *MPartInCtx);
+                  createTargetMachine(C, T, *MPartInCtx);
 
-              codegen(CodegenC, TM.get(), AddStream, ThreadId, *MPartInCtx,
+              codegen(C, TM.get(), AddStream, ThreadId, *MPartInCtx,
                       CombinedIndex);
             },
             // Pass BC using std::move to ensure that it get moved rather than
@@ -538,34 +537,6 @@ Error lto::finalizeOptimizationRemarks(
   return Error::success();
 }
 
-static bool backendOpt(
-    const Config &C, std::unique_ptr<TargetMachine> &TM, Module &Mod,
-    ModuleSummaryIndex *ExportSummary = nullptr) {
-  if (C.CodeGenOnly)
-    return true;
-  return opt(C, TM.get(), 0, Mod, /*IsThinLTO=*/false,
-             /*ExportSummary=*/ExportSummary, /*ImportSummary=*/nullptr,
-             /*CmdArgs*/ std::vector<uint8_t>());
-}
-
-static std::unique_ptr<CachedFileStream> GenAsmFilename(
-    StringRef Basename, size_t Task, const Twine &ModuleName) {
-  int FD;
-  std::string AsmFilename = Basename.str();
-  if (Task > 0)
-    AsmFilename += std::to_string(Task) + ".";
-  AsmFilename += "lto.s";
-
-  std::error_code EC;
-  EC = sys::fs::openFileForWrite(AsmFilename, FD, sys::fs::CD_CreateAlways);
-  if (EC)
-    report_fatal_error(Twine("Failed to create asm file ") + AsmFilename +
-                       ": " + EC.message());
-
-  return std::make_unique<CachedFileStream>(
-      std::make_unique<llvm::raw_fd_ostream>(FD, true));
-}
-
 Error lto::backend(const Config &C, AddStreamFn AddStream,
                    unsigned ParallelCodeGenParallelismLevel, Module &Mod,
                    ModuleSummaryIndex &CombinedIndex) {
@@ -575,43 +546,20 @@ Error lto::backend(const Config &C, AddStreamFn AddStream,
 
   std::unique_ptr<TargetMachine> TM = createTargetMachine(C, *TOrErr, Mod);
 
-  std::unique_ptr<Module> AsmMod;
-  if (C.AsmFile.size() && C.CGFileType != CodeGenFileType::AssemblyFile) {
-    AsmMod = CloneModule(Mod);
-  }
-
   LLVM_DEBUG(dbgs() << "Running regular LTO\n");
-  CodegenConfig CodegenC(C);
-  if (!backendOpt(C, TM, Mod, &CombinedIndex)) {
-    return Error::success();
-  }
-  if (ParallelCodeGenParallelismLevel == 1) {
-    codegen(CodegenC, TM.get(), AddStream, 0, Mod, CombinedIndex);
-  } else {
-    splitCodeGen(CodegenC, TM.get(), AddStream,
-                 ParallelCodeGenParallelismLevel, Mod, CombinedIndex);
-  }
-
-  if (AsmMod) {
-    CodegenC.CGFileType = CodeGenFileType::AssemblyFile;
-    CodegenC.DwoDir.clear();
-    CodegenC.SplitDwarfFile.clear();
-    CodegenC.SplitDwarfOutput.clear();
-    auto AddAsmFile = [&](size_t Task, const Twine &ModuleName) {
-      return GenAsmFilename(C.AsmFile, Task, ModuleName);
-    };
-
-    if (!backendOpt(C, TM, *AsmMod)) {
+  if (!C.CodeGenOnly) {
+    if (!opt(C, TM.get(), 0, Mod, /*IsThinLTO=*/false,
+             /*ExportSummary=*/&CombinedIndex, /*ImportSummary=*/nullptr,
+             /*CmdArgs*/ std::vector<uint8_t>()))
       return Error::success();
-    }
-    if (ParallelCodeGenParallelismLevel == 1) {
-      codegen(CodegenC, TM.get(), AddAsmFile, 0, *AsmMod, CombinedIndex);
-    } else {
-      splitCodeGen(CodegenC, TM.get(), AddAsmFile,
-                   ParallelCodeGenParallelismLevel, *AsmMod, CombinedIndex);
-    }
   }
 
+  if (ParallelCodeGenParallelismLevel == 1) {
+    codegen(C, TM.get(), AddStream, 0, Mod, CombinedIndex);
+  } else {
+    splitCodeGen(C, TM.get(), AddStream, ParallelCodeGenParallelismLevel, Mod,
+                 CombinedIndex);
+  }
   return Error::success();
 }
 

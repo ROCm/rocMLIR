@@ -152,7 +152,6 @@ body: |
     ; SIVI-NEXT: [[ICMP:%[0-9]+]]:_(s1) = G_ICMP intpred(ne), [[COPY1]](p5), [[C1]]
     ; SIVI-NEXT: [[SELECT:%[0-9]+]]:_(p0) = G_SELECT [[ICMP]](s1), [[MV]], [[C2]]
     ; SIVI-NEXT: $vgpr0_vgpr1 = COPY [[SELECT]](p0)
-    ;
     ; GFX9-LABEL: name: test_addrspacecast_p5_to_p0
     ; GFX9: liveins: $vgpr0
     ; GFX9-NEXT: {{  $}}
@@ -221,7 +220,6 @@ body: |
     ; SIVI-NEXT: [[ICMP:%[0-9]+]]:_(s1) = G_ICMP intpred(ne), [[COPY1]](p3), [[C1]]
     ; SIVI-NEXT: [[SELECT:%[0-9]+]]:_(p0) = G_SELECT [[ICMP]](s1), [[MV]], [[C2]]
     ; SIVI-NEXT: $vgpr0_vgpr1 = COPY [[SELECT]](p0)
-    ;
     ; GFX9-LABEL: name: test_addrspacecast_p3_to_p0
     ; GFX9: liveins: $vgpr0
     ; GFX9-NEXT: {{  $}}
@@ -373,7 +371,6 @@ body: |
     ; SIVI-NEXT: [[SELECT1:%[0-9]+]]:_(p0) = G_SELECT [[ICMP1]](s1), [[MV1]], [[C2]]
     ; SIVI-NEXT: [[BUILD_VECTOR:%[0-9]+]]:_(<2 x p0>) = G_BUILD_VECTOR [[SELECT]](p0), [[SELECT1]](p0)
     ; SIVI-NEXT: $vgpr0_vgpr1_vgpr2_vgpr3 = COPY [[BUILD_VECTOR]](<2 x p0>)
-    ;
     ; GFX9-LABEL: name: test_addrspacecast_v2p3_to_v2p0
     ; GFX9: liveins: $vgpr0_vgpr1
     ; GFX9-NEXT: {{  $}}

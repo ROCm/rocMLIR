@@ -95,6 +95,12 @@ public:
     Embed_Marker    // Embed a marker as a placeholder for bitcode.
   };
 
+  enum class ExtendVariableLivenessKind {
+    None,
+    This,
+    All,
+  };
+
   enum InlineAsmDialectKind {
     IAD_ATT,
     IAD_Intel,
@@ -157,21 +163,6 @@ public:
     Always,   // All loops are assumed to be finite.
     Never,    // No loop is assumed to be finite.
   };
-
-  enum class HeterogeneousDwarfOpts {
-    Disabled,     //< Do not emit any heterogeneous dwarf metadata.
-    DIExpr,       //< Enable DIExpr-based metadata.
-    DIExpression, //< Enable DIExpression-based metadata.
-  };
-  bool isHeterogeneousDwarfEnabled() const {
-    return getHeterogeneousDwarfMode() != HeterogeneousDwarfOpts::Disabled;
-  }
-  bool isHeterogeneousDwarfDIExpr() const {
-    return getHeterogeneousDwarfMode() == HeterogeneousDwarfOpts::DIExpr;
-  }
-  bool isHeterogeneousDwarfDIExpression() const {
-    return getHeterogeneousDwarfMode() == HeterogeneousDwarfOpts::DIExpression;
-  }
 
   enum AssignmentTrackingOpts {
     Disabled,
@@ -398,6 +389,11 @@ public:
   /// Set of sanitizer checks that can merge handlers (smaller code size at
   /// the expense of debuggability).
   SanitizerSet SanitizeMergeHandlers;
+
+  /// Set of thresholds in a range [0.0, 1.0]: the top hottest code responsible
+  /// for the given fraction of PGO counters will be excluded from sanitization
+  /// (0.0 [default] to skip none, 1.0 to skip all).
+  SanitizerMaskCutoffs SanitizeSkipHotCutoffs;
 
   /// List of backend command-line options for -fembed-bitcode.
   std::vector<uint8_t> CmdArgs;

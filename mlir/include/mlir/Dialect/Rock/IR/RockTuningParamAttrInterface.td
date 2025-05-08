@@ -72,7 +72,6 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
 
     // TODO: more methods here as needed
   ];
-
 }
 
 #endif // ROCK_TUNING_PARAM_INTERFACE

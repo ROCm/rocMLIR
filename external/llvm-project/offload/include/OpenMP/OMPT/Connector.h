@@ -17,10 +17,6 @@
 
 #ifdef OMPT_SUPPORT
 
-#include "Shared/Debug.h"
-#include "omp-tools.h"
-#include "omptarget.h"
-
 #include "llvm/Support/DynamicLibrary.h"
 
 #include <memory>
@@ -80,7 +76,7 @@ private:
     std::string LibName = LibIdent;
     LibName += ".so";
 
-    DP("Trying to load library %s\n", LibName.c_str());
+    DP("OMPT: Trying to load library %s\n", LibName.c_str());
     auto DynLibHandle = std::make_unique<llvm::sys::DynamicLibrary>(
         llvm::sys::DynamicLibrary::getPermanentLibrary(LibName.c_str(),
                                                        &ErrMsg));
@@ -89,12 +85,12 @@ private:
       LibConnHandle = nullptr;
     } else {
       auto LibConnRtn = "ompt_" + LibIdent + "_connect";
-      DP("Trying to get address of connection routine %s\n",
+      DP("OMPT: Trying to get address of connection routine %s\n",
          LibConnRtn.c_str());
       LibConnHandle = reinterpret_cast<OmptConnectRtnTy>(
           DynLibHandle->getAddressOfSymbol(LibConnRtn.c_str()));
     }
-    DP("Library connection handle = %p\n", LibConnHandle);
+    DP("OMPT: Library connection handle = %p\n", LibConnHandle);
     IsInitialized = true;
   }
 

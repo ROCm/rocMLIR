@@ -31,8 +31,8 @@
 ; RUN: opt -disable-output -disable-verify -print-pipeline-passes -passes='function(loop-unroll<>,loop-unroll<partial;peeling;runtime;upperbound;profile-peeling;full-unroll-max=5;O1>,loop-unroll<no-partial;no-peeling;no-runtime;no-upperbound;no-profile-peeling;full-unroll-max=7;O1>)' < %s | FileCheck %s --match-full-lines --check-prefixes=CHECK-10
 ; CHECK-10: function(loop-unroll<O2>,loop-unroll<partial;peeling;runtime;upperbound;profile-peeling;full-unroll-max=5;O1>,loop-unroll<no-partial;no-peeling;no-runtime;no-upperbound;no-profile-peeling;full-unroll-max=7;O1>)
 
-; RUN: opt -disable-output -disable-verify -print-pipeline-passes -passes='function(gvn<>,gvn<pre;load-pre;split-backedge-load-pre;memdep>,gvn<no-pre;no-load-pre;no-split-backedge-load-pre;no-memdep>)' < %s | FileCheck %s --match-full-lines --check-prefixes=CHECK-11
-; CHECK-11: function(gvn<>,gvn<pre;load-pre;split-backedge-load-pre;memdep>,gvn<no-pre;no-load-pre;no-split-backedge-load-pre;no-memdep>)
+; RUN: opt -disable-output -disable-verify -print-pipeline-passes -passes='function(gvn<>,gvn<pre;load-pre;split-backedge-load-pre;memdep;memoryssa>,gvn<no-pre;no-load-pre;no-split-backedge-load-pre;no-memdep;no-memoryssa>)' < %s | FileCheck %s --match-full-lines --check-prefixes=CHECK-11
+; CHECK-11: function(gvn<>,gvn<pre;load-pre;split-backedge-load-pre;memdep;memoryssa>,gvn<no-pre;no-load-pre;no-split-backedge-load-pre;no-memdep;no-memoryssa>)
 
 ; RUN: opt -disable-output -disable-verify -print-pipeline-passes -passes='function(early-cse<>,early-cse<memssa>)' < %s | FileCheck %s --match-full-lines --check-prefixes=CHECK-12
 ; CHECK-12: function(early-cse<>,early-cse<memssa>)
@@ -59,7 +59,7 @@
 ; CHECK-20: cgscc(inline<only-mandatory>,inline),cgscc(inline)
 
 ; RUN: opt -disable-output -disable-verify -print-pipeline-passes -passes='scc-oz-module-inliner' < %s | FileCheck %s --match-full-lines --check-prefixes=CHECK-21
-; CHECK-21: require<globals-aa>,function(invalidate<aa>),require<profile-summary>,cgscc(devirt<4>(inline<only-mandatory>,inline,{{.*}},instcombine{{.*}}))
+; CHECK-21: require<globals-aa>,function(invalidate<aa>),require<profile-summary>,cgscc(devirt<4>(inline,{{.*}},instcombine{{.*}}))
 
 ; RUN: opt -disable-output -disable-verify -print-pipeline-passes -passes='cgscc(function<eager-inv>(no-op-function)),function<eager-inv>(no-op-function)' < %s | FileCheck %s --match-full-lines --check-prefixes=CHECK-22
 ; CHECK-22: cgscc(function<eager-inv>(no-op-function)),function<eager-inv>(no-op-function)

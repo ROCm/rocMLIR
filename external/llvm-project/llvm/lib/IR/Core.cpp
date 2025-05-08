@@ -58,7 +58,6 @@ inline BasicBlock **unwrap(LLVMBasicBlockRef *BBs) {
 
 void llvm::initializeCore(PassRegistry &Registry) {
   initializeDominatorTreeWrapperPassPass(Registry);
-  initializeHeterogeneousDebugVerifyLegacyPass(Registry);
   initializePrintModulePassWrapperPass(Registry);
   initializePrintFunctionPassWrapperPass(Registry);
   initializeSafepointIRVerifierPass(Registry);
@@ -874,7 +873,8 @@ LLVMTypeRef LLVMArrayType2(LLVMTypeRef ElementType, uint64_t ElementCount) {
 }
 
 LLVMTypeRef LLVMPointerType(LLVMTypeRef ElementType, unsigned AddressSpace) {
-  return wrap(PointerType::get(unwrap(ElementType), AddressSpace));
+  return wrap(
+      PointerType::get(unwrap(ElementType)->getContext(), AddressSpace));
 }
 
 LLVMBool LLVMPointerTypeIsOpaque(LLVMTypeRef Ty) {

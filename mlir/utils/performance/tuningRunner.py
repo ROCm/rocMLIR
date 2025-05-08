@@ -72,7 +72,7 @@ def verifyKernelWithPerfConfig(perfConfig, config, paths: Paths, options: Option
             # pipe to rocmlir-driver
             p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
-            # pipe to rocprof + mlir-cpu-runner.
+            # pipe to rocprof + mlir-runner.
             p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             p2.stdout.close() # Allow p2 to receive a SIGPIPE if p3 exits.
             # get output.

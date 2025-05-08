@@ -31,7 +31,6 @@
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/VirtualFileSystem.h"
-#include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/RISCVISAInfo.h"
 #include "llvm/TargetParser/TargetParser.h"
 #include <system_error>
@@ -423,7 +422,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     return;
   }
 
-  if (Triple.isRISCV()) {
+  if (Triple.isLoongArch() || Triple.isRISCV()) {
     CmdArgs.push_back("-X");
     if (Args.hasArg(options::OPT_mno_relax))
       CmdArgs.push_back("--no-relax");
@@ -518,13 +517,6 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
           Args.MakeArgString(ToolChain.GetFilePath("crt_pad_segment.o")));
   }
 
-  // Make sure openmp finds it libomp.so before all others.
-  if (Args.hasArg(options::OPT_fopenmp) ||
-      JA.isHostOffloading(Action::OFK_OpenMP)) {
-    addDirectoryList(Args, CmdArgs, "-L", "LIBRARY_PATH");
-    CmdArgs.push_back(Args.MakeArgString("-L" + D.Dir + "/../lib"));
-  }
-
   Args.addAllArgs(CmdArgs, {options::OPT_L, options::OPT_u});
 
   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
@@ -542,9 +534,6 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     addLTOOptions(ToolChain, Args, CmdArgs, Output, *Input,
                   D.getLTOMode() == LTOK_Thin);
   }
-  bool ProprietaryToolChain =
-    checkForAMDProprietaryOptOptions(ToolChain, D, Args, CmdArgs,
-	                             true /*isLLD*/);
 
   if (Args.hasArg(options::OPT_Z_Xlinker__no_demangle))
     CmdArgs.push_back("--no-demangle");
@@ -684,56 +673,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.addAllArgs(CmdArgs, {options::OPT_T, options::OPT_t});
 
-  // if a linker other than ld.lld is specified, dont use closed ld.lld.
-  if (Args.hasArg(options::OPT_fuse_ld_EQ)) {
-    StringRef LinkerName = Args.getLastArgValue(options::OPT_fuse_ld_EQ, "ld");
-    if (!LinkerName.equals_insensitive("lld"))
-      ProprietaryToolChain = false;
-  }
-
-  std::string AltPath = D.getInstalledDir();
-  AltPath += "/../alt/bin/ld.lld";
-  const char *Exec = ProprietaryToolChain
-         ? Args.MakeArgString(AltPath.c_str())
-         : Args.MakeArgString(ToolChain.GetLinkerPath());
-
-  // Check if linker has a corresponding LLVM IR assembler. If so, disassemble
-  // bitcode using current disassembler and then use assembler from linker's
-  // release to mask potential bitcode incompatibilities from different LLVM
-  // versions or releases. This fixes things like differences in number of
-  // integer attributes or anything where bitcodes may not match.
-  if (D.isUsingLTO() || ProprietaryToolChain) {
-    StringRef execSR(Exec);
-    std::string as_fn =
-        execSR.substr(0, execSR.find_last_of("/") + 1).str() + "llvm-as";
-    for (auto i : Inputs) {
-      if (llvm::sys::fs::exists(as_fn) && i.isFilename() &&
-          (i.getType() == clang::driver::types::TY_LTO_BC)) {
-        ArgStringList dis_args;
-        dis_args.push_back(C.getArgs().MakeArgString(i.getFilename()));
-        dis_args.push_back("-o");
-        std::string TmpNameDisOutput =
-            C.getDriver().GetTemporaryPath("disassembled", "ll");
-        C.addTempFile(C.getArgs().MakeArgString(TmpNameDisOutput));
-        const char *DisOutputFn = C.getArgs().MakeArgString(TmpNameDisOutput);
-        dis_args.push_back(DisOutputFn);
-        InputInfo DisII(&JA, DisOutputFn);
-        C.addCommand(std::make_unique<Command>(
-            JA, *this, ResponseFileSupport::None(),
-            C.getArgs().MakeArgString(
-                getToolChain().GetProgramPath("llvm-dis")),
-            dis_args, i, DisII));
-        ArgStringList as_args;
-        as_args.push_back(DisOutputFn);
-        as_args.push_back("-o");
-        as_args.push_back(C.getArgs().MakeArgString(i.getFilename()));
-        C.addCommand(std::make_unique<Command>(
-            JA, *this, ResponseFileSupport::None(),
-            C.getArgs().MakeArgString(as_fn), as_args, DisII, i));
-      }
-    }
-  }
-
+  const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
   C.addCommand(std::make_unique<Command>(JA, *this,
                                          ResponseFileSupport::AtFileCurCP(),
                                          Exec, CmdArgs, Inputs, Output));
@@ -1206,53 +1146,6 @@ static bool findMipsCsMultilibs(const Driver &D,
   return false;
 }
 
-static bool findMipsAndroidMultilibs(const Driver &D,
-                                     llvm::vfs::FileSystem &VFS, StringRef Path,
-                                     const Multilib::flags_list &Flags,
-                                     FilterNonExistent &NonExistent,
-                                     DetectedMultilibs &Result) {
-
-  MultilibSet AndroidMipsMultilibs =
-      MultilibSetBuilder()
-          .Maybe(MultilibBuilder("/mips-r2", {}, {}).flag("-march=mips32r2"))
-          .Maybe(MultilibBuilder("/mips-r6", {}, {}).flag("-march=mips32r6"))
-          .makeMultilibSet()
-          .FilterOut(NonExistent);
-
-  MultilibSet AndroidMipselMultilibs =
-      MultilibSetBuilder()
-          .Either(MultilibBuilder().flag("-march=mips32"),
-                  MultilibBuilder("/mips-r2", "", "/mips-r2")
-                      .flag("-march=mips32r2"),
-                  MultilibBuilder("/mips-r6", "", "/mips-r6")
-                      .flag("-march=mips32r6"))
-          .makeMultilibSet()
-          .FilterOut(NonExistent);
-
-  MultilibSet AndroidMips64elMultilibs =
-      MultilibSetBuilder()
-          .Either(MultilibBuilder().flag("-march=mips64r6"),
-                  MultilibBuilder("/32/mips-r1", "", "/mips-r1")
-                      .flag("-march=mips32"),
-                  MultilibBuilder("/32/mips-r2", "", "/mips-r2")
-                      .flag("-march=mips32r2"),
-                  MultilibBuilder("/32/mips-r6", "", "/mips-r6")
-                      .flag("-march=mips32r6"))
-          .makeMultilibSet()
-          .FilterOut(NonExistent);
-
-  MultilibSet *MS = &AndroidMipsMultilibs;
-  if (VFS.exists(Path + "/mips-r6"))
-    MS = &AndroidMipselMultilibs;
-  else if (VFS.exists(Path + "/32"))
-    MS = &AndroidMips64elMultilibs;
-  if (MS->select(D, Flags, Result.SelectedMultilibs)) {
-    Result.Multilibs = *MS;
-    return true;
-  }
-  return false;
-}
-
 static bool findMipsMuslMultilibs(const Driver &D,
                                   const Multilib::flags_list &Flags,
                                   FilterNonExistent &NonExistent,
@@ -1619,10 +1512,6 @@ bool clang::driver::findMIPSMultilibs(const Driver &D,
   addMultilibFlag(!isSoftFloatABI(Args), "-mhard-float", Flags);
   addMultilibFlag(isMipsEL(TargetArch), "-EL", Flags);
   addMultilibFlag(!isMipsEL(TargetArch), "-EB", Flags);
-
-  if (TargetTriple.isAndroid())
-    return findMipsAndroidMultilibs(D, D.getVFS(), Path, Flags, NonExistent,
-                                    Result);
 
   if (TargetTriple.getVendor() == llvm::Triple::MipsTechnologies &&
       TargetTriple.getOS() == llvm::Triple::Linux &&

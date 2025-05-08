@@ -14,6 +14,7 @@ define internal void @direct() {
 ; CHECK-SAME: () #[[ATTR1:[0-9]+]] {
 ; CHECK-NEXT:    [[FPTR:%.*]] = alloca ptr, align 8, addrspace(5)
 ; CHECK-NEXT:    store ptr @indirect, ptr addrspace(5) [[FPTR]], align 8
+; CHECK-NEXT:    [[FP:%.*]] = load ptr, ptr addrspace(5) [[FPTR]], align 8
 ; CHECK-NEXT:    call void @indirect()
 ; CHECK-NEXT:    ret void
 ;

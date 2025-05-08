@@ -22,7 +22,6 @@
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
@@ -776,7 +775,7 @@ void InstrLowerer::doSampling(Instruction *I) {
     NewSamplingVarVal =
         IncBuilder.CreateAdd(LoadSamplingVar, GetConstant(IncBuilder, 1));
     SamplingVarIncr = IncBuilder.CreateStore(NewSamplingVarVal, SamplingVar);
-    I->moveBefore(ThenTerm);
+    I->moveBefore(ThenTerm->getIterator());
   }
 
   if (config.IsFastSampling)
@@ -793,11 +792,11 @@ void InstrLowerer::doSampling(Instruction *I) {
 
   // For the simple sampling, the counter update happens in sampling var reset.
   if (config.IsSimpleSampling)
-    I->moveBefore(ThenTerm);
+    I->moveBefore(ThenTerm->getIterator());
 
   IRBuilder<> ResetBuilder(ThenTerm);
   ResetBuilder.CreateStore(GetConstant(ResetBuilder, 0), SamplingVar);
-  SamplingVarIncr->moveBefore(ElseTerm);
+  SamplingVarIncr->moveBefore(ElseTerm->getIterator());
 }
 
 bool InstrLowerer::lowerIntrinsics(Function *F) {
@@ -1719,8 +1718,8 @@ InstrLowerer::getOrCreateRegionCounters(InstrProfCntrInstBase *Inc) {
           SP, CounterPtr->getName(), /*LinkageName=*/StringRef(), SP->getFile(),
           /*LineNo=*/0, DB.createUnspecifiedType("Profile Data Type"),
           CounterPtr->hasLocalLinkage(), /*IsDefined=*/true, /*Expr=*/nullptr,
-          /*Decl=*/nullptr, /*TemplateParams=*/nullptr,
-          llvm::dwarf::DW_MSPACE_LLVM_none, /*AlignInBits=*/0, Annotations);
+          /*Decl=*/nullptr, /*TemplateParams=*/nullptr, /*AlignInBits=*/0,
+          Annotations);
       CounterPtr->addDebugInfo(DICounter);
       DB.finalize();
     }

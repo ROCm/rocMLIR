@@ -1,8 +1,5 @@
 ! Check that flang -fc1 is invoked when in --driver-mode=flang.
 
-! AOCC team xfails this test as its thought to be f18.
-! UNSUPPORTED
-
 ! This is a copy of flang_ucase.F90 because the driver has logic in it which
 ! differentiates between F90 and f90 files. Flang will not treat these files
 ! differently.
@@ -16,7 +13,7 @@
 ! * (no type specified, resulting in an object file)
 
 ! All invocations should begin with flang -fc1, consume up to here.
-! ALL-LABEL: "{{[^"]*}}flang-new{{[^"/]*}}" "-fc1"
+! ALL-LABEL: "{{[^"]*}}flang{{[^"/]*}}" "-fc1"
 
 ! Check that f90 files are not treated as "previously preprocessed"
 ! ... in --driver-mode=flang.

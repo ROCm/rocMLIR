@@ -208,8 +208,8 @@ static void stashEntryDbgValues(MachineBasicBlock &MBB,
   }
 
   // Remove stashed debug values from the block.
-  if (EntryDbgValues.count(&MBB))
-    for (auto *MI : EntryDbgValues[&MBB])
+  if (auto It = EntryDbgValues.find(&MBB); It != EntryDbgValues.end())
+    for (auto *MI : It->second)
       MI->removeFromParent();
 }
 
@@ -1240,9 +1240,9 @@ void PEI::insertZeroCallUsedRegs(MachineFunction &MF) {
             continue;
 
           MCRegister Reg = MO.getReg();
-          if (AllocatableSet[Reg] && !MO.isImplicit() &&
+          if (AllocatableSet[Reg.id()] && !MO.isImplicit() &&
               (MO.isDef() || MO.isUse()))
-            UsedRegs.set(Reg);
+            UsedRegs.set(Reg.id());
         }
       }
 
@@ -1262,20 +1262,20 @@ void PEI::insertZeroCallUsedRegs(MachineFunction &MF) {
       continue;
 
     // Want only used registers.
-    if (OnlyUsed && !UsedRegs[Reg])
+    if (OnlyUsed && !UsedRegs[Reg.id()])
       continue;
 
     // Want only registers used for arguments.
     if (OnlyArg) {
       if (OnlyUsed) {
-        if (!LiveIns[Reg])
+        if (!LiveIns[Reg.id()])
           continue;
       } else if (!TRI.isArgumentRegister(MF, Reg)) {
         continue;
       }
     }
 
-    RegsToZero.set(Reg);
+    RegsToZero.set(Reg.id());
   }
 
   // Don't clear registers that are live when leaving the function.
@@ -1328,7 +1328,7 @@ void PEI::insertZeroCallUsedRegs(MachineFunction &MF) {
   for (const MCPhysReg *CSRegs = TRI.getCalleeSavedRegs(&MF);
        MCPhysReg CSReg = *CSRegs; ++CSRegs)
     for (MCRegister Reg : TRI.sub_and_superregs_inclusive(CSReg))
-      RegsToZero.reset(Reg);
+      RegsToZero.reset(Reg.id());
 
   const TargetFrameLowering &TFI = *MF.getSubtarget().getFrameLowering();
   for (MachineBasicBlock &MBB : MF)
@@ -1386,67 +1386,6 @@ bool PEI::replaceFrameIndexDebugInstr(MachineFunction &MF, MachineInstr &MI,
                                       unsigned OpIdx, int SPAdj) {
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
-  const DataLayout &DL = MF.getDataLayout();
-  const Function &F = MF.getFunction();
-  LLVMContext &Context = F.getContext();
-
-  if (MI.isDebugDef()) {
-    MachineOperand &Op = MI.getOperand(OpIdx);
-    assert(MI.isDebugOperand(&Op) &&
-           "Frame indices can only appear as a debug operand in a DBG_DEF"
-           " machine instruction");
-    assert(&Op == &MI.getDebugReferrer() &&
-           "Frame indices can only appear as the referrer of DBG_DEF "
-           "machine instructions");
-    Register Reg;
-    unsigned FrameIdx = Op.getIndex();
-    StackOffset Offset = TFI->getFrameIndexReference(MF, FrameIdx, Reg);
-
-    if (Reg) {
-      Op.ChangeToRegister(Reg, false /*isDef*/);
-      Op.setIsDebug();
-    } else {
-      Op.ChangeToImmediate(0);
-    }
-
-    DILifetime *Lifetime = MI.getDebugLifetime();
-    DIExprBuilder Builder = Lifetime->getLocation()->builder();
-    for (auto &&I = Builder.begin(); I != Builder.end(); ++I) {
-      if (auto *Referrer = std::get_if<DIOp::Referrer>(&*I)) {
-        Type *ResultType = Referrer->getResultType();
-        unsigned PointerSizeInBits =
-            DL.getPointerSizeInBits(DL.getAllocaAddrSpace());
-        ConstantData *C =
-            ConstantInt::get(IntegerType::get(Context, PointerSizeInBits),
-                             Offset.getFixed(), true);
-        std::initializer_list<DIOp::Variant> IL = {
-            DIOp::Constant(C), DIOp::ByteOffset(ResultType)};
-        I = TFI->insertFrameLocation(
-            MF, Builder, Builder.insert(Builder.erase(I), IL), ResultType);
-      }
-    }
-    Lifetime->setLocation(Builder.intoExpr());
-    return true;
-  }
-
-  if (MI.isDebugValue() && MI.getDebugExpression()->holdsNewElements()) {
-    MachineOperand &Op = MI.getOperand(OpIdx);
-    Register Reg;
-    unsigned FrameIdx = Op.getIndex();
-    StackOffset Offset = TFI->getFrameIndexReference(MF, FrameIdx, Reg);
-
-    if (Reg) {
-      Op.ChangeToRegister(Reg, false /*isDef*/);
-      Op.setIsDebug();
-    } else {
-      Op.ChangeToImmediate(0);
-    }
-
-    MI.getDebugExpressionOp().setMetadata(TFI->lowerFIArgToFPArg(
-        MF, MI.getDebugExpression(), MI.getDebugOperandIndex(&Op), Offset));
-    return true;
-  }
-
   if (MI.isDebugValue()) {
 
     MachineOperand &Op = MI.getOperand(OpIdx);

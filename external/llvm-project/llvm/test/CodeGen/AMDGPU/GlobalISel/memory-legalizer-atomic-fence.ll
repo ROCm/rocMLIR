@@ -13,24 +13,18 @@
 define amdgpu_kernel void @system_one_as_acquire() #0 {
   ; GFX6-LABEL: name: system_one_as_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_one_as_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_one_as_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -39,8 +33,6 @@ define amdgpu_kernel void @system_one_as_acquire() #0 {
   ;
   ; GFX10CU-LABEL: name: system_one_as_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -49,8 +41,6 @@ define amdgpu_kernel void @system_one_as_acquire() #0 {
   ;
   ; GFX11WGP-LABEL: name: system_one_as_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -59,8 +49,6 @@ define amdgpu_kernel void @system_one_as_acquire() #0 {
   ;
   ; GFX11CU-LABEL: name: system_one_as_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -74,46 +62,34 @@ entry:
 define amdgpu_kernel void @system_one_as_release() #0 {
   ; GFX6-LABEL: name: system_one_as_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_one_as_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_one_as_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: system_one_as_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: system_one_as_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: system_one_as_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   S_ENDPGM 0
@@ -125,24 +101,18 @@ entry:
 define amdgpu_kernel void @system_one_as_acq_rel() #0 {
   ; GFX6-LABEL: name: system_one_as_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_one_as_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_one_as_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -151,8 +121,6 @@ define amdgpu_kernel void @system_one_as_acq_rel() #0 {
   ;
   ; GFX10CU-LABEL: name: system_one_as_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -161,8 +129,6 @@ define amdgpu_kernel void @system_one_as_acq_rel() #0 {
   ;
   ; GFX11WGP-LABEL: name: system_one_as_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -171,8 +137,6 @@ define amdgpu_kernel void @system_one_as_acq_rel() #0 {
   ;
   ; GFX11CU-LABEL: name: system_one_as_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -186,24 +150,18 @@ entry:
 define amdgpu_kernel void @system_one_as_seq_cst() #0 {
   ; GFX6-LABEL: name: system_one_as_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_one_as_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_one_as_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -212,8 +170,6 @@ define amdgpu_kernel void @system_one_as_seq_cst() #0 {
   ;
   ; GFX10CU-LABEL: name: system_one_as_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -222,8 +178,6 @@ define amdgpu_kernel void @system_one_as_seq_cst() #0 {
   ;
   ; GFX11WGP-LABEL: name: system_one_as_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -232,8 +186,6 @@ define amdgpu_kernel void @system_one_as_seq_cst() #0 {
   ;
   ; GFX11CU-LABEL: name: system_one_as_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -247,38 +199,26 @@ entry:
 define amdgpu_kernel void @singlethread_one_as_acquire() #0 {
   ; GFX6-LABEL: name: singlethread_one_as_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_one_as_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_one_as_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_one_as_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_one_as_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_one_as_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread-one-as") acquire
@@ -288,38 +228,26 @@ entry:
 define amdgpu_kernel void @singlethread_one_as_release() #0 {
   ; GFX6-LABEL: name: singlethread_one_as_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_one_as_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_one_as_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_one_as_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_one_as_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_one_as_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread-one-as") release
@@ -329,38 +257,26 @@ entry:
 define amdgpu_kernel void @singlethread_one_as_acq_rel() #0 {
   ; GFX6-LABEL: name: singlethread_one_as_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_one_as_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_one_as_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_one_as_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_one_as_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_one_as_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread-one-as") acq_rel
@@ -370,38 +286,26 @@ entry:
 define amdgpu_kernel void @singlethread_one_as_seq_cst() #0 {
   ; GFX6-LABEL: name: singlethread_one_as_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_one_as_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_one_as_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_one_as_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_one_as_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_one_as_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread-one-as") seq_cst
@@ -411,24 +315,18 @@ entry:
 define amdgpu_kernel void @agent_one_as_acquire() #0 {
   ; GFX6-LABEL: name: agent_one_as_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_one_as_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_one_as_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -437,8 +335,6 @@ define amdgpu_kernel void @agent_one_as_acquire() #0 {
   ;
   ; GFX10CU-LABEL: name: agent_one_as_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -447,8 +343,6 @@ define amdgpu_kernel void @agent_one_as_acquire() #0 {
   ;
   ; GFX11WGP-LABEL: name: agent_one_as_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -457,8 +351,6 @@ define amdgpu_kernel void @agent_one_as_acquire() #0 {
   ;
   ; GFX11CU-LABEL: name: agent_one_as_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -472,46 +364,34 @@ entry:
 define amdgpu_kernel void @agent_one_as_release() #0 {
   ; GFX6-LABEL: name: agent_one_as_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_one_as_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_one_as_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: agent_one_as_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: agent_one_as_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: agent_one_as_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   S_ENDPGM 0
@@ -523,24 +403,18 @@ entry:
 define amdgpu_kernel void @agent_one_as_acq_rel() #0 {
   ; GFX6-LABEL: name: agent_one_as_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_one_as_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_one_as_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -549,8 +423,6 @@ define amdgpu_kernel void @agent_one_as_acq_rel() #0 {
   ;
   ; GFX10CU-LABEL: name: agent_one_as_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -559,8 +431,6 @@ define amdgpu_kernel void @agent_one_as_acq_rel() #0 {
   ;
   ; GFX11WGP-LABEL: name: agent_one_as_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -569,8 +439,6 @@ define amdgpu_kernel void @agent_one_as_acq_rel() #0 {
   ;
   ; GFX11CU-LABEL: name: agent_one_as_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -584,24 +452,18 @@ entry:
 define amdgpu_kernel void @agent_one_as_seq_cst() #0 {
   ; GFX6-LABEL: name: agent_one_as_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 3952
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_one_as_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 3952
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_one_as_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -610,8 +472,6 @@ define amdgpu_kernel void @agent_one_as_seq_cst() #0 {
   ;
   ; GFX10CU-LABEL: name: agent_one_as_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 16240
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -620,8 +480,6 @@ define amdgpu_kernel void @agent_one_as_seq_cst() #0 {
   ;
   ; GFX11WGP-LABEL: name: agent_one_as_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -630,8 +488,6 @@ define amdgpu_kernel void @agent_one_as_seq_cst() #0 {
   ;
   ; GFX11CU-LABEL: name: agent_one_as_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 1015
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -645,20 +501,14 @@ entry:
 define amdgpu_kernel void @workgroup_one_as_acquire() #0 {
   ; GFX6-LABEL: name: workgroup_one_as_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_one_as_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_one_as_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -666,14 +516,10 @@ define amdgpu_kernel void @workgroup_one_as_acquire() #0 {
   ;
   ; GFX10CU-LABEL: name: workgroup_one_as_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_one_as_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -681,8 +527,6 @@ define amdgpu_kernel void @workgroup_one_as_acquire() #0 {
   ;
   ; GFX11CU-LABEL: name: workgroup_one_as_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("workgroup-one-as") acquire
@@ -692,42 +536,30 @@ entry:
 define amdgpu_kernel void @workgroup_one_as_release() #0 {
   ; GFX6-LABEL: name: workgroup_one_as_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_one_as_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_one_as_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: workgroup_one_as_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_one_as_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: workgroup_one_as_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("workgroup-one-as") release
@@ -737,20 +569,14 @@ entry:
 define amdgpu_kernel void @workgroup_one_as_acq_rel() #0 {
   ; GFX6-LABEL: name: workgroup_one_as_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_one_as_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_one_as_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -758,14 +584,10 @@ define amdgpu_kernel void @workgroup_one_as_acq_rel() #0 {
   ;
   ; GFX10CU-LABEL: name: workgroup_one_as_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_one_as_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -773,8 +595,6 @@ define amdgpu_kernel void @workgroup_one_as_acq_rel() #0 {
   ;
   ; GFX11CU-LABEL: name: workgroup_one_as_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("workgroup-one-as") acq_rel
@@ -784,20 +604,14 @@ entry:
 define amdgpu_kernel void @workgroup_one_as_seq_cst() #0 {
   ; GFX6-LABEL: name: workgroup_one_as_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_one_as_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_one_as_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 16240
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -805,14 +619,10 @@ define amdgpu_kernel void @workgroup_one_as_seq_cst() #0 {
   ;
   ; GFX10CU-LABEL: name: workgroup_one_as_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_one_as_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 1015
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -820,8 +630,6 @@ define amdgpu_kernel void @workgroup_one_as_seq_cst() #0 {
   ;
   ; GFX11CU-LABEL: name: workgroup_one_as_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("workgroup-one-as") seq_cst
@@ -831,38 +639,26 @@ entry:
 define amdgpu_kernel void @wavefront_one_as_acquire() #0 {
   ; GFX6-LABEL: name: wavefront_one_as_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_one_as_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_one_as_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_one_as_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_one_as_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_one_as_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront-one-as") acquire
@@ -872,38 +668,26 @@ entry:
 define amdgpu_kernel void @wavefront_one_as_release() #0 {
   ; GFX6-LABEL: name: wavefront_one_as_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_one_as_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_one_as_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_one_as_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_one_as_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_one_as_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront-one-as") release
@@ -913,38 +697,26 @@ entry:
 define amdgpu_kernel void @wavefront_one_as_acq_rel() #0 {
   ; GFX6-LABEL: name: wavefront_one_as_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_one_as_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_one_as_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_one_as_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_one_as_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_one_as_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront-one-as") acq_rel
@@ -954,38 +726,26 @@ entry:
 define amdgpu_kernel void @wavefront_one_as_seq_cst() #0 {
   ; GFX6-LABEL: name: wavefront_one_as_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_one_as_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_one_as_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_one_as_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_one_as_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_one_as_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront-one-as") seq_cst
@@ -995,24 +755,18 @@ entry:
 define amdgpu_kernel void @system_acquire() #0 {
   ; GFX6-LABEL: name: system_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1021,8 +775,6 @@ define amdgpu_kernel void @system_acquire() #0 {
   ;
   ; GFX10CU-LABEL: name: system_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1031,8 +783,6 @@ define amdgpu_kernel void @system_acquire() #0 {
   ;
   ; GFX11WGP-LABEL: name: system_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1041,8 +791,6 @@ define amdgpu_kernel void @system_acquire() #0 {
   ;
   ; GFX11CU-LABEL: name: system_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1056,46 +804,34 @@ entry:
 define amdgpu_kernel void @system_release() #0 {
   ; GFX6-LABEL: name: system_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: system_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: system_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: system_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   S_ENDPGM 0
@@ -1107,24 +843,18 @@ entry:
 define amdgpu_kernel void @system_acq_rel() #0 {
   ; GFX6-LABEL: name: system_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1133,8 +863,6 @@ define amdgpu_kernel void @system_acq_rel() #0 {
   ;
   ; GFX10CU-LABEL: name: system_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1143,8 +871,6 @@ define amdgpu_kernel void @system_acq_rel() #0 {
   ;
   ; GFX11WGP-LABEL: name: system_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1153,8 +879,6 @@ define amdgpu_kernel void @system_acq_rel() #0 {
   ;
   ; GFX11CU-LABEL: name: system_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1168,24 +892,18 @@ entry:
 define amdgpu_kernel void @system_seq_cst() #0 {
   ; GFX6-LABEL: name: system_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: system_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: system_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1194,8 +912,6 @@ define amdgpu_kernel void @system_seq_cst() #0 {
   ;
   ; GFX10CU-LABEL: name: system_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1204,8 +920,6 @@ define amdgpu_kernel void @system_seq_cst() #0 {
   ;
   ; GFX11WGP-LABEL: name: system_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1214,8 +928,6 @@ define amdgpu_kernel void @system_seq_cst() #0 {
   ;
   ; GFX11CU-LABEL: name: system_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1229,38 +941,26 @@ entry:
 define amdgpu_kernel void @singlethread_acquire() #0 {
   ; GFX6-LABEL: name: singlethread_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread") acquire
@@ -1270,38 +970,26 @@ entry:
 define amdgpu_kernel void @singlethread_release() #0 {
   ; GFX6-LABEL: name: singlethread_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread") release
@@ -1311,38 +999,26 @@ entry:
 define amdgpu_kernel void @singlethread_acq_rel() #0 {
   ; GFX6-LABEL: name: singlethread_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread") acq_rel
@@ -1352,38 +1028,26 @@ entry:
 define amdgpu_kernel void @singlethread_seq_cst() #0 {
   ; GFX6-LABEL: name: singlethread_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: singlethread_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: singlethread_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: singlethread_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: singlethread_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: singlethread_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("singlethread") seq_cst
@@ -1393,24 +1057,18 @@ entry:
 define amdgpu_kernel void @agent_acquire() #0 {
   ; GFX6-LABEL: name: agent_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1419,8 +1077,6 @@ define amdgpu_kernel void @agent_acquire() #0 {
   ;
   ; GFX10CU-LABEL: name: agent_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1429,8 +1085,6 @@ define amdgpu_kernel void @agent_acquire() #0 {
   ;
   ; GFX11WGP-LABEL: name: agent_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1439,8 +1093,6 @@ define amdgpu_kernel void @agent_acquire() #0 {
   ;
   ; GFX11CU-LABEL: name: agent_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1454,46 +1106,34 @@ entry:
 define amdgpu_kernel void @agent_release() #0 {
   ; GFX6-LABEL: name: agent_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: agent_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: agent_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: agent_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   S_ENDPGM 0
@@ -1505,24 +1145,18 @@ entry:
 define amdgpu_kernel void @agent_acq_rel() #0 {
   ; GFX6-LABEL: name: agent_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1531,8 +1165,6 @@ define amdgpu_kernel void @agent_acq_rel() #0 {
   ;
   ; GFX10CU-LABEL: name: agent_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1541,8 +1173,6 @@ define amdgpu_kernel void @agent_acq_rel() #0 {
   ;
   ; GFX11WGP-LABEL: name: agent_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1551,8 +1181,6 @@ define amdgpu_kernel void @agent_acq_rel() #0 {
   ;
   ; GFX11CU-LABEL: name: agent_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1566,24 +1194,18 @@ entry:
 define amdgpu_kernel void @agent_seq_cst() #0 {
   ; GFX6-LABEL: name: agent_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 112
   ; GFX6-NEXT:   BUFFER_WBINVL1 implicit $exec
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: agent_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 112
   ; GFX8-NEXT:   BUFFER_WBINVL1_VOL implicit $exec
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: agent_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1592,8 +1214,6 @@ define amdgpu_kernel void @agent_seq_cst() #0 {
   ;
   ; GFX10CU-LABEL: name: agent_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 112
   ; GFX10CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1602,8 +1222,6 @@ define amdgpu_kernel void @agent_seq_cst() #0 {
   ;
   ; GFX11WGP-LABEL: name: agent_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1612,8 +1230,6 @@ define amdgpu_kernel void @agent_seq_cst() #0 {
   ;
   ; GFX11CU-LABEL: name: agent_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 7
   ; GFX11CU-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11CU-NEXT:   BUFFER_GL1_INV implicit $exec
@@ -1627,22 +1243,16 @@ entry:
 define amdgpu_kernel void @workgroup_acquire() #0 {
   ; GFX6-LABEL: name: workgroup_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 127
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 127
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -1650,15 +1260,11 @@ define amdgpu_kernel void @workgroup_acquire() #0 {
   ;
   ; GFX10CU-LABEL: name: workgroup_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 49279
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -1666,8 +1272,6 @@ define amdgpu_kernel void @workgroup_acquire() #0 {
   ;
   ; GFX11CU-LABEL: name: workgroup_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 64519
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
@@ -1678,45 +1282,33 @@ entry:
 define amdgpu_kernel void @workgroup_release() #0 {
   ; GFX6-LABEL: name: workgroup_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 127
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 127
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: workgroup_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 49279
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: workgroup_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 64519
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
@@ -1727,22 +1319,16 @@ entry:
 define amdgpu_kernel void @workgroup_acq_rel() #0 {
   ; GFX6-LABEL: name: workgroup_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 127
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 127
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -1750,15 +1336,11 @@ define amdgpu_kernel void @workgroup_acq_rel() #0 {
   ;
   ; GFX10CU-LABEL: name: workgroup_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 49279
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -1766,8 +1348,6 @@ define amdgpu_kernel void @workgroup_acq_rel() #0 {
   ;
   ; GFX11CU-LABEL: name: workgroup_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 64519
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
@@ -1778,22 +1358,16 @@ entry:
 define amdgpu_kernel void @workgroup_seq_cst() #0 {
   ; GFX6-LABEL: name: workgroup_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_WAITCNT_soft 127
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: workgroup_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_WAITCNT_soft 127
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: workgroup_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_WAITCNT_soft 112
   ; GFX10WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX10WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -1801,15 +1375,11 @@ define amdgpu_kernel void @workgroup_seq_cst() #0 {
   ;
   ; GFX10CU-LABEL: name: workgroup_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_WAITCNT_soft 49279
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: workgroup_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_WAITCNT_soft 7
   ; GFX11WGP-NEXT:   S_WAITCNT_VSCNT_soft undef $sgpr_null, 0
   ; GFX11WGP-NEXT:   BUFFER_GL0_INV implicit $exec
@@ -1817,8 +1387,6 @@ define amdgpu_kernel void @workgroup_seq_cst() #0 {
   ;
   ; GFX11CU-LABEL: name: workgroup_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_WAITCNT_soft 64519
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
@@ -1829,38 +1397,26 @@ entry:
 define amdgpu_kernel void @wavefront_acquire() #0 {
   ; GFX6-LABEL: name: wavefront_acquire
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_acquire
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_acquire
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_acquire
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_acquire
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_acquire
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront") acquire
@@ -1870,38 +1426,26 @@ entry:
 define amdgpu_kernel void @wavefront_release() #0 {
   ; GFX6-LABEL: name: wavefront_release
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_release
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_release
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_release
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_release
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_release
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront") release
@@ -1911,38 +1455,26 @@ entry:
 define amdgpu_kernel void @wavefront_acq_rel() #0 {
   ; GFX6-LABEL: name: wavefront_acq_rel
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_acq_rel
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_acq_rel
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_acq_rel
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_acq_rel
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_acq_rel
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront") acq_rel
@@ -1952,38 +1484,26 @@ entry:
 define amdgpu_kernel void @wavefront_seq_cst() #0 {
   ; GFX6-LABEL: name: wavefront_seq_cst
   ; GFX6: bb.0.entry:
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-NEXT:   S_ENDPGM 0
   ;
   ; GFX8-LABEL: name: wavefront_seq_cst
   ; GFX8: bb.0.entry:
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX8-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX8-NEXT:   S_ENDPGM 0
   ;
   ; GFX10WGP-LABEL: name: wavefront_seq_cst
   ; GFX10WGP: bb.0.entry:
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX10CU-LABEL: name: wavefront_seq_cst
   ; GFX10CU: bb.0.entry:
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX10CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX10CU-NEXT:   S_ENDPGM 0
   ;
   ; GFX11WGP-LABEL: name: wavefront_seq_cst
   ; GFX11WGP: bb.0.entry:
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11WGP-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11WGP-NEXT:   S_ENDPGM 0
   ;
   ; GFX11CU-LABEL: name: wavefront_seq_cst
   ; GFX11CU: bb.0.entry:
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX11CU-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX11CU-NEXT:   S_ENDPGM 0
 entry:
   fence syncscope("wavefront") seq_cst

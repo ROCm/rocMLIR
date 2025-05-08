@@ -188,8 +188,6 @@
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/DIBuilder.h"
-#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InlineAsm.h"
@@ -791,7 +789,7 @@ public:
           (Twine("llvm.amdgcn.kernel.") + Func.getName() + ".lds").str();
 
       auto Replacement =
-          createLDSVariableReplacement(M, VarName, KernelUsedVariables, &Func);
+          createLDSVariableReplacement(M, VarName, KernelUsedVariables);
 
       // If any indirect uses, create a direct use to ensure allocation
       // TODO: Simpler to unconditionally mark used but that regresses
@@ -1287,8 +1285,7 @@ private:
 
   static LDSVariableReplacement createLDSVariableReplacement(
       Module &M, std::string VarName,
-      DenseSet<GlobalVariable *> const &LDSVarsToTransform,
-      Function *F = nullptr) {
+      DenseSet<GlobalVariable *> const &LDSVarsToTransform) {
     // Create a struct instance containing LDSVarsToTransform and map from those
     // variables to ConstantExprGEP
     // Variables may be introduced to meet alignment requirements. No aliasing
@@ -1316,20 +1313,6 @@ private:
     }
 
     performOptimizedStructLayout(LayoutFields);
-
-    struct DIExprVarInfo {
-      GlobalVariable *Var;
-      uint64_t Offset;
-    };
-    DenseMap<DIFragment *, DIExprVarInfo> Fragment2VarInfo;
-
-    struct DIExpressionVarInfo {
-      GlobalVariable *Var;
-      Metadata *DIVar;
-      DIExpression::NewElementsRef Expr;
-      uint64_t Offset;
-    };
-    SmallVector<DIExpressionVarInfo> DIExpressionVarInfos;
 
     std::vector<GlobalVariable *> LocalVars;
     BitVector IsPaddingField;
@@ -1359,22 +1342,6 @@ private:
           CurrentOffset += Padding;
         }
 
-        if (isHeterogeneousDebug(M)) {
-          Fragment2VarInfo[FGV->getDbgDef()] =
-              DIExprVarInfo{FGV, CurrentOffset};
-        } else {
-          SmallVector<DIGlobalVariableExpression *, 1> OriginalGVEs;
-          FGV->getDebugInfo(OriginalGVEs);
-          for (const auto *OriginalGVE : OriginalGVEs) {
-            if (auto NewElementsRef =
-                    OriginalGVE->getExpression()->getNewElementsRef()) {
-              DIExpressionVarInfos.push_back({FGV,
-                                              OriginalGVE->getRawVariable(),
-                                              *NewElementsRef, CurrentOffset});
-            }
-          }
-        }
-
         LocalVars.push_back(FGV);
         IsPaddingField.push_back(false);
         CurrentOffset += F.Size;
@@ -1396,75 +1363,6 @@ private:
         VarName, nullptr, GlobalValue::NotThreadLocal, AMDGPUAS::LOCAL_ADDRESS,
         false);
     SGV->setAlignment(StructAlign);
-
-    if (isHeterogeneousDebug(M)) {
-      DIBuilder DBuilder(M);
-
-      DIFragment *DbgVarFragment = DBuilder.createFragment();
-      SGV->setDbgDef(DbgVarFragment);
-
-      if (NamedMDNode *RN = M.getNamedMetadata("llvm.dbg.retainedNodes")) {
-        for (MDNode *O : RN->operands()) {
-          auto *L = dyn_cast<DILifetime>(O);
-          if (!L)
-            continue;
-
-          if (L->argObjects().empty())
-            continue;
-
-          // FIXME(KZHURAVL): Handle more than one arg object?
-          auto *F = dyn_cast<DIFragment>(*L->argObjectsBegin());
-          if (!F)
-            continue;
-
-          auto FragmentIterator = Fragment2VarInfo.find(F);
-          if (FragmentIterator == Fragment2VarInfo.end())
-            continue;
-
-          DIExprBuilder ExprBuilder(Ctx);
-          ExprBuilder.append<DIOp::Arg>(0, SGV->getType());
-          ExprBuilder.append<DIOp::Deref>(
-              FragmentIterator->second.Var->getValueType());
-          ExprBuilder.append<DIOp::Constant>(
-              ConstantInt::get(Type::getInt32Ty(Ctx), FragmentIterator->second.Offset));
-          ExprBuilder.append<DIOp::ByteOffset>(
-              FragmentIterator->second.Var->getValueType());
-
-          L->setLocation(ExprBuilder.intoExpr());
-          L->replaceOperandWith(2, DbgVarFragment);
-        }
-      }
-    } else {
-      for (auto VarInfo : DIExpressionVarInfos) {
-        DIExprBuilder ExprBuilder(Ctx);
-        for (auto Op : VarInfo.Expr) {
-          if (auto *ArgOp = std::get_if<DIOp::Arg>(&Op)) {
-            assert(ArgOp->getIndex() == 0u &&
-                   "DIOp-based DIExpression in DIGlobalVariableExpression must "
-                   "have only one argument");
-            Type *ArgTy = SGV->getType();
-            assert(isa<PointerType>(ArgTy));
-            Type *ResultTy = VarInfo.Var->getType();
-            assert(isa<PointerType>(ResultTy));
-            assert(ArgTy->getPointerAddressSpace() ==
-                   ResultTy->getPointerAddressSpace());
-            unsigned PointerSizeInBits =
-                DL.getPointerSizeInBits(ArgTy->getPointerAddressSpace());
-            auto *IntTy = IntegerType::get(Ctx, PointerSizeInBits);
-            ConstantData *C = ConstantInt::get(IntTy, VarInfo.Offset, true);
-            ExprBuilder.append<DIOp::Arg>(0u, ArgTy);
-            ExprBuilder.append<DIOp::Reinterpret>(IntTy);
-            ExprBuilder.append<DIOp::Constant>(C);
-            ExprBuilder.append<DIOp::Add>();
-            ExprBuilder.append<DIOp::Reinterpret>(ResultTy);
-          } else {
-            ExprBuilder.append(Op);
-          }
-        }
-        SGV->addDebugInfo(DIGlobalVariableExpression::get(
-            Ctx, VarInfo.DIVar, ExprBuilder.intoExpression()));
-      }
-    }
 
     DenseMap<GlobalVariable *, Constant *> Map;
     Type *I32 = Type::getInt32Ty(Ctx);
