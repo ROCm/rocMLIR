@@ -1,4 +1,4 @@
-// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand_min_int 1 -rand_max_int 64 -rand_type_int_for_inputs=3 -rand 1 -rand_type float -fut mlir_attention_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand_min_int 0 -rand_max_int 64 -rand_type_int_for_inputs=3 -rand 1 -rand_type float -fut mlir_attention_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
@@ -15,12 +15,12 @@ module {
     %9 = migraphx.multibroadcast %1 {out_dyn_dims = [], out_lens = [1, 32, 2, 64]} : <1xf16, 1> -> <1x32x2x64xf16, 0x0x0x0>
     %10 = migraphx.reshape %0 {dims = [2, 1]} : <2xsi32, 1> -> <2x1xsi32, 1x1>
     %11 = migraphx.multibroadcast %10 {out_dyn_dims = [], out_lens = [1, 32, 2, 64]} : <2x1xsi32, 1x1> -> <1x32x2x64xsi32, 0x0x1x0>
-    %12 = migraphx.greater_or_equal %7, %11 : <1x32x2x64xsi32, 0x0x0x1>, <1x32x2x64xsi32, 0x0x1x0> -> <1x32x2x64xsi32, 4096x128x64x1>
+    %12 = migraphx.greater %7, %11 : <1x32x2x64xsi32, 0x0x0x1>, <1x32x2x64xsi32, 0x0x1x0> -> <1x32x2x64xsi32, 4096x128x64x1>
     %13 = migraphx.convert %12 {target_type = 0 : i64} : <1x32x2x64xsi32, 4096x128x64x1> to <1x32x2x64xsi8, 4096x128x64x1>
     %14 = migraphx.where %13, %8, %6 : <1x32x2x64xsi8, 4096x128x64x1>, <1x32x2x64xf16, 0x0x0x0>, <1x32x2x64xf16, 4096x128x64x1> -> <1x32x2x64xf16, 4096x128x64x1>
     %15 = migraphx.reshape %arg3 {dims = [1, 32, 1, 1]} : <1x32xsi32, 0x0> -> <1x32x1x1xsi32, 32x1x1x1>
     %16 = migraphx.multibroadcast %15 {out_dyn_dims = [], out_lens = [1, 32, 2, 64]} : <1x32x1x1xsi32, 32x1x1x1> -> <1x32x2x64xsi32, 32x1x0x0>
-    %17 = migraphx.greater_or_equal %7, %16 : <1x32x2x64xsi32, 0x0x0x1>, <1x32x2x64xsi32, 32x1x0x0> -> <1x32x2x64xsi32, 4096x128x64x1>
+    %17 = migraphx.greater %7, %16 : <1x32x2x64xsi32, 0x0x0x1>, <1x32x2x64xsi32, 32x1x0x0> -> <1x32x2x64xsi32, 4096x128x64x1>
     %18 = migraphx.convert %17 {target_type = 0 : i64} : <1x32x2x64xsi32, 4096x128x64x1> to <1x32x2x64xsi8, 4096x128x64x1>
     %19 = migraphx.mul %14, %9 : <1x32x2x64xf16, 4096x128x64x1>, <1x32x2x64xf16, 0x0x0x0> -> <1x32x2x64xf16, 4096x128x64x1>
     %20 = migraphx.where %18, %8, %19 : <1x32x2x64xsi8, 4096x128x64x1>, <1x32x2x64xf16, 0x0x0x0>, <1x32x2x64xf16, 4096x128x64x1> -> <1x32x2x64xf16, 4096x128x64x1>

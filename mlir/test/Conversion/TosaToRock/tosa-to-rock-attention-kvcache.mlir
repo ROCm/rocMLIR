@@ -24,7 +24,7 @@ func.func @mlir_attention(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: te
   %7 = tosa.add %cst, %6 : (tensor<1x1x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
   %expanded_5 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<32xi32> into tensor<1x32x1x1xi32>
   %8 = tosa.add %expanded_5, %6 : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
-  %9 = tosa.greater_equal %7, %8 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
+  %9 = tosa.greater %7, %8 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
   %10 = tosa.cast %9 : (tensor<1x32x1x1024xi1>) -> tensor<1x32x1x1024xi32>
   %11 = tosa.cast %10 : (tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8> 
@@ -73,7 +73,7 @@ func.func @mlir_attention_bias(%arg0: tensor<12288xf16> {mhal.read_access}, %arg
   %8 = tosa.add %cst, %7 : (tensor<1x1x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
   %expanded_6 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<32xi32> into tensor<1x32x1x1xi32>
   %9 = tosa.add %expanded_6, %7 : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
-  %10 = tosa.greater_equal %8, %9 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
+  %10 = tosa.greater %8, %9 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
   %11 = tosa.cast %10 : (tensor<1x32x1x1024xi1>) -> tensor<1x32x1x1024xi32>
   %12 = tosa.cast %11 : (tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8> 
@@ -123,7 +123,7 @@ func.func @mlir_attention_scale(%arg0: tensor<12288xf16> {mhal.read_access}, %ar
   %8 = tosa.add %cst, %7 : (tensor<1x1x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
   %expanded_6 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<32xi32> into tensor<1x32x1x1xi32>
   %9 = tosa.add %expanded_6, %7 : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
-  %10 = tosa.greater_equal %8, %9 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
+  %10 = tosa.greater %8, %9 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
   %11 = tosa.cast %10 : (tensor<1x32x1x1024xi1>) -> tensor<1x32x1x1024xi32>
   %12 = tosa.cast %11 : (tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi8>
   %13 = tosa.mul %4, %6, %shift : (tensor<1x32x1x1024xf16>, tensor<1x32x1x1024xf16>, tensor<1xi8>) -> tensor<1x32x1x1024xf16>
@@ -174,7 +174,7 @@ func.func @mlir_attention_scale_bias(%arg0: tensor<12288xf16> {mhal.read_access}
   %9 = tosa.add %cst, %8 : (tensor<1x1x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
   %expanded_7 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<32xi32> into tensor<1x32x1x1xi32>
   %10 = tosa.add %expanded_7, %8 : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi32>
-  %11 = tosa.greater_equal %9, %10 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
+  %11 = tosa.greater %9, %10 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
   %12 = tosa.cast %11 : (tensor<1x32x1x1024xi1>) -> tensor<1x32x1x1024xi32>
   %13 = tosa.cast %12 : (tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi8>
   %14 = tosa.mul %5, %7, %shift : (tensor<1x32x1x1024xf16>, tensor<1x32x1x1024xf16>, tensor<1xi8>) -> tensor<1x32x1x1024xf16>
@@ -227,14 +227,14 @@ func.func @mlir_causal_attention(%arg0: tensor<24576xf16>, %arg1: tensor<262144x
   %cst_5 = arith.constant dense<[[1], [2]]> : tensor<2x1xi32>
   %cst_6 = arith.constant dense<[[[[1], [2]]]]> : tensor<1x1x2x1xi32>
   %15 = tosa.add %cst_6, %11 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %16 = tosa.greater_equal %12, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %16 = tosa.greater %12, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %17 = tosa.cast %16 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %18 = tosa.cast %17 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %19 = tosa.cast %18 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
   %20 = tosa.select %19, %13, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
   %expanded_7 = tensor.expand_shape %3 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xi32> into tensor<1x32x1x1xi32>
   %21 = tosa.add %expanded_7, %11 : (tensor<1x32x1x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %22 = tosa.greater_equal %12, %21 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %22 = tosa.greater %12, %21 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %23 = tosa.cast %22 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %24 = tosa.cast %23 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
@@ -282,14 +282,14 @@ func.func @mlir_causal_attention2(%arg0: tensor<24576xf16>, %arg1: tensor<262144
   %expanded_4 = tensor.expand_shape %9 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
   %10 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
   %11 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %12 = tosa.greater_equal %10, %11 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %12 = tosa.greater %10, %11 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %13 = tosa.cast %12 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %14 = tosa.cast %13 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %15 = tosa.cast %14 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
   %16 = tosa.select %15, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
   %expanded_5 = tensor.expand_shape %6 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xi32> into tensor<1x32x1x1xi32>
   %17 = tosa.add %expanded_5, %2 : (tensor<1x32x1x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %18 = tosa.greater_equal %10, %17 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %18 = tosa.greater %10, %17 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %19 = tosa.cast %18 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %20 = tosa.cast %19 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
@@ -336,14 +336,14 @@ func.func @mlir_causal_attention_nokvcache_wrongtype(%arg0: tensor<24576xf16>, %
   %expanded_4 = tensor.expand_shape %9 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
   %10 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xf32>
   %11 = tosa.add %cst, %2 : (tensor<1x1x2x1xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xf32>
-  %12 = tosa.greater_equal %10, %11 : (tensor<1x32x2x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi1>
+  %12 = tosa.greater %10, %11 : (tensor<1x32x2x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi1>
   %13 = tosa.cast %12 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xf32>
   %14 = tosa.cast %13 : (tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi8>
   %15 = tosa.cast %14 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
   %16 = tosa.select %15, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
   %expanded_5 = tensor.expand_shape %6 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xf32> into tensor<1x32x1x1xf32>
   %17 = tosa.add %expanded_5, %2 : (tensor<1x32x1x1xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xf32>
-  %18 = tosa.greater_equal %10, %17 : (tensor<1x32x2x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi1>
+  %18 = tosa.greater %10, %17 : (tensor<1x32x2x64xf32>, tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi1>
   %19 = tosa.cast %18 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xf32>
   %20 = tosa.cast %19 : (tensor<1x32x2x64xf32>) -> tensor<1x32x2x64xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
@@ -391,14 +391,14 @@ func.func @mlir_causal_attention_nokvcache_noblockarg(%arg0: tensor<24576xf16>, 
   %expanded_4 = tensor.expand_shape %9 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
   %10 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
   %11 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %12 = tosa.greater_equal %10, %11 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %12 = tosa.greater %10, %11 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %13 = tosa.cast %12 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %14 = tosa.cast %13 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %15 = tosa.cast %14 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
   %16 = tosa.select %15, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
   %expanded_5 = tensor.expand_shape %6 [[0], [1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<1x32xi32> into tensor<1x32x1x1xi32>
   %17 = tosa.add %expanded_5, %2 : (tensor<1x32x1x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %18 = tosa.greater_equal %10, %17 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %18 = tosa.greater %10, %17 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %19 = tosa.cast %18 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %20 = tosa.cast %19 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
@@ -443,13 +443,13 @@ func.func @mlir_causal_attention_nokvcache_wrongbroadcast(%arg0: tensor<24576xf1
   %expanded_4 = tensor.expand_shape %7 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
   %8 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
   %9 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %10 = tosa.greater_equal %8, %9 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %10 = tosa.greater %8, %9 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %11 = tosa.cast %10 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %12 = tosa.cast %11 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %13 = tosa.cast %12 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
   %14 = tosa.select %13, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
   %15 = tosa.add %expanded, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %16 = tosa.greater_equal %8, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %16 = tosa.greater %8, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %17 = tosa.cast %16 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %18 = tosa.cast %17 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
@@ -494,13 +494,13 @@ func.func @mlir_causal_attention_nokvcache_wrongrange(%arg0: tensor<24576xf16>, 
   %expanded_4 = tensor.expand_shape %7 [[0, 1], [2], [3]] output_shape [1, 32, 2, 64] : tensor<32x2x64xf16> into tensor<1x32x2x64xf16>
   %8 = tosa.add %cst_0, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
   %9 = tosa.add %cst, %2 : (tensor<1x1x2x1xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %10 = tosa.greater_equal %8, %9 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %10 = tosa.greater %8, %9 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %11 = tosa.cast %10 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %12 = tosa.cast %11 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %13 = tosa.cast %12 : (tensor<1x32x2x64xi8>) -> tensor<1x32x2x64xi1>
   %14 = tosa.select %13, %1, %expanded_4 : (tensor<1x32x2x64xi1>, tensor<1x32x2x64xf16>, tensor<1x32x2x64xf16>) -> tensor<1x32x2x64xf16>
   %15 = tosa.add %expanded, %2 : (tensor<1x1x1x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi32>
-  %16 = tosa.greater_equal %8, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
+  %16 = tosa.greater %8, %15 : (tensor<1x32x2x64xi32>, tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi1>
   %17 = tosa.cast %16 : (tensor<1x32x2x64xi1>) -> tensor<1x32x2x64xi32>
   %18 = tosa.cast %17 : (tensor<1x32x2x64xi32>) -> tensor<1x32x2x64xi8>
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
