@@ -401,6 +401,18 @@ void collectCoverageData(String profdata, String cov, String cpath) {
        """
 }
 
+// helper
+def ensureHip() {
+    sh '''
+        if ! ldconfig -p | grep -q "libamdhip64.so$"; then
+            echo "[CI] Installing HIP runtime into container…"
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                hip-runtime-amd hip-dev
+            ldconfig   # make the new libs visible in the same shell
+        fi
+    '''
+}
 
 pipeline {
     agent none
@@ -506,98 +518,116 @@ pipeline {
                     // This stage acquires the node and runs docker
                     stage("Run Build and Test in Docker (${CODEPATH})") {
                         steps {
-                            script {
-                                String requiredLabel = getLabelFromCodepath("${CODEPATH}")
-                                String dockerImageName = dockerImage()
-                                def dockerEnvVars = [
-                                    'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
-                                ]
-                                def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
+                            	script {
+                                    String requiredLabel = getLabelFromCodepath("${CODEPATH}")
+                                    String dockerImageName = dockerImage()
+                                    def dockerEnvVars = [
+                                        'PATH': "/opt/rocm/llvm/bin:/opt/rocm/bin:${env.PATH}", // Added /opt/rocm/bin
+                                        'HOME': '/home/jenkins',
+                                        'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
+                                    ]
+                                    def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
-                                // Acquire a healthy node and execute steps inside docker
-                                nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                    echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
-                                    docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
-                                        // Steps now run directly inside the container environment
-                                        echo "===== Environment for ${CODEPATH} ====="
-                                        showEnv()
+                                    // Acquire a healthy node and execute steps inside docker
+                                    nodeChecker.acquireHealthyNode(requiredLabel, 3) {
+                                        setHeartbeat()
+                                        echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
+                                        docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                            
+                                            ensureHip()
 
-                                        // Equivalent of "Shared Library: fixed E2E tests" stage
-                                        if (params.sharedLib) {
-                                            echo "===== Starting: Shared Library fixed E2E tests for ${CODEPATH} ====="
-                                            build_fixedE2ETests("${CODEPATH}")
-                                            preMergeCheck("${CODEPATH}")
-                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                sh 'cd build; ninja check-mlir check-rocmlir'
-                                            }
-                                            echo "===== Finished: Shared Library fixed E2E tests for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Shared Library fixed E2E tests for ${CODEPATH} ====="
-                                        }
+                                            sh '''
+                                                # 1. Install the package that actually ships the symlink
+                                                if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                    apt-get update -qq
+                                                    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                        hip-devel-extras
+                                                fi
 
-                                        // Equivalent of "Shared Library: random E2E tests" stage
-                                        if (params.sharedLib && params.nightly) {
-                                            echo "===== Starting: Shared Library random E2E tests for ${CODEPATH} ====="
-                                            check_randomE2ETests("${CODEPATH}")
-                                            echo "===== Finished: Shared Library random E2E tests for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Shared Library random E2E tests for ${CODEPATH} ====="
-                                        }
+                                                # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                                for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                    if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                        tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                        [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                    fi
+                                                done
+                                            '''
 
-                                        // Equivalent of "Tune selected rocmlir configs" stage
-                                        if (params.sharedLib && !params.nightly) {
-                                            echo "===== Starting: Tune selected rocmlir configs for ${CODEPATH} ====="
-                                            buildProject('ci-performance-scripts', '')
-                                            dir('MITuna') {
-                                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                            }
-                                            dir('build') {
+                                            
+                                            echo "===== Environment for ${CODEPATH} ====="
+                                            showEnv()
+
+                                            if (params.sharedLib) {
+                                                echo "===== Starting: Shared Library fixed E2E tests for ${CODEPATH} ====="
+                                                build_fixedE2ETests("${CODEPATH}")
+                                                preMergeCheck("${CODEPATH}")
                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv && \\
-                                                            [ -f tuning_gemm.tsv ] || echo 'Tuning gemm failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv && \\
-                                                            [ -f tuning_conv.tsv ] || echo 'Tuning conv failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
-                                                         -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \\
-                                                         -t ${WORKSPACE}/MITuna -f tuning_attention.tsv && \\
-                                                         [ -f tuning_attention.tsv ] || echo 'Tuning attention failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick && \\
-                                                            [ -f quick_tuning_gemm.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
-                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick && \\
-                                                            [ -f quick_tuning_conv.tsv ] || echo 'Quick Tuning conv failed or file not found' """
+                                                    sh 'cd build; ninja check-mlir check-rocmlir'
                                                 }
+                                                echo "===== Finished: Shared Library fixed E2E tests for ${CODEPATH} ====="
+                                            } else {
+                                                echo "===== Skipping: Shared Library fixed E2E tests for ${CODEPATH} ====="
                                             }
-                                            echo "===== Finished: Tune selected rocmlir configs for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Tune selected rocmlir configs for ${CODEPATH} ====="
-                                        }
 
-                                        // Equivalent of "Static Library: build rocMLIR packages" stage
-                                        if (params.staticLib && !params.nightly) {
-                                            echo "===== Starting: Static Library build rocMLIR packages for ${CODEPATH} ====="
-                                            sh 'rm -f build/CMakeCache.txt'
-                                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                            preMergeCheckPackage("${CODEPATH}")
-                                            echo "Running tests on the newly-built static library"
-                                            dir ('build') {
-                                                sh 'ninja check-rocmlir'
+                                            if (params.sharedLib && params.nightly) {
+                                                echo "===== Starting: Shared Library random E2E tests for ${CODEPATH} ====="
+                                                check_randomE2ETests("${CODEPATH}")
+                                                echo "===== Finished: Shared Library random E2E tests for ${CODEPATH} ====="
+                                            } else {
+                                                echo "===== Skipping: Shared Library random E2E tests for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}) ====="
                                             }
-                                            echo "===== Finished: Static Library build rocMLIR packages for ${CODEPATH} ====="
-                                        } else {
-                                            echo "===== Skipping: Static Library build rocMLIR packages for ${CODEPATH} ====="
+
+                                            if (params.sharedLib && !params.nightly && !params.weekly) {
+                                                echo "===== Starting: Tune selected rocmlir configs for ${CODEPATH} ====="
+                                                buildProject('ci-performance-scripts', '')
+                                                dir('MITuna') {
+                                                    git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                                }
+                                                dir('build') {
+                                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+                                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
+                                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv && \\
+                                                                [ -f tuning_gemm.tsv ] || echo 'Tuning gemm failed or file not found' """
+                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+                                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
+                                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv && \\
+                                                                [ -f tuning_conv.tsv ] || echo 'Tuning conv failed or file not found' """
+                                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
+                                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \\
+                                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv && \\
+                                                            [ -f tuning_attention.tsv ] || echo 'Tuning attention failed or file not found' """
+                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+                                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
+                                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick && \\
+                                                                [ -f quick_tuning_gemm.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
+                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+                                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
+                                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick && \\
+                                                                [ -f quick_tuning_conv.tsv ] || echo 'Quick Tuning conv failed or file not found' """
+                                                    }
+                                                }
+                                                echo "===== Finished: Tune selected rocmlir configs for ${CODEPATH} ====="
+                                            } else {
+                                                echo "===== Skipping: Tune selected rocmlir configs for ${CODEPATH} (sharedLib=${params.sharedLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
+                                            }
+
+                                            if (params.staticLib && !params.nightly && !params.weekly) { // Package only for PRs
+                                                echo "===== Starting: Static Library build rocMLIR packages for ${CODEPATH} ====="
+                                                                    sh 'rm -f build/CMakeCache.txt || true'
+                                                buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                                preMergeCheckPackage("${CODEPATH}")
+                                                echo "Running tests on the newly-built static library"
+                                                dir ('build') {
+                                                    sh 'ninja check-rocmlir'
+                                                }
+                                                echo "===== Finished: Static Library build rocMLIR packages for ${CODEPATH} ====="
+                                            } else {
+                                                echo "===== Skipping: Static Library build rocMLIR packages for ${CODEPATH} (staticLib=${params.staticLib}, nightly=${params.nightly}, weekly=${params.weekly}) ====="
+                                            }
                                         }
                                     }
                                 }
-                            }
                         }
                          post {
                             unsuccessful {
@@ -642,7 +672,8 @@ pipeline {
                                 String dockerImageName = dockerImage()
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
+                                    'HOME': '/home/jenkins',
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -651,6 +682,26 @@ pipeline {
                                     setHeartbeat()
                                     echo "Executing Parameter Sweep for ${CODEPATH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+                                        
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+
                                         echo "===== Environment for Parameter Sweep ${CODEPATH} ====="
                                         showEnv()
 
@@ -709,7 +760,8 @@ pipeline {
                                 String dockerImageName = dockerImage()
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
+                                    'HOME': '/home/jenkins',
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
@@ -720,6 +772,26 @@ pipeline {
                                     }
                                     echo "Executing Tuning for ${ARCH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+                                        
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+
                                         echo "===== Environment for Tuning ${ARCH} ====="
                                         showEnv()
 
@@ -836,13 +908,34 @@ pipeline {
                                 String dockerImageName = dockerImage()
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
-                                    'HOME': '/home/jenkins'
+                                    'HOME': '/home/jenkins',
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
                                 nodeChecker.acquireHealthyNode(requiredLabel, 3) {
+                                    setHeartbeat()
                                     echo "Executing Benchmarks for ${CHIP} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
 
                                         echo "===== Environment for Benchmarks ${CHIP} ====="
                                         showEnv()
@@ -1015,13 +1108,35 @@ pipeline {
                                 def dockerEnvVars = [
                                     'PATH': "/opt/rocm/llvm/bin:${env.PATH}",
                                     'HOME': '/home/jenkins',
-                                    'PYTHONPATH': "${WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH ?: ''}"
+                                    'PYTHONPATH': "${WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH ?: ''}",
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
                                 nodeChecker.acquireHealthyNode(requiredLabel, 3) {
+                                    setHeartbeat()
                                     echo "Executing MIGraphX tests for ${CODEPATH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+
                                         echo "===== Environment for MIGraphX (${CODEPATH}) ====="
                                         showEnv()
 
@@ -1111,16 +1226,38 @@ pipeline {
                                     'HOME': '/home/jenkins',
                                     'LLVM_PROFILE_FILE':"${WORKSPACE}/build/%m-%p.profraw",
                                     'LLVM_PROFDATA':"/opt/rocm/llvm/bin/llvm-profdata",
-                                    'LLVM_COV':"/opt/rocm/llvm/bin/llvm-cov"
+                                    'LLVM_COV':"/opt/rocm/llvm/bin/llvm-cov",
+                                    'LD_LIBRARY_PATH': '/opt/rocm/lib:/opt/rocm/hip/lib:${env.LD_LIBRARY_PATH ?: ""}'
                                 ]
                                 def dockerEnvOpts = dockerEnvVars.collect { key, value -> "-e ${key}=\"${value}\"" }
 
                                 nodeChecker.acquireHealthyNode(requiredLabel, 3) {
+                                    setHeartbeat()
                                     echo "Executing Code Coverage for ${CPATH} on node ${env.NODE_NAME}"
                                     docker.image(dockerImageName).pull(true).inside(dockerArgs() + " " + dockerEnvOpts.join(' ')) {
+                                        
+                                        ensureHip()
+
                                         echo "===== Environment for Code Coverage ${CPATH} ====="
                                         showEnv()
 
+                                        sh '''
+                                            # 1. Install the package that actually ships the symlink
+                                            if ! dpkg -s hip-devel-extras &>/dev/null; then
+                                                apt-get update -qq
+                                                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                                                    hip-devel-extras
+                                            fi
+
+                                            # 2.  Fallback: create the symlink ourselves if the package layout changes again
+                                            for d in /opt/rocm/lib /opt/rocm/hip/lib; do
+                                                if [ -d "$d" ] && [ ! -e "$d/libamdhip64.so" ]; then
+                                                    tgt=$(ls "$d"/libamdhip64.so.* 2>/dev/null | head -n1)
+                                                    [ -n "$tgt" ] && ln -s "$tgt" "$d/libamdhip64.so"
+                                                fi
+                                            done
+                                        '''
+                                        
                                         echo "===== Starting: Run tests and collect coverage for ${CPATH} ====="
                                         try {
                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
