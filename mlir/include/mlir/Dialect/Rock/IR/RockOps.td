@@ -217,7 +217,7 @@ def Rock_AttentionOp
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$qTransposed,
           UnitAttr:$kTransposed, UnitAttr:$vTransposed, UnitAttr:$oTransposed,
-          StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
+          UnitAttr:$causal, StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
           OptionalAttr<I32Attr>:$numCU,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
@@ -238,6 +238,8 @@ def Rock_AttentionOp
     transposed. For example, if `qTransposed` is set, then the argument `queries` should be
     a [G] x head_qk x seq_q memory.
 
+    If causal is enabled, we implement causal masking.
+
     Those creating a `rock.attention` must specify the GPU architecture being targetted
     and the number of compute units (numCu) available. The parameters
     `gridSize`, and `blockSize` are optional as they can be inferred by
@@ -252,6 +254,7 @@ def Rock_AttentionOp
     `{` `\n`
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
         (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
+        (`causal` `\n` $causal^)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
         (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
     `}` attr-dict (`->` type($result)^)?
@@ -496,8 +499,8 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
-          MemRefRankOf<[F32, F16, BF16], [3]>:$out, StrAttr:$arch,
-          Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
+          MemRefRankOf<[F32, F16, BF16], [3]>:$out, UnitAttr:$causal,
+          StrAttr:$arch, Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
           I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
           OptionalAttr<IndexAttr>:$prePadG0M,
           OptionalAttr<IndexAttr>:$prePadG0N,
