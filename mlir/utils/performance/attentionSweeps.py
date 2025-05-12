@@ -13,19 +13,20 @@ import random
 import subprocess
 import os
 
-import perfRunner
 from perfRunner import AttentionConfiguration
 from perfRunner import Paths
 from perfRunner import getArch
 from perfRunner import getNumCU
 from perfRunner import create_paths as createPaths
 
-
+# GLOBAL VARIABLES
+DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
+LOGFILE = 'failing_configs.csv'
+BOOLS = [True, False]
 class PerfConfigVersion(Enum):
     V1 = 'v1'
     V2 = 'v2'
     V3 = 'v3'
-
 
 class TestResult(Enum):
     PASS = 1
@@ -50,6 +51,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     dtype, g, slq, slk, hdqk, hdv, scale, tq, tk, tv, to = shape
     perfString = f"v2:{','.join(str(x) for x in perf)}"
     return AttentionConfiguration(dtype, g, slq, slk, hdqk, hdv, scale, tq, tk, tv, to, options.arch, getNumCU(), perfString)
+
 
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
@@ -78,7 +80,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
 
-    stdout3, stderr3 = await proc3.communicate()
+    stdout3, _ = await proc3.communicate()
     output = stdout3.decode('utf-8')
     
     if proc1.returncode not in [None, 0] or proc2.returncode not in [None, 0]:
@@ -148,14 +150,13 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
 
 def main():
     parser = argparse.ArgumentParser(
-            description='Sweep parameter values to check correctness of MLIR')
+            description='Sweep parameter values for attention to detect bugs')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--mlir-build-dir', type=str, required=True)
     parser.add_argument('--samples', type=int, default=20)
     parser.add_argument('--log-failures', action='store_true')
-    parser.add_argument('--log-file', type=str, default='failing_configs.csv')
 
     args = parser.parse_args()
 
@@ -163,24 +164,20 @@ def main():
     paths = createPaths(None, args.mlir_build_dir)
     options = Options(debug=args.debug, quiet=args.quiet, arch=arch, flags=[], concurrent_tests=args.jobs)
 
-    # TODO: define value range
-    dtypes = []
     groups = []
-    seq_lengths = []
-    head_dims_qk = []
-    head_dims_v = []
-    bools = []
-    # TODO:
-    attention_shapes = list(itertools.product(
+    seq_lengths = [1, 27, 64, 77, 128, 256, 384, 1024, 2048, 4097, 8192, 16384]
+    head_dims = [32, 64, 96, 128, 512]
 
+    attentionShapes = list(itertools.product(
+        DATA_TYPES_ATTENTION, groups, seq_lengths, seq_lengths, head_dims, head_dims, BOOLS, BOOLS, BOOLS, BOOLS, BOOLS
     ))
     # TODO:
-    perf_config_space = list(itertools.product(
+    perfConfigSpace = list(itertools.product(
 
 
     ))
     
-    samples = random.sample(list(itertools.product(attention_shapes, perf_config_space)), args.samples)
+    samples = random.sample(list(itertools.product(attentionShapes, perfConfigSpace)), args.samples)
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
 
     print(f"Passed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
@@ -189,7 +186,7 @@ def main():
         for fail in failing:
             print(' '.join(fail.generateMlirDriverCommandLine([])))
         if args.log_failures:
-            logFailingConfigs(failing, args.log_file)
+            logFailingConfigs(failing, LOGFILE)
 
 
 if __name__ == '__main__':
