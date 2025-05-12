@@ -21,12 +21,21 @@ from perfRunner import create_paths as createPaths
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
-LOGFILE = 'failing_configs.csv'
+SEQ_LENGTHS = [1, 27, 64, 77, 128, 256, 384, 1024, 2048, 4097, 8192, 16384]
+HEAD_DIMS = [32, 64, 96, 128, 512]
+GROUPS = [1, 4, 8]
 BOOLS = [True, False]
+LOGFILE = 'failing_configs.csv'
+
+
 class PerfConfigVersion(Enum):
+    '''Currently, attention uses only v1, so it's hardcoded in file at the moment,
+    Enumeration for PerfConfigVersion is not removed in case we reintroduce higher
+    perfConfig versions.'''
     V1 = 'v1'
     V2 = 'v2'
     V3 = 'v3'
+
 
 class TestResult(Enum):
     PASS = 1
@@ -163,18 +172,20 @@ def main():
     arch = ','.join(getArch())
     paths = createPaths(None, args.mlir_build_dir)
     options = Options(debug=args.debug, quiet=args.quiet, arch=arch, flags=[], concurrent_tests=args.jobs)
-
-    groups = []
-    seq_lengths = [1, 27, 64, 77, 128, 256, 384, 1024, 2048, 4097, 8192, 16384]
-    head_dims = [32, 64, 96, 128, 512]
-
+   
     attentionShapes = list(itertools.product(
-        DATA_TYPES_ATTENTION, groups, seq_lengths, seq_lengths, head_dims, head_dims, BOOLS, BOOLS, BOOLS, BOOLS, BOOLS
+        DATA_TYPES_ATTENTION, GROUPS, SEQ_LENGTHS, SEQ_LENGTHS, HEAD_DIMS, HEAD_DIMS, BOOLS, BOOLS, BOOLS, BOOLS, BOOLS
     ))
-    # TODO:
+
     perfConfigSpace = list(itertools.product(
-
-
+        [4, 8, 16, 32, 64, 128, 256], # M/block
+        [16, 32, 64, 128, 256], # N/block
+        [1, 2, 4, 8, 16, 32], # K/block
+        [4, 8, 16, 32, 64, 128], # M/wave
+        [4, 8, 16, 32, 64, 128], # N/wave
+        [1, 4, 8, 16], # kPack
+        [1, 2], # scheduleVersion
+        [0, 1] # aCopyMore/forceUnroll
     ))
     
     samples = random.sample(list(itertools.product(attentionShapes, perfConfigSpace)), args.samples)
