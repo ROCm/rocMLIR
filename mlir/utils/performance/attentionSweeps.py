@@ -45,7 +45,7 @@ class TestResult(Enum):
 
 @dataclass(frozen=True)
 class Options:
-    """Class for keeping option state for the parameter sweep script."""
+    """Class for keeping option state for the sweep."""
     debug: bool
     quiet: bool
     arch: str
@@ -56,10 +56,15 @@ class Options:
 
 
 def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
+    """Converts a sampled parameter tuple into a AttentionConfiguration instance"""
     shape, perf = params
     dtype, g, slq, slk, hdqk, hdv, scale, tq, tk, tv, to = shape
-    perfString = f"v2:{','.join(str(x) for x in perf)}"
-    return AttentionConfiguration(dtype, g, slq, slk, hdqk, hdv, scale, tq, tk, tv, to, options.arch, getNumCU(), perfString)
+    perfString = f"v1:{','.join(str(x) for x in perf)}"
+    return AttentionConfiguration(
+        dtype, g, slq, slk, hdqk, hdv, scale,
+        tq, tk, tv, to, options.arch,
+        getNumCU(), perfString
+    )
 
 
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
@@ -126,6 +131,8 @@ async def dropGoodConfig(config: AttentionConfiguration,
 async def sweepParameters(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], AttentionConfiguration],
         options: Options, paths: Paths) -> Tuple[int, int, List[AttentionConfiguration]]:
+    """Iterates over sampled parameter combinations, runs tests and returns passed and
+      invalid count and list of failing configs"""
     failingConfigs = []
     passed = 0
     invalid = 0
