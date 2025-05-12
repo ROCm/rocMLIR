@@ -1210,10 +1210,10 @@ struct AttentionRewritePattern
         return failure();
 
       auto pred = select.getInput1();
-      if (auto greaterEqual =
-              getDefiningNonReshapeOpNonCastOp<tosa::GreaterEqualOp>(pred)) {
+      if (auto greater =
+              getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen
-        auto input1 = greaterEqual.getInput1();
+        auto input1 = greater.getInput1();
         FailureOr<Value> maybeNonZero1 = addBroadcast(input1);
         if (failed(maybeNonZero1))
           return failure();
@@ -1231,7 +1231,7 @@ struct AttentionRewritePattern
           return failure();
 
         // input2 comes from argument: currentSeqLen
-        auto input2 = greaterEqual.getInput2();
+        auto input2 = greater.getInput2();
         FailureOr<Value> maybeNonZero2 = addBroadcast(input2);
         if (failed(maybeNonZero2))
           return failure();

@@ -1,4 +1,4 @@
-// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand_min_int 1 -rand_max_int 1024 -rand_type_int_for_inputs=3 -rand 1 -rand_type float -fut mlir_attention_wrapper -RMS_threshold 0.01  --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand_min_int 0 -rand_max_int 1024 -rand_type_int_for_inputs=3 -rand 1 -rand_type float -fut mlir_attention_wrapper -RMS_threshold 0.01  --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 // ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
@@ -14,7 +14,7 @@ module {
     %8 = migraphx.multibroadcast %2 {out_dyn_dims = [], out_lens = [1, 32, 1, 1024]} : <1024xsi32, 1> -> <1x32x1x1024xsi32, 0x0x0x1>
     %9 = migraphx.reshape %arg3 {dims = [1, 32, 1, 1]} : <1x32xsi32, 1x0> -> <1x32x1x1xsi32, 32x1x1x1>
     %10 = migraphx.multibroadcast %9 {out_dyn_dims = [], out_lens = [1, 32, 1, 1024]} : <1x32x1x1xsi32, 32x1x1x1> -> <1x32x1x1024xsi32, 32x1x1x0>
-    %11 = migraphx.greater_or_equal %8, %10 : <1x32x1x1024xsi32, 0x0x0x1>, <1x32x1x1024xsi32, 32x1x1x0> -> <1x32x1x1024xsi32, 32768x1024x1024x1>
+    %11 = migraphx.greater %8, %10 : <1x32x1x1024xsi32, 0x0x0x1>, <1x32x1x1024xsi32, 32x1x1x0> -> <1x32x1x1024xsi32, 32768x1024x1024x1>
     %12 = migraphx.convert %11 {target_type = 0 : i64} : <1x32x1x1024xsi32, 32768x1024x1024x1> to <1x32x1x1024xsi8, 32768x1024x1024x1>
     %13 = migraphx.mul %5, %7 : <1x32x1x1024xf16, 32768x1024x1024x1>, <1x32x1x1024xf16, 0x0x0x0> -> <1x32x1x1024xf16, 32768x1024x1024x1>
     %14 = migraphx.where %12, %6, %13 : <1x32x1x1024xsi8, 32768x1024x1024x1>, <1x32x1x1024xf16, 0x0x0x0>, <1x32x1x1024xf16, 32768x1024x1024x1> -> <1x32x1x1024xf16, 32768x1024x1024x1>

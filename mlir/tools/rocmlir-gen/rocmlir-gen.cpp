@@ -2500,9 +2500,9 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
       builder, loc, builder.getI32Type(), zeroTensor, currentSeqLenVal);
 
   // create mask
-  auto mask = createOpAndInfer<tosa::GreaterEqualOp>(
-      builder, loc, builder.getIntegerType(1), rangeBroadcast,
-      currentSeqLenBroadcast);
+  auto mask =
+      createOpAndInfer<tosa::GreaterOp>(builder, loc, builder.getIntegerType(1),
+                                        rangeBroadcast, currentSeqLenBroadcast);
 
   // create a tensor with a single value and broadcast it
   assert(isa<FloatType>(inpType.getElementType()));

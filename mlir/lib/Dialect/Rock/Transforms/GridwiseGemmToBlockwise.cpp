@@ -1423,7 +1423,7 @@ struct GridwiseAttentionAccelRewritePattern
           Block::BlockArgListType lowerCoords = loop.getLowerCoords(0);
           Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
           auto isInvalid = thenb.create<arith::CmpIOp>(
-              loc, arith::CmpIPredicate::uge, lowerCoords[2], currentSeqLen);
+              loc, arith::CmpIPredicate::ugt, lowerCoords[2], currentSeqLen);
           scf::IfOp ifb = thenb.create<scf::IfOp>(loc, isInvalid,
                                                   /*withElseRegion=*/false);
           {
@@ -2064,11 +2064,8 @@ struct GridwiseAttentionAccelRewritePattern
 
       Value constGemm0MPerBlock =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
-      Value constGemm0MPerBlockM1 =
-          rewriter.createOrFold<arith::ConstantIndexOp>(loc,
-                                                        gemm0MPerBlock - 1);
       Value numerator = rewriter.create<arith::AddIOp>(loc, currentSeqLen,
-                                                       constGemm0MPerBlockM1);
+                                                       constGemm0MPerBlock);
       Value gemm0MBlocksEarlyExit = rewriter.createOrFold<arith::DivUIOp>(
           loc, numerator, constGemm0MPerBlock);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
