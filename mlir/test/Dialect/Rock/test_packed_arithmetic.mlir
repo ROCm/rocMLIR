@@ -22,6 +22,22 @@
 // LLVM: %[[fptrunc2:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
 // LLVM: %[[fptrunc3:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
 // LLVM: %[[fptrunc4:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
 // ASM: v_pk_add_f16 {{.*}}, {{.*}}, {{.*}}
 module {
   func.func @test_fusion(%arg0: memref<1x128x128xf16> {mhal.read_access}, %arg1: memref<1x128x128xf16> {mhal.read_access}, %arg2: memref<1x128x128xf16> {mhal.read_access}, %arg3: memref<1x128x128xf16> {mhal.write_access}) attributes {arch = "gfx942", kernel} {
