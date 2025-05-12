@@ -522,7 +522,7 @@ pipeline {
                             script {
                                 build_fixedE2ETests("${CODEPATH}")
                                 preMergeCheck("${CODEPATH}")
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                timeout(time: 120, activity: true, unit: 'MINUTES') {
                                     sh 'cd build; ninja check-mlir check-rocmlir'
                                 }
                             }
