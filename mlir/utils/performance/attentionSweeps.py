@@ -21,9 +21,9 @@ from perfRunner import create_paths as createPaths
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
-SEQ_LENGTHS = [1, 27, 64, 77, 128, 256, 384, 1024, 2048, 4097, 8192, 16384]
-HEAD_DIMS = [32, 64, 96, 128, 512]
-GROUPS = [1, 4, 8]
+SEQ_LENGTHS = range(1, 16385)
+HEAD_DIMS = range(1, 513)
+GROUPS = range(1, 257)
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 
@@ -59,7 +59,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance"""
     shape, perf = params
     dtype, g, slq, slk, hdqk, hdv, scale, tq, tk, tv, to = shape
-    perfString = f"v1:{','.join(str(x) for x in perf)}"
+    perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
     return AttentionConfiguration(
         dtype, g, slq, slk, hdqk, hdv, scale,
         tq, tk, tv, to, options.arch,
@@ -185,14 +185,14 @@ def main():
     ))
 
     perfConfigSpace = list(itertools.product(
-        [4, 8, 16, 32, 64, 128, 256], # M/block
-        [16, 32, 64, 128, 256], # N/block
-        [1, 2, 4, 8, 16, 32], # K/block
-        [4, 8, 16, 32, 64, 128], # M/wave
-        [4, 8, 16, 32, 64, 128], # N/wave
-        [1, 4, 8, 16], # kPack
-        [1, 2], # scheduleVersion
-        [0, 1] # aCopyMore/forceUnroll
+        [32, 64, 128, 256], # M/block G0
+        [32, 64, 128, 256], # M/block G1
+        [32, 64, 128, 256], # N/block G0
+        [8, 16, 32, 64], # Kpack/Block
+        [32, 64, 128, 256], # M/Wave
+        [4, 16, 32], # MN/Xdl
+        [4, 8, 16], # kPack
+        [0, 1] # forceUnroll
     ))
     
     samples = random.sample(list(itertools.product(attentionShapes, perfConfigSpace)), args.samples)
