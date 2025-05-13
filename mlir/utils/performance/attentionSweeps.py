@@ -22,8 +22,8 @@ from perfRunner import create_paths as createPaths
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
 SEQ_LENGTHS = range(1, 16385)
-HEAD_DIMS = range(1, 513)
-GROUPS = range(1, 257)
+HEAD_DIMS = range(1, 16385)
+GROUPS = range(1, 16385)
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 
