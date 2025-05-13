@@ -969,9 +969,9 @@ class AttentionConfiguration(PerfConfiguration):
         if not only_matmul_flops:
             total_flops += softmax_flops
             if self.with_attn_scale:
-                total_flops += self.seq_len_q * self.seq_len_k
+                total_flops += self.g * self.seq_len_q * self.seq_len_k
             if self.with_attn_bias:
-                total_flops += self.seq_len_q * self.seq_len_k
+                total_flops += self.g * self.seq_len_q * self.seq_len_k
         return total_flops / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
