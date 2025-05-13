@@ -522,7 +522,7 @@ pipeline {
                 // Define the stages for each matrix cell
                 stages {
                     // This stage acquires the node and runs docker
-                    stage("Run Build and Test in Docker (${CODEPATH})") {
+                    stage("Run Build and Test in Docker") {
                         steps {
                                 script {
                                     String requiredLabel = getLabelFromCodepath("${CODEPATH}")
@@ -627,7 +627,7 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage("Run Parameter Sweep in Docker (${CODEPATH})") {
+                    stage("Run Parameter Sweep in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromCodepath("${CODEPATH}")
@@ -682,7 +682,7 @@ pipeline {
                     expression { return shouldRunFromChip("${ARCH}") }
                 }
                 stages {
-                    stage("Run Tuning in Docker (${ARCH})") {
+                    stage("Run Tuning in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromChip("${ARCH}")
@@ -793,7 +793,7 @@ pipeline {
                 }
                 agent none
                 stages {
-                    stage("Run Benchmarks in Docker (${CHIP})") {
+                    stage("Run Benchmarks in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromChip("${CHIP}")
@@ -937,7 +937,7 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage("Run MIGraphX Tests in Docker (${CODEPATH})") {
+                    stage("Run MIGraphX Tests in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromCodepath("${CODEPATH}")
@@ -1018,7 +1018,7 @@ pipeline {
                 // No matrix-level when needed, handled by top-level stage when
 
                 stages {
-                    stage("Run Code Coverage in Docker (${CPATH})") {
+                    stage("Run Code Coverage in Docker") {
                          steps {
                              script {
                                 String requiredLabel = getLabelFromCodepath("${CPATH}")
