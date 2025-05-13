@@ -650,7 +650,8 @@ def getAttentionConfigurations(fileName):
         "-transK": bool_space,
         "-transV": bool_space,
         "-transO": bool_space,
-        "-with-attn-scale": bool_space
+        "-with-attn-scale": bool_space,
+        "-with-attn-bias": bool_space
     }
     configs = []
     if fileName:
@@ -928,7 +929,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
-    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: int,
+    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: int, with_attn_bias: int,
                  transQ: bool, transK: bool, transV: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
@@ -940,6 +941,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.head_dim_qk = head_dim_qk
         self.head_dim_v = head_dim_v
         self.with_attn_scale = with_attn_scale
+        self.with_attn_bias = with_attn_bias
         self.transQ = transQ
         self.transK = transK
         self.transV = transV
@@ -968,6 +970,8 @@ class AttentionConfiguration(PerfConfiguration):
             total_flops += softmax_flops
             if self.with_attn_scale:
                 total_flops += self.seq_len_q * self.seq_len_k
+            if self.with_attn_bias:
+                total_flops += self.seq_len_q * self.seq_len_k
         return total_flops / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
@@ -981,6 +985,7 @@ class AttentionConfiguration(PerfConfiguration):
             self.transV,
             self.transO,
             self.with_attn_scale,
+            self.with_attn_bias,
             self.g,
             self.seq_len_q,
             self.seq_len_k,
@@ -995,7 +1000,7 @@ class AttentionConfiguration(PerfConfiguration):
         return result
 
     def __repr__(self):
-        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r},
+        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r}, with_attn_bias={self.with_attn_bias!r},
                 transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
@@ -1012,6 +1017,7 @@ class AttentionConfiguration(PerfConfiguration):
                            '-head_dim_qk', str(self.head_dim_qk),
                            '-head_dim_v', str(self.head_dim_v),
                            f"-with-attn-scale={self.with_attn_scale}",
+                           f"-with-attn-bias={self.with_attn_bias}",
                            f"-transQ={self.transQ}",
                            f"-transK={self.transK}",
                            f"-transV={self.transV}",
@@ -1038,6 +1044,7 @@ class AttentionConfiguration(PerfConfiguration):
         transV = False
         transO = False
         with_attn_scale = False
+        with_attn_bias = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -1056,6 +1063,8 @@ class AttentionConfiguration(PerfConfiguration):
                 head_dim_v = int(val)
             elif opt.endswith("-with-attn-scale"):
                 with_attn_scale = (val.lower() in ["1", "true"])
+            elif opt.endswith("-with-attn-bias"):
+                with_attn_bias = (val.lower() in ["1", "true"])
             elif opt.endswith("-transQ"):
                 transQ = (val.lower() in ["1", "true"])
             elif opt.endswith("-transK"):
@@ -1068,11 +1077,11 @@ class AttentionConfiguration(PerfConfiguration):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
-        for v in [dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, transQ, transK, transV, transO]:
+        for v in [dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO]:
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, transQ, transK, transV, transO, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, arch, numCU, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
@@ -1080,7 +1089,8 @@ class AttentionConfiguration(PerfConfiguration):
                 + f"-transV {str(self.transV).lower()} -transO {str(self.transO).lower()} "
                 + f"-g {self.g} "
                 + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
-                + f"-with-attn-scale {str(self.with_attn_scale).lower()}")
+                + f"-with-attn-scale {str(self.with_attn_scale).lower()}"
+                + f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
 
 class RocBLASGemmConfig(GemmConfiguration):
