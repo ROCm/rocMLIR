@@ -1228,7 +1228,6 @@ def Arith_ScalingExtFOp :
        DeclareOpInterfaceMethods<CastOpInterface>]>,
     Arguments<(ins FloatLike:$in,
                    FloatLike:$scale,
-                   I32Attr:$blockSize, 
                    OptionalAttr<Arith_RoundingModeAttr>:$roundingmode,
                    OptionalAttr<Arith_FastMathAttr>:$fastmath)>,
     Results<(outs FloatLike:$out)> {
@@ -1321,7 +1320,6 @@ def Arith_ScalingTruncFOp :
        DeclareOpInterfaceMethods<CastOpInterface>]>,
     Arguments<(ins FloatLike:$in,
                    FloatLike:$scale,
-                   I32Attr:$blockSize, 
                    OptionalAttr<Arith_RoundingModeAttr>:$roundingmode,
                    OptionalAttr<Arith_FastMathAttr>:$fastmath)>,
     Results<(outs FloatLike:$out)> {

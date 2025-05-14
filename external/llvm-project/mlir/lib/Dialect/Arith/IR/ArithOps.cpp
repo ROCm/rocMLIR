@@ -1470,15 +1470,15 @@ LogicalResult arith::ScalingExtFOp::verify() {
   auto scaleShape =
       llvm::dyn_cast_or_null<ShapedType>(this->getScale().getType());
   auto inShape = llvm::dyn_cast_or_null<ShapedType>(this->getIn().getType());
-  auto blockSize = this->getBlockSizeAttr().getInt();
-  if (inShape && inShape.getNumElements() % blockSize != 0) {
-    this->emitError(
-        "Number of elements in input is not equally divisible by blockSize");
-  }
-  if (scaleShape &&
-      inShape.getNumElements() / blockSize != scaleShape.getNumElements()) {
-    this->emitError("Number of elements in scale is not matching total number "
-                    "of blocks in input");
+  if (scaleShape && inShape) {
+    if (scaleShape.getRank() != 1) {
+      this->emitError(
+          "Scale argument for block quantization is expected to be of Rank 1");
+    }
+    if (inShape.getShape().back() % scaleShape.getNumElements() != 0) {
+      this->emitError("Number of elements in scale argument are not enough to "
+                      "do uniform block quantization on input argument");
+    }
   }
   return verifyExtOp<FloatType>(*this);
 }
@@ -1604,15 +1604,15 @@ LogicalResult arith::ScalingTruncFOp::verify() {
   auto scaleShape =
       llvm::dyn_cast_or_null<ShapedType>(this->getScale().getType());
   auto inShape = llvm::dyn_cast_or_null<ShapedType>(this->getIn().getType());
-  auto blockSize = this->getBlockSizeAttr().getInt();
-  if (inShape && inShape.getNumElements() % blockSize != 0) {
-    this->emitError(
-        "Number of elements in input is not equally divisible by blockSize");
-  }
-  if (scaleShape &&
-      inShape.getNumElements() / blockSize != scaleShape.getNumElements()) {
-    this->emitError("Number of elements in scale is not matching total number "
-                    "of blocks in input");
+  if (scaleShape && inShape) {
+    if (scaleShape.getRank() != 1) {
+      this->emitError(
+          "Scale argument for block quantization is expected to be of Rank 1");
+    }
+    if (inShape.getShape().back() % scaleShape.getNumElements() != 0) {
+      this->emitError("Number of elements in scale argument are not enough to "
+                      "do uniform block quantization on input argument");
+    }
   }
   return verifyTruncateOp<FloatType>(*this);
 }
