@@ -1280,6 +1280,36 @@ def Arith_TruncFOp :
 }
 
 //===----------------------------------------------------------------------===//
+// Scaling TruncFOp
+//===----------------------------------------------------------------------===//
+
+def Arith_ScalingTruncFOp :
+    Arith_Op<"scaling_truncf",
+      [Pure, 
+       AllElementCountsMatch<["in", "out"]>, 
+       PredOpTrait<"Scales must be specified using F32 type", TCopVTEtIs<1, F32>>, 
+       DeclareOpInterfaceMethods<ArithRoundingModeInterface>,
+       DeclareOpInterfaceMethods<ArithFastMathInterface>, DeclareOpInterfaceMethods<CastOpInterface>]>,
+    Arguments<(ins FloatLike:$in,
+                   FloatLike:$scale,
+                   SignlessIntegerOrIndexLike:$blockSize, 
+                   OptionalAttr<Arith_RoundingModeAttr>:$roundingmode,
+                   OptionalAttr<Arith_FastMathAttr>:$fastmath)>,
+    Results<(outs FloatLike:$out)> {
+  let summary = "cast from floating-point to narrower floating-point";
+  let description = [{
+    Truncate a floating-point value to a smaller floating-point-typed value.
+    The destination type must be strictly narrower than the source type.
+    If the value cannot be exactly represented, it is rounded using the
+    provided rounding mode or the default one if no rounding mode is provided.
+    When operating on vectors, casts elementwise.
+  }];
+  let hasFolder = 1;
+  let hasVerifier = 1;
+  let assemblyFormat = [{ $in `,` $scale `,` $blockSize ($roundingmode^)? (`fastmath` `` $fastmath^)? attr-dict `:` type($in) `,` type($scale) `,` type($blockSize) `to` type($out)}];
+}
+
+//===----------------------------------------------------------------------===//
 // UIToFPOp
 //===----------------------------------------------------------------------===//
 
