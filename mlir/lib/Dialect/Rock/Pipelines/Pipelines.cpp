@@ -236,7 +236,9 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
   ArithToAMDGPUConversionPassOptions arithOptions;
   arithOptions.chipset = options.chip;
-  arithOptions.allowPackedF16Rtz = true;
+  // disable packed truncation to fp16 with rtz (round towards zero) as it
+  // generates less accurate results.
+  arithOptions.allowPackedF16Rtz = false;
   arithOptions.saturateFP8Truncf = true;
   gpuPm.addPass(createArithToAMDGPUConversionPass(arithOptions));
   EmulateFp8ExtTruncPassOptions f8ConversionOptions;
