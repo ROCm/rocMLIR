@@ -1565,6 +1565,50 @@ LogicalResult arith::TruncFOp::verify() {
   return verifyTruncateOp<FloatType>(*this);
 }
 
+/// Perform safe const propagation for truncf, i.e., only propagate if FP value
+/// can be represented without precision loss.
+OpFoldResult arith::ScalingTruncFOp::fold(FoldAdaptor adaptor) {
+  // TODO change this logic
+  auto resElemType = cast<FloatType>(getElementTypeOrSelf(getType()));
+  if (auto extOp = getOperands().front().getDefiningOp<arith::ExtFOp>()) {
+    Value src = extOp.getIn();
+    auto srcType = cast<FloatType>(getElementTypeOrSelf(src.getType()));
+    auto intermediateType =
+        cast<FloatType>(getElementTypeOrSelf(extOp.getType()));
+    // Check if the srcType is representable in the intermediateType.
+    if (llvm::APFloatBase::isRepresentableBy(
+            srcType.getFloatSemantics(),
+            intermediateType.getFloatSemantics())) {
+      // truncf(extf(a)) -> truncf(a)
+      if (srcType.getWidth() > resElemType.getWidth()) {
+        setOperand(src);
+        return getResult();
+      }
+
+      // truncf(extf(a)) -> a
+      if (srcType == resElemType)
+        return src;
+    }
+  }
+
+  const llvm::fltSemantics &targetSemantics = resElemType.getFloatSemantics();
+  return constFoldCastOp<FloatAttr, FloatAttr>(
+      adaptor.getOperands(), getType(),
+      [this, &targetSemantics](const APFloat &a, bool &castStatus) {
+        RoundingMode roundingMode =
+            getRoundingmode().value_or(RoundingMode::to_nearest_even);
+        llvm::RoundingMode llvmRoundingMode =
+            convertArithRoundingModeToLLVMIR(roundingMode);
+        FailureOr<APFloat> result =
+            convertFloatValue(a, targetSemantics, llvmRoundingMode);
+        if (failed(result)) {
+          castStatus = false;
+          return a;
+        }
+        return *result;
+      });
+}
+
 bool arith::ScalingTruncFOp::areCastCompatible(TypeRange inputs,
                                                TypeRange outputs) {
   return checkWidthChangeCast<std::less, FloatType>(inputs.front(), outputs);
