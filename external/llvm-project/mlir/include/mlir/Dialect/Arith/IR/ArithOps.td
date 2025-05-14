@@ -1284,15 +1284,15 @@ def Arith_TruncFOp :
 //===----------------------------------------------------------------------===//
 
 def Arith_ScalingTruncFOp :
-    Arith_Op<"scaling_truncf",
+    Op<Arith_Dialect, "scaling_truncf",
       [Pure, 
-       AllElementCountsMatch<["in", "out"]>, 
-       PredOpTrait<"Scales must be specified using F32 type", TCopVTEtIs<1, F32>>, 
+       SameInputOutputTensorDims, 
        DeclareOpInterfaceMethods<ArithRoundingModeInterface>,
-       DeclareOpInterfaceMethods<ArithFastMathInterface>, DeclareOpInterfaceMethods<CastOpInterface>]>,
+       DeclareOpInterfaceMethods<ArithFastMathInterface>, 
+       DeclareOpInterfaceMethods<CastOpInterface>]>,
     Arguments<(ins FloatLike:$in,
                    FloatLike:$scale,
-                   SignlessIntegerOrIndexLike:$blockSize, 
+                   I32Attr:$blockSize, 
                    OptionalAttr<Arith_RoundingModeAttr>:$roundingmode,
                    OptionalAttr<Arith_FastMathAttr>:$fastmath)>,
     Results<(outs FloatLike:$out)> {
@@ -1304,9 +1304,8 @@ def Arith_ScalingTruncFOp :
     provided rounding mode or the default one if no rounding mode is provided.
     When operating on vectors, casts elementwise.
   }];
-  let hasFolder = 1;
   let hasVerifier = 1;
-  let assemblyFormat = [{ $in `,` $scale `,` $blockSize ($roundingmode^)? (`fastmath` `` $fastmath^)? attr-dict `:` type($in) `,` type($scale) `,` type($blockSize) `to` type($out)}];
+  let assemblyFormat = [{ $in `,` $scale ($roundingmode^)? (`fastmath` `` $fastmath^)? attr-dict `:` type($in) `,` type($scale) `to` type($out)}];
 }
 
 //===----------------------------------------------------------------------===//

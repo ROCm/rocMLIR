@@ -31,6 +31,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Casting.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -1565,49 +1566,9 @@ LogicalResult arith::TruncFOp::verify() {
   return verifyTruncateOp<FloatType>(*this);
 }
 
-/// Perform safe const propagation for truncf, i.e., only propagate if FP value
-/// can be represented without precision loss.
-OpFoldResult arith::ScalingTruncFOp::fold(FoldAdaptor adaptor) {
-  // TODO change this logic
-  auto resElemType = cast<FloatType>(getElementTypeOrSelf(getType()));
-  if (auto extOp = getOperands().front().getDefiningOp<arith::ExtFOp>()) {
-    Value src = extOp.getIn();
-    auto srcType = cast<FloatType>(getElementTypeOrSelf(src.getType()));
-    auto intermediateType =
-        cast<FloatType>(getElementTypeOrSelf(extOp.getType()));
-    // Check if the srcType is representable in the intermediateType.
-    if (llvm::APFloatBase::isRepresentableBy(
-            srcType.getFloatSemantics(),
-            intermediateType.getFloatSemantics())) {
-      // truncf(extf(a)) -> truncf(a)
-      if (srcType.getWidth() > resElemType.getWidth()) {
-        setOperand(src);
-        return getResult();
-      }
-
-      // truncf(extf(a)) -> a
-      if (srcType == resElemType)
-        return src;
-    }
-  }
-
-  const llvm::fltSemantics &targetSemantics = resElemType.getFloatSemantics();
-  return constFoldCastOp<FloatAttr, FloatAttr>(
-      adaptor.getOperands(), getType(),
-      [this, &targetSemantics](const APFloat &a, bool &castStatus) {
-        RoundingMode roundingMode =
-            getRoundingmode().value_or(RoundingMode::to_nearest_even);
-        llvm::RoundingMode llvmRoundingMode =
-            convertArithRoundingModeToLLVMIR(roundingMode);
-        FailureOr<APFloat> result =
-            convertFloatValue(a, targetSemantics, llvmRoundingMode);
-        if (failed(result)) {
-          castStatus = false;
-          return a;
-        }
-        return *result;
-      });
-}
+//===----------------------------------------------------------------------===//
+// ScalingTruncFOp
+//===----------------------------------------------------------------------===//
 
 bool arith::ScalingTruncFOp::areCastCompatible(TypeRange inputs,
                                                TypeRange outputs) {
@@ -1615,7 +1576,19 @@ bool arith::ScalingTruncFOp::areCastCompatible(TypeRange inputs,
 }
 
 LogicalResult arith::ScalingTruncFOp::verify() {
-  // TODO: add more verification checks about shapes
+  auto scaleShape =
+      llvm::dyn_cast_or_null<ShapedType>(this->getScale().getType());
+  auto inShape = llvm::dyn_cast_or_null<ShapedType>(this->getIn().getType());
+  auto blockSize = this->getBlockSizeAttr().getInt();
+  if (inShape && inShape.getNumElements() % blockSize != 0) {
+    this->emitError(
+        "Number of elements in input is not equally divisible by blockSize");
+  }
+  if (scaleShape &&
+      inShape.getNumElements() / blockSize != scaleShape.getNumElements()) {
+    this->emitError("Number of elements in scale is not matching total number "
+                    "of blocks in input");
+  }
   return verifyTruncateOp<FloatType>(*this);
 }
 
