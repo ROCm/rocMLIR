@@ -1458,6 +1458,31 @@ bool arith::ExtFOp::areCastCompatible(TypeRange inputs, TypeRange outputs) {
 LogicalResult arith::ExtFOp::verify() { return verifyExtOp<FloatType>(*this); }
 
 //===----------------------------------------------------------------------===//
+// ScalingExtFOp
+//===----------------------------------------------------------------------===//
+
+bool arith::ScalingExtFOp::areCastCompatible(TypeRange inputs,
+                                             TypeRange outputs) {
+  return checkWidthChangeCast<std::greater, FloatType>(inputs.front(), outputs);
+}
+
+LogicalResult arith::ScalingExtFOp::verify() {
+  auto scaleShape =
+      llvm::dyn_cast_or_null<ShapedType>(this->getScale().getType());
+  auto inShape = llvm::dyn_cast_or_null<ShapedType>(this->getIn().getType());
+  auto blockSize = this->getBlockSizeAttr().getInt();
+  if (inShape && inShape.getNumElements() % blockSize != 0) {
+    this->emitError(
+        "Number of elements in input is not equally divisible by blockSize");
+  }
+  if (scaleShape &&
+      inShape.getNumElements() / blockSize != scaleShape.getNumElements()) {
+    this->emitError("Number of elements in scale is not matching total number "
+                    "of blocks in input");
+  }
+  return verifyExtOp<FloatType>(*this);
+}
+//===----------------------------------------------------------------------===//
 // TruncIOp
 //===----------------------------------------------------------------------===//
 

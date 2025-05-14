@@ -1216,6 +1216,35 @@ def Arith_ExtFOp : Arith_FToFCastOp<"extf", [DeclareOpInterfaceMethods<ArithFast
 }
 
 //===----------------------------------------------------------------------===//
+// Scaling ExtFOp
+//===----------------------------------------------------------------------===//
+
+def Arith_ScalingExtFOp :
+    Op<Arith_Dialect, "scaling_extf",
+      [Pure, 
+       SameInputOutputTensorDims, 
+       DeclareOpInterfaceMethods<ArithRoundingModeInterface>,
+       DeclareOpInterfaceMethods<ArithFastMathInterface>, 
+       DeclareOpInterfaceMethods<CastOpInterface>]>,
+    Arguments<(ins FloatLike:$in,
+                   FloatLike:$scale,
+                   I32Attr:$blockSize, 
+                   OptionalAttr<Arith_RoundingModeAttr>:$roundingmode,
+                   OptionalAttr<Arith_FastMathAttr>:$fastmath)>,
+    Results<(outs FloatLike:$out)> {
+  let summary = "cast from floating-point to narrower floating-point";
+  let description = [{
+    Truncate a floating-point value to a smaller floating-point-typed value.
+    The destination type must be strictly narrower than the source type.
+    If the value cannot be exactly represented, it is rounded using the
+    provided rounding mode or the default one if no rounding mode is provided.
+    When operating on vectors, casts elementwise.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{ $in `,` $scale ($roundingmode^)? (`fastmath` `` $fastmath^)? attr-dict `:` type($in) `,` type($scale) `to` type($out)}];
+}
+
+//===----------------------------------------------------------------------===//
 // TruncIOp
 //===----------------------------------------------------------------------===//
 
