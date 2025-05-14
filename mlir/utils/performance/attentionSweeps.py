@@ -12,6 +12,7 @@ import csv
 import random
 import subprocess
 import os
+import re
 
 from perfRunner import AttentionConfiguration
 from perfRunner import Paths
@@ -26,6 +27,7 @@ HEAD_DIMS = range(1, 16385)
 GROUPS = range(1, 16385)
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
+GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 
 
 class PerfConfigVersion(Enum):
@@ -177,8 +179,17 @@ def main():
     args = parser.parse_args()
 
     arch = ','.join(getArch())
+    chip = GFX_CHIP_RE.search(arch).group(0)
     paths = createPaths(None, args.mlir_build_dir)
-    options = Options(debug=args.debug, quiet=args.quiet, arch=arch, flags=[], concurrent_tests=args.jobs)
+    options = Options(
+        debug=args.debug,
+        quiet=args.quiet,
+        arch=arch,
+        flags=[],
+        concurrentTests=args.jobs,
+        numCu=getNumCU(chip),
+        PerfConfigVersion=PerfConfigVersion.V1
+    )
    
     attentionShapes = list(itertools.product(
         DATA_TYPES_ATTENTION, GROUPS, SEQ_LENGTHS, SEQ_LENGTHS, HEAD_DIMS, HEAD_DIMS, BOOLS, BOOLS, BOOLS, BOOLS, BOOLS
