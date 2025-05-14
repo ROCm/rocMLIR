@@ -1,6 +1,3 @@
-// Load our custom node checker utilities from the relative path
-def nodeChecker = load 'mlir/utils/jenkins/node_checker.groovy'
-
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
 void buildProject(String target, String cmakeOpts) {
@@ -74,7 +71,7 @@ String dockerArgs() {
 
     String renderList = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
     String renderFlags = renderList.split().collect { "--device=${it}" }.join(' ')
-    boolean haveKfd = new File('/dev/kfd').exists()
+    boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
     String kfdFlag  = haveKfd ? "--device=/dev/kfd" : ""
 
     return """
@@ -419,6 +416,134 @@ void collectCoverageData(String profdata, String cov, String cpath) {
        """
 }
 
+// Custom exception for node check failures
+class NodeCheckException extends RuntimeException {
+    NodeCheckException(String message) {
+        super(message)
+    }
+    static NodeCheckException newInstance(String message) {
+        return new NodeCheckException(message)
+    }
+}
+
+
+// Runs basic health checks on the current node. Throws NodeCheckException if any check fails
+def checkNodeHealth() {
+    echo "Running basic health checks on node ${env.NODE_NAME}..."
+    def checks = [
+        { sh(script: "docker version", returnStatus: true) == 0 } : "Docker check failed",
+        { sh(script: "ls /dev/kfd", returnStatus: true) == 0 }    : "/dev/kfd not found",
+        { sh(script: "ls /dev/dri", returnStatus: true) == 0 }    : "/dev/dri not found",
+        // Optional: Only run rocminfo/rocm-smi if it's not just a build-only node
+        { env.NODE_LABELS == null || !env.NODE_LABELS.contains('build-only') ? (sh(script: "rocminfo", returnStatus: true) == 0) : true } : "rocminfo command failed",
+        { env.NODE_LABELS == null || !env.NODE_LABELS.contains('build-only') ? (sh(script: "rocm-smi", returnStatus: true) == 0) : true } : "rocm-smi command failed",
+        // Optional: Basic GPU presence check (can be refined if needed)
+        { env.NODE_LABELS == null || !env.NODE_LABELS.contains('build-only') ? (sh(script: "lspci | grep -e 'controller' -e 'accelerator' | grep 'AMD/ATI' | wc -l", returnStdout: true).trim().toInteger() > 0) : true } : "No AMD GPUs found via lspci"
+    ]
+
+    checks.each { checkClosure, errorMessage ->
+        try {
+            timeout(time: 1, unit: 'MINUTES') { // Short timeout for each check
+                if (!checkClosure()) {
+                    throw NodeCheckException.newInstance(errorMessage)
+                }
+            }
+        } catch (Exception e) {
+            // Catch timeout or other execution errors
+             if (e instanceof NodeCheckException) {
+                throw e // Re-throw our specific exception
+             }
+             // Throw failure for unexpected errors during the check itself
+             throw NodeCheckException.newInstance("${errorMessage} (Execution Error: ${e.getMessage()})")
+        }
+    }
+    echo "Node ${env.NODE_NAME} passed basic health checks."
+}
+
+
+// Tries to acquire a node matching the label, checks its health,  and executes the provided code block on it. Retries on failure
+def acquireHealthyNode(String label, int retries = 3, Closure code) {
+    String currentLabel = label
+    List triedNodes = []
+
+    for (int attempt = 0; attempt <= retries; attempt++) {
+        def healthyNodeName = null
+        def nodeToTry = null
+        def checkException = null
+
+        try {
+            // Find a node matching the current label that hasn't been tried yet
+            List potentialNodes = nodesByLabel(label: currentLabel, offline: false)
+            nodeToTry = potentialNodes.find { !triedNodes.contains(it) }
+
+            if (!nodeToTry) {
+                echo "No suitable *new* nodes found matching label: ${currentLabel}. Tried: ${triedNodes}"
+                // If it's the last attempt, throw error, otherwise loop will end/retry logic below handles it.
+                if (attempt == retries) {
+                    error("Failed to find any available and untested node after ${attempt} attempts.")
+                }
+                 // Wait a bit before checking nodesByLabel again on the next attempt
+                sleep(time: 1, unit: 'MINUTES')
+                continue // Go to next attempt iteration
+            }
+
+            echo "Attempt ${attempt + 1}/${retries + 1}: Trying node ${nodeToTry} with label ${currentLabel}"
+            triedNodes.add(nodeToTry)
+
+            // Allocate the node
+            node(nodeToTry) {
+                // Run the health check on the allocated node
+                checkNodeHealth() // Throws NodeCheckException on failure
+
+                // If check passes, store name and break inner try to execute code
+                healthyNodeName = env.NODE_NAME
+                 echo "Node ${healthyNodeName} is healthy. Proceeding with execution."
+            } // Node block ends here
+
+            // If we get here without exception, the node is healthy
+            // Now, re-allocate the same healthy node to run the user's code
+            node(healthyNodeName) {
+                 ws { // Ensure we are in a workspace
+                    code() // Execute the main logic passed to this function
+                 }
+            }
+            // If code() completes successfully, we're done.
+            return
+
+        } catch (NodeCheckException e) {
+            checkException = e
+            echo "Node check failed on ${nodeToTry}: ${e.getMessage()}"
+        } catch (Exception e) { // Catch Jenkins agent allocation errors etc.
+            checkException = e // Treat allocation errors like check failures
+            echo "Failed to allocate or run checks on node ${nodeToTry}: ${e.getMessage()}"
+        }
+
+        // If we are here, either check failed or node allocation failed
+        if (nodeToTry && checkException) {
+             // Add failure message to build description
+             def message = "Skipped node ${nodeToTry} due to: ${checkException.getMessage()}"
+             currentBuild.description = (currentBuild.description ?: "") + "<b style='color: #7d6608'>Node Check Failed:</b> <span style='color: #b7950b'>${message}</span><br/>"
+
+             // Exclude this node from future attempts in this run
+             currentLabel = "${label} && !${nodeToTry}" // Build exclusion label
+             // Add all tried nodes to exclusion label for safety
+             triedNodes.each { tried ->
+                 if (currentLabel.indexOf("!${tried}") == -1) { // Avoid duplicates
+                     currentLabel += " && !${tried}"
+                 }
+             }
+             echo "Updated label for next attempt: ${currentLabel}"
+        }
+
+        // If this was the last retry attempt and it failed
+        if (attempt == retries) {
+             error("Failed to acquire a healthy node matching label [${label}] after ${retries + 1} attempts. Last error on ${nodeToTry}: ${checkException?.getMessage()}")
+        }
+        // If not the last attempt, loop continues with the updated exclusion label
+         echo "Retrying..."
+
+    }
+}
 
 pipeline {
     agent none
@@ -522,71 +647,76 @@ pipeline {
                 // Define the stages for each matrix cell
                 stages {
                     // This stage acquires the node and runs docker
-                    stage("Run Build and Test in Docker (${CODEPATH})") {
+                    stage("Run Build and Test in Docker") {
                         steps {
                                 script {
                                     String requiredLabel = getLabelFromCodepath("${CODEPATH}")
                                     String dockerImageName = dockerImage()
 
                                     // Acquire a healthy node and execute steps inside docker
-                                    nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                        setHeartbeat()
-                                        echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
-                                        docker.image(dockerImageName).pull(true).inside(dockerArgs()) {
-                                            showEnv()
+                                    acquireHealthyNode(requiredLabel, 3) {
+                                        try {
+                                            setHeartbeat()
+                                            echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
+                                            docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                                showEnv()
 
-                                            if (params.sharedLib) {
-                                                build_fixedE2ETests("${CODEPATH}")
-                                                preMergeCheck("${CODEPATH}")
-                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                    sh 'cd build; ninja check-mlir check-rocmlir'
-                                                }
-                                            }
-
-                                            if (params.sharedLib && params.nightly) {
-                                                check_randomE2ETests("${CODEPATH}")
-                                            }
-
-                                            if (params.sharedLib && !params.nightly && !params.weekly) {
-                                                buildProject('ci-performance-scripts', '')
-                                                dir('MITuna') {
-                                                    git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                }
-                                                dir('build') {
+                                                if (params.sharedLib) {
+                                                    build_fixedE2ETests("${CODEPATH}")
+                                                    preMergeCheck("${CODEPATH}")
                                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
-                                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv && \\
-                                                                [ -f tuning_gemm.tsv ] || echo 'Tuning gemm failed or file not found' """
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
-                                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv && \\
-                                                                [ -f tuning_conv.tsv ] || echo 'Tuning conv failed or file not found' """
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
-                                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \\
-                                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv && \\
-                                                            [ -f tuning_attention.tsv ] || echo 'Tuning attention failed or file not found' """
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
-                                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick && \\
-                                                                [ -f quick_tuning_gemm.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
-                                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick && \\
-                                                                [ -f quick_tuning_conv.tsv ] || echo 'Quick Tuning conv failed or file not found' """
+                                                        sh 'cd build; ninja check-mlir check-rocmlir'
+                                                    }
+                                                }
+
+                                                if (params.sharedLib && params.nightly) {
+                                                    check_randomE2ETests("${CODEPATH}")
+                                                }
+
+                                                if (params.sharedLib && !params.nightly && !params.weekly) {
+                                                    buildProject('ci-performance-scripts', '')
+                                                    dir('MITuna') {
+                                                        git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                                    }
+                                                    dir('build') {
+                                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
+                                                                    -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv && \\
+                                                                    [ -f tuning_gemm.tsv ] || echo 'Tuning gemm failed or file not found' """
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
+                                                                    -t ${WORKSPACE}/MITuna -f tuning_conv.tsv && \\
+                                                                    [ -f tuning_conv.tsv ] || echo 'Tuning conv failed or file not found' """
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
+                                                                -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \\
+                                                                -t ${WORKSPACE}/MITuna -f tuning_attention.tsv && \\
+                                                                [ -f tuning_attention.tsv ] || echo 'Tuning attention failed or file not found' """
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \\
+                                                                    -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick && \\
+                                                                    [ -f quick_tuning_gemm.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \\
+                                                                    -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick && \\
+                                                                    [ -f quick_tuning_conv.tsv ] || echo 'Quick Tuning conv failed or file not found' """
+                                                        }
+                                                    }
+                                                }
+
+                                                if (params.staticLib && !params.nightly && !params.weekly) { // Package only for PRs
+                                                    sh 'rm -f build/CMakeCache.txt || true'
+                                                    buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                                    preMergeCheckPackage("${CODEPATH}")
+                                                    echo "Running tests on the newly-built static library"
+                                                    dir ('build') {
+                                                        sh 'ninja check-rocmlir'
                                                     }
                                                 }
                                             }
-
-                                            if (params.staticLib && !params.nightly && !params.weekly) { // Package only for PRs
-                                                                    sh 'rm -f build/CMakeCache.txt || true'
-                                                buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                                preMergeCheckPackage("${CODEPATH}")
-                                                echo "Running tests on the newly-built static library"
-                                                dir ('build') {
-                                                    sh 'ninja check-rocmlir'
-                                                }
-                                            }
+                                        }
+                                        finally {
+                                            cleanWs()
                                         }
                                     }
                                 }
@@ -594,9 +724,6 @@ pipeline {
                          post {
                             unsuccessful {
                                 script { rebootNode() }
-                            }
-                            always {
-                                cleanWs()
                             }
                          }
                     }
@@ -627,21 +754,26 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage("Run Parameter Sweep in Docker (${CODEPATH})") {
+                    stage("Run Parameter Sweep in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromCodepath("${CODEPATH}")
                                 String dockerImageName = dockerImage()
 
-                                nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                    echo "Setting longer heartbeat on node ${env.NODE_NAME} before parameter sweep for ${CODEPATH}."
-                                    setHeartbeat()
-                                    echo "Executing Parameter Sweep for ${CODEPATH} on node ${env.NODE_NAME}"
-                                    docker.image(dockerImageName).pull(true).inside(dockerArgs()) {
-                                        showEnv()
-                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                        parameterSweep("conv_structure", "${CODEPATH}")
-                                        parameterSweep("perf_config", "${CODEPATH}")
+                                acquireHealthyNode(requiredLabel, 3) {
+                                    try {
+                                        echo "Setting longer heartbeat on node ${env.NODE_NAME} before parameter sweep for ${CODEPATH}."
+                                        setHeartbeat()
+                                        echo "Executing Parameter Sweep for ${CODEPATH} on node ${env.NODE_NAME}"
+                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                            showEnv()
+                                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                            parameterSweep("conv_structure", "${CODEPATH}")
+                                            parameterSweep("perf_config", "${CODEPATH}")
+                                        }
+                                    }
+                                    finally {
+                                        cleanWs()
                                     }
                                 }
                             }
@@ -649,9 +781,6 @@ pipeline {
                         post {
                             unsuccessful {
                                 script { rebootNode() }
-                            }
-                            always {
-                                cleanWs()
                             }
                         }
                     }
@@ -682,72 +811,64 @@ pipeline {
                     expression { return shouldRunFromChip("${ARCH}") }
                 }
                 stages {
-                    stage("Run Tuning in Docker (${ARCH})") {
+                    stage("Run Tuning in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromChip("${ARCH}")
                                 String dockerImageName = dockerImage()
 
-                                nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                    if ("${ARCH}" == 'gfx90a') {
-                                        echo "Setting longer heartbeat for gfx90a node ${env.NODE_NAME}"
-                                        setHeartbeat()
+                                acquireHealthyNode(requiredLabel, 3) {
+                                    try {
+                                        if ("${ARCH}" == 'gfx90a') {
+                                            echo "Setting longer heartbeat for gfx90a node ${env.NODE_NAME}"
+                                            setHeartbeat()
+                                        }
+                                        echo "Executing Tuning for ${ARCH} on node ${env.NODE_NAME}"
+                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                            showEnv()
+                                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                            dir('MITuna') {
+                                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                            }
+                                            dir('build') {
+                                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+                                                        -c ../mlir/utils/performance/configs/gemm-configs \\
+                                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv && \\
+                                                        [ -f mlir_tuning_${ARCH}.tsv ] || echo 'Tuning gemm failed or file not found' """
+                                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+                                                        -c ../mlir/utils/performance/configs/conv-configs \\
+                                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv || echo 'Tuning conv failed' """ // Assume combined file, continue on error?
+                                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
+                                                        -c ../mlir/utils/performance/configs/attention-configs \\
+                                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv || echo 'Tuning attention failed' """
+                                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
+                                                        -c ../mlir/utils/performance/configs/gemm-configs -s quick \\
+                                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv && \\
+                                                        [ -f mlir_quick_tuning_${ARCH}.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
+                                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
+                                                        -c ../mlir/utils/performance/configs/conv-configs -s quick \\
+                                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv || echo 'Quick Tuning conv failed' """
+                                            }
+                                            dir('build') {
+                                                sh """python3 ./bin/tuningRunner.py --op fusion \\
+                                                    --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${ARCH}.tsv || echo 'Tuning fusion resnet50 failed' """
+                                                sh """python3 ./bin/tuningRunner.py --op fusion \\
+                                                    --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv || echo 'Tuning fusion bert failed' """
+                                            }
+                                            sh 'rm -f build/CMakeCache.txt'
+                                            dir ('build') {
+                                                stash name: "MLIR-PerfDB-${params.canXdlops ? ARCH : 'vanilla'}", includes: "*.tsv"
+                                            }
+                                        }
                                     }
-                                    echo "Executing Tuning for ${ARCH} on node ${env.NODE_NAME}"
-                                    docker.image(dockerImageName).pull(true).inside(dockerArgs()) {
-                                        showEnv()
-                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                        dir('MITuna') {
-                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                        }
-                                        dir('build') {
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                    -c ../mlir/utils/performance/configs/gemm-configs \\
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv && \\
-                                                    [ -f mlir_tuning_${ARCH}.tsv ] || echo 'Tuning gemm failed or file not found' """
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                    -c ../mlir/utils/performance/configs/conv-configs \\
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv || echo 'Tuning conv failed' """ // Assume combined file, continue on error?
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \\
-                                                    -c ../mlir/utils/performance/configs/attention-configs \\
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv || echo 'Tuning attention failed' """
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \\
-                                                    -c ../mlir/utils/performance/configs/gemm-configs -s quick \\
-                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv && \\
-                                                    [ -f mlir_quick_tuning_${ARCH}.tsv ] || echo 'Quick Tuning gemm failed or file not found' """
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \\
-                                                    -c ../mlir/utils/performance/configs/conv-configs -s quick \\
-                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv || echo 'Quick Tuning conv failed' """
-                                        }
-                                        dir('build') {
-                                            sh """python3 ./bin/tuningRunner.py --op fusion \\
-                                                --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${ARCH}.tsv || echo 'Tuning fusion resnet50 failed' """
-                                            sh """python3 ./bin/tuningRunner.py --op fusion \\
-                                                --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${ARCH}.tsv || echo 'Tuning fusion bert failed' """
-                                        }
-                                        sh 'rm -f build/CMakeCache.txt'
-                                        dir ('build') {
-                                            stash name: "MLIR-PerfDB-${params.canXdlops ? ARCH : 'vanilla'}", includes: "*.tsv"
-                                        }
+                                    finally {
+                                        cleanWs()
                                     }
                                 }
                             }
                         }
-                        post {
-                           // Note: Post actions for matrix stages are defined at the matrix level, not here.
-                           // Adding cleanWs() here for safety, although outer post might cover it.
-                           always {
-                               cleanWs()
-                           }
-                        }
                     }
                 }
-                post {
-                    // Post actions for the entire "Tune MLIR kernels" matrix
-                    always {
-                         cleanWs() // Clean after each ARCH attempt
-                    }
-                 }
             }
         }
 
@@ -793,111 +914,116 @@ pipeline {
                 }
                 agent none
                 stages {
-                    stage("Run Benchmarks in Docker (${CHIP})") {
+                    stage("Run Benchmarks in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromChip("${CHIP}")
                                 String dockerImageName = dockerImage()
 
-                                nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                    setHeartbeat()
-                                    echo "Executing Benchmarks for ${CHIP} on node ${env.NODE_NAME}"
-                                    docker.image(dockerImageName).pull(true).inside(dockerArgs()) {
-                                        showEnv()
+                                acquireHealthyNode(requiredLabel, 3) {
+                                    try {
+                                        setHeartbeat()
+                                        echo "Executing Benchmarks for ${CHIP} on node ${env.NODE_NAME}"
+                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                            showEnv()
 
-                                        copyArtifacts filter: 'build/perfDB/**', // Should this be specific to CHIP? Check archivePerfDB logic.
-                                            optional: true,
-                                            flatten: true,
-                                            projectName: "/MLIR/mlir-weekly", // Make sure this job name is correct
-                                            selector: lastSuccessful(),
-                                            target: 'build'
-                                        sh 'ls build'
-                                        try { sh 'cat build/tuning-date' } catch (e) { echo "tuning-date not found" }
+                                            copyArtifacts filter: 'build/perfDB/**', // Should this be specific to CHIP? Check archivePerfDB logic.
+                                                optional: true,
+                                                flatten: true,
+                                                projectName: "/MLIR/mlir-weekly", // Make sure this job name is correct
+                                                selector: lastSuccessful(),
+                                                target: 'build'
+                                            sh 'ls build'
+                                            try { sh 'cat build/tuning-date' } catch (e) { echo "tuning-date not found" }
 
-                                        buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
-                                            ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
+                                            buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
+                                                ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                    -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                    -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
 
-                                         copyArtifacts filter: "build/${CHIP}*.csv,build/perf-run-date",
-                                            optional: true,
-                                            flatten: true,
-                                            projectName: "/${JOB_NAME}",
-                                            selector: lastSuccessful(),
-                                            target: 'build/oldData'
-                                         sh 'ls -l build/oldData || echo "No old data found"'
-                                        dir('build') {
-                                            sh 'date --utc +%Y-%m-%d > perf-run-date'
-                                            sh 'ls -l /dev/kfd'
-                                            sh 'ls -l /dev/dri'
-                                            // Run MLIR vs MIOpen perf benchmarks.
-                                            sh """python3 ./bin/perfRunner.py --op=conv --batch_all \\
-                                                    --configs_file=${WORKSPACE}/mlir/utils/performance/configs/conv-configs \\
-                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \\
-                                                    --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv || echo 'Conv Perf Run Failed' """
-                                            // Run MLIR vs rocBLAS perf benchmarks
-                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \\
-                                                    --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \\
-                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \\
-                                                    --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv || echo 'GEMM Perf Run Failed' """
-                                        }
-
-                                        dir('build') {
-                                            sh """python3 ./bin/perfRunner.py --op=fusion \\
-                                                --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv || echo 'Fusion ResNet50 Perf Run Failed' """
-                                            sh """python3 ./bin/perfRunner.py --op fusion \\
-                                                --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv || echo 'Fusion BERT Perf Run Failed' """
-                                        }
-
-                                        if (isNotNavi3x("${CHIP}")) {
+                                            copyArtifacts filter: "build/${CHIP}*.csv,build/perf-run-date",
+                                                optional: true,
+                                                flatten: true,
+                                                projectName: "/${JOB_NAME}",
+                                                selector: lastSuccessful(),
+                                                target: 'build/oldData'
+                                            sh 'ls -l build/oldData || echo "No old data found"'
                                             dir('build') {
-                                                sh """python3 ./bin/perfRunner.py --op=attention -b \\
-                                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/attention-configs \\
-                                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv || echo 'Attention Perf Run Failed' """
+                                                sh 'date --utc +%Y-%m-%d > perf-run-date'
+                                                sh 'ls -l /dev/kfd'
+                                                sh 'ls -l /dev/dri'
+                                                // Run MLIR vs MIOpen perf benchmarks.
+                                                sh """python3 ./bin/perfRunner.py --op=conv --batch_all \\
+                                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/conv-configs \\
+                                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \\
+                                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv || echo 'Conv Perf Run Failed' """
+                                                // Run MLIR vs rocBLAS perf benchmarks
+                                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \\
+                                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \\
+                                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \\
+                                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv || echo 'GEMM Perf Run Failed' """
                                             }
-                                        }
 
-                                        if (params.checkCK && isNotNavi3x("${CHIP}")) {
-                                            catchError (buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { // Mark stage as unstable on error
-                                                dir('composable_kernel') {
-                                                    sh 'rm -rf composable_kernel'
-                                                    getAndBuildCK('''
-                                                        -DGPU_TARGETS=${CHIP}
-                                                        -DCMAKE_CXX_FLAGS="-O3"
-                                                        -DCMAKE_PREFIX_PATH="/opt/rocm"
-                                                        -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                        -DCMAKE_BUILD_TYPE=Release
-                                                        ''')
-                                                    sh 'cd build; make install'
-                                                    sh 'echo CK Commit: `git rev-parse HEAD`'
-                                                }
-                                                sh 'rm -f build/CMakeCache.txt'
-                                                buildProject("ck-benchmark-driver",
-                                                    '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                        -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+                                            dir('build') {
+                                                sh """python3 ./bin/perfRunner.py --op=fusion \\
+                                                    --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv || echo 'Fusion ResNet50 Perf Run Failed' """
+                                                sh """python3 ./bin/perfRunner.py --op fusion \\
+                                                    --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv || echo 'Fusion BERT Perf Run Failed' """
+                                            }
 
+                                            if (isNotNavi3x("${CHIP}")) {
                                                 dir('build') {
-                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \\
-                                                            --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \\
-                                                            --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK || echo 'CK Perf Run Failed' """
-                                                    sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                    sh """python3 ./bin/perfRunner.py --op=attention -b \\
+                                                            --configs_file=${WORKSPACE}/mlir/utils/performance/configs/attention-configs \\
+                                                            --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv || echo 'Attention Perf Run Failed' """
                                                 }
                                             }
-                                        }
 
-                                        dir('build') {
-                                            sh 'ls -l'
-                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
-                                            sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
-                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                            // Add check if old data exists
-                                            sh '[ -f ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ] && python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv || echo "Old rocBLAS report not found, skipping regression."'
-                                            sh 'mkdir -p reports && cp ./*.html reports'
+                                            if (params.checkCK && isNotNavi3x("${CHIP}")) {
+                                                catchError (buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { // Mark stage as unstable on error
+                                                    dir('composable_kernel') {
+                                                        sh 'rm -rf composable_kernel'
+                                                        getAndBuildCK('''
+                                                            -DGPU_TARGETS=${CHIP}
+                                                            -DCMAKE_CXX_FLAGS="-O3"
+                                                            -DCMAKE_PREFIX_PATH="/opt/rocm"
+                                                            -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                            -DCMAKE_BUILD_TYPE=Release
+                                                            ''')
+                                                        sh 'cd build; make install'
+                                                        sh 'echo CK Commit: `git rev-parse HEAD`'
+                                                    }
+                                                    sh 'rm -f build/CMakeCache.txt'
+                                                    buildProject("ck-benchmark-driver",
+                                                        '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                            -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+
+                                                    dir('build') {
+                                                        sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \\
+                                                                --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \\
+                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK || echo 'CK Perf Run Failed' """
+                                                        sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                    }
+                                                }
+                                            }
+
+                                            dir('build') {
+                                                sh 'ls -l'
+                                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
+                                                sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
+                                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                                // Add check if old data exists
+                                                sh '[ -f ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ] && python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv || echo "Old rocBLAS report not found, skipping regression."'
+                                                sh 'mkdir -p reports && cp ./*.html reports'
+                                            }
+                                            postProcessPerfRes("${CHIP}")
                                         }
-                                        postProcessPerfRes("${CHIP}")
+                                    }
+                                    finally {
+                                        cleanWs()
                                     }
                                 }
                             }
@@ -905,9 +1031,6 @@ pipeline {
                          post {
                             unsuccessful {
                                 script { rebootNode() }
-                            }
-                            always {
-                                cleanWs()
                             }
                          }
                     }
@@ -937,52 +1060,57 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage("Run MIGraphX Tests in Docker (${CODEPATH})") {
+                    stage("Run MIGraphX Tests in Docker") {
                         steps {
                             script {
                                 String requiredLabel = getLabelFromCodepath("${CODEPATH}")
                                 // Use the specific MIGraphX CI image
                                 String dockerImageName = dockerImageCIMIGraphX()
 
-                                nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                    setHeartbeat()
-                                    echo "Executing MIGraphX tests for ${CODEPATH} on node ${env.NODE_NAME}"
-                                    docker.image(dockerImageName).pull(true).inside(dockerArgs()) {
-                                        showEnv()
+                                acquireHealthyNode(requiredLabel, 3) {
+                                    try {
+                                        setHeartbeat()
+                                        echo "Executing MIGraphX tests for ${CODEPATH} on node ${env.NODE_NAME}"
+                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                            showEnv()
 
-                                        // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                                        sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
+                                            // Package and install current checkout of rocMLIR as MIGraphX dependency.
+                                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
 
-                                        def gpu_arch = get_gpu_architecture()
-                                        sh 'rm -rf MIGraphX'
-                                        dir('MIGraphX') {
-                                            getAndBuildMIGraphX("""
-                                                -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
-                                                -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                -DGPU_TARGETS="${gpu_arch}"
-                                                """)
-                                        }
-                                        dir('MIGraphX/build') {
-                                            timeout(time: 120, activity: true, unit: 'MINUTES') {
+                                            def gpu_arch = get_gpu_architecture()
+                                            sh 'rm -rf MIGraphX'
+                                            dir('MIGraphX') {
+                                                getAndBuildMIGraphX("""
+                                                    -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
+                                                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                    -DGPU_TARGETS="${gpu_arch}"
+                                                    """)
+                                            }
+                                            dir('MIGraphX/build') {
+                                                timeout(time: 120, activity: true, unit: 'MINUTES') {
+                                                    withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                                        sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
+                                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
+                                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                                        sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                    }
+                                                }
+                                            }
+                                            //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
+                                            dir('MIGraphX/tools/accuracy') {
                                                 withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
-                                                    sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                    sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                    sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
+                                                    sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
                                                 }
                                             }
                                         }
-                                        //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
-                                        dir('MIGraphX/tools/accuracy') {
-                                            withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
-                                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
-                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
-                                            }
-                                        }
+                                    }
+                                    finally {
+                                        cleanWs()
                                     }
                                 }
                             }
@@ -990,9 +1118,6 @@ pipeline {
                          post {
                             unsuccessful {
                                 script { rebootNode() }
-                            }
-                            always {
-                                cleanWs()
                             }
                          }
                     }
@@ -1018,71 +1143,65 @@ pipeline {
                 // No matrix-level when needed, handled by top-level stage when
 
                 stages {
-                    stage("Run Code Coverage in Docker (${CPATH})") {
+                    stage("Run Code Coverage in Docker") {
                          steps {
                              script {
                                 String requiredLabel = getLabelFromCodepath("${CPATH}")
                                 String dockerImageName = dockerImage()
 
-                                nodeChecker.acquireHealthyNode(requiredLabel, 3) {
-                                    setHeartbeat()
-                                    echo "Executing Code Coverage for ${CPATH} on node ${env.NODE_NAME}"
-                                    docker.image(dockerImageName).pull(true).inside(dockerArgs()) {
-                                        showEnv()
+                                acquireHealthyNode(requiredLabel, 3) {
+                                    try {
+                                        setHeartbeat()
+                                        echo "Executing Code Coverage for ${CPATH} on node ${env.NODE_NAME}"
+                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                            showEnv()
 
-                                        try {
-                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                sh 'rm -f build/CMakeCache.txt'
-                                                sh 'rm -f build/*.profraw'
-                                                // Build with profiling on
-                                                buildProject('check-rocmlir-build-only',
-                                                    '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
-                                                dir ('build') {
-                                                    // Run tests to generate coverage data
-                                                    // collectCoverageData should ideally run the tests
-                                                    collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CPATH}")
+                                            try {
+                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                    sh 'rm -f build/CMakeCache.txt'
+                                                    sh 'rm -f build/*.profraw'
+                                                    // Build with profiling on
+                                                    buildProject('check-rocmlir-build-only',
+                                                        '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                                    dir ('build') {
+                                                        // Run tests to generate coverage data
+                                                        // collectCoverageData should ideally run the tests
+                                                        collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CPATH}")
 
-                                                    // Upload to codecov.
-                                                    withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
-                                                        sh '''
-                                                            curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                            proxy_opt=""
-                                                            if [ -n "${http_proxy}" ]; then
-                                                                proxy_opt="-U ${http_proxy}"
-                                                            fi
-                                                            # Ensure lcov file exists before uploading
-                                                            if [ -f "./coverage_${CPATH}.lcov" ]; then
-                                                              ./codecov -t ${CODECOV_TOKEN} --flags "${CPATH}" -f ./coverage_${CPATH}.lcov ${proxy_opt}
-                                                            else
-                                                              echo "Coverage LCOV file ./coverage_${CPATH}.lcov not found!"
-                                                              # exit 1 # Optionally fail the build
-                                                            fi
-                                                            '''
+                                                        // Upload to codecov.
+                                                        withCredentials([string(credentialsId: 'codecov-token-rocmlir', variable: 'CODECOV_TOKEN')]) {
+                                                            sh '''
+                                                                curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                                proxy_opt=""
+                                                                if [ -n "${http_proxy}" ]; then
+                                                                    proxy_opt="-U ${http_proxy}"
+                                                                fi
+                                                                # Ensure lcov file exists before uploading
+                                                                if [ -f "./coverage_${CPATH}.lcov" ]; then
+                                                                ./codecov -t ${CODECOV_TOKEN} --flags "${CPATH}" -f ./coverage_${CPATH}.lcov ${proxy_opt}
+                                                                else
+                                                                echo "Coverage LCOV file ./coverage_${CPATH}.lcov not found!"
+                                                                # exit 1 # Optionally fail the build
+                                                                fi
+                                                                '''
+                                                        }
                                                     }
+                                                    archiveArtifacts artifacts: "build/coverage_${CPATH}.report, build/coverage_${CPATH}.lcov, build/coverage_${CPATH}.html", allowEmptyArchive: true, onlyIfSuccessful: true
                                                 }
-                                                archiveArtifacts artifacts: "build/coverage_${CPATH}.report, build/coverage_${CPATH}.lcov, build/coverage_${CPATH}.html", allowEmptyArchive: true, onlyIfSuccessful: true
+                                            } catch (Exception e) {
+                                                echo "NOTE: Code coverage run for ${CPATH} had an error or timeout:\n${e}"
+                                                currentBuild.result = 'UNSTABLE' // Mark build as unstable instead of failing
                                             }
-                                        } catch (Exception e) {
-                                             echo "NOTE: Code coverage run for ${CPATH} had an error or timeout:\n${e}"
-                                             currentBuild.result = 'UNSTABLE' // Mark build as unstable instead of failing
                                         }
+                                    }
+                                    finally {
+                                        cleanWs()
                                     }
                                 }
                              }
                          }
-                         post {
-                            // Note: Post actions for matrix stages are defined at the matrix level, not here.
-                            always {
-                                cleanWs()
-                            }
-                         }
                     }
                 }
-                 post {
-                    always {
-                        cleanWs() // Clean after each CPATH attempt
-                    }
-                 }
             }
         }
 
