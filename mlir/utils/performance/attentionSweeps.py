@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Sweeps the parameters of the rocmlir driver for bugs for attention only.
+"""Sweeps the parameters of the rocmlir driver for bugs for attention-based kernel configurations.
+
+Usage:
+    python3 attentionSweeps.py --mlir-build-dir <path-to-mlir-build-dir> [options]
+
+Options:
+    --mlir-build-dir    Path to the MLIR build directory (required)
+    --samples           Number of random configuration samples to the test (default: 20)
+    --jobs              Number of concurrent tests to run in parallel (default: 4)
+    --debug             Enable debug output
+    --quiet             Disable per-test result output
+    --log-failures      Save failing configurations to csv file
 """
 import argparse
 import itertools
@@ -22,9 +33,9 @@ from perfRunner import create_paths as createPaths
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
-SEQ_LENGTHS = range(1, 16385)
-HEAD_DIMS = range(1, 16385)
-GROUPS = range(1, 16385)
+#SEQ_LENGTHS = range(1, 16385) 
+#HEAD_DIMS = range(1, 16385)
+#GROUPS = range(1, 16385)
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
@@ -60,12 +71,12 @@ class Options:
 def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance"""
     shape, perf = params
-    dtype, g, slq, slk, hdqk, hdv, scale, tq, tk, tv, to = shape
+    dtype, g, slq, slk, hdqk, hdv, scale, bias, tq, tk, tv, to = shape
     perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
     return AttentionConfiguration(
         dtype, g, slq, slk, hdqk, hdv, scale,
-        tq, tk, tv, to, options.arch,
-        getNumCU(), perfString
+        bias, tq, tk, tv, to, options.arch,
+        options.numCu, perfString
     )
 
 
@@ -158,6 +169,35 @@ async def sweepParameters(paramIter: Iterable[IterType],
     return (passed, invalid, failingConfigs)
 
 
+def sampleAttentionShape():
+    return (
+        random.choice(DATA_TYPES_ATTENTION),
+        random.randint(1, 16384), # GROUPS
+        random.randint(1, 16384), # SEQ_LEN_Q
+        random.randint(1, 16384), # SEQ_LEN_K
+        random.randint(1, 16384), # HEAD_DIM_QK
+        random.randint(1, 16384), # HEAD_DIM_V
+        random.choice(BOOLS),   # with_attn_scale
+        random.choice(BOOLS),   # with_attn_bias
+        random.choice(BOOLS),   # transQ
+        random.choice(BOOLS),   # transK
+        random.choice(BOOLS),   # transV
+        random.choice(BOOLS)    # transO
+    )
+
+
+perfConfigSpace = list(itertools.product(
+        [32, 64, 128, 256], # M/block G0
+        [32, 64, 128, 256], # M/block G1
+        [32, 64, 128, 256], # N/block G0
+        [8, 16, 32, 64], # Kpack/Block
+        [32, 64, 128, 256], # M/Wave
+        [4, 16, 32], # MN/Xdl
+        [4, 8, 16], # kPack
+        [0, 1] # forceUnroll
+    ))
+
+
 def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
     with open(filename, mode='w', newLine='') as csvfile:
         writer = csv.writer(csvfile)
@@ -177,10 +217,11 @@ def main():
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
-
+    print("args parsed")
     arch = ','.join(getArch())
     chip = GFX_CHIP_RE.search(arch).group(0)
     paths = createPaths(None, args.mlir_build_dir)
+    print("paths ok")
     options = Options(
         debug=args.debug,
         quiet=args.quiet,
@@ -191,24 +232,19 @@ def main():
         PerfConfigVersion=PerfConfigVersion.V1
     )
    
-    attentionShapes = list(itertools.product(
-        DATA_TYPES_ATTENTION, GROUPS, SEQ_LENGTHS, SEQ_LENGTHS, HEAD_DIMS, HEAD_DIMS, BOOLS, BOOLS, BOOLS, BOOLS, BOOLS
-    ))
+    print("options ok")
 
-    perfConfigSpace = list(itertools.product(
-        [32, 64, 128, 256], # M/block G0
-        [32, 64, 128, 256], # M/block G1
-        [32, 64, 128, 256], # N/block G0
-        [8, 16, 32, 64], # Kpack/Block
-        [32, 64, 128, 256], # M/Wave
-        [4, 16, 32], # MN/Xdl
-        [4, 8, 16], # kPack
-        [0, 1] # forceUnroll
-    ))
-    
-    samples = random.sample(list(itertools.product(attentionShapes, perfConfigSpace)), args.samples)
+    if not args.quiet:
+        print(f"Sampling {args.samples} configurations from attention space...")
+
+    samples = [
+        (sampleAttentionShape(), random.choice(perfConfigSpace))
+        for _ in range(args.samples)
+    ]
+
+    print("and after sampliing?")
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
-
+    print("after sweep?")
     print(f"Passed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     if failing:
         print("\n*** Failing Configurations ***")
