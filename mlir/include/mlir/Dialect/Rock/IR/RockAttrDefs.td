@@ -215,60 +215,6 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
-def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParamAttrInterface]> {
-  let mnemonic = "general_gemm_params";
-  let description = [{
-    The tuning parameters for a general (no special instructions) matrix
-    multiplication.
-
-    - blockSize: Optional parameter to specify the block size of the kernel
-    - kPerBlock: The number of values of k to process during each main loop
-      iteration within a workgroup
-    - mPerBlock: The number of values of m to process in each workgroup
-    - nPerBlock: The number of values of n to process in each workgroup
-    - kPerThread: The number of values of k to process as a unit on each thread
-    - mPerThread: The number of values of m to process as a unit on each thread
-    - nPerThread: The number of values of n to process as a unit on each thread
-    - kpack: The number of values of k to pack contiguously into the shared buffer
-    - splitKFactor:  Split-k factor for the Split-k GEMM algorithm
-    - scheduleVersion: Param to select GEMM schedule
-    - outputSwizzle: Whether to enable/disable output swizzle or use heuristics 
-  }];
-  let parameters = (ins
-    "uint32_t":$blockSize,
-    "int64_t":$kPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kPerThread,
-    "int64_t":$mPerThread,
-    "int64_t":$nPerThread,
-    "int64_t":$kpack,
-    "int64_t":$splitKFactor,
-    "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle
-  );
-
-  let extraClassDeclaration = [{
-    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("v3:" + Twine(getBlockSize()) + ","
-      + Twine(getMPerBlock()) + ","
-      + Twine(getNPerBlock()) + ","
-      + Twine(getKPerBlock()) + ","
-      + Twine(getMPerThread()) + ","
-      + Twine(getNPerThread()) + ","
-      + Twine(getSplitKFactor()) + ","
-      + Twine(getScheduleVersion()) + ","
-      + Twine(getOutputSwizzle())) 
-      .toVector(perfStr);
-    }
-    bool getForceUnroll() { return true; }
-  }];
-
-  let assemblyFormat = [{
-    `<` struct(params) `>`
-  }];
-}
-
 def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterface]> {
   let mnemonic = "attn_perf_config";
   let description = [{
@@ -461,6 +407,39 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
   }];
 }
 
+def Rock_FmaGemmParamsAttr
+    : Rock_Attr<"FmaGemmParams", [RockTuningParamAttrInterface,
+                                  RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "fma_gemm_params";
+  let description = [{
+    The tuning parameters for an fma-based matrix multiplication.
+  }];
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
+      "int64_t":$outputSwizzle, "bool":$forceUnroll);
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
+        ("v3:" +  Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
+        + Twine(getScheduleVersion()) + ","
+        + Twine(getOutputSwizzle()) + ","
+        + Twine(getForceUnroll()) + ","
+          + "1") /* *ThreadCopyMore* */
+        .toVector(perfStr);
+    }
+  }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
 
 // GEMM Features
 def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;

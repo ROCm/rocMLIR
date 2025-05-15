@@ -510,26 +510,6 @@ def Rock_TensorUntransformCastOp :
   }];
 }
 
-def Rock_GridwiseGemmOp :
-    Rock_Op<"gridwise_gemm", [RockFusionRoot]>,
-    Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
-                   Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
-                   Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
-                   Rock_GemmFeaturesAttr:$features,
-                   StoreMethodAttr:$storeMethod,
-                   I32Attr:$numCU,
-                   I32Attr:$gridSize,
-                   Rock_GeneralGemmParamsAttr:$params)> {
-  let summary = "Gridwise GEMM";
-  let description = [{
-    The `rock.gridwise_gemm` op computes gridwise GEMM.
-  }];
-  let assemblyFormat = [{
-    $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type($c) `=` type($a) `*` type($b)
-  }];
-  let hasVerifier = 1;
-}
-
 // gridwise_gemm_accel
 def Rock_GridwiseGemmAccelOp :
     Rock_Op<"gridwise_gemm_accel", [RockFusionRoot]>,
@@ -545,7 +525,7 @@ def Rock_GridwiseGemmAccelOp :
                    RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
-    The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
+    The `rock.gridwise_gemm_accel` op computes gridwise GEMM with acceleration.
   }];
   let assemblyFormat = [{
     `(` operands `)` `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type(operands)
@@ -984,12 +964,12 @@ def Rock_IndexDiffUpdateOp :
 
 defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
                                F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
-defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
-                           F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN,
-                           VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32]>,
-                           VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                           VectorOfLengthAndType<[2, 4, 8, 16],
-                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
+defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32, F8E5M2FNUZ,
+                              F8E4M3FNUZ, F8E5M2, F8E4M3FN,
+                              VectorOfNonZeroRankOf<[F32, I32, F16, BF16, I8,
+                                                     F8E5M2FNUZ, F8E4M3FNUZ,
+                                                     F8E5M2, F8E4M3FN]>,
+];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp :
@@ -1297,53 +1277,18 @@ def Rock_ThreadwiseWriteAllOp :
 }
 
 defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputTypes>];
-
-// blockwise_gemm
-def Rock_BlockwiseGemmOp:
-    Rock_Op<"blockwise_gemm", [DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
-    Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
-                   MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
-                   MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC,
-                   I32Attr:$inMPerThread,
-                   I32Attr:$inNPerThread,
-                   UnitAttr:$rotateMWithK,
-                   UnitAttr:$rotateNWithK,
-                   Rock_GeneralGemmParamsAttr:$params
-                   )> {
-  let summary = "Blockwise GEMM non accelerated version";
-  let description = [{
-    The `rock.blockwise_gemm` op does gemm at the blockwise level without acceleration.
-
-    Matrix A resides in LDS and has dimensions [k, m_c * mRepeatStride, kpack].
-    Matrix B resides in LDS and has dimensions [k, n_c * nRepeatStride, kpack].
-
-    Matrix C resides in registers and has dimensions [m_c, n_c].
-
-    The two index arguments specify a given threads's offset into the LDS buffer..
-    Each {m,n}PerThread group of elements (which may themselves be kPacks)
-    is read from LDS by a given thread, then the next mPerThread group is
-    mRepeatStride elements later in the buffer.
-
-    `rotate{M,N}PerThread` is used to rotate the access to LDS to avoid bank-conflicts in cases
-    where subsequent threads try to write data in the same column of the output matrix. If `kpack>1`
-    the rotation is simply the row index. If `kpack==1` the rotation takes into account the number of
-    elements reads by a thread along the `M` and/or `N` dimension, namely `in{M,N}PerThread`
-  }];
-  let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
-    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
-  }];
-
-  let hasVerifier = 1;
-}
+defvar LdsBufferOutTypes =
+    GemmOutputTypes#[VectorOfRankAndType<[1], GemmOutputTypes>];
 
 // This is less general than the one in the AMDGPU dialect, since it only
 // accounts for how we call these operations.
-defvar AccelArgTypes = [F32,
-                    VectorOfLengthAndType<[2, 4], [F32]>,
-                    VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
-defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
+defvar AccelArgTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
+                        F8E4M3FN,
+                        VectorOfRankAndType<[1], [F32, F16, BF16, I8,
+                                                  F8E5M2FNUZ, F8E4M3FNUZ,
+                                                  F8E5M2, F8E4M3FN]>];
+defvar AccelResTypes = [VectorOfLengthAndType<[1, 4, 8, 16, 32], [F32, I32, F16,
+                                                                  BF16]>];
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp:
@@ -1378,36 +1323,19 @@ def Rock_BlockwiseGemmAccelOp:
   }];
 }
 
-// threadwise_gemm
-def Rock_ThreadwiseGemmOp:
-    Rock_Op<"threadwise_gemm",
-      [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
-    Arguments<(ins MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixA,
-                   MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixB,
-                   MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC)> {
-  let summary = "Threadwise GEMM non accelerated version";
-  let description = [{
-    The `rock.threadwise_gemm` op does GEMM at thread level.
-    All arguments should be in registers (memref address space 5).
-
-    The dimensions of the multiplication arguments are
-     [m, n] = [k, m, kPack] * [k, n, kPack].
-  }];
-  let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
-    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
-  }];
-  let hasVerifier = 1;
-}
 // threadwise_accel_gemm
-def Rock_ThreadwiseAccelGemmOp:
-    Rock_Op<"threadwise_accel_gemm">,
-    Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source register view A", [MemRead]>:$matrixA,
-                   Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B", [MemRead]>:$matrixB,
-                   Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C", [MemRead, MemWrite]>:$matrixC, Variadic<Index>:$computeIndices,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   RockAccelTuningParamAttrInterface:$params)> {
+def Rock_ThreadwiseAccelGemmOp
+    : Rock_Op<"threadwise_accel_gemm", [AttrSizedOperandSegments]>,
+      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
+                         "source register view A", [MemRead]>:$matrixA,
+          Arg<MemRefOf<NativeMemoryOpTypes>,
+              "source register view B", [MemRead]>:$matrixB,
+          Arg<MemRefOf<NativeMemoryOpTypes>,
+              "dest register view C", [MemRead, MemWrite]>:$matrixC,
+          Optional<MemRefOf<LdsBufferOutTypes>>:$LDSReductionBuffer,
+          Variadic<Index>:$computeIndices, StrAttr:$arch,
+          Rock_GemmFeaturesAttr:$features,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
   let description = [{
     The `rock.accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
@@ -1416,7 +1344,9 @@ def Rock_ThreadwiseAccelGemmOp:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` `features` `=` $features attr-dict
+    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` 
+    (`LDSReductionBuffer` `=` `(` $LDSReductionBuffer^ `:` type($LDSReductionBuffer) `)`)?
+    `features` `=` $features attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
   let hasVerifier = 1;

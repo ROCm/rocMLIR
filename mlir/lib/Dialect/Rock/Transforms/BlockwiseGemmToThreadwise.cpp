@@ -153,243 +153,6 @@ struct BlockwiseFillRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// BlockwiseGemm lowering.
-//===----------------------------------------------------------------------===//
-
-// The structure of this lowing is documented at
-// https://github.com/ROCm/rocMLIR/issues/719
-struct BlockwiseGemmRewritePattern
-    : public OpConversionPattern<BlockwiseGemmOp> {
-  using OpConversionPattern<BlockwiseGemmOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(BlockwiseGemmOp op,
-                                BlockwiseGemmOpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const override {
-    Location loc = op.getLoc();
-
-    // Prepare some useful constants.
-    Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
-
-    MemRefType blockAType = op.getMatrixA().getType(),
-               blockBType = op.getMatrixB().getType(),
-               bufferCType = op.getMatrixC().getType();
-
-    auto elementType = bufferCType.getElementType();
-
-    int64_t k = blockAType.getShape()[0];
-    int64_t m = blockAType.getShape()[1];
-    int64_t n = blockBType.getShape()[1];
-    int64_t kPack = blockAType.getShape()[2];
-
-    // Non-accelerator path.
-
-    // Obtain critical attributes.
-    int64_t mC = bufferCType.getShape()[0];
-    int64_t nC = bufferCType.getShape()[1];
-
-    GeneralGemmParamsAttr params = op.getParams();
-    uint32_t blockSize = params.getBlockSize();
-    int64_t kPerThread = params.getKPerThread();
-    int64_t mPerThread = params.getMPerThread();
-    int64_t nPerThread = params.getNPerThread();
-
-    GeneralGemmBlockStructure blockStructure =
-        *deriveGeneralGemmBlockStructure(blockSize);
-
-    int64_t mThreadsPerCuwave = blockStructure.mThreadsPerCuwave;
-    int64_t nThreadsPerCuwave = blockStructure.nThreadsPerCuwave;
-    int64_t cuwaveLen = mThreadsPerCuwave * nThreadsPerCuwave;
-
-    int64_t mCuwavesPerBlock = blockStructure.mCuwavesPerBlock;
-    int64_t nCuwavesPerBlock = blockStructure.nCuwavesPerBlock;
-    int64_t numCuwaves = mCuwavesPerBlock * nCuwavesPerBlock;
-    int64_t derivedBlockSize = numCuwaves * cuwaveLen;
-    assert(blockSize == derivedBlockSize &&
-           "block structure parameters must multiply to block size");
-
-    int64_t mRepeat = mC / mPerThread;
-    int64_t nRepeat = nC / nPerThread;
-
-    if (mRepeat * mCuwavesPerBlock * mThreadsPerCuwave * mPerThread != m)
-      return op.emitOpError("The m turing attributes don't multiply to M_LDS");
-    if (nRepeat * nCuwavesPerBlock * nThreadsPerCuwave * nPerThread != n)
-      return op.emitOpError("The n turing parameters don't multiply to N_LDS");
-
-    LLVM_DEBUG(llvm::dbgs()
-               << "M: " << m << "\n"
-               << "mRepeat: " << mRepeat << "\n"
-               << "mCuwavesPerBlock: " << mCuwavesPerBlock << "\n"
-               << "mThreadsPerCuwave: " << mThreadsPerCuwave << "\n"
-               << "mPerThread: " << mPerThread << "\n"
-               << "n: " << n << "\n"
-               << "nRepeat: " << nRepeat << "\n"
-               << "nCuwavesPerBlock: " << nCuwavesPerBlock << "\n"
-               << "nThreadsPerCuwave: " << nThreadsPerCuwave << "\n"
-               << "nPerThread: " << nPerThread << "\n");
-
-    auto ldsTidSplitter = [&](StringRef repeatName, int64_t repeatLen,
-                              StringRef perThreadName,
-                              int64_t perThreadLen) -> TopDownTMBuilder {
-      TopDownTMBuilder splitTidForLDS(
-          b, {"k", repeatName, "tid", perThreadName, "kpack"},
-          {k, repeatLen, blockSize, perThreadLen, kPack}, loc);
-      splitTidForLDS.passThrough({"k", repeatName});
-      splitTidForLDS.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
-                           {2, 3, 4, 5}, "tid",
-                           {mCuwavesPerBlock, nCuwavesPerBlock,
-                            mThreadsPerCuwave, nThreadsPerCuwave});
-      splitTidForLDS.passThrough({perThreadName, "kpack"}, {6, 7},
-                                 {perThreadName, "kpack"});
-      return splitTidForLDS;
-    };
-
-    int64_t copyMPerThread = op.getInMPerThread();
-    int64_t copyNPerThread = op.getInNPerThread();
-
-    TopDownTMBuilder splitTidA =
-        ldsTidSplitter("m_repeat", mRepeat, "m_thread", mPerThread);
-    TransformMapAttr splitTidAAttr = splitTidA.get();
-    auto toLdsIndexA = TopDownTMBuilder::below(splitTidA, splitTidAAttr);
-    toLdsIndexA.passThrough("k");
-    toLdsIndexA.unmerge(
-        "m", 1, {"m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
-        {mRepeat, mCuwavesPerBlock, mThreadsPerCuwave, mPerThread});
-    toLdsIndexA.ignore("n_cuwaves");
-    toLdsIndexA.ignore("n_cuwave");
-    toLdsIndexA.passThrough({"kpack"}, {2}, {"kpack"});
-    TransformMapAttr toLdsIndexAAttr = toLdsIndexA.get();
-    SmallVector<Attribute> transformAttrsA{splitTidAAttr, toLdsIndexAAttr};
-
-    // If the dimension `m` has been rotated to minimize bank conflicts we want
-    // to apply the same rotation reading from LDS. This rotation happens in
-    // `wrapLDSforStore` from
-    // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
-    // to be kept in sync with this function
-    int64_t strideA = (kPack == 1 ? copyMPerThread : 1);
-    rotateIf(op.getRotateMWithK(), toLdsIndexA, toLdsIndexAAttr, strideA, "m",
-             m, 1, "k", k, {"k"}, {"kpack"}, transformAttrsA);
-
-    TopDownTMBuilder splitTidB =
-        ldsTidSplitter("n_repeat", nRepeat, "n_thread", nPerThread);
-    TransformMapAttr splitTidBAttr = splitTidB.get();
-    auto toLdsIndexB = TopDownTMBuilder::below(splitTidB, splitTidBAttr);
-    toLdsIndexB.passThrough("k");
-    toLdsIndexB.unmerge(
-        "n", 1, {"n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
-        {nRepeat, nCuwavesPerBlock, nThreadsPerCuwave, nPerThread});
-    toLdsIndexB.ignore("m_cuwaves");
-    toLdsIndexB.ignore("m_cuwave");
-    toLdsIndexB.passThrough({"kpack"}, {2}, {"kpack"});
-    TransformMapAttr toLdsIndexBAttr = toLdsIndexB.get();
-    SmallVector<Attribute> transformAttrsB{splitTidBAttr, toLdsIndexBAttr};
-
-    // If the dimension `d` has been rotated to minimize bank conflicts we want
-    // to apply the same rotation reading from LDS. This rotation happens in
-    // `wrapLDSforStore` from
-    // mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp which needs
-    // to be kept in sync with this function
-    int64_t strideB = (kPack == 1 ? copyNPerThread : 1);
-    rotateIf(op.getRotateNWithK(), toLdsIndexB, toLdsIndexBAttr, strideB, "n",
-             n, 1, "k", k, {"k"}, {"kpack"}, transformAttrsB);
-
-    Value matrixA, matrixB;
-    ArrayAttr transformsA, transformsB;
-    bool ldsANeedsi64, ldsBNeedsi64;
-    std::tie(matrixA, transformsA, ldsANeedsi64) =
-        untransform(b, adaptor.getMatrixA(), b.getArrayAttr(transformAttrsA));
-    std::tie(matrixB, transformsB, ldsBNeedsi64) =
-        untransform(b, adaptor.getMatrixB(), b.getArrayAttr(transformAttrsB));
-    if (ldsANeedsi64 || ldsBNeedsi64)
-      return b.notifyMatchFailure(loc, "LDS map can't need 64-bit indexing");
-
-    int64_t threadANumRegisters = kPerThread * mC * kPack;
-    int64_t threadBNumRegisters = kPerThread * nC * kPack;
-
-    // Alloc register for thread_a and thread_b.
-    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
-    auto threadARegisterMemRefType =
-        MemRefType::get(threadANumRegisters, elementType, AffineMap{},
-                        privateMemoryAddressSpace);
-    auto threadAAllocOp = b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
-
-    auto threadBRegisterMemRefType =
-        MemRefType::get(threadBNumRegisters, elementType, AffineMap{},
-                        privateMemoryAddressSpace);
-    auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
-
-    // Define views of register tiles for copies
-    BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);
-    viewA.unmerge({"k", "m_repeat", "tid", "m_thread", "kpack"},
-                  {0, 1, 2, 3, 4}, "raw",
-                  {kPerThread, mRepeat, 1, mPerThread, kPack});
-    TransformMapAttr threadACopyViewAttr = viewA.get();
-
-    BottomUpTMBuilder viewB(b, {"raw"}, {threadBNumRegisters}, loc);
-    viewB.unmerge({"k", "n_repeat", "tid", "n_thread", "kpack"},
-                  {0, 1, 2, 3, 4}, "raw",
-                  {kPerThread, nRepeat, 1, nPerThread, kPack});
-    TransformMapAttr threadBCopyViewAttr = viewB.get();
-
-    // Main loop.
-    Value workitem = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
-    LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
-                            << "k =  " << k << "\n"
-                            << " kPerThread = " << kPerThread << "\n");
-    auto loopOp =
-        b.replaceOpWithNewOp<affine::AffineForOp>(op, 0, k, kPerThread);
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(loopOp.getBody());
-    Value kOffset = loopOp.getInductionVar();
-
-    SmallVector<Value, 5> registerStartCoords(5, zeroConstantOp);
-    SmallVector<Value, 5> ldsBufferAStartCoords = {
-        kOffset, zeroConstantOp, workitem, zeroConstantOp, zeroConstantOp};
-    auto copyALoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
-        ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
-        ArrayRef<int64_t>{kPerThread, mRepeat, 1, mPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
-    {
-      OpBuilder::InsertionGuard copyAGuard(b);
-      b.setInsertionPointToStart(copyALoop.getBody());
-      Value aCopy = b.create<memref::LoadOp>(
-          loc, matrixA, copyALoop.getLowerCoords(/*domain=*/0));
-      Value aCast = createTypeConversionOp(b, loc, aCopy, elementType);
-      b.create<memref::StoreOp>(loc, aCast, threadAAllocOp,
-                                copyALoop.getLowerCoords(/*domain=*/1));
-    }
-
-    SmallVector<Value, 5> ldsBufferBStartCoords = {
-        kOffset, zeroConstantOp, workitem, zeroConstantOp, zeroConstantOp};
-    auto copyBLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
-        ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
-        ArrayRef<int64_t>{kPerThread, nRepeat, 1, nPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
-    {
-      OpBuilder::InsertionGuard copyBGuard(b);
-      b.setInsertionPointToStart(copyBLoop.getBody());
-      Value bCopy = b.create<memref::LoadOp>(
-          loc, matrixB, copyBLoop.getLowerCoords(/*domain=*/0));
-      Value bCast = createTypeConversionOp(b, loc, bCopy, elementType);
-      b.create<memref::StoreOp>(loc, bCast, threadBAllocOp,
-                                copyBLoop.getLowerCoords(/*domain=*/1));
-    }
-
-    Value reshapedARegisters = reshapeBuffer(
-        b, loc, threadAAllocOp, {"k", "m", "kpack"}, {kPerThread, mC, kPack});
-    Value reshapedBRegisters = reshapeBuffer(
-        b, loc, threadBAllocOp, {"k", "n", "kpack"}, {kPerThread, nC, kPack});
-    // Actually do the gemm - this goes inside the look over kOffset
-    b.create<ThreadwiseGemmOp>(loc, reshapedARegisters, reshapedBRegisters,
-                               op.getMatrixC());
-
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // BlockwiseGemmAccel lowering.
 //===----------------------------------------------------------------------===//
 struct BlockwiseGemmAccelRewritePattern
@@ -418,7 +181,8 @@ struct BlockwiseGemmAccelRewritePattern
       dataTypeB = bufferVecTypeB.getElementType();
 
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, arch, tuningParams);
+        op.getFeatures(), dataTypeA, dataTypeB, op.getBlockSize(), arch,
+        tuningParams);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
@@ -469,6 +233,16 @@ struct BlockwiseGemmAccelRewritePattern
         b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
         op.getRotateNWithK());
 
+    // Allocate reduction buffer for FMA
+    Value LDSReductionBufferView =
+        accelEmitterPtr->allocateLDSBufferForReduction(b, loc,
+                                                       op.getBlockSize());
+    Value LDSReductionBuffer = nullptr;
+    if (LDSReductionBufferView)
+      LDSReductionBuffer =
+          LDSReductionBufferView.getDefiningOp<memref::ViewOp>()
+              .getViewSource();
+
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
       OpBuilder::InsertionGuard guard(b);
@@ -503,12 +277,15 @@ struct BlockwiseGemmAccelRewritePattern
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
-          b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
-                                          ValueRange{i, j, k}, arch,
-                                          op.getFeaturesAttr(), tuningParams);
+          b.create<ThreadwiseAccelGemmOp>(
+              loc, viewA, viewB, viewC, LDSReductionBufferView,
+              ValueRange{i, j, k}, arch, op.getFeaturesAttr(), tuningParams);
         }
       }
     }
+    if (LDSReductionBuffer)
+      b.create<GpuDeallocOp>(loc, LDSReductionBuffer);
+
     b.eraseOp(op);
     return success();
   }
@@ -1332,15 +1109,14 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();
+  target.addIllegalOp<FillOp, BlockwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          affine::AffineDialect, vector::VectorDialect,
                          memref::MemRefDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
-               BlockwiseGemmAccelRewritePattern>(ctx);
+  patterns.add<FillRewritePattern, BlockwiseGemmAccelRewritePattern>(ctx);
   if (failed(
           applyPartialConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();

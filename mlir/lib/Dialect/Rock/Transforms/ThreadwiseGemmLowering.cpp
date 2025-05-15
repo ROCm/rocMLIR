@@ -39,6 +39,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
@@ -90,117 +91,6 @@ struct ThreadwiseReadIntoRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseGemm lowering.
-//===----------------------------------------------------------------------===//
-struct ThreadwiseGemmRewritePattern
-    : public OpConversionPattern<ThreadwiseGemmOp> {
-  using OpConversionPattern<ThreadwiseGemmOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(ThreadwiseGemmOp op,
-                                ThreadwiseGemmOpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const override {
-    Location loc = op.getLoc();
-    Value gemmA = adaptor.getMatrixA();
-    Value gemmB = adaptor.getMatrixB();
-    Value gemmC = adaptor.getMatrixC();
-    auto gemmAType = cast<MemRefType>(gemmA.getType());
-    Type dataType = gemmAType.getElementType();
-
-    ArrayRef<int64_t> aShape = gemmAType.getShape();
-    int64_t k = aShape[0];
-    int64_t m = aShape[1];
-    int64_t kPack = aShape[2];
-    int64_t n = cast<MemRefType>(gemmB.getType()).getShape()[1];
-    // Note for future: when we use dot products, we should increase this to
-    // the number of elements supported by the relevant dot product.
-    int64_t loadKpackLen = 1;
-    LLVM_DEBUG(llvm::dbgs() << "Threadwise gemm:\n"
-                            << "k = " << k << "\n"
-                            << "m = " << m << "\n"
-                            << "n = " << n << "\n"
-                            << "kPack = " << kPack << "\n"
-                            << "loadKpackLen = " << loadKpackLen << "\n");
-    if (loadKpackLen > kPack || kPack % loadKpackLen != 0)
-      return op->emitOpError("load length " + Twine(loadKpackLen) +
-                             " not compatible with kpack of " + Twine(kPack));
-    SmallVector<int64_t, 4> dimensions = {k, m, n, kPack};
-    SmallVector<int64_t, 4> strides = {1, 1, 1, loadKpackLen};
-    auto abType = VectorType::get(loadKpackLen, dataType);
-
-    TopDownTMBuilder aView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
-    aView.ignore("n");
-    aView.passThrough({"k", "m", "kpack"}, {0, 1, 2}, {"k", "m", "kpack"});
-    TransformMapAttr aViewAttr = aView.get();
-
-    TopDownTMBuilder bView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
-    bView.ignore("m");
-    bView.passThrough({"k", "n", "kpack"}, {0, 1, 2}, {"k", "n", "kpack"});
-    TransformMapAttr bViewAttr = bView.get();
-
-    TopDownTMBuilder cView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
-    cView.ignore("k");
-    cView.ignore("kpack");
-    cView.passThrough({"m", "n"}, {0, 1}, {"m", "n"});
-    TransformMapAttr cViewAttr = cView.get();
-
-    Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    SmallVector<Value, 5> startCoords(4, zeroConst);
-
-    ArrayAttr aTransforms, bTransforms, cTransforms;
-    Value bufferA, bufferB, bufferC;
-    bool isBigA, isBigB, isBigC;
-    std::tie(bufferA, aTransforms, isBigA) = untransform(b, gemmA, {aViewAttr});
-    std::tie(bufferB, bTransforms, isBigB) = untransform(b, gemmB, {bViewAttr});
-    std::tie(bufferC, cTransforms, isBigC) = untransform(b, gemmC, {cViewAttr});
-    if (isBigA || isBigB || isBigC)
-      return b.notifyMatchFailure(loc, "we don't have 2 GB of registers");
-
-    auto gemmLoop = b.replaceOpWithNewOp<TransformingForOp>(
-        op, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},
-        ArrayRef<Attribute>{aTransforms, bTransforms, cTransforms}, dimensions,
-        /*strides=*/std::nullopt, /*forceUnroll=*/true,
-        /*useIndexDiffs=*/false);
-
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(gemmLoop.getBody());
-      // These are vector::TransferRead ops so they always return a vector
-      // result so that FMA doesn't complain
-      Value aVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
-          /*inBounds=*/ArrayRef<bool>(true));
-      Value bVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
-          /*inBounds=*/ArrayRef<bool>(true));
-      ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
-      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
-
-      Value cVector = b.create<vector::SplatOp>(loc, abType, cVal);
-      Value result;
-      if (isa<IntegerType>(dataType)) {
-        Value mul = b.create<MulIOp>(loc, aVal, bVal);
-        result = b.create<AddIOp>(loc, mul, cVector);
-        if (abType.getNumElements() != 1)
-          return op.emitOpError(
-              "Shouldn't've gone down the scalar code path (int)");
-        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
-      } else if (isa<FloatType>(dataType)) {
-        result = b.create<vector::FMAOp>(loc, aVal, bVal, cVector);
-        if (abType.getNumElements() != 1)
-          return op.emitOpError(
-              "Shouldn't've gone down the scalar code path (float)");
-        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
-      } else {
-        llvm_unreachable("Validation should make this ints or floats only");
-      }
-
-      b.create<InBoundsStoreOp>(loc, result, bufferC, cCoords);
-    }
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // AccelGemm lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseAccelGemmRewritePattern
@@ -246,17 +136,23 @@ struct ThreadwiseAccelGemmRewritePattern
     if (isa<VectorType>(dataTypeB)) {
       dataTypeB = cast<VectorType>(dataTypeB).getElementType();
     }
-
     Value bufferA = adaptor.getMatrixA();
     Value bufferB = adaptor.getMatrixB();
     Value bufferC = adaptor.getMatrixC();
+    Value ldsReductionBuffer = adaptor.getLDSReductionBuffer();
 
     auto bufferAShape = op.getMatrixA().getType().getShape();
     auto bufferCShape = op.getMatrixC().getType().getShape();
 
     size_t computeIndices = op.getComputeIndices().size();
+    FailureOr<IntegerAttr> maybeBlockSize = getBlockSize(op);
+    if (failed(maybeBlockSize))
+      return emitError(loc) << "Failed to get block size.\n";
+    int64_t blockSize = maybeBlockSize->getInt();
+
     auto emitter = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
+        op.getFeatures(), dataTypeA, dataTypeB, blockSize, op.getArch(),
+        tuningParams);
 
     if (!emitter)
       return emitError(loc)
@@ -304,8 +200,11 @@ struct ThreadwiseAccelGemmRewritePattern
 
     // Emit the loop
     auto accelLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
-        ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
+        loc,
+        ArrayRef<ValueRange>{computeStart, computeStart, computeStart,
+                             computeStart},
+        ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC,
+                            b.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1},
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
@@ -315,10 +214,14 @@ struct ThreadwiseAccelGemmRewritePattern
       auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
       auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
       auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
+      auto upperCoords = accelLoop.getLowerCoords(/*domain=*/3);
+      auto i = upperCoords[0];
+      auto j = upperCoords[1];
 
       Value argA = b.create<memref::LoadOp>(loc, argTypeA, rawBufferA, coordsA);
       Value argB = b.create<memref::LoadOp>(loc, argTypeB, rawBufferB, coordsB);
-      emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
+      emitter->emitThreadwiseLoop(b, loc, blockSize, ldsReductionBuffer, i, j,
+                                  argA, argB, rawBufferC, coordsC);
     }
     b.eraseOp(op);
     return success();
@@ -840,15 +743,15 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
-  target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
-                         rock::RockDialect, affine::AffineDialect,
-                         memref::MemRefDialect, vector::VectorDialect>();
+  target.addIllegalOp<rock::ThreadwiseAccelGemmOp>();
+  target.addLegalDialect<amdgpu::AMDGPUDialect, gpu::GPUDialect,
+                         arith::ArithDialect, rock::RockDialect,
+                         affine::AffineDialect, memref::MemRefDialect,
+                         vector::VectorDialect, scf::SCFDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(
-      ctx);
+  patterns.add<ThreadwiseAccelGemmRewritePattern>(ctx);
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();
 }

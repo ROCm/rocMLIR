@@ -82,7 +82,7 @@ obtainViewsFromReaderToWriter(memref::AllocOp buffer,
   for (OpOperand *writerOperand : writersOperands.value()) {
     ArrayAttr viewsFromAllocOp = getAllViewsFromSource(writerOperand);
     currViews = prependUpperViews(rewriter, currViews, viewsFromAllocOp);
-    if (isa<GridwiseGemmAccelOp, GridwiseGemmOp>(writerOperand->getOwner())) {
+    if (isa<GridwiseGemmAccelOp>(writerOperand->getOwner())) {
       return std::make_tuple(reverse(currViews), writerOperand->getOwner());
     }
     LLVM_DEBUG(llvm::dbgs()
@@ -136,9 +136,6 @@ static FailureOr<MNPerBlock> getMNPerBlock(Operation *gemmOp) {
   if (auto xdlGemmOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
     ret.MPerBlock = xdlGemmOp.getParams().getMPerBlock();
     ret.NPerBlock = xdlGemmOp.getParams().getNPerBlock();
-  } else if (auto nonxdlGemmOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
-    ret.MPerBlock = nonxdlGemmOp.getParams().getMPerBlock();
-    ret.NPerBlock = nonxdlGemmOp.getParams().getNPerBlock();
   } else {
     return failure();
   }
@@ -544,11 +541,6 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmInA = gemmAccelOp.getA();
       gemmInB = gemmAccelOp.getB();
       gemmOut = gemmAccelOp.getC();
-    } else if (GridwiseGemmOp gemmNonAccelOp =
-                   dyn_cast<GridwiseGemmOp>(gemmOp)) {
-      gemmInA = gemmNonAccelOp.getA();
-      gemmInB = gemmNonAccelOp.getB();
-      gemmOut = gemmNonAccelOp.getC();
     } else {
       LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
       return failure();
@@ -588,11 +580,6 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       gemmAccelOp.getAMutable().assign(trGemmInA);
       gemmAccelOp.getBMutable().assign(trGemmInB);
       gemmAccelOp.getCMutable().assign(trGemmOut);
-    } else if (GridwiseGemmOp gemmNonAccelOp =
-                   dyn_cast<GridwiseGemmOp>(gemmOp)) {
-      gemmNonAccelOp.getAMutable().assign(trGemmInA);
-      gemmNonAccelOp.getBMutable().assign(trGemmInB);
-      gemmNonAccelOp.getCMutable().assign(trGemmOut);
     } else {
       LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
       return failure();

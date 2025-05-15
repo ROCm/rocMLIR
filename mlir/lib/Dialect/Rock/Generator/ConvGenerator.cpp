@@ -270,36 +270,34 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  if (isAccel(config.features)) {
-    bool needExtraPad = false;
-    if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
-      return failure();
-    }
-    if (!needExtraPad) {
-      Type dataType = getInputDataType(builder);
-      if (dataType.isF32()) {
-        // For the following case, use 2 kernels:
-        // - backward weight
-        // - XDLOPS
-        // - fp32
-        // - No need extra pad along Gemm M/N/K
-        // The first kernel will 0-initialize the output (filter tensor).
-        // The second kernel will conduct the actual backward weight
-        // convolution, using atomic add instructions.
-        kernelCount = 2;
-      } else if (dataType.isF16()) {
-        // For the following case, use 3 kernels:
-        // - backward weight
-        // - XDLOPS
-        // - fp16
-        // - No need extra pad along Gemm M/N/K
-        // The first kernel will 0-initialize the workspace.
-        // The second kernel will conduct the actual backward weight
-        // convolution, using atomic add instructions. The third kernel will do
-        // elementwise conversion from fp32 in the workspace to fp16 in the
-        // actual output (filter tensor).
-        kernelCount = 3;
-      }
+  bool needExtraPad = false;
+  if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
+    return failure();
+  }
+  if (!needExtraPad) {
+    Type dataType = getInputDataType(builder);
+    if (dataType.isF32()) {
+      // For the following case, use 2 kernels:
+      // - backward weight
+      // - XDLOPS
+      // - fp32
+      // - No need extra pad along Gemm M/N/K
+      // The first kernel will 0-initialize the output (filter tensor).
+      // The second kernel will conduct the actual backward weight
+      // convolution, using atomic add instructions.
+      kernelCount = 2;
+    } else if (dataType.isF16()) {
+      // For the following case, use 3 kernels:
+      // - backward weight
+      // - XDLOPS
+      // - fp16
+      // - No need extra pad along Gemm M/N/K
+      // The first kernel will 0-initialize the workspace.
+      // The second kernel will conduct the actual backward weight
+      // convolution, using atomic add instructions. The third kernel will do
+      // elementwise conversion from fp32 in the workspace to fp16 in the
+      // actual output (filter tensor).
+      kernelCount = 3;
     }
   }
   return success();
@@ -374,27 +372,14 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCU=*/getNumCU()};
 
-  if (isAccel(config.features)) {
-    auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
-    InitParamsAccel validParams;
-    auto res = populateParamsAccelPtr->obtainTuningParameters(
-        builder, info, config.perfConfig, validParams);
-    if (succeeded(res)) {
-      needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
-                          validParams, gemmSize) != 0);
-      return success();
-    }
-  } else {
-    PopulateParams populateParams;
-    InitParamsNonAccel validParams;
-    auto res = populateParams.obtainTuningParameters(
-        builder, info, config.perfConfig, validParams);
-
-    if (succeeded(res)) {
-      needExtraPad =
-          (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
-      return success();
-    }
+  auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
+  InitParamsAccel validParams;
+  auto res = populateParamsAccelPtr->obtainTuningParameters(
+      builder, info, config.perfConfig, validParams);
+  if (succeeded(res)) {
+    needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
+                        validParams, gemmSize) != 0);
+    return success();
   }
   return failure();
 }
@@ -405,15 +390,13 @@ LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
   // Preconditions:
   // - data type: fp16
   // - operation: backward weight conv2d.
-  // - use XDLOPS.
   // - No need to pad along Gemm M/N/K dimension.
 
   needWorkspace = false;
   if (config.operation.has_value()) {
     Type dataType = getInputDataType(builder);
     ConvOpType dir = config.operation.value();
-    if ((dir == ConvOpType::BwdWeight) && isAccel(config.features) &&
-        (dataType == builder.getF16Type())) {
+    if ((dir == ConvOpType::BwdWeight) && (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
       if (failed(needExtraPadBwdWeight(builder, needPadding))) {

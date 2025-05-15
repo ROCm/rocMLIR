@@ -191,30 +191,6 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 // CHECK-LABEL: func.func @rock_transform_1_to_n
 //  CHECK-NEXT: rock.transform
 
-func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
-  rock.gridwise_gemm %C = %A * %B storeMethod(set) features = none {
-    blockSize = 256 : i32,
-    gridSize = 1 : i32,
-    numCU = 64 : i32,
-    params = #rock.general_gemm_params<
-      blockSize = 128,
-      kPerBlock = 8,
-      kPerThread = 1,
-      kpack = 1,
-      mPerBlock = 128,
-      mPerThread = 4,
-      nPerBlock = 128,
-      nPerThread = 4,
-      splitKFactor = 1, 
-      scheduleVersion = 1, 
-      outputSwizzle = 2>
-  } : memref<2x128x256xf32> = memref<2x72x128xf32> * memref<2x72x256xf32>
-  return
-}
-
-// CHECK-LABEL: func.func @rock_gridwise_gemm
-//  CHECK-NEXT: rock.gridwise_gemm
-
 func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
   rock.gridwise_gemm_accel(%A, %B, %C) storeMethod(set) features = none {
     arch = "amdgcn-amd-amdhsa:gfx908",

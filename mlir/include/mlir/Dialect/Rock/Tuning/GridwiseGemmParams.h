@@ -96,55 +96,6 @@ struct PopulateParamsInfo {
   static PopulateParamsInfo fromOp(RockGemmWrapperInterface op);
 };
 
-struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
-  int64_t gemmMPerThread;
-  int64_t gemmNPerThread;
-  uint32_t blockSize;
-  int64_t splitKFactor;
-  int64_t gemmScheduleVersion;
-  int64_t outputSwizzle;
-
-  constexpr InitParamsNonAccel(uint32_t bSize, int64_t mPerBlock,
-                               int64_t nPerBlock, int64_t kPerBlock,
-                               int64_t mPerThread, int64_t nPerThread,
-                               int64_t splitKFactor, int64_t scheduleVersion,
-                               int64_t outputSwizzle)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
-        gemmNPerThread(nPerThread), blockSize(bSize),
-        splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
-        outputSwizzle(outputSwizzle) {}
-
-  constexpr InitParamsNonAccel()
-      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL) {}
-
-  InitParamsNonAccel(GeneralGemmParamsAttr attr)
-      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
-                   attr.getKPerBlock()},
-        gemmMPerThread(attr.getMPerThread()),
-        gemmNPerThread(attr.getNPerThread()), blockSize(attr.getBlockSize()),
-        splitKFactor(attr.getSplitKFactor()),
-        gemmScheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()){};
-
-  int64_t getKPack() { return 1; }
-
-  template <class Self, class F>
-  static void visit(Self &&self, F f) {
-    f(self.blockSize);
-    f(self.gemmMPerBlock);
-    f(self.gemmNPerBlock);
-    f(self.gemmKPerBlock);
-    f(self.gemmMPerThread);
-    f(self.gemmNPerThread);
-    if (self.version >= Version::V2)
-      f(self.splitKFactor);
-    if (self.version >= Version::V3) {
-      f(self.gemmScheduleVersion);
-      f(self.outputSwizzle);
-    }
-  }
-};
-
 struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
                             int64_t kPerBlock, int64_t mPerWave,
@@ -184,6 +135,17 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false){};
+
+  InitParamsAccel(FmaGemmParamsAttr attr)
+      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
+                   attr.getKpackPerBlock()},
+        gemmMPerWave(attr.getMPerWave()),
+        gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
+        splitKFactor(attr.getSplitKFactor()),
+        gemmScheduleVersion(attr.getScheduleVersion()),
+        outputSwizzle(attr.getOutputSwizzle()),
+        gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   int64_t getKPack() { return gemmKPack; }
 
@@ -305,52 +267,6 @@ public:
 };
 
 //
-// Non acceleration parameter initialization interface
-//
-class PopulateParams : public BasePopulateParams<InitParamsNonAccel> {
-private:
-#define NonAccel_DECLARATIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef NonAccel_DECLARATIONS_GEN
-  // if can't select config from above , use this config to do
-  // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
-  // add more 3 gemmk
-
-  LogicalResult
-  calculateBlockGemmPerformanceParameters(const InitParamsNonAccel &param);
-
-  LogicalResult populateDerived(const InitParamsNonAccel &validParams);
-
-public:
-  LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
-                                       const StringRef perfConfig,
-                                       InitParamsNonAccel &validParams);
-
-  LogicalResult obtainTuningParameters(OpBuilder &b,
-                                       const PopulateParamsInfo &info,
-                                       const StringRef perfConfig,
-                                       InitParamsNonAccel &validParams);
-
-  // Return the vector of heuristic parameters for a given kernel type and dat
-  // type.
-  std::vector<InitParamsNonAccel>
-  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB) const;
-
-  Attribute getGemmParamsAttr(OpBuilder &b,
-                              const InitParamsNonAccel &params) const override;
-
-  LogicalResult paramsProbablyValid(OpBuilder &b,
-                                    const PopulateParamsInfo &info,
-                                    const InitParamsNonAccel &params) override;
-
-  LogicalResult couldBePerformant(const PopulateParamsInfo &info,
-                                  const InitParamsNonAccel &params) override;
-
-  int64_t calculatePaddingAmount(const InitParamsNonAccel &params,
-                                 const GemmSize &gemmSize) const override;
-};
-
-//
 // Acceleration parameter initialization interface
 //
 class PopulateParamsAccel : public BasePopulateParams<InitParamsAccel> {
@@ -443,6 +359,36 @@ private:
 #define Wmma_DECLARATIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Wmma_DECLARATIONS_GEN
+
+public:
+  std::vector<InitParamsAccel>
+  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
+                      StringRef arch) const override;
+
+  Attribute
+  getGemmParamsAttr(OpBuilder &builder,
+                    const InitParamsAccel &validParams) const override;
+
+  LogicalResult
+  isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
+                       Type dataTypeB, StringRef arch,
+                       bool enableBlockSizeUpperLimit = true,
+                       bool enableDPerWaveFiltering = true) override;
+
+protected:
+  LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
+                                          Type dataTypeA,
+                                          Type dataTypeB) override;
+};
+
+//
+// Fma interface
+//
+class PopulateParamsFma : public PopulateParamsAccel {
+private:
+#define Fma_DECLARATIONS_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef Fma_DECLARATIONS_GEN
 
 public:
   std::vector<InitParamsAccel>

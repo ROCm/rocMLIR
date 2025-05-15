@@ -26,6 +26,7 @@
 #define MLIR_LIB_DIALECT_ROCK_TRANSFORMS_MLIR_ACCEL_EMITTER_H
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/FmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
@@ -69,12 +70,12 @@ struct AccelEmitterParams {
   Type argTypeA;            // Type of the arguments (might be scalar or vector)
   Type argTypeB;            // Type of the arguments (might be scalar or vector)
   VectorType accVectorType; // Accumulator vector type (always vector type)
+  int64_t nOutputVectors;   // Number of output vectors
 
   // Each workitem invoking an accelerator receives as a result a given number
   // of elements stored in VGPR
   int64_t numOutputVectorElements() const {
-    return accVectorType.getNumElements() * nResultVectors * mRepeats *
-           nRepeats;
+    return accVectorType.getNumElements() * nOutputVectors;
   }
 };
 
@@ -86,12 +87,14 @@ struct AccelEmitter {
 
   /// Select the right accelerator based on the set of features and architecture
   static std::unique_ptr<AccelEmitter>
-  select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
+  select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
+         int64_t blockSize, StringRef arch,
          RockAccelTuningParamAttrInterface tuningParams);
 
   /// Emit the actual intrinsic in the threadwise operation
-  virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
-                                  Value argB, Value bufferC,
+  virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, int64_t blockSize,
+                                  Value ldsReductionBuffer, Value i, Value j,
+                                  Value argA, Value argB, Value bufferC,
                                   ValueRange regCOffset) = 0;
 
   /// Return a wrapped view of the LDS buffer tailored for the accelerator
@@ -129,10 +132,17 @@ struct AccelEmitter {
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) = 0;
 
+  /// Allocate LDS buffer for reduction if needed, otherwise return nullptr
+  virtual Value allocateLDSBufferForReduction(OpBuilder &b, Location loc,
+                                              int64_t blockSize) {
+    return nullptr;
+  };
+
   /// Convert from memref<?xvector<?xT>> to memref<?xD> where the source T
   /// is the accumulator type and D is the destination type
-  void computeOutputConversion(PatternRewriter &b, Location loc, Value regDest,
-                               Value convertedC, bool forceUnroll);
+  void computeOutputConversion(PatternRewriter &b, Location loc,
+                               Value regVectorOrig, Value regDest,
+                               bool forceUnroll);
 
   // A view: A buffer is [0, K] so we can ignore `i`
   Value generateThreadwiseViewBufferA(PatternRewriter &b, Location loc,
@@ -151,7 +161,7 @@ struct AccelEmitter {
 
   virtual ~AccelEmitter() {}
 
-  enum AccelEmitterKind { AEK_MFMAEmitter, AEK_WMMAEmitter };
+  enum AccelEmitterKind { AEK_MFMAEmitter, AEK_WMMAEmitter, AEK_FMAEmitter };
 
   AccelEmitterKind getKind() const { return kind; }
 
@@ -173,16 +183,18 @@ struct MfmaEmitter : public AccelEmitter {
   MfmaEmitter(MfmaInsnGroup mfmaGroup, StringRef arch,
               RockAccelTuningParamAttrInterface tuningParams);
 
-  void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, ValueRange regCOffset) override;
+  void emitThreadwiseLoop(OpBuilder &b, Location loc, int64_t blockSize,
+                          Value ldsReductionBuffer, Value i, Value j,
+                          Value argA, Value argB, Value bufferC,
+                          ValueRange regCOffset) override;
 
-  virtual Value
+  Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
                        StringRef dName, bool rotateDWithK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
+  FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
@@ -220,16 +232,18 @@ struct WmmaEmitter : public AccelEmitter {
   WmmaEmitter(WmmaInsn wmmaInsn, StringRef arch,
               RockAccelTuningParamAttrInterface tuningParams);
 
-  void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, ValueRange regCOffset) override;
+  void emitThreadwiseLoop(OpBuilder &b, Location loc, int64_t blockSize,
+                          Value ldsReductionBuffer, Value i, Value j,
+                          Value argA, Value argB, Value bufferC,
+                          ValueRange regCOffset) override;
 
-  virtual Value
+  Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
                        StringRef dName, bool rotateDWithK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
+  FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
@@ -257,6 +271,56 @@ private:
   WmmaInsn wmmaInsn;
 
   bool isGfx11;
+};
+
+// Accel emitter implementation for fma
+struct FmaEmitter : public AccelEmitter {
+
+  FmaEmitter(FmaInsn fmaInsn, int64_t blockSize, StringRef arch,
+             RockAccelTuningParamAttrInterface tuningParams);
+
+  void emitThreadwiseLoop(OpBuilder &b, Location loc, int64_t blockSize,
+                          Value ldsReductionBuffer, Value i, Value j,
+                          Value argA, Value argB, Value bufferC,
+                          ValueRange regCOffset) override;
+
+  Value
+  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                       int64_t blockSize, int64_t dInCopyPerThread,
+                       StringRef dName, bool rotateDWithK,
+                       bool doSplitKAcrossThreadsFirst = false) const override;
+
+  FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
+      OpBuilder &b, Location loc, int64_t kIters,
+      ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      bool rotateDWithK,
+      bool doSplitKAcrossThreadsFirst = false) const override;
+
+  FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
+      OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
+      ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+      int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
+      bool doSwapThreadIterSubDimsForN = false) override;
+
+  /// Allocate LDS buffer for reduction if needed, otherwise return nullptr
+  Value allocateLDSBufferForReduction(OpBuilder &b, Location loc,
+                                      int64_t blockSize) override;
+
+  static bool classof(const AccelEmitter *AE) {
+    return AE->getKind() == AccelEmitterKind::AEK_FMAEmitter;
+  }
+
+private:
+  /// Initialize the emitter parameters for fma
+  AccelEmitterParams
+  initAccelEmitterParams(FmaInsn fmaInsn,
+                         RockAccelTuningParamAttrInterface tuningParams,
+                         int64_t blockSize, StringRef arch);
+
+  Value waveReduction(OpBuilder &b, Location loc, Value value);
+
+  FmaInsn fmaInsn;
 };
 } // namespace accel
 } // namespace rock

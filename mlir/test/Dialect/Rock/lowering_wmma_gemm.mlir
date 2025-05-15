@@ -4,7 +4,7 @@
 // CHECK: rock_accel_gemm_wmma
 func.func @rock_accel_gemm_wmma(%matrixA : memref<1x4xvector<16xf16>, 5>,
                                 %matrixB : memref<1x4xvector<16xf16>, 5>,
-                                %matrixC : memref<1x1xvector<8xf32>, 5>) {
+                                %matrixC : memref<1x1xvector<8xf32>, 5>) attributes {block_size = 32 : i32} {
   %c0 = arith.constant 0 : index
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -33,7 +33,7 @@ func.func @rock_accel_gemm_wmma(%matrixA : memref<1x4xvector<16xf16>, 5>,
 // CHECK: rock_accel_gemm_wmma_gfx12
 func.func @rock_accel_gemm_wmma_gfx12(%matrixA : memref<1x4xvector<8xf16>, 5>,
                                       %matrixB : memref<1x4xvector<8xf16>, 5>,
-                                      %matrixC : memref<1x1xvector<8xf32>, 5>) {
+                                      %matrixC : memref<1x1xvector<8xf32>, 5>) attributes {block_size = 32 : i32} {
   %c0 = arith.constant 0 : index
   // CHECK: rock.transforming_for
   // CHECK-SAME  bounds [1, 1, 1]
@@ -62,7 +62,7 @@ func.func @rock_accel_gemm_wmma_gfx12(%matrixA : memref<1x4xvector<8xf16>, 5>,
 // CHECK: rock_accel_gemm_wmma_repeats
 func.func @rock_accel_gemm_wmma_repeats(%matrixA : memref<1x4xvector<16xf16>, 5>,
                                         %matrixB : memref<1x4xvector<16xf16>, 5>,
-                                        %matrixC : memref<4xvector<8xf32>, 5>) {
+                                        %matrixC : memref<4xvector<8xf32>, 5>) attributes {block_size = 32 : i32} {
   %c1 = arith.constant 1 : index
   %c0 = arith.constant 0 : index
   // CHECK: rock.transforming_for
@@ -93,7 +93,7 @@ func.func @rock_accel_gemm_wmma_repeats(%matrixA : memref<1x4xvector<16xf16>, 5>
 // CHECK: rock_accel_gemm_wmma_repeats_int8
 func.func @rock_accel_gemm_wmma_repeats_int8(%matrixA : memref<1x4xvector<16xi8>, 5>,
                                              %matrixB : memref<1x4xvector<16xi8>, 5>,
-                                             %matrixC : memref<4xvector<8xi32>, 5>) {
+                                             %matrixC : memref<4xvector<8xi32>, 5>) attributes {block_size = 32 : i32} {
   %c1 = arith.constant 1 : index
   %c0 = arith.constant 0 : index
   // CHECK: rock.transforming_for
@@ -124,7 +124,7 @@ func.func @rock_accel_gemm_wmma_repeats_int8(%matrixA : memref<1x4xvector<16xi8>
 // CHECK: rock_accel_gemm_wmma_partial_repeats_int8
 func.func @rock_accel_gemm_wmma_partial_repeats_int8(%matrixA : memref<1x2xvector<16xi8>, 5>,
                                                      %matrixB : memref<1x2xvector<16xi8>, 5>,
-                                                     %matrixC : memref<4xvector<8xi32>, 5>) {
+                                                     %matrixC : memref<4xvector<8xi32>, 5>) attributes {block_size = 64 : i32} {
   %c1 = arith.constant 1 : index
   %c0 = arith.constant 1 : index
   // CHECK: rock.transforming_for

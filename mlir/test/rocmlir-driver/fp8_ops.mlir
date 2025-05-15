@@ -12,7 +12,7 @@
 
 // MFMA: rocdl.mfma.f32.16x16x32.fp8.fp8
 // MFMA-NOT: llvm.mlir.global private constant @__rocmlir_extf_tbl_f8E4M3FNUZ
-// MFMA_OFF: rocdl.cvt.f32.fp8
+// MFMA_OFF: rocdl.cvt.pk.f32.fp8
 // MFMA_OFF-NOT: llvm.mlir.global private constant @__rocmlir_extf_tbl_f8E4M3FNUZ
 // GFX11: llvm.mlir.global private constant @__rocmlir_extf_tbl_f8E4M3FNUZ
 // GFX11_OCP{LITERAL}: llvm.mlir.global private constant @__rocmlir_extf_tbl_f8E4M3FN(

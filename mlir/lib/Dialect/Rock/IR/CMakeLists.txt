@@ -11,6 +11,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   RockWriterOpInterface.cpp
   MfmaInsnGroup.cpp
   WmmaInsnGroup.cpp
+  FmaInsnGroup.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Rock

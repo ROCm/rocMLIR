@@ -148,93 +148,70 @@ void AffixTuningParameters::affixTuningParametersImpl(
   }
 
   GemmFeatures features = op.getGemmFeatures();
-  if (isAccel(features)) {
-    auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-    InitParamsAccel validParams;
-    LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
-        op, perfConfig, validParams);
-    // update schedule version to what is provided by the user if and only if
-    // user hasn't provided perfConfig, otherwise just keep whatever is inside
-    // perfConfig
-    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
-      validParams.gemmScheduleVersion = scheduleVersion;
+  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+  InitParamsAccel validParams;
+  LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
+      op, perfConfig, validParams);
+  // update schedule version to what is provided by the user if and only if
+  // user hasn't provided perfConfig, otherwise just keep whatever is inside
+  // perfConfig
+  if (!op->hasAttrOfType<StringAttr>("perf_config")) {
+    validParams.gemmScheduleVersion = scheduleVersion;
+  }
+  if (failed(status)) {
+    // Try again if allowed.
+    if (fallBackNoConfig) {
+      perfConfig.clear();
+      status = populateParamsAccelPtr->obtainTuningParameters(op, perfConfig,
+                                                              validParams);
     }
     if (failed(status)) {
-      // Try again if allowed.
-      if (fallBackNoConfig) {
-        perfConfig.clear();
-        status = populateParamsAccelPtr->obtainTuningParameters(op, perfConfig,
-                                                                validParams);
-      }
-      if (failed(status)) {
-        LLVM_DEBUG(llvm::dbgs() << "obtainTuningParameters call fails.\n");
-        return signalPassFailure();
-      }
-    }
-
-    auto origGemmSize = op.getGemmSize();
-    auto paddedGemmSize = calculatePaddedGemmSize(validParams, origGemmSize,
-                                                  validParams.gemmKPack);
-    const bool requiredPadding = !(paddedGemmSize == origGemmSize);
-
-    int64_t gemmKBlocks = 1;
-    PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
-    auto maybeWrwOp = (info.kernelType == KernelType::ConvBwdWeight);
-    if (maybeWrwOp &&
-        isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
-      auto res = calculateKBlockNum(
-          info.batchSize, paddedGemmSize, validParams.gemmMPerBlock,
-          validParams.gemmNPerBlock, validParams.gemmKPerBlock,
-          validParams.gemmKPack, info.numCu, gemmKBlocks);
-
-      if (failed(res)) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Invalid tuning parameters for computing KBlocks.\n");
-        return signalPassFailure();
-      }
-    }
-
-    // Set kblocks attribute only for backward weight convolutions.
-    if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
-      bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
-
-    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
-    RockAccelTuningParamAttrInterface gemmParams;
-    Attribute gemmParamsAttr =
-        populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
-    if (auto xdlopsParams = dyn_cast<XdlopsGemmParamsAttr>(gemmParamsAttr)) {
-      gemmParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
-    } else {
-      gemmParams = cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
-    }
-    int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
-    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
-    op.setGemmParamsAttr(gemmParams);
-
-    // Set attributes on the function.
-    getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-  } else {
-    InitParamsNonAccel validParams;
-    PopulateParams populateParams;
-    LogicalResult status =
-        populateParams.obtainTuningParameters(op, perfConfig, validParams);
-    if (failed(status)) {
+      LLVM_DEBUG(llvm::dbgs() << "obtainTuningParameters call fails.\n");
       return signalPassFailure();
     }
-    // update schedule version to what is provided by the user if and only if
-    // user hasn't provided perfConfig, otherwise just keep whatever was
-    // obtained from perfConfig
-    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
-      validParams.gemmScheduleVersion = scheduleVersion;
-    }
-
-    Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
-    op.setGemmParamsAttr(gemmParams);
-
-    // Set attributes on the function.
-    getOperation()->setAttr("block_size",
-                            b.getI32IntegerAttr(validParams.blockSize));
   }
+
+  auto origGemmSize = op.getGemmSize();
+  auto paddedGemmSize =
+      calculatePaddedGemmSize(validParams, origGemmSize, validParams.gemmKPack);
+  const bool requiredPadding = !(paddedGemmSize == origGemmSize);
+
+  int64_t gemmKBlocks = 1;
+  PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
+  auto maybeWrwOp = (info.kernelType == KernelType::ConvBwdWeight);
+  if (maybeWrwOp &&
+      isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
+    auto res = calculateKBlockNum(
+        info.batchSize, paddedGemmSize, validParams.gemmMPerBlock,
+        validParams.gemmNPerBlock, validParams.gemmKPerBlock,
+        validParams.gemmKPack, info.numCu, gemmKBlocks);
+
+    if (failed(res)) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Invalid tuning parameters for computing KBlocks.\n");
+      return signalPassFailure();
+    }
+  }
+
+  // Set kblocks attribute only for backward weight convolutions.
+  if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
+    bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
+
+  int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
+  RockAccelTuningParamAttrInterface gemmParams;
+  Attribute gemmParamsAttr =
+      populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
+  if (auto xdlopsParams = dyn_cast<XdlopsGemmParamsAttr>(gemmParamsAttr)) {
+    gemmParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
+  } else {
+    gemmParams = cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
+  }
+  int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
+  op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
+  op.setGemmParamsAttr(gemmParams);
+
+  // Set attributes on the function.
+  getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 }
 
 static RockAccelTuningParamAttrInterface
@@ -258,28 +235,32 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
         gemm0XdlDerivedParams.getScheduleVersion(),
         gemm0XdlDerivedParams.getOutputSwizzle(),
         gemm0XdlDerivedParams.getForceUnroll());
+  } else if (isa<WmmaGemmParamsAttr>(op.getGemm0Params().value())) {
+    return WmmaGemmParamsAttr::get(
+        builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+        attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
+        gemm0TuningParams.getKpack(),
+        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
+                                           gemm0TuningParams.getMPerBlock()),
+        gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getScheduleVersion(),
+        gemm0TuningParams.getOutputSwizzle(),
+        gemm0TuningParams.getForceUnroll());
+  } else {
+    return FmaGemmParamsAttr::get(
+        builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+        attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
+        gemm0TuningParams.getKpack(),
+        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
+                                           gemm0TuningParams.getMPerBlock()),
+        gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getScheduleVersion(),
+        gemm0TuningParams.getOutputSwizzle(),
+        gemm0TuningParams.getForceUnroll());
   }
-  return WmmaGemmParamsAttr::get(
-      builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
-      gemm0TuningParams.getKpack(),
-      gemm0TuningParams.getMPerWave() *
-          (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getScheduleVersion(),
-      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmGemmWrapperInterface op) {
   OpBuilder builder(op.getContext());
-  bool isAccel = rock::isAccel(op.getGemmFeatures());
-  if (!isAccel) {
-    op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
-                 "supported on GPUs "
-                 "with matrix accelerator extentions");
-    return signalPassFailure();
-  }
-
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =
@@ -305,8 +286,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
         attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(), 2,
         attnPerfConfig.getForceUnroll());
     accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
-  } else {
+  } else if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
     accelParams0 = WmmaGemmParamsAttr::get(
+        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(), 2,
+        attnPerfConfig.getForceUnroll());
+  } else {
+    accelParams0 = FmaGemmParamsAttr::get(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
