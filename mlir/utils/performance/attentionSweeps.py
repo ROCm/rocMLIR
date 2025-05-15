@@ -170,7 +170,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     if proc3.returncode not in [None, 0]:
         if options.debug:
             print("Runner failed:", output)
-            return TestResult.FAILED
+            return TestResult.FAIL
     if 'FAILED' in output or 'nan' in output.lower():
         return TestResult.FAIL
     return TestResult.PASS
