@@ -217,11 +217,9 @@ def main():
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
-    print("args parsed")
     arch = ','.join(getArch())
     chip = GFX_CHIP_RE.search(arch).group(0)
     paths = createPaths(None, args.mlir_build_dir)
-    print("paths ok")
     options = Options(
         debug=args.debug,
         quiet=args.quiet,
@@ -232,7 +230,6 @@ def main():
         PerfConfigVersion=PerfConfigVersion.V1
     )
    
-    print("options ok")
 
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")
@@ -242,9 +239,7 @@ def main():
         for _ in range(args.samples)
     ]
 
-    print("and after sampliing?")
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
-    print("after sweep?")
     print(f"Passed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     if failing:
         print("\n*** Failing Configurations ***")
