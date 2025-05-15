@@ -111,18 +111,40 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    mlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
+    mlirGenOpts = config.generateMlirDriverArgs(options.flags)
     mlirGenOpts.append('-pv')
 
+    fDescR, fDescW = os.pipe()
+
     proc1 = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocmlir_gen_path, *mlirGenOpts,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        paths.mlir_paths.rocmlir_gen_path,
+        *mlirGenOpts,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=fDescW,
+        stderr=asyncio.subprocess.PIPE
     )
 
+    os.close(fDescW)
+
     proc2 = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocmlir_driver_path, '-c',
-        sdin=proc1.stdout, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        paths.mlir_paths.rocmlir_driver_path,
+        '-c',
+        stdin=fDescR,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
     )
+
+    os.close(fDescR)
+
+    rocmlirDriverOutput, _ = await proc2.communicate()
+    await proc1.wait()
+
+    if proc1.returncode !=0 or proc2.returncode !=0:
+        if options.debug:
+            print("rocmlir_gen or rocmlir_driver failed")
+        return TestResult.INVALID
+    
+    runnerR, runnerW = os.pipe()
 
     proc3 = await asyncio.create_subprocess_exec(
         paths.mlir_paths.cpu_runner_path,
@@ -131,9 +153,14 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
         f'{paths.mlir_paths.libconv_validation_wrappers_path},'
         f'{paths.mlir_paths.libmlir_runtime_utils_path}',
         '--entry-point-result=void',
-        stdin=proc2.stdout,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        stdin=runnerR,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
     )
+
+    os.close(runnerR)
+    os.write(runnerW, rocmlirDriverOutput)
+    os.close(runnerW)
 
     stdout3, _ = await proc3.communicate()
     output = stdout3.decode('utf-8')
@@ -231,7 +258,7 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
-            writer.writerow([' '.join(config.generateMlirDriverCommandLine([]))])
+            writer.writerow([' '.join(config.generateMlirDriverArgs([]))])
 
 
 def main():
@@ -272,7 +299,7 @@ def main():
     if failing:
         print("\n*** Failing Configurations ***")
         for fail in failing:
-            print(' '.join(fail.generateMlirDriverCommandLine([])))
+            print(' '.join(fail.generateMlirDriverArgs([])))
         if args.log_failures:
             logFailingConfigs(failing, LOGFILE)
 
