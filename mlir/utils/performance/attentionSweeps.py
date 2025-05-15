@@ -30,9 +30,10 @@ from perfRunner import Paths
 from perfRunner import getArch
 from perfRunner import getNumCU
 from perfRunner import create_paths as createPaths
+from perfRunner import MLIR_N_REPEATS
 
 # GLOBAL VARIABLES
-DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
+DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
 #SEQ_LENGTHS = range(1, 16385) 
 #HEAD_DIMS = range(1, 16385)
 #GROUPS = range(1, 16385)
@@ -66,6 +67,33 @@ class Options:
     concurrentTests: int
     numCu: int
     PerfConfigVersion: PerfConfigVersion
+
+
+def generateMlirDriverArgs(self, rocmlir_gen_flags: Optional[List[str]] = None) -> List[str]:
+    result = [
+        '-operation', 'attention',
+        '-t', self.dataType,
+        '--arch', self.arch,
+        '--num_cu', str(self.numCU),
+        '-g', str(self.g),
+        '-seq_len_q', str(self.seq_len_q),
+        '-seq_len_k', str(self.seq_len_k),
+        '-head_dim_qk', str(self.head_dim_qk),
+        '-head_dim_v', str(self.head_dim_v),
+        f"-with-attn-scale={self.with_attn_scale}",
+        f"-with-attn-bias={self.with_attn_bias}",
+        f"-transQ={self.transQ}",
+        f"-transK={self.transK}",
+        f"-transV={self.transV}",
+        f"-transO={self.transO}",
+        '--kernel-repeats', str(MLIR_N_REPEATS),
+        f"--perf_config={self.perfConfig}"
+    ]
+
+    result += rocmlir_gen_flags or []
+    return result
+
+AttentionConfiguration.generateMlirDriverArgs = generateMlirDriverArgs
 
 
 def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
