@@ -10,9 +10,11 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/APFloat.h"
 
 namespace mlir {
 namespace arith {
@@ -335,6 +337,81 @@ struct BFloat16TruncFOpConverter : public OpRewritePattern<arith::TruncFOp> {
   }
 };
 
+struct ScalingExtFOpConverter : public OpRewritePattern<arith::ScalingExtFOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(arith::ScalingExtFOp op,
+                                PatternRewriter &rewriter) const final {
+    ImplicitLocOpBuilder b(op.getLoc(), rewriter);
+    auto inputOperand = op.getIn();
+    auto scaleOperand = op.getScale();
+    Type scaleTy = scaleOperand.getType();
+    Type resultTy = op.getType();
+    FloatType scaleETyp = cast<FloatType>(getElementTypeOrSelf(scaleTy));
+    auto scaleNonExponentWidth = scaleETyp.getFPMantissaWidth();
+    auto scaleBitWidth = scaleETyp.getWidth();
+    auto scaleExponentWidth = scaleBitWidth - scaleNonExponentWidth;
+    Value uiScale = b.create<arith::BitcastOp>(
+        b.getIntegerType(scaleBitWidth, false), scaleOperand);
+    Type scaleBitIType = b.getIntegerType(scaleBitWidth, false);
+    if (auto shapedTy = dyn_cast<ShapedType>(scaleTy)) {
+      scaleBitIType = shapedTy.clone(scaleBitIType);
+    }
+    Value c0 = createConst(op.getLoc(), scaleBitIType, 0, rewriter);
+    Value c1 = createConst(op.getLoc(), scaleBitIType, 1, rewriter);
+    Value cE = createConst(op.getLoc(), scaleBitIType, scaleNonExponentWidth,
+                           rewriter);
+    Value signlessScale = b.create<arith::ShLIOp>(uiScale, c1);
+    Value biasedExponentScale = b.create<arith::ShRUIOp>(signlessScale, cE);
+    // check for subnormal scale value by checking if exponent bit encoding is
+    // zero or not
+    Value isZero = b.create<arith::CmpIOp>(arith::CmpIPredicate::eq,
+                                           biasedExponentScale, c0);
+    Value scaleExponentBitWidthLessOne =
+        b.create<arith::SubIOp>(scaleExponentWidth, c1);
+    Value exponentBias = b.create<arith::SubIOp>(
+        b.create<arith::ShLIOp>(c1, scaleExponentBitWidthLessOne), c1);
+    // Micro scaling FP standard doesn't support FNUZ types but keep it anyways
+    // for emulation
+    if (llvm::isa<Float8E4M3FNUZType>(scaleETyp) ||
+        llvm::isa<Float8E5M2FNUZType>(scaleETyp)) {
+      exponentBias = b.create<arith::ShLIOp>(c1, scaleExponentBitWidthLessOne);
+    }
+    Value unBiasedScaleExponent =
+        b.create<arith::SubIOp>(biasedExponentScale, exponentBias);
+    Value subNormalScaleExponent =
+        b.create<arith::ShLIOp>(c1, b.create<arith::SubIOp>(c1, exponentBias));
+    Value scaleInResultTy =
+        b.create<arith::SIToFPOp>(resultTy, unBiasedScaleExponent);
+    Value subNormalScaleExponentInResultTy =
+        b.create<arith::SIToFPOp>(resultTy, subNormalScaleExponent);
+    Value inputInResultTyp = b.create<arith::ExtFOp>(resultTy, inputOperand);
+    Value normalResult =
+        b.create<arith::MulFOp>(scaleInResultTy, inputInResultTyp);
+    // FP8E8M0 doesn't have subnormal values and zero encoding is a valid
+    // value. It has one NaN which is represented as 0xFF, NaNs should be
+    // propagated
+    if (llvm::isa<Float8E8M0FNUType>(scaleETyp)) {
+      rewriter.replaceOp(op, normalResult);
+      return success();
+    }
+    Value subNormalResult = b.create<arith::MulFOp>(
+        subNormalScaleExponentInResultTy, inputInResultTyp);
+    Value result =
+        b.create<arith::SelectOp>(isZero, subNormalResult, normalResult);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+struct ScalingTruncFOpConverter
+    : public OpRewritePattern<arith::ScalingTruncFOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(arith::ScalingTruncFOp op,
+                                PatternRewriter &rewriter) const final {
+    return success();
+  }
+};
+
 struct ArithExpandOpsPass
     : public arith::impl::ArithExpandOpsPassBase<ArithExpandOpsPass> {
   using ArithExpandOpsPassBase::ArithExpandOpsPassBase;
@@ -399,8 +476,15 @@ void mlir::arith::populateExpandBFloat16Patterns(RewritePatternSet &patterns) {
       patterns.getContext());
 }
 
+void mlir::arith::populateExpandScalingExtTruncPatterns(
+    RewritePatternSet &patterns) {
+  patterns.add<ScalingExtFOpConverter, ScalingTruncFOpConverter>(
+      patterns.getContext());
+}
+
 void mlir::arith::populateArithExpandOpsPatterns(RewritePatternSet &patterns) {
   populateCeilFloorDivExpandOpsPatterns(patterns);
+  populateExpandScalingExtTruncPatterns(patterns);
   // clang-format off
   patterns.add<
     MaxMinIOpConverter<MaxSIOp, arith::CmpIPredicate::sgt>,
