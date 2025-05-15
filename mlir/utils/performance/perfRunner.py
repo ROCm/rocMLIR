@@ -24,10 +24,11 @@ import reportUtils
 from perfCommonUtils import Operation, GEMMLibrary
 
 # global variables.
-ROCPROF = '/opt/rocm/bin/rocprof'
+ROCPROF = '/opt/rocm/bin/rocprofv3'
 MIOPENDRIVER = '/opt/rocm/bin/MIOpenDriver'
-BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
-BENCHMARKING_METRICS_FILE_NAME = 'results.csv'
+BENCHMARKING_RESULT_FILE_NAME = 'results'
+BENCHMARKING_STATS_FILE_NAME = 'pmc_1/results_kernel_stats.csv'
+BENCHMARKING_METRICS_FILE_NAME = 'pmc_1/results_counter_collection.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
@@ -139,7 +140,7 @@ def getNanoSeconds(fileName):
 
         result = 0
         for row in reader:
-            result += int(row['AverageNs'])
+            result += int(float(row['AverageNs']))
         csv_file.close()
         return result
 
@@ -163,12 +164,13 @@ def getBankConflict(fileName):
     with open(fileName, 'r') as csv_file:
         reader = csv.DictReader(csv_file, delimiter = ',')
         header = reader.fieldnames
-        if 'LDSBankConflict' not in header:
+        if 'Counter_Name' not in header or 'Counter_Value' not in header:
             return np.nan
 
         result = []
         for row in reader:
-            result.append(float(row['LDSBankConflict']))
+            if row['Counter_Name'] == 'LDSBankConflict':
+                result.append(float(row['Counter_Value']))
         csv_file.close()
         result_average = sum(result) / len(result)
         return result_average
@@ -650,7 +652,8 @@ def getAttentionConfigurations(fileName):
         "-transK": bool_space,
         "-transV": bool_space,
         "-transO": bool_space,
-        "-with-attn-scale": bool_space
+        "-with-attn-scale": bool_space,
+        "-with-attn-bias": bool_space
     }
     configs = []
     if fileName:
@@ -928,7 +931,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
-    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: int,
+    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: bool, with_attn_bias: bool,
                  transQ: bool, transK: bool, transV: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
@@ -940,6 +943,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.head_dim_qk = head_dim_qk
         self.head_dim_v = head_dim_v
         self.with_attn_scale = with_attn_scale
+        self.with_attn_bias = with_attn_bias
         self.transQ = transQ
         self.transK = transK
         self.transV = transV
@@ -967,7 +971,9 @@ class AttentionConfiguration(PerfConfiguration):
         if not only_matmul_flops:
             total_flops += softmax_flops
             if self.with_attn_scale:
-                total_flops += self.seq_len_q * self.seq_len_k
+                total_flops += self.g * self.seq_len_q * self.seq_len_k
+            if self.with_attn_bias:
+                total_flops += self.g * self.seq_len_q * self.seq_len_k
         return total_flops / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
@@ -981,6 +987,7 @@ class AttentionConfiguration(PerfConfiguration):
             self.transV,
             self.transO,
             self.with_attn_scale,
+            self.with_attn_bias,
             self.g,
             self.seq_len_q,
             self.seq_len_k,
@@ -995,7 +1002,7 @@ class AttentionConfiguration(PerfConfiguration):
         return result
 
     def __repr__(self):
-        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r},
+        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r}, with_attn_bias={self.with_attn_bias!r},
                 transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
@@ -1012,6 +1019,7 @@ class AttentionConfiguration(PerfConfiguration):
                            '-head_dim_qk', str(self.head_dim_qk),
                            '-head_dim_v', str(self.head_dim_v),
                            f"-with-attn-scale={self.with_attn_scale}",
+                           f"-with-attn-bias={self.with_attn_bias}",
                            f"-transQ={self.transQ}",
                            f"-transK={self.transK}",
                            f"-transV={self.transV}",
@@ -1038,6 +1046,7 @@ class AttentionConfiguration(PerfConfiguration):
         transV = False
         transO = False
         with_attn_scale = False
+        with_attn_bias = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -1056,6 +1065,8 @@ class AttentionConfiguration(PerfConfiguration):
                 head_dim_v = int(val)
             elif opt.endswith("-with-attn-scale"):
                 with_attn_scale = (val.lower() in ["1", "true"])
+            elif opt.endswith("-with-attn-bias"):
+                with_attn_bias = (val.lower() in ["1", "true"])
             elif opt.endswith("-transQ"):
                 transQ = (val.lower() in ["1", "true"])
             elif opt.endswith("-transK"):
@@ -1068,11 +1079,11 @@ class AttentionConfiguration(PerfConfiguration):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
-        for v in [dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, transQ, transK, transV, transO]:
+        for v in [dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO]:
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, transQ, transK, transV, transO, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, arch, numCU, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
@@ -1080,7 +1091,8 @@ class AttentionConfiguration(PerfConfiguration):
                 + f"-transV {str(self.transV).lower()} -transO {str(self.transO).lower()} "
                 + f"-g {self.g} "
                 + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
-                + f"-with-attn-scale {str(self.with_attn_scale).lower()}")
+                + f"-with-attn-scale {str(self.with_attn_scale).lower()}"
+                + f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
 
 class RocBLASGemmConfig(GemmConfiguration):
@@ -1093,7 +1105,7 @@ class RocBLASGemmConfig(GemmConfiguration):
             raise ValueError("rocblas-benchmark-driver not built")
         benchmarkArgs = config.generateMlirDriverCommandLine("")
         # remove the result file generated by rocprof in previous benchmarking
-        os.system("rm -f "+BENCHMARKING_RESULT_FILE_NAME)
+        os.system("rm -f "+BENCHMARKING_STATS_FILE_NAME)
         print(f"Running rocBLAS benchmark {config!r}")
         profilerCommand = [paths.mlir_paths.rocblas_benchmark_driver_path] + \
             benchmarkArgs.split()
@@ -1125,14 +1137,14 @@ class CKGemmConfig(GemmConfiguration):
 
 def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen_flags, debug=True):
     # remove the result file generated by rocprof in previous benchmarking
-    os.system("rm -f "+BENCHMARKING_RESULT_FILE_NAME)
+    os.system("rm -f "+BENCHMARKING_STATS_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] +  getMetricArgsForRocprof(arch) + ['--stats', '-o', BENCHMARKING_METRICS_FILE_NAME, paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(arch) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME, '--' ,paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
 
     runPipeline([rocmlirGenCommand.split(), rocmlirDriverCommand, profilerCommand])
 
@@ -1148,7 +1160,7 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
 
     runConfigWithMLIR(config, paths, arch, rocmlir_gen_flags)
     # get nanoseconds from rocprof output.
-    nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+    nanoSeconds = getNanoSeconds(BENCHMARKING_STATS_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen or rocBLAS performance results
@@ -1288,7 +1300,7 @@ def getFusionTestInfo(filename, paths: Paths):
     return testEntry
 
 def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
-    os.system("rm -f "+BENCHMARKING_RESULT_FILE_NAME)
+    os.system("rm -f "+BENCHMARKING_STATS_FILE_NAME)
 
     rocmlirCommand, futName = findRunCommand(filename)
 
@@ -1314,7 +1326,7 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
     kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline','full']
     commands.append(kernelPipelineCommand)
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(getChip()) + ['--stats', '-o', BENCHMARKING_METRICS_FILE_NAME] + [paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(getChip()) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + '--' + [paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     commands.append(profilerCommand)
     runPipeline(commands)
 
@@ -1383,7 +1395,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         rocmlirGenArgs = ['-ph', '-fut='+futName+'_wrapper', '--perf_config='+bestPerf, '-']
         runFusionKernel(filename, rocmlirGenArgs, paths)
         # Get nanoseconds of fusion test
-        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        nanoSeconds = getNanoSeconds(BENCHMARKING_STATS_FILE_NAME)
         oneEntry = config.tableEntry(nanoSeconds)
         # Keep the best performance
         if testVector in perfResults and oneEntry['TFlops'] <= perfResults[testVector]['TFlops']:
@@ -1392,7 +1404,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         # Run gemm or conv op with the same configuration
         runConfigWithMLIR(config, paths, arch, '')
         # Get nanoseconds of gemm/conv
-        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        nanoSeconds = getNanoSeconds(BENCHMARKING_STATS_FILE_NAME)
         oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
         oneEntry['Fusion/MLIR'] = oneEntry['TFlops']/oneEntry['MLIR TFlops']
         oneEntry['FileName'] = filename
