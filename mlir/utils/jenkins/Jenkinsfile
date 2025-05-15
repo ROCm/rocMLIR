@@ -75,7 +75,6 @@ String dockerArgs() {
     String kfdFlag  = haveKfd ? "--device=/dev/kfd" : ""
 
     return """
-      --privileged --ipc=host \
       ${kfdFlag} \
       ${renderFlags} \
       --group-add video --group-add render \
