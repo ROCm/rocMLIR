@@ -361,13 +361,17 @@ struct ScalingExtFOpConverter : public OpRewritePattern<arith::ScalingExtFOp> {
                            rewriter);
     Value cE =
         createConst(op.getLoc(), scaleBitIType, scaleExponentWidth, rewriter);
+    // get rid of sign bit by shifting left by one, it will fill zeros in LSB.
+    // all the exponent bits gets placed starting from MSB
     Value signlessScale = b.create<arith::ShLIOp>(uiScale, c1);
+    // move all the exponent bits to right to LSB
     Value biasedExponentScale = b.create<arith::ShRUIOp>(signlessScale, cM);
     // check for subnormal scale value by checking if exponent bit encoding is
     // zero or not
     Value isZero = b.create<arith::CmpIOp>(arith::CmpIPredicate::eq,
                                            biasedExponentScale, c0);
     Value scaleExponentBitWidthLessOne = b.create<arith::SubIOp>(cE, c1);
+    // exponent bias is calculated as (2 ^ (numExponentBits -1)) - 1
     Value exponentBias = b.create<arith::SubIOp>(
         b.create<arith::ShLIOp>(c1, scaleExponentBitWidthLessOne), c1);
     // Micro scaling FP standard doesn't support FNUZ types but keep it anyways
@@ -378,6 +382,7 @@ struct ScalingExtFOpConverter : public OpRewritePattern<arith::ScalingExtFOp> {
     }
     Value unBiasedScaleExponent =
         b.create<arith::SubIOp>(biasedExponentScale, exponentBias);
+    // subnormal exponent value is (2 ^ (1-bias))
     Value subNormalScaleExponent =
         b.create<arith::ShLIOp>(c1, b.create<arith::SubIOp>(c1, exponentBias));
     Value scaleInResultTy =
@@ -396,6 +401,8 @@ struct ScalingExtFOpConverter : public OpRewritePattern<arith::ScalingExtFOp> {
     }
     Value subNormalResult = b.create<arith::MulFOp>(
         subNormalScaleExponentInResultTy, inputInResultTyp);
+    // select between results based on whether scale value was normal or
+    // subnormal
     Value result =
         b.create<arith::SelectOp>(isZero, subNormalResult, normalResult);
     rewriter.replaceOp(op, result);
