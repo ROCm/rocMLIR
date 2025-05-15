@@ -1231,13 +1231,14 @@ def Arith_ScalingExtFOp :
                    OptionalAttr<Arith_RoundingModeAttr>:$roundingmode,
                    OptionalAttr<Arith_FastMathAttr>:$fastmath)>,
     Results<(outs FloatLike:$out)> {
-  let summary = "cast from floating-point to narrower floating-point";
+  let summary = "cast from floating-point to larger floating-point using provided scales";
   let description = [{
-    Truncate a floating-point value to a smaller floating-point-typed value.
-    The destination type must be strictly narrower than the source type.
-    If the value cannot be exactly represented, it is rounded using the
-    provided rounding mode or the default one if no rounding mode is provided.
-    When operating on vectors, casts elementwise.
+    Implements micro-scaling floating extF op.
+    It does 
+    ```
+    scale.exponent = extract_exponent(scale)
+    result = arith.mulf(arith.extf(resultTy, %in), arith.extf(resultTy, %scale.exponent))
+    ```
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{ $in `,` $scale ($roundingmode^)? (`fastmath` `` $fastmath^)? attr-dict `:` type($in) `,` type($scale) `to` type($out)}];
@@ -1323,13 +1324,13 @@ def Arith_ScalingTruncFOp :
                    OptionalAttr<Arith_RoundingModeAttr>:$roundingmode,
                    OptionalAttr<Arith_FastMathAttr>:$fastmath)>,
     Results<(outs FloatLike:$out)> {
-  let summary = "cast from floating-point to narrower floating-point";
+  let summary = "cast from floating-point to narrower floating-point with scales";
   let description = [{
-    Truncate a floating-point value to a smaller floating-point-typed value.
-    The destination type must be strictly narrower than the source type.
-    If the value cannot be exactly represented, it is rounded using the
-    provided rounding mode or the default one if no rounding mode is provided.
-    When operating on vectors, casts elementwise.
+    implements micro-scaling truncfop
+    ```
+    
+    ```
+    
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{ $in `,` $scale ($roundingmode^)? (`fastmath` `` $fastmath^)? attr-dict `:` type($in) `,` type($scale) `to` type($out)}];
