@@ -350,24 +350,24 @@ struct ScalingExtFOpConverter : public OpRewritePattern<arith::ScalingExtFOp> {
     auto scaleNonExponentWidth = scaleETyp.getFPMantissaWidth();
     auto scaleBitWidth = scaleETyp.getWidth();
     auto scaleExponentWidth = scaleBitWidth - scaleNonExponentWidth;
-    Value uiScale = b.create<arith::BitcastOp>(
-        b.getIntegerType(scaleBitWidth, false), scaleOperand);
-    Type scaleBitIType = b.getIntegerType(scaleBitWidth, false);
+    Type scaleBitIType = b.getIntegerType(scaleBitWidth);
     if (auto shapedTy = dyn_cast<ShapedType>(scaleTy)) {
       scaleBitIType = shapedTy.clone(scaleBitIType);
     }
+    Value uiScale = b.create<arith::BitcastOp>(scaleBitIType, scaleOperand);
     Value c0 = createConst(op.getLoc(), scaleBitIType, 0, rewriter);
     Value c1 = createConst(op.getLoc(), scaleBitIType, 1, rewriter);
-    Value cE = createConst(op.getLoc(), scaleBitIType, scaleNonExponentWidth,
+    Value cM = createConst(op.getLoc(), scaleBitIType, scaleNonExponentWidth,
                            rewriter);
+    Value cE =
+        createConst(op.getLoc(), scaleBitIType, scaleExponentWidth, rewriter);
     Value signlessScale = b.create<arith::ShLIOp>(uiScale, c1);
-    Value biasedExponentScale = b.create<arith::ShRUIOp>(signlessScale, cE);
+    Value biasedExponentScale = b.create<arith::ShRUIOp>(signlessScale, cM);
     // check for subnormal scale value by checking if exponent bit encoding is
     // zero or not
     Value isZero = b.create<arith::CmpIOp>(arith::CmpIPredicate::eq,
                                            biasedExponentScale, c0);
-    Value scaleExponentBitWidthLessOne =
-        b.create<arith::SubIOp>(scaleExponentWidth, c1);
+    Value scaleExponentBitWidthLessOne = b.create<arith::SubIOp>(cE, c1);
     Value exponentBias = b.create<arith::SubIOp>(
         b.create<arith::ShLIOp>(c1, scaleExponentBitWidthLessOne), c1);
     // Micro scaling FP standard doesn't support FNUZ types but keep it anyways
@@ -435,7 +435,9 @@ struct ArithExpandOpsPass
       arith::MaximumFOp,
       arith::MinimumFOp,
       arith::MaxNumFOp,
-      arith::MinNumFOp
+      arith::MinNumFOp,
+      arith::ScalingTruncFOp,
+      arith::ScalingExtFOp
     >();
 
     if (includeBf16) {

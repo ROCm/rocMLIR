@@ -1220,7 +1220,7 @@ def Arith_ExtFOp : Arith_FToFCastOp<"extf", [DeclareOpInterfaceMethods<ArithFast
 //===----------------------------------------------------------------------===//
 
 def Arith_ScalingExtFOp :
-    Op<Arith_Dialect, "scaling_extf",
+    Arith_Op<"scaling_extf",
       [Pure, 
        SameInputOutputTensorDims, 
        DeclareOpInterfaceMethods<ArithRoundingModeInterface>,
@@ -1312,7 +1312,7 @@ def Arith_TruncFOp :
 //===----------------------------------------------------------------------===//
 
 def Arith_ScalingTruncFOp :
-    Op<Arith_Dialect, "scaling_truncf",
+    Arith_Op<"scaling_truncf",
       [Pure, 
        SameInputOutputTensorDims, 
        DeclareOpInterfaceMethods<ArithRoundingModeInterface>,
