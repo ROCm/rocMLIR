@@ -112,6 +112,17 @@ void preMergeCheckPackage(String codepath) {
     }
 }
 
+void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
+    sh """
+    totalLines=\$(grep -cv "^#" ${inputFilePath})
+    linesPerSplit=\$(((totalLines + ${totalSplits} - 1) / ${totalSplits}))
+    startLine=\$(((${run} - 1) * linesPerSplit + 1))
+    endLine=\$((${run} * linesPerSplit))
+
+    awk 'BEGIN{count=0} !/^#/ {count++} {if (!/^#/ && count >= '\"\${startLine}\"' && count <= '\"\${endLine}\"') print' ${inputFilePath} > ${outputFilePath}}
+    """
+}
+
 void postProcessPerfRes(String chip) {
     publishHTML (target: [
         allowMissing: false,
@@ -728,26 +739,26 @@ pipeline {
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/configs/gemm-configs \
+                                        -c ../mlir/utils/performance/problem-config-tier1-models \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/configs/conv-configs \
+                                        -c ../mlir/utils/performance/problem-config-tier1-models \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune attention configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ../mlir/utils/performance/configs/attention-configs \
+                                        -c ../mlir/utils/performance/problem-config-tier1-models \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/configs/gemm-configs -s quick \
+                                        -c ../mlir/utils/performance/problem-config-tier1-models -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
                                       [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs (quick tuning)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/configs/conv-configs -s quick \
+                                        -c ../mlir/utils/performance/problem-config-tier1-models -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
                             }
                         }
@@ -878,12 +889,12 @@ pipeline {
                                 sh 'ls -l /dev/dri'
                                 // Run MLIR vs MIOpend perf benchmarks.
                                 sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                       --configs_file=${WORKSPACE}/mlir/utils/performance/configs/conv-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                 // Run MLIR vs rocBLAS perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                       --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                             }
@@ -911,7 +922,7 @@ pipeline {
                             dir('build') {
                                 // Run attention benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                       --configs_file=${WORKSPACE}/mlir/utils/performance/configs/attention-configs \
+                                       --configs_file=${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
@@ -947,7 +958,7 @@ pipeline {
 
                                 dir('build') {
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
+                                --configs_file=${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models \
                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                     sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
                                 }
