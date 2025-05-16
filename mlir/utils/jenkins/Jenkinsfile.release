@@ -22,26 +22,8 @@ void showEnv() {
     sh 'id'
 }
 
-// Uses dynamic device discovery
 String dockerArgs() {
-
-    def run = { cmd ->
-        return sh(script: cmd, returnStdout: true).trim()
-    }
-
-    String renderList = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
-    String renderFlags = renderList.split().collect { "--device=${it}" }.join(' ')
-    boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
-    String kfdFlag  = haveKfd ? "--device=/dev/kfd" : ""
-
-    return """
-      --privileged --ipc=host \
-      ${kfdFlag} \
-      ${renderFlags} \
-      --group-add video --group-add render \
-      -v /etc/passwd:/etc/passwd:ro \
-      -v /etc/group:/etc/group:ro
-    """.trim()
+    return "--device=/dev/kfd --device=/dev/dri --group-add video -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
 
 String dockerImage() {
