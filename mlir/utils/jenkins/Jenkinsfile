@@ -75,6 +75,7 @@ String dockerArgs() {
     String kfdFlag  = haveKfd ? "--device=/dev/kfd" : ""
 
     return """
+      --privileged --ipc=host \
       ${kfdFlag} \
       ${renderFlags} \
       --group-add video --group-add render \
@@ -519,19 +520,21 @@ def acquireHealthyNode(String label, int retries = 3, Closure code) {
 
         // If we are here, either check failed or node allocation failed
         if (nodeToTry && checkException) {
-             // Add failure message to build description
-             def message = "Skipped node ${nodeToTry} due to: ${checkException.getMessage()}"
-             currentBuild.description = (currentBuild.description ?: "") + "<b style='color: #7d6608'>Node Check Failed:</b> <span style='color: #b7950b'>${message}</span><br/>"
+            // Add failure message to build description
+            def message = "Skipped node ${nodeToTry} due to: ${checkException?.getMessage()}"
 
-             // Exclude this node from future attempts in this run
-             currentLabel = "${label} && !${nodeToTry}" // Build exclusion label
-             // Add all tried nodes to exclusion label for safety
-             triedNodes.each { tried ->
-                 if (currentLabel.indexOf("!${tried}") == -1) { // Avoid duplicates
-                     currentLabel += " && !${tried}"
-                 }
-             }
-             echo "Updated label for next attempt: ${currentLabel}"
+            currentBuild.description =
+                (currentBuild.description ?: '') +
+                "<b>Node Check Failed:</b> ${message}<br/>"
+
+            // Exclude this nodefrom future attempts
+            currentLabel = "${label} && !${nodeToTry}"
+            triedNodes.each { tried ->
+                if (!currentLabel.contains("!${tried}")) {
+                    currentLabel += " && !${tried}"
+                }
+            }
+            echo "Updated label for next attempt: ${currentLabel}"
         }
 
         // If this was the last retry attempt and it failed
