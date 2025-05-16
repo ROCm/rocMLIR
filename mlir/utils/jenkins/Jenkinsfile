@@ -736,29 +736,38 @@ pipeline {
                                 git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                             }
                             dir('build') {
+                                script {
+                                    def inputConfigs = "../mlir/utils/performance/problem-config-tier1-models"
+                                    def configsToUse = inputConfigs
+                                    if (params.nightly) {
+                                        def runIndex = (BUILD_NUMBER as int - 1) % 5 + 1
+                                        splitConfigFile(inputConfigs, configsToUse, runIndex)
+                                    }
+                                }
+
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models \
+                                        -c ${configsToUse} \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models \
+                                        -c ${configsToUse} \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune attention configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models \
+                                        -c ${configsToUse} \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models -s quick \
+                                        -c ${configsToUse} -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
                                       [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs (quick tuning)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models -s quick \
+                                        -c ${configsToUse} -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
                             }
                         }
