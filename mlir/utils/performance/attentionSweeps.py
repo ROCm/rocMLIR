@@ -33,19 +33,10 @@ from perfRunner import create_paths as createPaths
 from perfRunner import MLIR_N_REPEATS
 
 # GLOBAL VARIABLES
-DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
+DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
-
-
-class PerfConfigVersion(Enum):
-    '''Currently, attention uses only v1, so it's hardcoded in file at the moment,
-    Enumeration for PerfConfigVersion is not removed in case we reintroduce higher
-    perfConfig versions.'''
-    V1 = 'v1'
-    V2 = 'v2'
-    V3 = 'v3'
 
 
 class TestResult(Enum):
@@ -63,7 +54,6 @@ class Options:
     flags: list
     concurrentTests: int
     numCu: int
-    PerfConfigVersion: PerfConfigVersion
 
 
 def generateMlirDriverArgs(self, rocmlir_gen_flags: Optional[List[str]] = None) -> List[str]:
@@ -167,6 +157,8 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
             print("Runner failed:", output)
         return TestResult.FAIL
     if 'FAILED' in output or 'nan' in output.lower():
+        if options.debug:
+            print("FAILED in output or NaN", output)
         return TestResult.FAIL
     return TestResult.PASS
 
@@ -276,8 +268,7 @@ def main():
         arch=arch,
         flags=[],
         concurrentTests=args.jobs,
-        numCu=getNumCU(chip),
-        PerfConfigVersion=PerfConfigVersion.V1
+        numCu=getNumCU(chip)
     )
    
 
