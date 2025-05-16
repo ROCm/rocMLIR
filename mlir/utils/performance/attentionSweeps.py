@@ -34,9 +34,6 @@ from perfRunner import MLIR_N_REPEATS
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
-#SEQ_LENGTHS = range(1, 16385) 
-#HEAD_DIMS = range(1, 16385)
-#GROUPS = range(1, 16385)
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
@@ -140,8 +137,6 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     await proc1.wait()
 
     if proc1.returncode !=0 or proc2.returncode !=0:
-        if options.debug:
-            print("rocmlir_gen or rocmlir_driver failed")
         return TestResult.INVALID
     
     runnerR, runnerW = os.pipe()
@@ -170,7 +165,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     if proc3.returncode not in [None, 0]:
         if options.debug:
             print("Runner failed:", output)
-            return TestResult.FAIL
+        return TestResult.FAIL
     if 'FAILED' in output or 'nan' in output.lower():
         return TestResult.FAIL
     return TestResult.PASS
