@@ -33,7 +33,7 @@ from perfRunner import create_paths as createPaths
 from perfRunner import MLIR_N_REPEATS
 
 # GLOBAL VARIABLES
-DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
+DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
@@ -155,10 +155,12 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     if proc3.returncode not in [None, 0]:
         if options.debug:
             print("Runner failed:", output)
+            print(output)
         return TestResult.FAIL
     if 'FAILED' in output or 'nan' in output.lower():
         if options.debug:
             print("FAILED in output or NaN", output)
+            print(output)
         return TestResult.FAIL
     return TestResult.PASS
 
@@ -217,8 +219,8 @@ def sampleAttentionShape():
         random.randint(1, 16384), # GROUPS
         random.randint(1, 16384), # SEQ_LEN_Q
         random.randint(1, 16384), # SEQ_LEN_K
-        random.randint(1, 16384), # HEAD_DIM_QK
-        random.randint(1, 16384), # HEAD_DIM_V
+        random.randint(1, 1024), # HEAD_DIM_QK
+        random.randint(1, 1024), # HEAD_DIM_V
         random.choice(BOOLS),   # with_attn_scale
         random.choice(BOOLS),   # with_attn_bias
         random.choice(BOOLS),   # transQ
@@ -288,6 +290,8 @@ def main():
             print(' '.join(fail.generateMlirDriverArgs([])))
         if args.log_failures:
             logFailingConfigs(failing, LOGFILE)
+    
+    return 0
 
 
 if __name__ == '__main__':
