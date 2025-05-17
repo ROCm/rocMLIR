@@ -888,7 +888,7 @@ pipeline {
                                     def inputConfigs = "${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models"
                                     def configsToUse = inputConfigs
                                     if (params.nightly) {
-                                        def runIndex = (BUILD_NUMBER as int - 1) % 5 + 1
+                                        def runIndex = ((BUILD_NUMBER as int) - 1) % 5 + 1
                                         splitConfigFile(inputConfigs, configsToUse, runIndex)
                                     }
                                 }
@@ -933,7 +933,7 @@ pipeline {
                                     def inputConfigs = "${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models"
                                     def configsToUse = inputConfigs
                                     if (params.nightly) {
-                                        def runIndex = (BUILD_NUMBER as int - 1) % 5 + 1
+                                        def runIndex = ((BUILD_NUMBER as int) - 1) % 5 + 1
                                         splitConfigFile(inputConfigs, configsToUse, runIndex)
                                     }
                                 }
@@ -979,7 +979,7 @@ pipeline {
                                         def inputConfigs = "${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models"
                                         def configsToUse = inputConfigs
                                         if (params.nightly) {
-                                            def runIndex = (BUILD_NUMBER as int - 1) % 5 + 1
+                                            def runIndex = ((BUILD_NUMBER as int) - 1) % 5 + 1
                                             splitConfigFile(inputConfigs, configsToUse, runIndex)
                                         }
                                     }
