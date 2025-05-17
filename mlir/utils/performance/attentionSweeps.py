@@ -101,8 +101,6 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     mlirGenOpts = config.generateMlirDriverArgs(options.flags)
     mlirGenOpts.append('-pv')
 
-    print("rocmlirgen path", paths.mlir_paths.rocmlir_gen_path)
-
     proc1 = await asyncio.create_subprocess_exec(
         paths.mlir_paths.rocmlir_gen_path,
         *mlirGenOpts,
@@ -132,11 +130,20 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
             print("rocmlir-driver failed:\n", rocmlirDriverError.decode().strip())
         return TestResult.INVALID
     
+    print("\n\n*********command for cpu runner**************")
+    print(            paths.mlir_paths.cpu_runner_path,
+            '-O2',
+            f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},'
+            f'{paths.mlir_paths.libconv_validation_wrappers_path},'
+            f'{paths.mlir_paths.libmlir_runtime_utils_path}',
+            '--entry-point-result=void')
+    print("\n\n")
+    
     proc3 = subprocess.Popen(
         [
             paths.mlir_paths.cpu_runner_path,
-            '-02',
-            f'--shared-libs{paths.mlir_paths.libmlir_rocm_runtime_path},'
+            '-O2',
+            f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},'
             f'{paths.mlir_paths.libconv_validation_wrappers_path},'
             f'{paths.mlir_paths.libmlir_runtime_utils_path}',
             '--entry-point-result=void'
@@ -147,7 +154,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     )
     
     try:
-        stdout3, stderr3 = proc3.communicate(input=rocmlirDriverOutput, timeout=60)
+        stdout3, stderr3 = proc3.communicate(input=rocmlirDriverOutput, timeout=360)
     except BrokenPipeError:
         if options.debug:
             print("Broken pipe: cpu-runner failed to read input")
