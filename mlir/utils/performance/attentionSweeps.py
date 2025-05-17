@@ -33,7 +33,7 @@ from perfRunner import create_paths as createPaths
 from perfRunner import MLIR_N_REPEATS
 
 # GLOBAL VARIABLES
-DATA_TYPES_ATTENTION = ['f32', 'f16', 'bf16']
+DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
