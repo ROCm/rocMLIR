@@ -124,7 +124,6 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
-    print("after proc2, rocmlir driver path is ", paths.mlir_paths.rocmlir_driver_path)
 
     rocmlirDriverOutput, rocmlirDriverError = await proc2.communicate(input=rocmlirGeneratorOutput)
 
