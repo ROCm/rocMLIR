@@ -799,8 +799,8 @@ func.func @_QPs(%arg0: !fir.ref<complex<f32>> {fir.bindc_name = "x"}) {
 //CHECK:  omp.parallel   {
 //CHECK:    %[[CONST_1:.*]] = llvm.mlir.constant(1 : i32) : i32
 //CHECK:    %[[ALLOCA_1:.*]] = llvm.alloca %[[CONST_1:.*]] x !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8)> {alignment = 8 : i64} : (i32) -> !llvm.ptr
-//CHECK:    %[[LOAD:.*]] = llvm.load %[[ALLOCA]] : !llvm.ptr -> !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8)>
-//CHECK:    llvm.store %[[LOAD]], %[[ALLOCA_1]] : !llvm.struct<(ptr, i64, i32, i8, i8, i8, i8)>, !llvm.ptr
+//CHECK:    %[[SIZE:.*]] = llvm.mlir.constant(24 : i32) : i32
+//CHECK:    "llvm.intr.memcpy"(%[[ALLOCA_1]], %[[ALLOCA]], %[[SIZE]]) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
 //CHECK:    %[[GEP:.*]] = llvm.getelementptr %[[ALLOCA_1]][0, 0] : (!llvm.ptr) -> !llvm.ptr
 //CHECK:    %[[LOAD_2:.*]] = llvm.load %[[GEP]] : !llvm.ptr -> !llvm.ptr
 //CHECK:    omp.terminator
@@ -1017,7 +1017,7 @@ func.func @omp_map_common_block_using_common_block_symbol() {
     %8 = fir.load %4 : !fir.ref<i32>
     %9 = arith.addi %8, %c20_i32 : i32
     fir.store %9 to %7 : !fir.ref<i32>
-        omp.terminator
+    omp.terminator
   }
   return
 }
@@ -1054,7 +1054,7 @@ func.func @omp_map_common_block_using_common_block_members() {
     %9 = fir.load %arg0 : !fir.ref<i32>
     %10 = arith.muli %9, %c10_i32 : i32
     fir.store %10 to %arg1 : !fir.ref<i32>
-   omp.terminator
+    omp.terminator
   }
   return
 }
@@ -1129,8 +1129,8 @@ func.func @map_dtype_alloca_mem(%arg0 : !fir.ref<!fir.type<_QFRecTy{i:f32,scalar
   %1 = fir.coordinate_of %arg0, array_j : (!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
   // CHECK: %[[BADDR_GEP:.*]] = llvm.getelementptr %[[GEP]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[STRUCT_TY2:!llvm.struct<\(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>\)>]]
   %2 = fir.box_offset %1 base_addr : (!fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
-  // CHECK: %[[MAP_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[GEP]] : !llvm.ptr, i32) var_ptr_ptr(%[[BADDR_GEP]] : !llvm.ptr) map_clauses(tofrom) capture(ByRef) bounds(%[[BOUNDS]]) -> !llvm.ptr
-  %3 = omp.map.info var_ptr(%1 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%2 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
+  // CHECK: %[[MAP_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[GEP]] : !llvm.ptr, i32) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%[[BADDR_GEP]] : !llvm.ptr) bounds(%[[BOUNDS]]) -> !llvm.ptr
+  %3 = omp.map.info var_ptr(%1 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%2 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
   // CHECK: %[[MAP_MEMBER_DESCRIPTOR:.*]] = omp.map.info var_ptr(%[[GEP]] : !llvm.ptr, [[STRUCT_TY2]]) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
   %4 = omp.map.info var_ptr(%1 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
   // CHECK: %[[MAP_PARENT_DTYPE:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[STRUCT_TY]]) map_clauses(tofrom) capture(ByRef) members(%[[MAP_MEMBER_DESCRIPTOR]], %[[MAP_MEMBER_BADDR]] : [4], [4, 0] : !llvm.ptr, !llvm.ptr) -> !llvm.ptr {partial_map = true}
@@ -1155,8 +1155,7 @@ func.func @map_dtype_alloca_mem2(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_
   %c0 = arith.constant 0 : index
   // CHECK: %[[BOUNDS:.*]] = omp.map.bounds lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}}) {stride_in_bytes = true}
   %0 = omp.map.bounds lower_bound(%c0 : index) upper_bound(%c4 : index) extent(%c4 : index) stride(%c1 : index) start_idx(%c0 : index) {stride_in_bytes = true}
-  // CHECK: %[[LOAD_9:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
-  // CHECK: llvm.store %[[LOAD_9]], %[[DTYPE_ALLOCATABLE_ALOCA]] : [[DESC_TY]], !llvm.ptr
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
   %1 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1164,12 +1163,11 @@ func.func @map_dtype_alloca_mem2(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_
   %2 = fir.coordinate_of %1, array_j : (!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
   // CHECK: %[[DTYPE_MEMBER_BADDR:.*]] = llvm.getelementptr %[[GEP_DTYPE_MEMBER]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY2:!llvm.struct<\(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>\)>]]
   %3 = fir.box_offset %2 base_addr : (!fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
-  // CHECK: %[[MAP_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[GEP_DTYPE_MEMBER]] : !llvm.ptr, i32) var_ptr_ptr(%[[DTYPE_MEMBER_BADDR]] : !llvm.ptr) map_clauses(tofrom) capture(ByRef) bounds(%[[BOUNDS]]) -> !llvm.ptr
-  %4 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%3 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
+  // CHECK: %[[MAP_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[GEP_DTYPE_MEMBER]] : !llvm.ptr, i32) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%[[DTYPE_MEMBER_BADDR]] : !llvm.ptr) bounds(%[[BOUNDS]]) -> !llvm.ptr
+  %4 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%3 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
   // CHECK: %[[MAP_MEMBER_DESC:.*]] = omp.map.info var_ptr(%[[GEP_DTYPE_MEMBER]] : !llvm.ptr, [[DESC_TY2]]) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
   %5 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
-  // CHECK: %[[LOAD_16:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
-  // CHECK: llvm.store %[[LOAD_16]], %[[DTYPE_ALLOCATABLE_ALOCA_2]] : [[DESC_TY]], !llvm.ptr  
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA_2]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
   %6 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA_2]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1179,8 +1177,8 @@ func.func @map_dtype_alloca_mem2(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_
   %8 = omp.map.info var_ptr(%7 : !fir.ref<i32>, i32) map_clauses(tofrom) capture(ByRef) -> !fir.ref<i32>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[ARG_0]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   %9 = fir.box_offset %arg0 base_addr : (!fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>) -> !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>
-  // CHECK: %[[MAP_DTYPE_PARENT_BADDR:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[REC_TY]]) var_ptr_ptr(%[[GEP_DTYPE_BADDR]] : !llvm.ptr) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
-  %10 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>, !fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>) var_ptr_ptr(%9 : !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>) map_clauses(tofrom) capture(ByRef) -> !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>
+  // CHECK: %[[MAP_DTYPE_PARENT_BADDR:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[REC_TY]]) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%[[GEP_DTYPE_BADDR]] : !llvm.ptr) -> !llvm.ptr
+  %10 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>, !fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%9 : !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>) -> !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>
   // CHECK: %[[MAP_DTYPE_PARENT_DESC:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[DESC_TY]]) map_clauses(tofrom) capture(ByRef) members(%[[MAP_DTYPE_PARENT_BADDR]], %[[MAP_MEMBER_DESC]], %[[MAP_MEMBER_BADDR]], %[[MAP_REGULAR_MEMBER]] : [0], [0, 4], [0, 4, 0], [0, 5] : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
   %11 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>, !fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>) map_clauses(tofrom) capture(ByRef) members(%10, %5, %4, %8 : [0], [0,4], [0,4,0], [0,5] : !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>, !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>, !fir.ref<i32>) -> !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>>>
   // CHECK: omp.target map_entries(%[[MAP_DTYPE_PARENT_BADDR]] -> %[[ARG_1:.*]], %[[MAP_MEMBER_DESC]] -> %[[ARG_2:.*]], %[[MAP_MEMBER_BADDR]] -> %[[ARG_3:.*]], %[[MAP_REGULAR_MEMBER]] -> %[[ARG_4:.*]], %[[MAP_DTYPE_PARENT_DESC]] -> %[[ARG_5:.*]] : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) {
@@ -1205,8 +1203,7 @@ func.func @map_nested_dtype_alloca_mem(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.
   %c0 = arith.constant 0 : index
   // CHECK: %[[BOUNDS:.*]] = omp.map.bounds lower_bound({{.*}}) upper_bound({{.*}}) extent({{.*}}) stride({{.*}}) start_idx({{.*}}) {stride_in_bytes = true}
   %0 = omp.map.bounds lower_bound(%c0 : index) upper_bound(%c4 : index) extent(%c4 : index) stride(%c1 : index) start_idx(%c0 : index) {stride_in_bytes = true}
-  // CHECK:  %[[LOAD_11:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
-  // CHECK:  llvm.store %[[LOAD_11]], %[[DTYPE_ALLOCATABLE_ALOCA]] : [[DESC_TY]], !llvm.ptr  
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
   %1 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_GEP_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
@@ -1216,12 +1213,11 @@ func.func @map_nested_dtype_alloca_mem(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.
   %3 = fir.coordinate_of %2, array_k : (!fir.ref<!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
   // CHECK: %[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER_BADDR:.*]] = llvm.getelementptr %[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY2:!llvm.struct<\(ptr, i64, i32, i8, i8, i8, i8, array<1 x array<3 x i64>>\)>]]
   %4 = fir.box_offset %3 base_addr : (!fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
-  // CHECK: %[[MAP_NESTED_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER]] : !llvm.ptr, i32) var_ptr_ptr(%[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER_BADDR]] : !llvm.ptr) map_clauses(tofrom) capture(ByRef) bounds(%[[BOUNDS]]) -> !llvm.ptr
-  %5 = omp.map.info var_ptr(%3 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%4 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
+  // CHECK: %[[MAP_NESTED_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER]] : !llvm.ptr, i32) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER_BADDR]] : !llvm.ptr) bounds(%[[BOUNDS]]) -> !llvm.ptr
+  %5 = omp.map.info var_ptr(%3 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%4 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
   // CHECK: %[[MAP_NESTED_MEMBER_DESC:.*]] = omp.map.info var_ptr(%[[GEP_NESTED_DTYPE_ALLOCATABLE_MEMBER]] : !llvm.ptr, [[DESC_TY2]]) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
   %6 = omp.map.info var_ptr(%3 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
-  // CHECK: %[[LOAD_19:.*]] = llvm.load %[[ARG_0]] : !llvm.ptr -> [[DESC_TY]]
-  // CHECK: llvm.store %[[LOAD_19]], %[[DTYPE_ALLOCATABLE_ALOCA_2]] : [[DESC_TY]], !llvm.ptr
+  // CHECK: "llvm.intr.memcpy"(%[[DTYPE_ALLOCATABLE_ALOCA_2]], %[[ARG_0]], {{.*}}) <{isVolatile = false}> : (!llvm.ptr, !llvm.ptr, i32) -> ()
   // CHECK: %[[GEP_DTYPE_BADDR:.*]] = llvm.getelementptr %[[DTYPE_ALLOCATABLE_ALOCA_2]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   // CHECK: %[[LOAD_GEP_DTYPE_BADDR:.*]] = llvm.load %[[GEP_DTYPE_BADDR]] : !llvm.ptr -> !llvm.ptr
   %7 = fir.load %arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>
@@ -1233,8 +1229,8 @@ func.func @map_nested_dtype_alloca_mem(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.
   %10 = omp.map.info var_ptr(%9 : !fir.ref<i32>, i32) map_clauses(tofrom) capture(ByRef) -> !fir.ref<i32>
   // CHECK: %[[DTYPE_BADDR_GEP:.*]] = llvm.getelementptr %[[ARG_0]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY]]
   %11 = fir.box_offset %arg0 base_addr : (!fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>) -> !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>
-  // CHECK: %[[MAP_PARENT_BADDR:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[REC_TY]]) var_ptr_ptr(%[[DTYPE_BADDR_GEP]] : !llvm.ptr) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
-  %12 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>, !fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>) var_ptr_ptr(%11 : !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>) map_clauses(tofrom) capture(ByRef) -> !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>
+  // CHECK: %[[MAP_PARENT_BADDR:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[REC_TY]]) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%[[DTYPE_BADDR_GEP]] : !llvm.ptr) -> !llvm.ptr
+  %12 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>, !fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%11 : !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>) -> !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>
   // CHECK: %[[MAP_PARENT_DESC:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[DESC_TY]]) map_clauses(tofrom) capture(ByRef) members(%[[MAP_PARENT_BADDR]], %[[MAP_NESTED_MEMBER_DESC]], %[[MAP_NESTED_MEMBER_BADDR]], %[[MAP_REGULAR_NESTED_MEMBER]] : [0], [0, 6, 2], [0, 6, 2, 0], [0, 6, 3] : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> !llvm.ptr
   %13 = omp.map.info var_ptr(%arg0 : !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>, !fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>) map_clauses(tofrom) capture(ByRef) members(%12, %6, %5, %10 : [0], [0,6,2], [0,6,2,0], [0,6,3] : !fir.llvm_ptr<!fir.ref<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>, !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>, !fir.ref<i32>) -> !fir.ref<!fir.box<!fir.heap<!fir.type<_QFRecTy{i:f32,scalar:!fir.box<!fir.heap<i32>>,array_i:!fir.array<10xi32>,j:f32,array_j:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32,nest:!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>}>>>>
   // CHECK: omp.target map_entries(%[[MAP_PARENT_BADDR]] -> %[[ARG_1:.*]], %[[MAP_NESTED_MEMBER_DESC]] -> %[[ARG_2:.*]], %[[MAP_NESTED_MEMBER_BADDR]] -> %[[ARG_3:.*]], %[[MAP_REGULAR_NESTED_MEMBER]] -> %[[ARG_4:.*]], %[[MAP_PARENT_DESC]] -> %[[ARG_5:.*]] : !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) {
@@ -1262,8 +1258,8 @@ func.func @map_nested_dtype_alloca_mem2(%arg0 : !fir.ref<!fir.type<_QFRecTy{i:f3
   %2 = fir.coordinate_of %1, array_k : (!fir.ref<!fir.type<_QFRecTy2{i:f32,array_i:!fir.array<10xi32>,array_k:!fir.box<!fir.heap<!fir.array<?xi32>>>,k:i32}>>) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
   // CHECK: %[[NESTED_ALLOCATABLE_MEMBER_BADDR_GEP:.*]] = llvm.getelementptr %[[NESTED_ALLOCATABLE_MEMBER_GEP]][0, 0] : (!llvm.ptr) -> !llvm.ptr, [[DESC_TY2]]
   %3 = fir.box_offset %2 base_addr : (!fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
-  // CHECK: %[[MAP_NESTED_ALLOCATABLE_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[NESTED_ALLOCATABLE_MEMBER_GEP]] : !llvm.ptr, i32) var_ptr_ptr(%[[NESTED_ALLOCATABLE_MEMBER_BADDR_GEP]] : !llvm.ptr) map_clauses(tofrom) capture(ByRef) bounds(%[[BOUNDS]]) -> !llvm.ptr
-  %4 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) var_ptr_ptr(%3 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
+  // CHECK: %[[MAP_NESTED_ALLOCATABLE_MEMBER_BADDR:.*]] = omp.map.info var_ptr(%[[NESTED_ALLOCATABLE_MEMBER_GEP]] : !llvm.ptr, i32) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%[[NESTED_ALLOCATABLE_MEMBER_BADDR_GEP]] : !llvm.ptr) bounds(%[[BOUNDS]]) -> !llvm.ptr
+  %4 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.array<?xi32>) map_clauses(tofrom) capture(ByRef) var_ptr_ptr(%3 : !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>) bounds(%0) -> !fir.llvm_ptr<!fir.ref<!fir.array<?xi32>>>
   // CHECK: %[[MAP_NESTED_ALLOCATABLE_MEMBER_DESC:.*]] = omp.map.info var_ptr(%[[NESTED_ALLOCATABLE_MEMBER_GEP]] : !llvm.ptr, [[DESC_TY2]]) map_clauses(tofrom) capture(ByRef) -> !llvm.ptr
   %5 = omp.map.info var_ptr(%2 : !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>, !fir.box<!fir.heap<!fir.array<?xi32>>>) map_clauses(tofrom) capture(ByRef) -> !fir.ref<!fir.box<!fir.heap<!fir.array<?xi32>>>>
   // CHECK: %[[MAP_PARENT:.*]] = omp.map.info var_ptr(%[[ARG_0]] : !llvm.ptr, [[REC_TY]]) map_clauses(tofrom) capture(ByRef) members(%[[MAP_NESTED_ALLOCATABLE_MEMBER_DESC]], %[[MAP_NESTED_ALLOCATABLE_MEMBER_BADDR]] : [6, 2], [6, 2, 0] : !llvm.ptr, !llvm.ptr) -> !llvm.ptr {partial_map = true}

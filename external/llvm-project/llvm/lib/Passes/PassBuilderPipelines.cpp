@@ -24,7 +24,6 @@
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/Analysis/TypeBasedAliasAnalysis.h"
-#include "llvm/IR/HeterogeneousDebugVerify.h"
 #include "llvm/CodeGen/GlobalMergeFunctions.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
@@ -932,14 +931,14 @@ PassBuilder::buildInlinerPipeline(OptimizationLevel Level,
     IP = getInlineParamsFromOptLevel(Level);
   else
     IP = getInlineParams(PTO.InlinerThreshold);
-  // For PreLinkThinLTO + SamplePGO, set hot-caller threshold to 0 to
-  // disable hot callsite inline (as much as possible [1]) because it makes
+  // For PreLinkThinLTO + SamplePGO or PreLinkFullLTO + SamplePGO,
+  // set hot-caller threshold to 0 to disable hot
+  // callsite inline (as much as possible [1]) because it makes
   // profile annotation in the backend inaccurate.
   //
   // [1] Note the cost of a function could be below zero due to erased
   // prologue / epilogue.
-  if (Phase == ThinOrFullLTOPhase::ThinLTOPreLink && PGOOpt &&
-      PGOOpt->Action == PGOOptions::SampleUse)
+  if (isLTOPreLink(Phase) && PGOOpt && PGOOpt->Action == PGOOptions::SampleUse)
     IP.HotCallSiteThreshold = 0;
 
   if (PGOOpt)
@@ -1029,14 +1028,14 @@ PassBuilder::buildModuleInlinerPipeline(OptimizationLevel Level,
   ModulePassManager MPM;
 
   InlineParams IP = getInlineParamsFromOptLevel(Level);
-  // For PreLinkThinLTO + SamplePGO, set hot-caller threshold to 0 to
-  // disable hot callsite inline (as much as possible [1]) because it makes
+  // For PreLinkThinLTO + SamplePGO or PreLinkFullLTO + SamplePGO,
+  // set hot-caller threshold to 0 to disable hot
+  // callsite inline (as much as possible [1]) because it makes
   // profile annotation in the backend inaccurate.
   //
   // [1] Note the cost of a function could be below zero due to erased
   // prologue / epilogue.
-  if (Phase == ThinOrFullLTOPhase::ThinLTOPreLink && PGOOpt &&
-      PGOOpt->Action == PGOOptions::SampleUse)
+  if (isLTOPreLink(Phase) && PGOOpt && PGOOpt->Action == PGOOptions::SampleUse)
     IP.HotCallSiteThreshold = 0;
 
   if (PGOOpt)
@@ -1054,7 +1053,7 @@ PassBuilder::buildModuleInlinerPipeline(OptimizationLevel Level,
   if (!UseCtxProfile.empty() && Phase == ThinOrFullLTOPhase::ThinLTOPostLink) {
     MPM.addPass(GlobalOptPass());
     MPM.addPass(GlobalDCEPass());
-    MPM.addPass(PGOCtxProfFlatteningPass());
+    MPM.addPass(PGOCtxProfFlatteningPass(/*IsPreThinlink=*/false));
   }
 
   MPM.addPass(createModuleToFunctionPassAdaptor(
@@ -1252,8 +1251,10 @@ PassBuilder::buildModuleSimplificationPipeline(OptimizationLevel Level,
     // FIXME(mtrofin): move AssignGUIDPass if there is agreement to use this
     // mechanism for GUIDs.
     MPM.addPass(AssignGUIDPass());
-    if (IsCtxProfUse)
+    if (IsCtxProfUse) {
+      MPM.addPass(PGOCtxProfFlatteningPass(/*IsPreThinlink=*/true));
       return MPM;
+    }
     // Block further inlining in the instrumented ctxprof case. This avoids
     // confusingly collecting profiles for the same GUID corresponding to
     // different variants of the function. We could do like PGO and identify
@@ -1643,13 +1644,6 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
 
   ModulePassManager MPM;
 
-  auto OptimizationLevelAsOptLevel =
-      CodeGenOpt::getLevel(Level.getSpeedupLevel());
-  auto CodeGenOptLevel =
-      TM ? TM->getOptLevel()
-         : OptimizationLevelAsOptLevel.value_or(CodeGenOptLevel::Aggressive);
-  MPM.addPass(HeterogeneousDebugVerify(CodeGenOptLevel));
-
   // Convert @llvm.global.annotations to !annotation metadata.
   MPM.addPass(Annotation2MetadataPass());
 
@@ -1707,6 +1701,19 @@ PassBuilder::buildFatLTODefaultPipeline(OptimizationLevel Level, bool ThinLTO,
   if (ThinLTO && PGOOpt && PGOOpt->Action == PGOOptions::SampleUse)
     MPM.addPass(buildThinLTODefaultPipeline(Level, /*ImportSummary=*/nullptr));
   else {
+    // ModuleSimplification does not run the coroutine passes for
+    // ThinLTOPreLink, so we need the coroutine passes to run for ThinLTO
+    // builds, otherwise they will miscompile.
+    if (ThinLTO) {
+      // TODO: replace w/ buildCoroWrapper() when it takes phase and level into
+      // consideration.
+      CGSCCPassManager CGPM;
+      CGPM.addPass(CoroSplitPass(Level != OptimizationLevel::O0));
+      CGPM.addPass(CoroAnnotationElidePass());
+      MPM.addPass(createModuleToPostOrderCGSCCPassAdaptor(std::move(CGPM)));
+      MPM.addPass(CoroCleanupPass());
+    }
+
     // otherwise, just use module optimization
     MPM.addPass(
         buildModuleOptimizationPipeline(Level, ThinOrFullLTOPhase::None));

@@ -235,7 +235,7 @@ void build_fixedE2ETests(String codepath) {
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
     }
-    if (codepath == 'navi3x') {
+    if (codepath == 'navi3x'  || codepath == 'navi4x') {
         // print verbose logs for all the tests on Navi3x for the debugging purposes
         llvm_lit_log_level = '-va'
         limit_lit_workers = true
@@ -245,7 +245,7 @@ void build_fixedE2ETests(String codepath) {
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
+              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : '-j 40' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
@@ -257,7 +257,7 @@ void check_randomE2ETests(String codepath) {
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
     }
-    if ( (codepath == 'navi3x') && (params.nightly == true) ) {
+    if ( (codepath == 'navi3x'  || codepath == 'navi4x') && (params.nightly == true) ) {
         limit_lit_workers = true
         // print verbose logs for all the tests on Navi3x for debugging purposes
         llvm_lit_log_level='-va'
@@ -268,7 +268,7 @@ void check_randomE2ETests(String codepath) {
               -DROCK_E2E_TEST_ENABLED=1
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
+              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : '-j 40' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }

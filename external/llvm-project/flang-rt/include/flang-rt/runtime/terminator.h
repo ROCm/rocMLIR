@@ -68,7 +68,8 @@ public:
   template <typename... Args>
   RT_API_ATTRS void PrintCrashArgs(const char *message, Args... args) const {
 #if defined(RT_DEVICE_COMPILATION)
-    std::printf(message, args...);
+    // commenting out temporarily to avoid "error: cannot compile this non-scalar arg in GPU vargs function yet"
+    // std::printf(message, args...);
 #else
     std::fprintf(stderr, message, args...);
 #endif
@@ -115,6 +116,21 @@ private:
 RT_API_ATTRS void NotifyOtherImagesOfNormalEnd();
 RT_API_ATTRS void NotifyOtherImagesOfFailImageStatement();
 RT_API_ATTRS void NotifyOtherImagesOfErrorTermination();
+
+#if defined(RT_DEVICE_COMPILATION)
+/// Trap the execution on the device.
+[[noreturn]] static inline void RT_API_ATTRS DeviceTrap() {
+#if defined(__CUDACC__)
+  // NVCC supports __trap().
+  __trap();
+#elif defined(__clang__)
+  // Clang supports __builtin_trap().
+  __builtin_trap();
+#else
+#error "unsupported compiler"
+#endif
+}
+#endif
 } // namespace Fortran::runtime
 
 namespace Fortran::runtime::io {

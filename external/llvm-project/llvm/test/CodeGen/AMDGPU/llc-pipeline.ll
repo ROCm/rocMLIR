@@ -24,7 +24,6 @@
 ; GCN-O0-NEXT:Register Usage Information Storage
 ; GCN-O0-NEXT:Machine Branch Probability Analysis
 ; GCN-O0-NEXT:  ModulePass Manager
-; GCN-O0-NEXT:    Verify Heterogeneous Debug Preconditions
 ; GCN-O0-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O0-NEXT:    FunctionPass Manager
 ; GCN-O0-NEXT:      Expand large div/rem
@@ -32,7 +31,6 @@
 ; GCN-O0-NEXT:    AMDGPU Remove Incompatible Functions
 ; GCN-O0-NEXT:    AMDGPU Printf lowering
 ; GCN-O0-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O0-NEXT:    AMDGPU Lower Kernel Calls
 ; GCN-O0-NEXT:    Expand variadic functions
 ; GCN-O0-NEXT:    AMDGPU Inline All Functions
 ; GCN-O0-NEXT:    Inliner for always_inline functions
@@ -49,11 +47,7 @@
 ; GCN-O0-NEXT:      Instrument function entry/exit with calls to e.g. mcount() (post inlining)
 ; GCN-O0-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O0-NEXT:      Expand reduction intrinsics
-; GCN-O0-NEXT:    CallGraph Construction
-; GCN-O0-NEXT:    Call Graph SCC Pass Manager
-; GCN-O0-NEXT:      AMDGPU Annotate Kernel Features
-; GCN-O0-NEXT:      FunctionPass Manager
-; GCN-O0-NEXT:        AMDGPU Lower Kernel Arguments
+; GCN-O0-NEXT:      AMDGPU Lower Kernel Arguments
 ; GCN-O0-NEXT:    Lower buffer fat pointer operations to buffer resources
 ; GCN-O0-NEXT:    CallGraph Construction
 ; GCN-O0-NEXT:    Call Graph SCC Pass Manager
@@ -176,7 +170,6 @@
 ; GCN-O1-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O1-NEXT:Default Regalloc Priority Advisor
 ; GCN-O1-NEXT:  ModulePass Manager
-; GCN-O1-NEXT:    Verify Heterogeneous Debug Preconditions
 ; GCN-O1-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O1-NEXT:    FunctionPass Manager
 ; GCN-O1-NEXT:      Expand large div/rem
@@ -184,7 +177,6 @@
 ; GCN-O1-NEXT:    AMDGPU Remove Incompatible Functions
 ; GCN-O1-NEXT:    AMDGPU Printf lowering
 ; GCN-O1-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O1-NEXT:    AMDGPU Lower Kernel Calls
 ; GCN-O1-NEXT:    Expand variadic functions
 ; GCN-O1-NEXT:    AMDGPU Inline All Functions
 ; GCN-O1-NEXT:    Inliner for always_inline functions
@@ -236,11 +228,7 @@
 ; GCN-O1-NEXT:      Instrument function entry/exit with calls to e.g. mcount() (post inlining)
 ; GCN-O1-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O1-NEXT:      Expand reduction intrinsics
-; GCN-O1-NEXT:    CallGraph Construction
-; GCN-O1-NEXT:    Call Graph SCC Pass Manager
-; GCN-O1-NEXT:      AMDGPU Annotate Kernel Features
-; GCN-O1-NEXT:      FunctionPass Manager
-; GCN-O1-NEXT:        AMDGPU Lower Kernel Arguments
+; GCN-O1-NEXT:      AMDGPU Lower Kernel Arguments
 ; GCN-O1-NEXT:    Lower buffer fat pointer operations to buffer resources
 ; GCN-O1-NEXT:    CallGraph Construction
 ; GCN-O1-NEXT:    Call Graph SCC Pass Manager
@@ -463,7 +451,6 @@
 ; GCN-O1-OPTS-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O1-OPTS-NEXT:Default Regalloc Priority Advisor
 ; GCN-O1-OPTS-NEXT:  ModulePass Manager
-; GCN-O1-OPTS-NEXT:    Verify Heterogeneous Debug Preconditions
 ; GCN-O1-OPTS-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O1-OPTS-NEXT:    FunctionPass Manager
 ; GCN-O1-OPTS-NEXT:      Expand large div/rem
@@ -471,7 +458,6 @@
 ; GCN-O1-OPTS-NEXT:    AMDGPU Remove Incompatible Functions
 ; GCN-O1-OPTS-NEXT:    AMDGPU Printf lowering
 ; GCN-O1-OPTS-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O1-OPTS-NEXT:    AMDGPU Lower Kernel Calls
 ; GCN-O1-OPTS-NEXT:    Expand variadic functions
 ; GCN-O1-OPTS-NEXT:    AMDGPU Inline All Functions
 ; GCN-O1-OPTS-NEXT:    Inliner for always_inline functions
@@ -537,11 +523,7 @@
 ; GCN-O1-OPTS-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O1-OPTS-NEXT:      Expand reduction intrinsics
 ; GCN-O1-OPTS-NEXT:      Early CSE
-; GCN-O1-OPTS-NEXT:    CallGraph Construction
-; GCN-O1-OPTS-NEXT:    Call Graph SCC Pass Manager
-; GCN-O1-OPTS-NEXT:      AMDGPU Annotate Kernel Features
-; GCN-O1-OPTS-NEXT:      FunctionPass Manager
-; GCN-O1-OPTS-NEXT:        AMDGPU Lower Kernel Arguments
+; GCN-O1-OPTS-NEXT:      AMDGPU Lower Kernel Arguments
 ; GCN-O1-OPTS-NEXT:    Lower buffer fat pointer operations to buffer resources
 ; GCN-O1-OPTS-NEXT:    CallGraph Construction
 ; GCN-O1-OPTS-NEXT:    Call Graph SCC Pass Manager
@@ -778,7 +760,6 @@
 ; GCN-O2-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O2-NEXT:Default Regalloc Priority Advisor
 ; GCN-O2-NEXT:  ModulePass Manager
-; GCN-O2-NEXT:    Verify Heterogeneous Debug Preconditions
 ; GCN-O2-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O2-NEXT:    FunctionPass Manager
 ; GCN-O2-NEXT:      Expand large div/rem
@@ -786,7 +767,6 @@
 ; GCN-O2-NEXT:    AMDGPU Remove Incompatible Functions
 ; GCN-O2-NEXT:    AMDGPU Printf lowering
 ; GCN-O2-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O2-NEXT:    AMDGPU Lower Kernel Calls
 ; GCN-O2-NEXT:    FunctionPass Manager
 ; GCN-O2-NEXT:      AMDGPU Image Intrinsic Optimizer
 ; GCN-O2-NEXT:    Expand variadic functions
@@ -856,11 +836,7 @@
 ; GCN-O2-NEXT:      Scalarize Masked Memory Intrinsics
 ; GCN-O2-NEXT:      Expand reduction intrinsics
 ; GCN-O2-NEXT:      Early CSE
-; GCN-O2-NEXT:    CallGraph Construction
-; GCN-O2-NEXT:    Call Graph SCC Pass Manager
-; GCN-O2-NEXT:      AMDGPU Annotate Kernel Features
-; GCN-O2-NEXT:      FunctionPass Manager
-; GCN-O2-NEXT:        AMDGPU Lower Kernel Arguments
+; GCN-O2-NEXT:      AMDGPU Lower Kernel Arguments
 ; GCN-O2-NEXT:    Lower buffer fat pointer operations to buffer resources
 ; GCN-O2-NEXT:    CallGraph Construction
 ; GCN-O2-NEXT:    Call Graph SCC Pass Manager
@@ -1099,7 +1075,6 @@
 ; GCN-O3-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O3-NEXT:Default Regalloc Priority Advisor
 ; GCN-O3-NEXT:  ModulePass Manager
-; GCN-O3-NEXT:    Verify Heterogeneous Debug Preconditions
 ; GCN-O3-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O3-NEXT:    FunctionPass Manager
 ; GCN-O3-NEXT:      Expand large div/rem
@@ -1107,7 +1082,6 @@
 ; GCN-O3-NEXT:    AMDGPU Remove Incompatible Functions
 ; GCN-O3-NEXT:    AMDGPU Printf lowering
 ; GCN-O3-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O3-NEXT:    AMDGPU Lower Kernel Calls
 ; GCN-O3-NEXT:    FunctionPass Manager
 ; GCN-O3-NEXT:      AMDGPU Image Intrinsic Optimizer
 ; GCN-O3-NEXT:    Expand variadic functions
@@ -1190,11 +1164,7 @@
 ; GCN-O3-NEXT:      Lazy Block Frequency Analysis
 ; GCN-O3-NEXT:      Optimization Remark Emitter
 ; GCN-O3-NEXT:      Global Value Numbering
-; GCN-O3-NEXT:    CallGraph Construction
-; GCN-O3-NEXT:    Call Graph SCC Pass Manager
-; GCN-O3-NEXT:      AMDGPU Annotate Kernel Features
-; GCN-O3-NEXT:      FunctionPass Manager
-; GCN-O3-NEXT:        AMDGPU Lower Kernel Arguments
+; GCN-O3-NEXT:      AMDGPU Lower Kernel Arguments
 ; GCN-O3-NEXT:    Lower buffer fat pointer operations to buffer resources
 ; GCN-O3-NEXT:    CallGraph Construction
 ; GCN-O3-NEXT:    Call Graph SCC Pass Manager

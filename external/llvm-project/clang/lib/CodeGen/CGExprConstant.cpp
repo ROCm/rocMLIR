@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "ABIInfoImpl.h"
 #include "CGCXXABI.h"
 #include "CGObjCRuntime.h"
 #include "CGRecordLayout.h"
@@ -363,14 +364,14 @@ bool ConstantAggregateBuilder::split(size_t Index, CharUnits Hint) {
     // FIXME: If possible, split into two ConstantDataSequentials at Hint.
     CharUnits ElemSize = getSize(CDS->getElementType());
     replace(Elems, Index, Index + 1,
-            llvm::map_range(llvm::seq(0u, CDS->getNumElements()),
-                            [&](unsigned Elem) {
+            llvm::map_range(llvm::seq(uint64_t(0u), CDS->getNumElements()),
+                            [&](uint64_t Elem) {
                               return CDS->getElementAsConstant(Elem);
                             }));
     replace(Offsets, Index, Index + 1,
             llvm::map_range(
-                llvm::seq(0u, CDS->getNumElements()),
-                [&](unsigned Elem) { return Offset + Elem * ElemSize; }));
+                llvm::seq(uint64_t(0u), CDS->getNumElements()),
+                [&](uint64_t Elem) { return Offset + Elem * ElemSize; }));
     return true;
   }
 
@@ -757,7 +758,7 @@ bool ConstStructBuilder::Build(const InitListExpr *ILE, bool AllowOverwrite) {
 
     // Zero-sized fields are not emitted, but their initializers may still
     // prevent emission of this struct as a constant.
-    if (Field->isZeroSize(CGM.getContext())) {
+    if (isEmptyFieldForLayout(CGM.getContext(), Field)) {
       if (Init && Init->HasSideEffects(CGM.getContext()))
         return false;
       continue;
@@ -893,7 +894,8 @@ bool ConstStructBuilder::Build(const APValue &Val, const RecordDecl *RD,
       continue;
 
     // Don't emit anonymous bitfields or zero-sized fields.
-    if (Field->isUnnamedBitField() || Field->isZeroSize(CGM.getContext()))
+    if (Field->isUnnamedBitField() ||
+        isEmptyFieldForLayout(CGM.getContext(), *Field))
       continue;
 
     // Emit the value of the initializer.
@@ -2047,10 +2049,13 @@ namespace {
 struct ConstantLValue {
   llvm::Constant *Value;
   bool HasOffsetApplied;
+  bool HasDestPointerAuth;
 
   /*implicit*/ ConstantLValue(llvm::Constant *value,
-                              bool hasOffsetApplied = false)
-    : Value(value), HasOffsetApplied(hasOffsetApplied) {}
+                              bool hasOffsetApplied = false,
+                              bool hasDestPointerAuth = false)
+      : Value(value), HasOffsetApplied(hasOffsetApplied),
+        HasDestPointerAuth(hasDestPointerAuth) {}
 
   /*implicit*/ ConstantLValue(ConstantAddress address)
     : ConstantLValue(address.getPointer()) {}
@@ -2155,6 +2160,14 @@ llvm::Constant *ConstantLValueEmitter::tryEmit() {
     value = applyOffset(value);
   }
 
+  // Apply pointer-auth signing from the destination type.
+  if (PointerAuthQualifier PointerAuth = DestType.getPointerAuth();
+      PointerAuth && !result.HasDestPointerAuth) {
+    value = Emitter.tryEmitConstantSignedPointer(value, PointerAuth);
+    if (!value)
+      return nullptr;
+  }
+
   // Convert to the appropriate type; this could be an lvalue for
   // an integer.  FIXME: performAddrSpaceCast
   if (isa<llvm::PointerType>(destTy))
@@ -2198,6 +2211,12 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
       return CGM.GetWeakRefReference(D).getPointer();
 
     auto PtrAuthSign = [&](llvm::Constant *C) {
+      if (PointerAuthQualifier PointerAuth = DestType.getPointerAuth()) {
+        C = applyOffset(C);
+        C = Emitter.tryEmitConstantSignedPointer(C, PointerAuth);
+        return ConstantLValue(C, /*applied offset*/ true, /*signed*/ true);
+      }
+
       CGPointerAuthInfo AuthInfo;
 
       if (EnablePtrAuthFunctionTypeDiscrimination)
@@ -2211,7 +2230,7 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
         C = CGM.getConstantSignedPointer(
             C, AuthInfo.getKey(), nullptr,
             cast_or_null<llvm::ConstantInt>(AuthInfo.getDiscriminator()));
-        return ConstantLValue(C, /*applied offset*/ true);
+        return ConstantLValue(C, /*applied offset*/ true, /*signed*/ true);
       }
 
       return ConstantLValue(C);
@@ -2618,8 +2637,10 @@ static llvm::Constant *EmitNullConstant(CodeGenModule &CGM,
         cast<CXXRecordDecl>(I.getType()->castAs<RecordType>()->getDecl());
 
       // Ignore empty bases.
-      if (base->isEmpty() ||
-          CGM.getContext().getASTRecordLayout(base).getNonVirtualSize()
+      if (isEmptyRecordForLayout(CGM.getContext(), I.getType()) ||
+          CGM.getContext()
+              .getASTRecordLayout(base)
+              .getNonVirtualSize()
               .isZero())
         continue;
 
@@ -2633,7 +2654,8 @@ static llvm::Constant *EmitNullConstant(CodeGenModule &CGM,
   for (const auto *Field : record->fields()) {
     // Fill in non-bitfields. (Bitfields always use a zero pattern, which we
     // will fill in later.)
-    if (!Field->isBitField() && !Field->isZeroSize(CGM.getContext())) {
+    if (!Field->isBitField() &&
+        !isEmptyFieldForLayout(CGM.getContext(), Field)) {
       unsigned fieldIndex = layout.getLLVMFieldNo(Field);
       elements[fieldIndex] = CGM.EmitNullConstant(Field->getType());
     }
@@ -2655,7 +2677,7 @@ static llvm::Constant *EmitNullConstant(CodeGenModule &CGM,
         cast<CXXRecordDecl>(I.getType()->castAs<RecordType>()->getDecl());
 
       // Ignore empty bases.
-      if (base->isEmpty())
+      if (isEmptyRecordForLayout(CGM.getContext(), I.getType()))
         continue;
 
       unsigned fieldIndex = layout.getVirtualBaseIndex(base);

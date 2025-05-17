@@ -1042,10 +1042,10 @@ struct CollapseExpandRewritePattern
 };
 
 struct GemmElementwiseGemmRewritePattern
-    : public OpRewritePattern<tosa::MatMulOp>::SplitMatchAndRewrite {
-  using SplitMatchAndRewrite::SplitMatchAndRewrite;
+    : public OpRewritePattern<tosa::MatMulOp> {
+  using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult match(tosa::MatMulOp op) const override {
+  LogicalResult match(tosa::MatMulOp op) const {
     OpBuilder b{op};
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
@@ -1061,7 +1061,7 @@ struct GemmElementwiseGemmRewritePattern
     return maybeFirstMatMul;
   }
 
-  void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
+  void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output = rewriter.create<bufferization::AllocTensorOp>(
@@ -1114,11 +1114,19 @@ struct GemmElementwiseGemmRewritePattern
     }
     rewriter.replaceOp(op, gemmElentwiseGemmOp.getResult());
   }
+
+  LogicalResult matchAndRewrite(tosa::MatMulOp op,
+                                PatternRewriter &rewriter) const override {
+    auto result = match(op);
+    if (result.succeeded()) {
+      rewrite(op, rewriter);
+    }
+    return result;
+  }
 };
 
-struct AttentionRewritePattern
-    : public OpRewritePattern<tosa::MatMulOp>::SplitMatchAndRewrite {
-  using SplitMatchAndRewrite::SplitMatchAndRewrite;
+struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
+  using OpRewritePattern::OpRewritePattern;
 
   FailureOr<Value> getValueNonReshapeOpNonBroadcast(Value val) const {
     while (val.getDefiningOp() &&
@@ -1370,7 +1378,7 @@ struct AttentionRewritePattern
     return reshapeOp;
   }
 
-  LogicalResult match(tosa::MatMulOp op) const override {
+  LogicalResult match(tosa::MatMulOp op) const {
     FailureOr<std::tuple<Value, bool, Value>> softmaxInputResult =
         maybeSoftmax(op.getA());
     if (failed(softmaxInputResult))
@@ -1412,7 +1420,7 @@ struct AttentionRewritePattern
     return maybeFirstMatMul;
   }
 
-  void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const override {
+  void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     Value softmaxInput, currentSeqLen;
     std::tie(softmaxInput, std::ignore, currentSeqLen) =
@@ -1473,6 +1481,15 @@ struct AttentionRewritePattern
       rewriter.create<rock::YieldOp>(loc);
     }
     rewriter.replaceOp(op, attnOp.getResult());
+  }
+
+  LogicalResult matchAndRewrite(tosa::MatMulOp op,
+                                PatternRewriter &rewriter) const override {
+    auto result = match(op);
+    if (result.succeeded()) {
+      rewrite(op, rewriter);
+    }
+    return result;
   }
 };
 

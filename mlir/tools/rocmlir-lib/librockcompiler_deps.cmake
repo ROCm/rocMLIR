@@ -168,6 +168,7 @@ MLIRSCFTransforms
 MLIRSCFUtils
 MLIRSPIRVBinaryUtils
 MLIRSPIRVDialect
+MLIRSPIRVImageInterfaces
 MLIRSPIRVSerialization
 MLIRSPIRVTarget
 MLIRShapedOpInterfaces

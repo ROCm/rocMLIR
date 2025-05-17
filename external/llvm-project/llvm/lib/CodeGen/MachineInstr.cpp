@@ -798,6 +798,28 @@ bool MachineInstr::shouldUpdateAdditionalCallInfo() const {
   return isCandidateForAdditionalCallInfo();
 }
 
+template <typename Operand, typename Instruction>
+static iterator_range<
+    filter_iterator<Operand *, std::function<bool(Operand &Op)>>>
+getDebugOperandsForRegHelper(Instruction *MI, Register Reg) {
+  std::function<bool(Operand & Op)> OpUsesReg(
+      [Reg](Operand &Op) { return Op.isReg() && Op.getReg() == Reg; });
+  return make_filter_range(MI->debug_operands(), OpUsesReg);
+}
+
+iterator_range<filter_iterator<const MachineOperand *,
+                               std::function<bool(const MachineOperand &Op)>>>
+MachineInstr::getDebugOperandsForReg(Register Reg) const {
+  return getDebugOperandsForRegHelper<const MachineOperand, const MachineInstr>(
+      this, Reg);
+}
+
+iterator_range<
+    filter_iterator<MachineOperand *, std::function<bool(MachineOperand &Op)>>>
+MachineInstr::getDebugOperandsForReg(Register Reg) {
+  return getDebugOperandsForRegHelper<MachineOperand, MachineInstr>(this, Reg);
+}
+
 unsigned MachineInstr::getNumExplicitOperands() const {
   unsigned NumOperands = MCID->getNumOperands();
   if (!MCID->isVariadic())
@@ -914,26 +936,6 @@ int MachineInstr::findInlineAsmFlagIdx(unsigned OpIdx,
 const DILabel *MachineInstr::getDebugLabel() const {
   assert(isDebugLabel() && "not a DBG_LABEL");
   return cast<DILabel>(getOperand(0).getMetadata());
-}
-
-DILifetime *MachineInstr::getDebugLifetime() {
-  assert(isDebugDefKill() && "not a DBG_DEF or DBG_KILL");
-  return cast<DILifetime>(const_cast<MDNode *>(getOperand(0).getMetadata()));
-}
-
-const DILifetime *MachineInstr::getDebugLifetime() const {
-  assert(isDebugDefKill() && "not a DBG_DEF or DBG_KILL");
-  return cast<DILifetime>(getOperand(0).getMetadata());
-}
-
-const MachineOperand &MachineInstr::getDebugReferrer() const {
-  assert(isDebugDef() && "not a DBG_DEF");
-  return getOperand(1);
-}
-
-MachineOperand &MachineInstr::getDebugReferrer() {
-  assert(isDebugDef() && "not a DBG_DEF");
-  return getOperand(1);
 }
 
 const MachineOperand &MachineInstr::getDebugVariableOp() const {
@@ -2549,7 +2551,7 @@ using MMOList = SmallVector<const MachineMemOperand *, 2>;
 
 static LocationSize getSpillSlotSize(const MMOList &Accesses,
                                      const MachineFrameInfo &MFI) {
-  uint64_t Size = 0;
+  std::optional<TypeSize> Size;
   for (const auto *A : Accesses) {
     if (MFI.isSpillSlotObjectIndex(
             cast<FixedStackPseudoSourceValue>(A->getPseudoValue())
@@ -2557,10 +2559,15 @@ static LocationSize getSpillSlotSize(const MMOList &Accesses,
       LocationSize S = A->getSize();
       if (!S.hasValue())
         return LocationSize::beforeOrAfterPointer();
-      Size += S.getValue();
+      if (!Size)
+        Size = S.getValue();
+      else
+        Size = *Size + S.getValue();
     }
   }
-  return Size;
+  if (!Size)
+    return LocationSize::precise(0);
+  return LocationSize::precise(*Size);
 }
 
 std::optional<LocationSize>

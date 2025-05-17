@@ -27,7 +27,6 @@ using namespace llvm::dwarf;
 DIBuilder::DIBuilder(Module &m, bool AllowUnresolvedNodes, DICompileUnit *CU)
     : M(m), VMContext(M.getContext()), CUNode(CU), DeclareFn(nullptr),
       ValueFn(nullptr), LabelFn(nullptr), AssignFn(nullptr),
-      DefFn(nullptr), KillFn(nullptr),
       AllowUnresolvedNodes(AllowUnresolvedNodes) {
   if (CUNode) {
     if (const auto &ETs = CUNode->getEnumTypes())
@@ -39,7 +38,7 @@ DIBuilder::DIBuilder(Module &m, bool AllowUnresolvedNodes, DICompileUnit *CU)
     if (const auto &IMs = CUNode->getImportedEntities())
       ImportedModules.assign(IMs.begin(), IMs.end());
     if (const auto &MNs = CUNode->getMacros())
-      AllMacrosPerParent.insert({nullptr, {MNs.begin(), MNs.end()}});
+      AllMacrosPerParent.insert({nullptr, {llvm::from_range, MNs}});
   }
 }
 
@@ -271,6 +270,37 @@ DIBasicType *DIBuilder::createBasicType(StringRef Name, uint64_t SizeInBits,
   assert(!Name.empty() && "Unable to create type without name");
   return DIBasicType::get(VMContext, dwarf::DW_TAG_base_type, Name, SizeInBits,
                           0, Encoding, NumExtraInhabitants, Flags);
+}
+
+DIFixedPointType *
+DIBuilder::createBinaryFixedPointType(StringRef Name, uint64_t SizeInBits,
+                                      uint32_t AlignInBits, unsigned Encoding,
+                                      DINode::DIFlags Flags, int Factor) {
+  return DIFixedPointType::get(VMContext, dwarf::DW_TAG_base_type, Name,
+                               SizeInBits, AlignInBits, Encoding, Flags,
+                               DIFixedPointType::FixedPointBinary, Factor,
+                               APInt(), APInt());
+}
+
+DIFixedPointType *
+DIBuilder::createDecimalFixedPointType(StringRef Name, uint64_t SizeInBits,
+                                       uint32_t AlignInBits, unsigned Encoding,
+                                       DINode::DIFlags Flags, int Factor) {
+  return DIFixedPointType::get(VMContext, dwarf::DW_TAG_base_type, Name,
+                               SizeInBits, AlignInBits, Encoding, Flags,
+                               DIFixedPointType::FixedPointDecimal, Factor,
+                               APInt(), APInt());
+}
+
+DIFixedPointType *
+DIBuilder::createRationalFixedPointType(StringRef Name, uint64_t SizeInBits,
+                                        uint32_t AlignInBits, unsigned Encoding,
+                                        DINode::DIFlags Flags, APInt Numerator,
+                                        APInt Denominator) {
+  return DIFixedPointType::get(VMContext, dwarf::DW_TAG_base_type, Name,
+                               SizeInBits, AlignInBits, Encoding, Flags,
+                               DIFixedPointType::FixedPointRational, 0,
+                               Numerator, Denominator);
 }
 
 DIStringType *DIBuilder::createStringType(StringRef Name, uint64_t SizeInBits) {
@@ -617,7 +647,7 @@ DICompositeType *DIBuilder::createArrayType(
     PointerUnion<DIExpression *, DIVariable *> DL,
     PointerUnion<DIExpression *, DIVariable *> AS,
     PointerUnion<DIExpression *, DIVariable *> AL,
-    PointerUnion<DIExpression *, DIVariable *> RK) {
+    PointerUnion<DIExpression *, DIVariable *> RK, Metadata *BitStride) {
   auto *R = DICompositeType::get(
       VMContext, dwarf::DW_TAG_array_type, Name, File, LineNumber,
       getNonCompileUnitScope(Scope), Ty, Size, AlignInBits, 0, DINode::FlagZero,
@@ -629,7 +659,8 @@ DICompositeType *DIBuilder::createArrayType(
       isa<DIExpression *>(AL) ? (Metadata *)cast<DIExpression *>(AL)
                               : (Metadata *)cast<DIVariable *>(AL),
       isa<DIExpression *>(RK) ? (Metadata *)cast<DIExpression *>(RK)
-                              : (Metadata *)cast<DIVariable *>(RK));
+                              : (Metadata *)cast<DIVariable *>(RK),
+      nullptr, nullptr, 0, BitStride);
   trackIfUnresolved(R);
   return R;
 }
@@ -764,10 +795,6 @@ DIGenericSubrange *DIBuilder::getOrCreateGenericSubrange(
   return DIGenericSubrange::get(VMContext, ConvToMetadata(CountNode),
                                 ConvToMetadata(LB), ConvToMetadata(UB),
                                 ConvToMetadata(Stride));
-}
-
-DIFragment *DIBuilder::createFragment() {
-  return DIFragment::getDistinct(VMContext);
 }
 
 DISubrangeType *DIBuilder::createSubrangeType(
@@ -1230,102 +1257,4 @@ void DIBuilder::replaceArrays(DICompositeType *&T, DINodeArray Elements,
     trackIfUnresolved(Elements.get());
   if (TParams)
     trackIfUnresolved(TParams.get());
-}
-
-DILifetime *DIBuilder::createBoundedLifetime(DIObject *Obj, DIExpr *Loc,
-                                      ArrayRef<Metadata *> Args) {
-  return DILifetime::getDistinct(VMContext, Obj, Loc, Args);
-}
-
-void DIBuilder::createComputedLifetime(DIObject *Obj, DIExpr *Loc,
-                                       ArrayRef<Metadata *> Args) {
-  DILifetime *Lifetime = DILifetime::getDistinct(VMContext, Obj, Loc, Args);
-
-  NamedMDNode *NMD = M.getOrInsertNamedMetadata("llvm.dbg.retainedNodes");
-  NMD->addOperand(Lifetime);
-  trackIfUnresolved(Lifetime);
-}
-
-static Function *getDefIntrin(Module &M) {
-  return Intrinsic::getOrInsertDeclaration(&M, Intrinsic::dbg_def);
-}
-
-Instruction *DIBuilder::insertDefImpl(DILifetime *Lifetime,
-                                      llvm::Value *Referrer,
-                                      const DILocation *DL,
-                                      InsertPosition InsertPt) {
-  assert(Lifetime && "Empty or invalid Lifetime passed to dbg.def");
-  assert(Referrer && "Empty or invalid Referrer passed to dbg.def");
-  assert(DL && "Empty or invalid DL passed to dbg.def");
-
-  if (!DefFn)
-    DefFn = getDefIntrin(M);
-
-  trackIfUnresolved(Lifetime);
-
-  // Ideally, the intrinsic would be able to handle any type of
-  // pointer. However, SelectionDAGBuilder::visitIntrinsicCall (for dbg_def) and
-  // InstEmitter::EmitDbgDefKill expect the intrinsic to refer directly to the
-  // alloca / argument and have problems handling addrspacecasts
-  Referrer = Referrer->stripPointerCasts();
-
-  Value *Args[] = {MetadataAsValue::get(VMContext, Lifetime),
-                   getDbgIntrinsicValueImpl(VMContext, Referrer)};
-
-  IRBuilder<> B(DL->getContext());
-  initIRBuilder(B, DL, InsertPt);
-  return B.CreateCall(DefFn, Args);
-}
-
-Instruction *DIBuilder::insertDef(DILifetime *Lifetime, llvm::Value *Referrer,
-                                  const DILocation *DL,
-                                  BasicBlock *InsertAtEnd) {
-  // If this block already has a terminator then insert this intrinsic before
-  // the terminator. Otherwise, put it at the end of the block.
-  Instruction *InsertBefore = InsertAtEnd->getTerminator();
-  return insertDefImpl(Lifetime, Referrer, DL,
-                       InsertBefore ? InsertBefore->getIterator()
-                                    : InsertAtEnd->end());
-}
-
-Instruction *DIBuilder::insertDef(DILifetime *Lifetime, llvm::Value *Referrer,
-                                  const DILocation *DL,
-                                  InsertPosition InsertPt) {
-  return insertDefImpl(Lifetime, Referrer, DL, InsertPt);
-}
-
-static Function *getKillIntrin(Module &M) {
-  return Intrinsic::getOrInsertDeclaration(&M, Intrinsic::dbg_kill);
-}
-
-Instruction *DIBuilder::insertKillImpl(DILifetime *Lifetime,
-                                       const DILocation *DL,
-                                       InsertPosition InsertPt) {
-  assert(Lifetime && "Empty or invalid Lifetime passed to dbg.kill");
-  assert(DL && "Empty or invalid DL passed to dbg.kill");
-
-  if (!KillFn)
-    KillFn = getKillIntrin(M);
-
-  trackIfUnresolved(Lifetime);
-  Value *Args[] = {MetadataAsValue::get(VMContext, Lifetime)};
-
-  IRBuilder<> B(DL->getContext());
-  initIRBuilder(B, DL, InsertPt);
-  return B.CreateCall(KillFn, Args);
-}
-
-Instruction *DIBuilder::insertKill(DILifetime *Lifetime, const DILocation *DL,
-                                   BasicBlock *InsertAtEnd) {
-  // If this block already has a terminator then insert this intrinsic before
-  // the terminator. Otherwise, put it at the end of the block.
-  Instruction *InsertBefore = InsertAtEnd->getTerminator();
-  return insertKillImpl(Lifetime, DL,
-                        InsertBefore ? InsertBefore->getIterator()
-                                     : InsertAtEnd->end());
-}
-
-Instruction *DIBuilder::insertKill(DILifetime *Lifetime, const DILocation *DL,
-                                   InsertPosition InsertPt) {
-  return insertKillImpl(Lifetime, DL, InsertPt);
 }

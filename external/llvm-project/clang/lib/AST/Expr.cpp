@@ -596,7 +596,7 @@ std::string SYCLUniqueStableNameExpr::ComputeName(ASTContext &Context) const {
 std::string SYCLUniqueStableNameExpr::ComputeName(ASTContext &Context,
                                                   QualType Ty) {
   auto MangleCallback = [](ASTContext &Ctx,
-                           const NamedDecl *ND) -> std::optional<unsigned> {
+                           const NamedDecl *ND) -> UnsignedOrNone {
     if (const auto *RD = dyn_cast<CXXRecordDecl>(ND))
       return RD->getDeviceLambdaManglingNumber();
     return std::nullopt;
@@ -692,9 +692,9 @@ std::string PredefinedExpr::ComputeName(PredefinedIdentKind IK,
           GD = GlobalDecl(CD, Ctor_Base);
         else if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(ND))
           GD = GlobalDecl(DD, Dtor_Base);
-        else if (ND->hasAttr<CUDAGlobalAttr>())
-          GD = GlobalDecl(cast<FunctionDecl>(ND));
-        else
+        else if (auto FD = dyn_cast<FunctionDecl>(ND)) {
+          GD = FD->isReferenceableKernel() ? GlobalDecl(FD) : GlobalDecl(ND);
+        } else
           GD = GlobalDecl(ND);
         MC->mangleName(GD, Out);
 
@@ -1104,6 +1104,7 @@ unsigned StringLiteral::mapCharByteWidth(TargetInfo const &Target,
   switch (SK) {
   case StringLiteralKind::Ordinary:
   case StringLiteralKind::UTF8:
+  case StringLiteralKind::Binary:
     CharByteWidth = Target.getCharWidth();
     break;
   case StringLiteralKind::Wide:
@@ -1216,6 +1217,7 @@ void StringLiteral::outputString(raw_ostream &OS) const {
   switch (getKind()) {
   case StringLiteralKind::Unevaluated:
   case StringLiteralKind::Ordinary:
+  case StringLiteralKind::Binary:
     break; // no prefix.
   case StringLiteralKind::Wide:
     OS << 'L';
@@ -1332,6 +1334,11 @@ StringLiteral::getLocationOfByte(unsigned ByteNo, const SourceManager &SM,
                                  const LangOptions &Features,
                                  const TargetInfo &Target, unsigned *StartToken,
                                  unsigned *StartTokenByteOffset) const {
+  // No source location of bytes for binary literals since they don't come from
+  // source.
+  if (getKind() == StringLiteralKind::Binary)
+    return getStrTokenLoc(0);
+
   assert((getKind() == StringLiteralKind::Ordinary ||
           getKind() == StringLiteralKind::UTF8 ||
           getKind() == StringLiteralKind::Unevaluated) &&
@@ -1611,22 +1618,24 @@ QualType CallExpr::getCallReturnType(const ASTContext &Ctx) const {
   return FnType->getReturnType();
 }
 
-const Attr *CallExpr::getUnusedResultAttr(const ASTContext &Ctx) const {
+std::pair<const NamedDecl *, const Attr *>
+CallExpr::getUnusedResultAttr(const ASTContext &Ctx) const {
+  // If the callee is marked nodiscard, return that attribute
+  const Decl *D = getCalleeDecl();
+  if (const auto *A = D->getAttr<WarnUnusedResultAttr>())
+    return {nullptr, A};
+
   // If the return type is a struct, union, or enum that is marked nodiscard,
   // then return the return type attribute.
   if (const TagDecl *TD = getCallReturnType(Ctx)->getAsTagDecl())
     if (const auto *A = TD->getAttr<WarnUnusedResultAttr>())
-      return A;
+      return {TD, A};
 
   for (const auto *TD = getCallReturnType(Ctx)->getAs<TypedefType>(); TD;
        TD = TD->desugar()->getAs<TypedefType>())
     if (const auto *A = TD->getDecl()->getAttr<WarnUnusedResultAttr>())
-      return A;
-
-  // Otherwise, see if the callee is marked nodiscard and return that attribute
-  // instead.
-  const Decl *D = getCalleeDecl();
-  return D ? D->getAttr<WarnUnusedResultAttr>() : nullptr;
+      return {TD->getDecl(), A};
+  return {nullptr, nullptr};
 }
 
 SourceLocation CallExpr::getBeginLoc() const {
@@ -1643,8 +1652,11 @@ SourceLocation CallExpr::getBeginLoc() const {
   if (!isTypeDependent()) {
     if (const auto *Method =
             dyn_cast_if_present<const CXXMethodDecl>(getCalleeDecl());
-        Method && Method->isExplicitObjectMemberFunction())
-      return getArg(0)->getBeginLoc();
+        Method && Method->isExplicitObjectMemberFunction()) {
+      if (auto FirstArgLoc = getArg(0)->getBeginLoc(); FirstArgLoc.isValid()) {
+        return FirstArgLoc;
+      }
+    }
   }
 
   SourceLocation begin = getCallee()->getBeginLoc();
