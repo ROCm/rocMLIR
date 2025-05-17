@@ -112,7 +112,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
 
     if proc1.returncode !=0:
         if options.debug:
-            print("rocmlir-gen failed:\n", rocmlirGeneratorError.decode().strip())
+            print("rocmlir-gen failed:\nError = ", rocmlirGeneratorError.decode().strip())
         return TestResult.INVALID
 
     proc2 = await asyncio.create_subprocess_exec(
@@ -127,17 +127,8 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
 
     if proc2.returncode !=0:
         if options.debug:
-            print("rocmlir-driver failed:\n", rocmlirDriverError.decode().strip())
+            print("rocmlir-driver failed:\nError = ", rocmlirDriverError.decode().strip())
         return TestResult.INVALID
-    
-    print("\n\n*********command for cpu runner**************")
-    print(            paths.mlir_paths.cpu_runner_path,
-            '-O2',
-            f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},'
-            f'{paths.mlir_paths.libconv_validation_wrappers_path},'
-            f'{paths.mlir_paths.libmlir_runtime_utils_path}',
-            '--entry-point-result=void')
-    print("\n\n")
     
     proc3 = subprocess.Popen(
         [
@@ -154,7 +145,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     )
     
     try:
-        stdout3, stderr3 = proc3.communicate(input=rocmlirDriverOutput, timeout=360)
+        stdout3, stderr3 = proc3.communicate(input=rocmlirDriverOutput, timeout=900)
     except BrokenPipeError:
         if options.debug:
             print("Broken pipe: cpu-runner failed to read input")
@@ -167,15 +158,15 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
 
     if proc3.returncode != 0:
         if options.debug:
-            print("Runner failed:", stderr3.decode().strip())
+            print("Runner failed:\nOutput = ", stdout3.decode().strip())
+            print("\nError = ", stderr3.decode().strip())
         return TestResult.FAIL
 
     output = stdout3.decode()
 
     if 'FAILED' in output or 'nan' in output.lower():
         if options.debug:
-            print("FAILED in output or NaN", output)
-            print(output)
+            print("FAILED in output or NaN:\nOutput = ", output)
         return TestResult.FAIL
     return TestResult.PASS
 
@@ -272,7 +263,7 @@ def main():
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--mlir-build-dir', type=str, required=True)
-    parser.add_argument('--samples', type=int, default=20)
+    parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
