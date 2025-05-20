@@ -97,6 +97,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
     # Has a copy of the requirements.txt install bit for the new python version
 
+# Need "render" group because some CI hosts have /dev/kfd under it.
+RUN groupadd -f render
+
 # Add ROCm build distribution
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
 RUN echo "deb [arch=amd64] ${ROCM_DEB_REPO} ${ROCM_BUILD_NAME} ${ROCM_BUILD_NUM}" > /etc/apt/sources.list.d/rocm.list
