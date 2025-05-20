@@ -160,6 +160,12 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
         if options.debug:
             print("Runner failed:\nOutput = ", stdout3.decode().strip())
             print("\nError = ", stderr3.decode().strip())
+        
+        if 'hipErrorOutOfMemory' in stderr3.decode().strip():
+            if options.debug:
+                print("\n---> Classified as INVALID since the reason is memory access fault")
+            return TestResult.INVALID
+
         return TestResult.FAIL
 
     output = stdout3.decode()
