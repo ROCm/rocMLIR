@@ -6,7 +6,7 @@ Usage:
 
 Options:
     --mlir-build-dir    Path to the MLIR build directory (required)
-    --samples           Number of random configuration samples to the test (default: 20)
+    --samples           Number of random configuration samples to the test (default: 1000)
     --jobs              Number of concurrent tests to run in parallel (default: 4)
     --debug             Enable debug output
     --quiet             Disable per-test result output
