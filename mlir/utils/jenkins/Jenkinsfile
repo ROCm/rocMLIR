@@ -465,6 +465,7 @@ def checkNodeHealth() {
 def acquireHealthyNode(String label, int retries = 3, Closure code) {
     String currentLabel = label
     List triedNodes = []
+    
 
     for (int attempt = 0; attempt <= retries; attempt++) {
         def healthyNodeName = null
@@ -482,8 +483,8 @@ def acquireHealthyNode(String label, int retries = 3, Closure code) {
                 if (attempt == retries) {
                     error("Failed to find any available and untested node after ${attempt} attempts.")
                 }
-                 // Wait a bit before checking nodesByLabel again on the next attempt
-                sleep(time: 1, unit: 'MINUTES')
+                //  // Wait a bit before checking nodesByLabel again on the next attempt
+                // sleep(time: 1, unit: 'MINUTES')
                 continue // Go to next attempt iteration
             }
 
@@ -503,9 +504,7 @@ def acquireHealthyNode(String label, int retries = 3, Closure code) {
             // If we get here without exception, the node is healthy
             // Now, re-allocate the same healthy node to run the user's code
             node(healthyNodeName) {
-                 ws { // Ensure we are in a workspace
-                    code() // Execute the main logic passed to this function
-                 }
+                code() // Execute the main logic passed to this function
             }
             // If code() completes successfully, we're done.
             return
@@ -525,7 +524,7 @@ def acquireHealthyNode(String label, int retries = 3, Closure code) {
 
             currentBuild.description =
                 (currentBuild.description ?: '') +
-                "<b>Node Check Failed:</b> ${message}<br/>"
+                "Node Check Failed: ${message}"
 
             // Exclude this nodefrom future attempts
             currentLabel = "${label} && !${nodeToTry}"
@@ -658,9 +657,14 @@ pipeline {
                                     // Acquire a healthy node and execute steps inside docker
                                     acquireHealthyNode(requiredLabel, 3) {
                                         try {
+                                            checkout scm 
+
                                             setHeartbeat()
                                             echo "Executing Build and Test for ${CODEPATH} on node ${env.NODE_NAME}"
-                                            docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                            String stringDockerArgs = dockerArgs()
+                                            def img = docker.image(dockerImageName)
+                                            def pulled = img?.pull()
+                                            img.inside(stringDockerArgs) {
                                                 showEnv()
 
                                                 if (params.sharedLib) {
@@ -764,10 +768,14 @@ pipeline {
 
                                 acquireHealthyNode(requiredLabel, 3) {
                                     try {
+                                        checkout scm
                                         echo "Setting longer heartbeat on node ${env.NODE_NAME} before parameter sweep for ${CODEPATH}."
                                         setHeartbeat()
                                         echo "Executing Parameter Sweep for ${CODEPATH} on node ${env.NODE_NAME}"
-                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                        String stringDockerArgs = dockerArgs()
+                                        def img = docker.image(dockerImageName)
+                                        def pulled = img?.pull()
+                                        img.inside(stringDockerArgs) {
                                             showEnv()
                                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                             parameterSweep("conv_structure", "${CODEPATH}")
@@ -821,12 +829,16 @@ pipeline {
 
                                 acquireHealthyNode(requiredLabel, 3) {
                                     try {
+                                        checkout scm
                                         if ("${ARCH}" == 'gfx90a') {
                                             echo "Setting longer heartbeat for gfx90a node ${env.NODE_NAME}"
                                             setHeartbeat()
                                         }
                                         echo "Executing Tuning for ${ARCH} on node ${env.NODE_NAME}"
-                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                        String stringDockerArgs = dockerArgs()
+                                        def img = docker.image(dockerImageName)
+                                        def pulled = img?.pull()
+                                        img.inside(stringDockerArgs) {
                                             showEnv()
                                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                             dir('MITuna') {
@@ -924,9 +936,13 @@ pipeline {
 
                                 acquireHealthyNode(requiredLabel, 3) {
                                     try {
+                                        checkout scm
                                         setHeartbeat()
                                         echo "Executing Benchmarks for ${CHIP} on node ${env.NODE_NAME}"
-                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                        String stringDockerArgs = dockerArgs()
+                                        def img = docker.image(dockerImageName)
+                                        def pulled = img?.pull()
+                                        img.inside(stringDockerArgs) {
                                             showEnv()
 
                                             copyArtifacts filter: 'build/perfDB/**', // Should this be specific to CHIP? Check archivePerfDB logic.
@@ -1071,9 +1087,13 @@ pipeline {
 
                                 acquireHealthyNode(requiredLabel, 3) {
                                     try {
+                                        checkout scm
                                         setHeartbeat()
                                         echo "Executing MIGraphX tests for ${CODEPATH} on node ${env.NODE_NAME}"
-                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                        String stringDockerArgs = dockerArgs()
+                                        def img = docker.image(dockerImageName)
+                                        def pulled = img?.pull()
+                                        img.inside(stringDockerArgs) {
                                             showEnv()
 
                                             // Package and install current checkout of rocMLIR as MIGraphX dependency.
@@ -1153,9 +1173,13 @@ pipeline {
 
                                 acquireHealthyNode(requiredLabel, 3) {
                                     try {
+                                        checkout scm
                                         setHeartbeat()
                                         echo "Executing Code Coverage for ${CPATH} on node ${env.NODE_NAME}"
-                                        docker.image(dockerImageName).pull().inside(dockerArgs()) {
+                                        String stringDockerArgs = dockerArgs()
+                                        def img = docker.image(dockerImageName)
+                                        def pulled = img?.pull()
+                                        img.inside(stringDockerArgs) {
                                             showEnv()
 
                                             try {
