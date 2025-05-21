@@ -60,20 +60,6 @@
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
 
-#distilgpt2_1.onnx
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
--t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 384 -k 64
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
-
 #bert_base_cased_1_fp16_gpu.onnx
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
 -t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
