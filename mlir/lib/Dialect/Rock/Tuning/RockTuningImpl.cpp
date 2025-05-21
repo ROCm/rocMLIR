@@ -662,6 +662,15 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   else
     problemOS << "false" << sep;
 
+  if (isAttention) {
+    auto attentionOp = cast<AttentionOp>(gemmGemmOp);
+    problemOS << "-causal ";
+    if (attentionOp.getCausal())
+      problemOS << "true" << sep;
+    else
+      problemOS << "false" << sep;
+  }
+
   problemOS << "-g " << g << sep;
   if (isAttention) {
     problemOS << "-seq_len_q " << seqLenQ << sep;

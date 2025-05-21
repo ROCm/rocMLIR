@@ -609,6 +609,11 @@ static llvm::cl::opt<bool> transposeO(
                    "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool>
+    causalMasking("causal",
+                  llvm::cl::desc("whether we implement causal masking"),
+                  llvm::cl::init(false));
+
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
 //////////////////////////////////////////////////////////////////////////
@@ -2452,6 +2457,84 @@ static Value addTensorArgToBlock(OpBuilder &builder, Location loc,
   return funcArgTensor;
 }
 
+static Value applyMask(OpBuilder builder, Location loc, Value inputTensor,
+                       Value mask, float initValue) {
+  auto inpType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> inpShape = inpType.getShape();
+
+  // create a tensor with a single value and broadcast it
+  assert(isa<FloatType>(inpType.getElementType()));
+  std::pair<APFloat, llvm::detail::opStatus> floatRes =
+      rock::createAPFloat(inpType.getElementType(), initValue);
+  APFloat fpVal = floatRes.first;
+  auto status = floatRes.second;
+  assert(status == APFloat::opOK);
+
+  DenseElementsAttr initValueAttr = DenseFPElementsAttr::get(
+      RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
+
+  Value initVal = builder.create<tosa::ConstOp>(loc, initValueAttr.getType(),
+                                                initValueAttr);
+
+  // mask is 1 for values we want to set to "initVal"
+  auto result = createOpAndInfer<tosa::SelectOp>(
+      builder, loc, inpType.getElementType(), mask, initVal, inputTensor);
+  return result;
+}
+
+static Value createRange(OpBuilder builder, Location loc, size_t index,
+                         const ArrayRef<int64_t> inpShape) {
+  assert(index < inpShape.size());
+
+  // create range 0 to inpShape[axis]
+  llvm::SmallVector<int32_t> range;
+  range.reserve(inpShape[index]);
+  for (int i = 0; i < inpShape[index]; i++)
+    range.push_back(i);
+  DenseElementsAttr rangeAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get({inpShape[index]}, builder.getI32Type()), range);
+  Value rangeVal =
+      builder.create<tosa::ConstOp>(loc, rangeAttr.getType(), rangeAttr);
+
+  // reshape
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  SmallVector<int64_t> newShape;
+  newShape.reserve(inpShape.size());
+  for (size_t i = 0; i < inpShape.size(); i++)
+    newShape.push_back((i == index) ? inpShape[index] : 1);
+
+  auto shapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
+  auto rangeValReshaped = createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, builder.getI32Type(), rangeVal, shapeValue);
+
+  // broadcast range to inputTensor shape
+  auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
+  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
+  auto zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
+  auto rangeBroadcast = createOpAndInfer<tosa::AddOp>(
+      builder, loc, builder.getI32Type(), zeroTensor, rangeValReshaped);
+
+  return rangeBroadcast;
+}
+
+static Value causalMaskingTosa(OpBuilder builder, Location loc,
+                               Value inputTensor, float initValue) {
+  // create a range for row and column
+  auto inpType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> inpShape = inpType.getShape();
+
+  Value rowRange = createRange(builder, loc, 1, inpShape);
+  Value colRange = createRange(builder, loc, 2, inpShape);
+
+  // create mask (diagonal and lower triangular are zero)
+  auto mask = createOpAndInfer<tosa::GreaterOp>(
+      builder, loc, builder.getIntegerType(1), colRange, rowRange);
+
+  // apply mask
+  Value result = applyMask(builder, loc, inputTensor, mask, initValue);
+  return result;
+}
+
 static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
                              Value currentSeqLenVal, float initValue) {
   // inputTensor is [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV], we want to reshape to
@@ -2472,28 +2555,13 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   for (auto v : currentSeqLen)
     assert(v > 0 && v <= inpShape[3]);
 
-  // create range 0 to inpShape[axis]
-  llvm::SmallVector<int32_t> range;
-  range.reserve(inpShape[3]);
-  for (int i = 0; i < inpShape[3]; i++)
-    range.push_back(i);
-  DenseElementsAttr rangeAttr = DenseIntElementsAttr::get(
-      RankedTensorType::get({inpShape[3]}, builder.getI32Type()), range);
-  Value rangeVal =
-      builder.create<tosa::ConstOp>(loc, rangeAttr.getType(), rangeAttr);
+  // generate range
+  Value rangeBroadcast = createRange(builder, loc, 3, inpShape);
 
-  // reshape
-  auto shapeValue =
-      tosa::getTosaConstShape(implicitBuilder, {1, 1, 1, inpShape[3]});
-  auto rangeValReshaped = createOpAndInfer<tosa::ReshapeOp>(
-      builder, loc, builder.getI32Type(), rangeVal, shapeValue);
-
-  // broadcast range to inputTensor shape
+  // zero tensor
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
   auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
   auto zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
-  auto rangeBroadcast = createOpAndInfer<tosa::AddOp>(
-      builder, loc, builder.getI32Type(), zeroTensor, rangeValReshaped);
 
   // broadcast currentSeqLen
   auto currentSeqLenBroadcast = createOpAndInfer<tosa::AddOp>(
@@ -2504,23 +2572,7 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
       createOpAndInfer<tosa::GreaterOp>(builder, loc, builder.getIntegerType(1),
                                         rangeBroadcast, currentSeqLenBroadcast);
 
-  // create a tensor with a single value and broadcast it
-  assert(isa<FloatType>(inpType.getElementType()));
-  std::pair<APFloat, llvm::detail::opStatus> floatRes =
-      rock::createAPFloat(inpType.getElementType(), initValue);
-  APFloat fpVal = floatRes.first;
-  auto status = floatRes.second;
-  assert(status == APFloat::opOK);
-
-  DenseElementsAttr initValueAttr = DenseFPElementsAttr::get(
-      RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
-
-  Value initVal = builder.create<tosa::ConstOp>(loc, initValueAttr.getType(),
-                                                initValueAttr);
-
-  // mask is 1 for values we want to set to -inf, initVal=-inf
-  auto result = createOpAndInfer<tosa::SelectOp>(
-      builder, loc, inpType.getElementType(), mask, initVal, inputTensor);
+  Value result = applyMask(builder, loc, inputTensor, mask, initValue);
 
   // reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
   auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
@@ -2704,7 +2756,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, transposeQ, transposeK, transposeV,
-      transposeO, archAttr, params.features, numCUAttr,
+      transposeO, causalMasking, archAttr, params.features, numCUAttr,
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSoftmaxElemwiseBlock =
@@ -3219,6 +3271,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       scaleTensor =
           maskKVCacheTosa(builder, loc, scaleTensor, currentSeqLenTensor, 1.0f);
 
+    if (causalMasking)
+      scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
+
     auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
     auto shiftZeroAttr = DenseElementsAttr::get(
         shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
@@ -3235,15 +3290,21 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       biasTensor =
           maskKVCacheTosa(builder, loc, biasTensor, currentSeqLenTensor, 0.0f);
 
+    if (causalMasking)
+      biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
+
     qkTensor = createOpAndInfer<tosa::AddOp>(
         builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
         qkTensor, biasTensor);
   }
 
-  if (currentSeqLenTensor) {
+  if (currentSeqLenTensor)
     qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
                                -std::numeric_limits<float>::infinity());
-  }
+
+  if (causalMasking)
+    qkTensor = causalMaskingTosa(builder, loc, qkTensor,
+                                 -std::numeric_limits<float>::infinity());
 
   constexpr int64_t reductionAxis = 2;
   auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(

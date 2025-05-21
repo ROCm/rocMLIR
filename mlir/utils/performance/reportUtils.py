@@ -23,7 +23,7 @@ CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'numCU', 'FilterLayout'
                         'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
                         'PaddingH', 'PaddingW', 'PerfConfig']
 GEMM_TEST_PARAMETERS = ['DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
-ATTN_TEST_PARAMETERS = ['DataType', 'Chip', 'numCU', 'TransQ', 'TransK', 'TransV', 'TransO', 'WithAttnScale', 'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'HeadDimQK', 'HeadDimV', 'PerfConfig']
+ATTN_TEST_PARAMETERS = ['DataType', 'Chip', 'numCU', 'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'WithAttnScale', 'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'HeadDimQK', 'HeadDimV', 'PerfConfig']
 GEMM_GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'numCU', 'TransA', 'TransB', 'TransC', 'TransO', 'G', 'M', 'K', 'N', 'O', 'PerfConfig']
 ROUND_DIGITS = 2
 
