@@ -341,6 +341,50 @@ convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 128 -W 128 -k 512 -y 3 -
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 32064 -k 3072
 
 #MaskRCNN-10.onnx
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 800 -W 800 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 200 -W 200 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 100 -W 100 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 100 -W 100 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 100 -W 100 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 768 -H 50 -W 50 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 50 -W 50 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 50 -W 50 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 25 -W 25 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1536 -H 25 -W 25 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 25 -W 25 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 25 -W 25 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 25 -W 25 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 12544
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 1024
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 405 -k 1024
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
 #llama3_8b model.onnx
 
 #whisper-large encoder_model.onnx
