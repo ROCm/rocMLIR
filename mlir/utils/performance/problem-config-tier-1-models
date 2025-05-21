@@ -386,6 +386,13 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 #llama3_8b model.onnx
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 6144 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 64 -n 256 -k 1
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 28672 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 14336
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 128256 -k 4096
 
 #whisper-large encoder_model.onnx
 conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 80 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
