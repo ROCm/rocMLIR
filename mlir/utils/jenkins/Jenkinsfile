@@ -58,6 +58,7 @@ void showEnv() {
     // Ignore rocm-smi failures in ixt-sjc2-05
     sh '/opt/rocm/bin/rocm-smi || true'
     sh '/opt/rocm/bin/rocm_agent_enumerator'
+    sh '/opt/rocm/bin/rocminfo || true'
     sh 'id'
     sh 'printenv'
 }
