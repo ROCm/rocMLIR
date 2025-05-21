@@ -929,7 +929,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
-    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: bool, with_attn_bias: bool,
+    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, num_heads_q: int, num_heads_kv: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: bool, with_attn_bias: bool,
                  transQ: bool, transK: bool, transV: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
@@ -938,6 +938,8 @@ class AttentionConfiguration(PerfConfiguration):
         self.g = g
         self.seq_len_q = seq_len_q
         self.seq_len_k = seq_len_k
+        self.num_heads_q = num_heads_q
+        self.num_heads_kv = num_heads_kv
         self.head_dim_qk = head_dim_qk
         self.head_dim_v = head_dim_v
         self.with_attn_scale = with_attn_scale
@@ -955,10 +957,11 @@ class AttentionConfiguration(PerfConfiguration):
     def computeTFlops(self, ns, only_matmul_flops=True):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        first_matmul_flops = 2.0 * self.g * self.seq_len_q * self.head_dim_qk * self.seq_len_k
+        g = self.g * max(self.num_heads_q, self.num_heads_kv)
+        first_matmul_flops = 2.0 * g * self.seq_len_q * self.head_dim_qk * self.seq_len_k
         # max, sub, exp, sum, div
-        softmax_flops = 5.0 * self.g * self.seq_len_q * self.seq_len_k
-        second_matmul_flops = 2.0 * self.g * self.seq_len_q * self.seq_len_k * self.head_dim_v
+        softmax_flops = 5.0 * g * self.seq_len_q * self.seq_len_k
+        second_matmul_flops = 2.0 * g * self.seq_len_q * self.seq_len_k * self.head_dim_v
         total_flops = first_matmul_flops + second_matmul_flops
         # Weirdly, triton does not account for flops coming from
         # non matmul operations as per FA2 paper. Hence not including
@@ -969,9 +972,9 @@ class AttentionConfiguration(PerfConfiguration):
         if not only_matmul_flops:
             total_flops += softmax_flops
             if self.with_attn_scale:
-                total_flops += self.g * self.seq_len_q * self.seq_len_k
+                total_flops += g * self.seq_len_q * self.seq_len_k
             if self.with_attn_bias:
-                total_flops += self.g * self.seq_len_q * self.seq_len_k
+                total_flops += g * self.seq_len_q * self.seq_len_k
         return total_flops / (float(ns) * 1e-9) / 1e12
 
     def tableEntry(self, nanoSeconds):
@@ -989,6 +992,8 @@ class AttentionConfiguration(PerfConfiguration):
             self.g,
             self.seq_len_q,
             self.seq_len_k,
+            self.num_heads_q,
+            self.num_heads_kv,
             self.head_dim_qk,
             self.head_dim_v,
             self.perfConfig,
@@ -1000,7 +1005,7 @@ class AttentionConfiguration(PerfConfiguration):
         return result
 
     def __repr__(self):
-        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r}, with_attn_bias={self.with_attn_bias!r},
+        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, num_heads_q={self.num_heads_q!r}, num_heads_kv={self.num_heads_kv!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r}, with_attn_bias={self.with_attn_bias!r},
                 transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
@@ -1014,6 +1019,8 @@ class AttentionConfiguration(PerfConfiguration):
                            '-g', str(self.g),
                            '-seq_len_q', str(self.seq_len_q),
                            '-seq_len_k', str(self.seq_len_k),
+                           '-num_heads_q', str(self.num_heads_q),
+                           '-num_heads_kv', str(self.num_heads_kv),
                            '-head_dim_qk', str(self.head_dim_qk),
                            '-head_dim_v', str(self.head_dim_v),
                            f"-with-attn-scale={self.with_attn_scale}",
@@ -1037,6 +1044,8 @@ class AttentionConfiguration(PerfConfiguration):
         g = None
         seq_len_q = None
         seq_len_k = None
+        num_heads_q = None
+        num_heads_kv = None
         head_dim_qk = None
         head_dim_v = None
         transQ = False
@@ -1057,6 +1066,10 @@ class AttentionConfiguration(PerfConfiguration):
                 seq_len_q = int(val)
             elif opt.endswith("-seq_len_k"):
                 seq_len_k = int(val)
+            elif opt.endswith("-num_heads_q"):
+                num_heads_q = int(val)
+            elif opt.endswith("-num_heads_kv"):
+                num_heads_kv = int(val)
             elif opt.endswith("-head_dim_qk"):
                 head_dim_qk = int(val)
             elif opt.endswith("-head_dim_v"):
@@ -1077,18 +1090,18 @@ class AttentionConfiguration(PerfConfiguration):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
-        for v in [dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO]:
+        for v in [dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO]:
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, arch, numCU, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
                 + f"-transQ {str(self.transQ).lower()} -transK {str(self.transK).lower()} "
                 + f"-transV {str(self.transV).lower()} -transO {str(self.transO).lower()} "
                 + f"-g {self.g} "
-                + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
+                + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
                 + f"-with-attn-scale {str(self.with_attn_scale).lower()}"
                 + f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
