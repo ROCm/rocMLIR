@@ -167,6 +167,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
             config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
             tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}", testVector],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            kernelGen.stdout.close()
 
         # Tune, printing progress as we go to avoid CI timeouts
         winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, testVector, config, allData, paths, options)
