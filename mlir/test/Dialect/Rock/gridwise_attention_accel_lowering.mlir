@@ -345,3 +345,50 @@ func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
   return
 }
+
+// -----
+
+// CHECK: @gridwise_attn_causal_kvcache
+func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+  // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
+  // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
+  // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
+  // CHECK-DAG: %[[c12:.+]] = arith.constant 12 : index
+  // CHECK-DAG: %[[workgroupId:.+]] = rock.workgroup_id : index
+  // CHECK-DAG: %[[blockIdN:.+]] = arith.remui %[[workgroupId]], %[[c12]] : index
+  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
+  // CHECK-NEXT: %[[maxRowOfBlock:.+]] = arith.muli %[[blockIdN]], %[[c32]] : index
+  // CHECK-NEXT: %[[minCausalCurrSeqLen:.+]] = arith.minui %[[currSeqLenIndex]], %[[maxRowOfBlock]] : index
+  // CHECK: %[[num:.+]] = arith.addi %[[minCausalCurrSeqLen]], %[[c32]] : index
+  // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
+  // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
+  // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
+  // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
+  // CHECK-NEXT: scf.if %[[comparison]] {
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
+  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
+  // CHECK-NEXT: scf.if %[[secondComparison]] {
+  // CHECK-NEXT: rock.in_bounds_store
+  // CHECK: %[[causalComparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
+  // CHECK-NEXT: scf.if %[[causalComparison]] {
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
+  // CHECK-NEXT: %[[causalSecondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[dim1]] : index
+  // CHECK-NEXT: scf.if %[[causalSecondComparison]] {
+  // CHECK-NEXT: rock.in_bounds_store
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {} {
+    arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
+    blockSize = 64 : i32,
+    causal,
+    gridSize = 24 : i32,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1>,
+    params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    firstGemmIdx = 0 : i32
+  } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
+  return
+}
