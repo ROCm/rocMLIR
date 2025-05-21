@@ -83,7 +83,7 @@
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
 
-#gpt2-10.onnx
+#gpt2-10_fp16
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
 -t f16 -out_datatype f16 -transA false -transB true -g 12 -m 1 -n 1 -k 64
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 64 -k 1
@@ -91,7 +91,7 @@
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
 
-#gpt2-10.onnx
+#gpt2-10_int8
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
 -t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
 -t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
@@ -105,7 +105,7 @@
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
 
-#resnet50_v1.onnx fp16
+#resnet50_v1.onnx_fp16
 convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -133,7 +133,7 @@ convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1
 convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
 
-#resnet50_v1.onnx int8
+#resnet50_v1.onnx_int8
 conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -187,7 +187,7 @@ convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1
 convint8 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
 
-#stable-diffusion-2-onnx unet
+#stable-diffusion-2-onnx-unet
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 24960 -k 1024
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 1280 -k 320
 convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 4 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
