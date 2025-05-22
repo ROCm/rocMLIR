@@ -63,7 +63,6 @@ void showEnv() {
 }
 
 String dockerArgs() {
-    //return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
     return "-u root:root --device=/dev/kfd --device=/dev/dri --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --shm-size=64G"
 }
 
