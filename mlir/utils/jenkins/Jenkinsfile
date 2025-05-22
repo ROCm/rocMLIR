@@ -59,6 +59,8 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm-smi || true'
     sh '/opt/rocm/bin/rocm_agent_enumerator'
     sh '/opt/rocm/bin/rocminfo || true'
+    sh '/opt/rocm/bin/amdgpu-arch || true'
+    sh 'groups'
     sh 'id'
     sh 'printenv'
 }
