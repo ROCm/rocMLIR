@@ -58,10 +58,7 @@ void showEnv() {
     // Ignore rocm-smi failures in ixt-sjc2-05
     sh '/opt/rocm/bin/rocm-smi || true'
     sh '/opt/rocm/bin/rocm_agent_enumerator'
-    sh '/opt/rocm/bin/rocminfo || true'
-    sh 'dpkg -S amdgpu-arch'
-    sh '/opt/rocm-6.4.0/lib/llvm/bin/amdgpu-arch || true'
-    sh 'groups'
+    sh '/opt/rocm/bin/rocminfo'
     sh 'id'
     sh 'printenv'
 }
@@ -235,7 +232,6 @@ def rebootNode() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
     limit_lit_workers = false
-    def gpu_arch = get_gpu_architecture()
     llvm_lit_log_level = '-v'
     if ( (codepath == 'navi21') && (params.nightly == true) ) {
         limit_lit_workers = true
@@ -245,22 +241,11 @@ void build_fixedE2ETests(String codepath) {
         llvm_lit_log_level = '-va'
         limit_lit_workers = true
     }
-
-    echo "---------------------------------------------------------------------"
-    echo "Attempting to configure CMake for codepath: ${codepath}"
-    if (gpu_arch && !gpu_arch.trim().isEmpty()) {
-        echo "Explicitly setting CMake -DGPU_TARGETS to: '${gpu_arch}'"
-    } else {
-        echo "Warning: GPU_TARGETS will be empty or not set explicitly. CMake will attempt auto-detection."
-    }
-    echo "---------------------------------------------------------------------"
-
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DGPU_TARGETS="${gpu_arch}"
               -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=4800 --max-failures=5 ${ limit_lit_workers ? '-j 8' : ' ' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
