@@ -98,7 +98,7 @@ public:
 
   void setPerfConfig(StringRef perfConfig);
 
-  ConvolutionDims getConvolutionDims() const;
+  static ConvolutionDims getConvolutionDims(const Config *config);
 
   static inline constexpr int64_t outputDim(int64_t inputLen, int64_t filLen,
                                             int64_t leftPadLen,
@@ -117,8 +117,8 @@ public:
                               ArrayRef<int64_t> outputDims,
                               ArrayRef<int64_t> filterDims);
 
-  LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1,
-                              bool is_verifier = false,
+  LogicalResult genConvModule(ModuleOp &module, int rawKernelId = -1,
+                              bool isVerifier = false,
                               bool ignoreTuning = false);
 
   func::FuncOp getKernelFunc() const;
