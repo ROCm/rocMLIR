@@ -1331,10 +1331,10 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
 
     rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
     commands.append(rocmlirGenCommand)
-    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline','full']
+    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline', 'full']
     commands.append(kernelPipelineCommand)
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(getChip()) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + '--' + [paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(getChip()) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     commands.append(profilerCommand)
     runPipeline(commands)
 
