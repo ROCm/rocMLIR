@@ -16,6 +16,7 @@ from perfRunner import ConvConfiguration
 from perfRunner import GemmConfiguration
 from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
+from perfRunner import ConvGemmConfiguration
 from perfRunner import Paths
 from perfCommonUtils import CORRECT_RESULT_RE
 
@@ -55,7 +56,7 @@ def verifyKernelWithPerfConfig(perfConfig, config, paths: Paths, options: Option
         config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlirCpuRunnerArgs = ['-O2', f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
-    profilerCommand = [perfRunner.ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlirCpuRunnerArgs
+    profilerCommand = [perfRunner.ROCPROF] + perfRunner.getMetricArgsForRocprof(options.arch) + ['--kernel-trace', '--stats', '-o', perfRunner.BENCHMARKING_RESULT_FILE_NAME , '--', paths.mlir_paths.cpu_runner_path] + mlirCpuRunnerArgs
 
     if options.debug:
         print(rocmlirGenCommand, file=sys.stderr)
@@ -76,7 +77,7 @@ def verifyKernelWithPerfConfig(perfConfig, config, paths: Paths, options: Option
             try:
                 outs, errs = p3.communicate(timeout=600)
                 outs = outs.decode('utf-8')
-                if len(errs) > 0 or not CORRECT_RESULT_RE.search(outs):
+                if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):
                     print(f"""Verification failed:
 Output = {outs}
 Errors = {errs.decode('utf-8')}""", file=sys.stderr)
@@ -86,7 +87,7 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
                 p3.kill()
                 outs, errs = p3.communicate()
                 return np.nan
-            nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_RESULT_FILE_NAME)
+            nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_STATS_FILE_NAME)
         finally:
             os.chdir(prevdir)
     return nanoSeconds
@@ -251,7 +252,7 @@ def main(args=None):
         allow_abbrev=False,
     )
 
-    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm'],
+    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm', 'conv_gemm'],
         default='conv',
         help="Operation for tuning")
 
@@ -378,6 +379,8 @@ def main(args=None):
         confClass = AttentionConfiguration
     elif opType == Operation.GEMM_GEMM:
         confClass = GemmGemmConfiguration
+    elif opType == Operation.CONV_GEMM:
+        confClass = ConvGemmConfiguration
     else:
         raise RuntimeError("Tuning operation was not provided/found")
 
@@ -392,6 +395,8 @@ def main(args=None):
         configs = perfRunner.getAttentionConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM_GEMM:
         configs = perfRunner.getGemmGemmConfigurations(paths.configuration_file_path)
+    elif opType == Operation.CONV_GEMM:
+        configs = perfRunner.getConvGemmConfigurations(paths.configuration_file_path)
 
     winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 

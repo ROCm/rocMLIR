@@ -126,7 +126,8 @@ void RockVectorizeFusionsPass::runOnOperation() {
 
     // Make sure the transfer writes are in bounds
     for (auto trWrtOp : loop.getRegion().getOps<vector::TransferWriteOp>()) {
-      VectorType writeType = trWrtOp.getVector().getType();
+      VectorType writeType =
+          mlir::cast<VectorType>(trWrtOp.getVector().getType());
       SmallVector<bool> inBounds(writeType.getRank(), true);
       trWrtOp.setInBoundsAttr(b.getBoolArrayAttr(inBounds));
     }

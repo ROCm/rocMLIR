@@ -818,7 +818,23 @@ of different sizes and signs is forbidden in binary and ternary builtins.
  T __builtin_elementwise_fmod(T x, T y)         return The floating-point remainder of (x/y) whose sign                floating point types
                                                 matches the sign of x.
  T __builtin_elementwise_max(T x, T y)          return x or y, whichever is larger                                     integer and floating point types
+                                                For floating point types, follows semantics of maxNum
+                                                in IEEE 754-2008. See `LangRef
+                                                <http://llvm.org/docs/LangRef.html#llvm-min-intrinsics-comparation>`_
+                                                for the comparison.
  T __builtin_elementwise_min(T x, T y)          return x or y, whichever is smaller                                    integer and floating point types
+                                                For floating point types, follows semantics of minNum
+                                                in IEEE 754-2008. See `LangRef
+                                                <http://llvm.org/docs/LangRef.html#llvm-min-intrinsics-comparation>`_
+                                                for the comparison.
+ T __builtin_elementwise_maxnum(T x, T y)       return x or y, whichever is larger. Follows IEEE 754-2008              floating point types
+                                                semantics (maxNum) with +0.0>-0.0. See `LangRef
+                                                <http://llvm.org/docs/LangRef.html#llvm-min-intrinsics-comparation>`_
+                                                for the comparison.
+ T __builtin_elementwise_minnum(T x, T y)       return x or y, whichever is smaller. Follows IEEE 754-2008             floating point types
+                                                semantics (minNum) with +0.0>-0.0. See `LangRef
+                                                <http://llvm.org/docs/LangRef.html#llvm-min-intrinsics-comparation>`_
+                                                for the comparison.
  T __builtin_elementwise_add_sat(T x, T y)      return the sum of x and y, clamped to the range of                     integer types
                                                 representable values for the signed/unsigned integer type.
  T __builtin_elementwise_sub_sat(T x, T y)      return the difference of x and y, clamped to the range of              integer types
@@ -1594,6 +1610,22 @@ C11 ``_Thread_local``
 Use ``__has_feature(c_thread_local)`` or ``__has_extension(c_thread_local)``
 to determine if support for ``_Thread_local`` variables is enabled.
 
+C2y
+---
+
+The features listed below are part of the C2y standard.  As a result, all these
+features are enabled with the ``-std=c2y`` or ``-std=gnu2y`` option when
+compiling C code.
+
+C2y ``_Countof``
+^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(c_countof)`` (in C2y or later mode) or
+``__has_extension(c_countof)`` (in C23 or earlier mode) to determine if support
+for the ``_Countof`` operator is enabled. This feature is not available in C++
+mode.
+
+
 Modules
 -------
 
@@ -1652,6 +1684,8 @@ Designated initializers (N494)                                                 C
 Array & element qualification (N2607)                                          C23           C89
 Attributes (N2335)                                                             C23           C89
 ``#embed`` (N3017)                                                             C23           C89, C++
+Octal literals prefixed with ``0o`` or ``0O``                                  C2y           C89, C++
+``_Countof`` (N3369, N3469)                                                    C2y           C89
 ============================================= ================================ ============= =============
 
 Builtin type aliases
@@ -1910,6 +1944,40 @@ A simplistic usage example as might be seen in standard C++ headers follows:
   #else
   // Emulate type trait for compatibility with other compilers.
   #endif
+
+
+.. _builtin_structured_binding_size-doc:
+
+__builtin_structured_binding_size (C++)
+---------------------------------------
+
+The ``__builtin_structured_binding_size(T)`` type trait returns
+the *structured binding size* ([dcl.struct.bind]) of type ``T``
+
+This is equivalent to the size of the pack ``p`` in ``auto&& [...p] = declval<T&>();``.
+If the argument cannot be decomposed, ``__builtin_structured_binding_size(T)``
+is not a valid expression (``__builtin_structured_binding_size`` is SFINAE-friendly).
+
+builtin arrays, builtin SIMD vectors,
+builtin complex types, *tuple-like* types, and decomposable class types
+are decomposable types.
+
+A type is considered a valid *tuple-like* if ``std::tuple_size_v<T>`` is a valid expression,
+even if there is no valid ``std::tuple_element`` specialization or suitable
+``get`` function for that type.
+
+.. code-block:: c++
+
+  template<std::size_t Idx, typename T>
+  requires (Idx < __builtin_structured_binding_size(T))
+  decltype(auto) constexpr get_binding(T&& obj) {
+      auto && [...p] = std::forward<T>(obj);
+      return p...[Idx];
+  }
+  struct S { int a = 0, b = 42; };
+  static_assert(__builtin_structured_binding_size(S) == 2);
+  static_assert(get_binding<1>(S{}) == 42);
+
 
 Blocks
 ======
@@ -4868,6 +4936,120 @@ If no address spaces names are provided, all address spaces are fenced.
   __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "workgroup", "local")
   __builtin_amdgcn_fence(__ATOMIC_SEQ_CST, "workgroup", "local", "global")
 
+__builtin_amdgcn_processor_is and __builtin_amdgcn_is_invocable
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``__builtin_amdgcn_processor_is`` and ``__builtin_amdgcn_is_invocable`` provide
+a functional mechanism for programatically querying:
+
+* the identity of the current target processor;
+* the capability of the current target processor to invoke a particular builtin.
+
+**Syntax**:
+
+.. code-block:: c
+
+  // When used as the predicate for a control structure
+  bool __builtin_amdgcn_processor_is(const char*);
+  bool __builtin_amdgcn_is_invocable(builtin_name);
+  // Otherwise
+  void __builtin_amdgcn_processor_is(const char*);
+  void __builtin_amdgcn_is_invocable(void);
+
+**Example of use**:
+
+.. code-block:: c++
+
+  if (__builtin_amdgcn_processor_is("gfx1201") ||
+      __builtin_amdgcn_is_invocable(__builtin_amdgcn_s_sleep_var))
+    __builtin_amdgcn_s_sleep_var(x);
+
+  if (!__builtin_amdgcn_processor_is("gfx906"))
+    __builtin_amdgcn_s_wait_event_export_ready();
+  else if (__builtin_amdgcn_processor_is("gfx1010") ||
+           __builtin_amdgcn_processor_is("gfx1101"))
+    __builtin_amdgcn_s_ttracedata_imm(1);
+
+  while (__builtin_amdgcn_processor_is("gfx1101")) *p += x;
+
+  do {
+    *p -= x;
+  } while (__builtin_amdgcn_processor_is("gfx1010"));
+
+  for (; __builtin_amdgcn_processor_is("gfx1201"); ++*p) break;
+
+  if (__builtin_amdgcn_is_invocable(__builtin_amdgcn_s_wait_event_export_ready))
+    __builtin_amdgcn_s_wait_event_export_ready();
+  else if (__builtin_amdgcn_is_invocable(__builtin_amdgcn_s_ttracedata_imm))
+    __builtin_amdgcn_s_ttracedata_imm(1);
+
+  do {
+    *p -= x;
+  } while (
+      __builtin_amdgcn_is_invocable(__builtin_amdgcn_global_load_tr_b64_i32));
+
+  for (; __builtin_amdgcn_is_invocable(__builtin_amdgcn_permlane64); ++*p)
+    break;
+
+**Description**:
+
+When used as the predicate value of the following control structures:
+
+.. code-block:: c++
+
+  if (...)
+  while (...)
+  do { } while (...)
+  for (...)
+
+be it directly, or as arguments to logical operators such as ``!, ||, &&``, the
+builtins return a boolean value that:
+
+* indicates whether the current target matches the argument; the argument MUST
+  be a string literal and a valid AMDGPU target
+* indicates whether the builtin function passed as the argument can be invoked
+  by the current target; the argument MUST be either a generic or AMDGPU
+  specific builtin name
+
+Outside of these contexts, the builtins have a ``void`` returning signature
+which prevents their misuse.
+
+**Example of invalid use**:
+
+.. code-block:: c++
+
+  void kernel(int* p, int x, bool (*pfn)(bool), const char* str) {
+    if (__builtin_amdgcn_processor_is("not_an_amdgcn_gfx_id")) return;
+    else if (__builtin_amdgcn_processor_is(str)) __builtin_trap();
+
+    bool a = __builtin_amdgcn_processor_is("gfx906");
+    const bool b = !__builtin_amdgcn_processor_is("gfx906");
+    const bool c = !__builtin_amdgcn_processor_is("gfx906");
+    bool d = __builtin_amdgcn_is_invocable(__builtin_amdgcn_s_sleep_var);
+    bool e = !__builtin_amdgcn_is_invocable(__builtin_amdgcn_s_sleep_var);
+    const auto f =
+        !__builtin_amdgcn_is_invocable(__builtin_amdgcn_s_wait_event_export_ready)
+        || __builtin_amdgcn_is_invocable(__builtin_amdgcn_s_sleep_var);
+    const auto g =
+        !__builtin_amdgcn_is_invocable(__builtin_amdgcn_s_wait_event_export_ready)
+        || !__builtin_amdgcn_is_invocable(__builtin_amdgcn_s_sleep_var);
+    __builtin_amdgcn_processor_is("gfx1201")
+      ? __builtin_amdgcn_s_sleep_var(x) : __builtin_amdgcn_s_sleep(42);
+    if (pfn(__builtin_amdgcn_processor_is("gfx1200")))
+      __builtin_amdgcn_s_sleep_var(x);
+
+    if (__builtin_amdgcn_is_invocable("__builtin_amdgcn_s_sleep_var")) return;
+    else if (__builtin_amdgcn_is_invocable(x)) __builtin_trap();
+  }
+
+When invoked while compiling for a concrete target, the builtins are evaluated
+early by Clang, and never produce any CodeGen effects / have no observable
+side-effects in IR. Conversely, when compiling for AMDGCN flavoured SPIR-v,
+which is an abstract target, a series of predicate values are implicitly
+created. These predicates get resolved when finalizing the compilation process
+for a concrete target, and shall reflect the latter's identity and features.
+Thus, it is possible to author high-level code, in e.g. HIP, that is target
+adaptive in a dynamic fashion, contrary to macro based mechanisms.
 
 ARM/AArch64 Language Extensions
 -------------------------------

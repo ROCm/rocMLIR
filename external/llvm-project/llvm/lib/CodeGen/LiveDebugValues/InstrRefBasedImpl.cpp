@@ -99,7 +99,6 @@
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetLowering.h"
-#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Config/llvm-config.h"
@@ -279,12 +278,12 @@ public:
   TransferTracker(const TargetInstrInfo *TII, MLocTracker *MTracker,
                   MachineFunction &MF, const DebugVariableMap &DVMap,
                   const TargetRegisterInfo &TRI,
-                  const BitVector &CalleeSavedRegs, const TargetPassConfig &TPC)
+                  const BitVector &CalleeSavedRegs,
+                  bool ShouldEmitDebugEntryValues)
       : TII(TII), MTracker(MTracker), MF(MF), DVMap(DVMap), TRI(TRI),
         CalleeSavedRegs(CalleeSavedRegs) {
     TLI = MF.getSubtarget().getTargetLowering();
-    auto &TM = TPC.getTM<TargetMachine>();
-    ShouldEmitDebugEntryValues = TM.Options.ShouldEmitDebugEntryValues();
+    this->ShouldEmitDebugEntryValues = ShouldEmitDebugEntryValues;
   }
 
   bool isCalleeSaved(LocIdx L) const {
@@ -910,8 +909,7 @@ public:
     // Commit ActiveMLoc changes.
     ActiveMLocIt->second.clear();
     if (!NewMLocs.empty())
-      for (DebugVariableID VarID : NewMLocs)
-        ActiveMLocs[*NewLoc].insert(VarID);
+      ActiveMLocs[*NewLoc].insert_range(NewMLocs);
   }
 
   /// Transfer variables based on \p Src to be based on \p Dst. This handles
@@ -928,7 +926,7 @@ public:
 
     // Move set of active variables from one location to another.
     auto MovingVars = ActiveMLocs[Src];
-    ActiveMLocs[Dst].insert(MovingVars.begin(), MovingVars.end());
+    ActiveMLocs[Dst].insert_range(MovingVars);
     VarLocs[Dst.asU64()] = VarLocs[Src.asU64()];
 
     // For each variable based on Src; create a location at Dst.
@@ -2596,7 +2594,7 @@ void InstrRefBasedLDV::placeMLocPHIs(
       continue;
     }
 
-    RegUnitsToPHIUp.insert(FoundRegUnits.begin(), FoundRegUnits.end());
+    RegUnitsToPHIUp.insert_range(FoundRegUnits);
   }
 
   // Lambda to fetch PHIs for a given location, and write into the PHIBlocks
@@ -3102,7 +3100,7 @@ void InstrRefBasedLDV::getBlocksForScope(
   // VarLoc LiveDebugValues tracks variable locations that are defined in
   // blocks not in scope. This is something we could legitimately ignore, but
   // lets allow it for now for the sake of coverage.
-  BlocksToExplore.insert(AssignBlocks.begin(), AssignBlocks.end());
+  BlocksToExplore.insert_range(AssignBlocks);
 
   // Storage for artificial blocks we intend to add to BlocksToExplore.
   DenseSet<const MachineBasicBlock *> ToAdd;
@@ -3152,7 +3150,7 @@ void InstrRefBasedLDV::getBlocksForScope(
     }
   };
 
-  BlocksToExplore.insert(ToAdd.begin(), ToAdd.end());
+  BlocksToExplore.insert_range(ToAdd);
 }
 
 void InstrRefBasedLDV::buildVLocValueMap(
@@ -3561,9 +3559,9 @@ bool InstrRefBasedLDV::depthFirstVLocAndEmit(
     const ScopeToVarsT &ScopeToVars, ScopeToAssignBlocksT &ScopeToAssignBlocks,
     LiveInsT &Output, FuncValueTable &MOutLocs, FuncValueTable &MInLocs,
     SmallVectorImpl<VLocTracker> &AllTheVLocs, MachineFunction &MF,
-    const TargetPassConfig &TPC) {
-  TTracker =
-      new TransferTracker(TII, MTracker, MF, DVMap, *TRI, CalleeSavedRegs, TPC);
+    bool ShouldEmitDebugEntryValues) {
+  TTracker = new TransferTracker(TII, MTracker, MF, DVMap, *TRI,
+                                 CalleeSavedRegs, ShouldEmitDebugEntryValues);
   unsigned NumLocs = MTracker->getNumLocs();
   VTracker = nullptr;
 
@@ -3706,7 +3704,7 @@ bool InstrRefBasedLDV::emitTransfers() {
 /// extend ranges across basic blocks.
 bool InstrRefBasedLDV::ExtendRanges(MachineFunction &MF,
                                     MachineDominatorTree *DomTree,
-                                    TargetPassConfig *TPC,
+                                    bool ShouldEmitDebugEntryValues,
                                     unsigned InputBBLimit,
                                     unsigned InputDbgValLimit) {
   // No subprogram means this function contains no debuginfo.
@@ -3714,7 +3712,6 @@ bool InstrRefBasedLDV::ExtendRanges(MachineFunction &MF,
     return false;
 
   LLVM_DEBUG(dbgs() << "\nDebug Range Extension\n");
-  this->TPC = TPC;
 
   this->DomTree = DomTree;
   TRI = MF.getSubtarget().getRegisterInfo();
@@ -3864,7 +3861,7 @@ bool InstrRefBasedLDV::ExtendRanges(MachineFunction &MF,
     // the "else" block of this condition.
     Changed = depthFirstVLocAndEmit(
         MaxNumBlocks, ScopeToDILocation, ScopeToVars, ScopeToAssignBlocks,
-        SavedLiveIns, MOutLocs, MInLocs, vlocs, MF, *TPC);
+        SavedLiveIns, MOutLocs, MInLocs, vlocs, MF, ShouldEmitDebugEntryValues);
   }
 
   delete MTracker;
@@ -4244,9 +4241,7 @@ std::optional<ValueIDNum> InstrRefBasedLDV::resolveDbgPHIsImpl(
   }
 
   // Sort PHIs to validate into RPO-order.
-  SmallVector<LDVSSAPhi *, 8> SortedPHIs;
-  for (auto &PHI : CreatedPHIs)
-    SortedPHIs.push_back(PHI);
+  SmallVector<LDVSSAPhi *, 8> SortedPHIs(CreatedPHIs);
 
   llvm::sort(SortedPHIs, [&](LDVSSAPhi *A, LDVSSAPhi *B) {
     return BBToOrder[&A->getParent()->BB] < BBToOrder[&B->getParent()->BB];

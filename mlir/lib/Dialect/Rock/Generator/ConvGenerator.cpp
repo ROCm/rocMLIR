@@ -360,7 +360,7 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
   assert(dir == ConvOpType::BwdWeight &&
          "This method should only be called for wrw ops");
 
-  ConvolutionDims convDims = getConvolutionDims();
+  ConvolutionDims convDims = getConvolutionDims(&config);
   GemmSize gemmSize = GemmSize::fromConvolution(dir, convDims);
 
   needExtraPad = false;
@@ -738,19 +738,19 @@ void ConvGenerator::setPerfConfig(StringRef perfConfig) {
   config.perfConfig = perfConfig.str();
 }
 
-ConvolutionDims ConvGenerator::getConvolutionDims() const {
-  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
-  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
-  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+ConvolutionDims ConvGenerator::getConvolutionDims(const Config *config) {
+  auto inDim = canonicalizeDims(config->inputDimension, config->inputLayout);
+  auto filDim = canonicalizeDims(config->filterDimension, config->filterLayout);
+  auto outDim = canonicalizeDims(config->outputDimension, config->outputLayout);
 
   SmallVector<int64_t> inDims;
-  for (size_t i = 0; i < config.inputLayout.size() - 3; i++)
+  for (size_t i = 0; i < config->inputLayout.size() - 3; i++)
     inDims.push_back(inDim[std::to_string(i)]);
   SmallVector<int64_t> filDims;
-  for (size_t i = 0; i < config.filterLayout.size() - 3; i++)
+  for (size_t i = 0; i < config->filterLayout.size() - 3; i++)
     filDims.push_back(filDim[std::to_string(i)]);
   SmallVector<int64_t> outDims;
-  for (size_t i = 0; i < config.outputLayout.size() - 3; i++)
+  for (size_t i = 0; i < config->outputLayout.size() - 3; i++)
     outDims.push_back(outDim[std::to_string(i)]);
 
   return ConvolutionDims(filDims, outDims, inDims, filDim["k"], filDim["c"],
@@ -758,8 +758,7 @@ ConvolutionDims ConvGenerator::getConvolutionDims() const {
 }
 
 LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
-                                           bool is_verifier,
-                                           bool ignoreTuning) {
+                                           bool isVerifier, bool ignoreTuning) {
   OpBuilder builder(module.getContext());
 
   Type filterDataType = getFilterDataType(builder);
@@ -805,7 +804,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   auto funcType = builder.getFunctionType(physicalFuncArgTypes, {});
 
   std::string kernelName = config.kernelBaseName;
-  if (is_verifier) {
+  if (isVerifier) {
     kernelName += "_ver";
   }
 
@@ -848,7 +847,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                                                  config.scheduleVersion));
   }
   module.push_back(func);
-  if (!is_verifier)
+  if (!isVerifier)
     module->setAttr(archAttr.getName(), archAttr.getValue());
   if (func.getName() != kernelName) {
     return failure();

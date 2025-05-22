@@ -140,7 +140,7 @@ static LogicalResult
 commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
                             RockGemmGemmWrapperInterface op, Value a, Value b,
                             Value c, Value out, Value currentSeqLen,
-                            ValueRange elementwiseInputs,
+                            UnitAttr causal, ValueRange elementwiseInputs,
                             Region &preSecondOpRegion, bool enableSoftmax) {
   Location loc = op->getLoc();
 
@@ -218,7 +218,7 @@ commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
-      loc, a, b, c, elementwiseInputs, currentSeqLen, out,
+      loc, a, b, c, elementwiseInputs, currentSeqLen, out, causal,
       rw.getStringAttr(op.getArch()),
       rw.getAttr<rock::GemmFeaturesAttr>(op.getGemmFeatures()), blockSizeAttr,
       gridSizeAttr,
@@ -585,7 +585,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                                          ConversionPatternRewriter &rw) const {
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getQueries(), adaptor.getKeys(), adaptor.getValues(),
-      adaptor.getOut(), adaptor.getCurrentSeqLen(),
+      adaptor.getOut(), adaptor.getCurrentSeqLen(), adaptor.getCausalAttr(),
       adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true);
 }
@@ -602,8 +602,9 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
     ConversionPatternRewriter &rw) const {
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getA(), adaptor.getB(), adaptor.getC(), adaptor.getOut(),
-      /*currentSeqLen=*/nullptr, adaptor.getElemwiseInputs(),
-      op.getPreSecondGemmBody(), /*enableSoftmax=*/false);
+      /*currentSeqLen=*/nullptr, /*causal=*/nullptr,
+      adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
+      /*enableSoftmax=*/false);
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::computeGridSize(

@@ -1533,7 +1533,7 @@ void Sema::checkEnumArithmeticConversions(Expr *LHS, Expr *RHS,
     // In C++ 26, usual arithmetic conversions between 2 different enum types
     // are ill-formed.
     if (getLangOpts().CPlusPlus26)
-      DiagID = diag::err_conv_mixed_enum_types_cxx26;
+      DiagID = diag::warn_conv_mixed_enum_types_cxx26;
     else if (!L->castAs<EnumType>()->getDecl()->hasNameForLinkage() ||
              !R->castAs<EnumType>()->getDecl()->hasNameForLinkage()) {
       // If either enumeration type is unnamed, it's less likely that the
@@ -2183,7 +2183,7 @@ Sema::ActOnStringLiteral(ArrayRef<Token> StringToks, Scope *UDLScope) {
 
   case LOLR_Template: {
     TemplateArgumentListInfo ExplicitArgs;
-    TemplateArgument Arg(Lit);
+    TemplateArgument Arg(Lit, /*IsCanonical=*/false);
     TemplateArgumentLocInfo ArgInfo(Lit);
     ExplicitArgs.addArgument(TemplateArgumentLoc(Arg, ArgInfo));
     return BuildLiteralOperatorCall(R, OpNameInfo, {}, StringTokLocs.back(),
@@ -2684,7 +2684,7 @@ recoverFromMSUnqualifiedLookup(Sema &S, ASTContext &Context,
   // perform name lookup during template instantiation.
   CXXScopeSpec SS;
   auto *NNS =
-      NestedNameSpecifier::Create(Context, nullptr, true, RD->getTypeForDecl());
+      NestedNameSpecifier::Create(Context, nullptr, RD->getTypeForDecl());
   SS.MakeTrivial(Context, NNS, SourceRange(Loc, Loc));
   return DependentScopeDeclRefExpr::Create(
       Context, SS.getWithLocInContext(Context), TemplateKWLoc, NameInfo,
@@ -3113,8 +3113,15 @@ Sema::PerformObjectMemberConversion(Expr *From,
                                    /*IgnoreAccess=*/true))
     return ExprError();
 
-  return ImpCastExprToType(From, DestType, CK_UncheckedDerivedToBase,
-                           VK, &BasePath);
+  // Propagate qualifiers to base subobjects as per:
+  // C++ [basic.type.qualifier]p1.2:
+  //   A volatile object is [...] a subobject of a volatile object.
+  Qualifiers FromTypeQuals = FromType.getQualifiers();
+  FromTypeQuals.setAddressSpace(DestType.getAddressSpace());
+  DestType = Context.getQualifiedType(DestType, FromTypeQuals);
+
+  return ImpCastExprToType(From, DestType, CK_UncheckedDerivedToBase, VK,
+                           &BasePath);
 }
 
 bool Sema::UseArgumentDependentLookup(const CXXScopeSpec &SS,
@@ -4259,7 +4266,7 @@ bool Sema::CheckUnaryExprOrTypeTraitOperand(Expr *E,
   bool IsUnevaluatedOperand =
       (ExprKind == UETT_SizeOf || ExprKind == UETT_DataSizeOf ||
        ExprKind == UETT_AlignOf || ExprKind == UETT_PreferredAlignOf ||
-       ExprKind == UETT_VecStep);
+       ExprKind == UETT_VecStep || ExprKind == UETT_CountOf);
   if (IsUnevaluatedOperand) {
     ExprResult Result = CheckUnevaluatedOperand(E);
     if (Result.isInvalid())
@@ -4330,6 +4337,21 @@ bool Sema::CheckUnaryExprOrTypeTraitOperand(Expr *E,
   if (CheckObjCTraitOperandConstraints(*this, ExprTy, E->getExprLoc(),
                                        E->getSourceRange(), ExprKind))
     return true;
+
+  if (ExprKind == UETT_CountOf) {
+    // The type has to be an array type. We already checked for incomplete
+    // types above.
+    QualType ExprType = E->IgnoreParens()->getType();
+    if (!ExprType->isArrayType()) {
+      Diag(E->getExprLoc(), diag::err_countof_arg_not_array_type) << ExprType;
+      return true;
+    }
+    // FIXME: warn on _Countof on an array parameter. Not warning on it
+    // currently because there are papers in WG14 about array types which do
+    // not decay that could impact this behavior, so we want to see if anything
+    // changes here before coming up with a warning group for _Countof-related
+    // diagnostics.
+  }
 
   if (ExprKind == UETT_SizeOf) {
     if (const auto *DeclRef = dyn_cast<DeclRefExpr>(E->IgnoreParens())) {
@@ -4601,6 +4623,15 @@ bool Sema::CheckUnaryExprOrTypeTraitOperand(QualType ExprType,
     return true;
   }
 
+  if (ExprKind == UETT_CountOf) {
+    // The type has to be an array type. We already checked for incomplete
+    // types above.
+    if (!ExprType->isArrayType()) {
+      Diag(OpLoc, diag::err_countof_arg_not_array_type) << ExprType;
+      return true;
+    }
+  }
+
   // WebAssembly tables are always illegal operands to unary expressions and
   // type traits.
   if (Context.getTargetInfo().getTriple().isWasm() &&
@@ -4659,7 +4690,8 @@ ExprResult Sema::CreateUnaryExprOrTypeTraitExpr(TypeSourceInfo *TInfo,
   // properly deal with VLAs in nested calls of sizeof and typeof.
   if (currentEvaluationContext().isUnevaluated() &&
       currentEvaluationContext().InConditionallyConstantEvaluateContext &&
-      ExprKind == UETT_SizeOf && TInfo->getType()->isVariablyModifiedType())
+      (ExprKind == UETT_SizeOf || ExprKind == UETT_CountOf) &&
+      TInfo->getType()->isVariablyModifiedType())
     TInfo = TransformToPotentiallyEvaluated(TInfo);
 
   // C99 6.5.3.4p4: the type (an unsigned integer type) is size_t.
@@ -4690,16 +4722,16 @@ Sema::CreateUnaryExprOrTypeTraitExpr(Expr *E, SourceLocation OpLoc,
   } else if (E->refersToBitField()) {  // C99 6.5.3.4p1.
     Diag(E->getExprLoc(), diag::err_sizeof_alignof_typeof_bitfield) << 0;
     isInvalid = true;
-  } else if (ExprKind == UETT_VectorElements) {
-    isInvalid = CheckUnaryExprOrTypeTraitOperand(E, UETT_VectorElements);
-  } else {
-    isInvalid = CheckUnaryExprOrTypeTraitOperand(E, UETT_SizeOf);
+  } else if (ExprKind == UETT_VectorElements || ExprKind == UETT_SizeOf ||
+             ExprKind == UETT_CountOf) { // FIXME: __datasizeof?
+    isInvalid = CheckUnaryExprOrTypeTraitOperand(E, ExprKind);
   }
 
   if (isInvalid)
     return ExprError();
 
-  if (ExprKind == UETT_SizeOf && E->getType()->isVariableArrayType()) {
+  if ((ExprKind == UETT_SizeOf || ExprKind == UETT_CountOf) &&
+      E->getType()->isVariableArrayType()) {
     PE = TransformToPotentiallyEvaluated(E);
     if (PE.isInvalid()) return ExprError();
     E = PE.get();
@@ -6476,9 +6508,7 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
   if (const auto *ULE = dyn_cast<UnresolvedLookupExpr>(Fn);
       ULE && ULE->hasExplicitTemplateArgs() &&
       ULE->decls_begin() == ULE->decls_end()) {
-    Diag(Fn->getExprLoc(), getLangOpts().CPlusPlus20
-                               ? diag::warn_cxx17_compat_adl_only_template_id
-                               : diag::ext_adl_only_template_id)
+    DiagCompat(Fn->getExprLoc(), diag_compat::adl_only_template_id)
         << ULE->getName();
   }
 
@@ -6508,6 +6538,22 @@ ExprResult Sema::BuildCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
   ExprResult Result = MaybeConvertParenListExprToParenExpr(Scope, Fn);
   if (Result.isInvalid()) return ExprError();
   Fn = Result.get();
+
+  // The __builtin_amdgcn_is_invocable builtin is special, and will be resolved
+  // later, when we check boolean conditions, for now we merely forward it
+  // without any additional checking.
+  if (Fn->getType() == Context.BuiltinFnTy && ArgExprs.size() == 1 &&
+      ArgExprs[0]->getType() == Context.BuiltinFnTy) {
+    auto *FD = cast<FunctionDecl>(Fn->getReferencedDeclOfCallee());
+
+    if (FD->getName() == "__builtin_amdgcn_is_invocable") {
+      auto FnPtrTy = Context.getPointerType(FD->getType());
+      auto *R = ImpCastExprToType(Fn, FnPtrTy, CK_BuiltinFnToFnPtr).get();
+      return CallExpr::Create(Context, R, ArgExprs, Context.VoidTy,
+                              ExprValueKind::VK_PRValue, RParenLoc,
+                              FPOptionsOverride());
+    }
+  }
 
   if (CheckArgsForPlaceholders(ArgExprs))
     return ExprError();
@@ -7134,7 +7180,13 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
     return ExprError();
   LiteralExpr = Result.get();
 
-  bool isFileScope = !CurContext->isFunctionOrMethod();
+  // We treat the compound literal as being at file scope if it's not in a
+  // function or method body, or within the function's prototype scope. This
+  // means the following compound literal is not at file scope:
+  //   void func(char *para[(int [1]){ 0 }[0]);
+  const Scope *S = getCurScope();
+  bool IsFileScope = !CurContext->isFunctionOrMethod() &&
+                     (!S || !S->isFunctionPrototypeScope());
 
   // In C, compound literals are l-values for some reason.
   // For GCC compatibility, in C++, file-scope array compound literals with
@@ -7155,20 +7207,20 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
   // FIXME: GCC supports compound literals of reference type, which should
   // obviously have a value kind derived from the kind of reference involved.
   ExprValueKind VK =
-      (getLangOpts().CPlusPlus && !(isFileScope && literalType->isArrayType()))
+      (getLangOpts().CPlusPlus && !(IsFileScope && literalType->isArrayType()))
           ? VK_PRValue
           : VK_LValue;
 
-  if (isFileScope)
+  if (IsFileScope)
     if (auto ILE = dyn_cast<InitListExpr>(LiteralExpr))
       for (unsigned i = 0, j = ILE->getNumInits(); i != j; i++) {
         Expr *Init = ILE->getInit(i);
         ILE->setInit(i, ConstantExpr::Create(Context, Init));
       }
 
-  auto *E = new (Context) CompoundLiteralExpr(LParenLoc, TInfo, literalType,
-                                              VK, LiteralExpr, isFileScope);
-  if (isFileScope) {
+  auto *E = new (Context) CompoundLiteralExpr(LParenLoc, TInfo, literalType, VK,
+                                              LiteralExpr, IsFileScope);
+  if (IsFileScope) {
     if (!LiteralExpr->isTypeDependent() &&
         !LiteralExpr->isValueDependent() &&
         !literalType->isDependentType()) // C99 6.5.2.5p3
@@ -7184,7 +7236,7 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
     return ExprError();
   }
 
-  if (!isFileScope && !getLangOpts().CPlusPlus) {
+  if (!IsFileScope && !getLangOpts().CPlusPlus) {
     // Compound literals that have automatic storage duration are destroyed at
     // the end of the scope in C; in C++, they're just temporaries.
 
@@ -8070,6 +8122,13 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
   auto LHSCastKind = CK_BitCast, RHSCastKind = CK_BitCast;
   lhQual.removeCVRQualifiers();
   rhQual.removeCVRQualifiers();
+
+  if (!lhQual.getPointerAuth().isEquivalent(rhQual.getPointerAuth())) {
+    S.Diag(Loc, diag::err_typecheck_cond_incompatible_ptrauth)
+        << LHSTy << RHSTy << LHS.get()->getSourceRange()
+        << RHS.get()->getSourceRange();
+    return QualType();
+  }
 
   // OpenCL v2.0 specification doesn't extend compatibility of type qualifiers
   // (C99 6.7.3) for address spaces. We assume that the check should behave in
@@ -8989,6 +9048,10 @@ checkPointerTypesForAssignment(Sema &S, QualType LHSType, QualType RHSType,
 
     // Treat lifetime mismatches as fatal.
     else if (lhq.getObjCLifetime() != rhq.getObjCLifetime())
+      ConvTy = Sema::IncompatiblePointerDiscardsQualifiers;
+
+    // Treat pointer-auth mismatches as fatal.
+    else if (!lhq.getPointerAuth().isEquivalent(rhq.getPointerAuth()))
       ConvTy = Sema::IncompatiblePointerDiscardsQualifiers;
 
     // For GCC/MS compatibility, other qualifier mismatches are treated
@@ -10555,6 +10618,45 @@ static void checkArithmeticNull(Sema &S, ExprResult &LHS, ExprResult &RHS,
       << LHS.get()->getSourceRange() << RHS.get()->getSourceRange();
 }
 
+static void DetectPrecisionLossInComplexDivision(Sema &S, QualType DivisorTy,
+                                                 SourceLocation OpLoc) {
+  // If the divisor is real, then this is real/real or complex/real division.
+  // Either way there can be no precision loss.
+  auto *CT = DivisorTy->getAs<ComplexType>();
+  if (!CT)
+    return;
+
+  QualType ElementType = CT->getElementType();
+  bool IsComplexRangePromoted = S.getLangOpts().getComplexRange() ==
+                                LangOptions::ComplexRangeKind::CX_Promoted;
+  if (!ElementType->isFloatingType() || !IsComplexRangePromoted)
+    return;
+
+  ASTContext &Ctx = S.getASTContext();
+  QualType HigherElementType = Ctx.GetHigherPrecisionFPType(ElementType);
+  const llvm::fltSemantics &ElementTypeSemantics =
+      Ctx.getFloatTypeSemantics(ElementType);
+  const llvm::fltSemantics &HigherElementTypeSemantics =
+      Ctx.getFloatTypeSemantics(HigherElementType);
+
+  if ((llvm::APFloat::semanticsMaxExponent(ElementTypeSemantics) * 2 + 1 >
+       llvm::APFloat::semanticsMaxExponent(HigherElementTypeSemantics)) ||
+      (HigherElementType == Ctx.LongDoubleTy &&
+       !Ctx.getTargetInfo().hasLongDoubleType())) {
+    // Retain the location of the first use of higher precision type.
+    if (!S.LocationOfExcessPrecisionNotSatisfied.isValid())
+      S.LocationOfExcessPrecisionNotSatisfied = OpLoc;
+    for (auto &[Type, Num] : S.ExcessPrecisionNotSatisfied) {
+      if (Type == HigherElementType) {
+        Num++;
+        return;
+      }
+    }
+    S.ExcessPrecisionNotSatisfied.push_back(std::make_pair(
+        HigherElementType, S.ExcessPrecisionNotSatisfied.size()));
+  }
+}
+
 static void DiagnoseDivisionSizeofPointerOrArray(Sema &S, Expr *LHS, Expr *RHS,
                                           SourceLocation Loc) {
   const auto *LUE = dyn_cast<UnaryExprOrTypeTraitExpr>(LHS);
@@ -10649,6 +10751,7 @@ QualType Sema::CheckMultiplyDivideOperands(ExprResult &LHS, ExprResult &RHS,
   if (compType.isNull() || !compType->isArithmeticType())
     return InvalidOperands(Loc, LHS, RHS);
   if (IsDiv) {
+    DetectPrecisionLossInComplexDivision(*this, RHS.get()->getType(), Loc);
     DiagnoseBadDivideOrRemainderValues(*this, LHS, RHS, Loc, IsDiv);
     DiagnoseDivisionSizeofPointerOrArray(*this, LHS.get(), RHS.get(), Loc);
   }
@@ -10659,10 +10762,30 @@ QualType Sema::CheckRemainderOperands(
   ExprResult &LHS, ExprResult &RHS, SourceLocation Loc, bool IsCompAssign) {
   checkArithmeticNull(*this, LHS, RHS, Loc, /*IsCompare=*/false);
 
+  // Note: This check is here to simplify the double exclusions of
+  // scalar and vector HLSL checks. No getLangOpts().HLSL
+  // is needed since all languages exlcude doubles.
+  if (LHS.get()->getType()->isDoubleType() ||
+      RHS.get()->getType()->isDoubleType() ||
+      (LHS.get()->getType()->isVectorType() && LHS.get()
+                                                   ->getType()
+                                                   ->getAs<VectorType>()
+                                                   ->getElementType()
+                                                   ->isDoubleType()) ||
+      (RHS.get()->getType()->isVectorType() && RHS.get()
+                                                   ->getType()
+                                                   ->getAs<VectorType>()
+                                                   ->getElementType()
+                                                   ->isDoubleType()))
+    return InvalidOperands(Loc, LHS, RHS);
+
   if (LHS.get()->getType()->isVectorType() ||
       RHS.get()->getType()->isVectorType()) {
-    if (LHS.get()->getType()->hasIntegerRepresentation() &&
-        RHS.get()->getType()->hasIntegerRepresentation())
+    if ((LHS.get()->getType()->hasIntegerRepresentation() &&
+         RHS.get()->getType()->hasIntegerRepresentation()) ||
+        (getLangOpts().HLSL &&
+         (LHS.get()->getType()->hasFloatingRepresentation() ||
+          RHS.get()->getType()->hasFloatingRepresentation())))
       return CheckVectorOperands(LHS, RHS, Loc, IsCompAssign,
                                  /*AllowBothBool*/ getLangOpts().AltiVec,
                                  /*AllowBoolConversions*/ false,
@@ -10686,7 +10809,9 @@ QualType Sema::CheckRemainderOperands(
   if (LHS.isInvalid() || RHS.isInvalid())
     return QualType();
 
-  if (compType.isNull() || !compType->isIntegerType())
+  if (compType.isNull() ||
+      (!compType->isIntegerType() &&
+       !(getLangOpts().HLSL && compType->isFloatingType())))
     return InvalidOperands(Loc, LHS, RHS);
   DiagnoseBadDivideOrRemainderValues(*this, LHS, RHS, Loc, false /* IsDiv */);
   return compType;
@@ -13196,6 +13321,20 @@ inline QualType Sema::CheckBitwiseOperands(ExprResult &LHS, ExprResult &RHS,
   return InvalidOperands(Loc, LHS, RHS);
 }
 
+static inline bool IsAMDGPUPredicateBI(Expr *E) {
+  if (!E->getType()->isVoidType())
+    return false;
+
+  if (auto *CE = dyn_cast<CallExpr>(E)) {
+    if (auto *BI = CE->getDirectCallee())
+      if (BI->getName() == "__builtin_amdgcn_processor_is" ||
+          BI->getName() == "__builtin_amdgcn_is_invocable")
+        return true;
+  }
+
+  return false;
+}
+
 // C99 6.5.[13,14]
 inline QualType Sema::CheckLogicalOperands(ExprResult &LHS, ExprResult &RHS,
                                            SourceLocation Loc,
@@ -13290,6 +13429,9 @@ inline QualType Sema::CheckLogicalOperands(ExprResult &LHS, ExprResult &RHS,
 
   // The following is safe because we only use this method for
   // non-overloadable operands.
+
+  if (IsAMDGPUPredicateBI(LHS.get()) && IsAMDGPUPredicateBI(RHS.get()))
+    return Context.VoidTy;
 
   // C++ [expr.log.and]p1
   // C++ [expr.log.or]p1
@@ -14301,9 +14443,8 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
     CXXMethodDecl *MD = cast<CXXMethodDecl>(DRE->getDecl());
 
     CheckUseOfCXXMethodAsAddressOfOperand(OpLoc, OrigOp.get(), MD);
-
     QualType MPTy = Context.getMemberPointerType(
-        op->getType(), Context.getTypeDeclType(MD->getParent()).getTypePtr());
+        op->getType(), DRE->getQualifier(), MD->getParent());
 
     if (getLangOpts().PointerAuthCalls && MD->isVirtual() &&
         !isUnevaluatedContext() && !MPTy->isDependentType()) {
@@ -14391,8 +14532,8 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
       // of some class C [...] and if E is a qualified-id, E is
       // not the un-parenthesized operand of the unary & operator [...]
       // the id-expression is transformed into a class member access expression.
-      if (isa<DeclRefExpr>(op) && cast<DeclRefExpr>(op)->getQualifier() &&
-          !isa<ParenExpr>(OrigOp.get())) {
+      if (auto *DRE = dyn_cast<DeclRefExpr>(op);
+          DRE && DRE->getQualifier() && !isa<ParenExpr>(OrigOp.get())) {
         DeclContext *Ctx = dcl->getDeclContext();
         if (Ctx && Ctx->isRecord()) {
           if (dcl->getType()->isReferenceType()) {
@@ -14406,8 +14547,7 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
             Ctx = Ctx->getParent();
 
           QualType MPTy = Context.getMemberPointerType(
-              op->getType(),
-              Context.getTypeDeclType(cast<RecordDecl>(Ctx)).getTypePtr());
+              op->getType(), DRE->getQualifier(), cast<CXXRecordDecl>(Ctx));
           // Under the MS ABI, lock down the inheritance model now.
           if (Context.getTargetInfo().getCXXABI().isMicrosoft())
             (void)isCompleteType(OpLoc, MPTy);
@@ -15280,37 +15420,6 @@ static void DiagnoseBinOpPrecedence(Sema &Self, BinaryOperatorKind Opc,
     DiagnoseShiftCompare(Self, OpLoc, LHSExpr, RHSExpr);
 }
 
-static void DetectPrecisionLossInComplexDivision(Sema &S, SourceLocation OpLoc,
-                                                 Expr *Operand) {
-  if (auto *CT = Operand->getType()->getAs<ComplexType>()) {
-    QualType ElementType = CT->getElementType();
-    bool IsComplexRangePromoted = S.getLangOpts().getComplexRange() ==
-                                  LangOptions::ComplexRangeKind::CX_Promoted;
-    if (ElementType->isFloatingType() && IsComplexRangePromoted) {
-      ASTContext &Ctx = S.getASTContext();
-      QualType HigherElementType = Ctx.GetHigherPrecisionFPType(ElementType);
-      const llvm::fltSemantics &ElementTypeSemantics =
-          Ctx.getFloatTypeSemantics(ElementType);
-      const llvm::fltSemantics &HigherElementTypeSemantics =
-          Ctx.getFloatTypeSemantics(HigherElementType);
-      if (llvm::APFloat::semanticsMaxExponent(ElementTypeSemantics) * 2 + 1 >
-          llvm::APFloat::semanticsMaxExponent(HigherElementTypeSemantics)) {
-        // Retain the location of the first use of higher precision type.
-        if (!S.LocationOfExcessPrecisionNotSatisfied.isValid())
-          S.LocationOfExcessPrecisionNotSatisfied = OpLoc;
-        for (auto &[Type, Num] : S.ExcessPrecisionNotSatisfied) {
-          if (Type == HigherElementType) {
-            Num++;
-            return;
-          }
-        }
-        S.ExcessPrecisionNotSatisfied.push_back(std::make_pair(
-            HigherElementType, S.ExcessPrecisionNotSatisfied.size()));
-      }
-    }
-  }
-}
-
 ExprResult Sema::ActOnBinOp(Scope *S, SourceLocation TokLoc,
                             tok::TokenKind Kind,
                             Expr *LHSExpr, Expr *RHSExpr) {
@@ -15320,11 +15429,6 @@ ExprResult Sema::ActOnBinOp(Scope *S, SourceLocation TokLoc,
 
   // Emit warnings for tricky precedence issues, e.g. "bitfield & 0x4 == 0"
   DiagnoseBinOpPrecedence(*this, Opc, TokLoc, LHSExpr, RHSExpr);
-
-  // Emit warnings if the requested higher precision type equal to the current
-  // type precision.
-  if (Kind == tok::TokenKind::slash)
-    DetectPrecisionLossInComplexDivision(*this, TokLoc, LHSExpr);
 
   BuiltinCountedByRefKind K =
       BinaryOperator::isAssignmentOp(Opc) ? AssignmentKind : BinaryExprKind;
@@ -15538,6 +15642,38 @@ static bool isOverflowingIntegerType(ASTContext &Ctx, QualType T) {
   return Ctx.getIntWidth(T) >= Ctx.getIntWidth(Ctx.IntTy);
 }
 
+static Expr *ExpandAMDGPUPredicateBI(ASTContext &Ctx, CallExpr *CE) {
+  if (!CE->getBuiltinCallee())
+    return CXXBoolLiteralExpr::Create(Ctx, false, Ctx.BoolTy, CE->getExprLoc());
+
+  if (Ctx.getTargetInfo().getTriple().isSPIRV()) {
+    CE->setType(Ctx.getLogicalOperationType());
+    return CE;
+  }
+
+  bool P = false;
+  auto &TI = Ctx.getTargetInfo();
+
+  if (CE->getDirectCallee()->getName() == "__builtin_amdgcn_processor_is") {
+    auto *GFX = dyn_cast<StringLiteral>(CE->getArg(0)->IgnoreParenCasts());
+    auto TID = TI.getTargetID();
+    if (GFX && TID) {
+      auto N = GFX->getString();
+      P = TI.isValidCPUName(GFX->getString()) && TID->find(N) == 0;
+    }
+  } else {
+    auto *FD = cast<FunctionDecl>(CE->getArg(0)->getReferencedDeclOfCallee());
+
+    StringRef RF = Ctx.BuiltinInfo.getRequiredFeatures(FD->getBuiltinID());
+    llvm::StringMap<bool> CF;
+    Ctx.getFunctionFeatureMap(CF, FD);
+
+    P = Builtin::evaluateRequiredTargetFeatures(RF, CF);
+  }
+
+  return CXXBoolLiteralExpr::Create(Ctx, P, Ctx.BoolTy, CE->getExprLoc());
+}
+
 ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
                                       UnaryOperatorKind Opc, Expr *InputExpr,
                                       bool IsAfterAmp) {
@@ -15714,6 +15850,8 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
 
         // Vector logical not returns the signed variant of the operand type.
         resultType = GetSignedVectorType(resultType);
+        break;
+      } else if (IsAMDGPUPredicateBI(InputExpr)) {
         break;
       } else {
         return ExprError(Diag(OpLoc, diag::err_typecheck_unary_expr)
@@ -16967,6 +17105,9 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
     } else if (lhq.getObjCLifetime() != rhq.getObjCLifetime()) {
       DiagKind = diag::err_typecheck_incompatible_ownership;
       break;
+    } else if (!lhq.getPointerAuth().isEquivalent(rhq.getPointerAuth())) {
+      DiagKind = diag::err_typecheck_incompatible_ptrauth;
+      break;
     }
 
     llvm_unreachable("unknown error case for discarding qualifiers!");
@@ -17933,8 +18074,7 @@ void Sema::PopExpressionEvaluationContext() {
   // Otherwise, merge the contexts together.
   } else {
     Cleanup.mergeFrom(Rec.ParentCleanup);
-    MaybeODRUseExprs.insert(Rec.SavedMaybeODRUseExprs.begin(),
-                            Rec.SavedMaybeODRUseExprs.end());
+    MaybeODRUseExprs.insert_range(Rec.SavedMaybeODRUseExprs);
   }
 
   // Pop the current expression evaluation context off the stack.
@@ -19839,6 +19979,12 @@ static void DoMarkVarDeclReferenced(
           SemaRef.InstantiateVariableDefinition(PointOfInstantiation, Var);
         });
 
+        // The size of an incomplete array type can be updated by
+        // instantiating the initializer. The DeclRefExpr's type should be
+        // updated accordingly too, or users of it would be confused!
+        if (E)
+          SemaRef.getCompletedType(E);
+
         // Re-set the member to trigger a recomputation of the dependence bits
         // for the expression.
         if (auto *DRE = dyn_cast_or_null<DeclRefExpr>(E))
@@ -20426,6 +20572,88 @@ void Sema::DiagnoseEqualityWithExtraParens(ParenExpr *ParenE) {
     }
 }
 
+static bool ValidateAMDGPUPredicateBI(Sema &Sema, CallExpr *CE) {
+  if (CE->getDirectCallee()->getName() == "__builtin_amdgcn_processor_is") {
+    auto *GFX = dyn_cast<StringLiteral>(CE->getArg(0)->IgnoreParenCasts());
+    if (!GFX) {
+      Sema.Diag(CE->getExprLoc(),
+                diag::err_amdgcn_processor_is_arg_not_literal);
+      return false;
+    }
+    auto N = GFX->getString();
+    if (!Sema.getASTContext().getTargetInfo().isValidCPUName(N) &&
+        (!Sema.getASTContext().getAuxTargetInfo() ||
+         !Sema.getASTContext().getAuxTargetInfo()->isValidCPUName(N))) {
+      Sema.Diag(CE->getExprLoc(),
+                diag::err_amdgcn_processor_is_arg_invalid_value)
+          << N;
+      return false;
+    }
+  } else {
+    auto *Arg = CE->getArg(0);
+    if (!Arg || Arg->getType() != Sema.getASTContext().BuiltinFnTy) {
+      Sema.Diag(CE->getExprLoc(),
+                diag::err_amdgcn_is_invocable_arg_invalid_value)
+          << Arg;
+      return false;
+    }
+  }
+
+  return true;
+}
+
+static Expr *MaybeHandleAMDGPUPredicateBI(Sema &Sema, Expr *E, bool &Invalid) {
+  if (auto *UO = dyn_cast<UnaryOperator>(E)) {
+    auto *SE = dyn_cast<CallExpr>(UO->getSubExpr());
+    if (IsAMDGPUPredicateBI(SE)) {
+      assert(UO->getOpcode() == UnaryOperator::Opcode::UO_LNot &&
+             "__builtin_amdgcn_processor_is and __builtin_amdgcn_is_invocable "
+             "can only be used as operands of logical ops!");
+
+      if (!ValidateAMDGPUPredicateBI(Sema, SE)) {
+        Invalid = true;
+        return nullptr;
+      }
+
+      UO->setSubExpr(ExpandAMDGPUPredicateBI(Sema.getASTContext(), SE));
+      UO->setType(Sema.getASTContext().getLogicalOperationType());
+
+      return UO;
+    }
+  }
+  if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+    auto *LHS = dyn_cast<CallExpr>(BO->getLHS());
+    auto *RHS = dyn_cast<CallExpr>(BO->getRHS());
+    if (IsAMDGPUPredicateBI(LHS) && IsAMDGPUPredicateBI(RHS)) {
+      assert(BO->isLogicalOp() &&
+             "__builtin_amdgcn_processor_is and __builtin_amdgcn_is_invocable "
+             "can only be used as operands of logical ops!");
+
+      if (!ValidateAMDGPUPredicateBI(Sema, LHS) ||
+          !ValidateAMDGPUPredicateBI(Sema, RHS)) {
+        Invalid = true;
+        return nullptr;
+      }
+
+      BO->setLHS(ExpandAMDGPUPredicateBI(Sema.getASTContext(), LHS));
+      BO->setRHS(ExpandAMDGPUPredicateBI(Sema.getASTContext(), RHS));
+      BO->setType(Sema.getASTContext().getLogicalOperationType());
+
+      return BO;
+    }
+  }
+  if (auto *CE = dyn_cast<CallExpr>(E))
+    if (IsAMDGPUPredicateBI(CE)) {
+      if (!ValidateAMDGPUPredicateBI(Sema, CE)) {
+        Invalid = true;
+        return nullptr;
+      }
+      return ExpandAMDGPUPredicateBI(Sema.getASTContext(), CE);
+    }
+
+  return nullptr;
+}
+
 ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
                                        bool IsConstexpr) {
   DiagnoseAssignmentAsCondition(E);
@@ -20437,6 +20665,14 @@ ExprResult Sema::CheckBooleanCondition(SourceLocation Loc, Expr *E,
   E = result.get();
 
   if (!E->isTypeDependent()) {
+    if (E->getType()->isVoidType()) {
+      bool InvalidPredicate = false;
+      if (auto *BIC = MaybeHandleAMDGPUPredicateBI(*this, E, InvalidPredicate))
+        return BIC;
+      else if (InvalidPredicate)
+        return ExprError();
+    }
+
     if (getLangOpts().CPlusPlus)
       return CheckCXXBooleanCondition(E, IsConstexpr); // C++ 6.4p4
 
@@ -21034,19 +21270,37 @@ ExprResult Sema::CheckPlaceholderExpr(Expr *E) {
     const bool IsTypeAliasTemplateDecl = isa<TypeAliasTemplateDecl>(Temp);
 
     NestedNameSpecifier *NNS = ULE->getQualifierLoc().getNestedNameSpecifier();
-    TemplateName TN(dyn_cast<TemplateDecl>(Temp));
-    if (TN.isNull())
+    // FIXME: AssumedTemplate is not very appropriate for error recovery here,
+    // as it models only the unqualified-id case, where this case can clearly be
+    // qualified. Thus we can't just qualify an assumed template.
+    TemplateName TN;
+    if (auto *TD = dyn_cast<TemplateDecl>(Temp))
+      TN = Context.getQualifiedTemplateName(NNS, ULE->hasTemplateKeyword(),
+                                            TemplateName(TD));
+    else
       TN = Context.getAssumedTemplateName(NameInfo.getName());
-    TN = Context.getQualifiedTemplateName(NNS,
-                                          /*TemplateKeyword=*/true, TN);
 
     Diag(NameInfo.getLoc(), diag::err_template_kw_refers_to_type_template)
         << TN << ULE->getSourceRange() << IsTypeAliasTemplateDecl;
     Diag(Temp->getLocation(), diag::note_referenced_type_template)
         << IsTypeAliasTemplateDecl;
 
-    QualType TST =
-        Context.getTemplateSpecializationType(TN, ULE->template_arguments());
+    TemplateArgumentListInfo TAL(ULE->getLAngleLoc(), ULE->getRAngleLoc());
+    bool HasAnyDependentTA = false;
+    for (const TemplateArgumentLoc &Arg : ULE->template_arguments()) {
+      HasAnyDependentTA |= Arg.getArgument().isDependent();
+      TAL.addArgument(Arg);
+    }
+
+    QualType TST;
+    {
+      SFINAETrap Trap(*this);
+      TST = CheckTemplateIdType(TN, NameInfo.getBeginLoc(), TAL);
+    }
+    if (TST.isNull())
+      TST = Context.getTemplateSpecializationType(
+          TN, ULE->template_arguments(), /*CanonicalArgs=*/std::nullopt,
+          HasAnyDependentTA ? Context.DependentTy : Context.IntTy);
     QualType ET =
         Context.getElaboratedType(ElaboratedTypeKeyword::None, NNS, TST);
     return CreateRecoveryExpr(NameInfo.getBeginLoc(), NameInfo.getEndLoc(), {},

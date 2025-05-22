@@ -98,7 +98,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Has a copy of the requirements.txt install bit for the new python version
 
 # Need "render" group because some CI hosts have /dev/kfd under it.
-RUN groupadd -g 109 render
+RUN groupadd -f render
 
 # Add ROCm build distribution
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -

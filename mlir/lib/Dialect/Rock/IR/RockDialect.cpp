@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
@@ -48,6 +49,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
@@ -396,22 +398,23 @@ void RockDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // Convolution operations
 //===----------------------------------------------------------------------===//
-ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
+ConvolutionDims ConvolutionDims::fromOp(Operation *op, bool enableOutput) {
   auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
   auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
+  ArrayAttr outputLayoutAttr;
+  if (enableOutput)
+    outputLayoutAttr = op->template getAttrOfType<ArrayAttr>("output_layout");
 
   // Get shape of filter tensor.
-  auto filterType = cast<MemRefType>(op->getOperand(0).getType());
+  auto filterType = cast<ShapedType>(op->getOperand(0).getType());
   ArrayRef<int64_t> filterShape = filterType.getShape();
 
   // Get shape of input tensor.
-  auto inputType = cast<MemRefType>(op->getOperand(1).getType());
+  auto inputType = cast<ShapedType>(op->getOperand(1).getType());
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
   // Get shape of output tensor.
-  auto outputType = cast<MemRefType>(op->getOperand(2).getType());
+  auto outputType = cast<ShapedType>(op->getOperand(2).getType());
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
   int64_t y, x, z, ho, wo, dout, hi, wi, di, k, c, n, g;
@@ -420,15 +423,13 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
     auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
-    auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
+    StringAttr outputAttr;
+    if (enableOutput)
+      outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
 
-    if (filterAttr.getValue() == "y") {
+    if (filterAttr.getValue() == "0" || filterAttr.getValue() == "y") {
       y = filterShape[i];
-    } else if (filterAttr.getValue() == "0") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "1") {
+    } else if (filterAttr.getValue() == "x" || filterAttr.getValue() == "1") {
       x = filterShape[i];
     } else if (filterAttr.getValue() == "2") {
       z = filterShape[i];
@@ -440,13 +441,9 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       g = filterShape[i];
     }
 
-    if (inputAttr.getValue() == "hi") {
+    if (inputAttr.getValue() == "hi" || inputAttr.getValue() == "0i") {
       hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "0i") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "1i") {
+    } else if (inputAttr.getValue() == "wi" || inputAttr.getValue() == "1i") {
       wi = inputShape[i];
     } else if (inputAttr.getValue() == "2i") {
       di = inputShape[i];
@@ -454,16 +451,15 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       n = inputShape[i];
     }
 
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    } else if (outputAttr.getValue() == "0o") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "1o") {
-      wo = outputShape[i];
-    } else if (outputAttr.getValue() == "2o") {
-      dout = outputShape[i];
+    if (enableOutput) {
+      if (outputAttr.getValue() == "ho" || outputAttr.getValue() == "0o") {
+        ho = outputShape[i];
+      } else if (outputAttr.getValue() == "wo" ||
+                 outputAttr.getValue() == "1o") {
+        wo = outputShape[i];
+      } else if (outputAttr.getValue() == "2o") {
+        dout = outputShape[i];
+      }
     }
   }
 
@@ -482,6 +478,7 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
 ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   switch (kernelType) {
   case KernelType::Conv:
+  case KernelType::ConvElementwiseGemm:
     return ConvOpType::Fwd;
   case KernelType::ConvBwdData:
     return ConvOpType::BwdData;
@@ -591,9 +588,8 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
 }
 
 static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
-  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType();
-  Type elemTypeC = cast<ShapedType>(gemmOp.getOutArgument()->get().getType())
-                       .getElementType();
+  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType(),
+       elemTypeC = gemmOp.getCType();
 
   return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), gemmOp.getArch(),
                          elemTypeA, elemTypeB, elemTypeC);
@@ -2210,6 +2206,101 @@ void GemmElementwiseGemmOp::getEffects(
 
   effects.emplace_back(read, &getAMutable());
   effects.emplace_back(read, &getBMutable());
+  effects.emplace_back(read, &getCMutable());
+  for (auto &regionArg : getElemwiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+//===-----------------------------------------------------===//
+// ConvElementwiseGemmOp
+//===-----------------------------------------------------===//
+
+OpOperand *ConvElementwiseGemmOp::getOutArgument() {
+  return &(*this)->getOpOperand(getNumOperands() - 1);
+}
+
+Type ConvElementwiseGemmOp::getOutType() { return getOut().getType(); }
+
+Type ConvElementwiseGemmOp::getAType() {
+  auto size = getGemmGemmSize();
+  auto elementType = getInput().getType().getElementType();
+  int64_t dim1 = getTransposedA() ? size.k : size.n;
+  int64_t dim2 = getTransposedA() ? size.n : size.k;
+  return MemRefType::get({size.g, dim1, dim2}, elementType);
+}
+
+Type ConvElementwiseGemmOp::getBType() {
+  auto size = getGemmGemmSize();
+  auto elementType = getFilter().getType().getElementType();
+  int64_t dim1 = getTransposedB() ? size.m : size.k;
+  int64_t dim2 = getTransposedB() ? size.k : size.m;
+  return MemRefType::get({size.g, dim1, dim2}, elementType);
+}
+
+Type ConvElementwiseGemmOp::getCType() { return getC().getType(); }
+
+bool ConvElementwiseGemmOp::getTransposedA() {
+  // see ConvToGemm pass
+  return true;
+}
+
+bool ConvElementwiseGemmOp::getTransposedB() {
+  // see ConvToGemm pass
+  return false;
+}
+
+bool ConvElementwiseGemmOp::getTransposedC() { return getCTransposed(); }
+
+bool ConvElementwiseGemmOp::getTransposedOut() { return getOTransposed(); }
+
+KernelType ConvElementwiseGemmOp::getKernelType() {
+  return KernelType::ConvElementwiseGemm;
+}
+
+uint32_t ConvElementwiseGemmOp::getFirstGemmIndex() {
+  return getFirstGemmIdx();
+}
+
+void ConvElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
+  setFirstGemmIdx(index);
+}
+
+GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
+  auto strideVal = extractFromIntegerArrayAttr<int64_t>(getStrides());
+  auto dilationVal = extractFromIntegerArrayAttr<int64_t>(getDilations());
+  auto paddingVal = extractFromIntegerArrayAttr<int64_t>(getPadding());
+  auto sizes = ConvolutionDims::fromOp(*this, false);
+
+  // generate sizes.out with ConvGenerator
+  sizes.out[0] = rock::ConvGenerator::outputDim(sizes.in[0], sizes.fil[0],
+                                                paddingVal[0], paddingVal[1],
+                                                strideVal[0], dilationVal[0]);
+  sizes.out[1] = rock::ConvGenerator::outputDim(sizes.in[1], sizes.fil[1],
+                                                paddingVal[2], paddingVal[3],
+                                                strideVal[1], dilationVal[1]);
+
+  rock::GemmSize gemmSize =
+      rock::GemmSize::fromConvolution(rock::ConvOpType::Fwd, sizes);
+  ArrayRef<int64_t> dimsC = getC().getType().getShape();
+  int64_t offsetC = dimsC.size() == 2 ? 0 : 1;
+  int64_t g = gemmSize.g, m = gemmSize.m, k = gemmSize.k, n = gemmSize.n,
+          o = dimsC[offsetC + (getCTransposed() ? 0 : 1)];
+  return GemmGemmSize(g, m, k, n, o);
+}
+
+LogicalResult ConvElementwiseGemmOp::verify() {
+  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr);
+}
+
+void ConvElementwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  effects.emplace_back(read, &getFilterMutable());
+  effects.emplace_back(read, &getInputMutable());
   effects.emplace_back(read, &getCMutable());
   for (auto &regionArg : getElemwiseInputsMutable())
     effects.emplace_back(read, &regionArg);

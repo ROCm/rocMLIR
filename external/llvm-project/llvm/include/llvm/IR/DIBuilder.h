@@ -51,8 +51,6 @@ namespace llvm {
     Function *ValueFn;       ///< llvm.dbg.value
     Function *LabelFn;       ///< llvm.dbg.label
     Function *AssignFn;      ///< llvm.dbg.assign
-    Function *DefFn;         ///< llvm.dbg.def
-    Function *KillFn;        ///< llvm.dbg.kill
 
     SmallVector<TrackingMDNodeRef, 4> AllEnumTypes;
     /// Track the RetainTypes, since they can be updated later on.
@@ -109,14 +107,6 @@ namespace llvm {
     insertDbgAddrIntrinsic(llvm::Value *Val, DILocalVariable *VarInfo,
                            DIExpression *Expr, const DILocation *DL,
                            BasicBlock *InsertBB, Instruction *InsertBefore);
-
-    /// Internal helper for insertDef.
-    Instruction *insertDefImpl(DILifetime *Lifetime, llvm::Value *Referrer,
-                               const DILocation *DL, InsertPosition InsertPt);
-
-    /// Internal helper for insertKill.
-    Instruction *insertKillImpl(DILifetime *Lifetime, const DILocation *DL,
-                                InsertPosition InsertPt);
 
   public:
     /// Construct a builder for a module.
@@ -230,6 +220,42 @@ namespace llvm {
                                  unsigned Encoding,
                                  DINode::DIFlags Flags = DINode::FlagZero,
                                  uint32_t NumExtraInhabitants = 0);
+
+    /// Create debugging information entry for a binary fixed-point type.
+    /// \param Name        Type name.
+    /// \param Encoding    DWARF encoding code, either
+    ///                    dwarf::DW_ATE_signed_fixed or DW_ATE_unsigned_fixed.
+    /// \param Flags       Optional DWARF attributes, e.g., DW_AT_endianity.
+    /// \param Factor      Binary scale factor.
+    DIFixedPointType *
+    createBinaryFixedPointType(StringRef Name, uint64_t SizeInBits,
+                               uint32_t AlignInBits, unsigned Encoding,
+                               DINode::DIFlags Flags, int Factor);
+
+    /// Create debugging information entry for a decimal fixed-point type.
+    /// \param Name        Type name.
+    /// \param Encoding    DWARF encoding code, either
+    ///                    dwarf::DW_ATE_signed_fixed or DW_ATE_unsigned_fixed.
+    /// \param Flags       Optional DWARF attributes, e.g., DW_AT_endianity.
+    /// \param Factor      Decimal scale factor.
+    DIFixedPointType *
+    createDecimalFixedPointType(StringRef Name, uint64_t SizeInBits,
+                                uint32_t AlignInBits, unsigned Encoding,
+                                DINode::DIFlags Flags, int Factor);
+
+    /// Create debugging information entry for an arbitrary rational
+    /// fixed-point type.
+    /// \param Name        Type name.
+    /// \param Encoding    DWARF encoding code, either
+    ///                    dwarf::DW_ATE_signed_fixed or DW_ATE_unsigned_fixed.
+    /// \param Flags       Optional DWARF attributes, e.g., DW_AT_endianity.
+    /// \param Numerator   Numerator of scale factor.
+    /// \param Denominator Denominator of scale factor.
+    DIFixedPointType *
+    createRationalFixedPointType(StringRef Name, uint64_t SizeInBits,
+                                 uint32_t AlignInBits, unsigned Encoding,
+                                 DINode::DIFlags Flags, APInt Numerator,
+                                 APInt Denominator);
 
     /// Create debugging information entry for a string
     /// type.
@@ -627,13 +653,15 @@ namespace llvm {
     /// \param Rank           The rank attribute of a descriptor-based
     ///                       Fortran array, either a DIExpression* or
     ///                       a DIVariable*.
+    /// \param BitStride      The bit size of an element of the array.
     DICompositeType *createArrayType(
         DIScope *Scope, StringRef Name, DIFile *File, unsigned LineNumber,
         uint64_t Size, uint32_t AlignInBits, DIType *Ty, DINodeArray Subscripts,
         PointerUnion<DIExpression *, DIVariable *> DataLocation = nullptr,
         PointerUnion<DIExpression *, DIVariable *> Associated = nullptr,
         PointerUnion<DIExpression *, DIVariable *> Allocated = nullptr,
-        PointerUnion<DIExpression *, DIVariable *> Rank = nullptr);
+        PointerUnion<DIExpression *, DIVariable *> Rank = nullptr,
+        Metadata *BitStride = nullptr);
 
     /// Create debugging information entry for a vector type.
     /// \param Size         Array size.
@@ -761,11 +789,6 @@ namespace llvm {
                                DIGenericSubrange::BoundType LowerBound,
                                DIGenericSubrange::BoundType UpperBound,
                                DIGenericSubrange::BoundType Stride);
-
-    /// Create fragment, which represents the identity of a location
-    /// description that can be used as the piece of another location
-    /// description.
-    DIFragment *createFragment();
 
     /// Create a new descriptor for the specified variable.
     /// \param Context       Variable scope.
@@ -1129,69 +1152,6 @@ namespace llvm {
       N->replaceAllUsesWith(Replacement);
       return Replacement;
     }
-
-    /// Create a bounded lifetime segment of a data object.
-    ///
-    /// \see docs/AMDGPULLVMExtensionsForHeterogeneousDebugging.rst
-    ///
-    /// \param Obj  The data object of the lifetime segment.
-    /// \param Loc  The location description of the lifetime segment.
-    /// \param Args The optional argument specifies a tuple of zero or more
-    ///             input DIObjects or DICodes to the expression specified by
-    ///             the location field. Omitting the argObjects field is
-    ///             equivalent to specifying it to be the empty tuple.
-    DILifetime *createBoundedLifetime(DIObject *Obj, DIExpr *Loc,
-                                      ArrayRef<Metadata *> Args = std::nullopt);
-
-    /// Create a computed lifetime segment of a data object and add it to the
-    /// llvm.dbg.retainedNodes named metadata node.
-    ///
-    /// \see docs/AMDGPULLVMExtensionsForHeterogeneousDebugging.rst
-    ///
-    /// \param Obj  The data object of the lifetime segment.
-    /// \param Loc  The location description of the lifetime segment.
-    /// \param Args The optional argument specifies a tuple of zero or more
-    ///             input DIObjects or DICodes to the expression specified by
-    ///             the location field. Omitting the argObjects field is
-    ///             equivalent to specifying it to be the empty tuple.
-    void createComputedLifetime(DIObject *Obj, DIExpr *Loc,
-                                ArrayRef<Metadata *> Args = std::nullopt);
-
-    /// Insert a new llvm.dbg.def intrinsic call.
-    /// \param Lifetime    The beginning of the bounded lifetime being defined.
-    /// \param Referrer    LLVM entity acting as the referrer of the bounded
-    ///                    lifetime segment specified by the first argument. A
-    ///                    value of undef is allowed and specifies the
-    ///                    undefined location description.
-    /// \param DL          Debug info location.
-    /// \param InsertAtEnd Location for the new intrinsic.
-    Instruction *insertDef(DILifetime *Lifetime, llvm::Value *Referrer,
-                           const DILocation *DL, BasicBlock *InsertAtEnd);
-
-    /// Insert a new llvm.dbg.def intrinsic call.
-    /// \param Lifetime     The beginning of the bounded lifetime being defined.
-    /// \param Referrer     LLVM entity acting as the referrer of the bounded
-    ///                     lifetime segment specified by the first argument. A
-    ///                     value of undef is allowed and specifies the
-    ///                     undefined location description.
-    /// \param DL           Debug info location.
-    /// \param InsertPt     Location for the new intrinsic.
-    Instruction *insertDef(DILifetime *Lifetime, llvm::Value *Referrer,
-                           const DILocation *DL, InsertPosition InsertPt);
-
-    /// Insert a new llvm.dbg.kill intrinsic call.
-    /// \param Lifetime    The end of the lifetime being killed.
-    /// \param DL          Debug info location.
-    /// \param InsertAtEnd Location for the new intrinsic.
-    Instruction *insertKill(DILifetime *Lifetime, const DILocation *DL,
-                            BasicBlock *InsertAtEnd);
-
-    /// Insert a new llvm.dbg.kill intrinsic call.
-    /// \param Lifetime     The end of the lifetime being killed.
-    /// \param DL           Debug info location.
-    /// \param InsertPt     Location for the new intrinsic.
-    Instruction *insertKill(DILifetime *Lifetime, const DILocation *DL,
-                            InsertPosition InsertPt);
   };
 
   // Create wrappers for C Binding types (see CBindingWrapping.h).

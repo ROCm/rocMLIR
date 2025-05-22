@@ -351,9 +351,6 @@ class Verifier : public InstVisitor<Verifier>, VerifierSupport {
   /// Whether the current function has a DISubprogram attached to it.
   bool HasDebugInfo = false;
 
-  /// The Debug Info Version of the module being verified.
-  std::optional<unsigned> DebugInfoVersion;
-
   /// Stores the count of how many objects were passed to llvm.localescape for a
   /// given function and the largest index passed to llvm.localrecover.
   DenseMap<Function *, std::pair<unsigned, unsigned>> FrameEscapeInfo;
@@ -384,10 +381,6 @@ class Verifier : public InstVisitor<Verifier>, VerifierSupport {
   // Keeps track of duplicate function argument debug info.
   SmallVector<const DILocalVariable *, 16> DebugFnArgs;
 
-  // Track which bounded DILifetimes we have seen defs for, so we can diagnose
-  // repeated defs.
-  SmallPtrSet<const DILifetime *, 32> DefinedDebugLifetimes;
-
   TBAAVerifier TBAAVerifyHelper;
   ConvergenceVerifier ConvergenceVerifyHelper;
 
@@ -401,20 +394,6 @@ public:
       : VerifierSupport(OS, M), LandingPadResultTy(nullptr),
         SawFrameEscape(false), TBAAVerifyHelper(this) {
     TreatBrokenDebugInfoAsError = ShouldTreatBrokenDebugInfoAsError;
-    if (NamedMDNode *ModFlags = M.getModuleFlagsMetadata()) {
-      auto OpIt = find_if(ModFlags->operands(), [](const MDNode *Flag) {
-        if (Flag->getNumOperands() < 3)
-          return false;
-        if (MDString *K = dyn_cast_or_null<MDString>(Flag->getOperand(1)))
-          return K->getString() == "Debug Info Version";
-        return false;
-      });
-      if (OpIt != ModFlags->op_end()) {
-        const MDOperand &ValOp = (*OpIt)->getOperand(2);
-        if (auto *CI = mdconst::dyn_extract_or_null<ConstantInt>(ValOp))
-          DebugInfoVersion = CI->getZExtValue();
-      }
-    }
   }
 
   bool hasBrokenDebugInfo() const { return BrokenDebugInfo; }
@@ -619,7 +598,6 @@ private:
   void visitVPIntrinsic(VPIntrinsic &VPI);
   void visitDbgIntrinsic(StringRef Kind, DbgVariableIntrinsic &DII);
   void visitDbgLabelIntrinsic(StringRef Kind, DbgLabelInst &DLI);
-  void visitDbgDefKillIntrinsic(StringRef Kind, DbgDefKillIntrinsic &DDI);
   void visitAtomicCmpXchgInst(AtomicCmpXchgInst &CXI);
   void visitAtomicRMWInst(AtomicRMWInst &RMWI);
   void visitFenceInst(FenceInst &FI);
@@ -1057,15 +1035,11 @@ void Verifier::visitNamedMDNode(const NamedMDNode &NMD) {
   // upgrading them and we want to reserve the namespace for future uses.
   if (NMD.getName().starts_with("llvm.dbg."))
     CheckDI(NMD.getName() == "llvm.dbg.cu" ||
-                 NMD.getName() == "llvm.dbg.retainedNodes",
-             "unrecognized named metadata node in the llvm.dbg namespace",
-             &NMD);
+                NMD.getName() == "llvm.dbg.retainedNodes",
+            "unrecognized named metadata node in the llvm.dbg namespace", &NMD);
   for (const MDNode *MD : NMD.operands()) {
     if (NMD.getName() == "llvm.dbg.cu")
       CheckDI(MD && isa<DICompileUnit>(MD), "invalid compile unit", &NMD, MD);
-    if (NMD.getName() == "llvm.dbg.retainedNodes")
-      CheckDI(MD && isa<DILifetime>(MD), "invalid module retained node", &NMD,
-               MD);
 
     if (!MD)
       continue;
@@ -1082,24 +1056,6 @@ void Verifier::visitMDNode(const MDNode &MD, AreDebugLocsAllowed AllowLocs) {
 
   Check(&MD.getContext() == &Context,
         "MDNode context does not match Module context!", &MD);
-
-  if (DebugInfoVersion) {
-    unsigned V = *DebugInfoVersion;
-    switch (MD.getMetadataID()) {
-    default:
-      break;
-    case Metadata::DIExpressionKind:
-      CheckDI(V == DEBUG_METADATA_VERSION,
-              "MDNode incompatible with Debug Info Version", &MD, V);
-      break;
-    case Metadata::DIExprKind:
-    case Metadata::DIFragmentKind:
-    case Metadata::DILifetimeKind:
-      CheckDI(V == DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF,
-              "MDNode incompatible with Debug Info Version", &MD, V);
-      break;
-    }
-  }
 
   switch (MD.getMetadataID()) {
   default:
@@ -1290,6 +1246,25 @@ void Verifier::visitDIBasicType(const DIBasicType &N) {
               N.getTag() == dwarf::DW_TAG_unspecified_type ||
               N.getTag() == dwarf::DW_TAG_string_type,
           "invalid tag", &N);
+}
+
+void Verifier::visitDIFixedPointType(const DIFixedPointType &N) {
+  visitDIBasicType(N);
+
+  CheckDI(N.getTag() == dwarf::DW_TAG_base_type, "invalid tag", &N);
+  CheckDI(N.getEncoding() == dwarf::DW_ATE_signed_fixed ||
+              N.getEncoding() == dwarf::DW_ATE_unsigned_fixed,
+          "invalid encoding", &N);
+  CheckDI(N.getKind() == DIFixedPointType::FixedPointBinary ||
+              N.getKind() == DIFixedPointType::FixedPointDecimal ||
+              N.getKind() == DIFixedPointType::FixedPointRational,
+          "invalid kind", &N);
+  CheckDI(N.getKind() != DIFixedPointType::FixedPointRational ||
+              N.getFactorRaw() == 0,
+          "factor should be 0 for rationals", &N);
+  CheckDI(N.getKind() == DIFixedPointType::FixedPointRational ||
+              (N.getNumeratorRaw() == 0 && N.getDenominatorRaw() == 0),
+          "numerator and denominator should be 0 for non-rationals", &N);
 }
 
 void Verifier::visitDIStringType(const DIStringType &N) {
@@ -1508,11 +1483,10 @@ void Verifier::visitDICompileUnit(const DICompileUnit &N) {
   if (auto *Array = N.getRawRetainedTypes()) {
     CheckDI(isa<MDTuple>(Array), "invalid retained type list", &N, Array);
     for (Metadata *Op : N.getRetainedTypes()->operands()) {
-      CheckDI(Op && (isa<DIType>(Op) ||
-                     (isa<DISubprogram>(Op) &&
-                      !cast<DISubprogram>(Op)->isDefinition()) ||
-                     isa<DILifetime>(Op)),
-              "invalid retained type", &N, Op);
+      CheckDI(
+          Op && (isa<DIType>(Op) || (isa<DISubprogram>(Op) &&
+                                     !cast<DISubprogram>(Op)->isDefinition())),
+          "invalid retained type", &N, Op);
     }
   }
   if (auto *Array = N.getRawGlobalVariables()) {
@@ -1559,8 +1533,8 @@ void Verifier::visitDISubprogram(const DISubprogram &N) {
     CheckDI(Node, "invalid retained nodes list", &N, RawNode);
     for (Metadata *Op : Node->operands()) {
       CheckDI(Op && (isa<DILocalVariable>(Op) || isa<DILabel>(Op) ||
-                  isa<DILifetime>(Op) || isa<DIImportedEntity>(Op) ),
-              "invalid retained nodes, expected DILocalVariable, DILabel, "
+                     isa<DIImportedEntity>(Op)),
+              "invalid retained nodes, expected DILocalVariable, DILabel or "
               "DIImportedEntity",
               &N, Node, Op);
     }
@@ -1742,10 +1716,7 @@ void Verifier::visitDIExpression(const DIExpression &N) {
   CheckDI(N.isValid(), "invalid expression", &N);
 }
 
-void Verifier::visitDIExpr(const DIExpr &N) {
-  // TODO: Strictly limit where DIExpr may occur, forbidding it anywhere except
-  // as the `location:` parameter to DILifetime.
-}
+void Verifier::visitDIExpr(const DIExpr &N) {}
 
 void Verifier::visitDIGlobalVariableExpression(
     const DIGlobalVariableExpression &GVE) {
@@ -1777,32 +1748,7 @@ void Verifier::visitDIImportedEntity(const DIImportedEntity &N) {
           N.getRawEntity());
 }
 
-void Verifier::visitDILifetime(const DILifetime &N) {
-  // TODO: Validate that the the reachable lifetime graph contains no cycles.
-  auto *Obj = N.getRawObject();
-  CheckDI(Obj, "missing object", &N);
-  CheckDI(isa<DIObject>(Obj), "object must be a DIObject", &N, Obj);
-  auto *Loc = N.getRawLocation();
-  CheckDI(Loc, "missing location expression", &N);
-  CheckDI(isa<DIExpr>(Loc), "location expression must be a DIExpr", &N, Loc);
-  unsigned NumArgs = 0;
-  SmallDenseSet<Metadata *> RawArgObjectOperands;
-  for (const MDOperand &Operand : N.rawArgObjects()) {
-    Metadata *A = Operand.get();
-    CheckDI(A, "missing argObject", &N);
-    // FIXME: This should also permit DICode, once that is implemented
-    CheckDI(isa<DIObject>(A), "each argObject must be a DIObject", &N, A);
-    NumArgs++;
-  }
-  for (DIOp::Variant Op : cast<DIExpr>(Loc)->builder()) {
-    if (auto *A = std::get_if<DIOp::Arg>(&Op)) {
-      CheckDI(A->getIndex() < NumArgs,
-              "debug location expression cannot reference an out-of-bounds "
-              "argObjects index",
-              &N);
-    }
-  }
-}
+void Verifier::visitDILifetime(const DILifetime &N) {}
 
 void Verifier::visitComdat(const Comdat &C) {
   // In COFF the Module is invalid if the GlobalValue has private linkage.
@@ -2486,6 +2432,11 @@ void Verifier::verifyFunctionAttrs(FunctionType *FT, AttributeList Attrs,
 
   checkUnsignedBaseTenFuncAttr(Attrs, "patchable-function-prefix", V);
   checkUnsignedBaseTenFuncAttr(Attrs, "patchable-function-entry", V);
+  if (Attrs.hasFnAttr("patchable-function-entry-section"))
+    Check(!Attrs.getFnAttr("patchable-function-entry-section")
+               .getValueAsString()
+               .empty(),
+          "\"patchable-function-entry-section\" must not be empty");
   checkUnsignedBaseTenFuncAttr(Attrs, "warn-stack-size", V);
 
   if (auto A = Attrs.getFnAttr("sign-return-address"); A.isValid()) {
@@ -2701,9 +2652,7 @@ void Verifier::verifyInlineAsmCall(const CallBase &Call) {
 
 /// Verify that statepoint intrinsic is well formed.
 void Verifier::verifyStatepoint(const CallBase &Call) {
-  assert(Call.getCalledFunction() &&
-         Call.getCalledFunction()->getIntrinsicID() ==
-             Intrinsic::experimental_gc_statepoint);
+  assert(Call.getIntrinsicID() == Intrinsic::experimental_gc_statepoint);
 
   Check(!Call.doesNotAccessMemory() && !Call.onlyReadsMemory() &&
             !Call.onlyAccessesArgMemory(),
@@ -3670,14 +3619,9 @@ void Verifier::visitCallBase(CallBase &Call) {
     Check(Callee->getValueType() == FTy,
           "Intrinsic called with incompatible signature", Call);
 
-  // Disallow calls to functions with the amdgpu_cs_chain[_preserve] calling
-  // convention.
-  auto CC = Call.getCallingConv();
-  Check(CC != CallingConv::AMDGPU_CS_Chain &&
-            CC != CallingConv::AMDGPU_CS_ChainPreserve,
-        "Direct calls to amdgpu_cs_chain/amdgpu_cs_chain_preserve functions "
-        "not allowed. Please use the @llvm.amdgpu.cs.chain intrinsic instead.",
-        Call);
+  // Verify if the calling convention of the callee is callable.
+  Check(isCallableCC(Call.getCallingConv()),
+        "calling convention does not permit calls", Call);
 
   // Disallow passing/returning values with alignment higher than we can
   // represent.
@@ -3707,8 +3651,7 @@ void Verifier::visitCallBase(CallBase &Call) {
   }
 
   if (Attrs.hasFnAttr(Attribute::Preallocated)) {
-    Check(Call.getCalledFunction()->getIntrinsicID() ==
-              Intrinsic::call_preallocated_arg,
+    Check(Call.getIntrinsicID() == Intrinsic::call_preallocated_arg,
           "preallocated as a call site attribute can only be on "
           "llvm.call.preallocated.arg");
   }
@@ -3806,9 +3749,7 @@ void Verifier::visitCallBase(CallBase &Call) {
 
       // Statepoint intrinsic is vararg but the wrapped function may be not.
       // Allow sret here and check the wrapped function in verifyStatepoint.
-      if (!Call.getCalledFunction() ||
-          Call.getCalledFunction()->getIntrinsicID() !=
-              Intrinsic::experimental_gc_statepoint)
+      if (Call.getIntrinsicID() != Intrinsic::experimental_gc_statepoint)
         Check(!ArgAttrs.hasAttribute(Attribute::StructRet),
               "Attribute 'sret' cannot be used for vararg call arguments!",
               Call);
@@ -3837,9 +3778,8 @@ void Verifier::visitCallBase(CallBase &Call) {
           "Return type cannot be x86_amx for indirect call!");
   }
 
-  if (Function *F = Call.getCalledFunction())
-    if (Intrinsic::ID ID = (Intrinsic::ID)F->getIntrinsicID())
-      visitIntrinsicCall(ID, Call);
+  if (Intrinsic::ID ID = Call.getIntrinsicID())
+    visitIntrinsicCall(ID, Call);
 
   // Verify that a callsite has at most one "deopt", at most one "funclet", at
   // most one "gc-transition", at most one "cfguardtarget", at most one
@@ -4052,7 +3992,7 @@ void Verifier::verifyMustTailCall(CallInst &CI) {
   // - The caller and callee prototypes must match.  Pointer types of
   //   parameters or return types may differ in pointee type, but not
   //   address space.
-  if (!CI.getCalledFunction() || !CI.getCalledFunction()->isIntrinsic()) {
+  if (!CI.getIntrinsicID()) {
     Check(CallerTy->getNumParams() == CalleeTy->getNumParams(),
           "cannot guarantee tail call due to mismatched parameter counts", &CI);
     for (unsigned I = 0, E = CallerTy->getNumParams(); I != E; ++I) {
@@ -5674,18 +5614,19 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
   case Intrinsic::dbg_label: // llvm.dbg.label
     visitDbgLabelIntrinsic("label", cast<DbgLabelInst>(Call));
     break;
-  case Intrinsic::dbg_def: // llvm.dbg.def
-    visitDbgDefKillIntrinsic("def", cast<DbgDefKillIntrinsic>(Call));
-    break;
+  case Intrinsic::dbg_def:  // llvm.dbg.def
   case Intrinsic::dbg_kill: // llvm.dbg.kill
-    visitDbgDefKillIntrinsic("kill", cast<DbgDefKillIntrinsic>(Call));
     break;
   case Intrinsic::memcpy:
   case Intrinsic::memcpy_inline:
   case Intrinsic::memmove:
   case Intrinsic::memset:
   case Intrinsic::memset_inline:
+    break;
   case Intrinsic::experimental_memset_pattern: {
+    const auto Memset = cast<MemSetPatternInst>(&Call);
+    Check(Memset->getValue()->getType()->isSized(),
+          "unsized types cannot be used as memset patterns", Call);
     break;
   }
   case Intrinsic::memcpy_element_unordered_atomic:
@@ -5721,8 +5662,8 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
       auto *UseCall = dyn_cast<CallBase>(U);
       Check(UseCall != nullptr,
             "Uses of llvm.call.preallocated.setup must be calls");
-      const Function *Fn = UseCall->getCalledFunction();
-      if (Fn && Fn->getIntrinsicID() == Intrinsic::call_preallocated_arg) {
+      Intrinsic::ID IID = UseCall->getIntrinsicID();
+      if (IID == Intrinsic::call_preallocated_arg) {
         auto *AllocArgIndex = dyn_cast<ConstantInt>(UseCall->getArgOperand(1));
         Check(AllocArgIndex != nullptr,
               "llvm.call.preallocated.alloc arg index must be a constant");
@@ -5732,8 +5673,7 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
               "llvm.call.preallocated.alloc arg index must be between 0 and "
               "corresponding "
               "llvm.call.preallocated.setup's argument count");
-      } else if (Fn && Fn->getIntrinsicID() ==
-                           Intrinsic::call_preallocated_teardown) {
+      } else if (IID == Intrinsic::call_preallocated_teardown) {
         // nothing to do
       } else {
         Check(!FoundCall, "Can have at most one call corresponding to a "
@@ -5774,8 +5714,8 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
   }
   case Intrinsic::call_preallocated_arg: {
     auto *Token = dyn_cast<CallBase>(Call.getArgOperand(0));
-    Check(Token && Token->getCalledFunction()->getIntrinsicID() ==
-                       Intrinsic::call_preallocated_setup,
+    Check(Token &&
+              Token->getIntrinsicID() == Intrinsic::call_preallocated_setup,
           "llvm.call.preallocated.arg token argument must be a "
           "llvm.call.preallocated.setup");
     Check(Call.hasFnAttr(Attribute::Preallocated),
@@ -5785,8 +5725,8 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
   }
   case Intrinsic::call_preallocated_teardown: {
     auto *Token = dyn_cast<CallBase>(Call.getArgOperand(0));
-    Check(Token && Token->getCalledFunction()->getIntrinsicID() ==
-                       Intrinsic::call_preallocated_setup,
+    Check(Token &&
+              Token->getIntrinsicID() == Intrinsic::call_preallocated_setup,
           "llvm.call.preallocated.teardown token argument must be a "
           "llvm.call.preallocated.setup");
     break;
@@ -5878,11 +5818,8 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
 
     // Are we tied to a statepoint properly?
     const auto *StatepointCall = dyn_cast<CallBase>(Statepoint);
-    const Function *StatepointFn =
-        StatepointCall ? StatepointCall->getCalledFunction() : nullptr;
-    Check(StatepointFn && StatepointFn->isDeclaration() &&
-              StatepointFn->getIntrinsicID() ==
-                  Intrinsic::experimental_gc_statepoint,
+    Check(StatepointCall && StatepointCall->getIntrinsicID() ==
+                                Intrinsic::experimental_gc_statepoint,
           "gc.result operand #1 must be from a statepoint", Call,
           Call.getArgOperand(0));
 
@@ -6740,10 +6677,17 @@ void Verifier::visit(DbgVariableRecord &DVR) {
   CheckDI(MD && (isa<ValueAsMetadata>(MD) || isa<DIArgList>(MD) ||
                  (isa<MDNode>(MD) && !cast<MDNode>(MD)->getNumOperands())),
           "invalid #dbg record address/value", &DVR, MD);
-  if (auto *VAM = dyn_cast<ValueAsMetadata>(MD))
+  if (auto *VAM = dyn_cast<ValueAsMetadata>(MD)) {
     visitValueAsMetadata(*VAM, F);
-  else if (auto *AL = dyn_cast<DIArgList>(MD))
+    if (DVR.isDbgDeclare()) {
+      // Allow integers here to support inttoptr salvage.
+      Type *Ty = VAM->getValue()->getType();
+      CheckDI(Ty->isPointerTy() || Ty->isIntegerTy(),
+              "location of #dbg_declare must be a pointer or int", &DVR, MD);
+    }
+  } else if (auto *AL = dyn_cast<DIArgList>(MD)) {
     visitDIArgList(*AL, F);
+  }
 
   CheckDI(isa_and_nonnull<DILocalVariable>(DVR.getRawVariable()),
           "invalid #dbg record variable", &DVR, DVR.getRawVariable());
@@ -7042,10 +6986,6 @@ void Verifier::visitConstrainedFPIntrinsic(ConstrainedFPIntrinsic &FPI) {
 }
 
 void Verifier::visitDbgIntrinsic(StringRef Kind, DbgVariableIntrinsic &DII) {
-  if (DebugInfoVersion)
-    CheckDI(*DebugInfoVersion == DEBUG_METADATA_VERSION,
-            "debug intrinsic incompatible with Debug Info Version", &DII,
-            *DebugInfoVersion);
   auto *MD = DII.getRawLocation();
   CheckDI(isa<ValueAsMetadata>(MD) || isa<DIArgList>(MD) ||
               (isa<MDNode>(MD) && !cast<MDNode>(MD)->getNumOperands()),
@@ -7215,24 +7155,6 @@ void Verifier::verifyFragmentExpression(const DIVariable &V,
   CheckDI(MSpace <= dwarf::DW_MSPACE_LLVM_hi_user, "invalid memory space", &V);
 }
 
-void Verifier::visitDbgDefKillIntrinsic(StringRef Kind,
-                                        DbgDefKillIntrinsic &DDI) {
-  if (DebugInfoVersion)
-    CheckDI(*DebugInfoVersion == DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF,
-            "debug intrinsic incompatible with Debug Info Version", &DDI,
-            *DebugInfoVersion);
-  CheckDI(isa<DILifetime>(DDI.getRawLifetime()),
-          "invalid llvm.dbg." + Kind + " intrinsic lifetime", &DDI,
-          DDI.getRawLifetime());
-  if (DbgDefInst *D = dyn_cast<DbgDefInst>(&DDI)) {
-    CheckDI(isa<ValueAsMetadata>(D->getRawReferrer()),
-            "invalid llvm.dbg.def intrinsic referrer", D, D->getRawReferrer());
-    CheckDI(DefinedDebugLifetimes.insert(D->getLifetime()).second,
-            "invalid llvm.dbg.def refers to an already-defined lifetime",
-            D->getLifetime());
-  }
-}
-
 void Verifier::verifyFnArgs(const DbgVariableIntrinsic &I) {
   // This function does not take the scope of noninlined function arguments into
   // account. Don't run it if current function is nodebug, because it may
@@ -7346,7 +7268,7 @@ void Verifier::verifyCompileUnits() {
   auto *CUs = M.getNamedMetadata("llvm.dbg.cu");
   SmallPtrSet<const Metadata *, 2> Listed;
   if (CUs)
-    Listed.insert(CUs->op_begin(), CUs->op_end());
+    Listed.insert_range(CUs->operands());
   for (const auto *CU : CUVisited)
     CheckDI(Listed.count(CU), "DICompileUnit not listed in llvm.dbg.cu", CU);
   CUVisited.clear();
