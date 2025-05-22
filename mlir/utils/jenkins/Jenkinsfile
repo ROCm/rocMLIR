@@ -674,8 +674,8 @@ pipeline {
                                     mkdir -p "${TUNA_LOG_DIR}"
                                     # only create once per workspace
                                     if [ ! -f "${TUNA_LOG_DIR}/session_id" ]; then
-                                        sid=$(python3 ${WORKSPACE}/MITuna/tuna/go_fish.py rocmlir --init_session | tail -1)
-                                        echo "$sid" > "${TUNA_LOG_DIR}/session_id"
+                                        sid=\$(python3 ${WORKSPACE}/MITuna/tuna/go_fish.py rocmlir --init_session | tail -1)
+                                        echo "\$sid" > "${TUNA_LOG_DIR}/session_id"
                                     fi
                                 """
                                 // Make it visible to subsequent Groovy string interpolation
@@ -931,8 +931,8 @@ pipeline {
                                     mkdir -p "${TUNA_LOG_DIR}"
                                     # only create once per workspace
                                     if [ ! -f "${TUNA_LOG_DIR}/session_id" ]; then
-                                        sid=$(python3 ${WORKSPACE}/MITuna/tuna/go_fish.py rocmlir --init_session | tail -1)
-                                        echo "$sid" > "${TUNA_LOG_DIR}/session_id"
+                                        sid=\$(python3 ${WORKSPACE}/MITuna/tuna/go_fish.py rocmlir --init_session | tail -1)
+                                        echo "\$sid" > "${TUNA_LOG_DIR}/session_id"
                                     fi
                                 """
                                 // Make it visible to subsequent Groovy string interpolation
