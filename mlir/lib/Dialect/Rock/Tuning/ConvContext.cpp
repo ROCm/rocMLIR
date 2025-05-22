@@ -1,8 +1,10 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 
+#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -105,4 +107,72 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
 
   return {archVal,     numCu,      opType, dimIndexAndSize, strideVal,
           dilationVal, paddingVal, gemmId, dataTypeA,       dataTypeB};
+}
+
+ConvolutionContext
+mlir::rock::populateConvContextFromConvGemm(ConvElementwiseGemmOp op) {
+  auto archVal = op->getAttrOfType<StringAttr>("arch").getValue();
+  int numCu = getOptionalIntAttribute(op, "numCU",
+                                      rock::lookupArchInfo(archVal).minNumCU);
+  int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
+
+  llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
+
+  auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
+  SmallVector<StringAttr, 5> outLayoutSpec;
+
+  auto strideVal = extractFromIntegerArrayAttr<int64_t>(op.getStrides());
+  auto dilationVal = extractFromIntegerArrayAttr<int64_t>(op.getDilations());
+  auto paddingVal = extractFromIntegerArrayAttr<int64_t>(op.getPadding());
+
+  populateDimIndexAndSize(
+      filterLayoutAttr,
+      cast<MemRefType>(op->getOperand(0).getType()).getShape(),
+      dimIndexAndSize);
+  auto inputShape = cast<MemRefType>(op->getOperand(1).getType()).getShape();
+  populateDimIndexAndSize(inputLayoutAttr, inputShape, dimIndexAndSize);
+
+  // ["ni", "gi", "ci", "0i", "1i"] -> ["no", "go", "ko", "0o", "1o"]
+  // input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "go",
+  // "ko", "ho", "wo"]
+  int64_t kernelSizeH = dimIndexAndSize["0"].size;
+  int64_t kernelSizeW = dimIndexAndSize["1"].size;
+  for (size_t i = 0; i < inputShape.size(); ++i) {
+    auto key = cast<StringAttr>(inputLayoutAttr.getValue()[i]).getValue();
+    auto inputSize = inputShape[i];
+    if (key == "ni") {
+      auto newKey =
+          StringAttr::get(inputLayoutAttr.getContext(), std::string("no"));
+      dimIndexAndSize[newKey] = {i, inputSize};
+    } else if (key == "hi" || key == "0i") {
+      int64_t ho = rock::ConvGenerator::outputDim(inputSize, kernelSizeH,
+                                                  paddingVal[0], paddingVal[1],
+                                                  strideVal[0], dilationVal[0]);
+      auto newKey =
+          StringAttr::get(inputLayoutAttr.getContext(), std::string("0o"));
+      dimIndexAndSize[newKey] = {i, ho};
+    } else if (key == "wi" || key == "1i") {
+      int64_t wo = rock::ConvGenerator::outputDim(inputSize, kernelSizeW,
+                                                  paddingVal[2], paddingVal[3],
+                                                  strideVal[1], dilationVal[1]);
+      auto newKey =
+          StringAttr::get(inputLayoutAttr.getContext(), std::string("1o"));
+      dimIndexAndSize[newKey] = {i, wo};
+    } else if (key == "gi") {
+      auto newKey =
+          StringAttr::get(inputLayoutAttr.getContext(), std::string("go"));
+      dimIndexAndSize[newKey] = {i, inputSize};
+    } else if (key == "ci") {
+      auto newKey =
+          StringAttr::get(inputLayoutAttr.getContext(), std::string("ko"));
+      dimIndexAndSize[newKey] = {i, dimIndexAndSize["k"].size};
+    } else {
+      llvm_unreachable("Invalid key");
+    }
+  }
+  Type dataTypeA = op.getAType(), dataTypeB = op.getBType();
+
+  return {archVal,     numCu,      ConvOpType::Fwd, dimIndexAndSize, strideVal,
+          dilationVal, paddingVal, gemmId,          dataTypeA,       dataTypeB};
 }

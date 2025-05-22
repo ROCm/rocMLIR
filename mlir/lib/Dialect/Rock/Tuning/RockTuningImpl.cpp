@@ -25,6 +25,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 
 namespace mlir {
@@ -514,8 +515,8 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
         return WalkResult::interrupt();
       });
   if (!findPrimary.wasInterrupted() && !findGemmGemm.wasInterrupted()) {
-    llvm::report_fatal_error("Expected to find GEMM, convolution, attention or "
-                             "gemm+gemm op, and didn't.");
+    llvm::report_fatal_error("Expected to find GEMM, convolution, attention, "
+                             "gemm+gemm or conv+gemm op, and didn't.");
   }
   return newSpace;
 }
@@ -575,6 +576,85 @@ TuningTable *tuningTableCreate() {
 }
 
 static LogicalResult
+extractLayouts(Operation *op, llvm::StringMap<unsigned> &fLayoutMap,
+               llvm::StringMap<unsigned> &iLayoutMap,
+               llvm::StringMap<unsigned> &oLayoutMap, SmallString<6> &fLayout,
+               SmallString<6> &iLayout, SmallString<6> &oLayout,
+               bool computeOutput = true) {
+  // Extract layout information
+  auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
+  ArrayAttr outputLayoutAttr;
+  if (computeOutput)
+    outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
+
+  unsigned size = filterLayoutAttr.size();
+
+  for (unsigned i = 0; i < size; ++i) {
+    auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
+    StringRef fKey = filterAttr.getValue();
+    if (fKey == "y")
+      fKey = "0";
+    if (fKey == "x")
+      fKey = "1";
+    fLayoutMap[fKey] = i;
+    auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
+    StringRef iKey = inputAttr.getValue();
+    if (iKey == "hi")
+      iKey = "0i";
+    if (iKey == "wi")
+      iKey = "1i";
+    iLayoutMap[iKey] = i;
+    if (computeOutput) {
+      auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
+      StringRef oKey = outputAttr.getValue();
+      if (oKey == "ho")
+        oKey = "0o";
+      if (oKey == "wo")
+        oKey = "1o";
+      oLayoutMap[oKey] = i;
+    }
+  }
+
+  fLayout.assign(size, '#');
+  iLayout.assign(size, '#');
+  oLayout.assign(size, '#');
+
+  // dimensions need to be mapped 1 to 1.
+  fLayout[fLayoutMap["k"]] = 'N';
+  fLayout[fLayoutMap["c"]] = 'C';
+  fLayout[fLayoutMap["g"]] = 'G';
+  iLayout[iLayoutMap["ni"]] = 'N';
+  iLayout[iLayoutMap["ci"]] = 'C';
+  iLayout[iLayoutMap["gi"]] = 'G';
+  if (computeOutput) {
+    oLayout[oLayoutMap["no"]] = 'N';
+    oLayout[oLayoutMap["ko"]] = 'C';
+    oLayout[oLayoutMap["go"]] = 'G';
+  }
+
+  for (unsigned i = 0; i < size - 3; i++) {
+    std::string key = std::to_string(i);
+    char val = '0' + i;
+    fLayout[fLayoutMap[key]] = val;
+    iLayout[iLayoutMap[key + "i"]] = val;
+    if (computeOutput)
+      oLayout[oLayoutMap[key + "o"]] = val;
+  }
+
+  if (computeOutput) {
+    if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout, oLayout),
+                     [](const char c) { return c == '#'; }))
+      return failure();
+  } else {
+    if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout),
+                     [](const char c) { return c == '#'; }))
+      return failure();
+  }
+  return success();
+}
+
+static LogicalResult
 getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
                     SmallVectorImpl<char> &out) {
   int32_t numCU = rock::lookupArchInfo(gemmGemmOp.getArch()).minNumCU;
@@ -596,9 +676,9 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   ArrayRef<int64_t> qShape = cast<MemRefType>(gemmGemmOp.getAType()).getShape();
   ArrayRef<int64_t> kShape = cast<MemRefType>(gemmGemmOp.getBType()).getShape();
   ArrayRef<int64_t> vShape = cast<MemRefType>(gemmGemmOp.getCType()).getShape();
-  int64_t g = qShape[0];
 
   bool isAttention = isa<AttentionOp>(gemmGemmOp);
+  bool isConvGemm = isa<ConvElementwiseGemmOp>(gemmGemmOp);
 
   Type elemTypeQ = cast<MemRefType>(gemmGemmOp.getAType()).getElementType();
   problemOS << "-t ";
@@ -614,32 +694,47 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
     return gemmGemmOp.emitError("invalid type:") << elemTypeQ << "\n";
   }
 
-  // TransQ
-  if (isAttention)
-    problemOS << "-transQ ";
-  else
-    problemOS << "-transA ";
-  if (gemmGemmOp.getTransposedA()) {
-    seqLenQ = qShape[2];
-    headDimQK = qShape[1];
-    problemOS << "true" << sep;
-  } else {
-    seqLenQ = qShape[1];
-    headDimQK = qShape[2];
-    problemOS << "false" << sep;
-  }
+  // Extract layout information
+  llvm::StringMap<unsigned> fLayoutMap, iLayoutMap, oLayoutMap;
+  SmallString<6> fLayout, iLayout, oLayout;
 
-  // TransK
-  if (isAttention)
-    problemOS << "-transK ";
-  else
-    problemOS << "-transB ";
-  if (gemmGemmOp.getTransposedB()) {
-    seqLenK = kShape[1];
-    problemOS << "true" << sep;
+  if (isConvGemm) {
+    if (failed(extractLayouts(gemmGemmOp, fLayoutMap, iLayoutMap, oLayoutMap,
+                              fLayout, iLayout, oLayout, false)))
+      return gemmGemmOp.emitError("layout can't be extracted");
+
+    // filter layout
+    problemOS << "-f " << fLayout << sep;
+    // input layout
+    problemOS << "-I " << iLayout << sep;
   } else {
-    seqLenK = kShape[2];
-    problemOS << "false" << sep;
+    // TransQ
+    if (isAttention)
+      problemOS << "-transQ ";
+    else
+      problemOS << "-transA ";
+    if (gemmGemmOp.getTransposedA()) {
+      seqLenQ = qShape[2];
+      headDimQK = qShape[1];
+      problemOS << "true" << sep;
+    } else {
+      seqLenQ = qShape[1];
+      headDimQK = qShape[2];
+      problemOS << "false" << sep;
+    }
+
+    // TransK
+    if (isAttention)
+      problemOS << "-transK ";
+    else
+      problemOS << "-transB ";
+    if (gemmGemmOp.getTransposedB()) {
+      seqLenK = kShape[1];
+      problemOS << "true" << sep;
+    } else {
+      seqLenK = kShape[2];
+      problemOS << "false" << sep;
+    }
   }
 
   // TransV
@@ -671,12 +766,52 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "false" << sep;
   }
 
-  problemOS << "-g " << g << sep;
+  if (!isConvGemm)
+    problemOS << "-g " << qShape[0] << sep;
+
   if (isAttention) {
     problemOS << "-seq_len_q " << seqLenQ << sep;
     problemOS << "-seq_len_k " << seqLenK << sep;
     problemOS << "-head_dim_qk " << headDimQK << sep;
     problemOS << "-head_dim_v " << headDimV;
+  } else if (isConvGemm) {
+    auto convGemmOp = cast<ConvElementwiseGemmOp>(gemmGemmOp);
+    ArrayRef<int64_t> inShape = convGemmOp.getInput().getType().getShape();
+    ArrayRef<int64_t> filShape = convGemmOp.getFilter().getType().getShape();
+
+    // N
+    problemOS << "-n " << inShape[iLayoutMap["ni"]] << sep;
+    // C
+    problemOS << "-c " << inShape[iLayoutMap["ci"]] * inShape[iLayoutMap["gi"]]
+              << sep;
+    // H
+    problemOS << "-H " << inShape[iLayoutMap["0i"]] << sep;
+    // W
+    problemOS << "-W " << inShape[iLayoutMap["1i"]] << sep;
+    // K
+    problemOS << "-k " << filShape[fLayoutMap["k"]] * filShape[fLayoutMap["g"]]
+              << sep;
+    // Y
+    problemOS << "-y " << filShape[fLayoutMap["0"]] << sep;
+    // X
+    problemOS << "-x " << filShape[fLayoutMap["1"]] << sep;
+
+    auto paddingVal =
+        extractFromIntegerArrayAttr<int64_t>(convGemmOp.getPadding());
+    auto strideVal =
+        extractFromIntegerArrayAttr<int64_t>(convGemmOp.getStrides());
+    auto dilationVal =
+        extractFromIntegerArrayAttr<int64_t>(convGemmOp.getDilations());
+
+    // padding
+    problemOS << "-p " << paddingVal[0] << " -q " << paddingVal[2] << sep;
+    // stride
+    problemOS << "-u " << strideVal[0] << " -v " << strideVal[1] << sep;
+    // dilation
+    problemOS << "-l " << dilationVal[0] << " -j " << dilationVal[1] << sep;
+    // group
+    problemOS << "-g " << inShape[iLayoutMap["gi"]] << sep;
+    problemOS << "-gemmO " << headDimV;
   } else {
     problemOS << "-m " << seqLenQ << sep;
     problemOS << "-n " << seqLenK << sep;
@@ -721,72 +856,11 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     ArrayRef<int64_t> filShape = filType.getShape();
 
     // Extract layout information
-    auto filterLayoutAttr =
-        gemmOp->template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr =
-        gemmOp->template getAttrOfType<ArrayAttr>("input_layout");
-    auto outputLayoutAttr =
-        gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
-
-    unsigned size = filterLayoutAttr.size();
-    llvm::StringMap<unsigned> fLayoutMap;
-    llvm::StringMap<unsigned> iLayoutMap;
-    llvm::StringMap<unsigned> oLayoutMap;
-
-    for (unsigned i = 0; i < size; ++i) {
-      auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
-      StringRef fKey = filterAttr.getValue();
-      if (fKey == "y")
-        fKey = "0";
-      if (fKey == "x")
-        fKey = "1";
-      fLayoutMap[fKey] = i;
-      auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
-      StringRef iKey = inputAttr.getValue();
-      if (iKey == "hi")
-        iKey = "0i";
-      if (iKey == "wi")
-        iKey = "1i";
-      iLayoutMap[iKey] = i;
-      auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
-      StringRef oKey = outputAttr.getValue();
-      if (oKey == "ho")
-        oKey = "0o";
-      if (oKey == "wo")
-        oKey = "1o";
-      oLayoutMap[oKey] = i;
-    }
-
-    SmallString<6> fLayout;
-    SmallString<6> iLayout;
-    SmallString<6> oLayout;
-    fLayout.assign(size, '#');
-    iLayout.assign(size, '#');
-    oLayout.assign(size, '#');
-
-    // dimensions need to be mapped 1 to 1.
-    fLayout[fLayoutMap["k"]] = 'N';
-    fLayout[fLayoutMap["c"]] = 'C';
-    fLayout[fLayoutMap["g"]] = 'G';
-    iLayout[iLayoutMap["ni"]] = 'N';
-    iLayout[iLayoutMap["ci"]] = 'C';
-    iLayout[iLayoutMap["gi"]] = 'G';
-    oLayout[oLayoutMap["no"]] = 'N';
-    oLayout[oLayoutMap["ko"]] = 'C';
-    oLayout[oLayoutMap["go"]] = 'G';
-
-    for (unsigned i = 0; i < size - 3; i++) {
-      std::string key = std::to_string(i);
-      char val = '0' + i;
-      fLayout[fLayoutMap[key]] = val;
-      iLayout[iLayoutMap[key + "i"]] = val;
-      oLayout[oLayoutMap[key + "o"]] = val;
-    }
-
-    if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout, oLayout),
-                     [](const char c) { return c == '#'; })) {
-      return failure();
-    }
+    llvm::StringMap<unsigned> fLayoutMap, iLayoutMap, oLayoutMap;
+    SmallString<6> fLayout, iLayout, oLayout;
+    if (failed(extractLayouts(gemmOp, fLayoutMap, iLayoutMap, oLayoutMap,
+                              fLayout, iLayout, oLayout)))
+      return convIF.emitError("layout can't be extracted");
 
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
 

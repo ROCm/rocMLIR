@@ -229,6 +229,8 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     AttentionOp::attachInterface<GemmLikeInterface<AttentionOp>>(*ctx);
     GemmElementwiseGemmOp::attachInterface<
         GemmLikeInterface<GemmElementwiseGemmOp>>(*ctx);
+    ConvElementwiseGemmOp::attachInterface<
+        GemmLikeInterface<ConvElementwiseGemmOp>>(*ctx);
 
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(
