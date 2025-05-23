@@ -569,7 +569,6 @@ pipeline {
                 environment {
                     PATH = "/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
                     HOME = "${WORKSPACE}"
-                    TUNA_LOG_DIR = "${WORKSPACE}/tuna_logs"
                 }
                 stages {
                     stage('Prepare node') {
@@ -668,45 +667,28 @@ pipeline {
                             dir('MITuna') {
                                 git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                             }
-                            // Create / reuse a session AND expose it to Jenkins
-                            script {
-                                sh """
-                                    mkdir -p "${TUNA_LOG_DIR}"
-                                    # only create once per workspace
-                                    if [ ! -f "${TUNA_LOG_DIR}/session_id" ]; then
-                                        sid=\$(python3 ${WORKSPACE}/MITuna/tuna/go_fish.py rocmlir --init_session | tail -1)
-                                        echo "\$sid" > "${TUNA_LOG_DIR}/session_id"
-                                    fi
-                                """
-                                // Make it visible to subsequent Groovy string interpolation
-                                env.SESSION_ID = sh(
-                                        script: "cat ${TUNA_LOG_DIR}/session_id",
-                                        returnStdout: true
-                                    ).trim()
-                                echo "Tuna session id = ${env.SESSION_ID}"
-                            }
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     // Tune gemms, fail if the DB is not created
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv --session_id ${SESSION_ID}
+                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
                                           [ -f tuning_gemm.tsv ]"""
                                     sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv --session_id ${SESSION_ID}
+                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
                                           [ -f tuning_conv.tsv ]"""
                                     sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv --session_id ${SESSION_ID}
+                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
                                           [ -f tuning_attention.tsv ]"""
                                     sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick --session_id ${SESSION_ID}
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
                                           [ -f quick_tuning_gemm.tsv ]"""
                                     sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick --session_id ${SESSION_ID}
+                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
                                           [ -f quick_tuning_conv.tsv ]"""
                                 }
                             }
@@ -862,7 +844,6 @@ pipeline {
                 environment {
                     PATH = "/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
                     HOME = "${WORKSPACE}"
-                    TUNA_LOG_DIR = "${WORKSPACE}/tuna_logs"
                 }
                 stages {
                     stage('Prepare node') {
@@ -925,48 +906,31 @@ pipeline {
                             dir('MITuna') {
                                 git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                             }
-                            // Create / reuse a session AND expose it to Jenkins
-                            script {
-                                sh """
-                                    mkdir -p "${TUNA_LOG_DIR}"
-                                    # only create once per workspace
-                                    if [ ! -f "${TUNA_LOG_DIR}/session_id" ]; then
-                                        sid=\$(python3 ${WORKSPACE}/MITuna/tuna/go_fish.py rocmlir --init_session | tail -1)
-                                        echo "\$sid" > "${TUNA_LOG_DIR}/session_id"
-                                    fi
-                                """
-                                // Make it visible to subsequent Groovy string interpolation
-                                env.SESSION_ID = sh(
-                                        script: "cat ${TUNA_LOG_DIR}/session_id",
-                                        returnStdout: true
-                                    ).trim()
-                                echo "Tuna session id = ${env.SESSION_ID}"
-                            }
                             dir('build') {
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                         -c ../mlir/utils/performance/configs/gemm-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv --session_id ${SESSION_ID}
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
                                       [ -f mlir_tuning_${CHIP}.tsv ]"""
                                 // Tune resnet50 and unet configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                         -c ../mlir/utils/performance/configs/conv-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv --session_id ${SESSION_ID}"""
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
                                 // Tune attention configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                         -c ../mlir/utils/performance/configs/attention-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv --session_id ${SESSION_ID}"""
+                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
                                 // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                         -c ../mlir/utils/performance/configs/gemm-configs -s quick \
-                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv --session_id ${SESSION_ID}
+                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
                                       [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
                                 // Tune resnet50 and unet configs (quick tuning)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                         -c ../mlir/utils/performance/configs/conv-configs -s quick \
-                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv --session_id ${SESSION_ID}"""
+                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv"""
                             }
                         }
                     }
