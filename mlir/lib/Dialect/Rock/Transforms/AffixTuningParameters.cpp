@@ -274,11 +274,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
   OpBuilder builder(op.getContext());
   bool isAccel = rock::isAccel(op.getGemmFeatures());
   if (!isAccel) {
-    op.emitError("Currently, attention/gemm+gemm op is only "
+    op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
                  "supported on GPUs "
                  "with matrix accelerator extentions");
     return signalPassFailure();
   }
+
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =

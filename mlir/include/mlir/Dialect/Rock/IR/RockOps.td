@@ -313,6 +313,58 @@ def Rock_GemmElementwiseGemmOp
   }];
 }
 
+def Rock_ConvElementwiseGemmOp
+    : Rock_Op<"conv_elementwise_gemm",
+              [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
+      AllElementTypesMatch<["filter", "input"]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$filter,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$input,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$c,
+          Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$cTransposed,
+          UnitAttr:$oTransposed, StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
+          OptionalAttr<I32Attr>:$numCU, IndexArrayLength<4>:$padding,
+          IndexArrayLength<2>:$strides, IndexArrayLength<2>:$dilations,
+          OptionalAttr<RockTuningParamAttrInterface>:$params0,
+          OptionalAttr<RockTuningParamAttrInterface>:$params1,
+          I32Attr:$firstGemmIdx)>,
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
+  let summary = "CONV-elementwise-GEMM operation";
+  let description = [{
+    Performs the operation out = preSecondGemmBody(conv_forward(filter, input), elemwiseInputs) * c.
+
+    This operation performs fused CONV-elementwise-GEMM. There is an optional element-wise
+    fusion just before the second GEMM, defined by `preSecondGemmBody` with inputs `elemwiseInputs`.
+
+    If none of the `transposed` attributes are set, then `c` is [G] x N x O and `out` is [G] x M x O, 
+    where G is the optional group dimension (which is assumed to be 1 if not set). Note that input and
+    filter layouts are defined by attributes "input_layout" and "filter_layout".
+
+    The transpose attributes allow for the non-group dimensions of the matrix to be
+    transposed. For example, if `cTransposed` is set, then the argument `c` should be
+    a [G] x O x M memory.
+
+    Those creating a `rock.conv_elementwise_gemm` must specify the GPU architecture being targetted
+    and the number of compute units (numCu) available. The parameters
+    `gridSize`, and `blockSize` are optional as they can be inferred by
+    a tuning process or a heuristic, but they must be set before the `conv_elementwise_gemm` is
+    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+
+    `features` specifies what hardware features can be used in the generated code.
+  }];
+  let hasVerifier = 1;
+  let regions = (region AnyRegion:$preSecondGemmBody);
+  let assemblyFormat = [{
+    `{` `\n`
+        ` ` `ab` `=` `conv` `(` $filter `,` $input `)` `:` type($filter) `,` type($input) `\n`
+        (`ab` `=` `elementwise` (`otherIns` `(` $elemwiseInputs^ `:` type($elemwiseInputs) `)`)? $preSecondGemmBody^ `\n`)?
+        (`tr` $oTransposed^)? $out `=` `ab` `*` (`tr` $cTransposed^)? $c `:` type($c) `->` type($out) `\n`
+    `}` attr-dict (`->` type($result)^)?
+  }];
+}
+
 def Rock_InitKernelOp :
     Rock_Op<"init_kernel", []>,
     Arguments<(ins AnyTensorOrMemRef:$buffer,
