@@ -318,6 +318,7 @@ struct ThreadwiseAccelGemmRewritePattern
 
       Value argA = b.create<memref::LoadOp>(loc, argTypeA, rawBufferA, coordsA);
       Value argB = b.create<memref::LoadOp>(loc, argTypeB, rawBufferB, coordsB);
+      b.create<LDSBarrierOp>(loc);
       emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
     }
     b.eraseOp(op);
