@@ -567,8 +567,8 @@ pipeline {
                     expression { return shouldRunBuildAndTest("$CODEPATH") }
                 }
                 environment {
-                    PATH = "/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-                    HOME = "${WORKSPACE}"
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
                 }
                 stages {
                     stage('Prepare node') {
@@ -834,8 +834,8 @@ pipeline {
                     expression { return shouldRunFromChip("${CHIP}") }
                 }
                 environment {
-                    PATH = "/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-                    HOME = "${WORKSPACE}"
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
                 }
                 stages {
                     stage('Prepare node') {
@@ -996,8 +996,8 @@ pipeline {
                 }
                 agent none
                 environment {
-                    PATH = "/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-                    HOME = "${WORKSPACE}"
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
                 }
                 stages {
                     stage('Prepare node') {
