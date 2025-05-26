@@ -173,7 +173,7 @@ def get_gpu_architecture() {
 def resetBuild() {
     if (currentBuild.getPreviousBuild() == null
         || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
-        def buildNumber = BUILD_NUMBER as int;
+        def buildNumber = env.BUILD_NUMBER as int;
         if (buildNumber > 1)
             milestone(buildNumber - 1);
         milestone(buildNumber)
@@ -739,26 +739,26 @@ pipeline {
                                 // Tune gemms with default datatypes, fail if the DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models \
+                                        -c ../mlir/utils/performance/configs/tier1-gemm-configs \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv
                                       [ -f mlir_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models \
+                                        -c ../mlir/utils/performance/configs/tier1-conv-configs \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune attention configs
                                 sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models \
+                                        -c ../mlir/utils/performance/configs/tier1-attention-configs \
                                         -t ${WORKSPACE}/MITuna -f mlir_tuning_${ARCH}.tsv"""
                                 // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models -s quick \
+                                        -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv
                                       [ -f mlir_quick_tuning_${ARCH}.tsv ]"""
                                 // Tune resnet50 and unet configs (quick tuning)
                                 sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/problem-config-tier1-models -s quick \
+                                        -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
                                         -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${ARCH}.tsv"""
                             }
                         }
@@ -885,11 +885,17 @@ pipeline {
                         steps {
                             dir('build') {
                                 script {
-                                    def inputConfigs = "${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models"
-                                    def configsToUse = inputConfigs
+                                    def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
+                                    def convToUse = convInput
                                     if (params.nightly) {
-                                        def runIndex = ((BUILD_NUMBER as int) - 1) % 5 + 1
-                                        splitConfigFile(inputConfigs, configsToUse, runIndex)
+                                        def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                        splitConfigFile(convInput, convToUse, runIndex)
+                                    }
+                                    def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                    def gemmToUse = gemmInput
+                                    if (params.nightly) {
+                                        def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                        splitConfigFile(gemmInput, gemmToUse, runIndex)
                                     }
                                 }
 
@@ -898,12 +904,12 @@ pipeline {
                                 sh 'ls -l /dev/dri'
                                 // Run MLIR vs MIOpend perf benchmarks.
                                 sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                       --configs_file=${configsToUse} \
+                                       --configs_file=${convToUse} \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                 // Run MLIR vs rocBLAS perf benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                       --configs_file=${configsToUse} \
+                                       --configs_file=${gemmToUse} \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                             }
@@ -930,17 +936,17 @@ pipeline {
                         steps {
                             dir('build') {
                                 script {
-                                    def inputConfigs = "${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models"
-                                    def configsToUse = inputConfigs
+                                    def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
+                                    def attnToUse = attnInput
                                     if (params.nightly) {
-                                        def runIndex = ((BUILD_NUMBER as int) - 1) % 5 + 1
-                                        splitConfigFile(inputConfigs, configsToUse, runIndex)
+                                        def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                        splitConfigFile(attnInput, attnToUse, runIndex)
                                     }
                                 }
 
                                 // Run attention benchmarks
                                 sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                       --configs_file=${configsToUse} \
+                                       --configs_file=${attnToUse} \
                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                             }
                         }
@@ -976,16 +982,16 @@ pipeline {
 
                                 dir('build') {
                                     script {
-                                        def inputConfigs = "${WORKSPACE}/mlir/utils/performance/problem-config-tier1-models"
-                                        def configsToUse = inputConfigs
+                                        def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                        def gemmToUse = gemmInput
                                         if (params.nightly) {
-                                            def runIndex = ((BUILD_NUMBER as int) - 1) % 5 + 1
-                                            splitConfigFile(inputConfigs, configsToUse, runIndex)
+                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                            splitConfigFile(gemmInput, gemmToUse, runIndex)
                                         }
                                     }
 
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                --configs_file=${configsToUse} \
+                                --configs_file=${gemmToUse} \
                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                     sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
                                 }
