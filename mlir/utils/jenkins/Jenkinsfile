@@ -24,6 +24,7 @@ def advancedNodeCheck(Map params) {
         timeout(time: 15, unit: 'MINUTES', activity: true) {
             cleanWs()
         }
+        checkout scm
     }
 
     timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'docker version' }
@@ -242,7 +243,6 @@ def resetBuild() {
 void setHeartbeat() {
     script {
         System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
-        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.LAUNCH_DIAGNOSTICS", "true");
     }
 }
 
@@ -596,7 +596,6 @@ pipeline {
                         steps {
                             echo "codepath is ${CODEPATH}"
                             showEnv()
-                            checkout scm
                         }
                     }
                     stage("Shared Library: fixed E2E tests") {
@@ -778,7 +777,6 @@ pipeline {
                         steps {
                             echo "codepath is ${CODEPATH}"
                             showEnv()
-                            checkout scm
                         }
                     }
                     stage("Prepare Performance Scripts") {
@@ -888,7 +886,6 @@ pipeline {
                         steps {
                             echo "CHIP = ${CHIP}"
                             showEnv()
-                            checkout scm
                         }
                     }
                     stage("Tune rocMLIR") {
@@ -1038,7 +1035,6 @@ pipeline {
                         steps {
                             echo "chip is ${CHIP}"
                             showEnv()
-                            checkout scm
                         }
                     }
                     stage("Copy tuning database") {
@@ -1300,7 +1296,6 @@ pipeline {
                         steps {
                             echo "codepath is ${CODEPATH}"
                             showEnv()
-                            checkout scm
                         }
                     }
                     stage("Install MIGraphX Dependencies") {
