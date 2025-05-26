@@ -1,14 +1,56 @@
-# from llama2_7b decoder model
--transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+# bert_base_cased_1_fp16_gpu.onnx
+-t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 
-# from qwen1.5-7b model
--transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+# bert_large_uncased_1_fp16_gpu.onnx
+-t f16 -transQ false -transK true -transV false -transO false -g 16 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 
-# from phi3-3.8b model
--transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 96 -head_dim_v 96
+# distilgpt2_1_fp16_gpu.onnx
+-t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 
-# from llama3-8b model
--transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+# stable-diffusion-2-onnx-unet
+-t f16 -transQ false -transK true -transV false -transO false -g 10 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 10 -seq_len_q 4096 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1024 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 40 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 40 -seq_len_q 256 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 40 -seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
 
-# from whisper-large encoder model
--transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1500 -seq_len_k 1500 -head_dim_qk 64 -head_dim_v 64
+# stable-diffusion-2-onnx vae_decoder
+-t f16 -transQ false -transK false -transV false -transO false -g 1 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 512 -head_dim_v 512
+
+# bert_large_mlperf.onnx
+-t f16 -transQ false -transK true -transV false -transO false -g 16 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+
+# qwen1.5-7b fp16
+-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+
+# phi3
+-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 96 -head_dim_v 96
+
+# llama3_8b model.onnx
+-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+
+# whisper-large encoder_model.onnx
+-t f32 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1500 -seq_len_k 1500 -head_dim_qk 64 -head_dim_v 64
+
+# mistral-7b
+-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+
+# Flux
+-t f16 -transQ false -transK false -transV false -transO false -g 12 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+
+# sd3 text_encoder_3
+-t f16 -transQ false -transK true -transV false -transO false -g 64 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+
+# sd3.5 text_encoder
+-t f16 -transQ false -transK false -transV false -transO false -g 12 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+
+# sd3.5 text_encoder_2
+-t f16 -transQ false -transK false -transV false -transO false -g 20 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+
+# sd3.5 text_encoder_3
+-t f16 -transQ false -transK true -transV false -transO false -g 64 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+
+# sd3_medium_vae_encoder
+-t f32 -transQ false -transK false -transV false -transO false -g 2 -seq_len_q 64 -seq_len_k 64 -head_dim_qk 512 -head_dim_v 512
