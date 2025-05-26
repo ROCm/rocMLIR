@@ -608,7 +608,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }                       
@@ -635,7 +634,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }                      
@@ -656,7 +654,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -704,7 +701,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -785,7 +781,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -800,7 +795,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -855,23 +849,6 @@ pipeline {
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                             }
                         }
-                    } 
-                    stage("Set System Property on Lockhart nodes") {
-                        when {
-                            equals expected: "gfx90a", actual: "${CHIP}"
-                        }
-                        agent { 
-                            docker {
-                                image  dockerImage()
-                                args   "${env.DOCKER_ARGS}"
-                                label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
-                                reuseNode true
-                            }
-                        }
-                        steps {
-                            setHeartbeat()
-                        }
                     }
                     stage("Environment") {
                         agent { 
@@ -888,13 +865,28 @@ pipeline {
                             showEnv()
                         }
                     }
+                    stage("Set System Property on Lockhart nodes") {
+                        when {
+                            equals expected: "gfx90a", actual: "${CHIP}"
+                        }
+                        agent { 
+                            docker {
+                                image  dockerImage()
+                                args   "${env.DOCKER_ARGS}"
+                                label  getLabelFromChip("${CHIP}")  // stay on the same node
+                                reuseNode true
+                            }
+                        }
+                        steps {
+                            setHeartbeat()
+                        }
+                    }
                     stage("Tune rocMLIR") {
                         agent { 
                             docker {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}") // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -937,7 +929,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -958,7 +949,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1043,7 +1033,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1064,7 +1053,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1083,7 +1071,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1102,7 +1089,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1130,7 +1116,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1154,7 +1139,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1180,7 +1164,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1220,7 +1203,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1304,7 +1286,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1319,7 +1300,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
@@ -1343,7 +1323,6 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
                                 reuseNode true
                             }
                         }
