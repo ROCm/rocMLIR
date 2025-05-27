@@ -1212,6 +1212,7 @@ class AttentionConfiguration(PerfConfiguration):
     def computeTFlops(self, ns, only_matmul_flops=True):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
+        # GQA broadcasts so that both num_heads_q == num_heads_kv
         g = self.g * max(self.num_heads_q, self.num_heads_kv)
         first_matmul_flops = 2.0 * g * self.seq_len_q * self.head_dim_qk * self.seq_len_k
         # max, sub, exp, sum, div
