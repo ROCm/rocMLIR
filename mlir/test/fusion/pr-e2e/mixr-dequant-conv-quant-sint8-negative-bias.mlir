@@ -1,5 +1,4 @@
 // RUN: rocmlir-driver -kernel-pipeline=migraphx %s | rocmlir-gen -fut mlir_dequantizelinear_convolution_quantizelinear --arch %arch --clone-harness - | rocmlir-driver -host-pipeline=highlevel | rocmlir-gen -print-results -ph -fut mlir_dequantizelinear_convolution_quantizelinear_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
-// ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 // CHECK-NEXT: Unranked Memref base@ = {{.*}} rank = 1 offset = 0 sizes = [49] strides = [1] data =
 // CHECK-NEXT: [0, 3, -2, -1, -1, 4, -9, -1, -2, 3, -6, 0, -3, 2, -1, 4, 4, -10, 4, 1, -11, 2, -5, -8, -9, -8, -2, -1, 3, -9, -1, -9, 3, -1, -5, -1, -4, -11, -7, -8, 1, -7, -11, -7, -1, -5, -7, 3, -7]

@@ -1,5 +1,4 @@
 // RUN: sed -e 's/##TOKEN_ARCH##/%arch/g' %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_transpose_reshape_dot_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
-// ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 module {
   func.func @mlir_transpose_reshape_dot(%arg0: !migraphx.shaped<1x2x1x3xf32, 6x3x3x1> {mhal.read_access}, %arg1: !migraphx.shaped<6x6xf32, 6x1> {mhal.read_access}) -> (!migraphx.shaped<1x6xf32, 6x1> {mhal.write_access}) {
