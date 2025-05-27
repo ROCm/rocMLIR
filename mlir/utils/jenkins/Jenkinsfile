@@ -567,8 +567,8 @@ pipeline {
                     expression { return shouldRunBuildAndTest("$CODEPATH") }
                 }
                 environment {
-                    PATH="/opt/rocm/llvm/bin:$PATH"
-                    HOME="${WORKSPACE}"
+                    PATH="/opt/rocm/llvm/bin:${env.PATH}"
+                    HOME="${env.WORKSPACE}"
                 }
                 stages {
                     stage('Prepare node') {
@@ -583,21 +583,6 @@ pipeline {
                             }
                         }
                     }
-                    stage('Environment') {
-                        agent { 
-                            docker {
-                                image  dockerImage()
-                                args   "${env.DOCKER_ARGS}"
-                                label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                alwaysPull true
-                                reuseNode true
-                            }
-                        }
-                        steps {
-                            echo "codepath is ${CODEPATH}"
-                            showEnv()
-                        }
-                    }
                     stage("Shared Library: fixed E2E tests") {
                         when {
                             beforeAgent true;
@@ -608,10 +593,15 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
+                                alwaysPull true
                                 reuseNode true
                             }
                         }                       
                         steps {
+
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
+
                             script {
                                 build_fixedE2ETests("${CODEPATH}")
                                 preMergeCheck("${CODEPATH}")
@@ -745,7 +735,7 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 environment {
-                    HOME="${WORKSPACE}"
+                    HOME="${env.WORKSPACE}"
                 }
                 stages {
                     stage('Prepare node') {
@@ -760,7 +750,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Environment') {
+                    stage("Prepare Performance Scripts") {
                         agent { 
                             docker {
                                 image  dockerImage()
@@ -773,18 +763,6 @@ pipeline {
                         steps {
                             echo "codepath is ${CODEPATH}"
                             showEnv()
-                        }
-                    }
-                    stage("Prepare Performance Scripts") {
-                        agent { 
-                            docker {
-                                image  dockerImage()
-                                args   "${env.DOCKER_ARGS}"
-                                label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                reuseNode true
-                            }
-                        }
-                        steps {
                             setHeartbeat()
                             buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                         }
@@ -834,8 +812,8 @@ pipeline {
                     expression { return shouldRunFromChip("${CHIP}") }
                 }
                 environment {
-                    PATH="/opt/rocm/llvm/bin:$PATH"
-                    HOME="${WORKSPACE}"
+                    PATH="/opt/rocm/llvm/bin:${env.PATH}"
+                    HOME="${env.WORKSPACE}"
                 }
                 stages {
                     stage('Prepare node') {
@@ -850,21 +828,6 @@ pipeline {
                             }
                         }
                     }
-                    stage("Environment") {
-                        agent { 
-                            docker {
-                                image  dockerImage()
-                                args   "${env.DOCKER_ARGS}"
-                                label  getLabelFromChip("${CHIP}") // stay on the same node
-                                alwaysPull true
-                                reuseNode true
-                            }
-                        }
-                        steps {
-                            echo "CHIP = ${CHIP}"
-                            showEnv()
-                        }
-                    }
                     stage("Set System Property on Lockhart nodes") {
                         when {
                             equals expected: "gfx90a", actual: "${CHIP}"
@@ -874,10 +837,13 @@ pipeline {
                                 image  dockerImage()
                                 args   "${env.DOCKER_ARGS}"
                                 label  getLabelFromChip("${CHIP}")  // stay on the same node
+                                alwaysPull true
                                 reuseNode true
                             }
                         }
                         steps {
+                            echo "CHIP = ${CHIP}"
+                            showEnv()
                             setHeartbeat()
                         }
                     }
@@ -996,8 +962,8 @@ pipeline {
                 }
                 agent none
                 environment {
-                    PATH="/opt/rocm/llvm/bin:$PATH"
-                    HOME="${WORKSPACE}"
+                    PATH="/opt/rocm/llvm/bin:${env.PATH}"
+                    HOME="${env.WORKSPACE}"
                 }
                 stages {
                     stage('Prepare node') {
@@ -1249,8 +1215,8 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 environment {
-                    HOME="${WORKSPACE}"
-                    PYTHONPATH="${WORKSPACE}/MIGraphX/build/lib:$PYTHONPATH"
+                    HOME="${env.WORKSPACE}"
+                    PYTHONPATH="${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
                 }
                 stages {
                     stage('Prepare node') {
@@ -1265,7 +1231,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Environment') {
+                    stage("Install MIGraphX Dependencies") {
                         agent { 
                             docker {
                                 image  dockerImage()
@@ -1278,18 +1244,6 @@ pipeline {
                         steps {
                             echo "codepath is ${CODEPATH}"
                             showEnv()
-                        }
-                    }
-                    stage("Install MIGraphX Dependencies") {
-                        agent { 
-                            docker {
-                                image  dockerImage()
-                                args   "${env.DOCKER_ARGS}"
-                                label  getLabelFromCodepath("${CODEPATH}")  // stay on the same node
-                                reuseNode true
-                            }
-                        }
-                        steps {
                             // Package and install current checkout of rocMLIR as MIGraphX dependency.
                             sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                         }
@@ -1377,10 +1331,10 @@ pipeline {
                 }
                 agent none
                 environment {
-                    PATH = "/opt/rocm/llvm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-                    HOME="${WORKSPACE}"
+                    PATH = "/opt/rocm/llvm/bin:${env.PATH}"
+                    HOME="${env.WORKSPACE}"
                     // Note the %m to avoid issues with threads and dynamic libraries.
-                    LLVM_PROFILE_FILE="${WORKSPACE}/build/%m-%p.profraw"
+                    LLVM_PROFILE_FILE="${env.WORKSPACE}/build/%m-%p.profraw"
                     LLVM_PROFDATA="/opt/rocm/llvm/bin/llvm-profdata"
                     LLVM_COV="/opt/rocm/llvm/bin/llvm-cov"
                 }
