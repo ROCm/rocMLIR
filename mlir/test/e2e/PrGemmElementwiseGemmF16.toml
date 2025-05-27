@@ -33,9 +33,10 @@ config = "-m 64 -n 64 -k 64 -gemmO 64"
 [[suite.test]]
 config = "-m 64 -n 64 -k 64 -gemmO 64 -perf_config attn:v1:64,64,256,4,64,64,8,1"
 
+# disable this test untill https://github.com/ROCm/rocMLIR-internal/issues/1844 is fixed
 # Check lds bypass config
-[[suite.test]]
-config = "-m 256 -n 256 -k 128 -gemmO 128 -perf_config attn:v1:128,128,128,32,128,32,4,1"
+# [[suite.test]]
+# config = "-m 256 -n 256 -k 128 -gemmO 128 -perf_config attn:v1:128,128,128,32,128,32,4,1"
 
 # check a case where MPerBlock != gemm1M
 [[suite.test]]
