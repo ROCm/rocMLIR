@@ -1416,33 +1416,34 @@ pipeline {
                                         "LLVM_COV=/opt/rocm/llvm/bin/llvm-cov"
 
                                     ]) {
-                                    // Build with profiling on, and just code-generation tests.
-                                    try {
-                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                            sh 'rm -f build/CMakeCache.txt'
-                                            sh 'rm -f build/*.profraw'
-                                            buildProject('check-rocmlir-build-only',
-                                                        '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
-                                            dir ('build') {
-                                                // Run tests.
-                                                collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                // Upload to codecov.
-                                                withCredentials([string(credentialsId: 'codecov-token-rocmlir',
-                                                                        variable: 'CODECOV_TOKEN')]) {
-                                                    sh '''
-                                                    curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                    proxy_opt=""
-                                                    if [ -n "${http_proxy}" ]; then
-                                                        proxy_opt="-U ${http_proxy}"
-                                                    fi
-                                                    ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                    '''
+                                        // Build with profiling on, and just code-generation tests.
+                                        try {
+                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                sh 'rm -f build/CMakeCache.txt'
+                                                sh 'rm -f build/*.profraw'
+                                                buildProject('check-rocmlir-build-only',
+                                                            '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                                dir ('build') {
+                                                    // Run tests.
+                                                    collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
+                                                    // Upload to codecov.
+                                                    withCredentials([string(credentialsId: 'codecov-token-rocmlir',
+                                                                            variable: 'CODECOV_TOKEN')]) {
+                                                        sh '''
+                                                        curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                        proxy_opt=""
+                                                        if [ -n "${http_proxy}" ]; then
+                                                            proxy_opt="-U ${http_proxy}"
+                                                        fi
+                                                        ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
+                                                        '''
+                                                    }
                                                 }
+                                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                             }
-                                            archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
+                                        } catch (Exception e) {
+                                            echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                         }
-                                    } catch (Exception e) {
-                                        echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                     }
                                 }
                             }
