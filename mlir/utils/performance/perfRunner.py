@@ -1301,8 +1301,8 @@ class AttentionConfiguration(PerfConfiguration):
         g = None
         seq_len_q = None
         seq_len_k = None
-        num_heads_q = None
-        num_heads_kv = None
+        num_heads_q = 1
+        num_heads_kv = 1
         head_dim_qk = None
         head_dim_v = None
         transQ = False
