@@ -18,6 +18,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Optional, Sequence, Union, Iterable, Callable, Tuple, List, TypeVar
 from enum import Enum
+from datetime import datetime
 import sys
 import csv
 import random
@@ -223,6 +224,12 @@ async def sweepParameters(paramIter: Iterable[IterType],
                 failingConfigs.append(result)
 
     return (passed, invalid, failingConfigs)
+
+
+def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
+    seed = datetime.utcnow().isocalendar()[1]
+    random.seed(seed)
+    return [random.randint(1, maxSeqLen) for _ in range(g)]
 
 
 def sampleAttentionShape():
