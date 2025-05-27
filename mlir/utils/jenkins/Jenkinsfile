@@ -63,7 +63,7 @@ void showEnv() {
 }
 
 String dockerArgs() {
-    return "-u root:root --device=/dev/kfd --device=/dev/dri --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --shm-size=64G"
+    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render --shm-size=64G"
 }
 
 String dockerImage() {
