@@ -58,6 +58,25 @@ def advancedNodeCheck(Map params) {
     }
 }
 
+def resetGPUs() {
+    sh '''
+    reset_all_gpus() {
+        echo "Scanning GPUs..."
+        GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
+        if [ -z "$GPU_IDS" ]; then
+            echo "No GPUs found to reset."
+            return 1
+        fi
+        for id in $GPU_IDS; do
+            echo "Resetting GPU ID: $id"
+            rocm-smi --gpureset -d $id
+            sleep 2
+        done
+    }
+    reset_all_gpus
+    '''
+}
+
 def checkNodeHealth(Map opts = [:]) {
     advancedNodeCheck(
         doCleanWs:                 opts.get('doCleanWs', true),
@@ -574,6 +593,7 @@ pipeline {
                         steps {
                             script {
                                 retry(3) {
+                                    resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
                                 }
@@ -588,6 +608,7 @@ pipeline {
                         }                    
                         steps {
                             script {
+                                echo "DOCKER_ARGS inside a script block = ${env.DOCKER_ARGS}"
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
@@ -646,6 +667,7 @@ pipeline {
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
+
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
@@ -751,6 +773,7 @@ pipeline {
                         steps {
                             script {
                                 retry(3) {
+                                    resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
                                 }
@@ -761,6 +784,7 @@ pipeline {
                     stage("Prepare Performance Scripts") {
                         steps {
                             script {
+                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
@@ -831,6 +855,7 @@ pipeline {
                         steps {
                             script {
                                 retry(3) {
+                                    resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
                                 }
@@ -995,6 +1020,7 @@ pipeline {
                         steps {
                             script {
                                 retry(3) {
+                                    resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
                                 }
@@ -1270,6 +1296,7 @@ pipeline {
                         steps {
                             script {
                                 retry(3) {
+                                    resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
                                 }
@@ -1393,6 +1420,7 @@ pipeline {
                         steps {
                             script {
                                 retry(3) {
+                                    resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
                                 }
