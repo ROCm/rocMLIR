@@ -33,6 +33,7 @@
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <tuple>
 
 namespace mlir {
 namespace rock {
@@ -54,8 +55,8 @@ struct RockSortDimensionsMemoryLayoutPass
 } // end anonymous namespace
 
 template <typename Container>
-FailureOr<Container> reorderArrayAttr(Container inputArray,
-                                      ArrayRef<uint32_t> permutation) {
+static FailureOr<Container> reorderArrayAttr(Container inputArray,
+                                             ArrayRef<uint32_t> permutation) {
   if (inputArray.size() != permutation.size())
     return failure();
 
@@ -336,7 +337,7 @@ commonGemmGemm(rock::RockGemmGemmWrapperInterface op, Value q, Value k, Value v,
   SmallVector<StringRef> layoutV{"G", "K", "N"};
   if (op.getTransposedC())
     layoutV = {"G", "N", "K"};
-  if (cast<ShapedType>(k.getType()).getRank() == 2)
+  if (cast<ShapedType>(v.getType()).getRank() == 2)
     layoutV = {layoutV[1], layoutV[2]};
 
   auto maybeSortedQ = sortByMemoryLayout(q, layoutQ, b);
@@ -382,72 +383,86 @@ commonGemmGemm(rock::RockGemmGemmWrapperInterface op, Value q, Value k, Value v,
                          transposedK, transposedV);
 }
 
+template <typename OpT>
+static FailureOr<std::tuple<Value, Value, ArrayAttr, ArrayAttr, bool>>
+commonConv(OpT op, PatternRewriter &b) {
+
+  auto filter = op.getFilter();
+  auto input = op.getInput();
+
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
+
+  SmallVector<Attribute> filterLayout(filterLayoutAttr.begin(),
+                                      filterLayoutAttr.end());
+  SmallVector<Attribute> inputLayout(inputLayoutAttr.begin(),
+                                     inputLayoutAttr.end());
+
+  auto maybeSortedFilter = sortByMemoryLayout(filter, filterLayout, b);
+  auto maybeSortedInput = sortByMemoryLayout(input, inputLayout, b);
+
+  if (failed(maybeSortedFilter) || failed(maybeSortedInput))
+    return op.emitOpError("sortByMemoryLayout failed");
+
+  auto sortedFilter = maybeSortedFilter.value();
+  auto sortedInput = maybeSortedInput.value();
+
+  auto newFilter = std::get<0>(sortedFilter);
+  auto newInput = std::get<0>(sortedInput);
+  LLVM_DEBUG(llvm::dbgs() << "newFilter=" << newFilter
+                          << "\nnewInput=" << newInput << "\n");
+  auto newFilterLayout = std::get<1>(sortedFilter);
+  auto newInputLayout = std::get<1>(sortedInput);
+  auto inputStrides = std::get<2>(sortedInput);
+
+  // This is needed because ConvToGemm merges gemm K using the input layout.
+  // However, if the layout is chw, we can't vectorize the loads, so it's
+  // better to keep the previous behavior. So that, at least weights loads are
+  // vectorized.
+  // TODO: improve this
+  if (inputStrides.size() > 1) {
+    SmallVector<Attribute, 3> spatialDims;
+    for (auto attr : inputLayout) {
+      if (attr != b.getStringAttr("ni") && attr != b.getStringAttr("gi") &&
+          attr != b.getStringAttr("ci"))
+        spatialDims.push_back(attr);
+    }
+    LLVM_DEBUG(llvm::dbgs() << "inputStrides (" << inputStrides.size() << ")=");
+    LLVM_DEBUG(llvm::interleaveComma(inputStrides, llvm::dbgs()));
+    LLVM_DEBUG(llvm::dbgs() << "\n");
+
+    auto ciPos = findIndex(inputLayout, b.getStringAttr("ci")).value();
+    for (auto spatialDim : spatialDims) {
+      auto spatialDimPos = findIndex(inputLayout, spatialDim).value();
+      if (inputStrides[ciPos] > inputStrides[spatialDimPos]) {
+        return failure();
+      }
+    }
+  }
+  bool noChange = newFilter == filter && newInput == input;
+  return std::make_tuple(newFilter, newInput, b.getArrayAttr(newFilterLayout),
+                         b.getArrayAttr(newInputLayout), noChange);
+}
+
 template <typename T>
 struct ConvRewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const final {
-    auto filter = op.getFilter();
-    auto input = op.getInput();
-
-    auto filterLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("input_layout");
-    auto outputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("output_layout");
-
-    SmallVector<Attribute> filterLayout(filterLayoutAttr.begin(),
-                                        filterLayoutAttr.end());
-    SmallVector<Attribute> inputLayout(inputLayoutAttr.begin(),
-                                       inputLayoutAttr.end());
-
-    auto maybeSortedFilter = sortByMemoryLayout(filter, filterLayout, b);
-    auto maybeSortedInput = sortByMemoryLayout(input, inputLayout, b);
-
-    if (failed(maybeSortedFilter) || failed(maybeSortedInput))
-      return op.emitOpError("sortByMemoryLayout failed");
-
-    auto sortedFilter = maybeSortedFilter.value();
-    auto sortedInput = maybeSortedInput.value();
-
-    auto newFilter = std::get<0>(sortedFilter);
-    auto newInput = std::get<0>(sortedInput);
-    LLVM_DEBUG(llvm::dbgs() << "newFilter=" << newFilter
-                            << "\nnewInput=" << newInput << "\n");
-    auto newFilterLayout = std::get<1>(sortedFilter);
-    auto newInputLayout = std::get<1>(sortedInput);
-    auto inputStrides = std::get<2>(sortedInput);
-
-    // no need to create transforms if it's the same tensor
-    if (newFilter == filter && newInput == input)
+    auto maybeConvInfo = commonConv(op, b);
+    if (failed(maybeConvInfo))
       return failure();
 
-    // This is needed because ConvToGemm merges gemm K using the input layout.
-    // However, if the layout is chw, we can't vectorize the loads, so it's
-    // better to keep the previous behavior. So that, at least weights loads are
-    // vectorized.
-    // TODO: improve this
-    if (inputStrides.size() > 1) {
-      SmallVector<Attribute, 3> spatialDims;
-      for (auto attr : inputLayout) {
-        if (attr != b.getStringAttr("ni") && attr != b.getStringAttr("gi") &&
-            attr != b.getStringAttr("ci"))
-          spatialDims.push_back(attr);
-      }
-      LLVM_DEBUG(llvm::dbgs()
-                 << "inputStrides (" << inputStrides.size() << ")=");
-      LLVM_DEBUG(llvm::interleaveComma(inputStrides, llvm::dbgs()));
-      LLVM_DEBUG(llvm::dbgs() << "\n");
+    Value newFilter, newInput;
+    ArrayAttr newFilterLayout, newInputLayout;
+    bool noChange;
+    std::tie(newFilter, newInput, newFilterLayout, newInputLayout, noChange) =
+        maybeConvInfo.value();
 
-      auto ciPos = findIndex(inputLayout, b.getStringAttr("ci")).value();
-      for (auto spatialDim : spatialDims) {
-        auto spatialDimPos = findIndex(inputLayout, spatialDim).value();
-        if (inputStrides[ciPos] > inputStrides[spatialDimPos]) {
-          return failure();
-        }
-      }
-    }
+    // no need to create transforms if it's the same tensor
+    if (noChange)
+      return failure();
 
     auto newOp = b.replaceOpWithNewOp<rock::ConvOp>(
         op, op->getResultTypes(), newFilter, newInput, op.getOutput(),
@@ -459,9 +474,12 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
       newOp->setAttr("perf_config", attr);
 
-    newOp->setAttr("filter_layout", b.getArrayAttr(newFilterLayout));
-    newOp->setAttr("input_layout", b.getArrayAttr(newInputLayout));
-    newOp->setAttr("output_layout", outputLayoutAttr);
+    newOp->setAttr("filter_layout", newFilterLayout);
+    newOp->setAttr("input_layout", newInputLayout);
+    auto outputLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("output_layout");
+    if (outputLayoutAttr)
+      newOp->setAttr("output_layout", outputLayoutAttr);
 
     return success();
   }
@@ -576,6 +594,76 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
   }
 };
 
+struct ConvElementwiseGemmRewritePattern
+    : public OpRewritePattern<rock::ConvElementwiseGemmOp> {
+  using OpRewritePattern<rock::ConvElementwiseGemmOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::ConvElementwiseGemmOp op,
+                                PatternRewriter &rw) const final {
+    auto maybeConvInfo = commonConv(op, rw);
+    if (failed(maybeConvInfo))
+      return failure();
+
+    // handle filter and input, conv params
+    Value newFilter, newInput;
+    ArrayAttr newFilterLayout, newInputLayout;
+    bool convNoChange;
+    std::tie(newFilter, newInput, newFilterLayout, newInputLayout,
+             convNoChange) = maybeConvInfo.value();
+    auto c = op.getC();
+
+    // handle "c"
+    SmallVector<StringRef> layoutC{"G", "K", "N"};
+    if (op.getTransposedC())
+      layoutC = {"G", "N", "K"};
+    if (cast<ShapedType>(c.getType()).getRank() == 2)
+      layoutC = {layoutC[1], layoutC[2]};
+
+    auto maybeSortedC = sortByMemoryLayout(c, layoutC, rw);
+    if (failed(maybeSortedC))
+      return op.emitOpError("sortByMemoryLayout failed");
+
+    auto sortedC = maybeSortedC.value();
+    LLVM_DEBUG(llvm::dbgs() << "sortedC=" << std::get<0>(sortedC) << "\n");
+
+    auto batchReorderC =
+        reorderBatch(std::get<0>(sortedC), std::get<1>(sortedC), "N", rw);
+
+    Value newTensorC = std::get<0>(batchReorderC);
+    UnitAttr transposedC = std::get<1>(batchReorderC);
+    auto finalLayoutC = std::get<2>(batchReorderC);
+
+    // no need to create transforms if it's the same tensors
+    if (convNoChange && finalLayoutC == layoutC)
+      return failure();
+
+    auto newOp = rw.create<rock::ConvElementwiseGemmOp>(
+        op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
+        op.getElemwiseInputs(), op.getOut(), transposedC,
+        op.getOTransposedAttr(), op.getArchAttr(), op.getFeaturesAttr(),
+        op.getNumCUAttr(), op.getPaddingAttr(), op.getStridesAttr(),
+        op.getDilationsAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIdxAttr());
+
+    // set attributes
+    newOp->setAttr("filter_layout", newFilterLayout);
+    newOp->setAttr("input_layout", newInputLayout);
+
+    // copy linalg::GenericOp if there's any
+    bool linalgOpFound = false;
+    op.getPreSecondGemmBody().walk(
+        [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
+    if (linalgOpFound) {
+      rw.inlineRegionBefore(op.getPreSecondGemmBody(),
+                            newOp.getPreSecondGemmBody(),
+                            newOp.getPreSecondGemmBody().begin());
+    }
+    rw.replaceOp(op, newOp);
+
+    return success();
+  }
+};
+
 struct GemmElementwiseGemmRewritePattern
     : public OpRewritePattern<rock::GemmElementwiseGemmOp> {
   using OpRewritePattern<rock::GemmElementwiseGemmOp>::OpRewritePattern;
@@ -661,5 +749,12 @@ void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
   if (failed(applyOpPatternsGreedily(
           getOperations<rock::GemmElementwiseGemmOp>(func),
           std::move(patternsGemmElementwiseGemm), config)))
+    return signalPassFailure();
+
+  RewritePatternSet patternsConvElementwiseGemm(&ctx);
+  patternsConvElementwiseGemm.add<ConvElementwiseGemmRewritePattern>(&ctx);
+  if (failed(applyOpPatternsGreedily(
+          getOperations<rock::ConvElementwiseGemmOp>(func),
+          std::move(patternsConvElementwiseGemm), config)))
     return signalPassFailure();
 }
