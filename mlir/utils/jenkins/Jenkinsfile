@@ -83,9 +83,10 @@ def resetGPUs() {
         returnStatus: true
     )
     if (rc != 0) {
-        echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
+        echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anywat=y"
     }
 }
+
 
 def checkNodeHealth(Map opts = [:]) {
     advancedNodeCheck(
@@ -95,6 +96,7 @@ def checkNodeHealth(Map opts = [:]) {
 }
 
 String dockerArgs() {
+    // Helper to run a shell command and get its stdout
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
 
     // Enumerate /dev/dri/renderD* devices if they exist
@@ -107,11 +109,14 @@ String dockerArgs() {
     boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
     String   kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
 
+    // Get the GID of the render group
+    String renderGid = run("getent group render | cut -d':' -f3")
+
     return """
         --privileged --ipc=host \
         ${kfdFlg} \
         ${renderFlags} \
-        --group-add video --group-add render \
+        --group-add video --group-add ${renderGid} \
         -v /etc/passwd:/etc/passwd:ro \
         -v /etc/group:/etc/group:ro
     """.trim().replaceAll(/\s+/, ' ')
