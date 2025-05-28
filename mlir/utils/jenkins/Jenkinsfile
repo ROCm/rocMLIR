@@ -83,7 +83,7 @@ def resetGPUs() {
         returnStatus: true
     )
     if (rc != 0) {
-        echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anywat=y"
+        echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
     }
 }
 
