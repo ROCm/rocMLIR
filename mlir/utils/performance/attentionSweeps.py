@@ -69,6 +69,8 @@ def generateMlirDriverArgs(self, rocmlir_gen_flags: Optional[List[str]] = None) 
         '-g', str(self.g),
         '-seq_len_q', str(self.seq_len_q),
         '-seq_len_k', str(self.seq_len_k),
+        '-num_heads_q', str(self.num_heads_q),
+        '-num_heads_kv', str(self.num_heads_kv),
         '-head_dim_qk', str(self.head_dim_qk),
         '-head_dim_v', str(self.head_dim_v),
         f"-with-attn-scale={self.with_attn_scale}",
@@ -80,7 +82,7 @@ def generateMlirDriverArgs(self, rocmlir_gen_flags: Optional[List[str]] = None) 
         '--kernel-repeats', str(MLIR_N_REPEATS),
         f"--perf_config={self.perfConfig}"
     ]
-
+    
     result += rocmlir_gen_flags or []
     return result
 
@@ -121,7 +123,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     if proc1.returncode !=0:
         if options.debug:
             print("rocmlir-gen failed:\nError = ", rocmlirGeneratorError.decode().strip())
-        return TestResult.INVALID
+        return TestResult.FAIL
 
     proc2 = await asyncio.create_subprocess_exec(
         paths.mlir_paths.rocmlir_driver_path,
@@ -248,11 +250,33 @@ def sampleAttentionShape():
     useKVCache = random.choice(BOOLS)
     CURRENT_SEQ_LEN = genCurrentSeqLens(g, seqLenK) if useKVCache else None
 
+    numHeadsQ = 1
+    numHeadsKV = 1
+    '''By default numHeadsQ and numHeadsKV are both 1. If numHeadsQ
+    and numHeadsKV are equal GQA is disabled. Both values are powers
+    of 2 typically. And numHeadsQ is divisible by numHeadsKV
+    Here we decide randomly if we will use numHeadsQ and numHeadsKV
+    different from the default values.
+    
+    Requirements:
+        - numHeadsQ >= numHeadsKV
+        - numHeadsQ % numHeadsKV == 0'''
+    genNumHeads = random.choice(BOOLS)
+    if genNumHeads:
+        while True:
+            numHeadsQ = 2**random.randint(1, 6)
+            numHeadsKV = 2**random.randint(1, 6)
+
+            if numHeadsQ >= numHeadsKV and numHeadsQ%numHeadsKV == 0: # found valid case
+                break
+
     return (
         random.choice(DATA_TYPES_ATTENTION),
         g, # GROUPS
         seqLenQ, # SEQ_LEN_Q
         seqLenK, # SEQ_LEN_K
+        numHeadsQ, # NUM_HEADS_Q
+        numHeadsKV, # NUM_HEADS_KV
         random.randint(1, 1024), # HEAD_DIM_QK
         random.randint(1, 1024), # HEAD_DIM_V
         random.choice(BOOLS),   # with_attn_scale
