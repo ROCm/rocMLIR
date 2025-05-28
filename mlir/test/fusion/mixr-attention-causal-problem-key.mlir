@@ -1,8 +1,10 @@
-// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand_min_int 0 -rand_max_int 64 -rand_type_int_for_inputs=3 -rand 1 -rand_type float -fut mlir_attention_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
-// ALLOW_RETRIES: 2
-// CHECK: [1 1 1]
+
+// RUN: rocmlir-driver -kernel-pipeline=migraphx,highlevel %s | rocmlir-gen --emit-tuning-key - | FileCheck %s
+// CHECK: gfx942
+// CHECK-SAME: 304
+// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal true -g 32 -seq_len_q 2 -seq_len_k 64 -head_dim_qk 128 -head_dim_v 128
 module {
-  func.func @mlir_attention(%arg0: !migraphx.shaped<1x96x2x128xf16, 24576x128x12288x1>, %arg1: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %arg2: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %arg3: !migraphx.shaped<1x32xsi32, 0x0>) -> !migraphx.shaped<1x2x4096xf16, 8192x4096x1> {
+  func.func @mlir_attention(%arg0: !migraphx.shaped<1x96x2x128xf16, 24576x128x12288x1>, %arg1: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %arg2: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>) -> !migraphx.shaped<1x2x4096xf16, 8192x4096x1> attributes {kernel, arch = "gfx942", num_cu = 304 : i64} {
     %0 = migraphx.literal(dense<[0, 1]> : tensor<2xsi32>) : <2xsi32, 1>
     %1 = migraphx.literal(dense<8.837890e-02> : tensor<1xf16>) : <1xf16, 1>
     %2 = migraphx.literal(dense<0xFC00> : tensor<1xf16>) : <1xf16, 1>
@@ -19,12 +21,7 @@ module {
     %12 = migraphx.greater %7, %11 : <1x32x2x64xsi32, 0x0x0x1>, <1x32x2x64xsi32, 0x0x1x0> -> <1x32x2x64xsi32, 4096x128x64x1>
     %13 = migraphx.convert %12 {target_type = 0 : i64} : <1x32x2x64xsi32, 4096x128x64x1> to <1x32x2x64xsi8, 4096x128x64x1>
     %14 = migraphx.where %13, %8, %fused : <1x32x2x64xsi8, 4096x128x64x1>, <1x32x2x64xf16, 0x0x0x0>, <1x32x2x64xf16, 4096x128x64x1> -> <1x32x2x64xf16, 4096x128x64x1>
-    %15 = migraphx.reshape %arg3 {dims = [1, 32, 1, 1]} : <1x32xsi32, 0x0> -> <1x32x1x1xsi32, 32x1x1x1>
-    %16 = migraphx.multibroadcast %15 {out_dyn_dims = [], out_lens = [1, 32, 2, 64]} : <1x32x1x1xsi32, 32x1x1x1> -> <1x32x2x64xsi32, 32x1x0x0>
-    %17 = migraphx.greater %7, %16 : <1x32x2x64xsi32, 0x0x0x1>, <1x32x2x64xsi32, 32x1x0x0> -> <1x32x2x64xsi32, 4096x128x64x1>
-    %18 = migraphx.convert %17 {target_type = 0 : i64} : <1x32x2x64xsi32, 4096x128x64x1> to <1x32x2x64xsi8, 4096x128x64x1>
-    %20 = migraphx.where %18, %8, %14 : <1x32x2x64xsi8, 4096x128x64x1>, <1x32x2x64xf16, 0x0x0x0>, <1x32x2x64xf16, 4096x128x64x1> -> <1x32x2x64xf16, 4096x128x64x1>
-    %21 = migraphx.softmax %20 {axis = 3 : i64} : <1x32x2x64xf16, 4096x128x64x1> -> <1x32x2x64xf16, 4096x128x64x1>
+    %21 = migraphx.softmax %14 {axis = 3 : i64} : <1x32x2x64xf16, 4096x128x64x1> -> <1x32x2x64xf16, 4096x128x64x1>
     %22 = migraphx.dot %21, %arg2 : <1x32x2x64xf16, 4096x128x64x1>, <1x32x64x128xf16, 262144x8192x128x1> -> <1x32x2x128xf16, 8192x256x128x1>
     %23 = migraphx.transpose %22 {permutation = [0, 2, 1, 3]} : <1x32x2x128xf16, 8192x256x128x1> -> <1x2x32x128xf16, 8192x128x256x1>
     %24 = migraphx.reshape %23 {dims = [1, 2, 4096]} : <1x2x32x128xf16, 8192x128x256x1> -> <1x2x4096xf16, 8192x4096x1>
