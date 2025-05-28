@@ -39,6 +39,9 @@ void populateTosaToRockAttentionConversionPatterns(MLIRContext *context,
 
 void populateTosaToRockGemmGemmConversionPatterns(MLIRContext *context,
                                                   RewritePatternSet &patterns);
+
+void populateTosaToRockConvGemmConversionPatterns(MLIRContext *context,
+                                                  RewritePatternSet &patterns);
 } // namespace tosa
 
 } // namespace mlir
