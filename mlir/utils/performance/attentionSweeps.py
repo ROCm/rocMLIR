@@ -38,14 +38,17 @@ DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
+CURRENT_SEQ_LEN = None
 
+# Week number is used as seed
+seed = datetime.utcnow().isocalendar()[1]
+random.seed(seed)
 
 class TestResult(Enum):
     PASS = 1
     INVALID = 2
     FAIL = 3
     
-
 @dataclass(frozen=True)
 class Options:
     """Class for keeping option state for the sweep."""
@@ -99,7 +102,11 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
+    global CURRENT_SEQ_LEN
+
     mlirGenOpts = config.generateMlirDriverArgs(options.flags)
+    if CURRENT_SEQ_LEN is not None:
+        mlirGenOpts.append(f"--current_seq_len={','.join(map(str, CURRENT_SEQ_LEN))}")
     mlirGenOpts.append('-pv')
 
     proc1 = await asyncio.create_subprocess_exec(
@@ -195,6 +202,7 @@ async def dropGoodConfig(config: AttentionConfiguration,
     result = await testAttentionConfig(config, options, paths)
     if not options.quiet:
         print(f"{result.name}: {config!r}")
+
     return config if result == TestResult.FAIL else result
 
 
@@ -227,17 +235,24 @@ async def sweepParameters(paramIter: Iterable[IterType],
 
 
 def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
-    seed = datetime.utcnow().isocalendar()[1]
-    random.seed(seed)
     return [random.randint(1, maxSeqLen) for _ in range(g)]
 
 
 def sampleAttentionShape():
+    global CURRENT_SEQ_LEN
+
+    g = random.randint(1, 16384)
+    seqLenQ = random.randint(1, 16384) # SEQ_LEN_Q
+    seqLenK = random.randint(1, 16384) # SEQ_LEN_K 
+
+    useKVCache = random.choice(BOOLS)
+    CURRENT_SEQ_LEN = genCurrentSeqLens(g, seqLenK) if useKVCache else None
+
     return (
         random.choice(DATA_TYPES_ATTENTION),
-        random.randint(1, 16384), # GROUPS
-        random.randint(1, 16384), # SEQ_LEN_Q
-        random.randint(1, 16384), # SEQ_LEN_K
+        g, # GROUPS
+        seqLenQ, # SEQ_LEN_Q
+        seqLenK, # SEQ_LEN_K
         random.randint(1, 1024), # HEAD_DIM_QK
         random.randint(1, 1024), # HEAD_DIM_V
         random.choice(BOOLS),   # with_attn_scale
@@ -245,7 +260,7 @@ def sampleAttentionShape():
         random.choice(BOOLS),   # transQ
         random.choice(BOOLS),   # transK
         random.choice(BOOLS),   # transV
-        random.choice(BOOLS)    # transO
+        random.choice(BOOLS),   # transO
     )
 
 
@@ -302,6 +317,8 @@ def main():
     ]
 
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
+    if CURRENT_SEQ_LEN is not None:
+        print(f"\nCurrent_seq_len in this run: --current_seq_len={','.join(map(str, CURRENT_SEQ_LEN))}")
     print(f"Passed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     if failing:
         print("\n*** Failing Configurations ***")
