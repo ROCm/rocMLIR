@@ -13,9 +13,6 @@ void buildProject(String target, String cmakeOpts) {
     }
 }
 
-// Needed for the retries
-def DEFAULT_RETRY_COUNT = 3
-
 def advancedNodeCheck(Map params) {
     script {
         echo "Jenkins-side PATH = '${env.PATH}'"
@@ -611,7 +608,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(DEFAULT_RETRY_COUNT) {
+                                retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -791,7 +788,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(DEFAULT_RETRY_COUNT) {
+                                retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -873,7 +870,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(DEFAULT_RETRY_COUNT) {
+                                retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -1038,7 +1035,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(DEFAULT_RETRY_COUNT) {
+                                retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -1314,7 +1311,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(DEFAULT_RETRY_COUNT) {
+                                retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -1438,7 +1435,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(DEFAULT_RETRY_COUNT) {
+                                retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
