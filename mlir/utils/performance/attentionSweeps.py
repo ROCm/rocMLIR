@@ -201,7 +201,7 @@ async def dropGoodConfig(config: AttentionConfiguration,
     and `None` on success or inapplicability"""
     result = await testAttentionConfig(config, options, paths)
     if not options.quiet:
-        print(f"{result.name}: {config!r}")
+        print(f"{result.name}: {config!r}") if CURRENT_SEQ_LEN is None else print(f"{result.name}: {config!r} - with KV-Cache")
 
     return config if result == TestResult.FAIL else result
 
