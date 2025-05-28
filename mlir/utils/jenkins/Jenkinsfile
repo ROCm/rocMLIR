@@ -13,6 +13,9 @@ void buildProject(String target, String cmakeOpts) {
     }
 }
 
+// Needed for the retries
+def DEFAULT_RETRY_COUNT = 3
+
 def advancedNodeCheck(Map params) {
     script {
         echo "Jenkins-side PATH = '${env.PATH}'"
@@ -444,9 +447,9 @@ void archivePerfDB() {
         def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942'] : ['vanilla']
         for (arch in architectures) {
             try {
-                unstash name: "MLIR-PerfDB-${CHIP}"
+                unstash name: "MLIR-PerfDB-${arch}"
             } catch (Exception e) {
-                echo "No stash found for MLIR-PerfDB-${CHIP}, skipping."
+                echo "No stash found for MLIR-PerfDB-${arch}, skipping."
             }
         }
         sh 'date --utc +%Y-%m-%d >tuning-date'
@@ -608,7 +611,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(3) {
+                                retry(DEFAULT_RETRY_COUNT) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -788,7 +791,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(3) {
+                                retry(DEFAULT_RETRY_COUNT) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -870,7 +873,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(3) {
+                                retry(DEFAULT_RETRY_COUNT) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -1035,7 +1038,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(3) {
+                                retry(DEFAULT_RETRY_COUNT) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -1311,7 +1314,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(3) {
+                                retry(DEFAULT_RETRY_COUNT) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
@@ -1435,7 +1438,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(3) {
+                                retry(DEFAULT_RETRY_COUNT) {
                                     resetGPUs()
                                     checkNodeHealth()
                                     env.DOCKER_ARGS = dockerArgs()
