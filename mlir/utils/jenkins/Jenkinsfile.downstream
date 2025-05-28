@@ -21,6 +21,7 @@ void showEnv() {
 }
 
 String dockerArgs() {
+    // Helper to run a shell command and get its stdout
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
 
     // Enumerate /dev/dri/renderD* devices if they exist
@@ -33,11 +34,15 @@ String dockerArgs() {
     boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
     String   kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
 
+    // Get the GIDs of the render and video groups
+    String renderGid = run("getent group render | cut -d':' -f3")
+    String videoGid = run("getent group video | cut -d':' -f3")
+
     return """
         --privileged --ipc=host \
         ${kfdFlg} \
         ${renderFlags} \
-        --group-add video --group-add render \
+        --group-add ${videoGid} --group-add ${renderGid} \
         -v /etc/passwd:/etc/passwd:ro \
         -v /etc/group:/etc/group:ro
     """.trim().replaceAll(/\s+/, ' ')
