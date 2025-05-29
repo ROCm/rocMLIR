@@ -104,15 +104,15 @@ class MLIROnlyConfig(ConvConfiguration):
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
             raise ValueError(f"Invalid direction: {direction}")
-        if layout not in self.MLIR_OUTPUT_LAYOUTS:
+        if layout not in perfRunner.MLIR_OUTPUT_LAYOUTS:
             raise ValueError(f"Invalid layout: {layout}")
 
         self.dataType = dtype
         self.direction = direction
 
-        self.filterLayout = self.MLIR_FILTER_LAYOUTS[layout]
+        self.filterLayout = perfRunner.MLIR_FILTER_LAYOUTS[layout]
         self.inputLayout = layout.lower()
-        self.outputLayout = self.MLIR_OUTPUT_LAYOUTS[layout]
+        self.outputLayout = perfRunner.MLIR_OUTPUT_LAYOUTS[layout]
 
         self.n = n
         self.c = c
