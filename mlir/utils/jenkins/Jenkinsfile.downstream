@@ -15,7 +15,9 @@ pipeline {
     stages {
         stage('Kill old PR builds') {
             steps {
-                resetBuild()
+                script {
+                    rocmlir.resetBuild()
+                }
             }
         }
         stage('Build and Test') {
@@ -30,7 +32,7 @@ pipeline {
                         stage("Setup environment") {
                             steps {
                                 script {
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                     echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                                 }
                             }
@@ -39,14 +41,14 @@ pipeline {
                             steps {
                                 script {
                                     // Run a docker container
-                                    def img = docker.image(dockerImage())
+                                    def img = docker.image(rocmlir.dockerImage())
                                     def pulled = img?.pull()
                                     img.inside(env.DOCKER_ARGS) {
                                         // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                         withEnv([
                                             "PATH=/opt/rocm/llvm/bin:${env.PATH}"
                                         ]) {
-                                            buildProject('check-mlir check-rocmlir', """
+                                            rocmlir.buildProject('check-mlir check-rocmlir', """
                                             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
                                             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                                             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
@@ -62,14 +64,14 @@ pipeline {
                             steps {
                                 script {
                                     // Run a docker container
-                                    def img = docker.image(dockerImage())
+                                    def img = docker.image(rocmlir.dockerImage())
                                     def pulled = img?.pull()
                                     img.inside(env.DOCKER_ARGS) {
                                         // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                         withEnv([
                                             "PATH=/opt/rocm/llvm/bin:${env.PATH}"
                                         ]) {
-                                            buildProject('ci-performance-scripts', '')
+                                            rocmlir.buildProject('ci-performance-scripts', '')
                                             dir('build') {
                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                     // Tune gemms, fail if the DB is not created
@@ -91,10 +93,14 @@ pipeline {
                     }
                     post {
                         unsuccessful {
-                            rebootNode()
+                            script {
+                                rocmlir.rebootNode()
+                            }
                         }
                         always {
-                            cleanWs()
+                            script {
+                                rocmlir.cleanWs()
+                            }
                         }
                     }
                 }
@@ -108,7 +114,7 @@ pipeline {
                         stage("Setup environment") {
                             steps {
                                 script {
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                     echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                                 }
                             }
@@ -117,7 +123,7 @@ pipeline {
                             steps {
                                 script {
                                     // Run a docker container
-                                    def img = docker.image(dockerImage())
+                                    def img = docker.image(rocmlir.dockerImage())
                                     def pulled = img?.pull()
                                     img.inside(env.DOCKER_ARGS) {
                                         // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -125,7 +131,7 @@ pipeline {
                                             "PATH=/opt/rocm/llvm/bin:${env.PATH}"
                                         ]) {
                                             checkout scm
-                                            buildProject('package', "-DBUILD_FAT_LIBROCKCOMPILER=ON")
+                                            rocmlir.buildProject('package', "-DBUILD_FAT_LIBROCKCOMPILER=ON")
                                             echo "Running tests on the newly-built static library"
                                             dir ('build') {
                                                 sh 'ninja check-rocmlir'
@@ -138,10 +144,14 @@ pipeline {
                     }
                     post {
                         unsuccessful {
-                            rebootNode()
+                            script {
+                                rocmlir.rebootNode()
+                            }
                         }
                         always {
-                            cleanWs()
+                            script {
+                                rocmlir.cleanWs()
+                            }
                         }
                     }
                 }
