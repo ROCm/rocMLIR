@@ -42,7 +42,7 @@ def advancedNodeCheck(Map params) {
     if (env.NODE_LABELS && !env.NODE_LABELS.contains('build-only')) {
         timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'rocminfo' }
         timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'rocm-smi' }
-        timeout(time, 5, unit: 'MINUTES', activity: true) { sh 'cat /opt/rocm/.info/version' }
+        timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'cat /opt/rocm/.info/version' }
         if (doGPUcheck) {
             timeout(time: 5, unit: 'MINUTES', activity: true) {
                 def n = sh(script: "lspci | grep -e 'controller' -e 'accelerators' | grep 'AMD/ATI' | wc -l",
