@@ -1,7 +1,7 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // This Jenkinsfile is used for the private CI
 
-@Library("rocAutomation@jenkins-pipelines") _
+@Library("rocAutomation@rocmlir-shared-lib") _
 
 pipeline {
     agent none
@@ -69,9 +69,7 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                script {
-                    rocmlir.setHeartbeat()
-                }
+                rocmlir.setHeartbeat()
             }
         }
         stage("Kill old PR builds") {
@@ -80,9 +78,7 @@ pipeline {
                 equals expected: false, actual: params.nightly;
             }
             steps {
-                script {
-                    rocmlir.resetBuild()
-                }
+                resetBuild()
             }
         }
         stage("Build and Test") {
@@ -257,9 +253,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        script {
-                            rocmlir.rebootNode()
-                        }
+                        rebootNode()
                     }
                 }
             }
@@ -341,9 +335,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        script {
-                            rocmlir.rebootNode()
-                        }
+                        rebootNode()
                     }
                 }
             }
@@ -517,9 +509,7 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                script {
-                    rocmlir.archivePerfDB()
-                }
+                archivePerfDB()
             }
         }
         // FIXME: run perf tests on both gfx90a and gfx908
@@ -787,9 +777,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        script {
-                            rocmlir.rebootNode()
-                        }
+                        rebootNode()
                     }
                 }
             }
@@ -918,9 +906,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        script {
-                            rocmlir.rebootNode()
-                        }
+                        rebootNode()
                     }
                 }
             }
