@@ -167,8 +167,6 @@ struct BlockwiseGemmAccelRewritePattern
     StringAttr arch = op.getArchAttr();
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
-    int64_t mPerWave = tuningParams.getMPerWave();
-    int64_t nPerWave = tuningParams.getNPerWave();
 
     Type bufferElemTypeA =
         cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
@@ -202,8 +200,6 @@ struct BlockwiseGemmAccelRewritePattern
                << "argVectorType A: " << argTypeA << "\n"
                << "argVectorType B: " << argTypeB << "\n"
                << "kBase: " << kBase << "\n"
-               << "mPerWave: " << mPerWave << "\n"
-               << "nPerWave: " << nPerWave << "\n"
                << "mRepeat: " << mRepeats << "\n"
                << "nRepeat: " << nRepeats << "\n"
                << "kBasePerThread: " << kBasePerThread << "\n"

@@ -7,17 +7,17 @@ func.func @test_gemm_reduce_last_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1:
   // CHECK: rock.blockwise_broadcast_reduce  sum {{.*}} into %[[BLOCK_RED_OUT:[0-9]+]]
 
   // CHECK: %[[TR0:.+]] = rock.transform %arg2 by {{.*}}    : memref<1x128x1xf32> to memref<1x128x256xf32>
-  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x2x64x2x128xf32>
-  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x2x64x2x128xf32> to memref<1x2x2x1x64x128xf32>
-  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x2x2x1x64x128xf32> to memref<1x2x2x64x1xf32>
-  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}}<Pad{0, 127} ["dim1"] at [4] -> ["dim1"] at [4]>{{.*}} : memref<1x2x2x64x1xf32> to memref<1x2x2x64x128xf32>
+  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x16x8x32x8xf32>
+  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x16x8x32x8xf32> to memref<1x16x32x1x8x8xf32>
+  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x16x32x1x8x8xf32> to memref<1x16x32x8x1xf32>
+  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}}<Pad{0, 7} ["dim1"] at [4] -> ["dim1"] at [4]>{{.*}} : memref<1x16x32x8x1xf32> to memref<1x16x32x8x8xf32>
 
-  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x8x16xf32>
-  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x2x2x64x8x16xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x8192xf32>
-  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x2x2x8192xf32> to memref<1x2x2x256x32xf32>
-  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x2x2x256x32xf32> to memref<1x2x2x256x32xf32>
+  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x4x2xf32>
+  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x16x32x8x4x2xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x64xf32>
+  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x16x32x64xf32> to memref<1x16x32x64x1xf32>
+  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x16x32x64x1xf32> to memref<1x16x32x64x1xf32>
 
   // CHECK: rock.threadwise_write_all {{.*}}%[[BLOCK_RED_OUT]] -> [](%[[TR10]]){{.*}} by  atomic_add : {{.*}}
   rock.reduce sum %0 into %arg2 features = mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
@@ -32,17 +32,17 @@ func.func @test_gemm_reduce_middle_axis_fusion(%arg0: memref<1x128x64xf32>, %arg
   // CHECK: rock.blockwise_broadcast_reduce  sum {{.*}} into %[[BLOCK_RED_OUT:[0-9]+]]
 
   // CHECK: %[[TR0:.+]] = rock.transform %arg2 by {{.*}}    : memref<1x1x256xf32> to memref<1x128x256xf32>
-  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x2x64x2x128xf32>
-  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x2x64x2x128xf32> to memref<1x2x2x1x64x128xf32>
-  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x2x2x1x64x128xf32> to memref<1x2x2x1x128xf32>
-  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}}<Pad{0, 63} ["dim0"] at [3] -> ["dim0"] at [3]>{{.*}} : memref<1x2x2x1x128xf32> to memref<1x2x2x64x128xf32>
+  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x16x8x32x8xf32>
+  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x16x8x32x8xf32> to memref<1x16x32x1x8x8xf32>
+  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x16x32x1x8x8xf32> to memref<1x16x32x1x8xf32>
+  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}} : memref<1x16x32x1x8xf32> to memref<1x16x32x8x8xf32>
 
-  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x8x16xf32>
-  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x2x2x64x8x16xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x8192xf32>
-  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x2x2x8192xf32> to memref<1x2x2x256x32xf32>
-  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x2x2x256x32xf32> to memref<1x2x2x256x32xf32>
+  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x4x2xf32>
+  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x16x32x8x4x2xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x64xf32>
+  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x16x32x64xf32> to memref<1x16x32x64x1xf32>
+  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x16x32x64x1xf32> to memref<1x16x32x64x1xf32>
 
   // CHECK: rock.threadwise_write_all {{.*}}%[[BLOCK_RED_OUT]] -> [](%[[TR10]]){{.*}} by  atomic_add : {{.*}}
   rock.reduce sum %0 into %arg2 features = mfma|dot|atomic_add|atomic_add_f16 {axis = 1 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x1x256xf32>
@@ -63,17 +63,17 @@ func.func @test_gemm_add_reduce_fusion(%arg0: memref<1x128x64xf32>, %arg1: memre
   // CHECK: rock.blockwise_broadcast_reduce  sum {{.*}} into %[[BLOCK_RED_OUT:[0-9]+]]
 
   // CHECK: %[[TR0:.+]] = rock.transform %arg3 by {{.*}}    : memref<1x128x1xf32> to memref<1x128x256xf32>
-  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x2x64x2x128xf32>
-  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x2x64x2x128xf32> to memref<1x2x2x1x64x128xf32>
-  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x2x2x1x64x128xf32> to memref<1x2x2x64x1xf32>
-  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}}<Pad{0, 127} ["dim1"] at [4] -> ["dim1"] at [4]>{{.*}} : memref<1x2x2x64x1xf32> to memref<1x2x2x64x128xf32>
+  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x16x8x32x8xf32>
+  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x16x8x32x8xf32> to memref<1x16x32x1x8x8xf32>
+  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x16x32x1x8x8xf32> to memref<1x16x32x8x1xf32>
+  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}}<Pad{0, 7} ["dim1"] at [4] -> ["dim1"] at [4]>{{.*}} : memref<1x16x32x8x1xf32> to memref<1x16x32x8x8xf32>
 
-  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x8x16xf32>
-  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x2x2x64x8x16xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x8192xf32>
-  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x2x2x8192xf32> to memref<1x2x2x256x32xf32>
-  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x2x2x256x32xf32> to memref<1x2x2x256x32xf32>
+  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x4x2xf32>
+  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x16x32x8x4x2xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x64xf32>
+  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x16x32x64xf32> to memref<1x16x32x64x1xf32>
+  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x16x32x64x1xf32> to memref<1x16x32x64x1xf32>
 
   // CHECK: rock.threadwise_write_all {{.*}}%[[BLOCK_RED_OUT]] -> [](%[[TR10]]){{.*}} by  atomic_add : {{.*}}
   rock.reduce sum %1 into %arg3 features = mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>
@@ -87,17 +87,17 @@ func.func @test_gemm_reduce_max(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x
   // CHECK: rock.blockwise_broadcast_reduce  max {{.*}} into %[[BLOCK_RED_OUT:[0-9]+]]
 
   // CHECK: %[[TR0:.+]] = rock.transform %arg2 by {{.*}}    : memref<1x128x1xf32> to memref<1x128x256xf32>
-  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x2x64x2x128xf32>
-  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x2x64x2x128xf32> to memref<1x2x2x1x64x128xf32>
-  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x2x2x1x64x128xf32> to memref<1x2x2x64x1xf32>
-  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}}<Pad{0, 127} ["dim1"] at [4] -> ["dim1"] at [4]>{{.*}} : memref<1x2x2x64x1xf32> to memref<1x2x2x64x128xf32>
+  // CHECK: %[[TR1:.+]] = rock.transform %[[TR0]] by {{.*}} : memref<1x128x256xf32> to memref<1x16x8x32x8xf32>
+  // CHECK: %[[TR2:.+]] = rock.transform %[[TR1]] by {{.*}} : memref<1x16x8x32x8xf32> to memref<1x16x32x1x8x8xf32>
+  // CHECK: %[[TR3:.+]] = rock.transform %[[TR2]] by {{.*}} : memref<1x16x32x1x8x8xf32> to memref<1x16x32x8x1xf32>
+  // CHECK: %[[TR4:.+]] = rock.transform %[[TR3]] by {{.*}}<Pad{0, 7} ["dim1"] at [4] -> ["dim1"] at [4]>{{.*}} : memref<1x16x32x8x1xf32> to memref<1x16x32x8x8xf32>
 
-  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x64x8x16xf32>
-  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x2x2x64x8x16xf32> to memref<1x2x2x64x128xf32>
-  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x2x2x64x128xf32> to memref<1x2x2x8192xf32>
-  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x2x2x8192xf32> to memref<1x2x2x256x32xf32>
-  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x2x2x256x32xf32> to memref<1x2x2x256x32xf32>
+  // CHECK: %[[TR5:.+]] = rock.transform %[[TR4]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR6:.+]] = rock.transform %[[TR5]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x8x4x2xf32>
+  // CHECK: %[[TR7:.+]] = rock.transform %[[TR6]] by {{.*}} : memref<1x16x32x8x4x2xf32> to memref<1x16x32x8x8xf32>
+  // CHECK: %[[TR8:.+]] = rock.transform %[[TR7]] by {{.*}} : memref<1x16x32x8x8xf32> to memref<1x16x32x64xf32>
+  // CHECK: %[[TR9:.+]] = rock.transform %[[TR8]] by {{.*}} : memref<1x16x32x64xf32> to memref<1x16x32x64x1xf32>
+  // CHECK: %[[TR10:.+]] = rock.transform %[[TR9]] by {{.*}} : memref<1x16x32x64x1xf32> to memref<1x16x32x64x1xf32>
 
   // CHECK: rock.threadwise_write_all {{.*}}%[[BLOCK_RED_OUT]] -> [](%[[TR10]]){{.*}} by  atomic_max : {{.*}}
   rock.reduce max %0 into %arg2 features = mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 1 : i32} : memref<1x128x256xf32> into memref<1x128x1xf32>

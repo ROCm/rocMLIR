@@ -20,6 +20,11 @@ mlir_tablegen(RockAccelTuningParamAttrInterface.h.inc -gen-attr-interface-decls)
 mlir_tablegen(RockAccelTuningParamAttrInterface.cpp.inc -gen-attr-interface-defs)
 add_public_tablegen_target(MLIRRockAccelTuningParamAttrInterfaceIncGen)
 
+set(LLVM_TARGET_DEFINITIONS RockAccelAttentionTuningParamAttrInterface.td)
+mlir_tablegen(RockAccelAttentionTuningParamAttrInterface.h.inc -gen-attr-interface-decls)
+mlir_tablegen(RockAccelAttentionTuningParamAttrInterface.cpp.inc -gen-attr-interface-defs)
+add_public_tablegen_target(MLIRRockAccelAttentionTuningParamAttrInterfaceIncGen)
+
 add_mlir_interface(RockGemmGemmWrapperInterface)
 add_mlir_interface(RockGemmWrapperInterface)
 add_mlir_interface(RockConvInterface)

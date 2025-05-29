@@ -75,8 +75,8 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 LogicalResult tuningTableLookupByKey(TuningTable *perfTable,
                                      SmallVectorImpl<char> &out);
 
-bool isSplitKRequested(ModuleOp mod, StringRef perfConfig);
-bool isSplitKRequested(rock::GemmFeatures features, StringRef perfConfig);
+bool isSplitKRequested(ModuleOp mod, StringAttr perfConfig);
+bool isSplitKRequested(rock::GemmFeatures features, StringAttr perfConfig);
 
 // This method checks a given fused module is actually fusible
 // for the given perfConfig

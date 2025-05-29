@@ -30,6 +30,7 @@ class Options:
     quiet: bool
     arch: str
     numCU: int
+    disableAccel: bool
     rocmlir_gen_flags: str
     verifyMode: str
     verifyPerfConfigs: bool
@@ -141,7 +142,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     for testVector in configs:
         if not testVector.endswith(".mlir"):
             commandLine = testVector.split(sep=' ')
-            config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
+            config = confClass.fromCommandLine(commandLine, options.arch, options.numCU, options.disableAccel)
             config.MLIR_N_REPEATS=1
             testVector = config.toCommandLine()
             print("Tuning:", testVector, file=sys.stderr)
@@ -164,7 +165,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
             result = output.decode('utf-8').strip().split('\t')
             print(f"Tuning:{result[2]} from {testVector}", file=sys.stderr)
             commandLine = result[2].split(sep=' ')
-            config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
+            config = confClass.fromCommandLine(commandLine, options.arch, options.numCU, options.disableAccel)
             tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}", testVector],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -341,6 +342,12 @@ def main(args=None):
         default=False,
         help="Print info only when a change happens")
 
+    parser.add_argument(
+        "--disable-accel",
+        action='store_true',
+        default=False,
+        help="Disable acceleration (mfma or wmma)")
+    
     parsed_args = parser.parse_args(args)
 
     rocmlir_gen_flags = ''
@@ -357,7 +364,9 @@ def main(args=None):
     if not paths.mlir_paths:
         raise RuntimeError("MLIR build dir was not provided/found")
 
-    options = Options(arch=arch, numCU=numCU, debug=parsed_args.debug,
+    options = Options(arch=arch, numCU=numCU, 
+        disableAccel=parsed_args.disable_accel, 
+        debug=parsed_args.debug,
         quiet=parsed_args.quiet,
         tuningSpaceKind=parsed_args.tuning_space,
         rocmlir_gen_flags=rocmlir_gen_flags,

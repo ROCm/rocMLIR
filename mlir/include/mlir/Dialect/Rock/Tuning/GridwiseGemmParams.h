@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/Serializable.h"
+#include "mlir/IR/Attributes.h"
 #include <optional>
 
 namespace llvm {
@@ -60,9 +61,6 @@ GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
 /// be added to the given dimension.
 std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
 
-int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock,
-                        int64_t mPerWave, int64_t nPerWave);
-
 int64_t obtainBlockSize(int64_t waveSize,
                         RockAccelTuningParamAttrInterface params);
 
@@ -103,8 +101,20 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
                             int64_t splitKFactor, int64_t scheduleVersion,
                             int64_t outputSwizzle, bool aThreadCopyMoreGemmK,
                             bool bThreadCopyMoreGemmKPack)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
-        gemmNPerWaveOrMnPerXdl(nPerWaveOrMnPerXdl), gemmKPack(kPack),
+      : InitParams{mPerBlock, nPerBlock, kPerBlock}, blockSize(0),
+        gemmMPerWave(mPerWave), gemmNPerWaveOrMnPerXdl(nPerWaveOrMnPerXdl),
+        gemmKPack(kPack), splitKFactor(splitKFactor),
+        gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
+        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
+        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
+
+  constexpr InitParamsAccel(int64_t blockSize, int64_t mPerBlock,
+                            int64_t nPerBlock, int64_t kPerBlock, int64_t kPack,
+                            int64_t splitKFactor, int64_t scheduleVersion,
+                            int64_t outputSwizzle, bool aThreadCopyMoreGemmK,
+                            bool bThreadCopyMoreGemmKPack)
+      : InitParams{mPerBlock, nPerBlock, kPerBlock}, blockSize(blockSize),
+        gemmMPerWave(0), gemmNPerWaveOrMnPerXdl(0), gemmKPack(kPack),
         splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
         outputSwizzle(outputSwizzle),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
@@ -117,30 +127,30 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   InitParamsAccel(XdlopsGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()),
+        blockSize(0), gemmMPerWave(attr.getMPerWave()),
         gemmNPerWaveOrMnPerXdl(attr.getMnPerXdl()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()),
+        blockSize(0), gemmMPerWave(attr.getMPerWave()),
         gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   InitParamsAccel(FmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()),
-        gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
+        blockSize(attr.getBlockSize()), gemmMPerWave(0),
+        gemmNPerWaveOrMnPerXdl(0), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
@@ -149,6 +159,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
 
   int64_t getKPack() { return gemmKPack; }
 
+  int64_t blockSize;
   int64_t gemmMPerWave;
   int64_t gemmNPerWaveOrMnPerXdl;
   int64_t gemmKPack;
@@ -253,6 +264,10 @@ public:
   virtual LogicalResult paramsProbablyValid(OpBuilder &b,
                                             const PopulateParamsInfo &info,
                                             const InitParamType &params) = 0;
+
+  virtual StringAttr getDefaultPerfConfig(OpBuilder &builder) const {
+    return nullptr;
+  };
 
   // Succced if `params` should be included in a "full" tuning space that
   // excludes those known to not yeild good performance on the problem described
@@ -404,6 +419,8 @@ public:
                        Type dataTypeB, StringRef arch,
                        bool enableBlockSizeUpperLimit = true,
                        bool enableDPerWaveFiltering = true) override;
+
+  StringAttr getDefaultPerfConfig(OpBuilder &builder) const override;
 
 protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,

@@ -241,7 +241,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   Type toTuneType = maybeInOutTypes.value().first;
   Type outType = maybeInOutTypes.value().second;
   // Provisionally use the type of input A to set up the init value - this
-  // should be a per-buffer value in the futurue.
+  // should be a per-buffer value in the future.
   benchmark::DataType dataType = getDataType(toTuneType);
   benchmark::DataType outDataType = getDataType(outType);
 

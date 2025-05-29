@@ -311,14 +311,14 @@ class PerfConfiguration:
         raise NotImplementedError()
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def fromCommandLine(cls, argv, arch, numCU, disableAccel):
         raise NotImplementedError()
 
     def toCommandLine(self):
         raise NotImplementedError()
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, disableAccel):
         raise NotImplementedError()
 
     EXTERNAL_NAME = "unknown"
@@ -328,7 +328,7 @@ class PerfConfiguration:
         return f"{self.__class__.__name__}({attrs})"
 
 # convolution configurations.
-def getConvConfigurations(fileName):
+def getConvConfigurations(fileName, disableAccel: bool):
     configs = []
     if fileName:
         with open(fileName, 'r') as configFile:
@@ -343,7 +343,7 @@ def getConvConfigurations(fileName):
                     continue
                 
                 # Skip unsupported datatypes
-                if datatype == 'convfp8':
+                if not disableAccel and datatype == 'convfp8':
                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
                     if getChip() in unsupported_chips:
                         continue
@@ -398,7 +398,7 @@ class ConvConfiguration(PerfConfiguration):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         bankConflict = getBankConflict(getProfilerOutputPath(self.arch, BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
-        values = [self.direction, self.dataType, self.chip, self.numCU, self.filterLayout, self.inputLayout, self.outputLayout,
+        values = [self.direction, self.dataType, self.chip, self.numCU, self.disableAccel, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
                    self.convStrideH, self.convStrideW, self.paddingH, self.paddingW, self.perfConfig, bankConflict,
                    self.computeTFlops(nanoSeconds)]
@@ -439,13 +439,16 @@ class ConvConfiguration(PerfConfiguration):
                            '--groupsize', str(self.group),
                            '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
+        if self.disableAccel:
+            result += " mfma=off wmma=off"
+
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def fromCommandLine(cls, argv, arch, numCU, disableAccel):
         # determine dataType from argv[1]
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         if argv[0] == 'conv':
@@ -532,7 +535,7 @@ class ConvConfiguration(PerfConfiguration):
 
         return cls(dataType, direction, filterLayout, inputLayout, outputLayout, n, c, hi, wi, k, y, x,
             convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW,
-                   group, arch, numCU)
+                   group, arch, numCU, disableAccel)
 
     def toCommandLine(self):
         return (f"conv{ {'f32':'', 'f16':'fp16', 'bf16':'bfp16', 'i8':'int8','fp8_fp8':'fp8_fp8', 'fp8': 'fp8'}[self.dataType]} "
@@ -547,7 +550,7 @@ class ConvConfiguration(PerfConfiguration):
     def __init__(self, dtype: str, direction: str, filterLayout: str, inputLayout:str, outputLayout:str,
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
                     convStrideH: int, convStrideW: int, paddingH: int, paddingW: int,
-                    dilationH: int, dilationW: int, group: int, arch: str, numCU: int):
+                    dilationH: int, dilationW: int, group: int, arch: str, numCU: int, disableAccel: bool):
         if dtype not in {"f16", "f32", "bf16", "i8", "fp8_fp8", "fp8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
@@ -578,6 +581,7 @@ class ConvConfiguration(PerfConfiguration):
         self.group = group
         self.arch = arch
         self.numCU = numCU
+        self.disableAccel = disableAccel
         self.chip = GFX_CHIP_RE.search(arch).group(0)
 
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
@@ -586,10 +590,10 @@ class ConvConfiguration(PerfConfiguration):
         self.perfConfig = ''
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, disableAccel):
         if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME)):
             os.remove(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME))
-        config = cls.fromCommandLine(commandLine, arch, numCU)
+        config = cls.fromCommandLine(commandLine, arch, numCU, disableAccel)
         MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(commandLine))
         # invoke MIOpenDriver.
@@ -808,7 +812,7 @@ class GemmConfiguration(PerfConfiguration):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         bankConflict = getBankConflict(getProfilerOutputPath(self.arch, BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
-        values = [self.dataType, self.outDataType, self.chip, self.numCU, self.transA, self.transB, \
+        values = [self.dataType, self.outDataType, self.chip, self.numCU, self.disableAccel, self.transA, self.transB, \
                    self.g, self.m, self.k, self.n, self.perfConfig, bankConflict, self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
@@ -834,13 +838,16 @@ class GemmConfiguration(PerfConfiguration):
                            '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
 
+        if self.disableAccel:
+            result += " mfma=off wmma=off"
+
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def fromCommandLine(cls, argv, arch, numCU, disableAccel):
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         dtype = None
         g = None
@@ -878,7 +885,7 @@ class GemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, outDataType, g, m, k, n, transA, transB, arch, numCU, perf_config)
+        return cls(dtype, outDataType, g, m, k, n, transA, transB, arch, numCU, disableAccel, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} -out_datatype {self.outDataType} "
@@ -886,7 +893,8 @@ class GemmConfiguration(PerfConfiguration):
                 + f"-g {self.g} -m {self.m} -n {self.n} -k {self.k}")
 
     def __init__(self, dtype: str, outDataType: str, g: int, m: int, k: int, n: int,
-                 transA: bool, transB: bool, arch: str, numCU: int, perf_config: str = ''):
+                 transA: bool, transB: bool, arch: str, numCU: int, disableAccel: bool, 
+                 perf_config: str = ''):
         if dtype not in DATA_TYPES_GEMM:
             raise ValueError(f"Invalid datatype: {dtype}")
         
@@ -903,6 +911,7 @@ class GemmConfiguration(PerfConfiguration):
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
         self.numCU = numCU
+        self.disableAccel = disableAccel
 
 class ConvGemmConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.CONV_GEMM_TEST_PARAMETERS + ['TFlops']
@@ -912,7 +921,7 @@ class ConvGemmConfiguration(PerfConfiguration):
                  hi: int, wi: int, k: int, y: int, x: int, o: int, 
                  convStrideH: int, convStrideW: int, paddingH: int, paddingW: int,
                 dilationH: int, dilationW: int, group: int,
-                 arch: str, numCU: int, perf_config: str = ''):
+                 arch: str, numCU: int, disableAccel: bool, perf_config: str = ''):
         if dtype not in DATA_TYPES_CONV_GEMM:
             raise ValueError(f"Invalid datatype for a: {dtype}")
 
@@ -943,6 +952,7 @@ class ConvGemmConfiguration(PerfConfiguration):
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
         self.numCU = numCU
+        self.disableAccel = disableAccel
         self.perfConfig = perf_config
 
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
@@ -969,6 +979,7 @@ class ConvGemmConfiguration(PerfConfiguration):
             self.dataType,
             self.chip,
             self.numCU,
+            self.disableAccel,
             self.filterLayout, 
             self.inputLayout,
             self.transC,
@@ -1021,13 +1032,17 @@ class ConvGemmConfiguration(PerfConfiguration):
                            f'--gemmO={self.o}',
                            f'--kernel-repeats={MLIR_N_REPEATS}',
                            f"--perf_config={self.perfConfig}"])
+        
+        if self.disableAccel:
+            result += " mfma=off wmma=off"
+
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def fromCommandLine(cls, argv, arch, numCU, disableAccel):
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1105,7 +1120,7 @@ class ConvGemmConfiguration(PerfConfiguration):
             
         return cls(dtype, filterLayout, inputLayout, transC, transO, n, c, hi, wi, k, y, x, o, 
                    convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW, group, 
-                   arch, numCU, perf_config)
+                   arch, numCU, disableAccel, perf_config)
     
     def toCommandLine(self):
         return (f"-t {self.dataType} "
@@ -1120,7 +1135,9 @@ class ConvGemmConfiguration(PerfConfiguration):
 class GemmGemmConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.GEMM_GEMM_TEST_PARAMETERS + ['TFlops']
     def __init__(self, dtype: str, g: int, m: int, k: int, n: int, o: int, 
-                 transA: bool, transB: bool, transC: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
+                 transA: bool, transB: bool, transC: bool, transO: bool, 
+                 arch: str, numCU: int, disableAccel: bool,
+                 perf_config: str = ''):
         if dtype not in DATA_TYPES_GEMM_GEMM:
             raise ValueError(f"Invalid datatype for a: {dtype}")
 
@@ -1138,6 +1155,7 @@ class GemmGemmConfiguration(PerfConfiguration):
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
         self.numCU = numCU
+        self.disableAccel = disableAccel
         self.perfConfig = perf_config
 
     def computeTFlops(self, ns):
@@ -1155,6 +1173,7 @@ class GemmGemmConfiguration(PerfConfiguration):
             self.dataType,
             self.chip,
             self.numCU,
+            self.disableAccel,
             self.transA,
             self.transB,
             self.transC,
@@ -1191,13 +1210,17 @@ class GemmGemmConfiguration(PerfConfiguration):
                            f"-transO={self.transO}",
                            '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
+        
+        if self.disableAccel:
+            result += " mfma=off wmma=off"
+
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def fromCommandLine(cls, argv, arch, numCU, disableAccel):
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1242,7 +1265,7 @@ class GemmGemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete gemm+gemm configuration")
 
-        return cls(dtype, g, m, k, n, o, transA, transB, transC, transO, arch, numCU, perf_config)
+        return cls(dtype, g, m, k, n, o, transA, transB, transC, transO, arch, numCU, disableAccel, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
@@ -1254,7 +1277,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
     def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, num_heads_q: int, num_heads_kv: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: bool, with_attn_bias: bool,
-                 transQ: bool, transK: bool, transV: bool, transO: bool, causal: bool, return_lse: bool, arch: str, numCU: int, perf_config: str = ''):
+                 transQ: bool, transK: bool, transV: bool, transO: bool, causal: bool, return_lse: bool, arch: str, numCU: int, disableAccel: bool, perf_config: str = ''):
         if DATA_TYPES_ATTENTION is None:
             initializeDataTypesAttention()
         if dtype not in DATA_TYPES_ATTENTION:
@@ -1280,6 +1303,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
         self.numCU = numCU
+        self.disableAccel = disableAccel
         self.perfConfig = perf_config
 
     def computeTFlops(self, ns, only_matmul_flops=True):
@@ -1312,6 +1336,7 @@ class AttentionConfiguration(PerfConfiguration):
             self.dataType,
             self.chip,
             self.numCU,
+            self.disableAccel,
             self.transQ,
             self.transK,
             self.transV,
@@ -1360,13 +1385,17 @@ class AttentionConfiguration(PerfConfiguration):
                            f"-return_lse={self.return_lse}",
                            '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
+        
+        if self.disableAccel:
+            result += " mfma=off wmma=off"
+
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def fromCommandLine(cls, argv, arch, numCU, disableAccel):
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1429,7 +1458,7 @@ class AttentionConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, arch, numCU, disableAccel, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
@@ -1447,8 +1476,8 @@ class RocBLASGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "rocBLAS"
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
-        config = cls.fromCommandLine(commandLine, arch, numCU)
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, disableAccel):
+        config = cls.fromCommandLine(commandLine, arch, numCU, disableAccel)
         if not paths.mlir_paths.rocblas_benchmark_driver_path:
             raise ValueError("rocblas-benchmark-driver not built")
         benchmarkArgs = config.generateMlirDriverCommandLine("")
@@ -1466,8 +1495,8 @@ class RocBLASGemmConfig(GemmConfiguration):
 class CKGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "CK"
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
-        config = cls.fromCommandLine(commandLine, arch, numCU)
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU, disableAccel):
+        config = cls.fromCommandLine(commandLine, arch, numCU, disableAccel)
         if not paths.mlir_paths.ck_gemm_benchmark_driver_path:
             raise ValueError("ck-gemm-benchmark-driver not built")
         benchmarkArgs = config.generateMlirDriverCommandLine("")
@@ -1499,8 +1528,8 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
     runPipeline([rocmlirGenCommand.split(), rocmlirDriverCommand, profilerCommand])
 
 # Benchmarking function.
-def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
-    config = confClass.fromCommandLine(commandLine, arch, numCU)
+def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, disableAccel, tuningDb: MaybeTuningDb, rocmlir_gen_flags):
+    config = confClass.fromCommandLine(commandLine, arch, numCU, disableAccel)
     configStr = config.toCommandLine()
     if tuningDb:
         if (arch, configStr) in tuningDb:
@@ -1514,20 +1543,20 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen or rocBLAS performance results
-def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, quickTuningDb: MaybeTuningDb, rocmlir_gen_flags):
+def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, disableAccel, tuningDb: MaybeTuningDb, quickTuningDb: MaybeTuningDb, rocmlir_gen_flags):
     # Never pass tuning DB to this run
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, None, rocmlir_gen_flags)
+    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, disableAccel, None, rocmlir_gen_flags)
         for testVector in configs)
     tuned_df = None
     if tuningDb:
-        tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)
+        tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, disableAccel, tuningDb, rocmlir_gen_flags)
             for testVector in configs)
     quick_tuned_df = None
     if quickTuningDb:
-        quick_tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, quickTuningDb, rocmlir_gen_flags)
+        quick_tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, disableAccel, quickTuningDb, rocmlir_gen_flags)
             for testVector in configs)
 
-    external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU)
+    external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU, disableAccel)
         for testVector in configs)
 
     externalName = confClass.EXTERNAL_NAME
@@ -1570,15 +1599,15 @@ def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tu
     df.fillna(np.nan, inplace=True)
     df.to_csv(chip + '_' + reportFile, index=False)
 
-def getSolverName(testVector, arch, numCU):
-    config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), arch, numCU)
+def getSolverName(testVector, arch, numCU, disableAccel):
+    config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), arch, numCU, disableAccel)
     if config.direction == 'fwd':
         solverName = 'ConvMlirIgemmFwd'
     elif config.direction == 'bwd':
         solverName = 'ConvMlirIgemmBwd'
     else:
         solverName = 'ConvMlirIgemmWrW'
-    if config.chip in ['gfx908', 'gfx90a', 'gfx942', 'gfx950']:
+    if not disableAccel and config.chip in ['gfx908', 'gfx90a', 'gfx942', 'gfx950']:
         solverName+='Xdlops'
     return solverName
 
@@ -1685,7 +1714,7 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
     runPipeline(commands)
 
 # Generate fusion vs. gemm/conv performance results
-def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb):
+def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, disableAccel, tuningDb: MaybeTuningDb):
     allTests = [] #filename, testVector, futName
     perfResults = {} #associate testVector to config and performances
     chip = GFX_CHIP_RE.search(arch).group(0)
@@ -1724,10 +1753,10 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         commandLine = testVector.split(sep=' ')
         if commandLine[0].startswith('conv'):
             op = 'conv'
-            config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
+            config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU, disableAccel)
         else:
             op = 'gemm'
-            config = GemmConfiguration.fromCommandLine(commandLine, arch, numCU)
+            config = GemmConfiguration.fromCommandLine(commandLine, arch, numCU, disableAccel)
 
         # Find the best perf_config
         bestPerf =""
@@ -1770,9 +1799,9 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
 #Tune MIOpen with MLIR kernels
-def tuneMLIRKernels(configs, arch, numCU):
+def tuneMLIRKernels(configs, arch, numCU, disableAccel):
     solver_names = {
-        testVector: getSolverName(testVector, arch, numCU)
+        testVector: getSolverName(testVector, arch, numCU, disableAccel)
         for testVector in configs
     }
 
@@ -1782,7 +1811,7 @@ def tuneMLIRKernels(configs, arch, numCU):
     for testVector in configs:
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[testVector]
         commandLine = testVector.split(sep=' ')
-        config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
+        config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU, disableAccel)
         if config.inputLayout == 'nchw':
             MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0']
             print(' '.join(MIOpenDriverCommand))
@@ -1983,6 +2012,12 @@ def main(args=None):
          default=["f32", "f16", "i8"],
          help='Force a set of datatypes'
     )
+    parser.add_argument(
+        "--disable-accel",
+        action="store_true",
+        default=False,
+        help="Disable acceleration (mfma or wmma)"
+    )
 
     parsed_args = parser.parse_args(args)
 
@@ -2027,7 +2062,7 @@ def main(args=None):
     paths = create_paths(configs_path, parsed_args.mlir_build_dir)
     configs = None
     if opType == Operation.CONV:
-        configs = getConvConfigurations(paths.configuration_file_path)
+        configs = getConvConfigurations(paths.configuration_file_path, parsed_args.disable_accel)
     elif opType == Operation.GEMM:
         datatypes, outputTypeMap = parseDataTypes(parsed_args.data_type)
         configs = getGemmConfigurations(paths.configuration_file_path, datatypes, outputTypeMap)
@@ -2050,21 +2085,21 @@ def main(args=None):
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_all:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, confClass, paths, arch, numCU, tuningDb, quickTuningDb, rocmlir_gen_flags)
+        generatePerformanceResults(configs, confClass, paths, arch, numCU, parsed_args.disable_accel, tuningDb, quickTuningDb, rocmlir_gen_flags)
     elif parsed_args.tuning:
-        tuneMLIRKernels(configs, arch, numCU)
+        tuneMLIRKernels(configs, arch, numCU, parsed_args.disable_accel)
     elif opType == Operation.FUSION:
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")
         else:
-            benchmarkFusionKernels(parsed_args.test_dir, paths, arch, numCU, tuningDb)
+            benchmarkFusionKernels(parsed_args.test_dir, paths, arch, numCU, parsed_args.disable_accel, tuningDb)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, parsed_args.disable_accel, tuningDb, rocmlir_gen_flags) for testVector in configs)
         elif parsed_args.batch_external:
-            df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU) for testVector in configs)
+            df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU, parsed_args.disable_accel) for testVector in configs)
         elif parsed_args.external:
-            df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch, numCU)])
+            df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch, numCU, parsed_args.disable_accel)])
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR
@@ -2072,9 +2107,9 @@ def main(args=None):
                 raise RuntimeError("MLIR build dir was not provided/found")
             else:
                 if parsed_args.config:
-                    df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags)])
+                    df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, numCU, parsed_args.disable_accel, tuningDb, rocmlir_gen_flags)])
                 else:
-                    df = pd.DataFrame([benchmarkMLIR(config.split(), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags) for config in configs])
+                    df = pd.DataFrame([benchmarkMLIR(config.split(), confClass, paths, arch, numCU, parsed_args.disable_accel, tuningDb, rocmlir_gen_flags) for config in configs])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption

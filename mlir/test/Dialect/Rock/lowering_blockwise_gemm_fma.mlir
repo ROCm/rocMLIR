@@ -2,6 +2,10 @@
 #wg = #gpu.address_space<workgroup>
 #priv = #gpu.address_space<private>
 
+#fma_gemm_params0 = #rock.fma_gemm_params<blockSize = 256, mPerBlock = 64, nPerBlock = 64, kpackPerBlock = 8, 
+kpack = 1, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+
+
 func.func @rock_blockwise_gemm_accel_fma(%matrixA : memref<16xvector<8xf16>, #wg>, %matrixB : memref<16xvector<8xf16>, #wg>,
                                           %bufferA : memref<1xvector<16xf16>, #priv>, %bufferB : memref<1xvector<16xf16>, #priv>,
                                           %matrixC : memref<1xvector<8xf32>, #priv>) {
@@ -16,12 +20,11 @@ func.func @rock_blockwise_gemm_accel_fma(%matrixA : memref<16xvector<8xf16>, #wg
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.fma_gemm_params<
+      blockSize = 64,
       kpackPerBlock = 4,
       kpack = 8,
       mPerBlock = 16,
-      mPerWave = 16,
       nPerBlock = 16,
-      nPerWave = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
       outputSwizzle = 2,
@@ -44,11 +47,10 @@ func.func @rock_blockwise_gemm_accel_fma_largekpack(%matrixA : memref<32xvector<
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.fma_gemm_params<
+      blockSize = 64,
       mPerBlock = 32,
       nPerBlock = 32,
       kpackPerBlock = 4,
-      mPerWave = 16,
-      nPerWave = 16,
       kpack = 8,
       splitKFactor = 1, 
       scheduleVersion = 1, 
@@ -72,11 +74,10 @@ func.func @rock_blockwise_gemm_accel_fma_int8(%matrixA : memref<32xvector<16xi8>
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     params = #rock.fma_gemm_params<
+      blockSize = 64,
       mPerBlock = 64,
       nPerBlock = 64,
       kpackPerBlock = 4,
-      mPerWave = 32,
-      nPerWave = 32,
       kpack = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 

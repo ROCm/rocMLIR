@@ -159,8 +159,10 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
 
   // Extract relevant tuning parameters
   int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t mPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getMPerWave();
+  int64_t nPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getNPerWave();
   int64_t kPack = tuningParams.getKpack();
   int64_t K = kpackPerBlock * kPack;
 
@@ -265,8 +267,10 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t mPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getMPerWave();
+  int64_t nPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getNPerWave();
 
   // Extract relevant emitter parameters
   int64_t mRepeats = accelEmitterParams.mRepeats;
@@ -430,8 +434,10 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
 
   // Extract relevant tuning parameters
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t mPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getMPerWave();
+  int64_t nPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getNPerWave();
   int64_t kPerBlock = tuningParams.getKpackPerBlock();
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
@@ -578,8 +584,10 @@ MfmaEmitter::createAccelGemmOperandTransforms(
       dName == "m" ? bidGridLengths[1] : bidGridLengths[2];
 
   // Extract relevant tuning parameters
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t mPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getMPerWave();
+  int64_t nPerWave =
+      cast<XdlopsGemmDerivedParamsAttr>(tuningParams).getNPerWave();
   int64_t kPackPerBlock = tuningParams.getKpackPerBlock();
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
@@ -816,8 +824,8 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
   int64_t kPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t mPerWave = cast<WmmaGemmParamsAttr>(tuningParams).getMPerWave();
+  int64_t nPerWave = cast<WmmaGemmParamsAttr>(tuningParams).getNPerWave();
   int64_t kPack = tuningParams.getKpack();
 
   // Extract relevant emitter parameters
@@ -913,8 +921,8 @@ WmmaEmitter::createAccelGemmOperandTransforms(
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
   int64_t kPackPerBlock = tuningParams.getKpackPerBlock();
-  int64_t mPerWave = tuningParams.getMPerWave();
-  int64_t nPerWave = tuningParams.getNPerWave();
+  int64_t mPerWave = cast<WmmaGemmParamsAttr>(tuningParams).getMPerWave();
+  int64_t nPerWave = cast<WmmaGemmParamsAttr>(tuningParams).getNPerWave();
   int64_t kPack = tuningParams.getKpack();
 
   // Extract relevant emitter parameters
@@ -1085,8 +1093,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
-  int64_t nPerWave = tuningParams.getNPerWave();
-  int64_t mPerWave = tuningParams.getMPerWave();
+  int64_t nPerWave = cast<WmmaGemmParamsAttr>(tuningParams).getNPerWave();
+  int64_t mPerWave = cast<WmmaGemmParamsAttr>(tuningParams).getMPerWave();
 
   // Extract relevant emitter parameters
   int64_t mRepeats = accelEmitterParams.mRepeats;
@@ -1256,6 +1264,7 @@ Value FmaEmitter::waveReduction(OpBuilder &b, Location loc, Value value) {
       b.create<arith::ConstantIntOp>(loc, b.getI32Type(), waveSize);
   for (int i = 1; i < waveSize; i <<= 1) {
     Value offset = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), i);
+    // TODO(fma): use DPP
     auto shuffleOp = b.create<gpu::ShuffleOp>(
         loc, shuffleType, value, offset, subgroupSize, gpu::ShuffleMode::XOR);
     if (isa<FloatType>(value.getType())) {
@@ -1699,9 +1708,10 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
                                          tuningParams);
   } else if (isWmma) {
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
-    auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
-                                               arch, tuningParams.getMPerWave(),
-                                               tuningParams.getNPerWave());
+    auto maybeWmmaInsnGroup =
+        WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
+                         cast<WmmaGemmParamsAttr>(tuningParams).getMPerWave(),
+                         cast<WmmaGemmParamsAttr>(tuningParams).getNPerWave());
     if (failed(maybeWmmaInsnGroup))
       return nullptr;
 

@@ -7,6 +7,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   RockConvInterface.cpp
   RockTuningParamAttrInterface.cpp
   RockAccelTuningParamAttrInterface.cpp
+  RockAccelAttentionTuningParamAttrInterface.cpp
   RockAcceptingViewOpInterface.cpp
   RockWriterOpInterface.cpp
   MfmaInsnGroup.cpp
@@ -22,6 +23,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   MLIRRockGemmGemmWrapperInterfaceIncGen
   MLIRRockTuningParamAttrInterfaceIncGen
   MLIRRockAccelTuningParamAttrInterfaceIncGen
+  MLIRRockAccelAttentionTuningParamAttrInterfaceIncGen
   MLIRRockAcceptingViewOpInterfaceIncGen
   MLIRRockWriterOpInterfaceIncGen
   MLIRRockOpsIncGen

@@ -138,6 +138,7 @@ static LogicalResult
 runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
                   llvm::SmallDenseSet<StringRef> &kernelPipelineSet) {
   PassManager pm(kmod->getName(), PassManager::Nesting::Implicit);
+
   if (failed(applyPassManagerCLOptions(pm)))
     return failure();
   pm.enableVerifier(verifyPasses);

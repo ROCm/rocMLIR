@@ -1265,7 +1265,8 @@ struct GridwiseAttentionAccelRewritePattern
         return false;
       }
       int64_t mWaves =
-          gemm0TuningParams.getMPerBlock() / gemm0TuningParams.getMPerWave();
+          gemm0TuningParams.getMPerBlock() /
+          cast<XdlopsGemmDerivedParamsAttr>(gemm0TuningParams).getMPerWave();
       if (mWaves != 1) {
         return false;
       }
@@ -2706,9 +2707,6 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    // Obtain Accelerator-related attributes.
-    int64_t mPerWave = tuningParams.getMPerWave();
-    int64_t nPerWave = tuningParams.getNPerWave();
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
         op.getFeatures(), elementTypeA, elementTypeB, op.getBlockSize(), arch,
@@ -2740,8 +2738,6 @@ struct GridwiseGemmAccelRewritePattern
                << "kpack: " << kpack << "\n"
                << "mBlocks = M / mPerBlock: " << mBlocks << "\n"
                << "nBlocks = N / nPerBlock: " << nBlocks << "\n"
-               << "mPerWave: " << mPerWave << "\n"
-               << "nPerWave: " << nPerWave << "\n"
                << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
                << "bVectorLen: " << maybeVecDimInfoB->vectorLen << "\n"
                << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"

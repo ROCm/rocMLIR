@@ -454,54 +454,15 @@ static const InitParamsAccel initParametersForwardI8Conv[nInitParametersForwardI
 // BEGIN_GEMM_Fma_DEFS
 const InitParamsAccel PopulateParamsFma::initParametersGemm
     [PopulateParamsFma::nInitParametersGemm] = {
-        {64, 128, 8, 64, 32, 8, 1, 1, 2, true, true},
-        {128, 64, 8, 32, 64, 8, 1, 1, 2, true, true},
-        {64, 128, 4, 64, 64, 8, 1, 1, 2, true, true},
-        {64, 256, 4, 64, 32, 8, 1, 1, 2, true, true},
-        {128, 256, 8, 128, 32, 8, 1, 1, 2, true, true},
-        {16, 32, 8, 16, 16, 16, 1, 1, 2, true, true},
-        {128, 16, 8, 32, 16, 8, 1, 1, 2, true, true},
-        {64, 32, 8, 32, 16, 8, 1, 1, 2, true, true},
-        {64, 32, 8, 16, 16, 8, 1, 1, 2, true, true},
-        {16, 16, 4, 16, 16, 8, 1, 1, 2, true, true},
-        {128, 256, 2, 32, 32, 8, 1, 1, 2, true, true},
-        {16, 128, 4, 16, 128, 8, 1, 1, 2, true, true},
-        {16, 32, 4, 16, 16, 16, 1, 1, 2, true, true},
-        {128, 256, 4, 32, 128, 8, 1, 1, 2, true, true},
-        {64, 32, 8, 32, 32, 16, 1, 1, 2, true, true},
-        {128, 64, 2, 64, 64, 16, 1, 1, 2, true, true},
-        {128, 64, 2, 32, 64, 8, 1, 1, 2, true, true}};
+        {128, 1, 1, 8, 16, 1, 1, 2, true, true},
+};
 // END_GEMM_Fma_DEFS
 
 // BEGIN_CONV_Fma_DEFS
 const InitParamsAccel PopulateParamsFma::initParametersConv
     [PopulateParamsFma::nInitParametersConv] = {
-        {128, 64, 8, 32, 64, 8, 1, 1, 2, true, true},
-        {64, 128, 8, 64, 32, 8, 1, 1, 2, true, true},
-        {128, 128, 4, 64, 64, 8, 1, 1, 2, true, true},
-        {256, 128, 8, 128, 32, 8, 1, 1, 2, true, true},
-        {64, 128, 4, 32, 64, 8, 1, 1, 2, true, true},
-        {64, 256, 2, 64, 64, 8, 1, 1, 2, true, true},
-        {256, 64, 2, 64, 64, 8, 1, 1, 2, true, true},
-        {256, 256, 8, 64, 32, 8, 1, 1, 2, true, true},
-        {64, 32, 8, 32, 32, 8, 1, 1, 2, true, true},
-        {64, 64, 4, 32, 32, 8, 1, 1, 2, true, true},
-        {128, 32, 2, 32, 32, 8, 1, 1, 2, true, true},
-        {128, 16, 8, 32, 16, 8, 1, 1, 2, true, true},
-        {128, 128, 2, 32, 32, 8, 1, 1, 2, true, true},
-        {64, 16, 8, 16, 16, 8, 1, 1, 2, true, true},
-        {128, 64, 2, 64, 32, 8, 1, 1, 2, true, true},
-        {16, 128, 8, 16, 16, 8, 1, 1, 2, true, true},
-        {128, 256, 4, 64, 32, 8, 1, 1, 2, true, true},
-        {256, 128, 4, 32, 64, 8, 1, 1, 2, true, true},
-        {128, 256, 2, 64, 32, 8, 1, 1, 2, true, true},
-        {32, 128, 2, 32, 32, 8, 1, 1, 2, true, true},
-        {64, 16, 8, 16, 16, 16, 1, 1, 2, true, true},
-        {16, 16, 8, 16, 16, 8, 1, 1, 2, true, true},
-        {16, 16, 4, 16, 16, 8, 1, 1, 2, true, true},
-        {128, 256, 8, 128, 16, 8, 1, 1, 2, true, true},
-        {16, 32, 4, 16, 16, 16, 1, 1, 2, true, true},
-        {16, 32, 4, 16, 32, 8, 1, 1, 2, true, true}};
+        {128, 1, 1, 8, 16, 1, 1, 2, true, true},
+};
 // END_CONV_Fma_DEFS
 
 #endif
@@ -509,12 +470,12 @@ const InitParamsAccel PopulateParamsFma::initParametersConv
 #ifdef Fma_DECLARATIONS_GEN
 
 // BEGIN_GEMM_Fma_DECS
-static constexpr size_t nInitParametersGemm = 17;
+static constexpr size_t nInitParametersGemm = 1;
 static const InitParamsAccel initParametersGemm[nInitParametersGemm];
 // END_GEMM_Fma_DECS
 
 // BEGIN_CONV_Fma_DECS
-static constexpr size_t nInitParametersConv = 26;
+static constexpr size_t nInitParametersConv = 1;
 static const InitParamsAccel initParametersConv[nInitParametersConv];
 // END_CONV_Fma_DECS
 
