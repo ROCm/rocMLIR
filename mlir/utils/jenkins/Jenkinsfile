@@ -1,6 +1,7 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
-// used for private CI
-@Library('rocmlir-lib') _
+// This Jenkinsfile is used for the private CI
+
+@Library("rocAutomation@jenkins-pipelines") _
 
 pipeline {
     agent none
