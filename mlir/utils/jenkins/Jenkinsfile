@@ -69,7 +69,7 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                rocmlir.setHeartbeat()
+                setHeartbeat()
             }
         }
         stage("Kill old PR builds") {
