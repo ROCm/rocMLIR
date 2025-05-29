@@ -1,509 +1,6 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
-void buildProject(String target, String cmakeOpts) {
-    timeout(time: 60, activity: true, unit: 'MINUTES') {
-        cmakeBuild generator: 'Ninja',\
-            buildDir: 'build',\
-            buildType: 'RelWithDebInfo',\
-            installation: 'InSearchPath',\
-            steps: [[args: target]],\
-            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-              ${cmakeOpts}"""
-    }
-}
-
-def advancedNodeCheck(Map params) {
-    script {
-        echo "Jenkins-side PATH = '${env.PATH}'"
-    }
-    boolean doCleanWs                = params.doCleanWs
-    boolean doGPUcheck               = params.doGPUcheck
-
-    if (doCleanWs) {
-        timeout(time: 15, unit: 'MINUTES', activity: true) {
-            cleanWs()
-        }
-        checkout scm
-    }
-
-    timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'docker version' }
-
-    ['ls /dev/kfd', 'ls /dev/dri'].each { cmd ->
-        timeout(time: 5, unit: 'MINUTES', activity: true) { sh cmd }
-    }
-
-    String nodeSpecMessage = "\nNode specification:\n"
-    timeout(time: 5, unit: 'MINUTES', activity: true) {
-        nodeSpecMessage += "\nOS info:\n" + sh(script: 'sudo dkms status', returnStdout: true).trim() + '\n'
-    }
-    echo nodeSpecMessage
-
-    if (env.NODE_LABELS && !env.NODE_LABELS.contains('build-only')) {
-        timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'rocminfo' }
-        timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'rocm-smi' }
-
-        if (doGPUcheck) {
-            timeout(time: 5, unit: 'MINUTES', activity: true) {
-                def n = sh(script: "lspci | grep -e 'controller' -e 'accelerators' | grep 'AMD/ATI' | wc -l",
-                           returnStdout: true).trim().toInteger()
-                if (n == 0) {
-                    throw NodeCheckFailedException.newInstance("No GPUs detected on ${env.NODE_NAME}")
-                }
-                echo "Number of GPUs on ${env.NODE_NAME}: ${n}"
-            }
-        }
-    } else {
-        echo 'Skipping GPU checks…'
-    }
-}
-
-def resetGPUs() {
-    // Run the reset, but don't fail the build if anything is wrong
-    def rc = sh(
-        script: '''
-        reset_all_gpus() {
-            echo "Scanning GPUs..."
-            GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
-            if [ -z "$GPU_IDS" ]; then
-                echo "WARNING: No GPUs found to reset."
-                return 0
-            fi
-            for id in $GPU_IDS; do
-                echo "Resetting GPU ID: $id"
-                if ! rocm-smi --gpureset -d $id; then
-                    echo "WARNING: Unable to reset GPU $id"
-                fi
-                sleep 2
-            done
-            return 0
-        }
-        reset_all_gpus
-        ''',
-        returnStatus: true
-    )
-    if (rc != 0) {
-        echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anywat=y"
-    }
-}
-
-
-def checkNodeHealth(Map opts = [:]) {
-    advancedNodeCheck(
-        doCleanWs:                 opts.get('doCleanWs', true),
-        doGPUcheck:                opts.get('doGPUcheck', true)
-    )
-}
-
-String dockerArgs() {
-    // Helper to run a shell command and get its stdout
-    def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
-
-    // Enumerate /dev/dri/renderD* devices if they exist
-    String renderFlags = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
-                         .split()
-                         .collect { "--device=${it}" }
-                         .join(' ')
-
-    // /dev/kfd appears only on GPU-enabled nodes
-    boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
-    String   kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
-
-    // Get the GIDs of the render and video groups
-    String renderGid = run("getent group render | cut -d':' -f3")
-    String videoGid = run("getent group video | cut -d':' -f3")
-
-    return """
-        --privileged --ipc=host \
-        ${kfdFlg} \
-        ${renderFlags} \
-        --group-add ${videoGid} --group-add ${renderGid} \
-        -v /etc/passwd:/etc/passwd:ro \
-        -v /etc/group:/etc/group:ro
-    """.trim().replaceAll(/\s+/, ' ')
-}
-
-void buildCK(String cmakeOpts) {
-    sh '[ ! -d build ] || rm -rf build'
-    cmakeBuild generator: 'Unix Makefiles',\
-        buildDir: 'build',\
-        buildType: 'Release',\
-        installation: 'InSearchPath',\
-        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                     ${cmakeOpts}
-                     """
-    sh 'cd build; make -j $(nproc)'
-}
-
-void buildMIGraphX(String cmakeOpts) {
-    sh '[ ! -d build ] || rm -rf build'
-    cmakeBuild generator: 'Unix Makefiles',\
-        buildDir: 'build',\
-        buildType: 'Release',\
-        installation: 'InSearchPath',\
-        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                     ${cmakeOpts}
-                     """
-    sh 'cd build; make -j $(nproc)'
-}
-
-void getAndBuildMIGraphX(String cmakeOpts) {
-    git branch: params.MIGraphXBranch, poll: false,\
-        url: 'https://github.com/ROCm/AMDMIGraphX.git'
-    buildMIGraphX(cmakeOpts)
-}
-
-void getAndBuildCK(String cmakeOpts) {
-    git branch: params.CKBranch, poll: false,\
-        url: 'https://github.com/ROCm/composable_kernel.git'
-    buildCK(cmakeOpts)
-}
-
-void showEnv() {
-    echo "$env.NODE_NAME"
-    sh 'cat /etc/os-release'
-    sh 'ulimit -a'
-    // Ignore rocm-smi failures in ixt-sjc2-05
-    sh '/opt/rocm/bin/rocm-smi || true'
-    sh '/opt/rocm/bin/rocm_agent_enumerator'
-    sh 'id'
-    sh 'printenv'
-}
-
-String dockerImage() {
-    // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm6.4-latest'
-}
-
-String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm6.4-latest'
-}
-
-void preMergeCheck(String codepath) {
-    // Only do static check on mfma codepath during PR CI
-    if ( (params.nightly == false) && (codepath == "mfma") ) {
-        echo "Performing Static Test (preMergeCheck)"
-        sh '''
-        if [ ! -f ./build/compile_commands.json ];  then
-          echo "No compile commands, bailing."
-          exit 1
-        fi
-        if [ ! -f ./compile_commands.json ]; then
-          ln -s build/compile_commands.json compile_commands.json
-        fi
-        '''
-        if (params.ignoreExternalLinting == true) {
-            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=${params.rocMLIRTargetBranch} --ignore-external"
-        }
-        else {
-            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=${params.rocMLIRTargetBranch}"
-        }
-    } else {
-        echo "Static Test step skipped"
-    }
-}
-
-void preMergeCheckPackage(String codepath) {
-    // Only do static check on mfma codepath during PR CI
-    if ( (params.nightly == false) && (codepath == "mfma") ) {
-        echo "Checking if the fat library target list is accurate"
-        dir('build') {
-            sh '../mlir/utils/jenkins/static-checks/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
-        }
-        sh 'diff -up mlir/tools/rocmlir-lib/librockcompiler_deps.cmake ./build/librockcompiler_deps.cmake.new'
-    } else {
-        echo "Skipping fat library target list check"
-    }
-}
-
-void postProcessPerfRes(String chip) {
-    publishHTML (target: [
-        allowMissing: false,
-        alwaysLinkToLastBuild: false,
-        keepAll: true,
-        reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
-        reportName: "Performance report for ${chip}"
-    ])
-
-  if (fileExists("build/${chip}_mlir_vs_miopen_perf_for_plot.csv")) {
-    plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, Conv",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
-  }
-  if (fileExists("build/${chip}_mlir_vs_rocblas_perf_for_plot.csv")) {
-    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, GEMM",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
-  }
-    // Save results for future comparison
-    archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
-}
-
-//Get the GPU name of architecture
-def get_gpu_architecture() {
-    try {
-        def result = sh(script: 'rocminfo', returnStdout: true).trim()
-        def arch_pattern = /Name:\s+amdgcn-amd-amdhsa--(gfx\d+\w*((:\w+[\+\-]))*)/
-        def matches = (result =~ arch_pattern)
-        if (matches) {
-            return matches[0][1]
-        }
-        return 'N/A'
-    } catch (Exception e) {
-        echo "Error getting GPU architecture name: ${e}"
-        return 'N/A'
-    }
-}
-
-//makes sure multiple builds are not triggered for branch indexing
-def resetBuild() {
-    if (currentBuild.getPreviousBuild() == null
-        || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
-        def buildNumber = BUILD_NUMBER as int;
-        if (buildNumber > 1)
-            milestone(buildNumber - 1);
-        milestone(buildNumber)
-    }
-}
-
-void setHeartbeat() {
-    script {
-        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
-    }
-}
-
-String getLabelFromCodepath(String codepath) {
-    echo "codepath is ${codepath}"
-    if (codepath == "mfma") {
-        label = 'mlir && (gfx950 || gfx942 || gfx908 || gfx90a)'
-    } else if (codepath == "navi21") {
-        // For non-performance related testing, use both workstations (gfx1030w)
-        // and server nodes (gfx1030)
-        label = 'mlir && ( gfx1030w || gfx1030 )'
-    } else if (codepath == "vanilla"){
-        label = 'mlir'
-    } else if (codepath == "navi3x") {
-        label = 'mlir && ( gfx1100 || gfx1101 )'
-    } else if (codepath == "navi4x") {
-        label = 'mlir && ( gfx1200 || gfx1201 )'
-    } else {
-        echo "${codepath} is not supported"
-        label = 'wrongLabel'
-    }
-    echo "label is ${label}"
-    return label
-}
-
-String getLabelFromChip(String chip) {
-    switch (chip) {
-        case "gfx906":
-            return getLabelFromCodepath("vanilla")
-        case "gfx908":
-            return "mlir && gfx908"
-        case "gfx90a":
-            return "mlir && gfx90a"
-        case "gfx942":
-            return "mlir && gfx942"
-        case "gfx950":
-            return "mlir && gfx950"
-        case "gfx1030":
-            // For [Tune MLIR Kernels] and [Performance report] stages,
-            // fix the vm-5 workstation for testing
-            return "mlir && vm-5"
-        case "gfx1100":
-            return "mlir && gfx1100"
-        case "gfx1101":
-            return "mlir && gfx1101"
-        case "gfx1200":
-            return "mlir && gfx1200"
-        case "gfx1201":
-            return "mlir && gfx1201"
-    }
-}
-
-def rebootNode() {
-    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
-}
-
-void build_fixedE2ETests(String codepath) {
-    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
-    limit_lit_workers = false
-    llvm_lit_log_level = '-v'
-    if ( (codepath == 'navi21') && (params.nightly == true) ) {
-        limit_lit_workers = true
-    }
-    if (codepath == 'navi3x'  || codepath == 'navi4x') {
-        // print verbose logs for all the tests on Navi3x for the debugging purposes
-        llvm_lit_log_level = '-va'
-        limit_lit_workers = true
-    }
-    buildProject('check-mlir-build-only check-rocmlir-build-only', """
-              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-              -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : '-j 40' }'
-              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-             """)
-}
-
-void check_randomE2ETests(String codepath) {
-    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
-    limit_lit_workers = false
-    llvm_lit_log_level='-v'
-    if ( (codepath == 'navi21') && (params.nightly == true) ) {
-        limit_lit_workers = true
-    }
-    if ( (codepath == 'navi3x'  || codepath == 'navi4x') && (params.nightly == true) ) {
-        limit_lit_workers = true
-        // print verbose logs for all the tests on Navi3x for debugging purposes
-        llvm_lit_log_level='-va'
-    }
-    buildProject('check-rocmlir', """
-              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
-              -DROCK_E2E_TEST_ENABLED=1
-              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
-              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : '-j 40' }'
-              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-             """)
-}
-
-void parameterSweep(String CONFIG, String codepath) {
-    timeout(time: 300, activity: true, unit: 'MINUTES') {
-        dir('build') {
-            sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG}"""
-        }
-    }
-}
-
-boolean shouldRunFromCodepath(String codepath) {
-    // Run vanilla on public CI
-    if ((codepath == "vanilla") && (params.canXdlops == false)) {
-        return true
-    }
-    // Run mfma on private CI
-    if ((codepath == "mfma") && params.canXdlops) {
-        return true
-    }
-    // Run navi21 on private nightly or weekly CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21") &&
-        (params.nightly || params.weekly)) {
-        return true
-    }
-    // Run navi3x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
-        return true
-    }
-    // Run navi4x on private nightly CI only  
-    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x") &&  
-        params.nightly) {  
-        return true;  
-    }  
-    return false
-}
-
-boolean shouldRunFromChip(String chip) {
-    switch (chip) {
-        default:
-            return shouldRunFromCodepath("vanilla")
-        case "gfx90a":
-            // Special case because all our "vanilla" hosts are gfx90a.
-            return params.disable90a == false &&
-                   (shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla"))
-        case "gfx908":
-            return params.disable908 == false && shouldRunFromCodepath("mfma")
-        case "gfx942":
-            return params.disable942 == false && shouldRunFromCodepath("mfma")
-        case "gfx950":
-            return params.disable950 == false && shouldRunFromCodepath("mfma")
-        case "gfx1030":
-            return shouldRunFromCodepath("navi21")
-        case "gfx1100":
-        case "gfx1101":
-            return shouldRunFromCodepath("navi3x")
-        case "gfx1200":
-        case "gfx1201":
-            return shouldRunFromCodepath("navi4x")
-    }
-}
-
-void archivePerfDB() {
-    // Note: add additional architectures here
-    dir ('build/perfDB') {
-        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942'] : ['vanilla']
-        for (arch in architectures) {
-            try {
-                unstash name: "MLIR-PerfDB-${arch}"
-            } catch (Exception e) {
-                echo "No stash found for MLIR-PerfDB-${arch}, skipping."
-            }
-        }
-        sh 'date --utc +%Y-%m-%d >tuning-date'
-    }
-    archiveArtifacts artifacts: 'build/perfDB/**',\
-    onlyIfSuccessful: true
-}
-
-boolean shouldRunBuildAndTest(String codepath) {
-    // When default codepath is selected, we test mfma, navi21, navi3x and navi4x on
-    // private CI and vanilla on public CI
-    if (params.codepath == "default" && shouldRunFromCodepath(codepath))
-        return true
-
-    // When a particular codepath is selected, we only test the codepath
-    // on private CI
-    if (params.codepath == codepath && params.canXdlops) {
-        if (params.codepath == "mfma") return true
-        if (params.codepath == "vanilla") return true
-        if (params.codepath == "navi21" && params.disableNavi21 == false) return true
-        if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
-        if (params.codepath == "navi4x" && params.disableNavi4x == false) return true
-        return false
-    }
-}
-
-boolean isNotNavi3x(String chip) {
-    return "${CHIP}" != 'gfx1100' && "${CHIP}" != 'gfx1101'
-}
-
-void collectCoverageData(String profdata, String cov, String cpath) {
-    sh """
-       rm -f *.profraw
-       # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
-       if [ `df --output=avail -k . | tail -1l` -lt 153600000 ]; then
-          echo Not enough free disk space for profiling.
-          exit 1
-       fi
-       ninja check-rocmlir
-       # Profile processing.
-       ${profdata} merge -sparse ./*.profraw -o ./coverage.profdata
-       rm -f build/*.profraw
-       ${cov} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
-          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project > ./coverage_${cpath}.report
-       cat ./coverage_${cpath}.report
-       ${cov} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
-          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project --format=lcov              \
-          --compilation-dir ${WORKSPACE} > ./coverage_${cpath}.lcov
-       ${cov} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver        \
-          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt   \
-          --format=html > ./coverage_${cpath}.html
-       """
-}
-
+@Library('rocmlir-lib') _
 
 pipeline {
     agent none
@@ -571,7 +68,7 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                setHeartbeat()
+                rocmlir.setHeartbeat()
             }
         }
         stage("Kill old PR builds") {
@@ -580,7 +77,7 @@ pipeline {
                 equals expected: false, actual: params.nightly;
             }
             steps {
-                resetBuild()
+                rocmlir.resetBuild()
             }
         }
         stage("Build and Test") {
@@ -597,21 +94,19 @@ pipeline {
                     }
                 }
                 // Grab and lock one node per matrix-branch
-                agent {
-                    label getLabelFromCodepath("${CODEPATH}")
-                }
+                agent { label rocmlir.getLabelFromCodepath("${CODEPATH}") }
                 when {
                     beforeAgent true
-                    expression { return shouldRunBuildAndTest("$CODEPATH") }
+                    expression { return rocmlir.shouldRunBuildAndTest("$CODEPATH") }
                 }
                 stages {
                     stage('Prepare node') {
                         steps {
                             script {
                                 retry(3) {
-                                    resetGPUs()
-                                    checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    rocmlir.resetGPUs()
+                                    rocmlir.checkNodeHealth()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                             }
@@ -626,7 +121,7 @@ pipeline {
                             script {
                                 echo "DOCKER_ARGS inside a script block = ${env.DOCKER_ARGS}"
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -635,10 +130,10 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "codepath is ${CODEPATH}"
-                                        showEnv()
+                                        rocmlir.showEnv()
 
-                                        build_fixedE2ETests("${CODEPATH}")
-                                        preMergeCheck("${CODEPATH}")
+                                        rocmlir.build_fixedE2ETests("${CODEPATH}")
+                                        rocmlir.preMergeCheck("${CODEPATH}")
                                         timeout(time: 60, activity: true, unit: 'MINUTES') {
                                             sh 'cd build; ninja check-mlir check-rocmlir'
                                         }
@@ -658,7 +153,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -666,7 +161,7 @@ pipeline {
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
-                                        check_randomE2ETests("${CODEPATH}")
+                                        rocmlir.check_randomE2ETests("${CODEPATH}")
                                     }
                                 }
                             }
@@ -681,7 +176,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
 
                                 img.inside(env.DOCKER_ARGS) {
@@ -690,7 +185,7 @@ pipeline {
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
-                                        buildProject('ci-performance-scripts', '')
+                                        rocmlir.buildProject('ci-performance-scripts', '')
                                         // How to check out into specific directory, according to stackoverflow.
                                         dir('MITuna') {
                                             git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
@@ -734,7 +229,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -743,8 +238,8 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         sh 'rm -f build/CMakeCache.txt'
-                                        buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                        preMergeCheckPackage("${CODEPATH}")
+                                        rocmlir.buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                        rocmlir.preMergeCheckPackage("${CODEPATH}")
                                         echo "Running tests on the newly-built static library"
                                         dir ('build') {
                                             sh 'ninja check-rocmlir'
@@ -757,7 +252,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rebootNode()
+                        rocmlir.rebootNode()
                     }
                 }
             }
@@ -779,19 +274,19 @@ pipeline {
                         values 'mfma', 'vanilla', 'navi21'
                     }
                 }
-                agent { label getLabelFromCodepath("${CODEPATH}") }
+                agent { label rocmlir.getLabelFromCodepath("${CODEPATH}") }
                 when {
                     beforeAgent true
-                    expression { return shouldRunFromCodepath("$CODEPATH") }
+                    expression { return rocmlir.shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
                     stage('Prepare node') {
                         steps {
                             script {
                                 retry(3) {
-                                    resetGPUs()
-                                    checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    rocmlir.resetGPUs()
+                                    rocmlir.checkNodeHealth()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                             }
@@ -802,7 +297,7 @@ pipeline {
                             script {
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -810,9 +305,9 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "codepath is ${CODEPATH}"
-                                        showEnv()
-                                        setHeartbeat()
-                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                        rocmlir.showEnv()
+                                        rocmlir.setHeartbeat()
+                                        rocmlir.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                     }
                                 }
                             }
@@ -822,15 +317,15 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
-                                        parameterSweep("conv_structure", "${CODEPATH}")
-                                        parameterSweep("perf_config", "${CODEPATH}")
+                                        rocmlir.parameterSweep("conv_structure", "${CODEPATH}")
+                                        rocmlir.parameterSweep("perf_config", "${CODEPATH}")
                                     }
                                 }
                             }
@@ -839,7 +334,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rebootNode()
+                        rocmlir.rebootNode()
                     }
                 }
             }
@@ -861,19 +356,19 @@ pipeline {
                         values 'gfx908', 'gfx90a', 'gfx942'
                     }
                 }
-                agent { label getLabelFromChip("${CHIP}") }
+                agent { label rocmlir.getLabelFromChip("${CHIP}") }
                 when {
                     beforeAgent true
-                    expression { return shouldRunFromChip("${CHIP}") }
+                    expression { return rocmlir.shouldRunFromChip("${CHIP}") }
                 }
                 stages {
                     stage('Prepare node') {
                         steps {
                             script {
                                 retry(3) {
-                                    resetGPUs()
-                                    checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    rocmlir.resetGPUs()
+                                    rocmlir.checkNodeHealth()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                             }
@@ -886,7 +381,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -895,8 +390,8 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "CHIP = ${CHIP}"
-                                        showEnv()
-                                        setHeartbeat()
+                                        rocmlir.showEnv()
+                                        rocmlir.setHeartbeat()
                                     }
                                 }
                             }
@@ -906,7 +401,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -914,7 +409,7 @@ pipeline {
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
-                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                        rocmlir.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                         dir('MITuna') {
                                             git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                         }
@@ -953,7 +448,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -978,7 +473,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1013,7 +508,7 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                archivePerfDB()
+                rocmlir.archivePerfDB()
             }
         }
         // FIXME: run perf tests on both gfx90a and gfx908
@@ -1028,17 +523,17 @@ pipeline {
                 when {
                     beforeAgent true;
                     equals expected: true, actual: params.nightly;
-                    expression { return shouldRunFromChip("${CHIP}")}
+                    expression { return rocmlir.shouldRunFromChip("${CHIP}")}
                 }
-                agent { label getLabelFromChip("${CHIP}") }
+                agent { label rocmlir.getLabelFromChip("${CHIP}") }
                 stages {
                     stage('Prepare node') {
                         steps {
                             script {
                                 retry(3) {
-                                    resetGPUs()
-                                    checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    rocmlir.resetGPUs()
+                                    rocmlir.checkNodeHealth()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                             }
@@ -1048,7 +543,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1057,7 +552,7 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "chip is ${CHIP}"
-                                        showEnv()
+                                        rocmlir.showEnv()
                                         copyArtifacts filter: 'build/perfDB/**',\
                                             optional: true,\
                                             flatten: true,\
@@ -1075,7 +570,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1085,7 +580,7 @@ pipeline {
                                     ]) {
                                         // Clean up build settings to disable static library and allow
                                         // ROCm testing
-                                        buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
+                                        rocmlir.buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
                                                     ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                         -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                                                         -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
@@ -1098,7 +593,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1121,7 +616,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1153,7 +648,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1176,12 +671,12 @@ pipeline {
                         when {
                             beforeAgent true;
                             // gfx110x lacks mfma/wmma necessary for attention.
-                            expression { return isNotNavi3x("${CHIP}") }
+                            expression { return rocmlir.isNotNavi3x("${CHIP}") }
                         }
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1206,12 +701,12 @@ pipeline {
                             equals expected: true, actual: params.checkCK;
                             // ck-benchmark-driver requires CK xdl functions, which are
                             // only built for gfx9xx.
-                            expression { return isNotNavi3x("${CHIP}") }
+                            expression { return rocmlir.isNotNavi3x("${CHIP}") }
                         }
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1222,7 +717,7 @@ pipeline {
                                         catchError (buildResult: null) { // This is an optional stage
                                             dir('composable_kernel') {
                                                 sh 'rm -rf composable_kernel'
-                                                getAndBuildCK('''
+                                                rocmlir.getAndBuildCK('''
                                                     -DGPU_TARGETS=${CHIP}
                                                     -DCMAKE_CXX_FLAGS="-O3"
                                                     -DCMAKE_PREFIX_PATH="/opt/rocm"
@@ -1233,7 +728,7 @@ pipeline {
                                                 sh 'echo `git rev-parse HEAD`'
                                             }
                                             sh 'rm -f build/CMakeCache.txt'
-                                            buildProject("ck-benchmark-driver",
+                                            rocmlir.buildProject("ck-benchmark-driver",
                                                         '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
@@ -1255,7 +750,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1272,7 +767,7 @@ pipeline {
                                             sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                                             sh 'mkdir -p reports && cp ./*.html reports'
                                         }
-                                        postProcessPerfRes("${CHIP}")
+                                        rocmlir.postProcessPerfRes("${CHIP}")
                                     }
                                 }
                             }
@@ -1281,7 +776,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rebootNode()
+                        rocmlir.rebootNode()
                     }
                 }
             }
@@ -1302,19 +797,19 @@ pipeline {
                         values 'mfma', 'navi21'
                     }
                 }
-                agent { label getLabelFromCodepath("${CODEPATH}") }
+                agent { label rocmlir.getLabelFromCodepath("${CODEPATH}") }
                 when {
                     beforeAgent true
-                    expression { return shouldRunFromCodepath("$CODEPATH") }
+                    expression { return rocmlir.shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
                     stage('Prepare node') {
                         steps {
                             script {
                                 retry(3) {
-                                    resetGPUs()
-                                    checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    rocmlir.resetGPUs()
+                                    rocmlir.checkNodeHealth()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                             }
@@ -1324,7 +819,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1333,7 +828,7 @@ pipeline {
                                         "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
                                     ]) {
                                         echo "codepath is ${CODEPATH}"
-                                        showEnv()
+                                        rocmlir.showEnv()
                                         // Package and install current checkout of rocMLIR as MIGraphX dependency.
                                         sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                                     }
@@ -1345,7 +840,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1353,10 +848,10 @@ pipeline {
                                         "HOME=${env.WORKSPACE}",
                                         "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
                                     ]) {
-                                        def gpu_arch = get_gpu_architecture()
+                                        def gpu_arch = rocmlir.get_gpu_architecture()
                                         sh 'rm -rf MIGraphX'
                                         dir('MIGraphX') {
-                                            getAndBuildMIGraphX("""
+                                            rocmlir.getAndBuildMIGraphX("""
                                                             -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
                                                             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                             -DGPU_TARGETS="${gpu_arch}"
@@ -1371,7 +866,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1410,7 +905,7 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rebootNode()
+                        rocmlir.rebootNode()
                     }
                 }
             }
@@ -1430,15 +925,15 @@ pipeline {
                         values 'mfma', 'navi3x', 'navi4x'
                     }
                 }
-                agent { label getLabelFromCodepath("${CODEPATH}") }
+                agent { label rocmlir.getLabelFromCodepath("${CODEPATH}") }
                 stages {
                     stage('Prepare node') {
                         steps {
                             script {
                                 retry(3) {
-                                    resetGPUs()
-                                    checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    rocmlir.resetGPUs()
+                                    rocmlir.checkNodeHealth()
+                                    env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                             }
@@ -1448,7 +943,7 @@ pipeline {
                         steps {
                             script {
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
                                 img.inside(env.DOCKER_ARGS) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1466,11 +961,11 @@ pipeline {
                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                 sh 'rm -f build/CMakeCache.txt'
                                                 sh 'rm -f build/*.profraw'
-                                                buildProject('check-rocmlir-build-only',
+                                                rocmlir.buildProject('check-rocmlir-build-only',
                                                             '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
                                                 dir ('build') {
                                                     // Run tests.
-                                                    collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
+                                                    rocmlir.collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
                                                     // Upload to codecov.
                                                     withCredentials([string(credentialsId: 'codecov-token-rocmlir',
                                                                             variable: 'CODECOV_TOKEN')]) {
