@@ -1,7 +1,7 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // This Jenkinsfile is used for the private CI
 
-@Library("rocAutomation@rocmlir-shared-lib") _
+@Library("rocAutomation@feature/rocmlir-shared-lib") _
 
 pipeline {
     agent none
