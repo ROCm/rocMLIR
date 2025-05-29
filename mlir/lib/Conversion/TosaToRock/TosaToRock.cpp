@@ -1377,6 +1377,77 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
+  LogicalResult getConstComparison(TypedValue<TensorType> input,
+                                   size_t nonOneDimFromEnd) const {
+    // input is a constant with a range from 0 to maxSeqLen
+    FailureOr<Value> maybeNonZero = addBroadcast(input);
+    if (failed(maybeNonZero))
+      return failure();
+
+    // check that maybeNonZero is a const with range 0..maxSeqLen
+    bool isRange = false;
+    Value rangeResult;
+    if (auto constRange =
+            getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonZero.value())) {
+      rangeResult = constRange.getResult();
+      isRange = isConstRange(rangeResult);
+    } else if (auto constRange = getDefiningNonReshapeOp<tosa::ConstOp>(
+                   maybeNonZero.value())) {
+      rangeResult = constRange.getResult();
+      isRange = isConstRange(rangeResult);
+    }
+
+    if (!isRange)
+      return failure();
+
+    auto shapedType = dyn_cast<ShapedType>(rangeResult.getType());
+    if (!shapedType)
+      return failure();
+
+    auto shape = shapedType.getShape();
+    assert(nonOneDimFromEnd < shape.size());
+    size_t couldBeDiffOne = shape.size() - nonOneDimFromEnd - 1;
+    for (auto [i, dim] : llvm::enumerate(shape)) {
+      if (i != couldBeDiffOne && dim != 1) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
+  FailureOr<Value> getCausal(Value input) const {
+    auto select = getDefiningNonReshapeOp<tosa::SelectOp>(input);
+    if (select) {
+      // Check onTrue is -inf
+      auto onTrue = select.getInput2();
+      bool isConsNegInf = false;
+      if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
+        isConsNegInf = isConstIsNegInf(constOp.getResult());
+      else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
+        isConsNegInf = isConstIsNegInf(constOp.getResult());
+
+      if (!isConsNegInf)
+        return failure();
+
+      auto pred = select.getInput1();
+      if (auto greater =
+              getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
+        // input1 is a constant with a range from 0 to maxSeqLen (KV)
+        if (failed(getConstComparison(greater.getInput1(), 0)))
+          return failure();
+
+        // input2 is a constant with a range from 0 to seqLenQ
+        if (failed(getConstComparison(greater.getInput2(), 1)))
+          return failure();
+
+        Value result = select.getInput3();
+
+        return result;
+      }
+    }
+    return failure();
+  }
+
   FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
     auto select = getDefiningNonReshapeOp<tosa::SelectOp>(softmaxInput);
     if (select) {
@@ -1395,21 +1466,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (auto greater =
               getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen
-        auto input1 = greater.getInput1();
-        FailureOr<Value> maybeNonZero1 = addBroadcast(input1);
-        if (failed(maybeNonZero1))
-          return failure();
-
-        // check that maybeNonZero1 is a const with range 0..maxSeqLen
-        bool isRange = false;
-        if (auto constRange = getDefiningNonReshapeOp<arith::ConstantOp>(
-                maybeNonZero1.value()))
-          isRange = isConstRange(constRange.getResult());
-        if (auto constRange =
-                getDefiningNonReshapeOp<tosa::ConstOp>(maybeNonZero1.value()))
-          isRange = isConstRange(constRange.getResult());
-
-        if (!isRange)
+        if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();
 
         // input2 comes from argument: currentSeqLen
@@ -1453,7 +1510,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
-  FailureOr<std::tuple<Value, bool, Value>>
+  FailureOr<std::tuple<Value, bool, bool, Value>>
   maybeSoftmaxNumerator(Value val) const {
     Value currentSeqLen;
     tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
@@ -1486,12 +1543,17 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (succeeded(maybeKVCache))
       std::tie(result, currentSeqLen) = maybeKVCache.value();
 
-    return std::make_tuple(result, hasTosaReduce, currentSeqLen);
+    auto causal = getCausal(result);
+    bool isCausal = succeeded(causal);
+    if (isCausal)
+      result = causal.value();
+
+    return std::make_tuple(result, hasTosaReduce, isCausal, currentSeqLen);
   }
 
-  FailureOr<std::tuple<Value, bool, Value>>
+  FailureOr<std::tuple<Value, bool, bool, Value>>
   maybeSoftmaxDenominator(Value val) const {
-    FailureOr<std::tuple<Value, bool, Value>> result;
+    FailureOr<std::tuple<Value, bool, bool, Value>> result;
     auto rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
     if (rsum) {
       result = maybeSoftmaxNumerator(rsum.getInput());
@@ -1511,7 +1573,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return result;
   }
 
-  FailureOr<std::tuple<Value, bool, Value>> maybeSoftmax(Value val) const {
+  FailureOr<std::tuple<Value, bool, bool, Value>>
+  maybeSoftmax(Value val) const {
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
       return failure();
@@ -1553,14 +1616,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   LogicalResult match(tosa::MatMulOp op) const {
-    FailureOr<std::tuple<Value, bool, Value>> softmaxInputResult =
+    FailureOr<std::tuple<Value, bool, bool, Value>> softmaxInputResult =
         maybeSoftmax(op.getA());
     if (failed(softmaxInputResult))
       return failure();
 
     Value softmaxInput, currentSeqLen;
-    bool hasReduceOp;
-    std::tie(softmaxInput, hasReduceOp, currentSeqLen) =
+    bool hasReduceOp, isCausal;
+    std::tie(softmaxInput, hasReduceOp, isCausal, currentSeqLen) =
         softmaxInputResult.value();
 
     // currentSeqLen needs one or two dimensions
@@ -1583,6 +1646,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       LLVM_DEBUG(llvm::dbgs()
                  << "first matmul = " << maybeFirstMatMul.value() << "\n");
       LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
       if (isDotProduct && hasReduceOp)
         return failure();
       if (!isDotProduct && !hasReduceOp)
@@ -1597,7 +1661,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     Value softmaxInput, currentSeqLen;
-    std::tie(softmaxInput, std::ignore, currentSeqLen) =
+    bool isCausal;
+    std::tie(softmaxInput, std::ignore, isCausal, currentSeqLen) =
         maybeSoftmax(op.getA()).value();
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output = rewriter.create<bufferization::AllocTensorOp>(
@@ -1624,15 +1689,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       currentSeqLen = rewriter.create<tensor::CollapseShapeOp>(
           op.getLoc(), currentSeqLen, reassocIndices);
     }
-
+    UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
         elementwiseOtherArgs, currentSeqLen, output,
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
-        /*oTransposed=*/nullptr,
-        /*causal=*/nullptr, arch,
+        /*oTransposed=*/nullptr, causalAttr, arch,
         rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));

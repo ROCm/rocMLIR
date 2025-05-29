@@ -18,6 +18,7 @@
 // This pass converts rock.gridwise_gemm[_v2] into block- and threadwise ops
 //
 //===-----------------------------------------------------===//
+#include "mlir/Dialect/Affine/Analysis/LoopAnalysis.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -52,6 +53,7 @@
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -749,7 +751,8 @@ struct GridwiseAttentionAccelRewritePattern
       RegsAsMatrixSubTiles toLDSViews, Value storeBuffer,
       Value ldsTileByteBuffer, int64_t kpacksPerBlock, StringRef nonKDimName,
       int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
-      int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK) const {
+      int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK,
+      bool barrierBeforeWrite) const {
     Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
     ArrayAttr storeBufferViews =
         invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
@@ -772,6 +775,11 @@ struct GridwiseAttentionAccelRewritePattern
     // This will produce a (tid, iter) --> flat LDS view
     wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockSubTile);
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+
+    // add LDS barrier to avoid write before load of previous iteration is done
+    if (barrierBeforeWrite)
+      rewriter.create<LDSBarrierOp>(loc);
+
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
         /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
@@ -789,7 +797,7 @@ struct GridwiseAttentionAccelRewritePattern
       uint32_t blockSize, uint32_t gridSize, ArrayRef<StringRef> bidGridOrder,
       ArrayRef<int64_t> bidGridLengths, bool forceUnroll,
       PatternRewriter &rewriter, const accel::AccelEmitter &accelEmitter,
-      LDSLayoutConfigDim ldsLayoutCfg) const {
+      LDSLayoutConfigDim ldsLayoutCfg, bool barrierBeforeWrite) const {
 
     MemRefType destBufferType = cast<MemRefType>(destBuffer.getType());
     mlir::gpu::AddressSpace destBufferAddrSpace =
@@ -858,12 +866,13 @@ struct GridwiseAttentionAccelRewritePattern
       if (failed(maybeLdsStoreViews)) {
         return failure();
       }
+
       LogicalResult storeGemmTileStatus = storeGemmInputTile(
           rewriter, loc, kpack, viewLoadBuffer, maybeLdsStoreViews.value(),
           toLDSRegBuffer, destBuffer, kpacksPerBlock, nonKDimName, kPerBlock,
           dPerBlock, maybeVectorDimInfo->inKPerThread,
           maybeVectorDimInfo->inDPerThread, forceUnroll,
-          ldsLayoutCfg.doRotateWithK);
+          ldsLayoutCfg.doRotateWithK, barrierBeforeWrite);
       if (failed(storeGemmTileStatus)) {
         return failure();
       }
@@ -871,6 +880,8 @@ struct GridwiseAttentionAccelRewritePattern
       assert(!ldsLayoutCfg.doSwapThreadIterSubDims &&
              "doSwapThreadIterSubDims must be false if the destination buffer "
              "is private memory");
+      assert(!barrierBeforeWrite &&
+             "can't add a LDS barrier if the destination buffer is not LDS");
       accel::AccelEmitterParams accelEmitterParams = accelEmitter.getParams();
       int64_t dRepeats = (nonKDimName == "m" ? accelEmitterParams.mRepeats
                                              : accelEmitterParams.nRepeats);
@@ -2083,7 +2094,7 @@ struct GridwiseAttentionAccelRewritePattern
             fromGlobalRegBufferQ, toLDSRegBufferQ, preAccelRegBuffersQ, "n",
             gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
             gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0, ldsLayoutCfgNG0);
+            *accelEmitterPtrGemm0, ldsLayoutCfgNG0, false);
         if (failed(statusLoadQTile)) {
           return failure();
         }
@@ -2095,7 +2106,7 @@ struct GridwiseAttentionAccelRewritePattern
             fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ, "n",
             gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
             gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0, ldsLayoutCfgNG0);
+            *accelEmitterPtrGemm0, ldsLayoutCfgNG0, false);
         if (failed(statusLoadQ)) {
           return failure();
         }
@@ -2164,6 +2175,27 @@ struct GridwiseAttentionAccelRewritePattern
           kLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
               loc, reverseMap, ValueRange{kLoopIV, kIterationsGemm0Val});
         }
+
+        // LDS Barrier (issue 1811): some threads might be loading from LDS
+        // while others are in the next iteration (here), writing to LDS. This
+        // barrier prevents that.
+        std::optional<uint64_t> mLoopIters = std::nullopt;
+        // mLoopOp can be a scf::ForOp if we are using KV Cache or Causal
+        // masking. If that's the case, we can't know the number of iterations
+        // at compile time.
+        if (auto mLoopAffineFor =
+                dyn_cast<affine::AffineForOp>(mLoopOp.getOperation()))
+          mLoopIters = mlir::affine::getConstantTripCount(mLoopAffineFor);
+
+        bool mIterOneIter = mLoopIters.has_value() && mLoopIters.value() == 1;
+        auto kLoopIters = mlir::affine::getConstantTripCount(kLoopOp);
+        bool kIterOneIter = kLoopIters.has_value() && kLoopIters.value() == 1;
+        // no need to have the barrier if there's just one iteration
+        bool addBarrierFirstGemm = !kIterOneIter || !mIterOneIter;
+        if (addBarrierFirstGemm)
+          LLVM_DEBUG(llvm::dbgs()
+                     << "adding a barrier in the first gemm loop\n");
+
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
         TypedValue<MemRefType> ldsTileBufferQ;
@@ -2176,14 +2208,19 @@ struct GridwiseAttentionAccelRewritePattern
               toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack,
               gemm0KpacksPerBlock, gemm0NPerBlock, blockSize, gridSize,
               bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-              *accelEmitterPtrGemm0, ldsLayoutCfgNG0);
+              *accelEmitterPtrGemm0, ldsLayoutCfgNG0, addBarrierFirstGemm);
           if (failed(statusLoadQ)) {
             return failure();
           }
+          // no need to add a barrier in the next call to
+          // loadAndStoreGemmInputTile()
+          addBarrierFirstGemm = false;
           ldsTileBufferQ =
               viewBufferAs(rewriter, ldsByteBufferQ,
                            vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         }
+        // if we added a barrier in the previous block (load Q), there's no need
+        // to add it again here.
         Value ldsByteBufferK = createLDSByteBuffer(
             rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
@@ -2191,7 +2228,7 @@ struct GridwiseAttentionAccelRewritePattern
             toLDSRegBufferK, ldsByteBufferK, "m", gemm0kpack,
             gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
             bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0, ldsLayoutCfgMG0);
+            *accelEmitterPtrGemm0, ldsLayoutCfgMG0, addBarrierFirstGemm);
         if (failed(statusLoadKTile)) {
           return failure();
         }
@@ -2409,12 +2446,13 @@ struct GridwiseAttentionAccelRewritePattern
           // the transposed layout for this gemm.
           gemm1LDSByteBufferB = createLDSByteBuffer(
               rewriter, loc, gemm1LDSByteBufferBSize, elemTypeV);
+
           LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
               rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
               gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
               gemm1LDSByteBufferB, gemm1KpacksPerBlock, "n", gemm1KPerBlock,
               gemm1NPerBlock, /*copyKPerThread=*/1, gemm1InNPerThread,
-              forceUnroll, false);
+              forceUnroll, false, false);
           if (failed(storeGemm1ATileStatus)) {
             return failure();
           }
@@ -2445,13 +2483,26 @@ struct GridwiseAttentionAccelRewritePattern
 
           Value ldsByteBufferV = createLDSByteBuffer(
               rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
+
+          // LDS Barrier (issue 1811): some threads might be loading from LDS
+          // while others are in the next iteration (here), writing to LDS. This
+          // barrier prevents that. No need to have the barrier if there's just
+          // one iteration
+          auto g1MLoopIters = mlir::affine::getConstantTripCount(g1MLoopOp);
+          bool g1MIterOneIter =
+              g1MLoopIters.has_value() && g1MLoopIters.value() == 1;
+          bool addBarrierSecondGemm = !g1MIterOneIter;
+          if (addBarrierSecondGemm)
+            LLVM_DEBUG(llvm::dbgs()
+                       << "adding a barrier in the second gemm loop\n");
+
           LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
               loc, inV,
               /*kIter=*/mLoopIV, gridCoordsGemm1, fromGlobalRegBufferV,
               toLDSRegBufferV, ldsByteBufferV, "m", gemm1kpack,
               gemm1KpacksPerBlock, gemm1MPerBlock, blockSize, gridSize,
               bidGridOrder, gemm1BidGridLengths, forceUnroll, rewriter,
-              *accelEmitterPtrGemm1, ldsLayoutCfgMG1);
+              *accelEmitterPtrGemm1, ldsLayoutCfgMG1, addBarrierSecondGemm);
           if (failed(statusLoadVTile)) {
             return failure();
           }
