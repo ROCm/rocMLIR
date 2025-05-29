@@ -104,6 +104,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
+                                echo "entered block A"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -120,6 +121,7 @@ pipeline {
                         }                    
                         steps {
                             script {
+                                echo "entered block B"
                                 echo "DOCKER_ARGS inside a script block = ${env.DOCKER_ARGS}"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
@@ -153,6 +155,7 @@ pipeline {
                         }                  
                         steps {
                             script {
+                                echo "entered block C"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -176,6 +179,7 @@ pipeline {
                         }
                         steps {
                             script {
+                                echo "entered block D"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -229,6 +233,7 @@ pipeline {
                         }
                         steps {
                             script {
+                                echo "entered block E"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -284,6 +289,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
+                                echo "entered block F"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -296,6 +302,7 @@ pipeline {
                     stage("Prepare Performance Scripts") {
                         steps {
                             script {
+                                echo "entered block G"
                                 echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
@@ -317,6 +324,7 @@ pipeline {
                     stage("Parameter Sweep") {
                         steps {
                             script {
+                                echo "entered block H"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -366,6 +374,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
+                                echo "entered block I"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -381,6 +390,7 @@ pipeline {
                         }
                         steps {
                             script {
+                                echo "entered block J"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -401,6 +411,7 @@ pipeline {
                     stage("Tune rocMLIR") {
                         steps {
                             script {
+                                echo "entered block K"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -448,6 +459,7 @@ pipeline {
                     stage("Tune Fusion") {
                         steps {
                             script {
+                                echo "entered block L"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -473,6 +485,7 @@ pipeline {
                     stage("Stash Databases") {
                         steps {
                             script {
+                                echo "entered block M"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -531,6 +544,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
+                                echo "entered block N"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -543,6 +557,7 @@ pipeline {
                     stage("Copy tuning database") {
                         steps {
                             script {
+                                echo "entered block O"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -570,6 +585,7 @@ pipeline {
                     stage("Build MLIR") {
                         steps {
                             script {
+                                echo "entered block P"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -593,6 +609,7 @@ pipeline {
                     stage("Copy earlier performance results") {
                         steps {
                             script {
+                                echo "entered block Q"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -616,6 +633,7 @@ pipeline {
                     stage("Test MLIR vs MIOpen/rocBLAS") {
                         steps {
                             script {
+                                echo "entered block R"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -648,6 +666,7 @@ pipeline {
                     stage("Test Fusion") {
                         steps {
                             script {
+                                echo "entered block S"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -676,6 +695,7 @@ pipeline {
                         }
                         steps {
                             script {
+                                echo "entered block T"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -706,6 +726,7 @@ pipeline {
                         }
                         steps {
                             script {
+                                echo "entered block U"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -750,6 +771,7 @@ pipeline {
                     stage("Create performance reports") {
                         steps {
                             script {
+                                echo "entered block V"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -807,6 +829,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
+                                echo "entered block W"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -819,6 +842,7 @@ pipeline {
                     stage("Install MIGraphX Dependencies") {
                         steps {
                             script {
+                                echo "entered block X"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -840,6 +864,7 @@ pipeline {
                     stage("Build MIGraphX with MLIR") {
                         steps {
                             script {
+                                echo "entered block Y"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -866,6 +891,7 @@ pipeline {
                     stage("Verify MIGraphX with MLIR") {
                         steps {
                             script {
+                                echo "entered block Z"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
@@ -931,6 +957,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
+                                echo "entered block A1"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -943,6 +970,7 @@ pipeline {
                     stage ("body") {
                         steps {
                             script {
+                                echo "entered block A2"
                                 // Run a docker container
                                 def img = docker.image(rocmlir.dockerImage())
                                 def pulled = img?.pull()
