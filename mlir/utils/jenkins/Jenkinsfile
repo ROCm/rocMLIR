@@ -69,7 +69,9 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                rocmlir.setHeartbeat()
+                script {
+                    rocmlir.setHeartbeat()
+                }
             }
         }
         stage("Kill old PR builds") {
@@ -78,7 +80,9 @@ pipeline {
                 equals expected: false, actual: params.nightly;
             }
             steps {
-                rocmlir.resetBuild()
+                script {
+                    rocmlir.resetBuild()
+                }
             }
         }
         stage("Build and Test") {
@@ -253,7 +257,9 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rocmlir.rebootNode()
+                        script {
+                            rocmlir.rebootNode()
+                        }
                     }
                 }
             }
@@ -335,7 +341,9 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rocmlir.rebootNode()
+                        script {
+                            rocmlir.rebootNode()
+                        }
                     }
                 }
             }
@@ -509,7 +517,9 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                rocmlir.archivePerfDB()
+                script {
+                    rocmlir.archivePerfDB()
+                }
             }
         }
         // FIXME: run perf tests on both gfx90a and gfx908
@@ -777,7 +787,9 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rocmlir.rebootNode()
+                        script {
+                            rocmlir.rebootNode()
+                        }
                     }
                 }
             }
@@ -906,7 +918,9 @@ pipeline {
                 }
                 post {
                     unsuccessful {
-                        rocmlir.rebootNode()
+                        script {
+                            rocmlir.rebootNode()
+                        }
                     }
                 }
             }
