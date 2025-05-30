@@ -356,6 +356,7 @@ void build_fixedE2ETests(String codepath) {
         llvm_lit_log_level = '-va'
         limit_lit_workers = true
     }
+    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     if (codepath == 'mfma') {
         def gpu_arch = get_gpu_architecture()
         if (gpu_arch.contains('gfx908')) {
@@ -389,6 +390,7 @@ void check_randomE2ETests(String codepath) {
         // print verbose logs for all the tests on Navi3x for debugging purposes
         llvm_lit_log_level='-va'
     }
+    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     if (codepath == 'mfma') {
         def gpu_arch = get_gpu_architecture()
         if (gpu_arch.contains('gfx908')) {
