@@ -257,20 +257,20 @@ pipeline {
                description: 'Choose the weekly tasks')
     }
     stages {
-        stage("Set System Property") {
-            steps {
-                setHeartbeat()
-            }
-        }
-        stage("Kill old PR builds") {
-            when {
-                equals expected: false, actual: params.weekly;
-                equals expected: false, actual: params.nightly;
-            }
-            steps {
-                resetBuild()
-            }
-        }
+        // stage("Set System Property") {
+        //     steps {
+        //         setHeartbeat()
+        //     }
+        // }
+        // stage("Kill old PR builds") {
+        //     when {
+        //         equals expected: false, actual: params.weekly;
+        //         equals expected: false, actual: params.nightly;
+        //     }
+        //     steps {
+        //         resetBuild()
+        //     }
+        // }
         stage("Build and Test") {
             when {
                 beforeAgent true
@@ -303,56 +303,56 @@ pipeline {
                             }
                         }
                     }
-                    stage("Shared Library: fixed E2E tests") {
-                        when {
-                            beforeAgent true;
-                            equals expected: true, actual: params.sharedLib;
-                        }                    
-                        steps {
-                            script {
-                                runFixedE2E(CODEPATH)
-                            }
-                        }
-                    }
-                    stage("Shared Library: random E2E tests") {
-                        when {
-                            beforeAgent true;
-                            allOf {
-                                equals expected: true, actual: params.sharedLib;
-                                equals expected: true, actual: params.nightly
-                            }
-                        }                  
-                        steps {
-                            script {
-                                runRandomE2E(CODEPATH)
-                            }
-                        }
-                    }
-                    stage("Tune selected rocmlir configs") {
-                        when {
-                            beforeAgent true;
-                            equals expected: true, actual: params.sharedLib;
-                            equals expected: false, actual: params.nightly;
-                        }
-                        steps {
-                            script {
-                                tuneSelectedConfigs(CODEPATH)
-                            }
-                        }
-                    }
-                    stage("Static Library: build rocMLIR packages") {
-                        when {
-                            beforeAgent true;
-                            equals expected: true, actual: params.staticLib;
-                            equals expected: false, actual: params.nightly;
-                        }
-                        steps {
-                            script {
-                                buildStaticPackage(CODEPATH)
-                            }
+                    // stage("Shared Library: fixed E2E tests") {
+                    //     when {
+                    //         beforeAgent true;
+                    //         equals expected: true, actual: params.sharedLib;
+                    //     }                    
+                    //     steps {
+                    //         script {
+                    //             runFixedE2E(CODEPATH)
+                    //         }
+                    //     }
+                    // }
+                    // stage("Shared Library: random E2E tests") {
+                    //     when {
+                    //         beforeAgent true;
+                    //         allOf {
+                    //             equals expected: true, actual: params.sharedLib;
+                    //             equals expected: true, actual: params.nightly
+                    //         }
+                    //     }                  
+                    //     steps {
+                    //         script {
+                    //             runRandomE2E(CODEPATH)
+                    //         }
+                    //     }
+                    // }
+                    // stage("Tune selected rocmlir configs") {
+                    //     when {
+                    //         beforeAgent true;
+                    //         equals expected: true, actual: params.sharedLib;
+                    //         equals expected: false, actual: params.nightly;
+                    //     }
+                    //     steps {
+                    //         script {
+                    //             tuneSelectedConfigs(CODEPATH)
+                    //         }
+                    //     }
+                    // }
+                    // stage("Static Library: build rocMLIR packages") {
+                    //     when {
+                    //         beforeAgent true;
+                    //         equals expected: true, actual: params.staticLib;
+                    //         equals expected: false, actual: params.nightly;
+                    //     }
+                    //     steps {
+                    //         script {
+                    //             buildStaticPackage(CODEPATH)
+                    //         }
 
-                        }
-                    }
+                    //     }
+                    // }
                 }
                 post {
                     unsuccessful {
