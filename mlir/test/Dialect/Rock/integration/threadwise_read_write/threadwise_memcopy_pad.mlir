@@ -1,4 +1,4 @@
-// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -gO 2 -arch %arch -c  | rocmlir-opt --canonicalize| mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | sed s/##TOKEN_ARCH##/%arch/g | rocmlir-driver -gO 2 -arch %arch -c  | rocmlir-opt --canonicalize| mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK-COUNT-493: 2
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1 - 2, d2 - 1)> by [<Pad{2, 1, 1, 2} ["0", "z"] at [1, 2] -> ["0", "z"] at [1, 2]>, <PassThrough ["1"] at [0] -> ["1"] at [0]>] bounds = [1, 20, 32] -> [1, 17, 29]>
@@ -9,7 +9,7 @@
 #transform_map4 = #rock.transform_map<affine_map<(d0, d1) -> (d0, d1 - 2)> by [<Pad{2, 1} ["iter"] at [1] -> ["iter"] at [1]>, <PassThrough ["tid"] at [0] -> ["tid"] at [0]>] bounds = [4, 20] -> [4, 17]>
 #transform_map5 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
 
-func.func @rock_threadwise_memcopy_pad(%input : memref<1x17x29xf32>,  %output : memref<1x17x29xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+func.func @rock_threadwise_memcopy_pad(%input : memref<1x17x29xf32>,  %output : memref<1x17x29xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<4x17xf32, #gpu.address_space<workgroup>>
