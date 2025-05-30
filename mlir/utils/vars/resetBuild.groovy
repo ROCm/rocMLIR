@@ -1,0 +1,3 @@
+def call() {
+    rocmlir.resetBuild()
+}
