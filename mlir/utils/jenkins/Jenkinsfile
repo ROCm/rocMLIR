@@ -94,26 +94,26 @@ def tuneMlir(String chip) {
             // Tune gemms with default datatypes, fail if the DB is not created
             // (Includes int8xint8->int8 for performance comparisons against CK.)
             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                    -c ../mlir/utils/performance/configs/gemm-configs \
+                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
                     -t ${env.WORKSPACE}/MITuna -f mlir_tuning_${chip}.tsv
                 [ -f mlir_tuning_${chip}.tsv ]"""
             // Tune resnet50 and unet configs
             sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                    -c ../mlir/utils/performance/configs/conv-configs \
+                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
                     -t ${env.WORKSPACE}/MITuna -f mlir_tuning_${chip}.tsv"""
             // Tune attention configs
             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                    -c ../mlir/utils/performance/configs/attention-configs \
+                    -c ../mlir/utils/performance/configs/tier1-attention-configs \
                     -t ${env.WORKSPACE}/MITuna -f mlir_tuning_${chip}.tsv"""
             // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
             // (Includes int8xint8->int8 for performance comparisons against CK.)
             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                    -c ../mlir/utils/performance/configs/gemm-configs -s quick \
+                    -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
                     -t ${env.WORKSPACE}/MITuna -f mlir_quick_tuning_${chip}.tsv
                 [ -f mlir_quick_tuning_${chip}.tsv ]"""
             // Tune resnet50 and unet configs (quick tuning)
             sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                    -c ../mlir/utils/performance/configs/conv-configs -s quick \
+                    -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
                     -t ${env.WORKSPACE}/MITuna -f mlir_quick_tuning_${chip}.tsv"""
         }
     }
@@ -185,7 +185,16 @@ def testMlirVsCK(String chip) {
             )
 
             dir('build') {
-                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all --configs_file=${env.WORKSPACE}/mlir/utils/performance/configs/gemm-configs --tuning_db=${env.WORKSPACE}/build/mlir_tuning_${chip}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                script {
+                    def gemmInput = "${env.WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                    def gemmTouse = gemmInput
+                    if (params.nightly) {
+                        def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                        rocmlir.splitConfigFile(gemingemmInputput, gemmTouse, runIndex)
+                    }
+                }
+                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all
+                --configs_file=${gemmTouse} --tuning_db=${env.WORKSPACE}/build/mlir_tuning_${chip}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                 sh "python3 ./bin/createPerformanceReports.py ${chip} CK"
             }
         }
@@ -516,17 +525,31 @@ pipeline {
                         steps {
                             withRocmDocker {
                                 dir('build') {
+                                    script {
+                                        def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
+                                        def convToUse = convInput
+                                        if (params.nightly) {
+                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                            splitConfigFile(convInput, convToUse, runIndex)
+                                        }
+                                        def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                        def gemmToUse = gemmInput
+                                        if (params.nightly) {
+                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                            splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                        }
+                                    }
                                     sh 'date --utc +%Y-%m-%d > perf-run-date'
                                     sh 'ls -l /dev/kfd'
                                     sh 'ls -l /dev/dri'
                                     // Run MLIR vs MIOpend perf benchmarks.
                                     sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/conv-configs \
+                                        --configs_file=${convToUse} \
                                         --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                         --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                     // Run MLIR vs rocBLAS perf benchmarks
                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
+                                        --configs_file=${gemmToUse} \
                                         --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                         --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                 }
@@ -554,9 +577,17 @@ pipeline {
                         steps {
                             withRocmDocker {
                                 dir('build') {
+                                    script {
+                                        def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
+                                        def attnToUse = attnInput
+                                        if (params.nightly) {
+                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                            splitConfigFile(attnInput, attnToUse, runIndex)
+                                        }
+                                    }
                                     // Run attention benchmarks
                                     sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/attention-configs \
+                                        --configs_file=${attnToUse} \
                                         --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                 }
                             }
