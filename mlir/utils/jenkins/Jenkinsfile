@@ -1,5 +1,12 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
+import groovy.transform.Field
+import java.util.concurrent.ConcurrentHashMap
+
+// ConcurrentHashMap helps when we need to write variables in parallel
+@Field                                 // one instance for the whole run
+ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -95,16 +102,13 @@ def checkNodeHealth(Map opts = [:]) {
     )
 }
 
-String dockerArgs() {
-    // Helper to run a shell command and get its stdout
+Map<String,String> dockerArgs() {
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
-
-    // Enumerate /dev/dri/renderD* devices if they exist
+    // discover devices
     String renderFlags = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
-                         .split()
-                         .collect { "--device=${it}" }
-                         .join(' ')
-
+                       .split()
+                       .collect { "--device=${it}" }
+                       .join(' ')
     // /dev/kfd appears only on GPU-enabled nodes
     boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
     String   kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
@@ -113,13 +117,16 @@ String dockerArgs() {
     String renderGid = run("getent group render | cut -d':' -f3")
     String videoGid = run("getent group video | cut -d':' -f3")
 
-    return """
-        --privileged --ipc=host \
+    String args = """
         ${kfdFlg} \
         ${renderFlags} \
-        --group-add ${videoGid} --group-add ${renderGid} 
+        --group-add ${videoGid} --group-add ${renderGid}
     """.trim().replaceAll(/\s+/, ' ')
+
+    DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
+    return DOCKER_ARGS_BY_NODE // ConcurrentHashMap
 }
+
 
 void buildCK(String cmakeOpts) {
     sh '[ ! -d build ] || rm -rf build'
@@ -620,9 +627,12 @@ pipeline {
                                 retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    // Fill the map object for the particular node
+                                    dockerArgs()
                                 }
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                echo "Node environment:"
+                                showEnv()
                             }
                         }
                     }
@@ -633,17 +643,20 @@ pipeline {
                         }                    
                         steps {
                             script {
-                                echo "DOCKER_ARGS inside a script block = ${env.DOCKER_ARGS}"
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "codepath is ${CODEPATH}"
+                                        echo "Container environment:"
                                         showEnv()
 
                                         build_fixedE2ETests("${CODEPATH}")
@@ -666,10 +679,13 @@ pipeline {
                         }                  
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -689,11 +705,13 @@ pipeline {
                         }
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -742,10 +760,13 @@ pipeline {
                         }
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -800,25 +821,31 @@ pipeline {
                                 retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    // Fill the map object for the particular node
+                                    dockerArgs()
                                 }
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                echo "Node environment:"
+                                showEnv()
                             }
                         }
                     }
                     stage("Prepare Performance Scripts") {
                         steps {
                             script {
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "codepath is ${CODEPATH}"
+                                        echo "Container environment:"
                                         showEnv()
                                         setHeartbeat()
                                         buildProject('check-rocmlir-build-only ci-performance-scripts', '')
@@ -830,10 +857,13 @@ pipeline {
                     stage("Parameter Sweep") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "HOME=${env.WORKSPACE}"
@@ -882,9 +912,12 @@ pipeline {
                                 retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    // Fill the map object for the particular node
+                                    dockerArgs()
                                 }
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                echo "Node environment:"
+                                showEnv()
                             }
                         }
                     }
@@ -894,16 +927,20 @@ pipeline {
                         }
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "CHIP = ${CHIP}"
+                                        echo "Container environment:"
                                         showEnv()
                                         setHeartbeat()
                                     }
@@ -914,10 +951,13 @@ pipeline {
                     stage("Tune rocMLIR") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -961,10 +1001,13 @@ pipeline {
                     stage("Tune Fusion") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -986,10 +1029,13 @@ pipeline {
                     stage("Stash Databases") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1047,25 +1093,32 @@ pipeline {
                                 retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    // Fill the map object for the particular node
+                                    dockerArgs()
                                 }
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                echo "Node environment:"
+                                showEnv()
                             }
                         }
                     }
                     stage("Copy tuning database") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         echo "chip is ${CHIP}"
+                                        echo "Container environment:"
                                         showEnv()
                                         copyArtifacts filter: 'build/perfDB/**',\
                                             optional: true,\
@@ -1083,10 +1136,13 @@ pipeline {
                     stage("Build MLIR") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1106,10 +1162,13 @@ pipeline {
                     stage("Copy earlier performance results") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1129,10 +1188,13 @@ pipeline {
                     stage("Test MLIR vs MIOpen/rocBLAS") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1175,10 +1237,13 @@ pipeline {
                     stage("Test Fusion") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1203,10 +1268,13 @@ pipeline {
                         }
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1241,10 +1309,13 @@ pipeline {
                         }
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1294,10 +1365,13 @@ pipeline {
                     stage("Create performance reports") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "PATH=/opt/rocm/llvm/bin:${env.PATH}",
@@ -1354,25 +1428,32 @@ pipeline {
                                 retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    // Fill the map object for the particular node
+                                    dockerArgs()
                                 }
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                echo "Node environment:"
+                                showEnv()
                             }
                         }
                     }
                     stage("Install MIGraphX Dependencies") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "HOME=${env.WORKSPACE}",
                                         "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
                                     ]) {
                                         echo "codepath is ${CODEPATH}"
+                                        echo "Container environment:"
                                         showEnv()
                                         // Package and install current checkout of rocMLIR as MIGraphX dependency.
                                         sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
@@ -1384,10 +1465,13 @@ pipeline {
                     stage("Build MIGraphX with MLIR") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "HOME=${env.WORKSPACE}",
@@ -1410,10 +1494,13 @@ pipeline {
                     stage("Verify MIGraphX with MLIR") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "HOME=${env.WORKSPACE}",
@@ -1478,19 +1565,25 @@ pipeline {
                                 retry(3) {
                                     resetGPUs()
                                     checkNodeHealth()
-                                    env.DOCKER_ARGS = dockerArgs()
+                                    // Fill the map object for the particular node
+                                    dockerArgs()
                                 }
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                echo "Node environment:"
+                                showEnv()
                             }
                         }
                     }
                     stage ("body") {
                         steps {
                             script {
+                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                echo "Running Docker with: ${argsForThisNode}"
+
                                 // Run a docker container
                                 def img = docker.image(dockerImage())
                                 def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
+                                img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                     withEnv([
                                         "HOME=${env.WORKSPACE}",
@@ -1501,6 +1594,8 @@ pipeline {
                                         "LLVM_COV=/opt/rocm/llvm/bin/llvm-cov"
 
                                     ]) {
+                                        echo "Container environment:"
+                                        showEnv()
                                         // Build with profiling on, and just code-generation tests.
                                         try {
                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
