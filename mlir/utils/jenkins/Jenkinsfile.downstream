@@ -1,6 +1,6 @@
 // This Jenkinsfile is used for the public CI
 
-@Library("rocAutomation@jenkins-pipelines") _
+@Library("rocMLIR@feature/shared-lib-for-groovy-jenkins") _
 
 pipeline {
     agent none
