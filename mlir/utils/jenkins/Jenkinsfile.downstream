@@ -18,6 +18,7 @@ void showEnv() {
     sh 'cat /etc/os-release'
     sh 'ulimit -a'
     sh '/opt/rocm/bin/rocm-smi'
+    sh '/opt/rocm/.info/version'
 }
 
 String dockerArgs() {
@@ -42,9 +43,7 @@ String dockerArgs() {
         --privileged --ipc=host \
         ${kfdFlg} \
         ${renderFlags} \
-        --group-add ${videoGid} --group-add ${renderGid} \
-        -v /etc/passwd:/etc/passwd:ro \
-        -v /etc/group:/etc/group:ro
+        --group-add ${videoGid} --group-add ${renderGid} 
     """.trim().replaceAll(/\s+/, ' ')
 }
 
