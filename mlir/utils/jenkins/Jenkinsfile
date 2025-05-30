@@ -104,8 +104,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(1) {
-                                    rocmlir.resetGPUs()
+                                retry(3) {
                                     rocmlir.checkNodeHealth()
                                     env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
@@ -247,8 +246,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(1) {
-                                    rocmlir.resetGPUs()
+                                retry(3) {
                                     rocmlir.checkNodeHealth()
                                     env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
@@ -312,8 +310,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(1) {
-                                    rocmlir.resetGPUs()
+                                retry(3) {
                                     rocmlir.checkNodeHealth()
                                     env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
@@ -437,8 +434,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(1) {
-                                    rocmlir.resetGPUs()
+                                retry(3) {
                                     rocmlir.checkNodeHealth()
                                     env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
@@ -633,8 +629,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(1) {
-                                    rocmlir.resetGPUs()
+                                retry(3) {
                                     rocmlir.checkNodeHealth()
                                     env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
@@ -728,8 +723,7 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                retry(1) {
-                                    rocmlir.resetGPUs()
+                                retry(3) {
                                     rocmlir.checkNodeHealth()
                                     env.DOCKER_ARGS = rocmlir.dockerArgs()
                                 }
