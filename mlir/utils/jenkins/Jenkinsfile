@@ -104,7 +104,6 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                echo "entered block A"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -120,27 +119,14 @@ pipeline {
                             equals expected: true, actual: params.sharedLib;
                         }                    
                         steps {
-                            script {
-                                echo "entered block B"
-                                echo "DOCKER_ARGS inside a script block = ${env.DOCKER_ARGS}"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        echo "codepath is ${CODEPATH}"
-                                        rocmlir.showEnv()
+                            withRocmDocker {
+                                echo "codepath is ${CODEPATH}"
+                                rocmlir.showEnv()
 
-                                        rocmlir.build_fixedE2ETests("${CODEPATH}")
-                                        rocmlir.preMergeCheck("${CODEPATH}")
-                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                            sh 'cd build; ninja check-mlir check-rocmlir'
-                                        }
-                                    }
+                                rocmlir.build_fixedE2ETests("${CODEPATH}")
+                                rocmlir.preMergeCheck("${CODEPATH}")
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    sh 'cd build; ninja check-mlir check-rocmlir'
                                 }
                             }
                         }
@@ -154,20 +140,8 @@ pipeline {
                             }
                         }                  
                         steps {
-                            script {
-                                echo "entered block C"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        rocmlir.check_randomE2ETests("${CODEPATH}")
-                                    }
-                                }
+                            withRocmDocker {
+                                rocmlir.check_randomE2ETests("${CODEPATH}")
                             }
                         }
                     }
@@ -178,48 +152,35 @@ pipeline {
                             equals expected: false, actual: params.nightly;
                         }
                         steps {
-                            script {
-                                echo "entered block D"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        rocmlir.buildProject('ci-performance-scripts', '')
-                                        // How to check out into specific directory, according to stackoverflow.
-                                        dir('MITuna') {
-                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                        }
-                                        dir('build') {
-                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                // Tune gemms, fail if the DB is not created
-                                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                        -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                        -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
-                                                    [ -f tuning_gemm.tsv ]"""
-                                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                        -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                        -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
-                                                    [ -f tuning_conv.tsv ]"""
-                                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                        -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                        -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
-                                                    [ -f tuning_attention.tsv ]"""
-                                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                        -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                        -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
-                                                    [ -f quick_tuning_gemm.tsv ]"""
-                                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                        -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                        -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
-                                                    [ -f quick_tuning_conv.tsv ]"""
-                                            }
-                                        }
+                            withRocmDocker {
+                                rocmlir.buildProject('ci-performance-scripts', '')
+                                // How to check out into specific directory, according to stackoverflow.
+                                dir('MITuna') {
+                                    git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                }
+                                dir('build') {
+                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                        // Tune gemms, fail if the DB is not created
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                            [ -f tuning_gemm.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                            [ -f tuning_conv.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                            [ -f tuning_attention.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                            [ -f quick_tuning_gemm.tsv ]"""
+                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                            [ -f quick_tuning_conv.tsv ]"""
                                     }
                                 }
                             }
@@ -232,25 +193,13 @@ pipeline {
                             equals expected: false, actual: params.nightly;
                         }
                         steps {
-                            script {
-                                echo "entered block E"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        sh 'rm -f build/CMakeCache.txt'
-                                        rocmlir.buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                        rocmlir.preMergeCheckPackage("${CODEPATH}")
-                                        echo "Running tests on the newly-built static library"
-                                        dir ('build') {
-                                            sh 'ninja check-rocmlir'
-                                        }
-                                    }
+                            withRocmDocker {
+                                sh 'rm -f build/CMakeCache.txt'
+                                rocmlir.buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                rocmlir.preMergeCheckPackage("${CODEPATH}")
+                                echo "Running tests on the newly-built static library"
+                                dir ('build') {
+                                    sh 'ninja check-rocmlir'
                                 }
                             }
                         }
@@ -289,7 +238,6 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                echo "entered block F"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -301,42 +249,19 @@ pipeline {
                     }
                     stage("Prepare Performance Scripts") {
                         steps {
-                            script {
-                                echo "entered block G"
-                                echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        echo "codepath is ${CODEPATH}"
-                                        rocmlir.showEnv()
-                                        rocmlir.setHeartbeat()
-                                        rocmlir.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                    }
-                                }
+                            withRocmDocker {
+                                echo "codepath is ${CODEPATH}"
+                                rocmlir.showEnv()
+                                rocmlir.setHeartbeat()
+                                rocmlir.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                             }
                         }
                     }
                     stage("Parameter Sweep") {
                         steps {
-                            script {
-                                echo "entered block H"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        rocmlir.parameterSweep("conv_structure", "${CODEPATH}")
-                                        rocmlir.parameterSweep("perf_config", "${CODEPATH}")
-                                    }
-                                }
+                            withRocmDocker {
+                                rocmlir.parameterSweep("conv_structure", "${CODEPATH}")
+                                rocmlir.parameterSweep("perf_config", "${CODEPATH}")
                             }
                         }       
                     }
@@ -374,7 +299,6 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                echo "entered block I"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -389,117 +313,69 @@ pipeline {
                             equals expected: "gfx90a", actual: "${CHIP}"
                         }
                         steps {
-                            script {
-                                echo "entered block J"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        echo "CHIP = ${CHIP}"
-                                        rocmlir.showEnv()
-                                        rocmlir.setHeartbeat()
-                                    }
-                                }
+                            withRocmDocker {
+                                echo "CHIP = ${CHIP}"
+                                rocmlir.showEnv()
+                                rocmlir.setHeartbeat()
                             }
                         }
                     }
                     stage("Tune rocMLIR") {
                         steps {
-                            script {
-                                echo "entered block K"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        rocmlir.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                        dir('MITuna') {
-                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                        }
-                                        dir('build') {
-                                            // Tune gemms with default datatypes, fail if the DB is not created
-                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                    -c ../mlir/utils/performance/configs/gemm-configs \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
-                                                [ -f mlir_tuning_${CHIP}.tsv ]"""
-                                            // Tune resnet50 and unet configs
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                    -c ../mlir/utils/performance/configs/conv-configs \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
-                                            // Tune attention configs
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                    -c ../mlir/utils/performance/configs/attention-configs \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
-                                            // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                    -c ../mlir/utils/performance/configs/gemm-configs -s quick \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
-                                                [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                            // Tune resnet50 and unet configs (quick tuning)
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                    -c ../mlir/utils/performance/configs/conv-configs -s quick \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv"""
-                                        }
-                                    }
+                            withRocmDocker {
+                                rocmlir.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                dir('MITuna') {
+                                    git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                }
+                                dir('build') {
+                                    // Tune gemms with default datatypes, fail if the DB is not created
+                                    // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/performance/configs/gemm-configs \
+                                            -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
+                                        [ -f mlir_tuning_${CHIP}.tsv ]"""
+                                    // Tune resnet50 and unet configs
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/performance/configs/conv-configs \
+                                            -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
+                                    // Tune attention configs
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                            -c ../mlir/utils/performance/configs/attention-configs \
+                                            -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
+                                    // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+                                    // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                            -c ../mlir/utils/performance/configs/gemm-configs -s quick \
+                                            -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
+                                        [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
+                                    // Tune resnet50 and unet configs (quick tuning)
+                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                            -c ../mlir/utils/performance/configs/conv-configs -s quick \
+                                            -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv"""
                                 }
                             }
                         }
                     }
                     stage("Tune Fusion") {
                         steps {
-                            script {
-                                echo "entered block L"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        dir('build') {
-                                            // Tune resnet50
-                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                            withRocmDocker {
+                                dir('build') {
+                                    // Tune resnet50
+                                    sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
 
-                                            // Tune bert
-                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
-                                        }
-                                        sh 'rm -f build/CMakeCache.txt'
-                                    }
+                                    // Tune bert
+                                    sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
                                 }
+                                sh 'rm -f build/CMakeCache.txt'
                             }
                         }
                     }
                     stage("Stash Databases") {
                         steps {
-                            script {
-                                echo "entered block M"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        // Save user database for nightly jobs
-                                        dir ('build') {
-                                            stash name: "MLIR-PerfDB-${params.canXdlops ? CHIP : 'vanilla'}", includes: "*.tsv"
-                                        }
-                                    }
+                            withRocmDocker {
+                                // Save user database for nightly jobs
+                                dir ('build') {
+                                    stash name: "MLIR-PerfDB-${params.canXdlops ? CHIP : 'vanilla'}", includes: "*.tsv"
                                 }
                             }
                         }
@@ -544,7 +420,6 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                echo "entered block N"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -556,133 +431,73 @@ pipeline {
                     }
                     stage("Copy tuning database") {
                         steps {
-                            script {
-                                echo "entered block O"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        echo "chip is ${CHIP}"
-                                        rocmlir.showEnv()
-                                        copyArtifacts filter: 'build/perfDB/**',\
-                                            optional: true,\
-                                            flatten: true,\
-                                            projectName: "/MLIR/mlir-weekly",\
-                                            selector: lastSuccessful(),\
-                                            target: 'build'
-                                            sh 'ls build'
-                                            sh 'cat build/tuning-date'
-                                    }
-                                }
+                            withRocmDocker {
+                                echo "chip is ${CHIP}"
+                                rocmlir.showEnv()
+                                copyArtifacts filter: 'build/perfDB/**',\
+                                    optional: true,\
+                                    flatten: true,\
+                                    projectName: "/MLIR/mlir-weekly",\
+                                    selector: lastSuccessful(),\
+                                    target: 'build'
+                                    sh 'ls build'
+                                    sh 'cat build/tuning-date'
                             }
                         }
                     }
                     stage("Build MLIR") {
                         steps {
-                            script {
-                                echo "entered block P"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        // Clean up build settings to disable static library and allow
-                                        // ROCm testing
-                                        rocmlir.buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
-                                                    ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                        -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
-                                    }
-                                }
+                            withRocmDocker {
+                                // Clean up build settings to disable static library and allow
+                                // ROCm testing
+                                rocmlir.buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
+                                            ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
                             }
                         }
                     }
                     stage("Copy earlier performance results") {
                         steps {
-                            script {
-                                echo "entered block Q"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
-                                            optional: true,\
-                                            flatten: true,\
-                                            projectName: "/${JOB_NAME}",\
-                                            selector: lastSuccessful(),\
-                                            target: 'build/oldData'
-                                    }
-                                }
+                            withRocmDocker {
+                                copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
+                                    optional: true,\
+                                    flatten: true,\
+                                    projectName: "/${JOB_NAME}",\
+                                    selector: lastSuccessful(),\
+                                    target: 'build/oldData'
                             }
                         }
                     }
                     stage("Test MLIR vs MIOpen/rocBLAS") {
                         steps {
-                            script {
-                                echo "entered block R"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        dir('build') {
-                                            sh 'date --utc +%Y-%m-%d > perf-run-date'
-                                            sh 'ls -l /dev/kfd'
-                                            sh 'ls -l /dev/dri'
-                                            // Run MLIR vs MIOpend perf benchmarks.
-                                            sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                                --configs_file=${WORKSPACE}/mlir/utils/performance/configs/conv-configs \
-                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
-                                            // Run MLIR vs rocBLAS perf benchmarks
-                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
-                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
-                                        }
-                                    }
+                            withRocmDocker {
+                                dir('build') {
+                                    sh 'date --utc +%Y-%m-%d > perf-run-date'
+                                    sh 'ls -l /dev/kfd'
+                                    sh 'ls -l /dev/dri'
+                                    // Run MLIR vs MIOpend perf benchmarks.
+                                    sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
+                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/conv-configs \
+                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                    // Run MLIR vs rocBLAS perf benchmarks
+                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
+                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                        --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                 }
                             }
                         }
                     }
                     stage("Test Fusion") {
                         steps {
-                            script {
-                                echo "entered block S"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        dir('build') {
-                                            // Run fusion resnet50 perf benchmarks
-                                            sh """python3 ./bin/perfRunner.py --op=fusion --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
-                                            // Run bert perf benchmarks
-                                            sh """python3 ./bin/perfRunner.py --op fusion --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
-                                        }
-                                    }
+                            withRocmDocker {
+                                dir('build') {
+                                    // Run fusion resnet50 perf benchmarks
+                                    sh """python3 ./bin/perfRunner.py --op=fusion --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                    // Run bert perf benchmarks
+                                    sh """python3 ./bin/perfRunner.py --op fusion --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                 }
                             }
                         }
@@ -694,24 +509,12 @@ pipeline {
                             expression { return rocmlir.isNotNavi3x("${CHIP}") }
                         }
                         steps {
-                            script {
-                                echo "entered block T"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        dir('build') {
-                                            // Run attention benchmarks
-                                            sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                                --configs_file=${WORKSPACE}/mlir/utils/performance/configs/attention-configs \
-                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
-                                        }
-                                    }
+                            withRocmDocker {
+                                dir('build') {
+                                    // Run attention benchmarks
+                                    sh """python3 ./bin/perfRunner.py --op=attention -b \
+                                        --configs_file=${WORKSPACE}/mlir/utils/performance/configs/attention-configs \
+                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                 }
                             }
                         }
@@ -725,44 +528,32 @@ pipeline {
                             expression { return rocmlir.isNotNavi3x("${CHIP}") }
                         }
                         steps {
-                            script {
-                                echo "entered block U"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        catchError (buildResult: null) { // This is an optional stage
-                                            dir('composable_kernel') {
-                                                sh 'rm -rf composable_kernel'
-                                                rocmlir.getAndBuildCK('''
-                                                    -DGPU_TARGETS=${CHIP}
-                                                    -DCMAKE_CXX_FLAGS="-O3"
-                                                    -DCMAKE_PREFIX_PATH="/opt/rocm"
-                                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                    -DCMAKE_BUILD_TYPE=Release
-                                                    ''')
-                                                sh 'cd build; make install'
-                                                sh 'echo `git rev-parse HEAD`'
-                                            }
-                                            sh 'rm -f build/CMakeCache.txt'
-                                            rocmlir.buildProject("ck-benchmark-driver",
-                                                        '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                            -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+                            withRocmDocker {
+                                catchError (buildResult: null) { // This is an optional stage
+                                    dir('composable_kernel') {
+                                        sh 'rm -rf composable_kernel'
+                                        rocmlir.getAndBuildCK('''
+                                            -DGPU_TARGETS=${CHIP}
+                                            -DCMAKE_CXX_FLAGS="-O3"
+                                            -DCMAKE_PREFIX_PATH="/opt/rocm"
+                                            -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                            -DCMAKE_BUILD_TYPE=Release
+                                            ''')
+                                        sh 'cd build; make install'
+                                        sh 'echo `git rev-parse HEAD`'
+                                    }
+                                    sh 'rm -f build/CMakeCache.txt'
+                                    rocmlir.buildProject("ck-benchmark-driver",
+                                                '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                    -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                    -DROCMLIR_ENABLE_BENCHMARKS=ck''')
 
-                                            dir('build') {
-                                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                            --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
-                                            --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
-                                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
-                                            }
-                                        }
+                                    dir('build') {
+                                        sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                    --configs_file=${WORKSPACE}/mlir/utils/performance/configs/gemm-configs \
+                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                        sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
                                     }
                                 }
                             }
@@ -770,29 +561,17 @@ pipeline {
                     }
                     stage("Create performance reports") {
                         steps {
-                            script {
-                                echo "entered block V"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        dir('build') {
-                                            sh 'ls -l'
-                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
-                                            sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
-                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
-                                            sh 'mkdir -p reports && cp ./*.html reports'
-                                        }
-                                        rocmlir.postProcessPerfRes("${CHIP}")
-                                    }
+                            withRocmDocker {
+                                dir('build') {
+                                    sh 'ls -l'
+                                    sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                    sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
+                                    sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
+                                    sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                    sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
+                                    sh 'mkdir -p reports && cp ./*.html reports'
                                 }
+                                rocmlir.postProcessPerfRes("${CHIP}")
                             }
                         }
                     }
@@ -829,7 +608,6 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                echo "entered block W"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -841,89 +619,53 @@ pipeline {
                     }
                     stage("Install MIGraphX Dependencies") {
                         steps {
-                            script {
-                                echo "entered block X"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "HOME=${env.WORKSPACE}",
-                                        "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
-                                    ]) {
-                                        echo "codepath is ${CODEPATH}"
-                                        rocmlir.showEnv()
-                                        // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                                        sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
-                                    }
-                                }
+                            withRocmDocker("PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}") {
+                                echo "codepath is ${CODEPATH}"
+                                rocmlir.showEnv()
+                                // Package and install current checkout of rocMLIR as MIGraphX dependency.
+                                sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                             }
                         }
                     }
                     stage("Build MIGraphX with MLIR") {
                         steps {
-                            script {
-                                echo "entered block Y"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "HOME=${env.WORKSPACE}",
-                                        "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
-                                    ]) {
-                                        def gpu_arch = rocmlir.get_gpu_architecture()
-                                        sh 'rm -rf MIGraphX'
-                                        dir('MIGraphX') {
-                                            rocmlir.getAndBuildMIGraphX("""
-                                                            -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
-                                                            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                            -DGPU_TARGETS="${gpu_arch}"
-                                                            """)
-                                        }
-                                    }
+                            withRocmDocker("PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}") {
+                                def gpu_arch = rocmlir.get_gpu_architecture()
+                                sh 'rm -rf MIGraphX'
+                                dir('MIGraphX') {
+                                    rocmlir.getAndBuildMIGraphX("""
+                                                    -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
+                                                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                    -DGPU_TARGETS="${gpu_arch}"
+                                                    """)
                                 }
                             }
                         }
                     }
                     stage("Verify MIGraphX with MLIR") {
                         steps {
-                            script {
-                                echo "entered block Z"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "HOME=${env.WORKSPACE}",
-                                        "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
-                                    ]) {
-                                        dir('MIGraphX/build') {
-                                            timeout(time: 120, activity: true, unit: 'MINUTES') {
-                                                withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
-                                                    // run test_verify for accuracy and run MLIR related unit-tests
-                                                    sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
-                                                    // Verify ResNet50, Bert, Gpt2
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
-                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                }
-                                            }
+                            withRocmDocker("PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}") {
+                                dir('MIGraphX/build') {
+                                    timeout(time: 120, activity: true, unit: 'MINUTES') {
+                                        withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                            // run test_verify for accuracy and run MLIR related unit-tests
+                                            sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
+                                            // Verify ResNet50, Bert, Gpt2
+                                            sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                            sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
+                                            sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                            sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                            sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                            sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
                                         }
-                                        //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
-                                        dir('MIGraphX/tools/accuracy') {
-                                            withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
-                                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
-                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
-                                            }
-                                        }
+                                    }
+                                }
+                                //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
+                                dir('MIGraphX/tools/accuracy') {
+                                    withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                        sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                        sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
+                                        sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
                                     }
                                 }
                             }
@@ -957,7 +699,6 @@ pipeline {
                     stage('Prepare node') {
                         steps {
                             script {
-                                echo "entered block A1"
                                 retry(3) {
                                     rocmlir.resetGPUs()
                                     rocmlir.checkNodeHealth()
@@ -969,51 +710,37 @@ pipeline {
                     }
                     stage ("body") {
                         steps {
-                            script {
-                                echo "entered block A2"
-                                // Run a docker container
-                                def img = docker.image(rocmlir.dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(env.DOCKER_ARGS) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "HOME=${env.WORKSPACE}",
-                                        "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                        // Note the %m to avoid issues with threads and dynamic libraries.
-                                        "LLVM_PROFILE_FILE=${env.WORKSPACE}/build/%m-%p.profraw",
-                                        "LLVM_PROFDATA=/opt/rocm/llvm/bin/llvm-profdata",
-                                        "LLVM_COV=/opt/rocm/llvm/bin/llvm-cov"
-
-                                    ]) {
-                                        // Build with profiling on, and just code-generation tests.
-                                        try {
-                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                sh 'rm -f build/CMakeCache.txt'
-                                                sh 'rm -f build/*.profraw'
-                                                rocmlir.buildProject('check-rocmlir-build-only',
-                                                            '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
-                                                dir ('build') {
-                                                    // Run tests.
-                                                    rocmlir.collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                    // Upload to codecov.
-                                                    withCredentials([string(credentialsId: 'codecov-token-rocmlir',
-                                                                            variable: 'CODECOV_TOKEN')]) {
-                                                        sh '''
-                                                        curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                        proxy_opt=""
-                                                        if [ -n "${http_proxy}" ]; then
-                                                            proxy_opt="-U ${http_proxy}"
-                                                        fi
-                                                        ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                        '''
-                                                    }
-                                                }
-                                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
+                            withRocmDocker("LLVM_PROFILE_FILE=${env.WORKSPACE}/build/%m-%p.profraw",
+                            "LLVM_PROFDATA=/opt/rocm/llvm/bin/llvm-profdata",
+                            "LLVM_COV=/opt/rocm/llvm/bin/llvm-cov"
+                            ) {
+                                // Build with profiling on, and just code-generation tests.
+                                try {
+                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                        sh 'rm -f build/CMakeCache.txt'
+                                        sh 'rm -f build/*.profraw'
+                                        rocmlir.buildProject('check-rocmlir-build-only',
+                                                    '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                        dir ('build') {
+                                            // Run tests.
+                                            rocmlir.collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
+                                            // Upload to codecov.
+                                            withCredentials([string(credentialsId: 'codecov-token-rocmlir',
+                                                                    variable: 'CODECOV_TOKEN')]) {
+                                                sh '''
+                                                curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                proxy_opt=""
+                                                if [ -n "${http_proxy}" ]; then
+                                                    proxy_opt="-U ${http_proxy}"
+                                                fi
+                                                ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
+                                                '''
                                             }
-                                        } catch (Exception e) {
-                                            echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                         }
+                                        archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                     }
+                                } catch (Exception e) {
+                                    echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                 }
                             }
                         }
