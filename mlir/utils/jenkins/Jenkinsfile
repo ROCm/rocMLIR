@@ -230,7 +230,7 @@ void splitConfigFile(String inputFilePath, String outputFilePath, int run, int t
     startLine=\$(((${run} - 1) * linesPerSplit + 1))
     endLine=\$((${run} * linesPerSplit))
 
-    awk 'BEGIN{count=0} !/^#/ {count++} {if (!/^#/ && count >= '\"\${startLine}\"' && count <= '\"\${endLine}\"') print'} ${inputFilePath} > ${outputFilePath}
+    awk 'BEGIN{count=0} !/^#/ {count++} {if (!/^#/ && count >= '\"\${startLine}\"' && count <= '\"\${endLine}\"') print}' ${inputFilePath} > ${outputFilePath}
     """
 }
 
