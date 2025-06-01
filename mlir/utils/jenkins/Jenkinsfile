@@ -1279,9 +1279,9 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         dir('build') {
+                                            def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
+                                            def attnToUse = attnInput
                                             script {
-                                                def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
-                                                def attnToUse = attnInput
                                                 if (params.nightly) {
                                                     def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
                                                     splitConfigFile(attnInput, attnToUse, runIndex)
@@ -1341,9 +1341,9 @@ pipeline {
 
 
                                             dir('build') {
+                                                def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                                def gemmToUse = gemmInput
                                                 script {
-                                                    def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
-                                                    def gemmToUse = gemmInput
                                                     if (params.nightly) {
                                                         def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
                                                         splitConfigFile(gemmInput, gemmToUse, runIndex)
