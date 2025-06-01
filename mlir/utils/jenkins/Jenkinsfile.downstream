@@ -1,4 +1,12 @@
 // used for public CI
+
+import groovy.transform.Field
+import java.util.concurrent.ConcurrentHashMap
+
+// ConcurrentHashMap helps when we need to write variables in parallel
+@Field                                 // one instance for the whole run
+ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -21,7 +29,7 @@ void showEnv() {
     sh '/opt/rocm/.info/version'
 }
 
-String dockerArgs() {
+Map<String,String> dockerArgs() {
     // Helper to run a shell command and get its stdout
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
 
@@ -39,12 +47,13 @@ String dockerArgs() {
     String renderGid = run("getent group render | cut -d':' -f3")
     String videoGid = run("getent group video | cut -d':' -f3")
 
-    return """
-        --privileged --ipc=host \
+    String args = """
         ${kfdFlg} \
         ${renderFlags} \
         --group-add ${videoGid} --group-add ${renderGid} 
     """.trim().replaceAll(/\s+/, ' ')
+    DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
+    return DOCKER_ARGS_BY_NODE // ConcurrentHashMap
 }
 
 String dockerImage() {
@@ -91,18 +100,21 @@ pipeline {
                         stage("Setup environment") {
                             steps {
                                 script {
-                                    env.DOCKER_ARGS = dockerArgs()
-                                    echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                    dockerArgs()
+                                    echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
                                 }
                             }
                         }
                         stage("Shared library build and fixed tests") {
                             steps {
                                 script {
+                                    def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                    echo "Running Docker with: ${argsForThisNode}"
+    
                                     // Run a docker container
                                     def img = docker.image(dockerImage())
                                     def pulled = img?.pull()
-                                    img.inside(env.DOCKER_ARGS) {
+                                    img.inside(argsForThisNode) {
                                         // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                         withEnv([
                                             "PATH=/opt/rocm/llvm/bin:${env.PATH}"
@@ -122,10 +134,13 @@ pipeline {
                         stage("Tune selected rocmlir configs") {
                             steps {
                                 script {
+                                    def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                    echo "Running Docker with: ${argsForThisNode}"
+    
                                     // Run a docker container
                                     def img = docker.image(dockerImage())
                                     def pulled = img?.pull()
-                                    img.inside(env.DOCKER_ARGS) {
+                                    img.inside(argsForThisNode) {
                                         // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                         withEnv([
                                             "PATH=/opt/rocm/llvm/bin:${env.PATH}"
@@ -169,18 +184,21 @@ pipeline {
                         stage("Setup environment") {
                             steps {
                                 script {
-                                    env.DOCKER_ARGS = dockerArgs()
-                                    echo "DOCKER_ARGS = ${env.DOCKER_ARGS}"
+                                    dockerArgs()
+                                    echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
                                 }
                             }
                         }
                         stage("Build static library package") {
                             steps {
                                 script {
+                                    def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                    echo "Running Docker with: ${argsForThisNode}"
+    
                                     // Run a docker container
                                     def img = docker.image(dockerImage())
                                     def pulled = img?.pull()
-                                    img.inside(env.DOCKER_ARGS) {
+                                    img.inside(argsForThisNode) {
                                         // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
                                         withEnv([
                                             "PATH=/opt/rocm/llvm/bin:${env.PATH}"
