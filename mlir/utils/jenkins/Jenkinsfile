@@ -1201,11 +1201,11 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         dir('build') {
+                                            def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
+                                            def convToUse = convInput
+                                            def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                            def gemmToUse = gemmInput
                                             script {
-                                                def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
-                                                def convToUse = convInput
-                                                def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
-                                                def gemmToUse = gemmInput
                                                 if (params.nightly) {
                                                     def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
                                                     splitConfigFile(convInput, convToUse, runIndex)
