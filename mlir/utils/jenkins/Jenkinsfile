@@ -350,11 +350,9 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
-void build_fixedE2ETests(String codepath) {
-    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
+int setLitWorkerCount() {
     int limit_lit_workers
     def gpu_arch = get_gpu_architecture()
-
     if (gpu_arch.contains('gfx10') || gpu_arch.contains('gfx11') || gpu_arch.contains('gfx12')) {
         limit_lit_workers = 16
     } else if (gpu_arch.contains('gfx908')) {
@@ -364,6 +362,12 @@ void build_fixedE2ETests(String codepath) {
     } else {
         limit_lit_workers = 40
     }
+    return limit_lit_workers
+}
+
+void build_fixedE2ETests(String codepath) {
+    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
+    int limit_lit_workers = setLitWorkerCount()
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
@@ -376,18 +380,7 @@ void build_fixedE2ETests(String codepath) {
 
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
-    int limit_lit_workers
-    def gpu_arch = get_gpu_architecture()
-
-    if (gpu_arch.contains('gfx10') || gpu_arch.contains('gfx11') || gpu_arch.contains('gfx12')) {
-        limit_lit_workers = 16
-    } else if (gpu_arch.contains('gfx908')) {
-        limit_lit_workers = 8
-    } else if (gpu_arch.contains('gfx90a')) {
-        limit_lit_workers = 30
-    } else {
-        limit_lit_workers = 40
-    }
+    int limit_lit_workers = setLitWorkerCount()
     buildProject('check-rocmlir', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
