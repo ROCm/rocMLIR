@@ -351,62 +351,46 @@ def rebootNode() {
 }
 
 void build_fixedE2ETests(String codepath) {
-    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
-    limit_lit_workers = false
-    def mfma_parallelism = ''
-    llvm_lit_log_level = '-v'
-    if ( (codepath == 'navi21') && (params.nightly == true) ) {
-        limit_lit_workers = true
-    }
-    if (codepath == 'navi3x'  || codepath == 'navi4x') {
-        // print verbose logs for all the tests on Navi3x for the debugging purposes
-        llvm_lit_log_level = '-va'
-        limit_lit_workers = true
-    }
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
-    if (codepath == 'mfma') {
-        def gpu_arch = get_gpu_architecture()
-        if (gpu_arch.contains('gfx908')) {
-            mfma_parallelism = '-j 8'
-        } else if (gpu_arch.contains('gfx90a')) {
-            mfma_parallelism = '-j 30'
-        } else {
-            mfma_parallelism = '-j 40'
-        }
+    def limit_lit_workers = ''
+    def gpu_arch = get_gpu_architecture()
+
+    if (gpu_arch.contains('gfx10') && (params.nightly == true)) {
+        limit_lit_workers = '-j 16'
+    } else if (gpu_arch.contains('gfx11') || gpu_arch.contains('gfx12')) {
+        limit_lit_workers = '-j 16'
+    } else if (gpu_arch.contains('gfx908')) {
+        limit_lit_workers = '-j 8'
+    } else if (gpu_arch.contains('gfx90a')) {
+        limit_lit_workers = '-j 30'
+    } else {
+        limit_lit_workers = '-j 40'
     }
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : mfma_parallelism }'
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
 
 void check_randomE2ETests(String codepath) {
-    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
-    limit_lit_workers = false
-    def mfma_parallelism = ''
-    llvm_lit_log_level='-v'
-    if ( (codepath == 'navi21') && (params.nightly == true) ) {
-        limit_lit_workers = true
-    }
-    if ( (codepath == 'navi3x'  || codepath == 'navi4x') && (params.nightly == true) ) {
-        limit_lit_workers = true
-        // print verbose logs for all the tests on Navi3x for debugging purposes
-        llvm_lit_log_level='-va'
-    }
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
-    if (codepath == 'mfma') {
-        def gpu_arch = get_gpu_architecture()
-        if (gpu_arch.contains('gfx908')) {
-            mfma_parallelism = '-j 8'
-        } else if (gpu_arch.contains('gfx90a')) {
-            mfma_parallelism = '-j 30'
-        } else {
-            mfma_parallelism = '-j 40'
-        }
+    def limit_lit_workers = ''
+    def gpu_arch = get_gpu_architecture()
+
+    if (gpu_arch.contains('gfx10') && (params.nightly == true)) {
+        limit_lit_workers = '-j 16'
+    } else if (gpu_arch.contains('gfx11') || gpu_arch.contains('gfx12')) {
+        limit_lit_workers = '-j 16'
+    } else if (gpu_arch.contains('gfx908')) {
+        limit_lit_workers = '-j 8'
+    } else if (gpu_arch.contains('gfx90a')) {
+        limit_lit_workers = '-j 30'
+    } else {
+        limit_lit_workers = '-j 40'
     }
     buildProject('check-rocmlir', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
@@ -414,7 +398,7 @@ void check_randomE2ETests(String codepath) {
               -DROCK_E2E_TEST_ENABLED=1
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : mfma_parallelism }'
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
