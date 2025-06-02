@@ -24,6 +24,7 @@ LLVMCoroutines
 LLVMDebugInfoBTF
 LLVMDebugInfoCodeView
 LLVMDebugInfoDWARF
+LLVMDebugInfoGSYM
 LLVMDebugInfoMSF
 LLVMDebugInfoPDB
 LLVMDemangle
