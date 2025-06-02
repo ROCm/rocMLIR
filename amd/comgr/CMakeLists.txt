@@ -123,6 +123,12 @@ else()
         ${LLVM_EXTERNAL_LLD_SOURCE_DIR}/include
         ${LLVM_BINARY_DIR}/tools/lld/include)
   endif()
+
+  if (LLVM_EXTERNAL_SPIRV_LLVM_TRANSLATOR_SOURCE_DIR)
+    target_include_directories(amd_comgr
+      PRIVATE
+        ${LLVM_EXTERNAL_SPIRV_LLVM_TRANSLATOR_SOURCE_DIR}/include)
+  endif()
 endif()
 
 target_include_directories(amd_comgr
@@ -187,6 +193,9 @@ if(${COMGR_DISABLE_SPIRV})
   message("-- Comgr SPIRV Disabled")
 else()
   message("-- Comgr SPIRV Enabled")
+  target_include_directories(amd_comgr
+      PRIVATE
+        "${LLVM_INCLUDE_DIRS}/LLVMSPIRVLib")
 endif()
 
 
@@ -219,7 +228,8 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     "/wd4624" #[[Suppress 'derived class' : destructor could not be generated because a base class destructor is inaccessible]]
     "/wd4267" #[[Suppress 'var' : conversion from 'size_t' to 'type', possible loss of data]]
     "/wd4291" #[[Suppress 'declaration' : no matching operator delete found; memory will not be freed if initialization throws an exception]]
-    "/wd4146" #[[Suppress 'unary minus operator applied to unsigned type, result still unsigned]])
+    "/wd4146" #[[Suppress 'unary minus operator applied to unsigned type, result still unsigned]]
+    "/Zc:preprocessor" #[[Enable standards conforming preprocessor - https://learn.microsoft.com/en-us/cpp/build/reference/zc-preprocessor]])
   list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS _HAS_EXCEPTIONS=0)
 endif()
 
@@ -229,7 +239,7 @@ endif()
 list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS AMD_COMGR_EXPORT)
 
 include(bc2h)
-include(opencl_pch)
+include(opencl_header)
 include(DeviceLibs)
 
 # Add major version to the name on windows, including Win64
@@ -253,6 +263,27 @@ endif()
 # Overwrite the name on 32-bit Linux and Windows
 if (CMAKE_SIZEOF_VOID_P EQUAL 4)
   set_target_properties(amd_comgr PROPERTIES OUTPUT_NAME "amd_comgr32")
+endif()
+
+option(LLVM_BUILD_INSTRUMENTED_COVERAGE "Build LLVM and tools with Code Coverage instrumentation" Off)
+mark_as_advanced(LLVM_BUILD_INSTRUMENTED_COVERAGE)
+if(LLVM_BUILD_INSTRUMENTED_COVERAGE)
+  if(NOT LLVM_PROFILE_MERGE_POOL_SIZE)
+    # A pool size of 1-2 is probably sufficient on an SSD. 3-4 should be fine
+    # for spinning disks. Anything higher may only help on slower mediums.
+    set(LLVM_PROFILE_MERGE_POOL_SIZE "4")
+  endif()
+  if(NOT LLVM_PROFILE_FILE_PATTERN)
+    if(NOT LLVM_PROFILE_DATA_DIR)
+      file(TO_NATIVE_PATH "${LLVM_BINARY_DIR}/profiles" LLVM_PROFILE_DATA_DIR)
+    endif()
+    file(TO_NATIVE_PATH "${LLVM_PROFILE_DATA_DIR}/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
+  endif()
+  set(INSTRUMENTED_COVERAGE_FLAGS -O0 -fprofile-instr-generate=${LLVM_PROFILE_FILE_PATTERN} -fcoverage-mapping)
+  list(APPEND AMD_COMGR_PRIVATE_COMPILE_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS})
+  list(APPEND AMD_COMGR_PUBLIC_COMPILE_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS})
+  list(APPEND AMD_COMGR_PRIVATE_LINKER_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS} -L${LLVM_LIBRARY_DIRS})
+  list(APPEND AMD_COMGR_PUBLIC_LINKER_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS} -L${LLVM_LIBRARY_DIRS})
 endif()
 
 target_compile_options(amd_comgr
