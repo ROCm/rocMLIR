@@ -123,7 +123,8 @@ void RockPrepareLLVMPass::runOnOperation() {
   // with buffer fat pointers (in which case, the offset is unsigned)
   func.walk([](LLVM::GEPOp gepOp) {
     if (cast<LLVM::LLVMPointerType>(gepOp.getType()).getAddressSpace() != 7)
-      gepOp.setInbounds(true);
+      gepOp.setNoWrapFlags(gepOp.getNoWrapFlags() |
+                           LLVM::GEPNoWrapFlags::inbounds);
   });
   OpBuilder b(&getContext());
 
