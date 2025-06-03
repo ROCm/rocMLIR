@@ -124,7 +124,7 @@ pipeline {
                                             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
                                             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                                             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                                            -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j 30'
+                                            -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j 8'
                                             -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                             """)
                                         }
