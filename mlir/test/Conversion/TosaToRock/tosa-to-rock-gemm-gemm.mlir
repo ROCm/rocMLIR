@@ -1,7 +1,7 @@
-// RUN: rocmlir-opt --tosa-to-rock %s -verify-diagnostics -o -| FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --tosa-to-rock -verify-diagnostics -o -| FileCheck %s
 
 // CHECK: rock.gemm_elementwise_gemm
-func.func @self_gemm_gemm(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
+func.func @self_gemm_gemm(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 1>} : (tensor<1x384x64xf32>) -> tensor<1x64x384xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -13,7 +13,7 @@ func.func @self_gemm_gemm(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf3
 }
 
 // CHECK: rock.gemm_elementwise_gemm
-func.func @self_gemm_gemm_no_scale(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
+func.func @self_gemm_gemm_no_scale(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 1>} : (tensor<1x384x64xf32>) -> tensor<1x64x384xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -23,7 +23,7 @@ func.func @self_gemm_gemm_no_scale(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x
 }
 
 // CHECK: rock.gemm_elementwise_gemm
-func.func @self_gemm_gemm_with_bias_only(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
+func.func @self_gemm_gemm_with_bias_only(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 1>} : (tensor<1x384x64xf32>) -> tensor<1x64x384xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -34,7 +34,7 @@ func.func @self_gemm_gemm_with_bias_only(%arg0: tensor<1x384x64xf32>, %arg1: ten
 }
 
 // CHECK: rock.gemm_elementwise_gemm
-func.func @self_gemm_gemm_with_scale_and_bias(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>, %arg4: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
+func.func @self_gemm_gemm_with_scale_and_bias(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>, %arg4: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 1>} : (tensor<1x384x64xf32>) -> tensor<1x64x384xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -47,7 +47,7 @@ func.func @self_gemm_gemm_with_scale_and_bias(%arg0: tensor<1x384x64xf32>, %arg1
 }
 
 // CHECK: rock.gemm_elementwise_gemm
-func.func @self_gemm_gemm_with_scale_bias_exp(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>, %arg4: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = ""} {
+func.func @self_gemm_gemm_with_scale_bias_exp(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>, %arg4: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 1>} : (tensor<1x384x64xf32>) -> tensor<1x64x384xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -61,7 +61,7 @@ func.func @self_gemm_gemm_with_scale_bias_exp(%arg0: tensor<1x384x64xf32>, %arg1
 }
 
 // CHECK: rock.gemm_elementwise_gemm
-func.func @self_gemm_gemm_with_reshapes(%arg0: tensor<1x12x384x64xf32>, %arg1: tensor<1x12x64x384xf32>, %arg2: tensor<1x12x384x64xf32>) -> (tensor<1x12x384x64xf32>) attributes {kernel, arch = ""} {
+func.func @self_gemm_gemm_with_reshapes(%arg0: tensor<1x12x384x64xf32>, %arg1: tensor<1x12x64x384xf32>, %arg2: tensor<1x12x384x64xf32>) -> (tensor<1x12x384x64xf32>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %collapsed = tensor.collapse_shape %arg0 [[0, 1], [2], [3]] : tensor<1x12x384x64xf32> into tensor<12x384x64xf32>
   %collapsed_0 = tensor.collapse_shape %arg1 [[0, 1], [2], [3]] : tensor<1x12x64x384xf32> into tensor<12x64x384xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -94,7 +94,7 @@ func.func @self_gemm_gemm_with_4d_scale(%arg0: tensor<1x12x256x256xf32> , %arg1:
 }
 
 // CHECK: rock.gemm_elementwise_gemm
-func.func @self_gemm_gemm_with_dot_product(%arg0: tensor<1x1x64xf32>, %arg1: tensor<1x1x64xf32>, %arg2: tensor<1x1x64xf32>, %arg3: tensor<1x1x1xf32>, %arg4: tensor<1x1x1xf32>) -> tensor<1x1x64xf32> attributes {kernel, arch = ""} {
+func.func @self_gemm_gemm_with_dot_product(%arg0: tensor<1x1x64xf32>, %arg1: tensor<1x1x64xf32>, %arg2: tensor<1x1x64xf32>, %arg3: tensor<1x1x1xf32>, %arg4: tensor<1x1x1xf32>) -> tensor<1x1x64xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 1>} : (tensor<1x1x64xf32>) -> tensor<1x64x1xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
@@ -109,7 +109,7 @@ func.func @self_gemm_gemm_with_dot_product(%arg0: tensor<1x1x64xf32>, %arg1: ten
 // CHECK: rock.gemm_elementwise_gemm
 // CHECK: elementwise otherIns(%arg2, %arg3 : tensor<786432xi8>, tensor<786432xf16>)
 // CHECK: firstGemmIdx = 1 : i32
-func.func @mlir_gemm_gemm_where(%arg0: tensor<786432xf16>, %arg1: tensor<786432xf16>, %arg2: tensor<786432xi8>, %arg3: tensor<786432xf16>, %arg4: tensor<786432xf16>) -> tensor<786432xf16> attributes {arch = "gfx942", kernel = "mixr"} {
+func.func @mlir_gemm_gemm_where(%arg0: tensor<786432xf16>, %arg1: tensor<786432xf16>, %arg2: tensor<786432xi8>, %arg3: tensor<786432xf16>, %arg4: tensor<786432xf16>) -> tensor<786432xf16> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
   %expanded = tensor.expand_shape %arg4 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xf16> into tensor<1x12x256x256xf16>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xf16> into tensor<1x12x256x256xf16>
   %expanded_1 = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xi8> into tensor<1x12x256x256xi8>

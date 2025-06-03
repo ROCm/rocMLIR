@@ -1,7 +1,7 @@
-// RUN: rocmlir-opt --tosa-to-rock %s -verify-diagnostics -o -| FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --tosa-to-rock -verify-diagnostics -o -| FileCheck %s
 
 // CHECK: rock.attention
-func.func @self_attention_gqa(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<4096xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = ""} {
+func.func @self_attention_gqa(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<4096xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
   %expanded_0 = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 2, 32, 32] : tensor<4096xf32> into tensor<2x2x32x32xf32>
   %expanded_1 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [2, 2, 32, 32] : tensor<4096xf32> into tensor<2x2x32x32xf32>
@@ -36,7 +36,7 @@ func.func @self_attention_gqa(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1:
 
 
 // CHECK: rock.attention
-func.func @self_attention_gqa_bias(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<4096xf32> {mhal.read_access}, %arg3: tensor<8192xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = ""} {
+func.func @self_attention_gqa_bias(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<4096xf32> {mhal.read_access}, %arg3: tensor<8192xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
   %expanded_0 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
   %expanded_1 = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 2, 32, 32] : tensor<4096xf32> into tensor<2x2x32x32xf32>
@@ -73,7 +73,7 @@ func.func @self_attention_gqa_bias(%arg0: tensor<4096xf32> {mhal.read_access}, %
 }
 
 // CHECK: rock.attention
-func.func @self_attention_gqa_scale(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<8192xf32> {mhal.read_access}, %arg3: tensor<4096xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = ""} {
+func.func @self_attention_gqa_scale(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<8192xf32> {mhal.read_access}, %arg3: tensor<4096xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
   %expanded_0 = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
   %expanded_1 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [2, 2, 32, 32] : tensor<4096xf32> into tensor<2x2x32x32xf32>
@@ -109,7 +109,7 @@ func.func @self_attention_gqa_scale(%arg0: tensor<4096xf32> {mhal.read_access}, 
 }
 
 // CHECK: rock.attention
-func.func @self_attention_gqa_scale_bias(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<8192xf32> {mhal.read_access}, %arg3: tensor<4096xf32> {mhal.read_access}, %arg4: tensor<8192xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = ""} {
+func.func @self_attention_gqa_scale_bias(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<8192xf32> {mhal.read_access}, %arg2: tensor<8192xf32> {mhal.read_access}, %arg3: tensor<4096xf32> {mhal.read_access}, %arg4: tensor<8192xf32> {mhal.read_access}) -> (tensor<8192xf32> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg4 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
   %expanded_0 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
   %expanded_1 = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 4, 32, 32] : tensor<8192xf32> into tensor<2x4x32x32xf32>
@@ -147,7 +147,7 @@ func.func @self_attention_gqa_scale_bias(%arg0: tensor<4096xf32> {mhal.read_acce
 }
 
 // CHECK: rock.attention
-func.func @self_attention_gqa_scale_bias_kvcache(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<256xf32> {mhal.read_access}, %arg2: tensor<256xf32> {mhal.read_access}, %arg3: tensor<4096xf32> {mhal.read_access}, %arg4: tensor<256xf32> {mhal.read_access}) -> (tensor<256xf32> {mhal.write_access}) attributes {kernel, arch = ""} {
+func.func @self_attention_gqa_scale_bias_kvcache(%arg0: tensor<4096xf32> {mhal.read_access}, %arg1: tensor<256xf32> {mhal.read_access}, %arg2: tensor<256xf32> {mhal.read_access}, %arg3: tensor<4096xf32> {mhal.read_access}, %arg4: tensor<256xf32> {mhal.read_access}) -> (tensor<256xf32> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg4 [[0, 1, 2, 3]] output_shape [2, 4, 1, 32] : tensor<256xf32> into tensor<2x4x1x32xf32>
   %expanded_0 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 4, 1, 32] : tensor<256xf32> into tensor<2x4x1x32xf32>
   %expanded_1 = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 4, 1, 32] : tensor<256xf32> into tensor<2x4x1x32xf32>

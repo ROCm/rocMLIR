@@ -1,4 +1,4 @@
-// RUN: rocmlir-gen -ph -print-results -rand fixed - < %s | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -ph -print-results -rand fixed - < %s | sed s/##TOKEN_ARCH##/%arch/g | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK-COUNT-32: 0.75
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (0, d1, d0)> by [<Merge{1, 32} ["nr"] at [0] -> ["1", "z"] at [0, 2]>, <PassThrough ["r"] at [1] -> ["0"] at [1]>] bounds = [32, 20] -> [1, 20, 32]>
@@ -12,7 +12,7 @@
 #transform_map5_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 20} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [20] -> [1, 20]>
 #transform_map5_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{4, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [4] -> [4, 1]>
 
-func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input : memref<1x20x32xf32>,  %output : memref<1x1x32xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input : memref<1x20x32xf32>,  %output : memref<1x1x32xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<320xi8, #gpu.address_space<workgroup>>
