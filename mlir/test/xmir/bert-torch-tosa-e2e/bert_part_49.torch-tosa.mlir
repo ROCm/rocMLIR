@@ -1,4 +1,3 @@
-// ALLOW_RETRIES: 2
 // MLIR#764: rock-to-gpu bug when global constant not cloned
 // RUN: rocmlir-gen -fut bert_part_49 -arch gfx1100 --clone-harness %s | rocmlir-driver -host-pipeline highlevel -targets %arch | FileCheck %s
 // RUN-DISABLE: rocmlir-gen -fut bert_part_49 -arch gfx1100 --clone-harness %s | rocmlir-driver -host-pipeline highlevel -targets %arch | rocmlir-gen -ph -print-results -rand 1 -rand_type float -fut bert_part_49_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s

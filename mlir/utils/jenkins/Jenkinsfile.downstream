@@ -119,11 +119,12 @@ pipeline {
                                         withEnv([
                                             "PATH=/opt/rocm/llvm/bin:${env.PATH}"
                                         ]) {
+                                            // Limit the number of lit workers for gfx90a to 30 on public CI as a workaround for issue #1841
                                             buildProject('check-mlir check-rocmlir', """
                                             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
                                             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                                             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                                            -DLLVM_LIT_ARGS=-v
+                                            -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j 8'
                                             -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                             """)
                                         }
