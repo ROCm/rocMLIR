@@ -40,6 +40,12 @@ struct GridCoordinates {
   Value n_block;
 };
 
+/// Struct containing the {g,m,n,split} block coordinates of a block
+/// with a given bid.
+struct AttnGridCoordinates : GridCoordinates {
+  Value split_block;
+};
+
 /// Struct containing information that guide the layout heuristic selection
 struct GridLayoutInfo {
   int64_t gBlocks;
@@ -58,12 +64,10 @@ GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
                                       Value bid, GridLayoutInfo info,
                                       StringRef arch);
 
-GridCoordinates makeGxMxNGridLayout(PatternRewriter &b, Location loc, Value bid,
-                                    GridLayoutInfo info);
-
-GridCoordinates makeGxNGridLayout(PatternRewriter &b, Location loc, Value bid,
-                                  Value mIter, int64_t nBlocks,
-                                  int64_t gridSize, StringRef arch);
+AttnGridCoordinates makeGxNGridLayout(PatternRewriter &b, Location loc,
+                                      Value bid, Value mIter, int64_t nBlocks,
+                                      int64_t gridSize, StringRef arch,
+                                      Value splitKV = nullptr);
 
 } // namespace layout
 } // namespace rock
