@@ -1,13 +1,15 @@
-// RUN: rocmlir-gen -ph -print-results -rand none %s | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -ph -print-results -rand none %s | sed s/##TOKEN_ARCH##/%arch/g | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 
 // CHECK: 65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65,      65
+
+// NOTE: this tests non-accel path
 
 #map1 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
 #map2 = affine_map<(d0, d1, d2, d3, d4) -> (0, 0, 0, 0, d4)>
 module {
-  func.func @test_fusion(%arg0: memref<1x64x64x64x64xf32>, %arg1: memref<1x64x1x1x64xf32>, %arg2: memref<64xf32>, %arg3: memref<1x64x64x64x64xf32>) attributes {kernel, arch = ""} {
+  func.func @test_fusion(%arg0: memref<1x64x64x64x64xf32>, %arg1: memref<1x64x1x1x64xf32>, %arg2: memref<64xf32>, %arg3: memref<1x64x64x64x64xf32>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
     %0 = memref.alloc() : memref<1x64x64x64x64xf32>
-    rock.conv(%arg1, %arg0, %0) features = none {arch = "", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], input_layout = ["gi", "ni", "0i", "1i", "ci"], output_layout = ["go", "no", "0o", "1o", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x64x1x1x64xf32>, memref<1x64x64x64x64xf32>, memref<1x64x64x64x64xf32>
+    rock.conv(%arg1, %arg0, %0) features = none {arch = "##TOKEN_ARCH##", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], input_layout = ["gi", "ni", "0i", "1i", "ci"], output_layout = ["go", "no", "0o", "1o", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x64x1x1x64xf32>, memref<1x64x64x64x64xf32>, memref<1x64x64x64x64xf32>
     %4 = memref.expand_shape %arg2 [[0, 1, 2, 3, 4]] output_shape [1, 1, 1, 1, 64] : memref<64xf32> into memref<1x1x1x1x64xf32>
     linalg.generic {indexing_maps = [#map1, #map2, #map1], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%0, %4 : memref<1x64x64x64x64xf32>, memref<1x1x1x1x64xf32>) outs(%arg3 : memref<1x64x64x64x64xf32>) {
     ^bb0(%arg4: f32, %arg5: f32, %arg6: f32):

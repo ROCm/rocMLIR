@@ -1,10 +1,10 @@
-// RUN: rocmlir-opt --tosa-to-rock %s -verify-diagnostics -o -| FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --tosa-to-rock -verify-diagnostics -o -| FileCheck %s
 
 // CHECK-LABEL: func @mlir_nokvcache_causal_attention
 // CHECK: rock.attention
 // CHECK-NOT: currentSeqLen = 
 // CHECK: causal
-func.func @mlir_nokvcache_causal_attention(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+func.func @mlir_nokvcache_causal_attention(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>) -> tensor<8192xf16> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
   %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
   %expanded_2 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 96, 128] : tensor<24576xf16> into tensor<1x2x96x128xf16>
@@ -54,7 +54,7 @@ func.func @mlir_nokvcache_causal_attention(%arg0: tensor<24576xf16>, %arg1: tens
 // CHECK: rock.attention
 // CHECK: currentSeqLen = (%{{.*}} : tensor<32xi32>)
 // CHECK: causal
-func.func @mlir_causal_attention(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xi32>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+func.func @mlir_causal_attention(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xi32>) -> tensor<8192xf16> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 32, 64, 128] : tensor<262144xf16> into tensor<1x32x64x128xf16>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 1] : tensor<1xi32> into tensor<1x1xi32>
   %1 = tosa.transpose %expanded_0 {perms = array<i32: 1, 0>} : (tensor<1x1xi32>) -> tensor<1x1xi32>
@@ -115,7 +115,7 @@ func.func @mlir_causal_attention(%arg0: tensor<24576xf16>, %arg1: tensor<262144x
 // CHECK: rock.attention
 // CHECK: currentSeqLen = (%{{.*}} : tensor<32xi32>)
 // CHECK: causal
-func.func @mlir_causal_attention2(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xi32>) -> tensor<8192xf16> attributes {kernel, arch = ""} {
+func.func @mlir_causal_attention2(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xi32>) -> tensor<8192xf16> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %cst = arith.constant dense<[[[[0], [1]]]]> : tensor<1x1x2x1xi32>
   %0 = "tosa.const"() <{values = dense<8.837890e-02> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
   %1 = "tosa.const"() <{values = dense<0xFC00> : tensor<1x32x2x64xf16>}> : () -> tensor<1x32x2x64xf16>
