@@ -1,40 +1,16 @@
-/*******************************************************************************
- *
- * University of Illinois/NCSA
- * Open Source License
- *
- * Copyright (c) 2003-2017 University of Illinois at Urbana-Champaign.
- * Modifications (c) 2018 Advanced Micro Devices, Inc.
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * with the Software without restriction, including without limitation the
- * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- *     * Redistributions of source code must retain the above copyright notice,
- *       this list of conditions and the following disclaimers.
- *
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimers in the
- *       documentation and/or other materials provided with the distribution.
- *
- *     * Neither the names of the LLVM Team, University of Illinois at
- *       Urbana-Champaign, nor the names of its contributors may be used to
- *       endorse or promote products derived from this Software without specific
- *       prior written permission.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
- * CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH
- * THE SOFTWARE.
- *
- ******************************************************************************/
+//===- comgr-compiler.cpp - Comgr compiler Action internals ---------------===//
+//
+// Part of Comgr, under the Apache License v2.0 with LLVM Exceptions. See
+// amd/comgr/LICENSE.TXT in this repository for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This file implements the compilation and compilation-adjacent
+/// AMD_COMGR_ACTIONs. Many of these leverage Comgr's AMDGPUCompiler class.
+///
+//===----------------------------------------------------------------------===//
 
 #include "comgr-compiler.h"
 #include "comgr-cache.h"
@@ -43,6 +19,7 @@
 #include "comgr-diagnostic-handler.h"
 #include "comgr-env.h"
 #include "comgr-spirv-command.h"
+#include "comgr-unbundle-command.h"
 #include "lld/Common/CommonLinkerContext.h"
 #include "lld/Common/Driver.h"
 #include "clang/CodeGen/CodeGenAction.h"
@@ -58,6 +35,7 @@
 #include "clang/FrontendTool/Utils.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
@@ -68,6 +46,7 @@
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
@@ -460,8 +439,9 @@ bool executeAssemblerImpl(AssemblerInvocation &Opts, DiagnosticsEngine &Diags,
 
   // FIXME: There is a bit of code duplication with addPassesToEmitFile.
   if (Opts.OutputType == AssemblerInvocation::FT_Asm) {
-    MCInstPrinter *IP = TheTarget->createMCInstPrinter(
-        llvm::Triple(Opts.Triple), Opts.OutputAsmVariant, *MAI, *MCII, *MRI);
+    std::unique_ptr<MCInstPrinter> InstructionPrinter(
+      TheTarget->createMCInstPrinter(
+         llvm::Triple(Opts.Triple), Opts.OutputAsmVariant, *MAI, *MCII, *MRI));
     std::unique_ptr<MCCodeEmitter> MCE;
     std::unique_ptr<MCAsmBackend> MAB;
     if (Opts.ShowEncoding) {
@@ -470,7 +450,7 @@ bool executeAssemblerImpl(AssemblerInvocation &Opts, DiagnosticsEngine &Diags,
       MAB.reset(TheTarget->createMCAsmBackend(*STI, *MRI, Options));
     }
     auto FOut = std::make_unique<formatted_raw_ostream>(*Out);
-    Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut), IP,
+    Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut), std::move(InstructionPrinter),
                                            std::move(MCE), std::move(MAB)));
   } else if (Opts.OutputType == AssemblerInvocation::FT_Null) {
     Str.reset(createNullStreamer(Ctx));
@@ -552,6 +532,11 @@ SmallString<128> getFilePath(DataObject *Object, StringRef Dir) {
   return Path;
 }
 
+// TODO: Move inputFromFile and outputToFile within AMDGPUCompiler
+//
+// Currently, we only invoke these two methods in the context of AMDGPUCompiler.
+// Moreover, member functions that deal with file I/O should not worry whether
+// the underlying filesystem being used is virtual or real.
 amd_comgr_status_t inputFromFile(DataObject *Object, StringRef Path) {
   ProfilePoint Point("FileIO");
   auto BufOrError = MemoryBuffer::getFile(Path);
@@ -645,7 +630,7 @@ void logArgv(raw_ostream &OS, StringRef ProgramName,
 
 amd_comgr_status_t executeCommand(const Command &Job, raw_ostream &LogS,
                                   DiagnosticOptions &DiagOpts,
-                                  llvm::vfs::FileSystem &VFS) {
+                                  llvm::vfs::FileSystem &FS) {
   TextDiagnosticPrinter DiagClient(LogS, &DiagOpts);
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs);
   DiagnosticsEngine Diags(DiagID, &DiagOpts, &DiagClient, false);
@@ -671,9 +656,11 @@ amd_comgr_status_t executeCommand(const Command &Job, raw_ostream &LogS,
 
     std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
     Clang->setVerboseOutputStream(LogS);
+    Clang->setFileManager(new FileManager(Clang->getFileSystemOpts(), &FS));
     if (!Argv.back()) {
       Argv.pop_back();
     }
+
     if (!CompilerInvocation::CreateFromArgs(Clang->getInvocation(), Argv,
                                             Diags)) {
       return AMD_COMGR_STATUS_ERROR;
@@ -681,7 +668,7 @@ amd_comgr_status_t executeCommand(const Command &Job, raw_ostream &LogS,
     // Internally this call refers to the invocation created above, so at
     // this point the DiagnosticsEngine should accurately reflect all user
     // requested configuration from Argv.
-    Clang->createDiagnostics(VFS, &DiagClient, /* ShouldOwnClient */ false);
+    Clang->createDiagnostics(FS, &DiagClient, /* ShouldOwnClient */ false);
     if (!Clang->hasDiagnostics()) {
       return AMD_COMGR_STATUS_ERROR;
     }
@@ -754,12 +741,11 @@ AMDGPUCompiler::executeInProcessDriver(ArrayRef<const char *> Args) {
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs);
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
 
-  auto VFS = llvm::vfs::getRealFileSystem();
-  ProcessWarningOptions(Diags, *DiagOpts, *VFS, /*ReportDiags=*/false);
+  ProcessWarningOptions(Diags, *DiagOpts, *OverlayFS, /*ReportDiags=*/false);
 
   Driver TheDriver((Twine(env::getLLVMPath()) + "/bin/clang").str(),
                    llvm::sys::getDefaultTargetTriple(), Diags,
-                   "AMDGPU Code Object Manager", VFS);
+                   "AMDGPU Code Object Manager", OverlayFS);
   TheDriver.setCheckInputsExist(false);
 
   // Log arguments used to build compilation
@@ -781,7 +767,7 @@ AMDGPUCompiler::executeInProcessDriver(ArrayRef<const char *> Args) {
 
   auto Cache = CommandCache::get(LogS);
   for (auto &Job : C->getJobs()) {
-    ClangCommand C(Job, *DiagOpts, *VFS, executeCommand);
+    ClangCommand C(Job, *DiagOpts, *OverlayFS, executeCommand);
     if (Cache) {
       if (auto Status = Cache->execute(C, LogS)) {
         return Status;
@@ -877,7 +863,8 @@ amd_comgr_status_t AMDGPUCompiler::removeTmpDirs() {
 #endif
 }
 
-amd_comgr_status_t AMDGPUCompiler::processFile(const char *InputFilePath,
+amd_comgr_status_t AMDGPUCompiler::processFile(DataObject *Input,
+                                               const char *InputFilePath,
                                                const char *OutputFilePath) {
   SmallVector<const char *, 128> Argv = Args;
 
@@ -899,6 +886,12 @@ amd_comgr_status_t AMDGPUCompiler::processFile(const char *InputFilePath,
     Argv.push_back("-save-temps=obj");
   }
 
+  // Add SPIR-V flags
+  for (auto Flag : Input->SpirvFlags) {
+    Argv.push_back("-Xclang");
+    Argv.push_back(Flag);
+  }
+
   Argv.push_back(InputFilePath);
 
   Argv.push_back("-o");
@@ -910,6 +903,12 @@ amd_comgr_status_t AMDGPUCompiler::processFile(const char *InputFilePath,
 amd_comgr_status_t
 AMDGPUCompiler::processFiles(amd_comgr_data_kind_t OutputKind,
                              const char *OutputSuffix) {
+  return processFiles(OutputKind, OutputSuffix, InSet);
+}
+
+amd_comgr_status_t
+AMDGPUCompiler::processFiles(amd_comgr_data_kind_t OutputKind,
+                             const char *OutputSuffix, DataSet *InSet) {
   for (auto *Input : InSet->DataObjects) {
     if (Input->DataKind != AMD_COMGR_DATA_KIND_INCLUDE) {
       continue;
@@ -947,7 +946,7 @@ AMDGPUCompiler::processFiles(amd_comgr_data_kind_t OutputKind,
     auto OutputFilePath = getFilePath(Output, OutputDir);
 
     if (auto Status =
-            processFile(InputFilePath.c_str(), OutputFilePath.c_str())) {
+            processFile(Input, InputFilePath.c_str(), OutputFilePath.c_str())) {
       return Status;
     }
 
@@ -1082,8 +1081,18 @@ amd_comgr_status_t AMDGPUCompiler::addDeviceLibraries() {
     for (auto DeviceLib : getDeviceLibraries()) {
       llvm::SmallString<128> DeviceLibPath = DeviceLibsDir;
       path::append(DeviceLibPath, std::get<0>(DeviceLib));
-      if (auto Status = outputToFile(std::get<1>(DeviceLib), DeviceLibPath)) {
-        return Status;
+      // TODO: We should abstract the logic of deciding whether to use the VFS
+      // or the real file system within inputFromFile and outputToFile.
+      if (UseVFS) {
+        if (!InMemoryFS->addFile(
+                DeviceLibPath, /* ModificationTime */ 0,
+                llvm::MemoryBuffer::getMemBuffer(std::get<1>(DeviceLib)))) {
+          return AMD_COMGR_STATUS_ERROR;
+        }
+      } else {
+        if (auto Status = outputToFile(std::get<1>(DeviceLib), DeviceLibPath)) {
+          return Status;
+        }
       }
     }
   }
@@ -1241,9 +1250,10 @@ amd_comgr_status_t AMDGPUCompiler::unbundle() {
   }
 
   // Collect bitcode memory buffers from bitcodes, bundles, and archives
+  auto Cache = CommandCache::get(LogS);
   for (auto *Input : InSet->DataObjects) {
 
-    std::string FileExtension;
+    const char *FileExtension;
     amd_comgr_data_kind_t UnbundledDataKind;
     switch (Input->DataKind) {
     case AMD_COMGR_DATA_KIND_BC_BUNDLE:
@@ -1274,76 +1284,61 @@ amd_comgr_status_t AMDGPUCompiler::unbundle() {
       const size_t BufSize = sizeof(char) * 30;
       char *Buf = (char *)malloc(BufSize);
       snprintf(Buf, BufSize, "comgr-bundle-%d.%s", std::rand() % 10000,
-               FileExtension.c_str());
+               FileExtension);
       Input->Name = Buf;
     }
 
     // Write input file system so that OffloadBundler API can process
     // TODO: Switch write to VFS
-    std::string InputFilePath = getFilePath(Input, InputDir).str().str();
+    SmallString<128> InputFilePath = getFilePath(Input, InputDir);
     if (auto Status = outputToFile(Input, InputFilePath)) {
       return Status;
     }
 
     // Bundler input name
-    BundlerConfig.InputFileNames.push_back(InputFilePath);
+    BundlerConfig.InputFileNames.emplace_back(InputFilePath);
 
     // Generate prefix for output files
-    std::string OutputPrefix = std::string(Input->Name);
+    StringRef OutputPrefix = Input->Name;
     size_t Index = OutputPrefix.find_last_of(".");
     OutputPrefix = OutputPrefix.substr(0, Index);
 
-    // Bundler target and output names
-    for (auto Entry : ActionInfo->BundleEntryIDs) {
-      BundlerConfig.TargetNames.push_back(Entry);
-
-      // Add an output file for each target
-      std::string OutputFileName =
-          OutputPrefix + '-' + Entry + "." + FileExtension;
-
-      // TODO: Switch this to LLVM path APIs
-      std::string OutputFilePath = OutputDir.str().str() + "/" + OutputFileName;
-      BundlerConfig.OutputFileNames.push_back(OutputFilePath);
-    }
-
-    OffloadBundler Bundler(BundlerConfig);
-
-    // TODO: log vectors, build clang command
+    // TODO: Log Command (see linkBitcodeToBitcode() unbundling)
     if (env::shouldEmitVerboseLogs()) {
-      LogS << "Extracting Bundle:\n"
-           << "\t  Unbundled Files Extension: ." << FileExtension << "\n"
-           << "\t  Bundle Entry ID: " << BundlerConfig.TargetNames[0] << "\n"
-           << "\t   Input Filename: " << BundlerConfig.InputFileNames[0] << "\n"
-           << "\t  Output Filename: " << BundlerConfig.OutputFileNames[0]
-           << "\n";
-      LogS.flush();
+      LogS << "   Extracting Bundle:\n"
+           << "   Input Filename: " << BundlerConfig.InputFileNames[0] << "\n"
+           << "   Unbundled Files Extension: ." << FileExtension << "\n";
     }
 
-    switch (Input->DataKind) {
-    case AMD_COMGR_DATA_KIND_BC_BUNDLE: {
-      llvm::Error Err = Bundler.UnbundleFiles();
-      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
-                                  "Unbundle Bitcodes Error: ");
-      break;
+    for (StringRef Entry : ActionInfo->BundleEntryIDs) {
+      // Add an output file for each target
+      SmallString<128> OutputFilePath = OutputDir;
+      sys::path::append(OutputFilePath,
+                        OutputPrefix + "-" + Entry + "." + FileExtension);
+
+      BundlerConfig.TargetNames.emplace_back(Entry);
+      BundlerConfig.OutputFileNames.emplace_back(OutputFilePath);
+
+      if (env::shouldEmitVerboseLogs()) {
+        LogS << "\tBundle Entry ID: " << Entry << "\n"
+             << "\tOutput Filename: " << OutputFilePath << "\n";
+        LogS.flush();
+      }
     }
-    case AMD_COMGR_DATA_KIND_AR_BUNDLE: {
-      llvm::Error Err = Bundler.UnbundleArchive();
-      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
-                                  "Unbundle Archives Error: ");
-      break;
-    }
-    case AMD_COMGR_DATA_KIND_OBJ_BUNDLE: {
-      llvm::Error Err = Bundler.UnbundleFiles();
-      llvm::logAllUnhandledErrors(std::move(Err), llvm::errs(),
-                                  "Unbundle Objects Error: ");
-      break;
-    }
-    default:
-      llvm_unreachable("invalid bundle type");
+
+    UnbundleCommand Unbundle(Input->DataKind, BundlerConfig);
+    if (Cache) {
+      if (auto Status = Cache->execute(Unbundle, LogS)) {
+        return Status;
+      }
+    } else {
+      if (auto Status = Unbundle.execute(LogS)) {
+        return Status;
+      }
     }
 
     // Add new bitcodes to OutSetT
-    for (auto OutputFilePath : BundlerConfig.OutputFileNames) {
+    for (StringRef OutputFilePath : BundlerConfig.OutputFileNames) {
 
       amd_comgr_data_t ResultT;
 
@@ -1354,21 +1349,14 @@ amd_comgr_status_t AMDGPUCompiler::unbundle() {
       ScopedDataObjectReleaser SDOR(ResultT);
 
       DataObject *Result = DataObject::convert(ResultT);
-      if (auto Status = inputFromFile(Result, StringRef(OutputFilePath)))
+      if (auto Status = inputFromFile(Result, OutputFilePath))
         return Status;
 
-      StringRef OutputFileName =
-          llvm::sys::path::filename(StringRef(OutputFilePath));
+      StringRef OutputFileName = sys::path::filename(OutputFilePath);
       Result->setName(OutputFileName);
 
       if (auto Status = amd_comgr_data_set_add(OutSetT, ResultT)) {
         return Status;
-      }
-
-      // Remove input and output file after reading back into Comgr data
-      if (!env::shouldEmitVerboseLogs()) {
-        sys::fs::remove(InputFilePath);
-        sys::fs::remove(OutputFilePath);
       }
     }
   }
@@ -1885,11 +1873,106 @@ amd_comgr_status_t AMDGPUCompiler::linkToExecutable() {
   return amd_comgr_data_set_add(OutSetT, OutputT);
 }
 
+// TODO: Generalize this list to include all -cc1 flags and arguments that are
+//   still valid in a bitcode compilation context
+static inline const std::unordered_set<std::string_view> ValidSpirvFlags{
+    "-fapprox-func",
+    "-fcolor-diagnostics",
+    "-fconvergent-functions",
+    "-fexceptions",
+    "-ffast-math",
+    "-ffinite-math-only",
+    "-ffp-contract=fast",
+    "-ffp-contract=fast-honor-pragmas",
+    "-ffp-contract=on",
+    "-fgpu-rdc",
+    "-finline-functions",
+    "-fno-autolink",
+    "-fno-experimental-relative-c++-abi-vtables",
+    "-fno-rounding-math",
+    "-fno-signed-zeros",
+    "-fno-threadsafe-statics",
+    "-freciprocal-math",
+    "-funsafe-math-optimizations",
+    "-fvisibility=hidden",
+    "-O0",
+    "-O1",
+    "-O2",
+    "-O3",
+    "--save-temps"};
+
+amd_comgr_status_t AMDGPUCompiler::extractSpirvFlags(DataSet *BcSet) {
+
+  for (auto *Bc : BcSet->DataObjects) {
+    // Create SPIR-V IR Module from Bitcode Buffer
+    SMDiagnostic SMDiag;
+    LLVMContext Context;
+    Context.setDiagnosticHandler(
+        std::make_unique<AMDGPUCompilerDiagnosticHandler>(this->LogS), true);
+
+    auto Mod = getLazyIRModule(
+        MemoryBuffer::getMemBuffer(StringRef(Bc->Data, Bc->Size), "", false),
+        SMDiag, Context, true);
+
+    if (!Mod) {
+      SMDiag.print("SPIR-V Bitcode", LogS, /* ShowColors */ false);
+      return AMD_COMGR_STATUS_ERROR;
+    }
+
+    if (verifyModule(*Mod, &LogS))
+      return AMD_COMGR_STATUS_ERROR;
+
+    // Fetch @llvm.cmdline
+    GlobalVariable *CmdLine = Mod->getNamedGlobal("llvm.cmdline");
+
+    // Return if no @llvm.cmdline
+    if (!CmdLine)
+      return AMD_COMGR_STATUS_SUCCESS;
+
+    if (ConstantDataSequential *CDS =
+            dyn_cast<ConstantDataSequential>(CmdLine->getInitializer())) {
+
+      // Add each valid null-terminated '\0' string to Flags
+      std::string Tmp;
+      StringRef CmdLineRaw = CDS->getRawDataValues();
+      std::stringstream ss(CmdLineRaw.str());
+      while (getline(ss, Tmp, '\0')) {
+        if (Tmp == "--hipstdpar" || Tmp == "-amdgpu-enable-hipstdpar") {
+          Bc->SpirvFlags.push_back("-mllvm");
+          Bc->SpirvFlags.push_back("-amdgpu-enable-hipstdpar");
+        } else if (Tmp == "-amdgpu-spill-cfi-saved-regs") {
+          Bc->SpirvFlags.push_back("-mllvm");
+          Bc->SpirvFlags.push_back("-amdgpu-spill-cfi-saved-regs");
+        } else if (ValidSpirvFlags.count(Tmp)) {
+          Bc->SpirvFlags.push_back(Saver.save(Tmp.c_str()).data());
+        }
+      }
+    }
+
+    // COV5 required for SPIR-V
+    Bc->SpirvFlags.push_back("-mcode-object-version=5");
+
+    if (env::shouldEmitVerboseLogs()) {
+      LogS << "        SPIR-V Flags: " << Bc->Name << "\n";
+      for (auto Flag : Bc->SpirvFlags)
+        LogS << "          " << Flag << "\n";
+    }
+  }
+
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
 amd_comgr_status_t AMDGPUCompiler::translateSpirvToBitcode() {
+  return translateSpirvToBitcodeImpl(InSet, DataSet::convert(OutSetT));
+}
+
+amd_comgr_status_t
+AMDGPUCompiler::translateSpirvToBitcodeImpl(DataSet *SpirvInSet,
+                                            DataSet *BcOutSet) {
 #ifdef COMGR_DISABLE_SPIRV
-  LogS << "Calling AMDGPUCompiler::translateSpirvToBitcode() not supported. "
-       << "Comgr is built with -DCOMGR_DISABLE_SPIRV. Re-build LLVM and Comgr "
-       << "with LLVM-SPIRV-Translator support to continue.\n";
+  LogS << "Calling AMDGPUCompiler::translateSpirvToBitcodeImpl() not "
+       << "supported. Comgr is built with -DCOMGR_DISABLE_SPIRV. Re-build LLVM "
+       << "and Comgr with LLVM-SPIRV-Translator support to continue.\n";
   return AMD_COMGR_STATUS_ERROR;
 #else
   if (auto Status = createTmpDirs()) {
@@ -1898,7 +1981,7 @@ amd_comgr_status_t AMDGPUCompiler::translateSpirvToBitcode() {
 
   auto Cache = CommandCache::get(LogS);
 
-  for (auto *Input : InSet->DataObjects) {
+  for (auto *Input : SpirvInSet->DataObjects) {
 
     if (env::shouldSaveTemps()) {
       if (auto Status = outputToFile(Input, getFilePath(Input, InputDir))) {
@@ -1936,14 +2019,15 @@ amd_comgr_status_t AMDGPUCompiler::translateSpirvToBitcode() {
     Output->setName(std::string(Input->Name) + std::string(".bc"));
     Output->setData(OutBuf);
 
-    if (auto Status = amd_comgr_data_set_add(OutSetT, OutputT)) {
+    if (auto Status =
+            amd_comgr_data_set_add(DataSet::convert(BcOutSet), OutputT)) {
       return Status;
     }
 
     if (env::shouldEmitVerboseLogs()) {
       LogS << "SPIR-V Translation: amd-llvm-spirv -r --spirv-target-env=CL2.0 "
-        << getFilePath(Input, InputDir) << " "
-        << getFilePath(Output, OutputDir) << " (command line equivalent)\n";
+           << getFilePath(Input, InputDir) << " "
+           << getFilePath(Output, OutputDir) << " (command line equivalent)\n";
     }
 
     if (env::shouldSaveTemps()) {
@@ -1957,11 +2041,74 @@ amd_comgr_status_t AMDGPUCompiler::translateSpirvToBitcode() {
 #endif
 }
 
+amd_comgr_status_t AMDGPUCompiler::compileSpirvToRelocatable() {
+  if (auto Status = createTmpDirs()) {
+    return Status;
+  }
+
+  for (auto *Input : InSet->DataObjects) {
+    if (Input->DataKind != AMD_COMGR_DATA_KIND_SPIRV)
+      return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  // Translate .spv to .bc
+  amd_comgr_data_set_t TranslatedSpirvT;
+  if (auto Status = amd_comgr_create_data_set(&TranslatedSpirvT))
+    return Status;
+  DataSet *TranslatedSpirv = DataSet::convert(TranslatedSpirvT);
+
+  if (auto Status = translateSpirvToBitcodeImpl(InSet, TranslatedSpirv))
+    return Status;
+
+  // Extract relevant -cc1 flags from @llvm.cmdline
+  if (auto Status = extractSpirvFlags(TranslatedSpirv))
+    return Status;
+
+  // Compile bitcode to relocatable
+  if (ActionInfo->IsaName) {
+    if (auto Status = addTargetIdentifierFlags(ActionInfo->IsaName)) {
+      return Status;
+    }
+  }
+
+  if (ActionInfo->ShouldLinkDeviceLibs) {
+    if (auto Status = addDeviceLibraries()) {
+      return Status;
+    }
+  }
+
+  Args.push_back("-c");
+
+  Args.push_back("-mllvm");
+  Args.push_back("-amdgpu-internalize-symbols");
+
+  return processFiles(AMD_COMGR_DATA_KIND_RELOCATABLE, ".o", TranslatedSpirv);
+}
+
 AMDGPUCompiler::AMDGPUCompiler(DataAction *ActionInfo, DataSet *InSet,
                                DataSet *OutSet, raw_ostream &LogS)
     : ActionInfo(ActionInfo), InSet(InSet), OutSetT(DataSet::convert(OutSet)),
       LogS(LogS) {
   initializeCommandLineArgs(Args);
+
+  // Initialize OverlayFS with the real file system which helps redirect
+  // non-VFS reads and writes.
+  OverlayFS = new vfs::OverlayFileSystem(vfs::getRealFileSystem());
+
+  std::optional<bool> VFSStatus = env::shouldUseVFS();
+  if ((VFSStatus.has_value() && *VFSStatus) ||
+      (!VFSStatus.has_value() && ActionInfo->ShouldUseVFS)) {
+    if (env::shouldEmitVerboseLogs()) {
+      LogS << "    File System: VFS\n";
+    }
+    UseVFS = true;
+    InMemoryFS = new vfs::InMemoryFileSystem;
+    OverlayFS->pushOverlay(InMemoryFS);
+  } else {
+    if (env::shouldEmitVerboseLogs()) {
+      LogS << "    File System: Real\n";
+    }
+  }
 }
 
 AMDGPUCompiler::~AMDGPUCompiler() {

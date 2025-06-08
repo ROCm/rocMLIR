@@ -1,5 +1,4 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -host-pipeline highlevel | rocmlir-gen -RMS_threshold=1e-1 -absDiff_threshold=400 -ph -print-results -rand 1 -rand_type float -fut dot_add --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
-// ALLOW_RETRIES: 2
 // CLONE: [1 1 1]
 // CLONE-NEXT: Unranked Memref base
 

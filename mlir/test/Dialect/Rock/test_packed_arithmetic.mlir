@@ -16,17 +16,28 @@
 // VECTORIZE: %[[vec:.*]] = vector.transfer_read
 // VECTORIZE: %[[trunc:.*]] = arith.truncf %[[vec]]
 // VECTORIZE: vector.transfer_write %[[trunc]]
-// ROCDL:  %[[pkrtz:.*]] = rocdl.cvt.pkrtz {{.*}}, {{.*}} : vector<2xf16>
-// ROCDL:  llvm.store %[[pkrtz]], {{.*}} : vector<2xf16>, !llvm.ptr<5>
-// LLVM: %[[extract0:.*]] = extractelement <16 x float> {{.*}}, i64 0
-// LLVM: %[[extract1:.*]] = extractelement <16 x float> {{.*}}, i64 1
-// LLVM: tail call <2 x half> @llvm.amdgcn.cvt.pkrtz(float %[[extract0]], float %[[extract1]])
-// LLVM: %[[extract2:.*]] = extractelement <16 x float> {{.*}}, i64 2
-// LLVM: %[[extract3:.*]] = extractelement <16 x float> {{.*}}, i64 3
-// LLVM: tail call <2 x half> @llvm.amdgcn.cvt.pkrtz(float %[[extract2]], float %[[extract3]])
-// LLVM: %[[extract14:.*]] = extractelement <16 x float> {{.*}}, i64 14
-// LLVM: %[[extract15:.*]] = extractelement <16 x float> {{.*}}, i64 15
-// LLVM: tail call <2 x half> @llvm.amdgcn.cvt.pkrtz(float %[[extract14]], float %[[extract15]])
+// ROCDL:  %[[cvt:.*]] = llvm.fptrunc {{.*}} : vector<2xf32> to vector<2xf16>
+// ROCDL:  llvm.store %[[cvt]], {{.*}} : vector<2xf16>, !llvm.ptr<5>
+// LLVM: %[[fptrunc1:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
+// LLVM: %[[fptrunc2:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
+// LLVM: %[[fptrunc3:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
+// LLVM: %[[fptrunc4:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
+// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
 // ASM: v_pk_add_f16 {{.*}}, {{.*}}, {{.*}}
 module {
   func.func @test_fusion(%arg0: memref<1x128x128xf16> {mhal.read_access}, %arg1: memref<1x128x128xf16> {mhal.read_access}, %arg2: memref<1x128x128xf16> {mhal.read_access}, %arg3: memref<1x128x128xf16> {mhal.write_access}) attributes {arch = "gfx942", kernel} {

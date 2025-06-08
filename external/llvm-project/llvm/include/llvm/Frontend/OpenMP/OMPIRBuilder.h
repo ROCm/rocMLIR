@@ -14,14 +14,15 @@
 #ifndef LLVM_FRONTEND_OPENMP_OMPIRBUILDER_H
 #define LLVM_FRONTEND_OPENMP_OMPIRBUILDER_H
 
-#include "llvm/Analysis/MemorySSAUpdater.h"
 #include "llvm/Frontend/Atomic/Atomic.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/ValueMap.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/Error.h"
 #include "llvm/TargetParser/Triple.h"
 #include <forward_list>
 #include <map>
@@ -489,9 +490,10 @@ public:
   public:
     AtomicInfo(IRBuilder<> *Builder, llvm::Type *Ty, uint64_t AtomicSizeInBits,
                uint64_t ValueSizeInBits, llvm::Align AtomicAlign,
-               llvm::Align ValueAlign, bool UseLibcall, llvm::Value *AtomicVar)
+               llvm::Align ValueAlign, bool UseLibcall,
+               IRBuilderBase::InsertPoint AllocaIP, llvm::Value *AtomicVar)
         : llvm::AtomicInfo(Builder, Ty, AtomicSizeInBits, ValueSizeInBits,
-                           AtomicAlign, ValueAlign, UseLibcall),
+                           AtomicAlign, ValueAlign, UseLibcall, AllocaIP),
           AtomicVar(AtomicVar) {}
 
     llvm::Value *getAtomicPointer() const override { return AtomicVar; }
@@ -1094,7 +1096,8 @@ private:
   ///                   original and copied loop values and loop blocks.
   /// \param NamePrefix Optional name prefix for if.then if.else blocks.
   void createIfVersion(CanonicalLoopInfo *Loop, Value *IfCond,
-                       ValueToValueMapTy &VMap, const Twine &NamePrefix = "");
+                       ValueMap<const Value *, WeakTrackingVH> &VMap,
+                       const Twine &NamePrefix = "");
 
 public:
   /// Modifies the canonical loop to be a workshare loop.
@@ -1981,6 +1984,8 @@ public:
   /// \param IsNoWait           A flag set if the reduction is marked as nowait.
   /// \param IsByRef            A flag set if the reduction is using reference
   /// or direct value.
+  /// \param IsTeamsReduction   Optional flag set if it is a teams
+  ///                           reduction.
   InsertPointOrErrorTy createReductions(const LocationDescription &Loc,
                                         InsertPointTy AllocaIP,
                                         ArrayRef<ReductionInfo> ReductionInfos,
@@ -3281,11 +3286,12 @@ public:
   /// 					    value
   /// \param AO			Atomic ordering of the generated atomic
   /// 					    instructions.
-  ///
+  /// \param AllocaIP           Insert point for allocas
+  //
   /// \return Insertion point after generated atomic read IR.
   InsertPointTy createAtomicRead(const LocationDescription &Loc,
                                  AtomicOpValue &X, AtomicOpValue &V,
-                                 AtomicOrdering AO);
+                                 AtomicOrdering AO, InsertPointTy AllocaIP);
 
   /// Emit atomic write for : X = Expr --- Only Scalar data types.
   ///

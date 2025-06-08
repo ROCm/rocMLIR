@@ -250,3 +250,27 @@ func.func @test_gemm_gemm(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
   memref.copy %7, %arg3 : memref<256xf16> to memref<256xf16>
   return
 }
+
+// CHECK-LABEL: test_conv_gemm
+func.func @test_conv_gemm(%arg0: memref<147456xf32>, %arg1: memref<802816xf32>, %arg2: memref<65536xf32>, %arg3: memref<2359296xf32>) attributes {kernel, arch = ""} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3, d4) -> (((d1 * 3 + d2) * 3 + d3) * 64 + d4)> by [<Unmerge{256, 3, 3, 64} ["k", "0", "1", "c"] at [1, 2, 3, 4] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 256, 3, 3, 64] -> [147456]> : memref<147456xf32> to memref<1x256x3x3x64xf32>
+  %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2, d3, d4) -> (((d0 * 14 + d1) * 14 + d2) * 64 + d4)> by [<Unmerge{64, 14, 14, 64} ["n", "0", "1", "c"] at [0, 1, 2, 4] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [3] -> [] at []>] bounds = [64, 14, 14, 1, 64] -> [802816]> : memref<802816xf32> to memref<64x14x14x1x64xf32>
+  %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 256 + d2)> by [<Unmerge{256, 256} ["m", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 256, 256] -> [65536]> : memref<65536xf32> to memref<1x256x256xf32>
+  %3 = rock.transform %arg3 by <affine_map<(d0, d1, d2) -> (d1 * 256 + d2)> by [<Unmerge{9216, 256} ["n", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 9216, 256] -> [2359296]> : memref<2359296xf32> to memref<1x9216x256xf32>
+  
+  // CHECK: rock.conv_elementwise_gemm
+  // CHECK: ab = conv(%{{.*}}, %{{.*}}) : memref<256x3x3x1x64xf32>, memref<64x14x14x1x64xf32>
+  // CHECK-NEXT: %{{.*}} = ab * %{{.*}} : memref<1x256x256xf32> -> memref<1x9216x256xf32>
+  // CHECK-NEXT: filter_layout = ["k", "0", "1", "g", "c"]
+  // CHECK-SAME: input_layout = ["ni", "0i", "1i", "gi", "ci"]
+  rock.conv_elementwise_gemm{
+    ab = conv(%0, %1) : memref<1x256x3x3x64xf32>, memref<64x14x14x1x64xf32>
+    ab = elementwise {
+  ^bb0(%arg4: memref<1x256x9216xf32>, %arg5: memref<1x256x9216xf32>):
+    memref.copy %arg4, %arg5 : memref<1x256x9216xf32> to memref<1x256x9216xf32>
+    rock.yield
+  }
+    %3 = ab * %2 : memref<1x256x256xf32> -> memref<1x9216x256xf32>
+  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, filter_layout = ["g", "k", "0", "1", "c"], firstGemmIdx = 0 : i32, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  return
+}

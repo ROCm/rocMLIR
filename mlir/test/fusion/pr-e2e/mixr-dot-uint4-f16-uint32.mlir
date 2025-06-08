@@ -1,5 +1,4 @@
 // RUN: rocmlir-driver -kernel-pipeline=migraphx %s | rocmlir-gen -fut mlir_unpack_uint4_f16_uint32 --arch %arch --clone-harness - | rocmlir-driver -host-pipeline=highlevel | rocmlir-gen -ph -fut mlir_unpack_uint4_f16_uint32_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
-// ALLOW_RETRIES: 2
 // CHECK: [1 1 1]
 // COM: Runs the MIGraphX pipeline first to rewrite out the int4
 module {

@@ -1,0 +1,594 @@
+#bert_base_cased_1.onnx
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 384 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t i8 -out_datatype i32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+
+#bert_base_uncased_1.onnx
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 384 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t i8 -out_datatype i32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+
+#bert_large_uncased_1.onnx
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 1024
+-t f32 -out_datatype f32 -transA false -transB true -g 16 -m 384 -n 384 -k 64
+-t f32 -out_datatype f32 -transA false -transB false -g 16 -m 384 -n 64 -k 384
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
+-t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 1024
+-t i8 -out_datatype i32 -transA false -transB false -g 16 -m 384 -n 384 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 16 -m 384 -n 64 -k 384
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
+-t i8 -out_datatype i32 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
+
+#distilgpt2_1.onnx
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 384 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+
+#bert_base_cased_1_fp16_gpu.onnx
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+
+#bert_large_uncased_1_fp16_gpu.onnx
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 1024
+-t f16 -transQ false -transK true -transV false -transO false -g 16 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
+
+#distilgpt2_1_fp16_gpu.onnx
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+
+#gpt2-10_fp16
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
+-t f16 -out_datatype f16 -transA false -transB true -g 12 -m 1 -n 1 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 64 -k 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
+
+#gpt2-10_int8
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
+
+#resnet50_v1.onnx_fp16
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
+
+#resnet50_v1.onnx_int8
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 768 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 2048 -H 7 -W 7 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 512 -H 7 -W 7 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
+
+#stable-diffusion-2-onnx-unet
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 24960 -k 1024
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 1280 -k 320
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 4 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 20160 -k 1280
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 320 -k 320
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 960 -k 320
+-t f16 -transQ false -transK true -transV false -transO false -g 10 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 10 -seq_len_q 4096 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 2560 -k 320
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 320 -k 1280
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 320 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 320 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 640 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 1920 -k 640
+-t f16 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1024 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 5120 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 640 -k 2560
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 640 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 640 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 3840 -k 1280
+-t f16 -transQ false -transK true -transV false -transO false -g 40 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transQ false -transK true -transV false -transO false -g 40 -seq_len_q 256 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 10240 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 1280 -k 5120
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O N01GC -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 3840 -k 1280
+-t f16 -transQ false -transK true -transV false -transO false -g 40 -seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 10240 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 1280 -k 5120
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 2560 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 2560 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1920 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1920 -H 16 -W 16 -k 1280 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1920 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1920 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 1280 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 1280 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 960 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+#stable-diffusion-2-onnx text_encoder
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 16 -m 1 -n 1 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 16 -m 1 -n 64 -k 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1024 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 4096 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1024 -k 4096
+
+#stable-diffusion-2-onnx vae_decoder
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 4 -H 64 -W 64 -k 4 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 4 -H 64 -W 64 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 64 -W 64 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 1536 -k 512
+-t f16 -transQ false -transK false -transV false -transO false -g 1 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 512 -head_dim_v 512
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 512 -k 512
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 128 -W 128 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+#bert_large_mlperf.onnx
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 3072 -k 1024
+-t f16 -transQ false -transK true -transV false -transO false -g 16 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 1024 -k 1024
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 4096 -k 1024
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 1024 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 2 -k 1024
+
+#llama2_7b
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
+-t f32 -out_datatype f32 -transA false -transB true -g 32 -m 256 -n 256 -k 128
+-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 32000 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 256 -k 128
+-t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 32000 -k 4096
+
+#qwen1.5-7b fp16
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
+-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 151936 -k 4096
+
+#qwen1.57b int8
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
+-t f32 -out_datatype f32 -transA false -transB true -g 32 -m 256 -n 256 -k 128
+-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 151936 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 256 -k 128
+-t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 151936 -k 4096
+
+#phi3
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 9216 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 48 -n 256 -k 1
+-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 96 -head_dim_v 96
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 3072 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 16384 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 3072 -k 8192
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 32064 -k 3072
+
+#MaskRCNN-10.onnx
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 800 -W 800 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 200 -W 200 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 100 -W 100 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 100 -W 100 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 100 -W 100 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 256 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 768 -H 50 -W 50 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 50 -W 50 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 50 -W 50 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 25 -W 25 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1536 -H 25 -W 25 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 25 -W 25 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 25 -W 25 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 25 -W 25 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 12544
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 1024
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 405 -k 1024
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+#llama3_8b model.onnx
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 6144 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 64 -n 256 -k 1
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 28672 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 14336
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 128256 -k 4096
+
+#whisper-large encoder_model.onnx
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 80 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 2 -v 1 -l 1 -j 1 -g 1
+-t f32 -out_datatype f32 -transA true -transB false -g 1 -m 1500 -n 3840 -k 1280
+-t f32 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1500 -seq_len_k 1500 -head_dim_qk 64 -head_dim_v 64
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 1280 -k 1280
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 5120 -k 1280
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 1280 -k 5120
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 3840 -k 1280
+
+#whisper-large decoder_model.onnx
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 81920 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 3840 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 20 -m 216 -n 216 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 216
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 20 -m 216 -n 1 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 5120 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 1280 -k 5120
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 51865 -k 1280
+
+#mistral-7b
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 6144 -k 4096
+-t f16 -transQ false -transK false -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 28672 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 14336
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 32000 -k 4096
+
+#Flux
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
+-t f16 -transQ false -transK false -transV false -transO false -g 12 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
+
+#sd3 text_encoder
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 77 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 64 -k 77
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+
+#sd3 text_encoder_2
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3840 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 20 -m 77 -n 77 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 20 -m 77 -n 64 -k 77
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 5120 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 1280 -k 5120
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
+
+#sd3 text_encoder_3
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 12288 -k 4096
+-t f16 -transQ false -transK true -transV false -transO false -g 64 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 20480 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 4096 -k 10240
+
+#sd3.5 text_encoder
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
+-t f16 -transQ false -transK false -transV false -transO false -g 12 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+
+#sd3.5 text_encoder_2
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 3840 -k 1280
+-t f16 -transQ false -transK false -transV false -transO false -g 20 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 5120 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 5120
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
+
+#sd3.5 text_encoder_3
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 12288 -k 4096
+-t f16 -transQ false -transK true -transV false -transO false -g 64 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 20480 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 4096 -k 10240
+
+#yolov10n_1.onnx
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 640 -W 640 -k 16 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 16 -H 320 -W 320 -k 32 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 48 -H 160 -W 160 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 160 -W 160 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f32 -out_datatype f32 -transA false -transB true -g 2 -m 400 -n 400 -k 32
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
+-t f32 -out_datatype f32 -transA true -transB true -g 2 -m 64 -n 400 -k 400
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 384 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 192 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 96 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 192 -H 40 -W 40 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 64 -H 80 -W 80 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 80 -H 80 -W 80 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 64 -H 40 -W 40 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 384 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 80 -H 40 -W 40 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 80 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 16 -H 4 -W 8400 -k 1 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+#yolov4.onnx
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 3 -H 416 -W 416 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 417 -W 417 -k 64 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 208 -W 208 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 208 -W 208 -k 32 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 32 -H 208 -W 208 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 208 -W 208 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 208 -W 208 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 209 -W 209 -k 128 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 104 -W 104 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 64 -H 104 -W 104 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 64 -H 104 -W 104 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 105 -W 105 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 52 -W 52 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 128 -H 52 -W 52 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 128 -H 52 -W 52 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 256 -H 52 -W 52 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 53 -W 53 -k 512 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 26 -W 26 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 26 -W 26 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 256 -H 26 -W 26 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 512 -H 26 -W 26 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 27 -W 27 -k 1024 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 1024 -H 13 -W 13 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 13 -W 13 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O NGC01 -n 1 -c 512 -H 13 -W 13 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 1024 -H 13 -W 13 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 512 -H 13 -W 13 -k 1024 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 13 -W 13 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I NGC01 -O NGC01 -n 1 -c 512 -H 13 -W 13 -k 1024 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 13 -W 13 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 13 -W 13 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 256 -H 26 -W 26 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O N01GC -n 1 -c 256 -H 26 -W 26 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 128 -H 52 -W 52 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 128 -H 53 -W 53 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 256 -H 27 -W 27 -k 512 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 13 -W 13 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 512 -H 26 -W 26 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I N01GC -O NGC01 -n 1 -c 256 -H 52 -W 52 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+#sd3_medium_vae_encoder
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 3 -H 64 -W 64 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 128 -H 64 -W 64 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 128 -H 64 -W 64 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 128 -H 65 -W 65 -k 128 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 128 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 256 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 128 -H 32 -W 32 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 256 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 256 -H 33 -W 33 -k 256 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 256 -H 16 -W 16 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 512 -H 16 -W 16 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I N01GC -O NGC01 -n 2 -c 256 -H 16 -W 16 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 512 -H 16 -W 16 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 512 -H 17 -W 17 -k 512 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f32 -out_datatype f32 -transA true -transB false -g 1 -m 128 -n 1536 -k 512
+-t f32 -transQ false -transK false -transV false -transO false -g 2 -seq_len_q 64 -seq_len_k 64 -head_dim_qk 512 -head_dim_v 512
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 512 -k 512
+conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 512 -H 8 -W 8 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1

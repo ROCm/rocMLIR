@@ -268,6 +268,25 @@ func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x
   return
 }
 
+// CHECK-LABEL: func.func @rock_attention_causal
+// CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x1024x64xf32>)
+func.func @rock_attention_causal(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
+  // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[o]])
+  // CHECK-NEXT: , causal,
+  rock.attention{
+     qk = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x1024xf32>
+     causal
+     %arg3 = softmax(qk) * %arg2 : memref<1x1024x64xf32> -> memref<1x1024x64xf32>
+  } {
+    arch = "amdgcn-amd-amdhsa:gfx908",
+    features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>,
+    params0 = #xldops_attn_params_g0,
+    params1 = #xldops_attn_params_g1,
+    firstGemmIdx = 0 : i32
+  }
+  return
+}
+
 // CHECK-LABEL: func.func @rock_gemmelementwisegemm_simple
 // CHECK-SAME: (%[[a:.*]]: memref<1x64x1024xf32>, %[[b:.*]]: memref<1x64x1024xf32>, %[[c:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x1024x64xf32>)
 func.func @rock_gemmelementwisegemm_simple(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
