@@ -1124,7 +1124,7 @@ pipeline {
                                             optional: true,\
                                             flatten: true,\
                                             projectName: "/MLIR/mlir-weekly",\
-                                            selector: lastSuccessful(),\
+                                            selector: specific('333'),\
                                             target: 'build'
                                             sh 'ls build'
                                             sh 'cat build/tuning-date'
