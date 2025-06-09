@@ -13,6 +13,7 @@
 #include "mlir/IR/TypeUtilities.h"
 
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -133,9 +134,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 
     return gfx12Info;
   }
-  llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
-               << arch << "\n";
-  return gcnInfo;
+  llvm_unreachable("unknown architecture");
 }
 
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {

@@ -1,4 +1,4 @@
-// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: cat %s | rocmlir-gen -ph -print-results -rand none - | sed s/##TOKEN_ARCH##/%arch/g | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK-COUNT-640: 2
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (0, d1, d0)> by [<Merge{1, 32} ["nr"] at [0] -> ["1", "z"] at [0, 2]>, <PassThrough ["r"] at [1] -> ["0"] at [1]>] bounds = [32, 20] -> [1, 20, 32]>
@@ -7,7 +7,7 @@
 
 #transform_map3 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
 
-func.func @rock_threadwise_memcopy_simple(%input : memref<1x20x32xf32>,  %output : memref<1x20x32xf32>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+func.func @rock_threadwise_memcopy_simple(%input : memref<1x20x32xf32>,  %output : memref<1x20x32xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds = rock.alloc() : memref<4x20xf32, #gpu.address_space<workgroup>>

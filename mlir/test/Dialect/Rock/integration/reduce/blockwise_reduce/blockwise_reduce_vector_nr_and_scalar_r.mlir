@@ -1,5 +1,5 @@
 
-// RUN: rocmlir-gen -ph -print-results -rand none - < %s | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -ph -print-results -rand none - < %s | sed s/##TOKEN_ARCH##/%arch/g | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 // CHECK-COUNT-24576: 32
 
 #transform_map1 = #rock.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, 0, d3 floordiv 32, d3 mod 32, 0, 0, d4 floordiv 4, d4 mod 4)> by [<PassThrough ["g_block", "m_block", "n_block"] at [0, 1, 2] -> ["g_block", "m_block", "n_block"] at [0, 1, 2]>, <Merge{1, 2, 32} ["tid"] at [3] -> ["1ave", "m_tid", "n_tid"] at [3, 4, 5]>, <Merge{1, 1, 4, 4} ["item"] at [4] -> ["i", "j", "vec_group", "vec_item"] at [6, 7, 8, 9]>] bounds = [1, 2, 12, 64, 16] -> [1, 2, 12, 1, 2, 32, 1, 1, 4, 4]>
@@ -28,7 +28,7 @@
 #transform_map22_iter = #rock.transform_map<#map13_iter by [<Merge{1, 1} ["i"] at [0] -> ["m_i", "n_i"] at [0, 1]>, <Merge{1, 1} ["j"] at [1] -> ["blk_row", "blk_col"] at [2, 3]>, <PassThrough ["vec_group", "vec_item"] at [2, 3] -> ["vec_group", "vec_item"] at [4, 5]>] bounds = [1, 1, 4, 4] -> [1, 1, 1, 1, 4, 4]>
 #transform_map23_iter = #rock.transform_map<#map14_iter by [<Unmerge{1, 1, 4, 4} ["m_i", "blk_row", "vec_group", "vec_item"] at [0, 2, 4, 5] -> ["gemmM"] at [0]>, <Unmerge{1, 1} ["n_i", "blk_col"] at [1, 3] -> ["gemmN"] at [1]>] bounds = [1, 1, 1, 1, 4, 4] -> [16, 1]>
 
-func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>,  %output : memref<1x64x384xf32>) attributes{arch = "", block_size = 64 : i32, grid_size = 24 : i32, kernel} {
+func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>,  %output : memref<1x64x384xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 24 : i32, kernel} {
   %input_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
