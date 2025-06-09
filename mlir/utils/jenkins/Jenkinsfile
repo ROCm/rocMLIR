@@ -66,34 +66,36 @@ def advancedNodeCheck(Map params) {
 }
 
 def resetGPUs() {
-    // Run the reset, but don't fail the build if anything is wrong
-    def rc = sh(
-        script: '''
-        reset_all_gpus() {
-            echo "Scanning GPUs..."
-            GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
-            if [ -z "$GPU_IDS" ]; then
-                echo "WARNING: No GPUs found to reset."
-                return 0
-            fi
-            for id in $GPU_IDS; do
-                echo "Resetting GPU ID: $id"
-                if ! rocm-smi --gpureset -d $id; then
-                    echo "WARNING: Unable to reset GPU $id"
+    // Abort this if runs longer than 5 minutes
+    timeout(time: 5, unit: 'MINUTES') {
+        // Run the reset, but don't fail the build if anything is wrong
+        def rc = sh(
+            script: '''
+            reset_all_gpus() {
+                echo "Scanning GPUs..."
+                GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
+                if [ -z "$GPU_IDS" ]; then
+                    echo "WARNING: No GPUs found to reset."
+                    return 0
                 fi
-                sleep 2
-            done
-            return 0
+                for id in $GPU_IDS; do
+                    echo "Resetting GPU ID: $id"
+                    if ! rocm-smi --gpureset -d $id; then
+                        echo "WARNING: Unable to reset GPU $id"
+                    fi
+                    sleep 2
+                done
+                return 0
+            }
+            reset_all_gpus
+            ''',
+            returnStatus: true
+        )
+        if (rc != 0) {
+            echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
         }
-        reset_all_gpus
-        ''',
-        returnStatus: true
-    )
-    if (rc != 0) {
-        echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anywat=y"
     }
 }
-
 
 def checkNodeHealth(Map opts = [:]) {
     advancedNodeCheck(
