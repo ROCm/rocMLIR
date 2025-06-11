@@ -60,6 +60,14 @@ config = "-rand 1 -current_seq_len=17 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 
 [[suite.test]]
 config = "-rand 1 -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
 
+# GQA + KV Cache batch=3 + return LSE
+[[suite.test]]
+config = "-rand 1 -return_lse -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
+
 # GQA + causal + KV Cache batch=3
 [[suite.test]]
 config = "-rand 1 -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
+
+# GQA + causal + KV Cache batch=3 + return LSE
+[[suite.test]]
+config = "-rand 1 -return_lse -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"

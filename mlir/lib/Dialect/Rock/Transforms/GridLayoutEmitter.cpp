@@ -70,14 +70,14 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   // be slowest changing in the grid.
   int64_t numChiplets = rock::lookupArchInfo(arch).maxNumXCC;
   if (numChiplets > 1) {
-    // It was emphircally found that two chiplets as a group
+    // It was empirically found that two chiplets as a group
     // computing a spatial mxn tile has better locality throughout.
     int64_t numChipletsPerGroup = std::ceil(numChiplets / 2);
     int64_t gridSize = info.gBlocks * info.mBlocks * info.nBlocks;
     bid = rearrangeWorkgroupsForXCC(loc, b, bid, gridSize, numChipletsPerGroup);
   }
 
-  // Heurisitc to compute groupSize
+  // Heuristic to compute groupSize
   // This also covers the cases where the output width is larger
   // than the input width
   int64_t bitWidthIn = info.inputType.getIntOrFloatBitWidth();
@@ -137,7 +137,7 @@ GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
   // be slowest changing in the grid.
   int64_t numChiplets = rock::lookupArchInfo(arch).maxNumXCC;
   if (numChiplets > 1) {
-    // It was emphircally found that two chiplets as a group
+    // It was empirically found that two chiplets as a group
     // computing a spatial mxn tile has better locality throughout.
     int64_t numChipletsPerGroup = std::ceil(numChiplets / 2);
     bid = rearrangeWorkgroupsForXCC(loc, b, bid, gridSize, numChipletsPerGroup);

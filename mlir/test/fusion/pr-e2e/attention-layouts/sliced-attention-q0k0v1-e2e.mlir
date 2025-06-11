@@ -4,7 +4,7 @@
 
 // CLONE: [1 1 1]
 
-// EMITKEY: -t f16 -transQ false -transK false -transV true -transO false -causal false -g 1 -seq_len_q 32 -seq_len_k 64 -head_dim_qk 16 -head_dim_v 8
+// EMITKEY: -t f16 -transQ false -transK false -transV true -transO false -causal false -return_lse false -g 1 -seq_len_q 32 -seq_len_k 64 -head_dim_qk 16 -head_dim_v 8
 
 // VECTORIZATION: qVectorDim: GemmDimension::K
 // VECTORIZATION-NEXT: qVectorLen: 4

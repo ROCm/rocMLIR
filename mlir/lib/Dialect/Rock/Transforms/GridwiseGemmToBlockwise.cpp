@@ -1111,13 +1111,13 @@ struct GridwiseAttentionAccelRewritePattern
 
     MemRefType gemm0OutViewType =
         cast<MemRefType>(gemm0OutBufferSumView.getType());
-    int64_t g0Mpt = gemm0OutViewType.getShape()[0];
+    int64_t g0Npt = gemm0OutViewType.getShape()[0];
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{rewriter.getArrayAttr({}), gemm0OutBufferSumTrs,
                             gemm0OutBufferMaxTrs},
-        /*bounds=*/ArrayRef<int64_t>{g0Mpt, 1},
+        /*bounds=*/ArrayRef<int64_t>{g0Npt, 1},
         /*strides=*/ArrayRef<int64_t>{1, 1},
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
@@ -1161,6 +1161,68 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
+  // This computes LSE (log-sum-exp)
+  // Note that this happens at the end of the kernel, so m and l are not running
+  // sum/max anymore. They are the final values.
+  // input = gemm0 output
+  // x = input/log(2) -> we divide by log(2) to be able to use exp2()
+  // m = max x
+  // l = sum exp2(x-m)
+  // We want to compute log(sum e^x), therefore we do:
+  // log(l*exp2(m)) = (log2(l) + m)*log(2) -> we use exp2() for "m", because we
+  // need to use the same exp function used for "l"
+  void computeLse(PatternRewriter &rewriter, Location loc, Value lseBufferView,
+                  Value sumRowBuffer, Value maxRowBuffer) const {
+    MemRefType memrefType = cast<MemRefType>(sumRowBuffer.getType());
+    assert(maxRowBuffer.getType() == sumRowBuffer.getType());
+
+    Type inputElemType = memrefType.getElementType();
+
+    Value lseBuffer;
+    ArrayAttr lseBufferTrs;
+    std::tie(lseBuffer, lseBufferTrs, std::ignore) =
+        untransform(rewriter, lseBufferView);
+    MemRefType lseBufferViewType = cast<MemRefType>(lseBufferView.getType());
+    Type outElemType = lseBufferViewType.getElementType();
+    int64_t g1Npt = lseBufferViewType.getShape()[0];
+    int64_t g1Mpt = lseBufferViewType.getShape()[1];
+    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
+    Value ln2Const = createConstantFloatOp(
+        rewriter, loc, outElemType, outElemType, 0.69314718f,
+        outElemType.isF32() ? APFloat::opOK : APFloat::opInexact);
+    auto loop = rewriter.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
+        ArrayRef<Attribute>{rewriter.getArrayAttr({}), lseBufferTrs},
+        /*bounds=*/ArrayRef<int64_t>{g1Npt, g1Mpt},
+        /*strides=*/ArrayRef<int64_t>{1, 1},
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(loop.getBody());
+      // lower = upper because the transform is empty
+      Block::BlockArgListType upperCoords = loop.getLowerCoords(0);
+      Block::BlockArgListType lseBufferCoords = loop.getLowerCoords(1);
+
+      Value ldMaxRowBuffer = rewriter.create<InBoundsLoadOp>(
+          loc, inputElemType, maxRowBuffer, ValueRange{upperCoords[0]});
+      Value ldSumRowBuffer = rewriter.create<InBoundsLoadOp>(
+          loc, inputElemType, sumRowBuffer, ValueRange{upperCoords[0]});
+
+      // convert to LSE type
+      ldMaxRowBuffer =
+          createTypeConversionOp(rewriter, loc, ldMaxRowBuffer, outElemType);
+      ldSumRowBuffer =
+          createTypeConversionOp(rewriter, loc, ldSumRowBuffer, outElemType);
+      // lse_i = (log2(l_i) + m_i)*log(2)
+      // Migraphx expects LSE to be log
+      Value log2Li = rewriter.create<math::Log2Op>(loc, ldSumRowBuffer);
+      Value log2Mi = ldMaxRowBuffer;
+      Value lseLog2 = rewriter.create<arith::AddFOp>(loc, log2Li, log2Mi);
+      Value lseOut = rewriter.create<arith::MulFOp>(loc, lseLog2, ln2Const);
+      rewriter.create<InBoundsStoreOp>(loc, lseOut, lseBuffer, lseBufferCoords);
+    }
+  }
+
   // This is the out of loop scaling of attention output
   // where its divided by the accumulated rowsum
   void scaleFinalOutput(PatternRewriter &rewriter, Location loc,
@@ -1173,13 +1235,13 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType attentionOutAccViewType =
         cast<MemRefType>(attentionOutAccBufferView.getType());
     Type outElemType = attentionOutAccViewType.getElementType();
-    int64_t g1Mpt = attentionOutAccViewType.getShape()[0];
-    int64_t g1Npt = attentionOutAccViewType.getShape()[1];
+    int64_t g1Npt = attentionOutAccViewType.getShape()[0];
+    int64_t g1Mpt = attentionOutAccViewType.getShape()[1];
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = rewriter.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{rewriter.getArrayAttr({}), attentionOutAccTrs},
-        /*bounds=*/ArrayRef<int64_t>{g1Mpt, g1Npt},
+        /*bounds=*/ArrayRef<int64_t>{g1Npt, g1Mpt},
         /*strides=*/ArrayRef<int64_t>{1, 1},
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
@@ -1233,8 +1295,8 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType attentionOutAccBufferType =
         cast<MemRefType>(attentionOutAccBufferView.getType());
     Type outElemType = attentionOutAccBufferType.getElementType();
-    int64_t g1Mpt = attentionOutAccBufferType.getShape()[0];
-    int64_t g1Npt = attentionOutAccBufferType.getShape()[1];
+    int64_t g1Npt = attentionOutAccBufferType.getShape()[0];
+    int64_t g1Mpt = attentionOutAccBufferType.getShape()[1];
 
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
 
@@ -1242,7 +1304,7 @@ struct GridwiseAttentionAccelRewritePattern
         loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{rewriter.getArrayAttr({}), gemm1OutTrs,
                             attentionOutAccBufferTrs},
-        /*bounds=*/ArrayRef<int64_t>{g1Mpt, g1Npt},
+        /*bounds=*/ArrayRef<int64_t>{g1Npt, g1Mpt},
         /*strides=*/ArrayRef<int64_t>{1, 1},
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
@@ -1796,6 +1858,8 @@ struct GridwiseAttentionAccelRewritePattern
     ArrayRef<int64_t> outShape = cast<MemRefType>(trOut.getType()).getShape();
     Type elemTypeOut = cast<MemRefType>(trOut.getType()).getElementType();
 
+    Value lse = op.getLse();
+
     TypedValue<MemRefType> currentSeqLenTensor = op.getCurrentSeqLen();
     bool isKVCache = currentSeqLenTensor != nullptr;
     bool isCausal = op.getCausal();
@@ -1928,7 +1992,7 @@ struct GridwiseAttentionAccelRewritePattern
       gemm1LDSByteBufferBSize = 0;
     }
 
-    // Bufers for Gemm0
+    // Buffers for Gemm0
     Value fromGlobalRegBufferQ;
     Value toLDSRegBufferQ;
     if (doBypassLDSForQ) {
@@ -2035,7 +2099,7 @@ struct GridwiseAttentionAccelRewritePattern
     // o buffer; this is exactly same as gemm1OutBuffer;
     // we just need another buffer to do the special accumulation
     Value attentionOutAccBuffer, outAccBufferOutTyped, sumRowBuffer,
-        maxRowBuffer, expMaxDiffRowBuffer;
+        maxRowBuffer, expMaxDiffRowBuffer, lseBuffer;
     ArrayAttr attentionOutAccBufferThreadSubTileViewMaps;
     if (op.getEnableSoftmax()) {
       attentionOutAccBuffer = createBufferForGemmOut(
@@ -2063,6 +2127,11 @@ struct GridwiseAttentionAccelRewritePattern
       sumRowBuffer = rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
       rewriter.create<FillOp>(loc, sumRowBuffer,
                               createZeroConstantOp(rewriter, loc, elemTypeQxK));
+      if (lse) {
+        Type elemTypeLse = cast<MemRefType>(lse.getType()).getElementType();
+        lseBuffer = createBufferForGemmOut(loc, elemTypeLse, accelParamsGemm1,
+                                           rewriter);
+      }
 
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
     } else {
@@ -2122,6 +2191,7 @@ struct GridwiseAttentionAccelRewritePattern
       }
     }
 
+    // TODO: figure out if this feature is used
     bool isReverseGrid = succeeded(rock::getReverseGrid(op));
     if (isReverseGrid && (isCausal || isKVCache)) {
       return op.emitError(
@@ -2639,6 +2709,14 @@ struct GridwiseAttentionAccelRewritePattern
       createTypeConversionLaGeneric(rewriter, loc, outAccBuffer,
                                     outAccBufferOutTyped);
     }
+    if (lse) {
+      // it must be guaranteed by the verifier
+      assert(op.getEnableSoftmax());
+      assert(lseBuffer);
+      Value lseBufferView = transform(
+          rewriter, lseBuffer, attentionOutAccBufferThreadSubTileViewMaps);
+      computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
+    }
 
     // We flatten output buffer in case gemm1MBlocks > 1
     // where those are iterated.
@@ -2673,6 +2751,45 @@ struct GridwiseAttentionAccelRewritePattern
         ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
         op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
         /*useIndexDiffs=*/true);
+
+    // store LSE to device memory
+    if (lse) {
+      // drop gemmM dimension
+      TopDownTMBuilder viewBuilder(rewriter, {"gemmG", "gemmM", "gemmN"},
+                                   {gemm0G, gemm1M, gemm1N});
+      viewBuilder.passThrough({"gemmG", "gemmN"}, {0, 1}, {"gemmG", "gemmN"});
+      viewBuilder.ignore("gemmM");
+      auto dropM = rewriter.getArrayAttr({viewBuilder.get()});
+
+      MemRefType lseBufferOutType = cast<MemRefType>(lseBuffer.getType());
+      int64_t numElementsLseOut = lseBufferOutType.getNumElements();
+      auto flatToMiterMapAttr = getFlatToMiterMap(
+          rewriter, gemm0G, 1, gemm1NBlocks, blockSize, numElementsLseOut);
+      // slice mIter
+      BottomUpTMBuilder sliceBuilder(
+          rewriter, {"g_block", "mIter", "n_block", "tid", "iter"},
+          {gemm0G, gemm1MBlocks, gemm1NBlocks, blockSize, numElementsLseOut},
+          loc);
+      sliceBuilder.passThrough({"g_block", "n_block", "tid", "iter"},
+                               {0, 2, 3, 4},
+                               {"g_block", "n_block", "tid", "iter"});
+      sliceBuilder.slice({"mIter"}, {"mIter"}, {0}, {1});
+      auto sliceAttr = sliceBuilder.get();
+
+      ArrayAttr flatToMiterSlice = prependUpperViews(
+          rewriter, rewriter.getArrayAttr({flatToMiterMapAttr}),
+          rewriter.getArrayAttr({sliceAttr}));
+      ArrayAttr outGridSubTile = prependUpperViews(
+          rewriter, flatToMiterSlice, gemm1OutSubTileViews.gridSubTile);
+      ArrayAttr lseMap = prependUpperViews(rewriter, outGridSubTile, dropM);
+      rewriter.create<ThreadwiseWriteAllOp>(
+          loc, lseBuffer, lse, lseMap,
+          /*extraIndices=*/
+          ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
+          op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
+          /*useIndexDiffs=*/true);
+    }
+
     rewriter.eraseOp(op);
     return success();
   }
