@@ -1418,7 +1418,7 @@ pipeline {
             }
             matrix {
                 axes {
-                    axis {RT
+                    axis {
                         name 'CODEPATH'
                         values 'mfma', 'navi21'
                     }
