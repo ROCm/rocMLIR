@@ -513,6 +513,18 @@ void collectCoverageData(String profdata, String cov, String cpath) {
        """
 }
 
+// Pick a healthy node for the given label, return its name
+def pickHealthyNode(String label, Closure<?> healthChecks) {
+    def nodeName = ''
+    retry(2) {
+        node(label) {
+            healthChecks()
+            nodeName = env.NODE_NAME           // remember winner
+        }
+    }
+    return nodeName
+}
+
 
 pipeline {
     agent none
@@ -611,25 +623,16 @@ pipeline {
                     expression { return shouldRunBuildAndTest("$CODEPATH") }
                 }
                 stages {
-                    stage('Find a healthy host and prepare it') {
+                    stage('Find healthy host and prepare it') {
                         steps {
                             script {
-                                retry(2) {
-                                    node(getLabelFromCodepath("$CODEPATH")) {
-                                        // Health checks
+                                env.TARGET_NODE = pickHealthyNode(
+                                    getLabelFromCodepath("$CODEPATH")) {
                                         resetGPUs()
                                         checkNodeHealth()
-                                        // Fill the map object for the particular node
                                         dockerArgs()
-
-                                        echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
-                                        echo "Node environment:"
-                                        showEnv()
-
-                                        // Remember this host for later stages
-                                        env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                                     }
-                                }
+                                env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                             }
                         }
                     }
@@ -820,25 +823,16 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage('Find a healthy host and prepare it') {
+                    stage('Find healthy host and prepare it') {
                         steps {
                             script {
-                                retry(2) {
-                                    node(getLabelFromCodepath("$CODEPATH")) {
-                                        // Health checks
+                                env.TARGET_NODE = pickHealthyNode(
+                                    getLabelFromCodepath("$CODEPATH")) {
                                         resetGPUs()
                                         checkNodeHealth()
-                                        // Fill the map object for the particular node
                                         dockerArgs()
-
-                                        echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
-                                        echo "Node environment:"
-                                        showEnv()
-
-                                        // Remember this host for later stages
-                                        env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                                     }
-                                }
+                                env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                             }
                         }
                     }
@@ -926,25 +920,16 @@ pipeline {
                     expression { return shouldRunFromChip("${CHIP}") }
                 }
                 stages {
-                    stage('Find a healthy host and prepare it') {
+                    stage('Find healthy host and prepare it') {
                         steps {
                             script {
-                                retry(2) {
-                                    node(getLabelFromCodepath("$CHIP")) {
-                                        // Health checks
+                                env.TARGET_NODE = pickHealthyNode(
+                                    getLabelFromChip("$CHIP")) {
                                         resetGPUs()
                                         checkNodeHealth()
-                                        // Fill the map object for the particular node
                                         dockerArgs()
-
-                                        echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
-                                        echo "Node environment:"
-                                        showEnv()
-
-                                        // Remember this host for later stages
-                                        env["TARGET_NODE_${CHIP}"] = env.NODE_NAME
                                     }
-                                }
+                                env["TARGET_NODE_${CHIP}"] = env.NODE_NAME
                             }
                         }
                     }
@@ -1129,25 +1114,16 @@ pipeline {
                 }
                 agent none
                 stages {
-                    stage('Find a healthy host and prepare it') {
+                    stage('Find healthy host and prepare it') {
                         steps {
                             script {
-                                retry(2) {
-                                    node(getLabelFromCodepath("$CHIP")) {
-                                        // Health checks
+                                env.TARGET_NODE = pickHealthyNode(
+                                    getLabelFromChip("$CHIP")) {
                                         resetGPUs()
                                         checkNodeHealth()
-                                        // Fill the map object for the particular node
                                         dockerArgs()
-
-                                        echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
-                                        echo "Node environment:"
-                                        showEnv()
-
-                                        // Remember this host for later stages
-                                        env["TARGET_NODE_${CHIP}"] = env.NODE_NAME
                                     }
-                                }
+                                env["TARGET_NODE_${CHIP}"] = env.NODE_NAME
                             }
                         }
                     }
@@ -1478,25 +1454,16 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage('Find a healthy host and prepare it') {
+                    stage('Find healthy host and prepare it') {
                         steps {
                             script {
-                                retry(2) {
-                                    node(getLabelFromCodepath("$CODEPATH")) {
-                                        // Health checks
+                                env.TARGET_NODE = pickHealthyNode(
+                                    getLabelFromCodepath"$CODEPATH")) {
                                         resetGPUs()
                                         checkNodeHealth()
-                                        // Fill the map object for the particular node
                                         dockerArgs()
-
-                                        echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
-                                        echo "Node environment:"
-                                        showEnv()
-
-                                        // Remember this host for later stages
-                                        env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                                     }
-                                }
+                                env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                             }
                         }
                     }
@@ -1628,27 +1595,18 @@ pipeline {
                         values 'mfma', 'navi3x', 'navi4x'
                     }
                 }
-                agent { label getLabelFromCodepath("${CODEPATH}") }
+                agent none
                 stages {
-                    stage('Find a healthy host and prepare it') {
+                    stage('Find healthy host and prepare it') {
                         steps {
                             script {
-                                retry(2) {
-                                    node(getLabelFromCodepath("$CODEPATH")) {
-                                        // Health checks
+                                env.TARGET_NODE = pickHealthyNode(
+                                    getLabelFromCodepath"$CODEPATH")) {
                                         resetGPUs()
                                         checkNodeHealth()
-                                        // Fill the map object for the particular node
                                         dockerArgs()
-
-                                        echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
-                                        echo "Node environment:"
-                                        showEnv()
-
-                                        // Remember this host for later stages
-                                        env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                                     }
-                                }
+                                env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
                             }
                         }
                     }
