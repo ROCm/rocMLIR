@@ -623,7 +623,7 @@ pipeline {
                     expression { return shouldRunBuildAndTest("$CODEPATH") }
                 }
                 stages {
-                    stage('Find healthy host and prepare it') {
+                    stage('Prepare node') {
                         steps {
                             script {
                                 env.TARGET_NODE = pickHealthyNode(
@@ -636,7 +636,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Run') {
+                    stage('Run CI') {
                         agent { label env["TARGET_NODE_${CODEPATH}"] }
                         stages {
                             stage("Shared Library: fixed E2E tests") {
@@ -801,7 +801,7 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage('Find healthy host and prepare it') {
+                    stage('Prepare node') {
                         steps {
                             script {
                                 env.TARGET_NODE = pickHealthyNode(
@@ -814,7 +814,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Run') {
+                    stage('Run CI') {
                         agent { label env["TARGET_NODE_${CODEPATH}"] }
                         stages {
                             stage("Prepare Performance Scripts") {
@@ -897,7 +897,7 @@ pipeline {
                     expression { return shouldRunFromChip("${CHIP}") }
                 }
                 stages {
-                    stage('Find healthy host and prepare it') {
+                    stage('Prepare node') {
                         steps {
                             script {
                                 env.TARGET_NODE = pickHealthyNode(
@@ -910,7 +910,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Run') {
+                    stage('Run CI') {
                         agent { label env["TARGET_NODE_${CHIP}"] }
                         stages {
                             stage("Set System Property on Lockhart nodes") {
@@ -1088,7 +1088,7 @@ pipeline {
                 }
                 agent none
                 stages {
-                    stage('Find healthy host and prepare it') {
+                    stage('Prepare node') {
                         steps {
                             script {
                                 env.TARGET_NODE = pickHealthyNode(
@@ -1101,7 +1101,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Run') {
+                    stage('Run CI') {
                         agent { label env["TARGET_NODE_${CHIP}"] }
                         stages {
                             stage("Copy tuning database and build MLIR") {
@@ -1418,7 +1418,7 @@ pipeline {
             }
             matrix {
                 axes {
-                    axis {
+                    axis {RT
                         name 'CODEPATH'
                         values 'mfma', 'navi21'
                     }
@@ -1429,7 +1429,7 @@ pipeline {
                     expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 stages {
-                    stage('Find healthy host and prepare it') {
+                    stage('Prepare node') {
                         steps {
                             script {
                                 env.TARGET_NODE = pickHealthyNode(
@@ -1442,7 +1442,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Run') {
+                    stage('Run CI') {
                         agent { label env["TARGET_NODE_${CODEPATH}"] }
                         stages {
                         
@@ -1570,7 +1570,7 @@ pipeline {
                 }
                 agent none
                 stages {
-                    stage('Find healthy host and prepare it') {
+                    stage('Prepare node') {
                         steps {
                             script {
                                 env.TARGET_NODE = pickHealthyNode(
@@ -1583,7 +1583,7 @@ pipeline {
                             }
                         }
                     }
-                    stage('Run') {
+                    stage('Run CI') {
                         agent { label env["TARGET_NODE_${CODEPATH}"] }
                         stages {
                             stage ("body") {
