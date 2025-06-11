@@ -67,34 +67,34 @@ def advancedNodeCheck(Map params) {
 
 def resetGPUs() {
     // Abort this if runs longer than 5 minutes
-    timeout(time: 5, unit: 'MINUTES') {
-        // Run the reset, but don't fail the build if anything is wrong
-        def rc = sh(
-            script: '''
-            reset_all_gpus() {
-                echo "Scanning GPUs..."
-                GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
-                if [ -z "$GPU_IDS" ]; then
-                    echo "WARNING: No GPUs found to reset."
-                    return 0
-                fi
-                for id in $GPU_IDS; do
-                    echo "Resetting GPU ID: $id"
-                    if ! rocm-smi --gpureset -d $id; then
-                        echo "WARNING: Unable to reset GPU $id"
+        timeout(time: 5, unit: 'MINUTES') {
+            // Run the reset, but don't fail the build if anything is wrong
+            def rc = sh(
+                script: '''
+                reset_all_gpus() {
+                    echo "Scanning GPUs..."
+                    GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
+                    if [ -z "$GPU_IDS" ]; then
+                        echo "WARNING: No GPUs found to reset."
+                        return 0
                     fi
-                    sleep 2
-                done
-                return 0
+                    for id in $GPU_IDS; do
+                        echo "Resetting GPU ID: $id"
+                        if ! rocm-smi --gpureset -d $id; then
+                            echo "WARNING: Unable to reset GPU $id"
+                        fi
+                        sleep 2
+                    done
+                    return 0
+                }
+                reset_all_gpus
+                ''',
+                returnStatus: true
+            )
+            if (rc != 0) {
+                echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
             }
-            reset_all_gpus
-            ''',
-            returnStatus: true
-        )
-        if (rc != 0) {
-            echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
         }
-    }
 }
 
 def checkNodeHealth(Map opts = [:]) {
@@ -683,7 +683,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -709,7 +708,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -728,7 +726,7 @@ pipeline {
                                                 dir('build') {
                                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                         // Tune gemms, fail if the DB is not created
-                                                        sh "../mlir/utils/tuna/ci_tune_selected_configs.sh ${WORKSPACE} ${WORKSPACE}/MITuna"
+                                                        sh "../mlir/utils/ci-shell-scripts/ci_tune_selected_configs.sh ${WORKSPACE} ${WORKSPACE}/MITuna"
                                                     }
                                                 }
                                             }
@@ -745,7 +743,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -844,27 +841,26 @@ pipeline {
                                     }
                                 }
                             }
-                        stage("Parameter Sweep") {
-                            steps {
-                                script {
-                                    def argsForThisNode = DOCKER_ARGS_BY_NODE[env["TARGET_NODE_${CODEPATH}"]]
-                                    echo "Running Docker with: ${argsForThisNode}"
+                            stage("Parameter Sweep") {
+                                steps {
+                                    script {
+                                        def argsForThisNode = DOCKER_ARGS_BY_NODE[env["TARGET_NODE_${CODEPATH}"]]
 
-                                    // Run a docker container
-                                    def img = docker.image(dockerImage())
-                                    def pulled = img?.pull()
-                                    img.inside(argsForThisNode) {
-                                        // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                        withEnv([
-                                            "HOME=${env.WORKSPACE}"
-                                        ]) {
-                                            parameterSweep("conv_structure", "${CODEPATH}")
-                                            parameterSweep("perf_config", "${CODEPATH}")
+                                        // Run a docker container
+                                        def img = docker.image(dockerImage())
+                                        def pulled = img?.pull()
+                                        img.inside(argsForThisNode) {
+                                            // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
+                                            withEnv([
+                                                "HOME=${env.WORKSPACE}"
+                                            ]) {
+                                                parameterSweep("conv_structure", "${CODEPATH}")
+                                                parameterSweep("perf_config", "${CODEPATH}")
+                                            }
                                         }
                                     }
-                                }
-                            }       
-                        }
+                                }       
+                            }
                         }
                         post {
                             unsuccessful {
@@ -948,7 +944,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -998,7 +993,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1026,7 +1020,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1111,7 +1104,7 @@ pipeline {
                     stage('Run') {
                         agent { label env["TARGET_NODE_${CHIP}"] }
                         stages {
-                            stage("Copy tuning database") {
+                            stage("Copy tuning database and build MLIR") {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
@@ -1137,7 +1130,15 @@ pipeline {
                                                     target: 'build'
                                                     sh 'ls build'
                                                     sh 'cat build/tuning-date'
+                                                
+                                                // Clean up build settings to disable static library and allow
+                                                // ROCm testing
+                                                buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
+                                                            ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                                -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
                                             }
+                                        
                                         }
                                     }
                                 }
@@ -1146,7 +1147,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1172,7 +1172,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1198,7 +1197,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1247,7 +1245,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1278,7 +1275,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1319,7 +1315,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1375,7 +1370,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1481,7 +1475,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
@@ -1510,7 +1503,6 @@ pipeline {
                                 steps {
                                     script {
                                         def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                        echo "Running Docker with: ${argsForThisNode}"
 
                                         // Run a docker container
                                         def img = docker.image(dockerImage())
