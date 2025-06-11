@@ -1660,7 +1660,7 @@ pipeline {
                         }
                     }
                     stage('Run') {
-                        label env["TARGET_NODE_${CODEPATH}"]
+                        agent { label env["TARGET_NODE_${CODEPATH}"] }
                         stages {
                             stage ("body") {
                                 steps {
