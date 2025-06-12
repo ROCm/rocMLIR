@@ -966,31 +966,55 @@ pipeline {
                                         dir('MITuna') {
                                             git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                         }
+
                                         dir('build') {
                                             // Tune gemms with default datatypes, fail if the DB is not created
                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
-                                                [ -f mlir_tuning_${CHIP}.tsv ]"""
+                                            sh '''
+                                            set -e
+                                            ../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
+                                            [ -f mlir_tuning_${CHIP}.tsv ]
+                                            '''
                                             // Tune resnet50 and unet configs
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
+                                            sh '''
+                                            set -e
+                                            ../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
+                                            '''
                                             // Tune attention configs
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                    -c ../mlir/utils/performance/configs/tier1-attention-configs \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
+                                            sh '''
+                                            set -e
+                                            ../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                -c ../mlir/utils/performance/configs/tier1-attention-configs \
+                                                -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
+                                            '''
                                             // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
-                                                [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
+                                            sh '''
+                                            set -e
+                                            ../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
+                                                -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
+                                            [ -f mlir_quick_tuning_${CHIP}.tsv ]
+                                            '''
                                             // Tune resnet50 and unet configs (quick tuning)
-                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
-                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv"""
+                                            sh '''
+                                            set -e
+                                            ../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
+                                                -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
+                                            '''
+                                            // Check for tuningRunner errors in logs
+                                            sh '''
+                                            if grep -q "Error executing command: tuningRunner" build/*.log 2>/dev/null; then
+                                                echo "ERROR: Detected tuningRunner execution error in logs!"
+                                                exit 1
+                                            fi
+                                            '''
+                                            // Check for empty or duplicate header in tuning files
                                             sh '''
                                             for f in build/mlir_tuning_${CHIP}.tsv build/mlir_quick_tuning_${CHIP}.tsv; do
                                                 if [ ! -s "$f" ]; then
