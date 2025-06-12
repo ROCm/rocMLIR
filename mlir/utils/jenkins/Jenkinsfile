@@ -966,7 +966,6 @@ pipeline {
                                         dir('MITuna') {
                                             git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                         }
-
                                         dir('build') {
                                             // Tune gemms with default datatypes, fail if the DB is not created
                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
