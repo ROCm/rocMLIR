@@ -1364,7 +1364,7 @@ class AttentionConfiguration(PerfConfiguration):
                 + f"-causal {str(self.causal).lower()} "
                 + f"-g {self.g} "
                 + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
-                + f"-with-attn-scale {str(self.with_attn_scale).lower()}"
+                + f"-with-attn-scale {str(self.with_attn_scale).lower()} "
                 + f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
 
@@ -1822,7 +1822,7 @@ def main(args=None):
     numCU = getNumCU(chip)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/conv-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR performance test runner",
