@@ -1108,7 +1108,7 @@ pipeline {
                     }
                     stage('Run CI') {
                         stages {
-                            stage("Copy tuning database and build MLIR") {
+                            stage("Copy tuning database and earlier performance results. Build MLIR") {
                                 steps {
                                     node(env["TARGET_NODE_${CHIP}"]) {
                                         script {
@@ -1142,28 +1142,8 @@ pipeline {
                                                                 ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                                     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                                                                     -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
-                                                }
-                                            
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            stage("Copy earlier performance results") {
-                                steps {
-                                    node(env["TARGET_NODE_${CHIP}"]) {
-                                        script {
-                                            def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
 
-                                            // Run a docker container
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
-                                            img.inside(argsForThisNode) {
-                                                // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                                withEnv([
-                                                    "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                                    "HOME=${env.WORKSPACE}"
-                                                ]) {
+                                                    // Copy earlier performance results
                                                     copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
                                                         optional: true,\
                                                         flatten: true,\
@@ -1171,6 +1151,7 @@ pipeline {
                                                         selector: lastSuccessful(),\
                                                         target: 'build/oldData'
                                                 }
+                                            
                                             }
                                         }
                                     }
