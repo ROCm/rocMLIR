@@ -58,37 +58,6 @@ class Options:
     numCu: int
 
 
-def generateMlirDriverArgs(self, rocmlir_gen_flags: Optional[List[str]] = None) -> List[str]:
-    result = [
-        '-operation', 'attention',
-        '-t', self.dataType,
-        '--arch', self.arch,
-        '--num_cu', str(self.numCU),
-        '-g', str(self.g),
-        '-seq_len_q', str(self.seq_len_q),
-        '-seq_len_k', str(self.seq_len_k),
-        '-num_heads_q', str(self.num_heads_q),
-        '-num_heads_kv', str(self.num_heads_kv),
-        '-head_dim_qk', str(self.head_dim_qk),
-        '-head_dim_v', str(self.head_dim_v),
-        f"-with-attn-scale={self.with_attn_scale}",
-        f"-with-attn-bias={self.with_attn_bias}",
-        f"-transQ={self.transQ}",
-        f"-transK={self.transK}",
-        f"-transV={self.transV}",
-        f"-transO={self.transO}",
-        f"-causal={self.causal}",
-        f"-return_lse={self.return_lse}",
-        '--kernel-repeats', str(1),
-        f"--perf_config={self.perfConfig}"
-    ]
-    
-    result += rocmlir_gen_flags or []
-    return result
-
-AttentionConfiguration.generateMlirDriverArgs = generateMlirDriverArgs
-
-
 def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
@@ -121,7 +90,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    mlirGenOpts = config.generateMlirDriverArgs(options.flags)
+    mlirGenOpts = config.generateMlirDriverCommandLine(' '.join(options.flags))
     if getattr(config, "currentSeqLen") is not None:
         mlirGenOpts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
     mlirGenOpts.append('-pv')
@@ -321,9 +290,7 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
-            writer.writerow([' '.join(config.generateMlirDriverArgs([]))])
-
-
+            writer.writerow([' '.join(config.generateMlirDriverCommandLine(''))])
 def main():
     parser = argparse.ArgumentParser(
             description='Sweep parameter values for attention to detect bugs')
@@ -357,13 +324,11 @@ def main():
     ]
 
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
-    if CURRENT_SEQ_LEN is not None:
-        print(f"\nCurrent_seq_len in this run: --current_seq_len={','.join(map(str, CURRENT_SEQ_LEN))}")
     print(f"Passed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     if failing:
         print("\n*** Failing Configurations ***")
         for fail in failing:
-            print(' '.join(fail.generateMlirDriverArgs([])))
+            print(' '.join(fail.generateMlirDriverCommandLine('')))
         if args.log_failures:
             logFailingConfigs(failing, LOGFILE)
     
