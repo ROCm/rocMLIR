@@ -269,7 +269,7 @@ def sampleAttentionShape():
             numHeadsQ = 2**random.randint(1, 6)
             numHeadsKV = 2**random.randint(1, 6)
 
-            if numHeadsQ >= numHeadsKV and numHeadsQ%numHeadsKV == 0: # found valid case
+            if numHeadsQ > numHeadsKV and numHeadsQ%numHeadsKV == 0: # found valid case
                 break
 
     return (
@@ -305,7 +305,7 @@ perfConfigSpace = list(itertools.product(
 
 
 def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
-    with open(filename, mode='w', newLine='') as csvfile:
+    with open(filename, mode='w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
@@ -317,7 +317,7 @@ def main():
             description='Sweep parameter values for attention to detect bugs')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
-    parser.add_argument('--jobs', type=int, default=4)
+    parser.add_argument('--jobs', type=int, default=os.cpu_count())
     parser.add_argument('--mlir-build-dir', type=str, required=True)
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
@@ -360,4 +360,4 @@ def main():
 
 if __name__ == '__main__':
     ret = main()
-    sys.exit(int(not ret))
+    sys.exit(ret)
