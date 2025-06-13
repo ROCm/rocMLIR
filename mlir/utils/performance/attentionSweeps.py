@@ -97,9 +97,23 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     dtype, g, slq, slk, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shape
     perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
     return AttentionConfiguration(
-        dtype, g, slq, slk, hdqk, hdv, scale,
-        bias, tq, tk, tv, to, causal, rlse, options.arch,
-        options.numCu, perfString
+        dtype=dtype,
+        g=g,
+        seq_len_q=slq,
+        seq_len_k=slk,
+        num_heads_q=hdqk,
+        num_heads_kv=hdv,
+        with_attn_scale=scale,
+        with_attn_bias=bias,
+        transQ=tq,
+        transK=tk,
+        transV=tv,
+        transO=to,
+        causal=causal,
+        return_lse=rlse,
+        arch=options.arch,
+        numCU=options.numCu,
+        perfConfig=perfString
     )
 
 
