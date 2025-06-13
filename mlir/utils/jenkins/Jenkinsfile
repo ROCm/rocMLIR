@@ -930,39 +930,17 @@ pipeline {
                     }
                     stage('Run CI') {
                         stages {
-                            stage("Set System Property on Lockhart nodes") {
-                                when {
-                                    equals expected: "gfx90a", actual: "${CHIP}"
-                                }
-                                steps {
-                                    node(env["TARGET_NODE_${CHIP}"]) {
-                                        script {
-                                            def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                            echo "Running Docker with: ${argsForThisNode}"
-
-                                            // Run a docker container
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
-                                            img.inside(argsForThisNode) {
-                                                // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                                withEnv([
-                                                    "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                                    "HOME=${env.WORKSPACE}"
-                                                ]) {
-                                                    echo "CHIP = ${CHIP}"
-                                                    echo "Container environment:"
-                                                    showEnv()
-                                                    setHeartbeat()
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                             stage("Tune rocMLIR") {
                                 steps {
                                     node(env["TARGET_NODE_${CHIP}"]) {
                                         script {
+
+                                            if ("CHIP" == "gfx90a") {
+                                                //Set System Property on Lockhart nodes
+                                                showEnv()
+                                                setHeartbeat()
+                                            }
+
                                             def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
 
                                             // Run a docker container
@@ -1490,7 +1468,7 @@ pipeline {
                                     }
                                 }
                             }
-                            stage("Build MIGraphX with MLIR") {
+                            stage("Build and Verify MIGraphX with MLIR") {
                                 steps {
                                     node(env["TARGET_NODE_${CODEPATH}"]) {
                                         script {
@@ -1514,27 +1492,6 @@ pipeline {
                                                                         -DGPU_TARGETS="${gpu_arch}"
                                                                         """)
                                                     }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            stage("Verify MIGraphX with MLIR") {
-                                steps {
-                                    node(env["TARGET_NODE_${CODEPATH}"]) {
-                                        script {
-                                            def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-
-                                            // Run a docker container
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
-                                            img.inside(argsForThisNode) {
-                                                // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                                withEnv([
-                                                    "HOME=${env.WORKSPACE}",
-                                                    "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
-                                                ]) {
                                                     dir('MIGraphX/build') {
                                                         timeout(time: 120, activity: true, unit: 'MINUTES') {
                                                             withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
