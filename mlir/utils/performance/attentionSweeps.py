@@ -239,7 +239,7 @@ async def sweepParameters(paramIter: Iterable[IterType],
 
 
 def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
-    return [random.randint(1, maxSeqLen) for _ in range(g)]
+    return [random.randint(0, maxSeqLen-1) for _ in range(g)]
 
 
 def sampleAttentionShape():
