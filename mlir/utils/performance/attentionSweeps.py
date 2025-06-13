@@ -31,7 +31,6 @@ from perfRunner import Paths
 from perfRunner import getArch
 from perfRunner import getNumCU
 from perfRunner import create_paths as createPaths
-from perfRunner import MLIR_N_REPEATS
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
@@ -80,7 +79,7 @@ def generateMlirDriverArgs(self, rocmlir_gen_flags: Optional[List[str]] = None) 
         f"-transO={self.transO}",
         f"-causal={self.causal}",
         f"-return_lse={self.return_lse}",
-        '--kernel-repeats', str(MLIR_N_REPEATS),
+        '--kernel-repeats', str(1),
         f"--perf_config={self.perfConfig}"
     ]
     
