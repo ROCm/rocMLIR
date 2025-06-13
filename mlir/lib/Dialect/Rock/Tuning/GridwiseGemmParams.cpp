@@ -463,10 +463,10 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   if (minDPerWave <= 16) {
     validKPerWaveFactor = 4;
   }
-  if (!((param.getMPerBlock() % minDPerWave == 0) &&
-        (param.getNPerBlock() % minDPerWave == 0) &&
-        ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor ==
-         0))) {
+  if ((param.getMPerBlock() % minDPerWave != 0) ||
+      (param.getNPerBlock() % minDPerWave != 0) ||
+      ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor !=
+       0)) {
     return failure();
   }
 
@@ -515,7 +515,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
-  if (cast<RockTuningParamAttrInterface>(param).getForceUnroll() == false) {
+  if (!cast<RockTuningParamAttrInterface>(param).getForceUnroll()) {
     return failure();
   }
 
@@ -585,10 +585,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
           return false;
         }
         MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-        if (!mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
-          return false;
-        }
-        return true;
+        return mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock);
       });
   return res;
 }
