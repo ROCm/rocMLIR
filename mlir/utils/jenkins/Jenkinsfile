@@ -730,7 +730,7 @@ pipeline {
                                                     dir('build') {
                                                         timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                             // Tune gemms, fail if the DB is not created
-                                                            sh "../mlir/utils/jenkins/ci-shell-scripts/ci_tune_selected_configs.sh ${WORKSPACE} ${WORKSPACE}/MITuna"
+                                                            sh "../mlir/utils/jenkins/ci-shell-scripts/ci_tune_selected_configs.sh ${WORKSPACE}/MITuna"
                                                         }
                                                     }
                                                 }
@@ -821,7 +821,7 @@ pipeline {
                                         checkNodeHealth()
                                         dockerArgs()
                                     }
-                                env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
+                                env["TARGET_NODE_${CODEPATH}"] = env.TARGET_NODE
                             }
                         }
                     }
@@ -924,7 +924,7 @@ pipeline {
                                         checkNodeHealth()
                                         dockerArgs()
                                     }
-                                env["TARGET_NODE_${CHIP}"] = env.NODE_NAME
+                                env["TARGET_NODE_${CHIP}"] = env.TARGET_NODE
                             }
                         }
                     }
@@ -1124,7 +1124,7 @@ pipeline {
                                         checkNodeHealth()
                                         dockerArgs()
                                     }
-                                env["TARGET_NODE_${CHIP}"] = env.NODE_NAME
+                                env["TARGET_NODE_${CHIP}"] = env.TARGET_NODE
                             }
                         }
                     }
@@ -1166,33 +1166,6 @@ pipeline {
                                                                     -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
                                                 }
                                             
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            stage("Build MLIR") {
-                                steps {
-                                    node(env["TARGET_NODE_${CHIP}"]) {
-                                        script {
-                                            def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-
-                                            // Run a docker container
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
-                                            img.inside(argsForThisNode) {
-                                                // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                                withEnv([
-                                                    "PATH=/opt/rocm/llvm/bin:${env.PATH}",
-                                                    "HOME=${env.WORKSPACE}"
-                                                ]) {
-                                                    // Clean up build settings to disable static library and allow
-                                                    // ROCm testing
-                                                    buildProject("check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver",
-                                                                ''' -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                                    -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                                    -DROCMLIR_ENABLE_BENCHMARKS=rocblas''')
-                                                }
                                             }
                                         }
                                     }
@@ -1484,7 +1457,7 @@ pipeline {
                                         checkNodeHealth()
                                         dockerArgs()
                                     }
-                                env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
+                                env["TARGET_NODE_${CODEPATH}"] = env.TARGET_NODE
                             }
                         }
                     }
@@ -1633,7 +1606,7 @@ pipeline {
                                         checkNodeHealth()
                                         dockerArgs()
                                     }
-                                env["TARGET_NODE_${CODEPATH}"] = env.NODE_NAME
+                                env["TARGET_NODE_${CODEPATH}"] = env.TARGET_NODE
                             }
                         }
                     }
