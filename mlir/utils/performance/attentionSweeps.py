@@ -40,7 +40,7 @@ LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 CURRENT_SEQ_LEN = None
 
-# Week number is used as seed
+# Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
 random.seed(seed)
 
@@ -79,6 +79,8 @@ def generateMlirDriverArgs(self, rocmlir_gen_flags: Optional[List[str]] = None) 
         f"-transK={self.transK}",
         f"-transV={self.transV}",
         f"-transO={self.transO}",
+        f"-causal={self.causal}",
+        f"-return_lse={self.return_lse}",
         '--kernel-repeats', str(MLIR_N_REPEATS),
         f"--perf_config={self.perfConfig}"
     ]
@@ -90,13 +92,13 @@ AttentionConfiguration.generateMlirDriverArgs = generateMlirDriverArgs
 
 
 def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
-    """Converts a sampled parameter tuple into a AttentionConfiguration instance"""
+    """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
-    dtype, g, slq, slk, hdqk, hdv, scale, bias, tq, tk, tv, to = shape
+    dtype, g, slq, slk, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shape
     perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
     return AttentionConfiguration(
         dtype, g, slq, slk, hdqk, hdv, scale,
-        bias, tq, tk, tv, to, options.arch,
+        bias, tq, tk, tv, to, causal, rlse, options.arch,
         options.numCu, perfString
     )
 
@@ -200,7 +202,7 @@ def grouper(iterable: Iterable[IterType], n: int):
 async def dropGoodConfig(config: AttentionConfiguration,
         options: Options, paths: Paths) -> Union[TestResult, AttentionConfiguration]:
     """Test the given `params`, returning the corresponding `config` on failure
-    and `None` on success or inapplicability"""
+    and `None` on success or inapplicability."""
     result = await testAttentionConfig(config, options, paths)
     if not options.quiet:
         print(f"{result.name}: {config!r}") if CURRENT_SEQ_LEN is None else print(f"{result.name}: {config!r} - with KV-Cache")
@@ -212,7 +214,7 @@ async def sweepParameters(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], AttentionConfiguration],
         options: Options, paths: Paths) -> Tuple[int, int, List[AttentionConfiguration]]:
     """Iterates over sampled parameter combinations, runs tests and returns passed and
-      invalid count and list of failing configs"""
+      invalid count and list of failing configs."""
     failingConfigs = []
     passed = 0
     invalid = 0
@@ -243,12 +245,12 @@ def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
 def sampleAttentionShape():
     global CURRENT_SEQ_LEN
 
-    g = random.randint(1, 16384)
-    seqLenQ = random.randint(1, 16384) # SEQ_LEN_Q
+    g = random.randint(1, 256) # GROUPS
     seqLenK = random.randint(1, 16384) # SEQ_LEN_K 
 
     useKVCache = random.choice(BOOLS)
     CURRENT_SEQ_LEN = genCurrentSeqLens(g, seqLenK) if useKVCache else None
+    seqLenQ = 1 if useKVCache else random.randint(1, 16384) # SEQ_LEN_Q
 
     numHeadsQ = 1
     numHeadsKV = 1
@@ -285,6 +287,8 @@ def sampleAttentionShape():
         random.choice(BOOLS),   # transK
         random.choice(BOOLS),   # transV
         random.choice(BOOLS),   # transO
+        random.choice(BOOLS),   # causal
+        random.choice(BOOLS),   # return_lse
     )
 
 
