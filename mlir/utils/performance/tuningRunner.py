@@ -87,7 +87,7 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
                 p3.kill()
                 outs, errs = p3.communicate()
                 return np.nan
-            nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_STATS_FILE_NAME)
+            nanoSeconds = perfRunner.getNanoSeconds(perfRunner.getProfilerOutputPath(options.arch, perfRunner.BENCHMARKING_STATS_FILE_NAME))
         finally:
             os.chdir(prevdir)
     return nanoSeconds
