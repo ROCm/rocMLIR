@@ -64,7 +64,7 @@
 // BINARY-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY-NEXT:cse,
 // BINARY-NEXT:rock-prepare-llvm)),
-// BINARY-NEXT:rocdl-attach-target{O=3 abi=500 chip=gfx90a correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
+// BINARY-NEXT:rocdl-attach-target{O=3 abi=600 chip=gfx90a correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
 // BINARY-NEXT:gpu-module-to-binary{format=fatbin  opts= section= toolkit=},
 // BINARY-NEXT:rock-check-residency,
 // BINARY-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false})
@@ -91,7 +91,7 @@
 // BINARY_MI300-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI300-NEXT:cse,
 // BINARY_MI300-NEXT:rock-prepare-llvm)),
-// BINARY_MI300-NEXT:rocdl-attach-target{O=3 abi=500 chip=gfx942 correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
+// BINARY_MI300-NEXT:rocdl-attach-target{O=3 abi=600 chip=gfx942 correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
 // BINARY_MI300-NEXT:gpu-module-to-binary{format=fatbin  opts= section= toolkit=},
 // BINARY_MI300-NEXT:rock-check-residency,
 // BINARY_MI300-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false})
@@ -118,7 +118,7 @@
 // BINARY_MI350-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI350-NEXT:cse,
 // BINARY_MI350-NEXT:rock-prepare-llvm)),
-// BINARY_MI350-NEXT:rocdl-attach-target{O=3 abi=500 chip=gfx950 correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
+// BINARY_MI350-NEXT:rocdl-attach-target{O=3 abi=600 chip=gfx950 correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
 // BINARY_MI350-NEXT:gpu-module-to-binary{format=fatbin  opts= section= toolkit=},
 // BINARY_MI350-NEXT:rock-check-residency,
 // BINARY_MI350-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false})
@@ -139,7 +139,7 @@
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-layerwise-constant-fold{aggressive-reduce-constant=false}),
 // HIGHLEVEL-NEXT:func.func(tosa-make-broadcastable),
-// HIGHLEVEL-NEXT:tosa-validate{ level=none profile={pro_int,
+// HIGHLEVEL-NEXT:tosa-validate{allow-invalid-op-datatype-combinations=true  level=none profile={pro_int,
 // HIGHLEVEL-NEXT:pro_fp} strict-op-spec-alignment=false},
 // HIGHLEVEL-NEXT:func.func(tosa-to-linalg{aggressive-reduce-constant=false disable-tosa-decompositions=false}),
 // HIGHLEVEL-NEXT:func.func(tosa-to-tensor,

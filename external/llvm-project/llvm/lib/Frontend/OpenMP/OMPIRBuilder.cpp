@@ -1869,6 +1869,8 @@ static Value *emitTaskDependencies(
   Type *DepArrayTy = ArrayType::get(DependInfo, Dependencies.size());
   DepArray = Builder.CreateAlloca(DepArrayTy, nullptr, ".dep.arr.addr");
 
+  Builder.restoreIP(OldIP);
+
   for (const auto &[DepIdx, Dep] : enumerate(Dependencies)) {
     Value *Base =
         Builder.CreateConstInBoundsGEP2_64(DepArrayTy, DepArray, 0, DepIdx);
@@ -1893,7 +1895,6 @@ static Value *emitTaskDependencies(
                          static_cast<unsigned int>(Dep.DepKind)),
         Flags);
   }
-  Builder.restoreIP(OldIP);
   return DepArray;
 }
 
@@ -2072,46 +2073,7 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createTask(
       Builder.CreateStore(Priority, CmplrData);
     }
 
-    Value *DepArray = nullptr;
-    if (Dependencies.size()) {
-      InsertPointTy OldIP = Builder.saveIP();
-      Builder.SetInsertPoint(
-          &OldIP.getBlock()->getParent()->getEntryBlock().back());
-
-      Type *DepArrayTy = ArrayType::get(DependInfo, Dependencies.size());
-      DepArray = Builder.CreateAlloca(DepArrayTy, nullptr, ".dep.arr.addr");
-
-      unsigned P = 0;
-      for (const DependData &Dep : Dependencies) {
-        Value *Base =
-            Builder.CreateConstInBoundsGEP2_64(DepArrayTy, DepArray, 0, P);
-        // Store the pointer to the variable
-        Value *Addr = Builder.CreateStructGEP(
-            DependInfo, Base,
-            static_cast<unsigned int>(RTLDependInfoFields::BaseAddr));
-        Value *DepValPtr =
-            Builder.CreatePtrToInt(Dep.DepVal, Builder.getInt64Ty());
-        Builder.CreateStore(DepValPtr, Addr);
-        // Store the size of the variable
-        Value *Size = Builder.CreateStructGEP(
-            DependInfo, Base,
-            static_cast<unsigned int>(RTLDependInfoFields::Len));
-        Builder.CreateStore(Builder.getInt64(M.getDataLayout().getTypeStoreSize(
-                                Dep.DepValueType)),
-                            Size);
-        // Store the dependency kind
-        Value *Flags = Builder.CreateStructGEP(
-            DependInfo, Base,
-            static_cast<unsigned int>(RTLDependInfoFields::Flags));
-        Builder.CreateStore(
-            ConstantInt::get(Builder.getInt8Ty(),
-                             static_cast<unsigned int>(Dep.DepKind)),
-            Flags);
-        ++P;
-      }
-
-      Builder.restoreIP(OldIP);
-    }
+    Value *DepArray = emitTaskDependencies(*this, Dependencies);
 
     // In the presence of the `if` clause, the following IR is generated:
     //    ...
@@ -3984,7 +3946,7 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createReductions(
   // function. Partial values are extracted from the type-erased array of
   // pointers to private variables.
   Error Err = populateReductionFunction(ReductionFunc, ReductionInfos, Builder,
-                                        IsByRef, false);
+                                        IsByRef, /*isGPU=*/false);
   if (Err)
     return Err;
 
@@ -4561,23 +4523,10 @@ getKmpcForStaticLoopForType(Type *Ty, OpenMPIRBuilder *OMPBuilder,
 static void createTargetLoopWorkshareCall(
     OpenMPIRBuilder *OMPBuilder, WorksharingLoopType LoopType,
     BasicBlock *InsertBlock, Value *Ident, Value *LoopBodyArg,
-    Type *ParallelTaskPtr, Value *TripCountOrig, Function &LoopBodyFn) {
+    Type *ParallelTaskPtr, Value *TripCount, Function &LoopBodyFn) {
+  Type *TripCountTy = TripCount->getType();
   Module &M = OMPBuilder->M;
   IRBuilder<> &Builder = OMPBuilder->Builder;
-  Value *TripCount = TripCountOrig;
-  // FIXME(JAN): The trip count is 1 larger than it should be for GPU, this may
-  // not be the right way to fix it, but this works for now.
-  if (OMPBuilder->Config.isGPU()) {
-    Builder.restoreIP({InsertBlock, std::prev(InsertBlock->end())});
-    LLVMContext &Ctx = M.getContext();
-    Type *IVTy = TripCountOrig->getType();
-    Type *InternalIVTy = IVTy->getIntegerBitWidth() <= 32
-                             ? Type::getInt32Ty(Ctx)
-                             : Type::getInt64Ty(Ctx);
-    Constant *One = ConstantInt::get(InternalIVTy, 1);
-    TripCount = Builder.CreateSub(TripCountOrig, One, "modified_trip_count");
-  }
-  Type *TripCountTy = TripCount->getType();
   FunctionCallee RTLFn =
       getKmpcForStaticLoopForType(TripCountTy, OMPBuilder, LoopType);
   SmallVector<Value *, 8> RealArgs;
@@ -5004,7 +4953,7 @@ static void redirectAllPredecessorsTo(BasicBlock *OldTarget,
 /// Determine which blocks in \p BBs are reachable from outside and remove the
 /// ones that are not reachable from the function.
 static void removeUnusedBlocksFromParent(ArrayRef<BasicBlock *> BBs) {
-  SmallPtrSet<BasicBlock *, 6> BBsToErase{BBs.begin(), BBs.end()};
+  SmallPtrSet<BasicBlock *, 6> BBsToErase(llvm::from_range, BBs);
   auto HasRemainingUses = [&BBsToErase](BasicBlock *BB) {
     for (Use &U : BB->uses()) {
       auto *UseInst = dyn_cast<Instruction>(U.getUser());
@@ -6443,6 +6392,12 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
           : ConstantExpr::getAddrSpaceCast(KernelEnvironmentGV,
                                            KernelEnvironmentPtr);
   Value *KernelLaunchEnvironment = DebugKernelWrapper->getArg(0);
+  Type *KernelLaunchEnvParamTy = Fn->getFunctionType()->getParamType(1);
+  KernelLaunchEnvironment =
+      KernelLaunchEnvironment->getType() == KernelLaunchEnvParamTy
+          ? KernelLaunchEnvironment
+          : Builder.CreateAddrSpaceCast(KernelLaunchEnvironment,
+                                        KernelLaunchEnvParamTy);
   CallInst *ThreadKind =
       Builder.CreateCall(Fn, {KernelEnvironment, KernelLaunchEnvironment});
 
@@ -7244,12 +7199,13 @@ static Expected<Function *> createOutlinedFunction(
     // preceding mapped arguments that refer to the same global that may be
     // seperate segments. To prevent this, we defer global processing until all
     // other processing has been performed.
-    if (llvm::isa<llvm::GlobalValue>(removeASCastIfPresent(Input)) ||
-        llvm::isa<llvm::GlobalObject>(removeASCastIfPresent(Input)) ||
-        llvm::isa<llvm::GlobalVariable>(removeASCastIfPresent(Input))) {
+    if (isa<GlobalValue>(removeASCastIfPresent(Input))) {
       DeferredReplacement.push_back(std::make_pair(Input, InputCopy));
       continue;
     }
+
+    if (isa<ConstantData>(Input))
+      continue;
 
     ReplaceValue(Input, InputCopy, Func);
   }
@@ -8961,7 +8917,7 @@ bool OpenMPIRBuilder::checkAndEmitFlushAfterAtomic(
 OpenMPIRBuilder::InsertPointTy
 OpenMPIRBuilder::createAtomicRead(const LocationDescription &Loc,
                                   AtomicOpValue &X, AtomicOpValue &V,
-                                  AtomicOrdering AO) {
+                                  AtomicOrdering AO, InsertPointTy AllocaIP) {
   if (!updateToLocation(Loc))
     return Loc.IP;
 
@@ -8989,7 +8945,7 @@ OpenMPIRBuilder::createAtomicRead(const LocationDescription &Loc,
         LoadDL.getTypeStoreSize(OldVal->getPointerOperand()->getType());
     OpenMPIRBuilder::AtomicInfo atomicInfo(
         &Builder, XElemTy, LoadSize * 8, LoadSize * 8, OldVal->getAlign(),
-        OldVal->getAlign(), true /* UseLibcall */, X.Var);
+        OldVal->getAlign(), true /* UseLibcall */, AllocaIP, X.Var);
     auto AtomicLoadRes = atomicInfo.EmitAtomicLoadLibcall(AO);
     XRead = AtomicLoadRes.first;
     OldVal->eraseFromParent();
@@ -9154,7 +9110,7 @@ Expected<std::pair<Value *, Value *>> OpenMPIRBuilder::emitAtomicUpdate(
 
     OpenMPIRBuilder::AtomicInfo atomicInfo(
         &Builder, XElemTy, LoadSize * 8, LoadSize * 8, OldVal->getAlign(),
-        OldVal->getAlign(), true /* UseLibcall */, X);
+        OldVal->getAlign(), true /* UseLibcall */, AllocaIP, X);
     auto AtomicLoadRes = atomicInfo.EmitAtomicLoadLibcall(AO);
     BasicBlock *CurBB = Builder.GetInsertBlock();
     Instruction *CurBBTI = CurBB->getTerminator();
@@ -9935,14 +9891,16 @@ OpenMPIRBuilder::getTargetEntryUniqueInfo(FileIdentifierInfoCallbackTy CallBack,
                                           StringRef ParentName) {
   sys::fs::UniqueID ID;
   auto FileIDInfo = CallBack();
-  if (auto EC = sys::fs::getUniqueID(std::get<0>(FileIDInfo), ID)) {
-    report_fatal_error(("Unable to get unique ID for file, during "
-                        "getTargetEntryUniqueInfo, error message: " +
-                        EC.message())
-                           .c_str());
-  }
+  uint64_t FileID = 0;
+  std::error_code EC = sys::fs::getUniqueID(std::get<0>(FileIDInfo), ID);
+  // If the inode ID could not be determined, create a hash value
+  // the current file name and use that as an ID.
+  if (EC)
+    FileID = hash_value(std::get<0>(FileIDInfo));
+  else
+    FileID = ID.getFile();
 
-  return TargetRegionEntryInfo(ParentName, ID.getDevice(), ID.getFile(),
+  return TargetRegionEntryInfo(ParentName, ID.getDevice(), FileID,
                                std::get<1>(FileIDInfo));
 }
 

@@ -847,7 +847,7 @@ static void setVisibilityFromDLLStorageClass(const clang::LangOptions &LO,
 static bool isStackProtectorOn(const LangOptions &LangOpts,
                                const llvm::Triple &Triple,
                                clang::LangOptions::StackProtectorMode Mode) {
-  if (Triple.isAMDGPU() || Triple.isNVPTX())
+  if (Triple.isGPU())
     return false;
   return LangOpts.getStackProtector() == Mode;
 }
@@ -857,8 +857,7 @@ void CodeGenModule::Release() {
   if (CXX20ModuleInits && Primary && !Primary->isHeaderLikeModule())
     EmitModuleInitializers(Primary);
   EmitDeferred();
-  DeferredDecls.insert(EmittedDeferredDecls.begin(),
-                       EmittedDeferredDecls.end());
+  DeferredDecls.insert_range(EmittedDeferredDecls);
   EmittedDeferredDecls.clear();
   EmitVTablesOpportunistically();
   applyGlobalValReplacements();
@@ -1054,18 +1053,12 @@ void CodeGenModule::Release() {
                               "StrictVTablePointersRequirement",
                               llvm::MDNode::get(VMContext, Ops));
   }
-  if (getModuleDebugInfo()) {
+  if (getModuleDebugInfo())
     // We support a single version in the linked module. The LLVM
     // parser will drop debug info with a different version number
     // (and warn about it, too).
-    if (CodeGenOpts.isHeterogeneousDwarfDIExpr()) {
-      getModule().addModuleFlag(llvm::Module::Override, "Debug Info Version",
-                                llvm::DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF);
-    } else {
-      getModule().addModuleFlag(llvm::Module::Warning, "Debug Info Version",
-                                llvm::DEBUG_METADATA_VERSION);
-    }
-  }
+    getModule().addModuleFlag(llvm::Module::Warning, "Debug Info Version",
+                              llvm::DEBUG_METADATA_VERSION);
 
   // We need to record the widths of enums and wchar_t, so that we can generate
   // the correct build attributes in the ARM backend. wchar_size is also used by
@@ -1153,6 +1146,10 @@ void CodeGenModule::Release() {
   if (CodeGenOpts.SanitizeCfiICallNormalizeIntegers) {
     getModule().addModuleFlag(llvm::Module::Override, "cfi-normalize-integers",
                               1);
+  }
+
+  if (CodeGenOpts.UniqueSourceFileNames) {
+    getModule().addModuleFlag(llvm::Module::Max, "Unique Source File Names", 1);
   }
 
   if (LangOpts.Sanitize.has(SanitizerKind::KCFI)) {
@@ -1914,6 +1911,9 @@ static std::string getMangledNameImpl(CodeGenModule &CGM, GlobalDecl GD,
     } else if (FD && FD->hasAttr<CUDAGlobalAttr>() &&
                GD.getKernelReferenceKind() == KernelReferenceKind::Stub) {
       Out << "__device_stub__" << II->getName();
+    } else if (FD && FD->hasAttr<OpenCLKernelAttr>() &&
+               GD.getKernelReferenceKind() == KernelReferenceKind::Stub) {
+      Out << "__clang_ocl_kern_imp_" << II->getName();
     } else {
       Out << II->getName();
     }
@@ -2677,7 +2677,7 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     for (const CXXRecordDecl *Base : getMostBaseClasses(MD->getParent())) {
       llvm::Metadata *Id =
           CreateMetadataIdentifierForType(Context.getMemberPointerType(
-              MD->getType(), Context.getRecordType(Base).getTypePtr()));
+              MD->getType(), /*Qualifier=*/nullptr, Base));
       F->addTypeMetadata(0, Id);
     }
   }
@@ -2945,10 +2945,9 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
                                           bool IsIncompleteFunction,
                                           bool IsThunk) {
 
-  if (llvm::Intrinsic::ID IID = F->getIntrinsicID()) {
-    // If this is an intrinsic function, set the function's attributes
-    // to the intrinsic's attributes.
-    F->setAttributes(llvm::Intrinsic::getAttributes(getLLVMContext(), IID));
+  if (F->getIntrinsicID() != llvm::Intrinsic::not_intrinsic) {
+    // If this is an intrinsic function, the attributes will have been set
+    // when the function was created.
     return;
   }
 
@@ -3905,6 +3904,9 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
 
   // Ignore declarations, they will be emitted on their first use.
   if (const auto *FD = dyn_cast<FunctionDecl>(Global)) {
+    if (FD->hasAttr<OpenCLKernelAttr>() && FD->doesThisDeclarationHaveABody())
+      addDeferredDeclToEmit(GlobalDecl(FD, KernelReferenceKind::Stub));
+
     // Update deferred annotations with the latest declaration if the function
     // function was already used or defined.
     if (FD->hasAttr<AnnotateAttr>()) {
@@ -4872,6 +4874,11 @@ CodeGenModule::GetAddrOfFunction(GlobalDecl GD, llvm::Type *Ty, bool ForVTable,
   if (!Ty) {
     const auto *FD = cast<FunctionDecl>(GD.getDecl());
     Ty = getTypes().ConvertType(FD->getType());
+    if (FD->hasAttr<OpenCLKernelAttr>() &&
+        GD.getKernelReferenceKind() == KernelReferenceKind::Stub) {
+      const CGFunctionInfo &FI = getTypes().arrangeGlobalDeclaration(GD);
+      Ty = getTypes().GetFunctionType(FI);
+    }
   }
 
   // Devirtualized destructor calls may come through here instead of via
@@ -8010,9 +8017,9 @@ bool CodeGenModule::TeamsLoopCanBeParallelFor(const OMPExecutableDirective &D) {
 namespace {
 class NoLoopChecker final : public ConstStmtVisitor<NoLoopChecker> {
 public:
-  NoLoopChecker()
-      : NoLoopCheckStatus{CodeGenModule::NxSuccess}, HasNestedGenericCall{
-                                                         false} {}
+  NoLoopChecker(CodeGenModule &CGM)
+      : CGM(CGM), NoLoopCheckStatus(CodeGenModule::NxSuccess),
+        HasNestedGenericCall(false) {}
   CodeGenModule::NoLoopXteamErr getNoLoopCheckStatus() const {
     return NoLoopCheckStatus;
   }
@@ -8030,6 +8037,10 @@ public:
         Visit(Child);
   }
 
+  // Reject if there is a call to an OpenMP API function, omp_*.
+  // If an OpenMP API call is not found and a call to an Xteam-recognized
+  // math function is not found, the field HasNestedGenericCall is set. It
+  // is the job of the client to make use of these attributes.
   void VisitCallExpr(const CallExpr *C) {
     // Set status if calling an OpenMP API
     // Set status if there is a call other than to an OpenMP function.
@@ -8042,12 +8053,35 @@ public:
           // No need to continue visiting any more
           return;
         }
-      }
-      HasNestedGenericCall = true;
+        // Recognize the math calls. If the math calls are wrapped in
+        // a PseudoObject expression, they are handled in the corresponding
+        // visitor.
+        if (CGM.getStatusOptKernelBuiltin(C) != CodeGenModule::NxSuccess)
+          HasNestedGenericCall = true;
+      } else
+        HasNestedGenericCall = true;
     }
     for (const Stmt *Child : C->children())
       if (Child)
         Visit(Child);
+  }
+
+  void VisitPseudoObjectExpr(const PseudoObjectExpr *PO) {
+    // Check the PO specific conditions and then visit the semantic expression.
+    auto [Status, SemanticExpr] = CGM.getStatusXteamSupportedPseudoObject(PO);
+    if (Status) {
+      NoLoopCheckStatus = Status;
+      return; // no need to continue any more
+    }
+    for (const Stmt *Child : PO->children())
+      if (Child) {
+        if (!isa<CallExpr>(Child)) {
+          NoLoopCheckStatus = CodeGenModule::NxUnsupportedPseudoObject;
+          return;
+        }
+        if (cast<CallExpr>(Child) == SemanticExpr)
+          Visit(Child);
+      }
   }
 
   void VisitCapturedStmt(const CapturedStmt *S) {
@@ -8065,7 +8099,9 @@ public:
   }
 
 private:
+  CodeGenModule &CGM;
   CodeGenModule::NoLoopXteamErr NoLoopCheckStatus;
+  // If no omp_ API call is found, is a generic call found?
   bool HasNestedGenericCall;
 };
 
@@ -8113,22 +8149,18 @@ private:
 /// well.
 class XteamRedExprChecker final : public ConstStmtVisitor<XteamRedExprChecker> {
 public:
-  XteamRedExprChecker(CodeGenModule &CGM,
-                      const CodeGenModule::XteamRedVarMap &RVM)
-      : CGM(CGM), RedMap(RVM), IsAtTopLevel(true), IsSupported(true) {}
+  XteamRedExprChecker(CodeGenModule &CGM, CodeGenModule::XteamRedVarMap *RVM)
+      : CGM(CGM), RedMap(RVM), IsAtTopLevel(true),
+        NxStatus(CodeGenModule::NxSuccess) {}
   XteamRedExprChecker() = delete;
 
-  bool isSupported() const { return IsSupported; }
+  CodeGenModule::NoLoopXteamErr getNxStatus() const { return NxStatus; }
 
   void VisitStmt(const Stmt *S) {
     if (!S)
       return;
 
     if (isa<BinaryOperator>(S)) {
-      // Binary operator handling does not use IsAtTopLevel, so reset it
-      // right away.
-      if (IsAtTopLevel)
-        IsAtTopLevel = false;
       // Ensure that the reduction assignment uses a pattern Codegen
       // can handle. For sum-reduction,
       // Codegen currently handles red-var += <expr>,
@@ -8138,19 +8170,26 @@ public:
       const Expr *LHS = BinOpExpr->getLHS()->IgnoreImpCasts();
       auto BinOpExprOp = BinOpExpr->getOpcode();
       // Get the reduction variable, if any, from the LHS.
-      const VarDecl *RedVarDecl = CGM.getXteamRedVarDecl(LHS, RedMap);
+      const VarDecl *RedVarDecl = CGM.getXteamRedVarDecl(LHS, *RedMap);
       if (RedVarDecl != nullptr) { // LHS accesses a reduction variable.
         if (BinOpExprOp == BO_Assign || BinOpExprOp == BO_AddAssign) {
+          IsAtTopLevel = true;
           const Expr *RHS = BinOpExpr->getRHS()->IgnoreImpCasts();
           // If operator +=, reject if RHS accesses any reduction variable.
           if (BinOpExprOp == BO_AddAssign) {
+            // Set reduction opcode to sum.
+            CGM.updateXteamRedVarOpcode(RedVarDecl, RedMap,
+                                        CodeGenModule::XR_OP_add);
             ValidateChildren(RHS);
-            if (!IsSupported)
+            if (NxStatus != CodeGenModule::NxSuccess)
               return;
           } else { // BinOpExprOp == BO_Assign
             if (isa<BinaryOperator>(RHS)) {
               const BinaryOperator *BinOpRHS = cast<BinaryOperator>(RHS);
               if (BinOpRHS->getOpcode() == BO_Add) {
+                // Set reduction opcode to sum.
+                CGM.updateXteamRedVarOpcode(RedVarDecl, RedMap,
+                                            CodeGenModule::XR_OP_add);
                 const Expr *LHSBinOpRHS = BinOpRHS->getLHS()->IgnoreImpCasts();
                 const Expr *RHSBinOpRHS = BinOpRHS->getRHS()->IgnoreImpCasts();
                 // If LHS is the reduction variable, the RHS must not access any
@@ -8160,70 +8199,75 @@ public:
                 else if (CGM.isXteamRedVarExpr(RHSBinOpRHS, RedVarDecl))
                   ValidateChildren(LHSBinOpRHS);
                 else // Neither LHS nor RHS is the reduction variable.
-                  IsSupported = false;
-                if (!IsSupported)
+                  NxStatus = CodeGenModule::NxNotRedVarInBinOpRHS;
+                if (NxStatus != CodeGenModule::NxSuccess)
                   return;
               } else { // Not an add binary operator in the RHS for an
                        // assignment statement.
-                IsSupported = false;
+                NxStatus = CodeGenModule::NxNotAddOpInBinOpRHs;
                 return;
               }
-            } else { // RHS is not a binary operator for assignment.
-              IsSupported = false;
+            } else if (IsAtTopLevel &&
+                       (isa<CallExpr>(RHS) || isa<PseudoObjectExpr>(RHS))) {
+              // If a PseudoObjectExpr is found, check if it is supported by
+              // Xteam.
+              if (isa<PseudoObjectExpr>(RHS)) {
+                auto [Status, ReturnExpr] =
+                    CGM.getStatusXteamSupportedPseudoObject(
+                        cast<PseudoObjectExpr>(RHS));
+                if (Status) {
+                  NxStatus = Status;
+                  return;
+                }
+                RHS = ReturnExpr;
+              }
+              const CallExpr *Call = cast<CallExpr>(RHS);
+              if ((NxStatus = CGM.getStatusOptKernelBuiltin(Call)))
+                return;
+              // For both host and device compile, check the arguments for
+              // constraints on the reduction variable.
+              validateArgConstraints(Call);
+              if (NxStatus != CodeGenModule::NxSuccess)
+                return;
+              // A min or max operator has been identified. Add the operator to
+              // the reduction map.
+              CGM.updateXteamRedVarOpcode(Call, RedVarDecl, RedMap);
+            } else { // RHS is not a binary operator or call for assignment.
+              NxStatus = CodeGenModule::NxRhsOfAssignNotBinOpOrCall;
               return;
             }
           }
         } else { // Binary operator is neither +=, nor =.
-          IsSupported = false;
+          NxStatus = CodeGenModule::NxBinOpNotAddAssignOrAssign;
           return;
         }
       } else { // LHS of binary operator does not access any reduction variable.
         // Ensure that RHS does not access any reduction variable either. Be
         // paranoid, validate the LHS as well.
         ValidateChildren(S);
-        if (!IsSupported)
+        if (NxStatus != CodeGenModule::NxSuccess)
           return;
       }
+      if (IsAtTopLevel)
+        IsAtTopLevel = false;
     } // End of binary operator handling.
     // Allow a call at the top level with a reduction variable passed by
     // reference.
     else if (IsAtTopLevel && isa<CallExpr>(S)) {
       IsAtTopLevel = false;
-      for (auto Child : S->children())
-        if (Child) {
-          // If it is not a variable reference, recurse. If it is a
-          // variable reference, it will be appropriately handled
-          // during codegen, i.e. replaced with XteamReduction
-          // variable, if required.
-          if (!isa<DeclRefExpr>(Child))
-            Visit(Child);
-          if (!IsSupported)
-            return;
-        }
-      // Ensure every arg has scalar eval kind.
-      const CallExpr *CE = cast<CallExpr>(S);
-      if (CE == nullptr) {
-        IsSupported = false;
+      validateArgConstraints(cast<CallExpr>(S));
+      if (NxStatus != CodeGenModule::NxSuccess)
         return;
-      }
-      CodeGenFunction CGF(CGM);
-      for (unsigned ArgIndex = 0; ArgIndex < CE->getNumArgs(); ++ArgIndex) {
-        const Expr *Arg = CE->getArg(ArgIndex);
-        if (!Arg || !CGF.hasScalarEvaluationKind(Arg->getType())) {
-          IsSupported = false;
-          return;
-        }
-      }
     } // End of call expression handling.
     else if (isa<DeclRefExpr>(S)) {
       IsAtTopLevel = false;
-      // Not a binary operator, so not supported at this point. So ensure no
-      // reduction variable is accessed.
-      // Disable this check for Xteam scan because the RedVar could be being
-      // read in form of RHS of a binary operator
-      if (CGM.hasXteamRedVar(cast<DeclRefExpr>(S), RedMap) &&
+      // Not a binary operator or call, so not supported at this point. So
+      // ensure no reduction variable is accessed. Disable this check for Xteam
+      // scan because the RedVar could be read in the form of RHS of a binary
+      // operator.
+      if (CGM.hasXteamRedVar(cast<DeclRefExpr>(S), *RedMap) &&
           !CGM.isXteamScanKernel()) {
-        IsSupported = false;
+        NxStatus = CodeGenModule::NxNotBinOpOrCallButAccessesRedVar;
         return;
       }
     } // End of DeclRefExpr handling.
@@ -8231,7 +8275,7 @@ public:
       IsAtTopLevel = false;
       // Recursively check the children.
       ValidateChildren(S);
-      if (!IsSupported)
+      if (NxStatus != CodeGenModule::NxSuccess)
         return;
     }
   }
@@ -8239,21 +8283,52 @@ public:
     for (auto Child : S->children())
       if (Child) {
         Visit(Child);
-        if (!IsSupported)
+        if (NxStatus != CodeGenModule::NxSuccess)
           return;
       }
+  }
+  void validateArgConstraints(const CallExpr *Call) {
+    for (auto Child : Call->children()) {
+      if (!Child) {
+        NxStatus = CodeGenModule::NxChildOfCallIsNull;
+        return;
+      }
+      // If it is not a variable reference, recurse. If it is a
+      // variable reference, it will be appropriately handled
+      // during codegen, i.e. replaced with XteamReduction
+      // variable, if required.
+      while (isa<ImplicitCastExpr>(Child))
+        Child = cast<ImplicitCastExpr>(Child)->getSubExpr();
+      if (!isa<DeclRefExpr>(Child)) {
+        // Ensure that no reduction variable appears in Child.
+        Visit(Child);
+      }
+      if (NxStatus != CodeGenModule::NxSuccess)
+        return;
+    }
+    CodeGenFunction CGF(CGM);
+    for (unsigned ArgIndex = 0; ArgIndex < Call->getNumArgs(); ++ArgIndex) {
+      const Expr *Arg = Call->getArg(ArgIndex);
+      if (!Arg || !CGF.hasScalarEvaluationKind(Arg->getType())) {
+        NxStatus = CodeGenModule::NxNotArgScalarEval;
+        return;
+      }
+    }
   }
 
 private:
   CodeGenModule &CGM;
-  /// Map of reduction variables for this directive.
-  const CodeGenModule::XteamRedVarMap &RedMap;
+  /// Map of reduction variables for this directive. This visitor may update
+  /// this map with the reduction operator.
+  CodeGenModule::XteamRedVarMap *RedMap;
   /// Indicates whether the current analyzed statement is at the top level
   /// statement list in the kernel. Set to true when the visitor is called first
-  /// and reset to false before visiting any children.
+  /// and reset to false before visiting any children. There are certain
+  /// patterns that are supported at the top level but not otherwise.
   bool IsAtTopLevel;
-  /// Set to false if codegen does not support the reduction expression.
-  bool IsSupported;
+  /// Set to corresponding status if codegen does not support the reduction
+  /// expression found in this kernel.
+  CodeGenModule::NoLoopXteamErr NxStatus;
 };
 
 } // namespace
@@ -8358,6 +8433,65 @@ void CodeGenModule::emitNxResult(std::string StatusMsg,
     break;
   case NxUnsupportedXteamRedThreadLimit:
     StatusMsg += "Thread Limit less than 256 not supported";
+    break;
+  case NxUnsupportedPseudoObject:
+    StatusMsg += "Unsupported pseudo object found";
+    break;
+  case NxNotRedVarInBinOpRHS:
+    StatusMsg += "Reduction variable not found in RHS of binary operator";
+    break;
+  case NxNotAddOpInBinOpRHs:
+    StatusMsg += "Add operator not found in RHS of binary operator";
+    break;
+  case NxRhsOfAssignNotBinOpOrCall:
+    StatusMsg += "RHS of assignment is not a binary operator or call";
+    break;
+  case NxBinOpNotAddAssignOrAssign:
+    StatusMsg += "Binary operator is neither += nor =";
+    break;
+  case NxNotBinOpOrCallButAccessesRedVar:
+    StatusMsg +=
+        "RHS is not binary operator or call but accesses reduction variable";
+    break;
+  case NxNotArgScalarEval:
+    StatusMsg += "Arg of call does not evaluate to scalar";
+    break;
+  case NxReductionOpNotBinAssign:
+    StatusMsg += "Reduction ops not binary assignment";
+    break;
+  case NxReductionOpRhsNotBinOrCond:
+    StatusMsg += "Reduction ops rhs is not binary or conditional operator";
+    break;
+  case NxReductionOpRhsNotMinMaxSum:
+    StatusMsg += "Reduction ops rhs is not sum, min, or max";
+    break;
+  case NxNotBuiltinByNameInHostCompile:
+    StatusMsg += "Not recognized as builtin in host compile";
+    break;
+  case NxNotBuiltinByNameInDeviceCompile:
+    StatusMsg += "Not recognized as builtin in device compile";
+    break;
+  case NxPOExprCountNotOne:
+    StatusMsg += "Non-unit pseudo-expression count";
+    break;
+  case NxPOSemanticExprNotCall:
+    StatusMsg += "Pseudo-expression semantic expression is not a call";
+    break;
+  case NxChildOfCallIsNull:
+    StatusMsg += "Child of call is null";
+    break;
+  case NxMultiDeviceMinMaxNotSupported:
+    StatusMsg +=
+        "Xteam min/max reduction not supported with multi-device compilation";
+    break;
+  case NxFastReductionMinMaxNotSupported:
+    StatusMsg += "Xteam min/max reduction not supported with fast reduction";
+    break;
+  case NxScanMinMaxNotSupported:
+    StatusMsg += "Xteam min/max reduction not supported with scan";
+    break;
+  case NxAmbiguousRedKind:
+    StatusMsg += "Could not determine reduction kind";
     break;
   }
 
@@ -8580,7 +8714,7 @@ const Expr *CodeGenModule::getBinaryExprStep(const Expr *Inc,
 std::pair<CodeGenModule::NoLoopXteamErr, bool>
 CodeGenModule::getNoLoopForStmtStatus(const OMPExecutableDirective &D,
                                       const Stmt *OMPStmt) {
-  NoLoopChecker Checker;
+  NoLoopChecker Checker(*this);
   Checker.Visit(OMPStmt);
   bool HasNestedGenericCall = Checker.hasNestedGenericCall();
   NoLoopXteamErr NxStatus = NxSuccess;
@@ -8738,9 +8872,9 @@ int CodeGenModule::computeOptKernelBlockSize(
 std::pair<CodeGenModule::NoLoopXteamErr, bool>
 CodeGenModule::getXteamRedForStmtStatus(const OMPExecutableDirective &D,
                                         const Stmt *OMPStmt,
-                                        const XteamRedVarMap &RVM) {
+                                        XteamRedVarMap *RVM) {
   auto [NxStatus, HasNestedGenericCall] = getNoLoopForStmtStatus(D, OMPStmt);
-  if (NxStatus)
+  if (NxStatus != CodeGenModule::NxSuccess)
     return std::make_pair(NxStatus, HasNestedGenericCall);
   // The above check ensures that there is only one statement corresponding to
   // the directive
@@ -8750,8 +8884,9 @@ CodeGenModule::getXteamRedForStmtStatus(const OMPExecutableDirective &D,
     if (Child) {
       XteamRedExprChecker Chk(*this, RVM);
       Chk.Visit(Child);
-      if (!Chk.isSupported())
-        return std::make_pair(NxUnsupportedRedExpr, HasNestedGenericCall);
+      CodeGenModule::NoLoopXteamErr NxStatus = Chk.getNxStatus();
+      if (NxStatus != CodeGenModule::NxSuccess)
+        return std::make_pair(NxStatus, HasNestedGenericCall);
     }
   return std::make_pair(NxSuccess, HasNestedGenericCall);
 }
@@ -8881,9 +9016,7 @@ CodeGenModule::NoLoopXteamErr CodeGenModule::getMultiDeviceStatusForClauses(
 
 /// Given a directive, collect metadata for the reduction variables for Xteam
 /// reduction, if applicable
-std::pair<
-    CodeGenModule::NoLoopXteamErr,
-    std::pair<CodeGenModule::XteamRedVarMap, CodeGenModule::XteamRedVarVecTy>>
+std::pair<CodeGenModule::NoLoopXteamErr, CodeGenModule::XteamRedCollectionInfo>
 CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
   // Check all nest directives. A reduction clause is treated
   // equivalently regardless the nesting level it is at -- this is
@@ -8894,7 +9027,60 @@ CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
   // This vector defines the order in which Xteam metadata will always be
   // generated.
   XteamRedVarVecTy VarVec;
-  // Either we emit Xteam code for all reduction variables or none at all
+
+  // Encode the reduction operator kinds found in this kernel.
+  uint8_t OpKindsFound = XR_OP_unknown;
+
+  auto isSumReduction = [](const Expr *AssignmentRhs) {
+    if (!isa<BinaryOperator>(AssignmentRhs) ||
+        cast<BinaryOperator>(AssignmentRhs)->getOpcode() != BO_Add)
+      return false;
+    return true;
+  };
+
+  auto getMinMaxReduction = [this](const Expr *AssignmentRhs,
+                                   bool isUnsignedInt) -> XteamRedOpKind {
+    // Unsigned integer not supported right now.
+    if (isUnsignedInt)
+      return XR_OP_unknown;
+    auto getVarDecl = [](const Expr *E) -> const VarDecl * {
+      if (!isa<DeclRefExpr>(E))
+        return nullptr;
+      const ValueDecl *ValDecl = cast<DeclRefExpr>(E)->getDecl();
+      if (!isa<VarDecl>(ValDecl))
+        return nullptr;
+      return cast<VarDecl>(ValDecl);
+    };
+
+    if (isa<ConditionalOperator>(AssignmentRhs)) {
+      auto CondOpExpr = cast<ConditionalOperator>(AssignmentRhs);
+      auto CondExpr = CondOpExpr->getCond();
+      if (isa<BinaryOperator>(CondExpr)) {
+        auto BinCondExpr = cast<BinaryOperator>(CondExpr);
+        BinaryOperator::Opcode Opcode = BinCondExpr->getOpcode();
+        if (Opcode == BO_GT || Opcode == BO_LT) {
+          // Found either max or min
+          // Extract the reduction variable
+          const VarDecl *RedVD =
+              getVarDecl(BinCondExpr->getRHS()->IgnoreImpCasts());
+          // This variable must match the rhs of the conditional expression.
+          if (RedVD != getVarDecl(CondOpExpr->getRHS()->IgnoreImpCasts())) {
+            return XR_OP_unknown;
+          }
+          if (Opcode == BO_GT)
+            return XR_OP_max;
+          else
+            return XR_OP_min;
+        }
+      }
+    }
+    return XR_OP_unknown;
+  };
+
+  // Either we emit Xteam code for all reduction variables or none at all.
+  // Track whether the kernel has any min/max reduction variable.
+  bool isMultiDeviceCompile = getLangOpts().OpenMPTargetMultiDevice;
+  bool isFastReductionEnabled = getLangOpts().OpenMPTargetFastReduction;
   for (auto &D : NestDirs) {
     for (const auto *C : D->getClausesOfKind<OMPReductionClause>()) {
       if (C->getModifier() == OMPC_REDUCTION_inscan)
@@ -8902,23 +9088,29 @@ CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
       for (const Expr *Ref : C->varlist()) {
         // Only scalar variables supported today
         if (!isa<DeclRefExpr>(Ref))
-          return std::make_pair(NxNotScalarRed, std::make_pair(VarMap, VarVec));
+          return std::make_pair(
+              NxNotScalarRed,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
         const ValueDecl *ValDecl = cast<DeclRefExpr>(Ref)->getDecl();
         if (!isa<VarDecl>(ValDecl))
-          return std::make_pair(NxNotScalarRed, std::make_pair(VarMap, VarVec));
+          return std::make_pair(
+              NxNotScalarRed,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
 
         llvm::Type *RefType = getTypes().ConvertTypeForMem(Ref->getType());
         // TODO support more data types
         if (!RefType->isFloatTy() && !RefType->isDoubleTy() &&
             !RefType->isHalfTy() && !RefType->isBFloatTy() &&
             !RefType->isIntegerTy())
-          return std::make_pair(NxUnsupportedRedType,
-                                std::make_pair(VarMap, VarVec));
+          return std::make_pair(
+              NxUnsupportedRedType,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
         if (RefType->isIntegerTy() && RefType->getPrimitiveSizeInBits() != 16 &&
             RefType->getPrimitiveSizeInBits() != 32 &&
             RefType->getPrimitiveSizeInBits() != 64)
-          return std::make_pair(NxUnsupportedRedIntSize,
-                                std::make_pair(VarMap, VarVec));
+          return std::make_pair(
+              NxUnsupportedRedIntSize,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
 
         const VarDecl *VD = cast<VarDecl>(ValDecl);
         // Filter out duplicates
@@ -8930,27 +9122,76 @@ CodeGenModule::collectXteamRedVars(const OptKernelNestDirectives &NestDirs) {
           VarVec.push_back(VD);
         }
       }
-      // Now make sure that we support all the operators. Today, only sum
+
+      // Now make sure that we support all the operators. Today, only sum, min,
+      // and max are supported.
       for (const Expr *Ref : C->reduction_ops()) {
         if (!isa<BinaryOperator>(Ref))
-          return std::make_pair(NxNotBinOpRed, std::make_pair(VarMap, VarVec));
+          return std::make_pair(
+              NxNotBinOpRed,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
         auto BinExpr = cast<BinaryOperator>(Ref);
         if (BinExpr->getOpcode() != BO_Assign)
-          return std::make_pair(NxNotBinOpRed, std::make_pair(VarMap, VarVec));
+          return std::make_pair(
+              NxReductionOpNotBinAssign,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
         auto BinExprRhs = BinExpr->getRHS()->IgnoreImpCasts();
-        if (!isa<BinaryOperator>(BinExprRhs) ||
-            cast<BinaryOperator>(BinExprRhs)->getOpcode() != BO_Add)
-          return std::make_pair(NxUnsupportedRedOp,
-                                std::make_pair(VarMap, VarVec));
+
+        // We recognize sum and min/max reductions that satisfy a specific
+        // format.
+        if (!isa<BinaryOperator>(BinExprRhs) &&
+            !isa<ConditionalOperator>(BinExprRhs))
+          return std::make_pair(
+              NxReductionOpRhsNotBinOrCond,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
+
+        // Is this reduction variable min/max?
+        auto MinMaxOp = getMinMaxReduction(
+            BinExprRhs, Ref->getType()->isUnsignedIntegerType());
+        OpKindsFound |= MinMaxOp;
+
+        // Multi-device compilation is not compatible with Xteam min/max,
+        // so disable Xteam codegen.
+        if (MinMaxOp != XR_OP_unknown && isMultiDeviceCompile) {
+          return std::make_pair(
+              NxMultiDeviceMinMaxNotSupported,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
+        }
+
+        // Fast reduction is not compatible with Xteam min/max, so
+        // disable Xteam codegen.
+        if (MinMaxOp != XR_OP_unknown && isFastReductionEnabled) {
+          return std::make_pair(
+              NxFastReductionMinMaxNotSupported,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
+        }
+        // Scan kernel codegen is not compatible with min/max, so
+        // disable Xteam codegen if a scan reduction variable is found.
+        if (OpKindsFound > XR_OP_add && isXteamScanKernel()) {
+          return std::make_pair(
+              NxScanMinMaxNotSupported,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
+        }
+
+        // Now check for sum reduction
+        OpKindsFound |= isSumReduction(BinExprRhs);
+        // Unrecognized reduction operator
+        if (OpKindsFound == XR_OP_unknown) {
+          return std::make_pair(
+              NxReductionOpRhsNotMinMaxSum,
+              XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
+        }
       }
     }
   }
   // We support multiple reduction operations in the same loop with the new
   // DeviceRTL APIs. So bail out only if none was found.
   if (VarMap.size() == 0)
-    return std::make_pair(NxNoRedVar, std::make_pair(VarMap, VarVec));
+    return std::make_pair(NxNoRedVar,
+                          XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
 
-  return std::make_pair(NxSuccess, std::make_pair(VarMap, VarVec));
+  return std::make_pair(NxSuccess,
+                        XteamRedCollectionInfo(VarMap, VarVec, OpKindsFound));
 }
 
 bool CodeGenModule::hasXteamRedVar(const Expr *E,
@@ -9187,11 +9428,10 @@ CodeGenModule::checkAndSetXteamRedKernel(const OMPExecutableDirective &D) {
   if ((NxStatus = getXteamRedStatusForClauses(NestDirs)))
     return NxStatus;
 
-  std::pair<NoLoopXteamErr, std::pair<CodeGenModule::XteamRedVarMap,
-                                      CodeGenModule::XteamRedVarVecTy>>
-      RedVarMapPair = collectXteamRedVars(NestDirs);
-  if (RedVarMapPair.first)
-    return RedVarMapPair.first;
+  std::pair<NoLoopXteamErr, XteamRedCollectionInfo> RedPair =
+      collectXteamRedVars(NestDirs);
+  if (RedPair.first)
+    return RedPair.first;
 
   // Make sure CodeGen can handle the FOR statement
   if (!D.hasAssociatedStmt())
@@ -9203,12 +9443,28 @@ CodeGenModule::checkAndSetXteamRedKernel(const OMPExecutableDirective &D) {
 
   auto ForStmtStatus =
       getXteamRedForStmtStatus(InnermostDir, InnermostDir.getAssociatedStmt(),
-                               RedVarMapPair.second.first);
+                               &RedPair.second.RedVarMap);
   if ((NxStatus = ForStmtStatus.first))
     return NxStatus;
 
-  bool HasNestedGenericCall = ForStmtStatus.second;
+  // Ensure that every reduction variable has a valid kind. Otherwise bail out.
+  for (auto &MapPair : RedPair.second.RedVarMap) {
+    auto Op = MapPair.second.Opcode;
+    if (Op != XR_OP_unknown) // valid kind already set.
+      continue;
+    // Prior analysis could not set the reduction kind. This can happen if the
+    // reduction statement is in a different function. The kind can be patched
+    // up here only if the kernel has an un-ambiguous reduction kind, i.e. only
+    // one kind of reduction operator. Otherwise, bail out.
+    uint8_t KernelRedOps = RedPair.second.OpKindsFound;
+    assert(KernelRedOps != XR_OP_unknown &&
+           "At least one reduction kind must exist");
+    if (KernelRedOps & (KernelRedOps - 1)) // multiple reduction ops
+      return NxAmbiguousRedKind;
+    MapPair.second.Opcode = static_cast<XteamRedOpKind>(KernelRedOps);
+  }
 
+  bool HasNestedGenericCall = ForStmtStatus.second;
   if (((getLangOpts().OpenMPNoNestedParallelism &&
         getLangOpts().OpenMPNoThreadState) ||
        !HasNestedGenericCall)) {
@@ -9224,8 +9480,8 @@ CodeGenModule::checkAndSetXteamRedKernel(const OMPExecutableDirective &D) {
         FStmt, XteamRedKernelInfo(
                    /*ThreadStartIndex=*/nullptr,
                    /*NumTeams=*/nullptr,
-                   /*BlockSize=*/0, NestDirs, RedVarMapPair.second.first,
-                   RedVarMapPair.second.second, isFastXteamSumReduction())));
+                   /*BlockSize=*/0, NestDirs, RedPair.second.RedVarMap,
+                   RedPair.second.RedVarVector, isFastXteamSumReduction())));
 
     // The blocksize has to be computed after adding this kernel to the metadata
     // above, since the computation below depends on that metadata.
@@ -9370,6 +9626,53 @@ void CodeGenModule::resetOptKernelMetadata(const Stmt *DirectiveStmt) {
   // Now reset the split directives metadata
   for (const auto &Dir : Dirs)
     eraseOptKernelNestElem(getOptKernelKey(*Dir));
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::getStatusOptKernelHostBuiltin(std::string CallName) const {
+  if (isOptKernelHostMin(CallName) || isOptKernelHostMax(CallName))
+    return NxSuccess;
+  auto emitDebugMsg = [](std::string Msg) {
+    Msg += ": Not recognized as builtin in host compile";
+    llvm::dbgs() << Msg << "\n";
+  };
+  DEBUG_WITH_TYPE(NO_LOOP_XTEAM_RED, emitDebugMsg(CallName));
+  return NxNotBuiltinByNameInHostCompile;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::getStatusOptKernelAMDGCNBuiltin(std::string CallName) const {
+  if (isOptKernelAMDGCNMin(CallName) || isOptKernelAMDGCNMax(CallName))
+    return NxSuccess;
+  auto emitDebugMsg = [](std::string Msg) {
+    Msg += ": Not recognized as builtin in device compile";
+    llvm::dbgs() << Msg << "\n";
+  };
+  DEBUG_WITH_TYPE(NO_LOOP_XTEAM_RED, emitDebugMsg(CallName));
+  return NxNotBuiltinByNameInDeviceCompile;
+}
+
+CodeGenModule::NoLoopXteamErr
+CodeGenModule::getStatusOptKernelBuiltin(const CallExpr *Call) {
+  std::string CallName = Call->getDirectCallee()->getNameInfo().getAsString();
+  if (getLangOpts().OpenMPIsTargetDevice) {
+    if (auto NxStatus = getStatusOptKernelAMDGCNBuiltin(CallName))
+      return NxStatus;
+  } else {
+    if (auto NxStatus = getStatusOptKernelHostBuiltin(CallName))
+      return NxStatus;
+  }
+  return NxSuccess;
+}
+
+std::pair<CodeGenModule::NoLoopXteamErr, const Expr *>
+CodeGenModule::getStatusXteamSupportedPseudoObject(const PseudoObjectExpr *PO) {
+  if (PO->getNumSemanticExprs() != 1)
+    return std::make_pair(NxPOExprCountNotOne, nullptr);
+  const Expr *RHS = PO->getSemanticExpr(0);
+  if (!isa<CallExpr>(RHS))
+    return std::make_pair(NxPOSemanticExprNotCall, nullptr);
+  return std::make_pair(NxSuccess, RHS);
 }
 
 void CodeGenModule::moveLazyEmissionStates(CodeGenModule *NewBuilder) {

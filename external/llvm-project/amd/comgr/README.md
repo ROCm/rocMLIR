@@ -3,6 +3,7 @@ Code Object Manager (Comgr)
 
 The Comgr library provides APIs for compiling and inspecting AMDGPU code
 objects. The API is documented in the [header file](include/amd_comgr.h.in).
+The Comgr API is compatible with C99 and C++.
 
 Building the Code Object Manager
 --------------------------------
@@ -80,6 +81,13 @@ may be enabled during development via `-DADDRESS_SANITIZER=On` during the Comgr
 Comgr can be built as a static library by passing
 `-DCOMGR_BUILD_SHARED_LIBS=OFF` during the Comgr `cmake` step.
 
+To enable SPIRV support, checkout
+[SPIRV-LLVM-Translator](https://github.com/ROCm/SPIRV-LLVM-Translator) in
+`llvm/projects` or `llvm/tools` and build using the above instructions, with the
+exception that the `-DCMAKE_PREFIX_PATH` for llvm-project must be an install
+path (specified with `-DCMAKE_INSTALL_PREFIX=/path/to/install/dir` and populated
+with `make install`) rather than the build path.
+
 Comgr SPIRV-related APIs can be disabled by passing
 `-DCOMGR_DISABLE_SPIRV=1` during the Comgr `cmake` step. This removes any
 dependency on LLVM SPIRV libraries or the llvm-spirv tool.
@@ -120,10 +128,10 @@ and eviction policy can be manipulated through specific environment variables.
 If an issue arises during cache initialization, the execution will proceed with
 the cache turned off.
 
-By default, the cache is turned off, set the environment variable
-`AMD_COMGR_CACHE=1` to enable it.
+By default, the cache is enabled.
 
-* `AMD_COMGR_CACHE`: When unset or set to 0, the cache is turned off.
+* `AMD_COMGR_CACHE`: When unset or set to a value different than "0", the cache is enabled.
+  Disabled when set to "0".
 * `AMD_COMGR_CACHE_DIR`: If assigned a non-empty value, that value is used as
   the path for cache storage. If the variable is unset or set to an empty string `""`,
   it is directed to "$XDG_CACHE_HOME/comgr" (which defaults to
@@ -134,7 +142,7 @@ By default, the cache is turned off, set the environment variable
   termination. The string format aligns with [Clang's ThinLTO cache pruning policy](https://clang.llvm.org/docs/ThinLTO.html#cache-pruning).
   The default policy is set as: "prune_interval=1h:prune_expiration=0h:cache_size=75%:cache_size_bytes=30g:cache_size_files=0".
 
-Comgr also supports some environment variables to aid in debugging. These
+Comgr supports some environment variables to aid in debugging. These
 include:
 
 * `AMD_COMGR_SAVE_TEMPS`: If this is set, and is not "0", Comgr does not delete
@@ -153,6 +161,22 @@ include:
   include additional Comgr-specific informational messages.
 * `AMD_COMGR_TIME_STATISTICS`: If this is set, and is not "0", logs will
   include additional Comgr-specific timing information for compilation actions.
+
+Comgr implements support for an in-memory, virtual filesystem (VFS) for storing
+temporaries generated during intermediate compilation steps. This is aimed at 
+improving performance by reducing on-disk file I/O. Currently, VFS is only supported 
+for the device library link step, but we aim to progressively add support for
+more actions.
+
+By default, VFS is turned off. Set the environment variable `AMD_COMGR_USE_VFS=1` to 
+enable it.
+
+* `AMD_COMGR_USE_VFS`: When unset or "0", VFS support is turned off.
+* Users may use the API `amd_comgr_action_info_set_vfs` to enable VFS for individual actions
+  without having to modify system-wide environment variables. Note that API is effective only 
+  if `AMD_COMGR_USE_VFS` is unset.
+* If `AMD_COMGR_SAVE_TEMPS` is set and not "0", VFS support is turned off irrespective
+  of `AMD_COMGR_USE_VFS` or the use of `amd_comgr_action_info_set_vfs`.
 
 Versioning
 ----------

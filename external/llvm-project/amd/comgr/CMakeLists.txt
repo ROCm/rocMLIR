@@ -36,7 +36,6 @@ endif(EXISTS "${CMAKE_SOURCE_DIR}/../../.git")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-option(FILE_REORG_BACKWARD_COMPATIBILITY "Enable File Reorg with backward compatibility" OFF)
 # Optionally, build Compiler Support with ccache.
 set(ROCM_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
 if (ROCM_CCACHE_BUILD)
@@ -47,12 +46,6 @@ if (ROCM_CCACHE_BUILD)
     message(WARNING "Unable to find ccache. Falling back to real compiler")
   endif() # if (CCACHE_PROGRAM)
 endif() # if (ROCM_CCACHE_BUILD)
-
-find_package(ROCM QUIET)
-if (ROCM_FOUND)
-  include(ROCMSetupVersion)
-  rocm_setup_version(VERSION "${amd_comgr_VERSION}")
-endif()
 
 # BUILD_SHARED_LIBS is a frustratingly global variable common to all
 # projects. LLVM also defines an option for the same varible with the
@@ -85,6 +78,7 @@ set(SOURCES
   src/comgr-spirv-command.cpp
   src/comgr-symbol.cpp
   src/comgr-symbolizer.cpp
+  src/comgr-unbundle-command.cpp
   src/time-stat/time-stat.cpp)
 
 if(COMGR_BUILD_SHARED_LIBS)
@@ -143,7 +137,6 @@ message("-----------Clang_DIR: ${Clang_DIR}")
 message("--CLANG_INCLUDE_DIRS: ${CLANG_INCLUDE_DIRS}")
 message("----LLD_INCLUDE_DIRS: ${LLD_INCLUDE_DIRS}")
 message("---AMDDeviceLibs_DIR: ${AMDDeviceLibs_DIR}")
-message("------------ROCM_DIR: ${ROCM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -249,13 +242,9 @@ set_target_properties(amd_comgr PROPERTIES
   CXX_STANDARD 17
   CXX_STANDARD_REQUIRED Yes
   CXX_EXTENSIONS No)
-if (ROCM_FOUND)
-  rocm_set_soversion(amd_comgr "${amd_comgr_VERSION_MAJOR}.${amd_comgr_VERSION_MINOR}")
-else()
-  set_target_properties(amd_comgr PROPERTIES
-    SOVERSION "${amd_comgr_VERSION_MAJOR}"
-    VERSION "${amd_comgr_VERSION_MAJOR}.${amd_comgr_VERSION_MINOR}.${amd_comgr_VERSION_PATCH}")
-endif()
+set_target_properties(amd_comgr PROPERTIES
+  SOVERSION "${amd_comgr_VERSION_MAJOR}"
+  VERSION "${amd_comgr_VERSION_MAJOR}.${amd_comgr_VERSION_MINOR}.${amd_comgr_VERSION_PATCH}")
 
 if (NOT COMGR_BUILD_SHARED_LIBS)
   set_target_properties(amd_comgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -324,26 +313,6 @@ install(FILES
   COMPONENT amd-comgr
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${amd_comgr_NAME})
 
-#File reorg Backward compatibility function
-if(FILE_REORG_BACKWARD_COMPATIBILITY)
-# To enable/disable #error in wrapper header files
- if(NOT DEFINED ROCM_HEADER_WRAPPER_WERROR)
-      if(DEFINED ENV{ROCM_HEADER_WRAPPER_WERROR})
-          set(ROCM_HEADER_WRAPPER_WERROR "$ENV{ROCM_HEADER_WRAPPER_WERROR}"
-                  CACHE STRING "Header wrapper warnings as errors.")
-      else()
-          set(ROCM_HEADER_WRAPPER_WERROR "OFF" CACHE STRING "Header wrapper warnings as errors.")
-      endif()
-  endif()
-  if(ROCM_HEADER_WRAPPER_WERROR)
-      set(deprecated_error 1)
-  else()
-      set(deprecated_error 0)
-  endif()
-
-  include(comgr-backward-compat.cmake)
-endif()
-
 if(ENABLE_ASAN_PACKAGING)
   install(FILES
     "LICENSE.txt"
@@ -353,7 +322,6 @@ else()
   install(FILES
     "README.md"
     "LICENSE.txt"
-    "NOTICES.txt"
     COMPONENT amd-comgr
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
 endif()

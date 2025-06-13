@@ -3,7 +3,7 @@
 // CHECK: rock.conv({{.*}}) {{.*}} {{{.*}}, filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"]{{.*}}}
 
 module {
-  func.func @test(%arg0: tensor<1x512x1x1xf32>, %arg1: tensor<1x384x28x28xf32>, %arg2: tensor<512x384x1x1xf32>) -> tensor<1x512x28x28xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsagfx90a:sramecc+:xnack-"} {
+  func.func @test(%arg0: tensor<1x512x1x1xf32>, %arg1: tensor<1x384x28x28xf32>, %arg2: tensor<512x384x1x1xf32>) -> tensor<1x512x28x28xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
     %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x384x28x28xf32>) -> tensor<1x28x28x384xf32>
     %1 = "tosa.transpose"(%arg2) {perms = array<i32: 0, 2, 3, 1>} : (tensor<512x384x1x1xf32>) -> tensor<512x1x1x384xf32>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<512xf32>
