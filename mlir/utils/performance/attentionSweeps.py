@@ -38,7 +38,6 @@ DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
-CURRENT_SEQ_LEN = None
 
 # Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
@@ -94,9 +93,10 @@ AttentionConfiguration.generateMlirDriverArgs = generateMlirDriverArgs
 def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
-    dtype, g, slq, slk, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shape
+    *shapeParams, currentSeqLen = shape
+    dtype, g, slq, slk, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shapeParams
     perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
-    return AttentionConfiguration(
+    attnConfig = AttentionConfiguration(
         dtype=dtype,
         g=g,
         seq_len_q=slq,
@@ -115,16 +115,16 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
         numCU=options.numCu,
         perfConfig=perfString
     )
+    attnConfig.currentSeqLen = currentSeqLen
+    return attnConfig
 
 
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    global CURRENT_SEQ_LEN
-
     mlirGenOpts = config.generateMlirDriverArgs(options.flags)
-    if CURRENT_SEQ_LEN is not None:
-        mlirGenOpts.append(f"--current_seq_len={','.join(map(str, CURRENT_SEQ_LEN))}")
+    if getattr(config, "currentSeqLen") is not None:
+        mlirGenOpts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
     mlirGenOpts.append('-pv')
 
     proc1 = await asyncio.create_subprocess_exec(
@@ -257,13 +257,11 @@ def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
 
 
 def sampleAttentionShape():
-    global CURRENT_SEQ_LEN
-
     g = random.randint(1, 256) # GROUPS
     seqLenK = random.randint(1, 16384) # SEQ_LEN_K 
 
     useKVCache = random.choice(BOOLS)
-    CURRENT_SEQ_LEN = genCurrentSeqLens(g, seqLenK) if useKVCache else None
+    currentSeqLen = genCurrentSeqLens(g, seqLenK) if useKVCache else None
     seqLenQ = 1 if useKVCache else random.randint(1, 16384) # SEQ_LEN_Q
 
     numHeadsQ = 1
@@ -303,6 +301,7 @@ def sampleAttentionShape():
         random.choice(BOOLS),   # transO
         random.choice(BOOLS),   # causal
         random.choice(BOOLS),   # return_lse
+        currentSeqLen
     )
 
 
