@@ -2,8 +2,6 @@
 // used for private CI
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
-// For skiping scripted stages
-import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 @Field                                 // one instance for the whole run
@@ -672,81 +670,70 @@ pipeline {
                                             env.PATH = "/opt/rocm/llvm/bin:${env.PATH}"
                                             env.HOME = "${env.WORKSPACE}"
                                             
-                                            
-                                            stage('Shared Library: fixed E2E') {
-                                                if (!params.sharedLib) {
-                                                    echo "Skipping ${STAGE_NAME} stage due to condition"
-                                                    Utils.markStageSkippedForConditional(STAGE_NAME)
-                                                }
-                                                echo "codepath is ${CODEPATH}"
-                                                echo "Container environment:"
-                                                showEnv()
+                                            if (params.sharedLib) {
+                                                stage('Shared Library: fixed E2E') {
+                                                    echo "codepath is ${CODEPATH}"
+                                                    echo "Container environment:"
+                                                    showEnv()
 
-                                                build_fixedE2ETests("${CODEPATH}")
-                                                preMergeCheck("${CODEPATH}")
-                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                    sh 'cd build; ninja check-mlir check-rocmlir'
-                                                }
-                                            }
-
-                                            stage('Shared Library: random E2E') {
-                                                if (!(params.sharedLib && params.nightly)) {
-                                                    echo "Skipping ${STAGE_NAME} stage due to condition"
-                                                    Utils.markStageSkippedForConditional(STAGE_NAME)
-                                                }
-                                                check_randomE2ETests("${CODEPATH}")
-                                            }
-
-                                            stage('Tune selected rocMLIR configs') {
-                                                if (!(params.sharedLib && !params.nightly)) {
-                                                    echo "Skipping ${STAGE_NAME} stage due to condition"
-                                                    Utils.markStageSkippedForConditional(STAGE_NAME)
-                                                }
-                                                
-                                                buildProject('ci-performance-scripts', '')
-                                                // How to check out into specific directory, according to stackoverflow.
-                                                dir('MITuna') {
-                                                    git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                }
-                                                dir('build') {
+                                                    build_fixedE2ETests("${CODEPATH}")
+                                                    preMergeCheck("${CODEPATH}")
                                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                        // Tune gemms, fail if the DB is not created
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
-                                                            [ -f tuning_gemm.tsv ]"""
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
-                                                            [ -f tuning_conv.tsv ]"""
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                                -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
-                                                            [ -f tuning_attention.tsv ]"""
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
-                                                            [ -f quick_tuning_gemm.tsv ]"""
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
-                                                            [ -f quick_tuning_conv.tsv ]"""
+                                                        sh 'cd build; ninja check-mlir check-rocmlir'
+                                                    }
+                                                }
+                                            }
+                                            
+                                            if (params.sharedLib && params.nightly) {
+                                                stage('Shared Library: random E2E') {
+                                                    check_randomE2ETests("${CODEPATH}")
+                                                }
+                                            }
+
+                                            if (params.sharedLib && !params.nightly) {
+                                                stage('Tune selected rocMLIR configs') {                                 
+                                                    buildProject('ci-performance-scripts', '')
+                                                    // How to check out into specific directory, according to stackoverflow.
+                                                    dir('MITuna') {
+                                                        git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                                    }
+                                                    dir('build') {
+                                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                            // Tune gemms, fail if the DB is not created
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                                                [ -f tuning_gemm.tsv ]"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                                                [ -f tuning_conv.tsv ]"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                                                [ -f tuning_attention.tsv ]"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                                                [ -f quick_tuning_gemm.tsv ]"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                                                [ -f quick_tuning_conv.tsv ]"""
+                                                        }
                                                     }
                                                 }
                                             }
 
-                                            stage('Static Lib: build packages') {
-                                                if (!(params.staticLib && !params.nightly)) {
-                                                    echo "Skipping ${STAGE_NAME} stage due to condition"
-                                                    Utils.markStageSkippedForConditional(STAGE_NAME)
-                                                }
-
-                                                sh 'rm -f build/CMakeCache.txt'
-                                                buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                                preMergeCheckPackage("${CODEPATH}")
-                                                echo "Running tests on the newly-built static library"
-                                                dir ('build') {
-                                                    sh 'ninja check-rocmlir'
+                                            if (params.staticLib && !params.nightly) {
+                                                stage('Static Lib: build packages') {
+                                                    sh 'rm -f build/CMakeCache.txt'
+                                                    buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                                    preMergeCheckPackage("${CODEPATH}")
+                                                    echo "Running tests on the newly-built static library"
+                                                    dir ('build') {
+                                                        sh 'ninja check-rocmlir'
+                                                    }
                                                 }
                                             }
                                         }
@@ -888,13 +875,11 @@ pipeline {
                                             env.HOME = "${env.WORKSPACE}"
                                             env.PATH = "/opt/rocm/llvm/bin:${env.PATH}"
 
-                                            stage("Set System Property on Lockhart nodes") {
-                                                if (!("CHIP" == "gfx90a")) {
-                                                    echo "Skipping ${STAGE_NAME} stage due to condition"
-                                                    Utils.markStageSkippedForConditional(STAGE_NAME)
+                                            if (env.CHIP == "gfx90a") {
+                                                stage("Set System Property on Lockhart nodes") {
+                                                    showEnv()
+                                                    setHeartbeat()
                                                 }
-                                                showEnv()
-                                                setHeartbeat()
                                             }
 
                                             stage("Tune rocMLIR") {
@@ -1105,66 +1090,62 @@ pipeline {
                                                 }
                                             }
 
-                                            stage("Test Attention") {
-                                                if (!(isNotNavi3x("${CHIP}"))) {
-                                                    echo "Skipping ${STAGE_NAME} stage due to condition"
-                                                    Utils.markStageSkippedForConditional(STAGE_NAME)
-                                                }
-                                                dir('build') {
-                                                    script {
-                                                        def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
-                                                        def attnToUse = attnInput
-                                                        if (params.nightly) {
-                                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                            splitConfigFile(attnInput, attnToUse, runIndex)
+                                            if (isNotNavi3x(env.CHIP)) {
+                                                stage("Test Attention") {
+                                                    dir('build') {
+                                                        script {
+                                                            def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
+                                                            def attnToUse = attnInput
+                                                            if (params.nightly) {
+                                                                def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                                                splitConfigFile(attnInput, attnToUse, runIndex)
+                                                            }
                                                         }
+                                                        // Run attention benchmarks
+                                                        sh """python3 ./bin/perfRunner.py --op=attention -b \
+                                                            --configs_file=${attnToUse} \
+                                                            --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                     }
-                                                    // Run attention benchmarks
-                                                    sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                                        --configs_file=${attnToUse} \
-                                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                 }
                                             }
 
-                                            stage("Test MLIR vs CK") {
-                                                if (!(params.checkCK && isNotNavi3x(env.CHIP))) {
-                                                    echo "Skipping ${STAGE_NAME} stage due to condition"
-                                                    Utils.markStageSkippedForConditional(STAGE_NAME)
-                                                }
-                                                catchError (buildResult: null) { // This is an optional stage
-                                                    dir('composable_kernel') {
-                                                        sh 'rm -rf composable_kernel'
-                                                        getAndBuildCK('''
-                                                            -DGPU_TARGETS=${CHIP}
-                                                            -DCMAKE_CXX_FLAGS="-O3"
-                                                            -DCMAKE_PREFIX_PATH="/opt/rocm"
-                                                            -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                            -DCMAKE_BUILD_TYPE=Release
-                                                            ''')
-                                                        sh 'cd build; make install'
-                                                        sh 'echo `git rev-parse HEAD`'
-                                                    }
-                                                    sh 'rm -f build/CMakeCache.txt'
-                                                    buildProject("ck-benchmark-driver",
-                                                                '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                                    -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                                    -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                                    -DROCMLIR_ENABLE_BENCHMARKS=ck''')
-
-
-                                                    dir('build') {
-                                                        script {
-                                                            def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
-                                                            def gemmToUse = gemmInput
-                                                            if (params.nightly) {
-                                                                def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                splitConfigFile(gemmInput, gemmToUse, runIndex)
-                                                            }
+                                            if (params.checkCK && isNotNavi3x(env.CHIP)) {
+                                                stage("Test MLIR vs CK") {
+                                                    catchError (buildResult: null) { // This is an optional stage
+                                                        dir('composable_kernel') {
+                                                            sh 'rm -rf composable_kernel'
+                                                            getAndBuildCK('''
+                                                                -DGPU_TARGETS=${CHIP}
+                                                                -DCMAKE_CXX_FLAGS="-O3"
+                                                                -DCMAKE_PREFIX_PATH="/opt/rocm"
+                                                                -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                -DCMAKE_BUILD_TYPE=Release
+                                                                ''')
+                                                            sh 'cd build; make install'
+                                                            sh 'echo `git rev-parse HEAD`'
                                                         }
-                                                        sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                    --configs_file=${gemmToUse} \
-                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
-                                                        sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                        sh 'rm -f build/CMakeCache.txt'
+                                                        buildProject("ck-benchmark-driver",
+                                                                    '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                                        -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                                        -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+
+
+                                                        dir('build') {
+                                                            script {
+                                                                def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                                                def gemmToUse = gemmInput
+                                                                if (params.nightly) {
+                                                                    def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                                                    splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                                                }
+                                                            }
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                                        --configs_file=${gemmToUse} \
+                                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                        }
                                                     }
                                                 }
                                             }
