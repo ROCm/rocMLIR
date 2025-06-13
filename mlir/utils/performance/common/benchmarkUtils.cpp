@@ -12,6 +12,7 @@
 #include "hip_f8_impl.h"
 
 #include <algorithm>
+#include <cassert>
 #include <iostream>
 #include <string>
 #include <vector>
