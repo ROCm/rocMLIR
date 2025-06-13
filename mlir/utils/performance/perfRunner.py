@@ -162,7 +162,7 @@ def getProfilerOutputPath(arch, baseOutPath):
     chip = GFX_CHIP_RE.search(arch).group(0)
     # TODO (gfx950): check if gfx950 need this
     if(chip not in ["gfx942"]):
-        return os.path.join('pmc_1',baseOutPath)
+        return os.path.join('pmc_1', baseOutPath)
     return baseOutPath
 
 def getMetricArgsForRocprof(arch):
@@ -1545,16 +1545,17 @@ def findRunCommand(filename):
 
 # Extract testVector and test function name from the test file
 def getFusionTestInfo(filename, paths: Paths):
+    chip = getChip()
     testEntry = {}
     rocmlirCommand, futName = findRunCommand(filename)
     if not rocmlirCommand:
         return testEntry
     # rocmlir-gen -fut test -arch gfx90a --clone-harness
-    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', getChip(), '--clone-harness', filename]
+    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', chip, '--clone-harness', filename]
     p0 = subprocess.Popen(rocmlirgenCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     if "-migraphx-to-tosa" in rocmlirCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa']
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirOptCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
@@ -1562,14 +1563,14 @@ def getFusionTestInfo(filename, paths: Paths):
         p1.stdout.close()
     elif "migraphx" in rocmlirCommand:
         rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx']
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', chip]
         # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirMigraphxCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
     else:
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         # rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
@@ -1583,26 +1584,28 @@ def getFusionTestInfo(filename, paths: Paths):
     return testEntry
 
 def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
-    if os.path.exists(getProfilerOutputPath(getChip(), BENCHMARKING_METRICS_FILE_NAME)):
-        os.remove(getProfilerOutputPath(getChip(), BENCHMARKING_METRICS_FILE_NAME))
+    arch = getArch()
+    chip = getChip()
+    if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME)):
+        os.remove(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME))
 
     rocmlirCommand, futName = findRunCommand(filename)
 
     # rocmlir-gen -fut test -arch gfx90a --clone-harness
-    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', getChip(), '--clone-harness', filename]
+    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', chip, '--clone-harness', filename]
     commands = [rocmlirgenCommand]
     if "-migraphx-to-tosa" in rocmlirCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
         commands.append(rocmlirOptCommand)
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         commands.append(rocmlirDriverCommand)
     elif "migraphx" in rocmlirCommand:
         rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx']
         commands.append(rocmlirMigraphxCommand)
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', chip]
         commands.append(rocmlirDriverCommand)
     else:
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         commands.append(rocmlirDriverCommand)
 
     rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
@@ -1610,7 +1613,7 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
     kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline', 'full']
     commands.append(kernelPipelineCommand)
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(getChip()) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(chip) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     commands.append(profilerCommand)
     runPipeline(commands)
 
