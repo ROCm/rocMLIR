@@ -92,19 +92,12 @@ struct GemmElementwiseGemmRewritePattern
   LogicalResult matchAndRewrite(GemmElementwiseGemmOp op,
                                 GemmElementwiseGemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &rw) const override;
-
-  LogicalResult computeGridSize(ConversionPatternRewriter &rw,
-                                GemmElementwiseGemmOp op, Value a, Value b,
-                                Value c) const;
 };
 
 struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
   using OpConversionPattern<AttentionOp>::OpConversionPattern;
   LogicalResult matchAndRewrite(AttentionOp op, AttentionOpAdaptor adaptor,
                                 ConversionPatternRewriter &rw) const override;
-
-  LogicalResult computeGridSize(ConversionPatternRewriter &rw, AttentionOp op,
-                                Value queries, Value keys, Value values) const;
 };
 
 template <typename Op>
@@ -139,7 +132,7 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
 static LogicalResult
 commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
                             RockGemmGemmWrapperInterface op, Value a, Value b,
-                            Value c, Value out, Value currentSeqLen,
+                            Value c, Value out, Value lse, Value currentSeqLen,
                             UnitAttr causal, ValueRange elementwiseInputs,
                             Region &preSecondOpRegion, bool enableSoftmax) {
   Location loc = op->getLoc();
@@ -150,17 +143,17 @@ commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
   bool isAccel = rock::isAccel(op.getGemmFeatures());
   if (!isAccel) {
     return op.emitError("Currently, op is only supported on GPUs "
-                        "with matrix accelerator extentions");
+                        "with matrix accelerator extensions");
   }
   if (!op.getGemm0Params().has_value()) {
     return op.emitError("gemm0 params is missing and it should've been "
-                        "assigned by affix-tuing-params");
+                        "assigned by affix-tuning-params");
   }
   RockAccelTuningParamAttrInterface params0 =
       cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
   if (!op.getGemm1Params().has_value()) {
     return op.emitError("gemm1 params is missing and it should've been "
-                        "assigned by affix-tuing-params");
+                        "assigned by affix-tuning-params");
   }
   RockAccelTuningParamAttrInterface params1 =
       cast<RockAccelTuningParamAttrInterface>(op.getGemm1Params().value());
@@ -177,6 +170,7 @@ commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
   ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
   ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
   ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
+  assert(cShape[1] == bShape[2]);
   GemmSize gemm0Size(/*g=*/aShape[0], /*m=*/bShape[2],
                      /*k=*/aShape[1],
                      /*n=*/aShape[2]);
@@ -200,6 +194,8 @@ commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
   // fusions legit. So the extra pad needs to be swapped and applied.
   out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
                   gemm1ExtraPad.m);
+  if (lse)
+    lse = padVector(lse, rw, loc, "gemm1N", gemm1ExtraPad.n);
 
   if (failed(computeGridSizeAttentionGemmElmtGemm(rw, op, a, b, c))) {
     return op.emitError("failed to compute the grid size of "
@@ -218,7 +214,7 @@ commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
-      loc, a, b, c, elementwiseInputs, currentSeqLen, out, causal,
+      loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
       rw.getStringAttr(op.getArch()),
       rw.getAttr<rock::GemmFeaturesAttr>(op.getGemmFeatures()), blockSizeAttr,
       gridSizeAttr,
@@ -585,16 +581,10 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
                                          ConversionPatternRewriter &rw) const {
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getQueries(), adaptor.getKeys(), adaptor.getValues(),
-      adaptor.getOut(), adaptor.getCurrentSeqLen(), adaptor.getCausalAttr(),
-      adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
+      adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
+      adaptor.getCausalAttr(), adaptor.getPreSoftmaxElemWiseInputs(),
+      op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true);
-}
-
-LogicalResult
-AttentionRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
-                                         AttentionOp op, Value queries,
-                                         Value keys, Value values) const {
-  return computeGridSizeAttentionGemmElmtGemm(rw, op, queries, keys, values);
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
@@ -602,15 +592,10 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
     ConversionPatternRewriter &rw) const {
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getA(), adaptor.getB(), adaptor.getC(), adaptor.getOut(),
+      /*lse=*/nullptr,
       /*currentSeqLen=*/nullptr, /*causal=*/nullptr,
       adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false);
-}
-
-LogicalResult GemmElementwiseGemmRewritePattern::computeGridSize(
-    ConversionPatternRewriter &rw, GemmElementwiseGemmOp op, Value a, Value b,
-    Value c) const {
-  return computeGridSizeAttentionGemmElmtGemm(rw, op, a, b, c);
 }
 
 void RockGemmToGridwisePass::runOnOperation() {
