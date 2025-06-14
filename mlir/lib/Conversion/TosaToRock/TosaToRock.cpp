@@ -1693,6 +1693,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
         elementwiseOtherArgs, currentSeqLen, output,
+        /*lse=*/nullptr,
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
