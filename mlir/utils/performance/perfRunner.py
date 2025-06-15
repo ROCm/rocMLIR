@@ -151,21 +151,20 @@ def getNanoSeconds(fileName):
         return np.nan
     with open(fileName, 'r') as csv_file:
         reader = csv.DictReader(csv_file, delimiter = ',')
-
         result = 0
         for row in reader:
             result += int(float(row['AverageNs']))
         csv_file.close()
         return result
 
-def getProfilerOutputPath(arch, baseOutPath):
+def getProfilerOutputPath(arch: str, baseOutPath):
     chip = GFX_CHIP_RE.search(arch).group(0)
     # TODO (gfx950): check if gfx950 need this
     if(chip not in ["gfx942"]):
         return os.path.join('pmc_1', baseOutPath)
     return baseOutPath
 
-def getMetricArgsForRocprof(arch):
+def getMetricArgsForRocprof(arch: str):
     chip = GFX_CHIP_RE.search(arch).group(0)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
@@ -1750,7 +1749,7 @@ def hip_check(call_result):
         raise RuntimeError(str(err))
     return result
 
-def getArch():
+def getArch() -> str:
     agents = set()
     device_count = hip_check(hip.hipGetDeviceCount())
     for device in range(device_count):
@@ -1758,8 +1757,11 @@ def getArch():
         hip_check(hip.hipGetDeviceProperties(props,device))
         agent = props.gcnArchName.decode('utf-8')
         agents.add(agent)
-
-    return agents
+    if(len(agents) > 1):
+        print(f"WARNING: Found {len(agents)} different kinds of agents on the same machine :  {', '.join(agents)}")
+        print("WARNING: Using the first agent by default. If you want to use a different agent, please set the HIP_VISIBLE_DEVICES environment variable.")
+    # select first agent by default
+    return list(agents)[0]
 
 def parseDataTypes(data_types):
     if not data_types:
@@ -1779,8 +1781,7 @@ def parseDataTypes(data_types):
     return datatypes, outMap
 
 def getChip():
-    archNames = getArch()
-    arch = ','.join(archNames)
+    arch = getArch()
     chip = GFX_CHIP_RE.search(arch).group(0)
     return chip
 
@@ -1838,9 +1839,8 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    archNames = getArch()
-    arch = ','.join(archNames)
-    chip = GFX_CHIP_RE.search(arch).group(0)
+    arch = getArch()
+    chip = getChip() 
     numCU = getNumCU(chip)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
