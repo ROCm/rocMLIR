@@ -3809,7 +3809,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     auto flatLseTensor =
         builder.create<tosa::ReshapeOp>(loc, lseTensor, lseShapeValue);
 
-    auto flatLseMemref = builder.create<bufferization::ToMemrefOp>(
+    auto flatLseMemref = builder.create<bufferization::ToBufferOp>(
         loc, lseOutType, flatLseTensor);
 
     builder.create<memref::CopyOp>(loc, flatLseMemref, lseOut);
