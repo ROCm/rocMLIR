@@ -764,6 +764,12 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "true" << sep;
     else
       problemOS << "false" << sep;
+
+    problemOS << "-return_lse ";
+    if (attentionOp.getLse())
+      problemOS << "true" << sep;
+    else
+      problemOS << "false" << sep;
   }
 
   if (!isConvGemm)

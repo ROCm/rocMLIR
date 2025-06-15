@@ -66,34 +66,36 @@ def advancedNodeCheck(Map params) {
 }
 
 def resetGPUs() {
-    // Run the reset, but don't fail the build if anything is wrong
-    def rc = sh(
-        script: '''
-        reset_all_gpus() {
-            echo "Scanning GPUs..."
-            GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
-            if [ -z "$GPU_IDS" ]; then
-                echo "WARNING: No GPUs found to reset."
-                return 0
-            fi
-            for id in $GPU_IDS; do
-                echo "Resetting GPU ID: $id"
-                if ! rocm-smi --gpureset -d $id; then
-                    echo "WARNING: Unable to reset GPU $id"
+    // Abort this if runs longer than 5 minutes
+    timeout(time: 5, unit: 'MINUTES') {
+        // Run the reset, but don't fail the build if anything is wrong
+        def rc = sh(
+            script: '''
+            reset_all_gpus() {
+                echo "Scanning GPUs..."
+                GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
+                if [ -z "$GPU_IDS" ]; then
+                    echo "WARNING: No GPUs found to reset."
+                    return 0
                 fi
-                sleep 2
-            done
-            return 0
+                for id in $GPU_IDS; do
+                    echo "Resetting GPU ID: $id"
+                    if ! rocm-smi --gpureset -d $id; then
+                        echo "WARNING: Unable to reset GPU $id"
+                    fi
+                    sleep 2
+                done
+                return 0
+            }
+            reset_all_gpus
+            ''',
+            returnStatus: true
+        )
+        if (rc != 0) {
+            echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
         }
-        reset_all_gpus
-        ''',
-        returnStatus: true
-    )
-    if (rc != 0) {
-        echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anywat=y"
     }
 }
-
 
 def checkNodeHealth(Map opts = [:]) {
     advancedNodeCheck(
@@ -350,47 +352,38 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
+int setLitWorkerCount() {
+    int limit_lit_workers = 8
+    def gpu_arch = get_gpu_architecture()
+    if (gpu_arch.contains('gfx942') || gpu_arch.contains('gfx950')) {
+        limit_lit_workers = 40
+    }
+    return limit_lit_workers
+}
+
 void build_fixedE2ETests(String codepath) {
-    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
-    limit_lit_workers = false
-    llvm_lit_log_level = '-v'
-    if ( (codepath == 'navi21') && (params.nightly == true) ) {
-        limit_lit_workers = true
-    }
-    if (codepath == 'navi3x'  || codepath == 'navi4x') {
-        // print verbose logs for all the tests on Navi3x for the debugging purposes
-        llvm_lit_log_level = '-va'
-        limit_lit_workers = true
-    }
+    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
+    int limit_lit_workers = setLitWorkerCount()
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : '-j 40' }'
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
 
 void check_randomE2ETests(String codepath) {
-    // Limit the number of lit workers to 8 for navi21/navi3x codepath on nightly CI as a workaround for issue#702
-    limit_lit_workers = false
-    llvm_lit_log_level='-v'
-    if ( (codepath == 'navi21') && (params.nightly == true) ) {
-        limit_lit_workers = true
-    }
-    if ( (codepath == 'navi3x'  || codepath == 'navi4x') && (params.nightly == true) ) {
-        limit_lit_workers = true
-        // print verbose logs for all the tests on Navi3x for debugging purposes
-        llvm_lit_log_level='-va'
-    }
+    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
+    int limit_lit_workers = setLitWorkerCount()
     buildProject('check-rocmlir', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
               -DROCK_E2E_TEST_ENABLED=1
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='${llvm_lit_log_level} --time-tests --timeout=3600 --max-failures=1 ${ limit_lit_workers ? '-j 8' : '-j 40' }'
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
@@ -789,6 +782,9 @@ pipeline {
                     unsuccessful {
                         rebootNode()
                     }
+                    always {
+                        cleanWs()
+                    }
                 }
             }
         }
@@ -879,6 +875,9 @@ pipeline {
                 post {
                     unsuccessful {
                         rebootNode()
+                    }
+                    always {
+                        cleanWs()
                     }
                 }
             }
@@ -1051,6 +1050,11 @@ pipeline {
                         }
                     }
                 }
+                post {
+                    always {
+                        cleanWs()
+                    }
+                }
             }
         }
         stage("Archive weekly tuning perfDB") {
@@ -1069,6 +1073,11 @@ pipeline {
             }
             steps {
                 archivePerfDB()
+            }
+            post {
+                always {
+                    cleanWs()
+                }
             }
         }
         // FIXME: run perf tests on both gfx90a and gfx908
@@ -1397,6 +1406,9 @@ pipeline {
                     unsuccessful {
                         rebootNode()
                     }
+                    always {
+                        cleanWs()
+                    }
                 }
             }
         }
@@ -1539,6 +1551,9 @@ pipeline {
                     unsuccessful {
                         rebootNode()
                     }
+                    always {
+                        cleanWs()
+                    }
                 }
             }
         }
@@ -1628,6 +1643,11 @@ pipeline {
                                 }
                             }
                         }
+                    }
+                }
+                post {
+                    always {
+                        cleanWs()
                     }
                 }
             }

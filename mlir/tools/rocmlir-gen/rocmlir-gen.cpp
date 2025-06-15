@@ -617,6 +617,11 @@ static llvm::cl::opt<bool>
                   llvm::cl::desc("whether we implement causal masking"),
                   llvm::cl::init(false));
 
+static llvm::cl::opt<bool> returnLSE(
+    "return_lse",
+    llvm::cl::desc("whether the attention kernel returns LSE (log-sum-exp)"),
+    llvm::cl::init(false));
+
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
 //////////////////////////////////////////////////////////////////////////
@@ -905,6 +910,7 @@ struct AttentionQuantizedArgIndex {
   static const size_t scale = 5;
   static const size_t bias = 6;
   static const size_t currentSeqLen = 7;
+  static const size_t lse = 8;
 };
 
 struct AttentionArgIndex {
@@ -914,6 +920,7 @@ struct AttentionArgIndex {
   static const size_t scale = 3;
   static const size_t bias = 4;
   static const size_t currentSeqLen = 5;
+  static const size_t lse = 6;
 };
 
 struct GenParams {
@@ -2317,6 +2324,10 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
   const size_t currentSeqLenIndex =
       isQuantized ? AttentionQuantizedArgIndex::currentSeqLen
                   : AttentionArgIndex::currentSeqLen;
+  const size_t lseIndex =
+      isQuantized ? AttentionQuantizedArgIndex::lse : AttentionArgIndex::lse;
+
+  // output type = bias type
   const size_t outputIndex = biasIndex;
 
   MemRefType qType = MemRefType::get(transposeQ ? transposedQDims : qDims,
@@ -2359,6 +2370,11 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
         MemRefType::get(currentSeqDims, elemTypes[currentSeqLenIndex]);
     result.push_back(currSeqLenType);
   }
+  if (returnLSE) {
+    SmallVector<int64_t> lseDims{groupSize * numHeadsQ, sequenceLengthQ};
+    MemRefType lseType = MemRefType::get(lseDims, elemTypes[lseIndex]);
+    result.push_back(lseType);
+  }
   MemRefType outType = MemRefType::get(transposeO ? transposedODims : oDims,
                                        elemTypes[outputIndex]);
   result.push_back(outType);
@@ -2393,6 +2409,8 @@ getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
   if (!currentSeqLen.empty())
     result.emplace_back(SmallVector<StringRef>{gName});
+  if (returnLSE)
+    result.emplace_back(SmallVector<StringRef>{gName, seqQName});
   if (transposeO)
     result.emplace_back(SmallVector<StringRef>{gName, headVName, seqQName});
   else
@@ -2796,6 +2814,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value scale;
   Value bias;
   Value output;
+  Value lse;
   Value currentSeqLenTensor;
 
   SmallVector<Value> elemwiseInputs;
@@ -2818,6 +2837,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     currentSeqLenTensor = broadcastKVCacheRock(
         builder, loc, unflattenedArgs[optionalArgsCounter++]);
   }
+  if (returnLSE) {
+    lse = unflattenedArgs[optionalArgsCounter++];
+  }
   output = unflattenedArgs[optionalArgsCounter];
 
   keys = broadcastGQARock(builder, loc, keys);
@@ -2828,7 +2850,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
                                       : nullptr);
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, output, transposeQ, transposeK, transposeV,
+      currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
       transposeO, causalMasking, archAttr, params.features, numCUAttr,
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
@@ -3687,9 +3709,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
         qkTensor, biasTensor);
   }
 
-  if (currentSeqLenTensor)
+  if (currentSeqLenTensor) {
     qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
                                -std::numeric_limits<float>::infinity());
+    optionalArgsCounter++;
+  }
+
+  Value lseOut;
+  if (returnLSE)
+    lseOut = block->getArgument(optionalArgsCounter++);
 
   if (causalMasking)
     qkTensor = causalMaskingTosa(builder, loc, qkTensor,
@@ -3699,16 +3727,29 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, cast<ShapedType>(qkTensor.getType()).getElementType(),
       qkTensor, reductionAxis);
-  auto normilizedQkTensor = createOpAndInfer<tosa::SubOp>(
+  auto normalizedQkTensor = createOpAndInfer<tosa::SubOp>(
       builder, loc, cast<ShapedType>(qkTensor.getType()).getElementType(),
       qkTensor, qkMaxs);
   auto expsTensor = createOpAndInfer<tosa::ExpOp>(
       builder, loc,
-      cast<ShapedType>(normilizedQkTensor.getType()).getElementType(),
-      normilizedQkTensor);
+      cast<ShapedType>(normalizedQkTensor.getType()).getElementType(),
+      normalizedQkTensor);
   auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, cast<ShapedType>(expsTensor.getType()).getElementType(),
       expsTensor, reductionAxis);
+  Value lseTensor;
+  // qkMaxs = max x
+  // expsSums = sum e^(x-qkMaxs)
+  // lse = (log(expsSums) + qkMaxs)
+  if (returnLSE) {
+    auto expsSumElemType =
+        cast<ShapedType>(expsSums.getType()).getElementType();
+    lseTensor =
+        createOpAndInfer<tosa::LogOp>(builder, loc, expsSumElemType, expsSums);
+    lseTensor = createOpAndInfer<tosa::AddOp>(builder, loc, expsSumElemType,
+                                              lseTensor, qkMaxs);
+  }
+
   auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(
       builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
       expsSums);
@@ -3759,6 +3800,20 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       loc, outputType, flatResultTensor);
 
   builder.create<memref::CopyOp>(loc, flatResultMemref, output);
+
+  // return LSE (log-sum-exp)
+  if (returnLSE) {
+    auto lseOutType = cast<MemRefType>(lseOut.getType());
+    auto lseShapeValue =
+        tosa::getTosaConstShape(implicitBuilder, lseOutType.getShape());
+    auto flatLseTensor =
+        builder.create<tosa::ReshapeOp>(loc, lseTensor, lseShapeValue);
+
+    auto flatLseMemref = builder.create<bufferization::ToMemrefOp>(
+        loc, lseOutType, flatLseTensor);
+
+    builder.create<memref::CopyOp>(loc, flatLseMemref, lseOut);
+  }
 
   builder.create<func::ReturnOp>(loc);
   module.push_back(func);
@@ -4367,6 +4422,8 @@ static LogicalResult populateHostHarnessLogic(
         ++optionalArgsCounter;
       if (!currentSeqLen.empty())
         ++optionalArgsCounter;
+      if (returnLSE)
+        outIndices.push_back(optionalArgsCounter++);
       outIndices.push_back(optionalArgsCounter);
     }
   } else {
@@ -4375,6 +4432,8 @@ static LogicalResult populateHostHarnessLogic(
 
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
+  const auto expectedCurrSeqLenIdx =
+      (returnLSE) ? (root0.params.size() - 3) : (root0.params.size() - 2);
   for (auto [idx, paramType] : llvm::enumerate(root0.params)) {
     auto paramMRType = dyn_cast<MemRefType>(paramType);
     assert(paramMRType && "currently only supports memref types");
@@ -4393,8 +4452,7 @@ static LogicalResult populateHostHarnessLogic(
     auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
     localVars.push_back(lvar);
 
-    if (!currentSeqLen.empty() && isAttention &&
-        idx == root0.params.size() - 2) {
+    if (!currentSeqLen.empty() && isAttention && idx == expectedCurrSeqLenIdx) {
       // fill with currentSeqLen
       // as it's very small, just define constant and store directly
       for (auto pair : llvm::enumerate(currentSeqLen)) {
@@ -4494,8 +4552,8 @@ static LogicalResult populateHostHarnessLogic(
   // Print and cleanup
   for (auto &lvar : localVars) {
     // print lvar
-    bool printp = printInputs.getValue();
     for (int32_t outIdx : outIndices) {
+      bool printp = printInputs.getValue();
       if (lvar == localVars[outIdx])
         printp = printResults.getValue();
       if (printp)
@@ -4725,7 +4783,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       // We only support first-gemm i8 version of attention
       // This will be changed when we support both gemms of i8.
       if (elemType == IntegerType::get(context, 8)) {
-        constexpr size_t maxNumArgs{8};
+        constexpr size_t maxNumArgs{9};
         genParams.types.resize(maxNumArgs);
         genParams.types[AttentionQuantizedArgIndex::q] =
             IntegerType::get(context, 8);
@@ -4743,6 +4801,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
             Float16Type::get(context);
         genParams.types[AttentionQuantizedArgIndex::currentSeqLen] =
             IntegerType::get(context, 32);
+        genParams.types[AttentionQuantizedArgIndex::lse] =
+            Float16Type::get(context);
       } else {
         constexpr size_t maxNumArgs{5};
         // Note: In the current implementation, all operands have the same type.
@@ -4752,6 +4812,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
         }
         // extra operand: currentSeqLen
         genParams.types.push_back(IntegerType::get(context, 32));
+        // extra operand: LSE (log-sum-exp)
+        genParams.types.push_back(elemType);
       }
       genParams.convConfig = std::nullopt;
       (void)createGpuAttentionKernel(module, genParams);

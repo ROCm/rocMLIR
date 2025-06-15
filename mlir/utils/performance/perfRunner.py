@@ -27,8 +27,8 @@ from perfCommonUtils import Operation, GEMMLibrary
 ROCPROF = '/opt/rocm/bin/rocprofv3'
 MIOPENDRIVER = '/opt/rocm/bin/MIOpenDriver'
 BENCHMARKING_RESULT_FILE_NAME = 'results'
-BENCHMARKING_STATS_FILE_NAME = 'pmc_1/results_kernel_stats.csv'
-BENCHMARKING_METRICS_FILE_NAME = 'pmc_1/results_counter_collection.csv'
+BENCHMARKING_STATS_FILE_NAME = 'results_kernel_stats.csv'
+BENCHMARKING_METRICS_FILE_NAME = 'results_counter_collection.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
@@ -157,6 +157,13 @@ def getNanoSeconds(fileName):
             result += int(float(row['AverageNs']))
         csv_file.close()
         return result
+
+def getProfilerOutputPath(arch, baseOutPath):
+    chip = GFX_CHIP_RE.search(arch).group(0)
+    # TODO (gfx950): check if gfx950 need this
+    if(chip not in ["gfx942"]):
+        return os.path.join('pmc_1', baseOutPath)
+    return baseOutPath
 
 def getMetricArgsForRocprof(arch):
     chip = GFX_CHIP_RE.search(arch).group(0)
@@ -346,7 +353,7 @@ class ConvConfiguration(PerfConfiguration):
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
-        bankConflict = getBankConflict(BENCHMARKING_METRICS_FILE_NAME)
+        bankConflict = getBankConflict(getProfilerOutputPath(self.arch, BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
         values = [self.direction, self.dataType, self.chip, self.numCU, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
@@ -543,7 +550,8 @@ class ConvConfiguration(PerfConfiguration):
 
     @classmethod
     def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
-        os.system("rm -f "+BENCHMARKING_METRICS_FILE_NAME)
+        if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME)):
+            os.remove(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME))
         config = cls.fromCommandLine(commandLine, arch, numCU)
         MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(commandLine))
@@ -687,6 +695,7 @@ def getAttentionConfigurations(fileName):
         "-transV": bool_space,
         "-transO": bool_space,
         "-causal": bool_space,
+        "-return_lse": bool_space,
         "-with-attn-scale": bool_space,
         "-with-attn-bias": bool_space
     }
@@ -724,7 +733,7 @@ class GemmConfiguration(PerfConfiguration):
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
-        bankConflict = getBankConflict(BENCHMARKING_METRICS_FILE_NAME)
+        bankConflict = getBankConflict(getProfilerOutputPath(self.arch, BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
         values = [self.dataType, self.outDataType, self.chip, self.numCU, self.transA, self.transB, \
                    self.g, self.m, self.k, self.n, self.perfConfig, bankConflict, self.computeTFlops(nanoSeconds)]
@@ -1184,7 +1193,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
     def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, num_heads_q: int, num_heads_kv: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: bool, with_attn_bias: bool,
-                 transQ: bool, transK: bool, transV: bool, transO: bool, causal: bool, arch: str, numCU: int, perf_config: str = ''):
+                 transQ: bool, transK: bool, transV: bool, transO: bool, causal: bool, return_lse: bool, arch: str, numCU: int, perf_config: str = ''):
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
         
@@ -1203,6 +1212,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.transV = transV
         self.transO = transO
         self.causal = causal
+        self.return_lse = return_lse
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
@@ -1244,6 +1254,7 @@ class AttentionConfiguration(PerfConfiguration):
             self.transV,
             self.transO,
             self.causal,
+            self.return_lse,
             self.with_attn_scale,
             self.with_attn_bias,
             self.g,
@@ -1263,7 +1274,7 @@ class AttentionConfiguration(PerfConfiguration):
 
     def __repr__(self):
         return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, num_heads_q={self.num_heads_q!r}, num_heads_kv={self.num_heads_kv!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r}, with_attn_bias={self.with_attn_bias!r},
-                transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, self.causal={self.causal!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
+                transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, self.causal={self.causal!r}, self.return_lse={self.return_lse!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
@@ -1287,6 +1298,7 @@ class AttentionConfiguration(PerfConfiguration):
                            f"-transV={self.transV}",
                            f"-transO={self.transO}",
                            f"-causal={self.causal}",
+                           f"-return_lse={self.return_lse}",
                            '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
         result += ' '
@@ -1311,6 +1323,7 @@ class AttentionConfiguration(PerfConfiguration):
         transV = False
         transO = False
         causal = False
+        return_lse = False
         with_attn_scale = False
         with_attn_bias = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
@@ -1347,24 +1360,27 @@ class AttentionConfiguration(PerfConfiguration):
                 transO = (val.lower() in ["1", "true"])
             elif opt.endswith("-causal"):
                 causal = (val.lower() in ["1", "true"])
+            elif opt.endswith("-return_lse"):
+                return_lse = (val.lower() in ["1", "true"])
             elif opt.endswith("-perf_config"):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
-        for v in [dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal]:
+        for v in [dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse]:
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, arch, numCU, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
                 + f"-transQ {str(self.transQ).lower()} -transK {str(self.transK).lower()} "
                 + f"-transV {str(self.transV).lower()} -transO {str(self.transO).lower()} "
                 + f"-causal {str(self.causal).lower()} "
+                + f"-return_lse {str(self.return_lse).lower()} "
                 + f"-g {self.g} "
                 + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
-                + f"-with-attn-scale {str(self.with_attn_scale).lower()}"
+                + f"-with-attn-scale {str(self.with_attn_scale).lower()} "
                 + f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
 
@@ -1378,7 +1394,8 @@ class RocBLASGemmConfig(GemmConfiguration):
             raise ValueError("rocblas-benchmark-driver not built")
         benchmarkArgs = config.generateMlirDriverCommandLine("")
         # remove the result file generated by rocprof in previous benchmarking
-        os.system("rm -f "+BENCHMARKING_STATS_FILE_NAME)
+        if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME)):
+            os.remove(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
         print(f"Running rocBLAS benchmark {config!r}")
         profilerCommand = [paths.mlir_paths.rocblas_benchmark_driver_path] + \
             benchmarkArgs.split()
@@ -1410,7 +1427,8 @@ class CKGemmConfig(GemmConfiguration):
 
 def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen_flags, debug=True):
     # remove the result file generated by rocprof in previous benchmarking
-    os.system("rm -f "+BENCHMARKING_STATS_FILE_NAME)
+    if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME)):
+        os.remove(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
     commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
@@ -1433,7 +1451,7 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: M
 
     runConfigWithMLIR(config, paths, arch, rocmlir_gen_flags)
     # get nanoseconds from rocprof output.
-    nanoSeconds = getNanoSeconds(BENCHMARKING_STATS_FILE_NAME)
+    nanoSeconds = getNanoSeconds(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen or rocBLAS performance results
@@ -1535,16 +1553,17 @@ def findRunCommand(filename):
 
 # Extract testVector and test function name from the test file
 def getFusionTestInfo(filename, paths: Paths):
+    chip = getChip()
     testEntry = {}
     rocmlirCommand, futName = findRunCommand(filename)
     if not rocmlirCommand:
         return testEntry
     # rocmlir-gen -fut test -arch gfx90a --clone-harness
-    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', getChip(), '--clone-harness', filename]
+    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', chip, '--clone-harness', filename]
     p0 = subprocess.Popen(rocmlirgenCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     if "-migraphx-to-tosa" in rocmlirCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa']
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirOptCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
@@ -1552,14 +1571,14 @@ def getFusionTestInfo(filename, paths: Paths):
         p1.stdout.close()
     elif "migraphx" in rocmlirCommand:
         rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx']
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', chip]
         # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmlirMigraphxCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p1.stdout.close()
     else:
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         # rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
@@ -1573,25 +1592,28 @@ def getFusionTestInfo(filename, paths: Paths):
     return testEntry
 
 def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
-    os.system("rm -f "+BENCHMARKING_STATS_FILE_NAME)
+    arch = getArch()
+    chip = getChip()
+    if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME)):
+        os.remove(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
 
     rocmlirCommand, futName = findRunCommand(filename)
 
     # rocmlir-gen -fut test -arch gfx90a --clone-harness
-    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', getChip(), '--clone-harness', filename]
+    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', chip, '--clone-harness', filename]
     commands = [rocmlirgenCommand]
     if "-migraphx-to-tosa" in rocmlirCommand:
         rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
         commands.append(rocmlirOptCommand)
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         commands.append(rocmlirDriverCommand)
     elif "migraphx" in rocmlirCommand:
         rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx']
         commands.append(rocmlirMigraphxCommand)
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', chip]
         commands.append(rocmlirDriverCommand)
     else:
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', getChip()]
+        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
         commands.append(rocmlirDriverCommand)
 
     rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
@@ -1599,7 +1621,7 @@ def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
     kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline', 'full']
     commands.append(kernelPipelineCommand)
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(getChip()) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(chip) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     commands.append(profilerCommand)
     runPipeline(commands)
 
@@ -1668,7 +1690,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         rocmlirGenArgs = ['-ph', '-fut='+futName+'_wrapper', '--perf_config='+bestPerf, '-']
         runFusionKernel(filename, rocmlirGenArgs, paths)
         # Get nanoseconds of fusion test
-        nanoSeconds = getNanoSeconds(BENCHMARKING_STATS_FILE_NAME)
+        nanoSeconds = getNanoSeconds(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
         oneEntry = config.tableEntry(nanoSeconds)
         # Keep the best performance
         if testVector in perfResults and oneEntry['TFlops'] <= perfResults[testVector]['TFlops']:
@@ -1677,7 +1699,7 @@ def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeT
         # Run gemm or conv op with the same configuration
         runConfigWithMLIR(config, paths, arch, '')
         # Get nanoseconds of gemm/conv
-        nanoSeconds = getNanoSeconds(BENCHMARKING_STATS_FILE_NAME)
+        nanoSeconds = getNanoSeconds(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
         oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
         oneEntry['Fusion/MLIR'] = oneEntry['TFlops']/oneEntry['MLIR TFlops']
         oneEntry['FileName'] = filename
@@ -1822,7 +1844,7 @@ def main(args=None):
     numCU = getNumCU(chip)
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/conv-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR performance test runner",
