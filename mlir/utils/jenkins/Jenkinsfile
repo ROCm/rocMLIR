@@ -227,12 +227,12 @@ void preMergeCheckPackage(String codepath) {
 
 void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
     sh """
-    lines=\$(grep -v '^\\s*\$\\|^\\s*#' ${inputFilePath} | wc -l)
+    lines=\$(grep -Ev '(^\s*$|^\s*#)' ${inputFilePath} | wc -l)
     lines_per_chunk=\$(((lines + ${totalSplits} - 1) / ${totalSplits}))
     start_line=\$((lines_per_chunk * (${run} - 1) + 1))
     end_line=\$((lines_per_chunk * ${run}))
     
-    grep -v '^\\s*\$\\|^\\s*#' ${inputFilePath} | sed -n "\${start_line},\${end_line}p" > ${outputFilePath}
+    grep -Ev '(^\s*$|^\s*#)' ${inputFilePath} | sed -n "\${start_line},\${end_line}p" | tee ${outputFilePath}
     """
 }
 
@@ -1210,11 +1210,10 @@ pipeline {
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
                                         dir('build') {
-
                                             def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
-                                            def convToUse = convInput
+                                            def convToUse = "${WORKSPACE}/build/tier1-conv-configs" 
                                             def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
-                                            def gemmToUse = gemmInput
+                                            def gemmToUse = "${WORKSPACE}/build/tier1-gemm-configs"
                                             script {
                                                 if (params.nightly) {
                                                     def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
@@ -1289,7 +1288,7 @@ pipeline {
                                     ]) {
                                         dir('build') {
                                             def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
-                                            def attnToUse = attnInput
+                                            def attnToUse = ${WORKSPACE}/build/tier1-attention-configs
                                             script {
                                                 if (params.nightly) {
                                                     def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
