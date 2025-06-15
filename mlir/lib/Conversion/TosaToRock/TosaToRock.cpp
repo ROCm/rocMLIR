@@ -1196,7 +1196,7 @@ struct ConvElementwiseGemmRewritePattern
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
       Value resMemref =
-          rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
+          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
       Value outMemref =
           preSecondGemmElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
@@ -1280,7 +1280,7 @@ struct GemmElementwiseGemmRewritePattern
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
       Value resMemref =
-          rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
+          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
       Value outMemref =
           preSecondGemmElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
@@ -1714,7 +1714,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
       Value resMemref =
-          rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
+          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
       Value outMemref =
           preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);

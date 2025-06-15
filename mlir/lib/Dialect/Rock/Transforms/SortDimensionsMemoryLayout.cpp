@@ -712,7 +712,7 @@ void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
   }
   auto &ctx = getContext();
   GreedyRewriteConfig config;
-  config.strictMode = GreedyRewriteStrictness::ExistingOps;
+  config.setStrictness(GreedyRewriteStrictness::ExistingOps);
 
   RewritePatternSet patternsConv(&ctx);
   patternsConv.add<ConvRewritePattern<rock::ConvOp>>(&ctx);

@@ -2912,7 +2912,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
         MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
                         cast<ShapedType>(qkTensor.getType()).getElementType());
     Value resMemref =
-        builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, qkTensor);
+        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, qkTensor);
     Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3003,7 +3003,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
         MemRefType::get({aShape[0], firstGemmSize.m, firstGemmSize.n},
                         cast<ShapedType>(abTensor.getType()).getElementType());
     Value resMemref =
-        builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, abTensor);
+        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3099,7 +3099,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
         MemRefType::get({aShape[0], gemmM, gemmN},
                         cast<ShapedType>(abTensor.getType()).getElementType());
     Value resMemref =
-        builder.create<bufferization::ToMemrefOp>(loc, resMemRefType, abTensor);
+        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3425,7 +3425,7 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
-  auto flatResultMemref = builder.create<bufferization::ToMemrefOp>(
+  auto flatResultMemref = builder.create<bufferization::ToBufferOp>(
       loc, outputType, flatResultTensor);
 
   builder.create<memref::CopyOp>(loc, flatResultMemref, output);
@@ -3540,7 +3540,7 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
-  auto flatResultMemref = builder.create<bufferization::ToMemrefOp>(
+  auto flatResultMemref = builder.create<bufferization::ToBufferOp>(
       loc, outputType, flatResultTensor);
 
   builder.create<memref::CopyOp>(loc, flatResultMemref, output);
@@ -3796,7 +3796,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
-  auto flatResultMemref = builder.create<bufferization::ToMemrefOp>(
+  auto flatResultMemref = builder.create<bufferization::ToBufferOp>(
       loc, outputType, flatResultTensor);
 
   builder.create<memref::CopyOp>(loc, flatResultMemref, output);
@@ -3809,7 +3809,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     auto flatLseTensor =
         builder.create<tosa::ReshapeOp>(loc, lseTensor, lseShapeValue);
 
-    auto flatLseMemref = builder.create<bufferization::ToMemrefOp>(
+    auto flatLseMemref = builder.create<bufferization::ToBufferOp>(
         loc, lseOutType, flatLseTensor);
 
     builder.create<memref::CopyOp>(loc, flatLseMemref, lseOut);
