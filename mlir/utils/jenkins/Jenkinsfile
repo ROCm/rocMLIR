@@ -227,12 +227,12 @@ void preMergeCheckPackage(String codepath) {
 
 void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
     sh """
-    lines=\$(grep -Ev '(^\\s*$|^\\s*#)' ${inputFilePath} | wc -l)
+    lines=\$(grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | wc -l)
     lines_per_chunk=\$(((lines + ${totalSplits} - 1) / ${totalSplits}))
     start_line=\$((lines_per_chunk * (${run} - 1) + 1))
     end_line=\$((lines_per_chunk * ${run}))
     
-    grep -Ev '(^\\s*$|^\\s*#)' ${inputFilePath} | sed -n "\${start_line},\${end_line}p" | tee ${outputFilePath}
+    grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | sed -n "\${start_line},\${end_line}p" | tee ${outputFilePath}
     """
 }
 
