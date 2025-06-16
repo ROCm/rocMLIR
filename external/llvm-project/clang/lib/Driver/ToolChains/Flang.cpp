@@ -8,9 +8,9 @@
 
 #include "Flang.h"
 #include "Arch/RISCV.h"
-#include "CommonArgs.h"
 
 #include "clang/Basic/CodeGenOptions.h"
+#include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Options.h"
 #include "llvm/Frontend/Debug/Options.h"
 #include "llvm/Support/Path.h"
@@ -184,7 +184,8 @@ void Flang::addCodegenOptions(const ArgList &Args,
        options::OPT_frepack_arrays_contiguity_EQ,
        options::OPT_fstack_repack_arrays, options::OPT_fno_stack_repack_arrays,
        options::OPT_ftime_report, options::OPT_ftime_report_EQ,
-       options::OPT_funroll_loops, options::OPT_fno_unroll_loops});
+       options::OPT_funroll_loops, options::OPT_fno_unroll_loops,
+       options::OPT_fdefer_desc_map, options::OPT_fno_defer_desc_map});
 }
 
 void Flang::addPicOptions(const ArgList &Args, ArgStringList &CmdArgs) const {
@@ -711,6 +712,10 @@ static void addFloatingPointOptions(const Driver &D, const ArgList &Args,
     A->claim();
   }
 
+  StringRef Recip = parseMRecipOption(D.getDiags(), Args);
+  if (!Recip.empty())
+    CmdArgs.push_back(Args.MakeArgString("-mrecip=" + Recip));
+
   if (!HonorINFs && !HonorNaNs && AssociativeMath && ReciprocalMath &&
       ApproxFunc && !SignedZeros &&
       (FPContract == "fast" || FPContract.empty())) {
@@ -904,6 +909,10 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
   // Disable all warnings
   // TODO: Handle interactions between -w, -pedantic, -Wall, -WOption
   Args.AddLastArg(CmdArgs, options::OPT_w);
+
+  // recognise options: fprofile-generate -fprofile-use=
+  Args.addAllArgs(
+      CmdArgs, {options::OPT_fprofile_generate, options::OPT_fprofile_use_EQ});
 
   // Forward flags for OpenMP. We don't do this if the current action is an
   // device offloading action other than OpenMP.

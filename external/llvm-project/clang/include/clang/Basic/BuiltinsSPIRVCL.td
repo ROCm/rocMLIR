@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:external/llvm-project/clang/include/clang/Basic/BuiltinsSPIRVVK.td
+//===--- BuiltinsSPIRVVK.td - SPIRV Builtin function database ---*- C++ -*-===//
+========
 //===--- BuiltinsSPIRVCL.td - SPIRV Builtin function database ---*- C++ -*-===//
+>>>>>>>> 1b7ebbdeb3e02c5a7a49551c244ad1835a6f9c60:external/llvm-project/clang/include/clang/Basic/BuiltinsSPIRVCL.td
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,5 +12,11 @@
 
 include "clang/Basic/BuiltinsSPIRVBase.td"
 
+<<<<<<<< HEAD:external/llvm-project/clang/include/clang/Basic/BuiltinsSPIRVVK.td
+
+def reflect : SPIRVBuiltin<"void(...)", [NoThrow, Const]>;
+def faceforward : SPIRVBuiltin<"void(...)", [NoThrow, Const, CustomTypeChecking]>;
+========
 def generic_cast_to_ptr_explicit
     : SPIRVBuiltin<"void*(void*, int)", [NoThrow, Const, CustomTypeChecking]>;
+>>>>>>>> 1b7ebbdeb3e02c5a7a49551c244ad1835a6f9c60:external/llvm-project/clang/include/clang/Basic/BuiltinsSPIRVCL.td
