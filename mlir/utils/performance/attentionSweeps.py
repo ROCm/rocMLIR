@@ -62,15 +62,17 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
     *shapeParams, currentSeqLen = shape
-    dtype, g, slq, slk, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shapeParams
+    dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shapeParams
     perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
     attnConfig = AttentionConfiguration(
         dtype=dtype,
         g=g,
         seq_len_q=slq,
         seq_len_k=slk,
-        num_heads_q=hdqk,
-        num_heads_kv=hdv,
+        num_heads_q=nhq,
+        num_heads_kv=nhkv,
+        head_dim_qk=hdqk,
+        head_dim_v=hdv,
         with_attn_scale=scale,
         with_attn_bias=bias,
         transQ=tq,
@@ -81,7 +83,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
         return_lse=rlse,
         arch=options.arch,
         numCU=options.numCu,
-        perfConfig=perfString
+        perf_config=perfString
     )
     attnConfig.currentSeqLen = currentSeqLen
     return attnConfig
@@ -90,7 +92,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    mlirGenOpts = config.generateMlirDriverCommandLine(' '.join(options.flags))
+    mlirGenOpts = config.generateMlirDriverCommandLine(' '.join(options.flags)).split()
     if getattr(config, "currentSeqLen") is not None:
         mlirGenOpts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
     mlirGenOpts.append('-pv')
@@ -105,6 +107,8 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     rocmlirGeneratorOutput, rocmlirGeneratorError = await proc1.communicate()
 
     if proc1.returncode !=0:
+        if not options.quiet:
+            print(f"FAIL: {repr(config)}")
         if options.debug:
             print("rocmlir-gen failed:\nError = ", rocmlirGeneratorError.decode().strip())
         return TestResult.FAIL
@@ -120,6 +124,8 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     rocmlirDriverOutput, rocmlirDriverError = await proc2.communicate(input=rocmlirGeneratorOutput)
 
     if proc2.returncode !=0:
+        if not options.quiet:
+            print(f"INVALID: {repr(config)}")
         if options.debug:
             print("rocmlir-driver failed:\nError = ", rocmlirDriverError.decode().strip())
         return TestResult.INVALID
@@ -141,33 +147,43 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     try:
         stdout3, stderr3 = proc3.communicate(input=rocmlirDriverOutput, timeout=900)
     except BrokenPipeError:
+        if not options.quiet:
+            print(f"FAIL: {repr(config)}")
         if options.debug:
             print("Broken pipe: cpu-runner failed to read input")
         return TestResult.FAIL
     except subprocess.TimeoutExpired:
+        if not options.quiet:
+            print(f"FAIL: {repr(config)}")
         proc3.kill()
         if options.debug:
             print("TimeoutExpired: cpu-runner timed out")
         return TestResult.FAIL
 
     if proc3.returncode != 0:
-        if options.debug:
-            print("Runner failed:\nOutput = ", stdout3.decode().strip())
-            print("\nError = ", stderr3.decode().strip())
-        
         if 'hipErrorOutOfMemory' in stderr3.decode().strip():
+            if not options.quiet:
+                print(f"INVALID: {repr(config)}")
             if options.debug:
                 print("\n---> Classified as INVALID since the reason is memory access fault")
             return TestResult.INVALID
-
+        if not options.quiet:
+            print(f"FAIL: {repr(config)}")
+        if options.debug:
+            print("Runner failed:\nOutput = ", stdout3.decode().strip())
+            print("\nError = ", stderr3.decode().strip())
         return TestResult.FAIL
 
     output = stdout3.decode()
-
     if 'FAILED' in output or 'nan' in output.lower():
+        if not options.quiet:
+            print(f"FAIL: {repr(config)}")
         if options.debug:
             print("FAILED in output or NaN:\nOutput = ", output)
         return TestResult.FAIL
+    if not options.quiet:
+        print(f"PASS: {repr(config)}")
+
     return TestResult.PASS
 
 
@@ -300,8 +316,11 @@ def main():
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
-    arch = ','.join(getArch())
-    chip = GFX_CHIP_RE.search(arch).group(0)
+    arch = getArch()
+    chip_match = GFX_CHIP_RE.search(arch)
+    if chip_match is None:
+        raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
+    chip = chip_match.group(0)
     paths = createPaths(None, args.mlir_build_dir)
     options = Options(
         debug=args.debug,
@@ -326,7 +345,7 @@ def main():
     if failing:
         print("\n*** Failing Configurations ***")
         for fail in failing:
-            print(' '.join(fail.generateMlirDriverCommandLine('')))
+            print(fail.generateMlirDriverCommandLine(''))
         if args.log_failures:
             logFailingConfigs(failing, LOGFILE)
     
