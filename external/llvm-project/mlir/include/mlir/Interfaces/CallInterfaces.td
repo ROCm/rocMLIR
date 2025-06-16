@@ -80,7 +80,29 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
   let cppNamespace = "::mlir";
 
   let methods = [
-    InterfaceMethod<[{
+    InterfaceMethod<
+      /*desc=*/[{
+        Clone the current call-like operation with the given attributes but
+        re-assign operands and result-types. Used in bufferization for result
+        buffers.
+      }],
+      /*retTy=*/"Operation *",
+      /*methodName=*/"clone",
+      /*args=*/(ins "OpBuilder &":$b, "Location":$loc, "TypeRange":$resultTypes,
+                    "ValueRange":$operands),
+      /*methodBody=*/[{
+        IRMapping bvm;
+        OperationState state(
+          loc, ConcreteOp::getOperationName(), operands, resultTypes,
+          $_op->getAttrs());
+        auto op = b.create(state);
+        CallOpInterface callIF(op);
+        callIF.updateSegmentSizes(b.getContext());
+        return op;
+      }]
+    >,
+    InterfaceMethod<
+      /*desc*/[{
         Returns the callee of this call-like operation. A `callee` is either a
         reference to a symbol, via SymbolRefAttr, or a reference to a defined
         SSA value. If the reference is an SSA value, the SSA value corresponds
