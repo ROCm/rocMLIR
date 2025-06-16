@@ -89,6 +89,45 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     return attnConfig
 
 
+def multilineRepr(obj, num_fields=4):
+    """ Returns a multi-line string representation of the given object,
+    inserting a newline after every defined number of comma-separated
+    fields in its repr(). Useful for making long configuration 
+    representations more readable in logs or debug output."""
+    s = repr(obj).replace('\n', ' ')  # Flatten to one line
+    lines = []
+    field = ''
+    fields = []
+    in_quotes = False
+    perf_config_str = None
+
+    i = 0
+    while i < len(s):
+        # Detect start of perf_config to prevent it from being split
+        if s.startswith('perf_config=', i):
+            perf_config_str = s[i:]
+            break
+        c = s[i]
+        if c == "'":
+            in_quotes = not in_quotes
+            field += c
+        elif c == ',' and not in_quotes:
+            fields.append(field.strip())
+            field = ''
+        else:
+            field += c
+        i += 1
+    if field:
+        fields.append(field.strip())
+    for j in range(0, len(fields), num_fields):
+        prefix = '\t' if j > 0 else ''
+        lines.append(f"{prefix}{', '.join(fields[j:j+num_fields])}")
+    if perf_config_str:
+        lines.append('\t' + perf_config_str.strip())
+
+    return '\n'.join(lines)
+
+
 async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
@@ -108,7 +147,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
 
     if proc1.returncode !=0:
         if not options.quiet:
-            print(f"FAIL: {repr(config)}")
+            print(f"FAIL: {multilineRepr(config)}")
         if options.debug:
             print("rocmlir-gen failed:\nError = ", rocmlirGeneratorError.decode().strip())
         return TestResult.FAIL
@@ -125,7 +164,7 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
 
     if proc2.returncode !=0:
         if not options.quiet:
-            print(f"INVALID: {repr(config)}")
+            print(f"INVALID: {multilineRepr(config)}")
         if options.debug:
             print("rocmlir-driver failed:\nError = ", rocmlirDriverError.decode().strip())
         return TestResult.INVALID
@@ -148,13 +187,13 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
         stdout3, stderr3 = proc3.communicate(input=rocmlirDriverOutput, timeout=900)
     except BrokenPipeError:
         if not options.quiet:
-            print(f"FAIL: {repr(config)}")
+            print(f"FAIL: {multilineRepr(config)}")
         if options.debug:
             print("Broken pipe: cpu-runner failed to read input")
         return TestResult.FAIL
     except subprocess.TimeoutExpired:
         if not options.quiet:
-            print(f"FAIL: {repr(config)}")
+            print(f"FAIL: {multilineRepr(config)}")
         proc3.kill()
         if options.debug:
             print("TimeoutExpired: cpu-runner timed out")
@@ -163,12 +202,12 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     if proc3.returncode != 0:
         if 'hipErrorOutOfMemory' in stderr3.decode().strip():
             if not options.quiet:
-                print(f"INVALID: {repr(config)}")
+                print(f"INVALID: {multilineRepr(config)}")
             if options.debug:
                 print("\n---> Classified as INVALID since the reason is memory access fault")
             return TestResult.INVALID
         if not options.quiet:
-            print(f"FAIL: {repr(config)}")
+            print(f"FAIL: {multilineRepr(config)}")
         if options.debug:
             print("Runner failed:\nOutput = ", stdout3.decode().strip())
             print("\nError = ", stderr3.decode().strip())
@@ -177,12 +216,12 @@ async def testAttentionConfig(config: AttentionConfiguration, options: Options, 
     output = stdout3.decode()
     if 'FAILED' in output or 'nan' in output.lower():
         if not options.quiet:
-            print(f"FAIL: {repr(config)}")
+            print(f"FAIL: {multilineRepr(config)}")
         if options.debug:
             print("FAILED in output or NaN:\nOutput = ", output)
         return TestResult.FAIL
     if not options.quiet:
-        print(f"PASS: {repr(config)}")
+        print(f"PASS: {multilineRepr(config)}")
 
     return TestResult.PASS
 
@@ -343,9 +382,10 @@ def main():
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
     print(f"Passed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     if failing:
-        print("\n*** Failing Configurations ***")
+        print("\n" + "-" * 80)
+        print(f"{'Failing Configurations':^80}\n")
         for fail in failing:
-            print(fail.generateMlirDriverCommandLine(''))
+            print(multilineRepr(fail))
         if args.log_failures:
             logFailingConfigs(failing, LOGFILE)
     
