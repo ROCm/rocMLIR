@@ -112,7 +112,7 @@ def multilineRepr(obj, num_fields=4):
             in_quotes = not in_quotes
             field += c
         elif c == ',' and not in_quotes:
-            fields.append(field.strip())
+            fields.append(field.strip() + ',')
             field = ''
         else:
             field += c
@@ -121,10 +121,13 @@ def multilineRepr(obj, num_fields=4):
         fields.append(field.strip())
     for j in range(0, len(fields), num_fields):
         prefix = '\t' if j > 0 else ''
-        lines.append(f"{prefix}{', '.join(fields[j:j+num_fields])}")
+        group = fields[j:j+num_fields]
+        if j + num_fields >= len(fields) and group and group[-1].endswith(','):
+            group[-1] = group[-1][:-1]
+        lines.append(f"{prefix}{' '.join(group)}")
     if perf_config_str:
         lines.append('\t' + perf_config_str.strip())
-
+        
     return '\n'.join(lines)
 
 
