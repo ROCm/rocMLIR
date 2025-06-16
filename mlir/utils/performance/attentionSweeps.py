@@ -357,6 +357,7 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
         writer.writerow(['CommandLine'])
         for config in configs:
             writer.writerow([' '.join(config.generateMlirDriverCommandLine(''))])
+            
 def main():
     parser = argparse.ArgumentParser(
             description='Sweep parameter values for attention to detect bugs')
