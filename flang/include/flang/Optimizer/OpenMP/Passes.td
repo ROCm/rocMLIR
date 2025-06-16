@@ -21,6 +21,12 @@ def MapInfoFinalizationPass
     explicit individual mapping by the OpenMP runtime.
   }];
   let dependentDialects = ["mlir::omp::OpenMPDialect"];
+
+  let options = [Option<"deferDescMapping", "opt-defer-desc-mapping",
+                      "bool", /*default=*/"false",
+                      "Activates or deactivates deferred descriptor mapping, "
+                      "which delays mapping of top-level descriptors to target "
+                      "regions and target data regions">];
 }
 
 def MapsForPrivatizedSymbolsPass
@@ -89,6 +95,13 @@ def DoConcurrentConversionPass : Pass<"omp-do-concurrent-conversion", "mlir::fun
                           "device", "Lower to run in parallel on the GPU")
            )}]>,
   ];
+}
+
+def LowerNontemporalPass : Pass<"lower-nontemporal", "mlir::func::FuncOp"> {
+  let summary =
+      "Adds nontemporal attribute to loads and stores performed on "
+      "the list items specified in the nontemporal clause of omp.simd.";
+  let dependentDialects = ["mlir::omp::OpenMPDialect"];
 }
 
 // Needs to be scheduled on Module as we create functions in it

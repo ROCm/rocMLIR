@@ -2,6 +2,14 @@
 
 ! RUN: bbc -fopenacc -emit-hlfir %s -o - | FileCheck %s
 
+module mod1
+  implicit none
+  type :: derived
+     real :: m
+   contains
+  end type derived
+end module mod1
+
 subroutine acc_enter_data
   integer :: async = 1
   real, dimension(10, 10) :: a, b, c
@@ -53,16 +61,16 @@ subroutine acc_enter_data
 !CHECK: acc.enter_data dataOperands(%[[COPYIN_A]], %[[CREATE_B]], %[[ATTACH_D]] : !fir.ref<!fir.array<10x10xf32>>, !fir.ref<!fir.array<10x10xf32>>, !fir.ref<!fir.box<!fir.ptr<f32>>>){{$}}
 
   !$acc enter data create(a) async
-!CHECK: %[[CREATE_A:.*]] = acc.create varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) -> !fir.ref<!fir.array<10x10xf32>> {asyncOnly = [#acc.device_type<none>], name = "a", structured = false}
-!CHECK: acc.enter_data dataOperands(%[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>) attributes {async}
+!CHECK: %[[CREATE_A:.*]] = acc.create varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) async -> !fir.ref<!fir.array<10x10xf32>> {name = "a", structured = false}
+!CHECK: acc.enter_data async dataOperands(%[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>)
 
   !$acc enter data create(a) wait
 !CHECK: %[[CREATE_A:.*]] = acc.create varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) -> !fir.ref<!fir.array<10x10xf32>> {name = "a", structured = false}
-!CHECK: acc.enter_data dataOperands(%[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>) attributes {wait}
+!CHECK: acc.enter_data wait dataOperands(%[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>)
 
   !$acc enter data create(a) async wait
-!CHECK: %[[CREATE_A:.*]] = acc.create varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) -> !fir.ref<!fir.array<10x10xf32>> {asyncOnly = [#acc.device_type<none>], name = "a", structured = false}
-!CHECK: acc.enter_data dataOperands(%[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>) attributes {async, wait}
+!CHECK: %[[CREATE_A:.*]] = acc.create varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) async -> !fir.ref<!fir.array<10x10xf32>> {name = "a", structured = false}
+!CHECK: acc.enter_data async wait dataOperands(%[[CREATE_A]] : !fir.ref<!fir.array<10x10xf32>>)
 
   !$acc enter data create(a) async(1)
 !CHECK: %[[ASYNC1:.*]] = arith.constant 1 : i32
@@ -105,7 +113,7 @@ subroutine acc_enter_data
 !CHECK: %[[BOUND1:.*]] = acc.bounds lowerbound(%[[LB1]] : index) upperbound(%[[UB1]] : index) extent(%c10{{.*}} : index) stride(%[[ONE]] : index) startIdx(%c1{{.*}} : index)
 !CHECK: %[[LB2:.*]] = arith.constant 0 : index
 !CHECK: %[[UB2:.*]] = arith.constant 4 : index
-!CHECK: %[[BOUND2:.*]] = acc.bounds lowerbound(%[[LB2]] : index) upperbound(%[[UB2]] : index) extent(%[[EXTENT_C10]] : index) stride(%[[ONE]] : index) startIdx(%c1{{.*}} : index)
+!CHECK: %[[BOUND2:.*]] = acc.bounds lowerbound(%[[LB2]] : index) upperbound(%[[UB2]] : index) extent(%[[EXTENT_C10]] : index) stride(%c1{{.*}} : index) startIdx(%c1{{.*}} : index)
 !CHECK: %[[COPYIN_A:.*]] = acc.copyin varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) bounds(%[[BOUND1]], %[[BOUND2]]) -> !fir.ref<!fir.array<10x10xf32>> {name = "a(1:,1:5)", structured = false}
 !CHECK: acc.enter_data   dataOperands(%[[COPYIN_A]] : !fir.ref<!fir.array<10x10xf32>>)
 
@@ -116,7 +124,7 @@ subroutine acc_enter_data
 !CHECK: %[[BOUND1:.*]] = acc.bounds lowerbound(%[[LB]] : index) upperbound(%[[UB1]] : index) extent(%[[C10]] : index) stride(%[[ONE]] : index) startIdx(%[[ONE]] : index)
 !CHECK: %[[LB:.*]] = arith.constant 0 : index
 !CHECK: %[[UB2:.*]] = arith.constant 4 : index
-!CHECK: %[[BOUND2:.*]] = acc.bounds lowerbound(%[[LB]] : index) upperbound(%[[UB2]] : index) extent(%[[EXTENT_C10]] : index) stride(%[[ONE]] : index) startIdx(%[[ONE]] : index)
+!CHECK: %[[BOUND2:.*]] = acc.bounds lowerbound(%[[LB]] : index) upperbound(%[[UB2]] : index) extent(%[[EXTENT_C10]] : index) stride(%c1{{.*}} : index) startIdx(%[[ONE]] : index)
 !CHECK: %[[COPYIN_A:.*]] = acc.copyin varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) bounds(%[[BOUND1]], %[[BOUND2]]) -> !fir.ref<!fir.array<10x10xf32>> {name = "a(:10,1:5)", structured = false}
 !CHECK: acc.enter_data dataOperands(%[[COPYIN_A]] : !fir.ref<!fir.array<10x10xf32>>)
 
@@ -126,7 +134,7 @@ subroutine acc_enter_data
 !CHECK: %[[UB:.*]] = arith.subi %c10{{.*}}, %[[ONE]] : index
 !CHECK: %[[BOUND1:.*]] = acc.bounds lowerbound(%[[LB]] : index) upperbound(%[[UB]] : index) extent(%c10{{.*}} : index) stride(%[[ONE]] : index) startIdx(%[[ONE]] : index)
 !CHECK: %[[UB:.*]] = arith.subi %c10{{.*}}, %[[ONE]] : index
-!CHECK: %[[BOUND2:.*]] = acc.bounds lowerbound(%[[LB]] : index) upperbound(%[[UB]] : index) extent(%c10{{.*}} : index) stride(%[[ONE]] : index) startIdx(%[[ONE]] : index)
+!CHECK: %[[BOUND2:.*]] = acc.bounds lowerbound(%[[LB]] : index) upperbound(%[[UB]] : index) extent(%c10{{.*}} : index) stride(%c1{{.*}} : index) startIdx(%c1{{.*}} : index)
 !CHECK: %[[COPYIN_A:.*]] = acc.copyin varPtr(%[[DECLA]]#0 : !fir.ref<!fir.array<10x10xf32>>) bounds(%[[BOUND1]], %[[BOUND2]]) -> !fir.ref<!fir.array<10x10xf32>> {name = "a(:,:)", structured = false}
 end subroutine acc_enter_data
 
@@ -643,11 +651,24 @@ subroutine acc_enter_data_single_array_element()
 !CHECK:           %[[VAL_42:.*]] = arith.constant 1 : index
 !CHECK:           %[[VAL_43:.*]] = arith.constant 1 : index
 !CHECK:           %[[VAL_44:.*]] = arith.subi %[[VAL_43]], %[[VAL_38]]#0 : index
-!CHECK:           %[[VAL_45:.*]] = acc.bounds lowerbound(%[[VAL_44]] : index) upperbound(%[[VAL_44]] : index) extent(%[[VAL_38]]#1 : index) stride(%[[VAL_42]] : index) startIdx(%[[VAL_38]]#0 : index)
-!CHECK:           %[[VAL_46:.*]] = arith.constant 2 : index
-!CHECK:           %[[VAL_47:.*]] = arith.subi %[[VAL_46]], %[[VAL_40]]#0 : index
-!CHECK:           %[[VAL_48:.*]] = acc.bounds lowerbound(%[[VAL_47]] : index) upperbound(%[[VAL_47]] : index) extent(%[[VAL_40]]#1 : index) stride(%[[VAL_42]] : index) startIdx(%[[VAL_40]]#0 : index)
-!CHECK:           %[[CREATE:.*]] = acc.create varPtr(%[[VAL_41]] : !fir.heap<!fir.array<?x?xf32>>) bounds(%[[VAL_45]], %[[VAL_48]]) -> !fir.heap<!fir.array<?x?xf32>> {name = "e(2_8)%a(1,2)", structured = false}
+!CHECK:           %[[VAL_45:.*]] = arith.muli %[[VAL_38]]#1, %[[VAL_42]] : index
+!CHECK:           %[[VAL_46:.*]] = acc.bounds lowerbound(%[[VAL_44]] : index) upperbound(%[[VAL_44]] : index) extent(%[[VAL_38]]#1 : index) stride(%[[VAL_42]] : index) startIdx(%[[VAL_38]]#0 : index)
+!CHECK:           %[[VAL_47:.*]] = arith.constant 2 : index
+!CHECK:           %[[VAL_48:.*]] = arith.subi %[[VAL_47]], %[[VAL_40]]#0 : index
+!CHECK:           %[[VAL_49:.*]] = acc.bounds lowerbound(%[[VAL_48]] : index) upperbound(%[[VAL_48]] : index) extent(%[[VAL_40]]#1 : index) stride(%[[VAL_45]] : index) startIdx(%[[VAL_40]]#0 : index)
+!CHECK:           %[[CREATE:.*]] = acc.create varPtr(%[[VAL_41]] : !fir.heap<!fir.array<?x?xf32>>) bounds(%[[VAL_46]], %[[VAL_49]]) -> !fir.heap<!fir.array<?x?xf32>> {name = "e(2_8)%a(1,2)", structured = false}
 !CHECK:           acc.enter_data dataOperands(%[[CREATE]] : !fir.heap<!fir.array<?x?xf32>>)
 
 end subroutine
+
+subroutine test_class(a)
+  use mod1
+  class(derived) :: a
+  !$acc enter data copyin(a)
+end subroutine
+
+! CHECK-LABEL: func.func @_QPtest_class(
+! CHECK-SAME: %[[ARG0:.*]]: !fir.class<!fir.type<_QMmod1Tderived{m:f32}>> {fir.bindc_name = "a"}) {
+! CHECK: %[[DECL_ARG0:.*]]:2 = hlfir.declare %[[ARG0]] dummy_scope %0 {uniq_name = "_QFtest_classEa"} : (!fir.class<!fir.type<_QMmod1Tderived{m:f32}>>, !fir.dscope) -> (!fir.class<!fir.type<_QMmod1Tderived{m:f32}>>, !fir.class<!fir.type<_QMmod1Tderived{m:f32}>>)
+! CHECK: %[[COPYIN:.*]] = acc.copyin var(%[[DECL_ARG0]]#0 : !fir.class<!fir.type<_QMmod1Tderived{m:f32}>>) -> !fir.class<!fir.type<_QMmod1Tderived{m:f32}>> {name = "a", structured = false}
+! CHECK: acc.enter_data dataOperands(%[[COPYIN]] : !fir.class<!fir.type<_QMmod1Tderived{m:f32}>>)

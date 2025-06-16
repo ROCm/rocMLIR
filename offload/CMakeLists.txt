@@ -40,7 +40,11 @@ if(OPENMP_STANDALONE_BUILD)
     "Suffix of lib installation directory, e.g. 64 => lib64")
   set(OFFLOAD_INSTALL_LIBDIR "lib${OFFLOAD_LIBDIR_SUFFIX}" CACHE STRING
       "Path where built offload libraries should be installed.")
+  include(GNUInstallDirs)
+  set(LIBOMP_HEADERS_INSTALL_PATH "${CMAKE_INSTALL_INCLUDEDIR}")
 else()
+  include(GetClangResourceDir)
+  get_clang_resource_dir(LIBOMP_HEADERS_INSTALL_PATH SUBDIR include)
   # When building in tree we install the runtime according to the LLVM settings.
   if(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR AND NOT APPLE)
     set(OFFLOAD_INSTALL_LIBDIR lib${LLVM_LIBDIR_SUFFIX}/${LLVM_DEFAULT_TARGET_TRIPLE} CACHE STRING
@@ -52,6 +56,8 @@ else()
 endif()
 
 set(LLVM_COMMON_CMAKE_UTILS ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
+
+option(OFFLOAD_INCLUDE_TESTS "Generate and build offload tests." ${LLVM_INCLUDE_TESTS})
 
 # Add path for custom modules
 list(INSERT CMAKE_MODULE_PATH 0
@@ -433,12 +439,15 @@ endif()
 # using the offload RPC mechanism such as FORTRAN IO runtime and MPI.
 option(OFFLOAD_ENABLE_EMISSARY_APIS "Enable build of GPU Emissary APIs" ON)
 if(OFFLOAD_ENABLE_EMISSARY_APIS)
+  # Header install location
   add_definitions(-DOFFLOAD_ENABLE_EMISSARY_APIS)
   install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/DeviceRTL/include/EmissaryIds.h
-    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include)
+    DESTINATION ${LIBOMP_HEADERS_INSTALL_PATH})
   install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/DeviceRTL/include/EmissaryMPI.h
-    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include)
+    DESTINATION ${LIBOMP_HEADERS_INSTALL_PATH})
 endif()
+
+add_subdirectory(tools/offload-tblgen)
 
 # Build offloading plugins and device RTLs if they are available.
 add_subdirectory(plugins-nextgen)
@@ -450,16 +459,20 @@ add_subdirectory(DeviceRTL)
 add_subdirectory(libomptarget)
 
 # FIXME: Re-enable once OMPT design allows
-# add_subdirectory(tools/offload-tblgen)
 # add_subdirectory(liboffload)
 
 # Add tests.
-add_subdirectory(test)
+if(OFFLOAD_INCLUDE_TESTS)
+  add_subdirectory(test)
 
-# Add unit tests if GMock/GTest is present
-if (EXISTS ${LLVM_THIRD_PARTY_DIR}/unittest)
-  if (NOT TARGET llvm_gtest)
+  # Add unit tests if GMock/GTest is present
+  if(NOT LLVM_THIRD_PARTY_DIR)
+    set(LLVM_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third-party")
+  endif()
+  if(EXISTS ${LLVM_THIRD_PARTY_DIR}/unittest AND NOT TARGET llvm_gtest)
     add_subdirectory(${LLVM_THIRD_PARTY_DIR}/unittest ${CMAKE_CURRENT_BINARY_DIR}/third-party/unittest)
   endif()
-  add_subdirectory(unittests)
+  if(TARGET llvm_gtest)
+    add_subdirectory(unittests)
+  endif()
 endif()
