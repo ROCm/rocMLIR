@@ -329,7 +329,7 @@ def sampleAttentionShape():
     )
 
 
-perfConfigSpace = list(itertools.product(
+perfConfigSpaceMFMA = list(itertools.product( # MFMA perfConfig space
         [32, 64, 128, 256], # M/block G0
         [32, 64, 128, 256], # M/block G1
         [32, 64, 128, 256], # N/block G0
@@ -340,6 +340,16 @@ perfConfigSpace = list(itertools.product(
         [0, 1] # forceUnroll
     ))
 
+perfConfigSpaceWMMA = list(itertools.product( # WMMA perfConfig space
+        [32, 64, 128],         # M/block G0
+        [32, 64, 128],         # M/block G1
+        [32, 64, 128, 256],    # N/block G0
+        [8, 16, 32, 64],       # Kpack/Block
+        [32, 64],              # M/Wave
+        [32, 64],              # N/Wave
+        [4, 8, 16],            # kPack
+        [0, 1]                 # forceUnroll
+    ))
 
 def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
     with open(filename, mode='w', newline='') as csvfile:
@@ -377,13 +387,17 @@ def main():
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")
 
+    if chip in ['gfx900', 'gfx906', 'gfx908', 'gfx90a', 'gfx940', 'gfx941', 'gfx942']:
+        perfConfigSpace = perfConfigSpaceMFMA
+    else:
+        perfConfigSpace = perfConfigSpaceWMMA
+
     samples = [
         (sampleAttentionShape(), random.choice(perfConfigSpace))
         for _ in range(args.samples)
     ]
 
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
-    print(f"Passed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     if failing:
         print("\n" + "-" * 80)
         print(f"{'Failing Configurations':^80}\n")
@@ -391,6 +405,8 @@ def main():
             print(multilineRepr(fail))
         if args.log_failures:
             logFailingConfigs(failing, LOGFILE)
+    
+    print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     
     return 0
 
