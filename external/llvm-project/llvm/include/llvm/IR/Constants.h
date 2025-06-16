@@ -923,11 +923,6 @@ public:
   /// the block will be inserted into.
   LLVM_ABI static BlockAddress *get(Type *Ty, BasicBlock *BB);
 
-  /// Return a BlockAddress for the specified basic block, which may not be
-  /// part of a function. The specified type must match the type of the function
-  /// the block will be inserted into.
-  static BlockAddress *get(Type *Ty, BasicBlock *BB);
-
   /// Lookup an existing \c BlockAddress constant for the given BasicBlock.
   ///
   /// \returns 0 if \c !BB->hasAddressTaken(), otherwise the \c BlockAddress.

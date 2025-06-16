@@ -592,10 +592,6 @@ public:
   /// that can cause immediate undefined behavior.
   LLVM_ABI bool hasUBImplyingAttrs() const LLVM_READONLY;
 
-  /// Return true if this instruction has UB-implying attributes
-  /// that can cause immediate undefined behavior.
-  bool hasUBImplyingAttrs() const LLVM_READONLY;
-
   /// Determine whether the exact flag is set.
   LLVM_ABI bool isExact() const LLVM_READONLY;
 

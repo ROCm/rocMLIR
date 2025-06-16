@@ -226,12 +226,6 @@ LogicalResult ProfileInfoDepot::populateProfileInfo(tosa::VariableWriteOp op) {
 }
 
 template <>
-LogicalResult ProfileInfoDepot::populateProfileInfo(tosa::VariableWriteOp op) {
-  addValue(op.getInput1());
-  return success();
-}
-
-template <>
 LogicalResult ProfileInfoDepot::populateProfileInfo(tosa::IfOp op) {
   addValue(op.getCondition());
   return success();

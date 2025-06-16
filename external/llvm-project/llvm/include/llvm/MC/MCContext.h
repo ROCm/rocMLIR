@@ -505,11 +505,6 @@ public:
   /// original symbol is not emitted to the symbol table.
   LLVM_ABI MCSymbol *cloneSymbol(MCSymbol &Sym);
 
-  /// Clone a symbol for the .set directive, replacing it in the symbol table.
-  /// Existing references to the original symbol remain unchanged, and the
-  /// original symbol is not emitted to the symbol table.
-  MCSymbol *cloneSymbol(MCSymbol &Sym);
-
   /// Set value for a symbol.
   LLVM_ABI void setSymbolValue(MCStreamer &Streamer, const Twine &Sym,
                                uint64_t Val);
