@@ -330,8 +330,6 @@ public:
         strideTosaAttr.asArrayRef(), dilationTosaAttr.asArrayRef(),
         inputSizeDims, kernelSizeDims, rewriter);
 
-    auto weightShape = weightTy.getShape();
-
     // Apply padding as necessary.
     TypedAttr zeroAttr = rewriter.getZeroAttr(inputETy);
     if (hasZp) {
