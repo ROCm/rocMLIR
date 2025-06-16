@@ -311,6 +311,14 @@ bool AssemblerInvocation::createFromArgs(AssemblerInvocation &Opts,
 }
 
 namespace {
+bool needsPreprocessing(DataObject *O) {
+  if (O->DataKind != AMD_COMGR_DATA_KIND_SOURCE)
+    return false;
+  StringRef Ext = path::extension(O->Name);
+  bool IsPreprocessedSource = Ext == ".i";
+  return !IsPreprocessedSource;
+}
+
 std::unique_ptr<raw_fd_ostream> getOutputStream(AssemblerInvocation &Opts,
                                                 DiagnosticsEngine &Diags,
                                                 bool Binary) {
@@ -631,21 +639,15 @@ void logArgv(raw_ostream &OS, StringRef ProgramName,
 amd_comgr_status_t executeCommand(const Command &Job, raw_ostream &LogS,
                                   DiagnosticOptions &DiagOpts,
                                   llvm::vfs::FileSystem &FS) {
-  TextDiagnosticPrinter DiagClient(LogS, &DiagOpts);
+  TextDiagnosticPrinter DiagClient(LogS, DiagOpts);
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs);
-  DiagnosticsEngine Diags(DiagID, &DiagOpts, &DiagClient, false);
+  DiagnosticsEngine Diags(DiagID, DiagOpts, &DiagClient, false);
 
   auto Arguments = Job.getArguments();
   SmallVector<const char *, 128> Argv;
   initializeCommandLineArgs(Argv);
   Argv.append(Arguments.begin(), Arguments.end());
   Argv.push_back(nullptr);
-
-  // By default clang driver will ask CC1 to leak memory.
-  auto *IT = find(Argv, StringRef("-disable-free"));
-  if (IT != Argv.end()) {
-    Argv.erase(IT);
-  }
 
   clearLLVMOptions();
 
@@ -728,7 +730,7 @@ AMDGPUCompiler::executeInProcessDriver(ArrayRef<const char *> Args) {
   // here is mostly copy-and-pasted from driver.cpp/cc1_main.cpp/various Clang
   // tests to try to approximate the same behavior as running the `clang`
   // executable.
-  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts(new DiagnosticOptions);
+  std::unique_ptr<DiagnosticOptions> DiagOpts(new DiagnosticOptions);
   unsigned MissingArgIndex, MissingArgCount;
   InputArgList ArgList = getDriverOptTable().ParseArgs(
       Args.slice(1), MissingArgIndex, MissingArgCount);
@@ -737,9 +739,9 @@ AMDGPUCompiler::executeInProcessDriver(ArrayRef<const char *> Args) {
   // DiagnosticsEngine actually exists.
   (void)ParseDiagnosticArgs(*DiagOpts, ArgList);
   TextDiagnosticPrinter *DiagClient =
-      new TextDiagnosticPrinter(LogS, &*DiagOpts);
+      new TextDiagnosticPrinter(LogS, *DiagOpts);
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs);
-  DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
+  DiagnosticsEngine Diags(DiagID, *DiagOpts, DiagClient);
 
   ProcessWarningOptions(Diags, *DiagOpts, *OverlayFS, /*ReportDiags=*/false);
 
@@ -892,6 +894,10 @@ amd_comgr_status_t AMDGPUCompiler::processFile(DataObject *Input,
     Argv.push_back(Flag);
   }
 
+  // By default clang driver will ask CC1 to leak memory.
+  Argv.push_back("-Xclang");
+  Argv.push_back("-no-disable-free");
+
   Argv.push_back(InputFilePath);
 
   Argv.push_back("-o");
@@ -941,7 +947,10 @@ AMDGPUCompiler::processFiles(amd_comgr_data_kind_t OutputKind,
     ScopedDataObjectReleaser SDOR(OutputT);
 
     DataObject *Output = DataObject::convert(OutputT);
-    Output->setName(std::string(Input->Name) + OutputSuffix);
+
+    SmallString<128> OutputName(Input->Name);
+    sys::path::replace_extension(OutputName, OutputSuffix);
+    Output->setName(OutputName);
 
     auto OutputFilePath = getFilePath(Output, OutputDir);
 
@@ -963,6 +972,28 @@ AMDGPUCompiler::processFiles(amd_comgr_data_kind_t OutputKind,
 }
 
 amd_comgr_status_t AMDGPUCompiler::addIncludeFlags() {
+  if (none_of(InSet->DataObjects, needsPreprocessing))
+    return AMD_COMGR_STATUS_SUCCESS;
+
+  switch (ActionInfo->Language) {
+  case AMD_COMGR_LANGUAGE_OPENCL_1_2:
+  case AMD_COMGR_LANGUAGE_OPENCL_2_0: {
+    SmallString<128> OpenCLCBasePath = IncludeDir;
+    sys::path::append(OpenCLCBasePath, "opencl-c-base.h");
+    if (auto Status =
+            outputToFile(getOpenCLCBaseHeaderContents(), OpenCLCBasePath)) {
+      return Status;
+    }
+    Args.push_back("-include");
+    Args.push_back(Saver.save(OpenCLCBasePath.c_str()).data());
+    Args.push_back("-Xclang");
+    Args.push_back("-fdeclare-opencl-builtins");
+    break;
+  }
+  default:
+    break;
+  }
+
   if (ActionInfo->Path) {
     Args.push_back("-I");
     Args.push_back(ActionInfo->Path);
@@ -1023,22 +1054,24 @@ amd_comgr_status_t AMDGPUCompiler::addCompilationFlags() {
 
   Args.push_back("-x");
 
+  bool NeedsPreprocessing = any_of(InSet->DataObjects, needsPreprocessing);
+
   switch (ActionInfo->Language) {
   case AMD_COMGR_LANGUAGE_LLVM_IR:
     Args.push_back("ir");
     break;
   case AMD_COMGR_LANGUAGE_OPENCL_1_2:
-    Args.push_back("cl");
+    Args.push_back(NeedsPreprocessing ? "cl" : "cl-cpp-output");
     Args.push_back("-std=cl1.2");
     Args.push_back("-cl-no-stdinc");
     break;
   case AMD_COMGR_LANGUAGE_OPENCL_2_0:
-    Args.push_back("cl");
+    Args.push_back(NeedsPreprocessing ? "cl" : "cl-cpp-output");
     Args.push_back("-std=cl2.0");
     Args.push_back("-cl-no-stdinc");
     break;
   case AMD_COMGR_LANGUAGE_HIP:
-    Args.push_back("hip");
+    Args.push_back(NeedsPreprocessing ? "hip" : "hip-cpp-output");
     Args.push_back("--offload-device-only");
     // Pass a cuid that depends on the input files
     // Otherwise, a random (which depends on the /tmp/comgr-xxxxx path) cuid is
@@ -1401,7 +1434,7 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
 
     if (Input->DataKind == AMD_COMGR_DATA_KIND_BC) {
       if (env::shouldEmitVerboseLogs()) {
-        LogS << "\t     Linking Bitcode: " << InputDir << "/" << Input->Name
+        LogS << "\t     Linking Bitcode: " << InputDir << path::get_separator() << Input->Name
              << "\n";
       }
 
@@ -1423,7 +1456,7 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
         return AMD_COMGR_STATUS_ERROR;
     } else if (Input->DataKind == AMD_COMGR_DATA_KIND_BC_BUNDLE) {
       if (env::shouldEmitVerboseLogs()) {
-        LogS << "      Linking Bundle: " << InputDir << "/" << Input->Name
+        LogS << "      Linking Bundle: " << InputDir << path::get_separator() << Input->Name
              << "\n";
       }
 
@@ -1466,7 +1499,7 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
       // on Windows. Replace with '_'
       std::replace(OutputFileName.begin(), OutputFileName.end(), ':', '_');
 
-      std::string OutputFilePath = OutputDir.str().str() + "/" + OutputFileName;
+      std::string OutputFilePath = OutputDir.str().str() + path::get_separator().str() + OutputFileName;
       BundlerConfig.OutputFileNames.push_back(OutputFilePath);
 
       OffloadBundler Bundler(BundlerConfig);
@@ -1521,7 +1554,7 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
     // Unbundle bitcode archive
     else if (Input->DataKind == AMD_COMGR_DATA_KIND_AR_BUNDLE) {
       if (env::shouldEmitVerboseLogs()) {
-        LogS << "\t     Linking Archive: " << InputDir << "/" << Input->Name
+        LogS << "\t     Linking Archive: " << InputDir << path::get_separator() << Input->Name
              << "\n";
       }
 
@@ -1567,7 +1600,7 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
       // on Windows. Replace with '_'
       std::replace(OutputFileName.begin(), OutputFileName.end(), ':', '_');
 
-      std::string OutputFilePath = OutputDir.str().str() + "/" + OutputFileName;
+      std::string OutputFilePath = OutputDir.str().str() + path::get_separator().str() + OutputFileName;
       BundlerConfig.OutputFileNames.push_back(OutputFilePath);
 
       OffloadBundler Bundler(BundlerConfig);
