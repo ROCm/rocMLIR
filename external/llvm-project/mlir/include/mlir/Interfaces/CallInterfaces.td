@@ -108,6 +108,43 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
       }],
       "::mlir::MutableOperandRange", "getArgOperandsMutable"
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the results for this call that are returned by the callee.
+      }],
+      /*retTy=*/"::mlir::Operation::result_range",
+      /*methodName=*/"getCallResults",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return $_op->getResults();
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the result types for this call that are returned by the callee.
+      }],
+      /*retTy=*/"::mlir::Operation::result_type_range",
+      /*methodName=*/"getCallResultTypes",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return $_op->getResultTypes();
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Update the operand_segment_sizes attribute for changes to operands.
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"updateSegmentSizes",
+      /*args=*/(ins "::mlir::MLIRContext *":$context),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        assert(!$_op->hasAttr("operand_segment_sizes") &&
+               !$_op->hasAttr("result_segment_sizes"));
+      }]
+    >,
     InterfaceMethod<[{
         Resolve the callable operation for given callee to a
         CallableOpInterface, or nullptr if a valid callable was not resolved.
