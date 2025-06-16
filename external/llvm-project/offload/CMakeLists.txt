@@ -40,7 +40,11 @@ if(OPENMP_STANDALONE_BUILD)
     "Suffix of lib installation directory, e.g. 64 => lib64")
   set(OFFLOAD_INSTALL_LIBDIR "lib${OFFLOAD_LIBDIR_SUFFIX}" CACHE STRING
       "Path where built offload libraries should be installed.")
+  include(GNUInstallDirs)
+  set(LIBOMP_HEADERS_INSTALL_PATH "${CMAKE_INSTALL_INCLUDEDIR}")
 else()
+  include(GetClangResourceDir)
+  get_clang_resource_dir(LIBOMP_HEADERS_INSTALL_PATH SUBDIR include)
   # When building in tree we install the runtime according to the LLVM settings.
   if(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR AND NOT APPLE)
     set(OFFLOAD_INSTALL_LIBDIR lib${LLVM_LIBDIR_SUFFIX}/${LLVM_DEFAULT_TARGET_TRIPLE} CACHE STRING
@@ -433,11 +437,12 @@ endif()
 # using the offload RPC mechanism such as FORTRAN IO runtime and MPI.
 option(OFFLOAD_ENABLE_EMISSARY_APIS "Enable build of GPU Emissary APIs" ON)
 if(OFFLOAD_ENABLE_EMISSARY_APIS)
+  # Header install location
   add_definitions(-DOFFLOAD_ENABLE_EMISSARY_APIS)
   install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/DeviceRTL/include/EmissaryIds.h
-    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include)
+    DESTINATION ${LIBOMP_HEADERS_INSTALL_PATH})
   install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/DeviceRTL/include/EmissaryMPI.h
-    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/clang/${LLVM_VERSION_MAJOR}/include)
+    DESTINATION ${LIBOMP_HEADERS_INSTALL_PATH})
 endif()
 
 # Build offloading plugins and device RTLs if they are available.
@@ -457,9 +462,12 @@ add_subdirectory(libomptarget)
 add_subdirectory(test)
 
 # Add unit tests if GMock/GTest is present
-if (EXISTS ${LLVM_THIRD_PARTY_DIR}/unittest)
-  if (NOT TARGET llvm_gtest)
-    add_subdirectory(${LLVM_THIRD_PARTY_DIR}/unittest ${CMAKE_CURRENT_BINARY_DIR}/third-party/unittest)
-  endif()
+if(NOT LLVM_THIRD_PARTY_DIR)
+  set(LLVM_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third-party")
+endif()
+if(EXISTS ${LLVM_THIRD_PARTY_DIR}/unittest AND NOT TARGET llvm_gtest)
+  add_subdirectory(${LLVM_THIRD_PARTY_DIR}/unittest ${CMAKE_CURRENT_BINARY_DIR}/third-party/unittest)
+endif()
+if(TARGET llvm_gtest)
   add_subdirectory(unittests)
 endif()

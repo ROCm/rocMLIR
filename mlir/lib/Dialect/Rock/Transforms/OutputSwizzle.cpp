@@ -465,7 +465,7 @@ void RockOutputSwizzlePass::runOnOperation() {
 
     // TODO: this pass works for one or two dimensions only at the block level
     GreedyRewriteConfig config;
-    config.strictMode = GreedyRewriteStrictness::ExistingOps;
+    config.setStrictness(GreedyRewriteStrictness::ExistingOps);
     if (failed(applyOpPatternsGreedily(writes, std::move(patterns), config))) {
       return signalPassFailure();
     }

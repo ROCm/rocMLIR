@@ -92,14 +92,7 @@ endif()
 
 set(CMAKE_CXX_STANDARD ${LLVM_REQUIRED_CXX_STANDARD} CACHE STRING "C++ standard to conform to")
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
-
-if (CYGWIN)
-  # Cygwin is a bit stricter and lack things like 'strdup', 'stricmp', etc in
-  # c++xx mode.
-  set(CMAKE_CXX_EXTENSIONS YES)
-else()
-  set(CMAKE_CXX_EXTENSIONS NO)
-endif()
+set(CMAKE_CXX_EXTENSIONS NO)
 
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(FATAL_ERROR "
@@ -154,38 +147,6 @@ foreach(proj ${LLVM_ENABLE_PROJECTS})
   endif()
 endforeach()
 
-if ("flang" IN_LIST LLVM_ENABLE_PROJECTS)
-  if (NOT "mlir" IN_LIST LLVM_ENABLE_PROJECTS)
-    message(STATUS "Enabling MLIR as a dependency to flang")
-    list(APPEND LLVM_ENABLE_PROJECTS "mlir")
-  endif()
-
-  if (NOT "clang" IN_LIST LLVM_ENABLE_PROJECTS)
-    message(STATUS "Enabling clang as a dependency to flang")
-    list(APPEND LLVM_ENABLE_PROJECTS "clang")
-  endif()
-endif()
-
-if ("libc" IN_LIST LLVM_ENABLE_PROJECTS)
-  message(WARNING "Using LLVM_ENABLE_PROJECTS=libc is deprecated now, and will "
-    "become a fatal error in the LLVM 21 release.  Please use "
-    "-DLLVM_ENABLE_RUNTIMES=libc or see the instructions at "
-    "https://libc.llvm.org/ for building the runtimes.")
-endif()
-
-if ("compiler-rt" IN_LIST LLVM_ENABLE_PROJECTS)
-  message(WARNING "Using LLVM_ENABLE_PROJECTS=compiler-rt is deprecated now, and will "
-    "become a fatal error in the LLVM 21 release.  Please use "
-    "-DLLVM_ENABLE_RUNTIMES=compiler-rt or see the instructions at "
-    "https://compiler-rt.llvm.org/ for building the runtimes.")
-endif()
-
-if ("flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES)
-  if (NOT "flang" IN_LIST LLVM_ENABLE_PROJECTS)
-    message(FATAL_ERROR "Flang is not enabled, but is required for the Flang-RT runtime")
-  endif ()
-endif ()
-
 # Select the runtimes to build
 #
 # As we migrate runtimes to using the bootstrapping build, the set of default runtimes
@@ -202,6 +163,58 @@ foreach(proj IN LISTS LLVM_ENABLE_RUNTIMES)
     message(FATAL_ERROR "Runtime \"${proj}\" is not a supported runtime. Supported runtimes are: ${LLVM_SUPPORTED_RUNTIMES}")
   endif()
 endforeach()
+
+if ("flang" IN_LIST LLVM_ENABLE_PROJECTS)
+  if (NOT "mlir" IN_LIST LLVM_ENABLE_PROJECTS)
+    message(STATUS "Enabling MLIR as a dependency to flang")
+    list(APPEND LLVM_ENABLE_PROJECTS "mlir")
+  endif()
+
+  if (NOT "clang" IN_LIST LLVM_ENABLE_PROJECTS)
+    message(STATUS "Enabling clang as a dependency to flang")
+    list(APPEND LLVM_ENABLE_PROJECTS "clang")
+  endif()
+
+  option(FLANG_ENABLE_FLANG_RT "Implicitly add LLVM_ENABLE_RUNTIMES=flang-rt when compiling Flang" ON)
+  if (FLANG_ENABLE_FLANG_RT AND NOT "flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES)
+    message(STATUS "Enabling Flang-RT as a dependency of Flang")
+    list(APPEND LLVM_ENABLE_RUNTIMES "flang-rt")
+  endif ()
+endif()
+
+if ("libc" IN_LIST LLVM_ENABLE_PROJECTS)
+  message(WARNING "Using LLVM_ENABLE_PROJECTS=libc is deprecated now, and will "
+    "become a fatal error in the LLVM 21 release.  Please use "
+    "-DLLVM_ENABLE_RUNTIMES=libc or see the instructions at "
+    "https://libc.llvm.org/ for building the runtimes.")
+endif()
+
+if ("compiler-rt" IN_LIST LLVM_ENABLE_PROJECTS)
+  message(WARNING "Using LLVM_ENABLE_PROJECTS=compiler-rt is deprecated now, and will "
+    "become a fatal error in the LLVM 21 release.  Please use "
+    "-DLLVM_ENABLE_RUNTIMES=compiler-rt or see the instructions at "
+    "https://compiler-rt.llvm.org/ for building the runtimes.")
+endif()
+
+if ("offload" IN_LIST LLVM_ENABLE_PROJECTS)
+  message(WARNING "Using LLVM_ENABLE_PROJECTS=offload is deprecated now, and will "
+    "become a fatal error in the LLVM 21 release.  Please use "
+    "-DLLVM_ENABLE_RUNTIMES=offload or see the instructions at "
+    "https://openmp.llvm.org/ for building the runtimes.")
+endif()
+
+if ("openmp" IN_LIST LLVM_ENABLE_PROJECTS)
+  message(WARNING "Using LLVM_ENABLE_PROJECTS=openmp is deprecated now, and will "
+    "become a fatal error in the LLVM 21 release.  Please use "
+    "-DLLVM_ENABLE_RUNTIMES=openmp or see the instructions at "
+    "https://openmp.llvm.org/ for building the runtimes.")
+endif()
+
+if ("flang-rt" IN_LIST LLVM_ENABLE_RUNTIMES)
+  if (NOT "flang" IN_LIST LLVM_ENABLE_PROJECTS)
+    message(FATAL_ERROR "Flang is not enabled, but is required for the Flang-RT runtime")
+  endif ()
+endif ()
 
 # Set a shorthand option to enable the GPU build of the 'libc' project.
 option(LIBC_GPU_BUILD "Enable the 'libc' project targeting the GPU" OFF)
@@ -289,10 +302,10 @@ if(LLVM_CCACHE_BUILD)
   if(CCACHE_PROGRAM)
     set(LLVM_CCACHE_MAXSIZE "" CACHE STRING "Size of ccache")
     set(LLVM_CCACHE_DIR "" CACHE STRING "Directory to keep ccached data")
-    set(LLVM_CCACHE_PARAMS "CCACHE_CPP2=yes CCACHE_HASHDIR=yes"
+    set(LLVM_CCACHE_PARAMS "CCACHE_CPP2=yes CCACHE_HASHDIR=yes CCACHE_SLOPPINESS=pch_defines,time_macros"
         CACHE STRING "Parameters to pass through to ccache")
 
-    if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+    if(NOT CMAKE_HOST_WIN32)
       set(CCACHE_PROGRAM "${LLVM_CCACHE_PARAMS} ${CCACHE_PROGRAM}")
       if (LLVM_CCACHE_MAXSIZE)
         set(CCACHE_PROGRAM "CCACHE_MAXSIZE=${LLVM_CCACHE_MAXSIZE} ${CCACHE_PROGRAM}")
@@ -302,8 +315,15 @@ if(LLVM_CCACHE_BUILD)
       endif()
       set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${CCACHE_PROGRAM})
     else()
+      # Until a way to reliably configure ccache on Windows is found,
+      # disable precompiled headers for Windows + ccache builds
+      if(NOT CMAKE_DISABLE_PRECOMPILE_HEADERS)
+        message(WARNING "Using ccache with precompiled headers on Windows is currently not supported.
+          CMAKE_DISABLE_PRECOMPILE_HEADERS will be set to ON.")
+        set(CMAKE_DISABLE_PRECOMPILE_HEADERS "ON")
+      endif()
       if(LLVM_CCACHE_MAXSIZE OR LLVM_CCACHE_DIR OR
-         NOT LLVM_CCACHE_PARAMS MATCHES "CCACHE_CPP2=yes CCACHE_HASHDIR=yes")
+         NOT LLVM_CCACHE_PARAMS MATCHES "CCACHE_CPP2=yes CCACHE_HASHDIR=yes CCACHE_SLOPPINESS=pch_defines,time_macros")
         message(FATAL_ERROR "Ccache configuration through CMake is not supported on Windows. Please use environment variables.")
       endif()
       # RULE_LAUNCH_COMPILE should work with Ninja but currently has issues
@@ -587,6 +607,10 @@ if (CMAKE_SYSTEM_NAME MATCHES "OS390")
 else()
   option(LLVM_ENABLE_THREADS "Use threads if available." ON)
 endif()
+
+set(LLVM_ENABLE_ICU "OFF" CACHE STRING "Use ICU for text encoding conversion support if available. Can be ON, OFF, or FORCE_ON")
+
+set(LLVM_ENABLE_ICONV "OFF" CACHE STRING "Use iconv for text encoding conversion support if available. Can be ON, OFF, or FORCE_ON")
 
 set(LLVM_ENABLE_ZLIB "ON" CACHE STRING "Use zlib for compression/decompression if available. Can be ON, OFF, or FORCE_ON")
 
@@ -972,22 +996,21 @@ endif()
 set(LLVM_TARGET_TRIPLE_ENV CACHE STRING "The name of environment variable to override default target. Disabled by blank.")
 mark_as_advanced(LLVM_TARGET_TRIPLE_ENV)
 
-#if(CMAKE_SYSTEM_NAME MATCHES "BSD|Linux|OS390")
-#  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default ON)
-#else()
-#  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default OFF)
-#endif()
-#set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR ${LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default} CACHE BOOL
-#  "Enable per-target runtimes directory")
-set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR OFF CACHE BOOL
+if(CMAKE_SYSTEM_NAME MATCHES "BSD|Linux|OS390|AIX")
+  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default ON)
+else()
+  set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default OFF)
+endif()
+set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default OFF)
+set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR ${LLVM_ENABLE_PER_TARGET_RUNTIME_DIR_default} CACHE BOOL
   "Enable per-target runtimes directory")
 
 set(LLVM_PROFDATA_FILE "" CACHE FILEPATH
   "Profiling data file to use when compiling in order to improve runtime performance.")
 
 if(LLVM_INCLUDE_TESTS)
-  # Lit test suite requires at least python 3.6
-  set(LLVM_MINIMUM_PYTHON_VERSION 3.6)
+  # All LLVM Python files should be compatible down to this minimum version.
+  set(LLVM_MINIMUM_PYTHON_VERSION 3.8)
 else()
   # FIXME: it is unknown if this is the actual minimum bound
   set(LLVM_MINIMUM_PYTHON_VERSION 3.0)
@@ -1181,13 +1204,16 @@ if (NOT TENSORFLOW_AOT_PATH STREQUAL "")
 
 endif()
 
-# Configure the three LLVM configuration header files.
+# Configure the LLVM configuration header files.
 configure_file(
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Config/config.h.cmake
   ${LLVM_INCLUDE_DIR}/llvm/Config/config.h)
 configure_file(
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Config/llvm-config.h.cmake
   ${LLVM_INCLUDE_DIR}/llvm/Config/llvm-config.h)
+configure_file(
+  ${LLVM_MAIN_INCLUDE_DIR}/llvm/Config/Targets.h.cmake
+  ${LLVM_INCLUDE_DIR}/llvm/Config/Targets.h)
 configure_file(
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Config/abi-breaking.h.cmake
   ${LLVM_INCLUDE_DIR}/llvm/Config/abi-breaking.h)
@@ -1416,7 +1442,8 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
 
   # Installing the headers needs to depend on generating any public
   # tablegen'd headers.
-  add_custom_target(llvm-headers DEPENDS intrinsics_gen omp_gen)
+  add_custom_target(llvm-headers)
+  add_dependencies(llvm-headers intrinsics_gen omp_gen target_parser_gen)
   set_target_properties(llvm-headers PROPERTIES FOLDER "LLVM/Resources")
 
   if (NOT LLVM_ENABLE_IDE)
