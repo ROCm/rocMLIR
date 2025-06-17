@@ -22,6 +22,8 @@
 
 #include "hip/hip_runtime_api.h"
 
+#define DEBUG_TYPE "rock-amd-arch-db"
+
 using namespace mlir;
 using namespace mlir::rock;
 
@@ -105,9 +107,9 @@ template <typename LHS, typename RHS>
 std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
 checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
   if (lhs != static_cast<LHS>(rhs)) {
-    llvm::outs() << "NOTE: Value discrepancy for " << name << ": " << lhs
-                 << " (old) != " << rhs << " (new). Proceeding with " << rhs
-                 << ".\n";
+    LLVM_DEBUG(llvm::dbgs() << "NOTE: Value discrepancy for " << name << ": "
+                            << lhs << " (old) != " << rhs
+                            << " (new). Proceeding with " << rhs << ".\n");
     lhs = std::forward<RHS>(rhs);
   }
 }
@@ -168,18 +170,7 @@ createTargetMachine(StringRef chip, StringRef featureString = "") {
       target->createTargetMachine(triple, chip, featureString, {}, {}, {})));
 }
 
-AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
-  llvm::outs() << "Fetching native arch info for device " << deviceId
-               << "...\n";
-
-  hipDeviceProp_t prop;
-  if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
-    auto reason = "hipGetDeviceProperties failed with error: " +
-                  std::string(hipGetErrorString(err));
-    llvm::report_fatal_error(reason.c_str());
-  }
-
-  llvm::outs() << "gcnArchName: " << prop.gcnArchName << "\n";
+AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop) {
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
 
   checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, prop.multiProcessorCount);
@@ -256,9 +247,34 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
     }
   }
 
-  // TODO check and set maxNumXCC
-
   return ret;
+}
+
+AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
+  static std::mutex m;
+  static std::unordered_map<std::string, AmdArchInfo> cache;
+
+  LLVM_DEBUG(llvm::dbgs() << "Retrieving native arch info for device "
+                          << deviceId << "...\n");
+
+  hipDeviceProp_t prop;
+  if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
+    auto reason = "hipGetDeviceProperties failed with error: " +
+                  std::string(hipGetErrorString(err));
+    llvm::report_fatal_error(reason.c_str());
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << prop.gcnArchName << "\n");
+
+  std::lock_guard<std::mutex> lock(m);
+
+  auto it = cache.find(prop.gcnArchName);
+  if (it == cache.end()) {
+    LLVM_DEBUG(llvm::dbgs() << "Cache miss! Fetching native arch info...\n");
+    it = cache.emplace(prop.gcnArchName, fetchNativeArchInfo(prop)).first;
+  }
+
+  return it->second;
 }
 
 } // anonymous namespace
@@ -266,12 +282,9 @@ AmdArchInfo fetchNativeArchInfo(unsigned deviceId = 0) {
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
-  if (arch.empty()) {
-    return gcnInfo;
-  }
   auto [chip, deviceId] = parseArchString(arch);
   if (chip == "native") {
-    return fetchNativeArchInfo(deviceId);
+    return nativeArchInfo(deviceId);
   }
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
