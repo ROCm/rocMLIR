@@ -9,7 +9,6 @@
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 
 #include "gtest/gtest.h"
-#include "gtest/internal/gtest-internal.h"
 
 #include "hip/hip_runtime_api.h"
 

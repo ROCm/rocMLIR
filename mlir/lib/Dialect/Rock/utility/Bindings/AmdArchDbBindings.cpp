@@ -13,10 +13,6 @@
 
 namespace py = pybind11;
 
-mlir::rock::AmdArchInfo lookupArchInfoWrapper(const std::string &arch) {
-  return mlir::rock::lookupArchInfo(arch);
-}
-
 PYBIND11_MODULE(amd_arch_db, m) {
   m.doc() = "Database of AMD GPU features";
 
@@ -51,5 +47,7 @@ PYBIND11_MODULE(amd_arch_db, m) {
                     &mlir::rock::AmdArchInfo::hasOcpFp8ConversionInstrs)
       .def_readonly("max_num_xcc", &mlir::rock::AmdArchInfo::maxNumXCC);
 
-  m.def("lookup_arch_info", &lookupArchInfoWrapper);
+  m.def("lookup_arch_info", [](const std::string &arch) {
+    return mlir::rock::lookupArchInfo(arch);
+  });
 }
