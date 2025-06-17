@@ -97,7 +97,8 @@ public:
   HardClauseType getHardClauseType(const MachineInstr &MI) {
     if (MI.mayLoad() || (MI.mayStore() && ST->shouldClusterStores())) {
       if (ST->getGeneration() == AMDGPUSubtarget::GFX10) {
-        if (SIInstrInfo::isVMEM(MI) || SIInstrInfo::isSegmentSpecificFLAT(MI)) {
+        if ((SIInstrInfo::isVMEM(MI) && !SIInstrInfo::isFLAT(MI)) ||
+            SIInstrInfo::isSegmentSpecificFLAT(MI)) {
           if (ST->hasNSAClauseBug()) {
             const AMDGPU::MIMGInfo *Info = AMDGPU::getMIMGInfo(MI.getOpcode());
             if (Info && Info->MIMGEncoding == AMDGPU::MIMGEncGfx10NSA)
@@ -115,13 +116,14 @@ public:
               AMDGPU::getMIMGBaseOpcodeInfo(Info->BaseOpcode);
           if (BaseInfo->BVH)
             return HARDCLAUSE_BVH;
-          if (BaseInfo->Sampler)
+          if (BaseInfo->Sampler || BaseInfo->MSAA)
             return HARDCLAUSE_MIMG_SAMPLE;
           return MI.mayLoad() ? MI.mayStore() ? HARDCLAUSE_MIMG_ATOMIC
                                               : HARDCLAUSE_MIMG_LOAD
                               : HARDCLAUSE_MIMG_STORE;
         }
-        if (SIInstrInfo::isVMEM(MI) || SIInstrInfo::isSegmentSpecificFLAT(MI)) {
+        if ((SIInstrInfo::isVMEM(MI) && !SIInstrInfo::isFLAT(MI)) ||
+            SIInstrInfo::isSegmentSpecificFLAT(MI)) {
           return MI.mayLoad() ? MI.mayStore() ? HARDCLAUSE_VMEM_ATOMIC
                                               : HARDCLAUSE_VMEM_LOAD
                               : HARDCLAUSE_VMEM_STORE;
@@ -167,6 +169,35 @@ public:
     SmallVector<const MachineOperand *, 4> BaseOps;
   };
 
+  void substituteDebugInstrNumbersToBundleHeader(MachineInstr &FirstInBundle) {
+    auto *MBB = FirstInBundle.getParent();
+    auto *MF = MBB->getParent();
+
+    // Make a map from registers defined within the bundle to their defining
+    // debug instruction number and operand.
+    DenseMap<Register, std::pair<unsigned, unsigned>> RegDefs;
+    for (const MachineOperand &Op : const_mi_bundle_ops(FirstInBundle)) {
+      const MachineInstr &MI = *Op.getParent();
+      if (!MI.isBundle() && Op.isReg() && Op.isDef())
+        RegDefs[Op.getReg()] = {MI.peekDebugInstrNum(), Op.getOperandNo()};
+    }
+
+    MachineInstr &BundleHeader = *std::prev(FirstInBundle.getIterator());
+    for (const MachineOperand &HeaderOp : BundleHeader.operands()) {
+      if (!HeaderOp.isReg() || !HeaderOp.isDef() || HeaderOp.isDead())
+        continue;
+      auto It = RegDefs.find(HeaderOp.getReg());
+      if (It == RegDefs.end())
+        continue;
+      auto [DINum, OpNum] = It->second;
+      if (DINum == 0)
+        continue;
+      MF->makeDebugValueSubstitution(
+          {DINum, OpNum},
+          {BundleHeader.getDebugInstrNum(), HeaderOp.getOperandNo()});
+    }
+  }
+
   bool emitClause(const ClauseInfo &CI, const SIInstrInfo *SII) {
     if (CI.First == CI.Last)
       return false;
@@ -174,11 +205,25 @@ public:
            "Hard clause is too long!");
 
     auto &MBB = *CI.First->getParent();
+    bool NeedDebugSubs = false;
+    // Move debug instructions before the bundle and check if debug
+    // substitutions need to be added to the bundle header.
+    for (auto It = CI.First->getIterator(),
+              E = std::next(CI.Last->getIterator());
+         It != E;) {
+      auto MI = It++;
+      if (MI->isDebugInstr())
+        MBB.splice(CI.First, &MBB, MI);
+      else if (MI->peekDebugInstrNum() != 0)
+        NeedDebugSubs = true;
+    }
     auto ClauseMI =
         BuildMI(MBB, *CI.First, DebugLoc(), SII->get(AMDGPU::S_CLAUSE))
             .addImm(CI.Length - 1);
     finalizeBundle(MBB, ClauseMI->getIterator(),
                    std::next(CI.Last->getIterator()));
+    if (NeedDebugSubs)
+      substituteDebugInstrNumbersToBundleHeader(*ClauseMI);
     return true;
   }
 
@@ -199,7 +244,7 @@ public:
 
         int64_t Dummy1;
         bool Dummy2;
-        LocationSize Dummy3 = 0;
+        LocationSize Dummy3 = LocationSize::precise(0);
         SmallVector<const MachineOperand *, 4> BaseOps;
         if (Type <= LAST_REAL_HARDCLAUSE_TYPE) {
           if (!SII->getMemOperandsWithOffsetWidth(MI, BaseOps, Dummy1, Dummy2,

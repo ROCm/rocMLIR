@@ -91,7 +91,12 @@ can be any compiler supporting the same ABI.
 In addition to the compiler, the build must be able to find LLVM development
 tools such as `lit` and `FileCheck` that are not found in an LLVM's install
 directory. Use `CMAKE_BINARY_DIR` to point to directory where LLVM has
-been built. A simple build configuration might look like the following:
+been built. When building Flang as part of a bootstrapping build
+(`LLVM_ENABLE_PROJECTS=flang`), Flang-RT is automatically added
+unless configured with `-DFLANG_ENABLE_FLANG_RT=OFF`. Add that option to avoid
+having two conflicting versions of the same library.
+
+A simple build configuration might look like the following:
 
 ```bash
 cmake -S <path-to-llvm-project-source>/runtimes              \
@@ -158,6 +163,11 @@ CMake itself provide.
    requires a
    [CUDA Toolkit installation](https://cmake.org/cmake/help/latest/module/FindCUDAToolkit.html)
    (no `CMAKE_CUDA_COMPILER`).
+
+ * `FLANG_RT_INCLUDE_AMD` (bool, default: `OFF`)
+
+   Compiles the `libflang_rt.a/.so` library with special support for AMD
+   Instinct(tm) Accelerators.
 
 
 ### Experimental CUDA Support

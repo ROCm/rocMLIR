@@ -16,11 +16,9 @@
 #include "Arch/Sparc.h"
 #include "Arch/SystemZ.h"
 #include "CommonArgs.h"
-#include "Linux.h"
 #include "clang/Config/config.h" // for GCC_INSTALL_PREFIX
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
-#include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/MultilibBuilder.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/Tool.h"
@@ -529,22 +527,9 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
 
-  if (D.isUsingLTO()) {
-    assert(!Inputs.empty() && "Must have at least one input.");
-    // Find the first filename InputInfo object.
-    auto Input = llvm::find_if(
-        Inputs, [](const InputInfo &II) -> bool { return II.isFilename(); });
-    if (Input == Inputs.end())
-      // For a very rare case, all of the inputs to the linker are
-      // InputArg. If that happens, just use the first InputInfo.
-      Input = Inputs.begin();
-
-    addLTOOptions(ToolChain, Args, CmdArgs, Output, *Input,
+  if (D.isUsingLTO())
+    addLTOOptions(ToolChain, Args, CmdArgs, Output, Inputs,
                   D.getLTOMode() == LTOK_Thin);
-  }
-  bool ProprietaryToolChain =
-    checkForAMDProprietaryOptOptions(ToolChain, D, Args, CmdArgs,
-	                             true /*isLLD*/);
 
   if (Args.hasArg(options::OPT_Z_Xlinker__no_demangle))
     CmdArgs.push_back("--no-demangle");
@@ -684,25 +669,14 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.addAllArgs(CmdArgs, {options::OPT_T, options::OPT_t});
 
-  // if a linker other than ld.lld is specified, dont use closed ld.lld.
-  if (Args.hasArg(options::OPT_fuse_ld_EQ)) {
-    StringRef LinkerName = Args.getLastArgValue(options::OPT_fuse_ld_EQ, "ld");
-    if (!LinkerName.equals_insensitive("lld"))
-      ProprietaryToolChain = false;
-  }
-
-  std::string AltPath = D.getInstalledDir();
-  AltPath += "/../alt/bin/ld.lld";
-  const char *Exec = ProprietaryToolChain
-         ? Args.MakeArgString(AltPath.c_str())
-         : Args.MakeArgString(ToolChain.GetLinkerPath());
+  const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
 
   // Check if linker has a corresponding LLVM IR assembler. If so, disassemble
   // bitcode using current disassembler and then use assembler from linker's
   // release to mask potential bitcode incompatibilities from different LLVM
   // versions or releases. This fixes things like differences in number of
   // integer attributes or anything where bitcodes may not match.
-  if (D.isUsingLTO() || ProprietaryToolChain) {
+  if (D.isUsingLTO()) {
     StringRef execSR(Exec);
     std::string as_fn =
         execSR.substr(0, execSR.find_last_of("/") + 1).str() + "llvm-as";
@@ -2684,6 +2658,22 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
     case llvm::Triple::x86:
       LibDirs.append(begin(X86LibDirs), end(X86LibDirs));
       TripleAliases.push_back("i686-gnu");
+      break;
+    default:
+      break;
+    }
+
+    return;
+  }
+
+  if (TargetTriple.isWindowsCygwinEnvironment()) {
+    LibDirs.push_back("/lib");
+    switch (TargetTriple.getArch()) {
+    case llvm::Triple::x86_64:
+      TripleAliases.append({"x86_64-pc-cygwin", "x86_64-pc-msys"});
+      break;
+    case llvm::Triple::x86:
+      TripleAliases.append({"i686-pc-cygwin", "i686-pc-msys"});
       break;
     default:
       break;

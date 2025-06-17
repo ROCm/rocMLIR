@@ -165,7 +165,7 @@ def Rock_GemmOp :
     transposed. For example, if `aTransposed` is set, then the argument A should be
     a [G] x K x M memory.
 
-    Those creating a `rock.gemm` must specify the GPU architecture being targetted
+    Those creating a `rock.gemm` must specify the GPU architecture being targeted
     and the number of compute units (numCu) available. The parameters
     `derivedBlockSize`, `gridSize`, and `params` are optional as they can be inferred by
     a tuning process or a heuristic, but they must be set before the `gemm` is
@@ -215,10 +215,11 @@ def Rock_AttentionOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
-          TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$qTransposed,
-          UnitAttr:$kTransposed, UnitAttr:$vTransposed, UnitAttr:$oTransposed,
-          UnitAttr:$causal, StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
-          OptionalAttr<I32Attr>:$numCU,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$out,
+          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
+          UnitAttr:$qTransposed, UnitAttr:$kTransposed, UnitAttr:$vTransposed,
+          UnitAttr:$oTransposed, UnitAttr:$causal, StrAttr:$arch,
+          Rock_GemmFeaturesAttr:$features, OptionalAttr<I32Attr>:$numCU,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           I32Attr:$firstGemmIdx)>,
@@ -240,7 +241,9 @@ def Rock_AttentionOp
 
     If causal is enabled, we implement causal masking.
 
-    Those creating a `rock.attention` must specify the GPU architecture being targetted
+    LSE (log-sum-exp) is an optional output typically used for flash decoding.
+
+    Those creating a `rock.attention` must specify the GPU architecture being targeted
     and the number of compute units (numCu) available. The parameters
     `gridSize`, and `blockSize` are optional as they can be inferred by
     a tuning process or a heuristic, but they must be set before the `attention` is
@@ -255,6 +258,7 @@ def Rock_AttentionOp
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
         (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
         (`causal` `\n` $causal^)?
+        (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
         (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
     `}` attr-dict (`->` type($result)^)?
@@ -294,7 +298,7 @@ def Rock_GemmElementwiseGemmOp
     transposed. For example, if `aTransposed` is set, then the argument `a` should be
     a [G] x K x M memory.
 
-    Those creating a `rock.gemm_elementwise_gemm` must specify the GPU architecture being targetted
+    Those creating a `rock.gemm_elementwise_gemm` must specify the GPU architecture being targeted
     and the number of compute units (numCu) available. The parameters
     `gridSize`, and `blockSize` are optional as they can be inferred by
     a tuning process or a heuristic, but they must be set before the `gemm_elementwise_gemm` is
@@ -346,7 +350,7 @@ def Rock_ConvElementwiseGemmOp
     transposed. For example, if `cTransposed` is set, then the argument `c` should be
     a [G] x O x M memory.
 
-    Those creating a `rock.conv_elementwise_gemm` must specify the GPU architecture being targetted
+    Those creating a `rock.conv_elementwise_gemm` must specify the GPU architecture being targeted
     and the number of compute units (numCu) available. The parameters
     `gridSize`, and `blockSize` are optional as they can be inferred by
     a tuning process or a heuristic, but they must be set before the `conv_elementwise_gemm` is
@@ -551,7 +555,8 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
-          MemRefRankOf<[F32, F16, BF16], [3]>:$out, UnitAttr:$causal,
+          MemRefRankOf<[F32, F16, BF16], [3]>:$out,
+          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
           StrAttr:$arch, Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
           I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
           OptionalAttr<IndexAttr>:$prePadG0M,
