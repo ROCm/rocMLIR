@@ -1,4 +1,4 @@
-Comgr v4.0 Release Notes
+Comgr v4.0 (In Progress) Release Notes
 ========================
 
 This document contains the release notes for the Code Object Manager (Comgr),
@@ -38,8 +38,9 @@ Bug Fixes
 New APIs
 --------
 - amd\_comgr\_info\_set\_vfs\_() (v3.1)
-    - By setting this ActionInfo property, a user can explicitly dictate if
-    device libraries should be linked using a Virtual File System (VFS).
+    - By setting this ActionInfo property, users can explicitly dictate if
+    device libraries should be linked using the real file system or a
+    Virtual File System (VFS).
 
 Deprecated APIs
 ---------------
@@ -60,9 +61,10 @@ Comgr Testing, Debugging, and Logging Updates
 ---------------------------------------------
 - Removed HIP\_PATH and ROCM\_PATH environment variables. These were used for
 now-removed Comgr actions, such as \*COMPILE\_SOURCE\_TO\_FATBIN.
-- Added a new Comgr LIT testing infrastrucutre, which can be found in
+- Added a new Comgr LIT testing infrastructure, which can be found in
 amd/comgr/test-lit. This will allow us to write more in-depth and targeted
 tests.
+- Added support for source-based code coverage. See README.md for more details.
 
 New Targets
 -----------

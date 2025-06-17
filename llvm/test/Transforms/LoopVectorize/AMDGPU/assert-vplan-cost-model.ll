@@ -24,35 +24,35 @@ define protected amdgpu_kernel void @func_int8(ptr addrspace(1) %p_a_grid.coerce
 ; CHECK-NEXT:    [[N_VEC:%.*]] = sub i32 [[K]], [[N_MOD_VF]]
 ; CHECK-NEXT:    br label %[[VECTOR_BODY:.*]]
 ; CHECK:       [[VECTOR_BODY]]:
-; CHECK-NEXT:    [[TMP0:%.*]] = phi i32 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY]] ]
-; CHECK-NEXT:    [[VEC_PHI:%.*]] = phi <2 x i32> [ zeroinitializer, %[[VECTOR_PH]] ], [ [[TMP12:%.*]], %[[VECTOR_BODY]] ]
-; CHECK-NEXT:    [[TMP1:%.*]] = add nsw i32 [[TMP0]], [[MUL15]]
-; CHECK-NEXT:    [[TMP2:%.*]] = add nsw i32 [[TMP0]], [[MUL17]]
-; CHECK-NEXT:    [[TMP3:%.*]] = sext i32 [[TMP1]] to i64
-; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[P_A_GRID_COERCE]], i64 [[TMP3]]
-; CHECK-NEXT:    [[TMP5:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[TMP4]], i32 0
-; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <2 x i8>, ptr addrspace(1) [[TMP5]], align 1
-; CHECK-NEXT:    [[TMP6:%.*]] = sext i32 [[TMP2]] to i64
-; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[P_B_GRID_COERCE]], i64 [[TMP6]]
-; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[TMP7]], i32 0
-; CHECK-NEXT:    [[WIDE_LOAD1:%.*]] = load <2 x i8>, ptr addrspace(1) [[TMP8]], align 1
-; CHECK-NEXT:    [[TMP9:%.*]] = zext <2 x i8> [[WIDE_LOAD]] to <2 x i32>
-; CHECK-NEXT:    [[TMP10:%.*]] = zext <2 x i8> [[WIDE_LOAD1]] to <2 x i32>
-; CHECK-NEXT:    [[TMP11:%.*]] = mul nuw nsw <2 x i32> [[TMP10]], [[TMP9]]
-; CHECK-NEXT:    [[TMP12]] = add <2 x i32> [[TMP11]], [[VEC_PHI]]
-; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i32 [[TMP0]], 2
-; CHECK-NEXT:    [[TMP13:%.*]] = icmp eq i32 [[INDEX_NEXT]], [[N_VEC]]
-; CHECK-NEXT:    br i1 [[TMP13]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP0:![0-9]+]]
+; CHECK-NEXT:    [[INDEX:%.*]] = phi i32 [ 0, %[[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], %[[VECTOR_BODY]] ]
+; CHECK-NEXT:    [[VEC_PHI:%.*]] = phi <2 x i32> [ zeroinitializer, %[[VECTOR_PH]] ], [ [[TMP11:%.*]], %[[VECTOR_BODY]] ]
+; CHECK-NEXT:    [[TMP0:%.*]] = add nsw i32 [[INDEX]], [[MUL15]]
+; CHECK-NEXT:    [[TMP1:%.*]] = add nsw i32 [[INDEX]], [[MUL17]]
+; CHECK-NEXT:    [[TMP2:%.*]] = sext i32 [[TMP0]] to i64
+; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[P_A_GRID_COERCE]], i64 [[TMP2]]
+; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[TMP3]], i32 0
+; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <2 x i8>, ptr addrspace(1) [[TMP4]], align 1
+; CHECK-NEXT:    [[TMP5:%.*]] = sext i32 [[TMP1]] to i64
+; CHECK-NEXT:    [[TMP6:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[P_B_GRID_COERCE]], i64 [[TMP5]]
+; CHECK-NEXT:    [[TMP7:%.*]] = getelementptr inbounds i8, ptr addrspace(1) [[TMP6]], i32 0
+; CHECK-NEXT:    [[WIDE_LOAD1:%.*]] = load <2 x i8>, ptr addrspace(1) [[TMP7]], align 1
+; CHECK-NEXT:    [[TMP8:%.*]] = zext <2 x i8> [[WIDE_LOAD]] to <2 x i32>
+; CHECK-NEXT:    [[TMP9:%.*]] = zext <2 x i8> [[WIDE_LOAD1]] to <2 x i32>
+; CHECK-NEXT:    [[TMP10:%.*]] = mul nuw nsw <2 x i32> [[TMP9]], [[TMP8]]
+; CHECK-NEXT:    [[TMP11]] = add <2 x i32> [[TMP10]], [[VEC_PHI]]
+; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i32 [[INDEX]], 2
+; CHECK-NEXT:    [[TMP12:%.*]] = icmp eq i32 [[INDEX_NEXT]], [[N_VEC]]
+; CHECK-NEXT:    br i1 [[TMP12]], label %[[MIDDLE_BLOCK:.*]], label %[[VECTOR_BODY]], !llvm.loop [[LOOP0:![0-9]+]]
 ; CHECK:       [[MIDDLE_BLOCK]]:
-; CHECK-NEXT:    [[TMP14:%.*]] = call i32 @llvm.vector.reduce.add.v2i32(<2 x i32> [[TMP12]])
+; CHECK-NEXT:    [[TMP13:%.*]] = call i32 @llvm.vector.reduce.add.v2i32(<2 x i32> [[TMP11]])
 ; CHECK-NEXT:    [[CMP_N:%.*]] = icmp eq i32 [[K]], [[N_VEC]]
 ; CHECK-NEXT:    br i1 [[CMP_N]], label %[[FOR_COND_CLEANUP_LOOPEXIT:.*]], label %[[SCALAR_PH]]
 ; CHECK:       [[SCALAR_PH]]:
 ; CHECK-NEXT:    [[BC_RESUME_VAL:%.*]] = phi i32 [ [[N_VEC]], %[[MIDDLE_BLOCK]] ], [ 0, %[[FOR_BODY_LR_PH]] ]
-; CHECK-NEXT:    [[BC_MERGE_RDX:%.*]] = phi i32 [ [[TMP14]], %[[MIDDLE_BLOCK]] ], [ 0, %[[FOR_BODY_LR_PH]] ]
+; CHECK-NEXT:    [[BC_MERGE_RDX:%.*]] = phi i32 [ [[TMP13]], %[[MIDDLE_BLOCK]] ], [ 0, %[[FOR_BODY_LR_PH]] ]
 ; CHECK-NEXT:    br label %[[FOR_BODY:.*]]
 ; CHECK:       [[FOR_COND_CLEANUP_LOOPEXIT]]:
-; CHECK-NEXT:    [[ADD24_LCSSA:%.*]] = phi i32 [ [[ADD24:%.*]], %[[FOR_BODY]] ], [ [[TMP14]], %[[MIDDLE_BLOCK]] ]
+; CHECK-NEXT:    [[ADD24_LCSSA:%.*]] = phi i32 [ [[ADD24:%.*]], %[[FOR_BODY]] ], [ [[TMP13]], %[[MIDDLE_BLOCK]] ]
 ; CHECK-NEXT:    [[TMP15:%.*]] = trunc i32 [[ADD24_LCSSA]] to i8
 ; CHECK-NEXT:    br label %[[FOR_COND_CLEANUP]]
 ; CHECK:       [[FOR_COND_CLEANUP]]:

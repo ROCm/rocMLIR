@@ -226,9 +226,10 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
 
   // Register the images with the RTLs that understand them, if any.
   bool FoundCompatibleImage = false;
-  for (DeviceImageTy &DI : PM->deviceImages()) {
+  llvm::DenseMap<GenericPluginTy *, llvm::DenseSet<int32_t>> UsedDevices;
+  for (int32_t i = 0; i < Desc->NumDeviceImages; ++i) {
     // Obtain the image and information that was previously extracted.
-    __tgt_device_image *Img = &DI.getExecutableImage();
+    __tgt_device_image *Img = &Desc->DeviceImages[i];
 
     GenericPluginTy *FoundRTL = nullptr;
 
@@ -247,6 +248,17 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
       }
 
       for (int32_t DeviceId = 0; DeviceId < R.number_of_devices(); ++DeviceId) {
+        // We only want a single matching image to be registered for each binary
+        // descriptor. This prevents multiple of the same image from being
+        // registered for the same device in the case that they are mutually
+        // compatible, such as sm_80 and sm_89.
+        if (UsedDevices[&R].contains(DeviceId)) {
+          DP("Image " DPxMOD
+             " is a duplicate, not loaded on RTL %s device %d!\n",
+             DPxPTR(Img->ImageStart), R.getName(), DeviceId);
+          continue;
+        }
+
         if (!R.is_device_compatible(DeviceId, Img))
           continue;
 
@@ -285,6 +297,8 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
         // Register the image for this target type and invalidate the table.
         TT.TargetsImages[UserId] = Img;
         TT.TargetsTable[UserId] = nullptr;
+
+        UsedDevices[&R].insert(DeviceId);
         PM->TrlTblMtx.unlock();
         FoundRTL = &R;
       }
@@ -315,19 +329,17 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
 
   PM->RTLsMtx.unlock();
 
-  bool UseAutoZeroCopy = Plugins.size() > 0;
   bool IsAPU = Plugins.size() > 0;
 
+  bool UseAutoZeroCopy = false;
   auto ExclusiveDevicesAccessor = getExclusiveDevicesAccessor();
-  for (const auto &Device : *ExclusiveDevicesAccessor) {
-    UseAutoZeroCopy &= Device->useAutoZeroCopy();
-    IsAPU &= Device->checkIfAPU();
+  // APUs are homogeneous set of GPUs. Check the first device for
+  // configuring Auto Zero-Copy.
+  if (ExclusiveDevicesAccessor->size() > 0) {
+    auto &Device = *(*ExclusiveDevicesAccessor)[0];
+    UseAutoZeroCopy = Device.useAutoZeroCopy();
   }
 
-  // Auto Zero-Copy can only be currently triggered when the system is an
-  // homogeneous APU architecture without attached discrete GPUs.
-  // If all devices suggest to use it, change requirement flags to trigger
-  // zero-copy behavior when mapping memory.
   if (UseAutoZeroCopy)
     addRequirements(OMPX_REQ_AUTO_ZERO_COPY);
 
@@ -608,9 +620,9 @@ Expected<DeviceTy &> PluginManager::getDevice(uint32_t DeviceNo) {
   {
     auto ExclusiveDevicesAccessor = getExclusiveDevicesAccessor();
     if (DeviceNo >= ExclusiveDevicesAccessor->size())
-      return createStringError(
-          inconvertibleErrorCode(),
-          "Device number '%i' out of range, only %i devices available",
+      return error::createOffloadError(
+          error::ErrorCode::INVALID_VALUE,
+          "device number '%i' out of range, only %i devices available",
           DeviceNo, ExclusiveDevicesAccessor->size());
 
     DevicePtr = &*(*ExclusiveDevicesAccessor)[DeviceNo];
@@ -619,8 +631,8 @@ Expected<DeviceTy &> PluginManager::getDevice(uint32_t DeviceNo) {
   // Check whether global data has been mapped for this device
   if (DevicePtr->hasPendingImages())
     if (loadImagesOntoDevice(*DevicePtr) != OFFLOAD_SUCCESS)
-      return createStringError(inconvertibleErrorCode(),
-                               "Failed to load images on device '%i'",
-                               DeviceNo);
+      return error::createOffloadError(error::ErrorCode::BACKEND_FAILURE,
+                                       "failed to load images on device '%i'",
+                                       DeviceNo);
   return *DevicePtr;
 }
