@@ -1033,6 +1033,30 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
               *actualDataAttr == common::CUDADataAttr::Managed)) {
         actualDataAttr = common::CUDADataAttr::Device;
       }
+      // For device procedures, treat actual arguments with VALUE attribute as
+      // device data
+      if (!actualDataAttr && actualLastSymbol && IsValue(*actualLastSymbol) &&
+          (*procedure.cudaSubprogramAttrs ==
+              common::CUDASubprogramAttrs::Device)) {
+        actualDataAttr = common::CUDADataAttr::Device;
+      }
+    }
+    if (dummyDataAttr == common::CUDADataAttr::Device &&
+        (dummyIsAssumedShape || dummyIsAssumedRank) &&
+        !dummy.ignoreTKR.test(common::IgnoreTKR::Contiguous)) {
+      if (auto contig{evaluate::IsContiguous(actual, foldingContext,
+              /*namedConstantSectionsAreContiguous=*/true,
+              /*firstDimensionStride1=*/true)}) {
+        if (!*contig) {
+          messages.Say(
+              "actual argument associated with assumed shape/rank device %s is known to be discontiguous on its first dimension"_err_en_US,
+              dummyName);
+        }
+      } else {
+        messages.Say(
+            "actual argument associated with assumed shape/rank device %s is not known to be contiguous on its first dimension"_warn_en_US,
+            dummyName);
+      }
     }
     if (dummyDataAttr == common::CUDADataAttr::Device &&
         (dummyIsAssumedShape || dummyIsAssumedRank) &&

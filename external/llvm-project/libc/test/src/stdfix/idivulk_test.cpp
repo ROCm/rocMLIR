@@ -6,6 +6,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+<<<<<<<< HEAD:external/llvm-project/libclc/opencl/lib/generic/geometric/fast_normalize.cl
+#include <clc/opencl/clc.h>
+
+_CLC_OVERLOAD _CLC_DEF float fast_normalize(float p) { return normalize(p); }
+
+#define __CLC_BODY <fast_normalize.inc>
+#define __FLOAT_ONLY
+#include <clc/math/gentype.inc>
+#undef __FLOAT_ONLY
+========
 #include "IdivTest.h"
 
 #include "llvm-libc-macros/stdfix-macros.h" // unsigned long accum
@@ -13,3 +23,4 @@
 
 LIST_IDIV_TESTS(ulk, unsigned long accum, unsigned long int,
                 LIBC_NAMESPACE::idivulk);
+>>>>>>>> 65badf35006dbef6b7f3103aabcb23a348f44c59:external/llvm-project/libc/test/src/stdfix/idivulk_test.cpp
