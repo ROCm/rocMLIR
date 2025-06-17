@@ -5,9 +5,9 @@ Usage:
     python3 attentionSweeps.py --mlir-build-dir <path-to-mlir-build-dir> [options]
 
 Options:
-    --mlir-build-dir    Path to the MLIR build directory (required)
+    --mlir-build-dir    Path to the MLIR build directory (default: auto-detected)
     --samples           Number of random configuration samples to the test (default: 1000)
-    --jobs              Number of concurrent tests to run in parallel (default: 4)
+    --jobs              Number of concurrent tests to run in parallel (default: os.cpu_count())
     --debug             Enable debug output
     --quiet             Disable per-test result output
     --log-failures      Save failing configurations to csv file
@@ -31,12 +31,13 @@ from perfRunner import Paths
 from perfRunner import getArch
 from perfRunner import getNumCU
 from perfRunner import create_paths as createPaths
+from perfRunner import find_mlir_build_dir as findMlirBuildDir
+from perfRunner import DATA_TYPES_ATTENTION
+from perfRunner import GFX_CHIP_RE
 
 # GLOBAL VARIABLES
-DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
-GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 
 # Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
@@ -364,7 +365,7 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--jobs', type=int, default=os.cpu_count())
-    parser.add_argument('--mlir-build-dir', type=str, required=True)
+    parser.add_argument('--mlir-build-dir', type=str, default=findMlirBuildDir()),
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
 
