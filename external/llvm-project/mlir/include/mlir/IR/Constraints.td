@@ -186,16 +186,6 @@ class PropConstraint<Pred predicate, string summary = "", string interfaceTypePa
   code interfaceType = interfaceTypeParam;
 }
 
-// Subclass for constraints on a property.
-class PropConstraint<Pred predicate, string summary = "", string interfaceTypeParam = ""> :
-    Constraint<predicate, summary> {
-  // The name of the C++ type of $_self, which will be the interface type of the
-  // property being constrained, or "" if it is to be inferred from context.
-  // Note, that leaving the interface type unspecified prevents the constraint from
-  // being uniqued.
-  code interfaceType = interfaceTypeParam;
-}
-
 // Subclass for constraints on a region.
 class RegionConstraint<Pred predicate, string summary = ""> :
     Constraint<predicate, summary>;

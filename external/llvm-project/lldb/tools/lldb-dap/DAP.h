@@ -164,16 +164,6 @@ struct DAP {
   /// Number of lines of assembly code to show when no debug info is available.
   static constexpr uint32_t k_number_of_assembly_lines_for_nodebug = 32;
 
-  /// Keep track of all the modules our client knows about: either through the
-  /// modules request or the module events.
-  /// @{
-  std::mutex modules_mutex;
-  llvm::StringSet<> modules;
-  /// @}
-
-  /// Number of lines of assembly code to show when no debug info is available.
-  static constexpr uint32_t k_number_of_assembly_lines_for_nodebug = 32;
-
   /// Creates a new DAP sessions.
   ///
   /// \param[in] log

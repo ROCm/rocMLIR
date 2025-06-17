@@ -1058,23 +1058,6 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
             dummyName);
       }
     }
-    if (dummyDataAttr == common::CUDADataAttr::Device &&
-        (dummyIsAssumedShape || dummyIsAssumedRank) &&
-        !dummy.ignoreTKR.test(common::IgnoreTKR::Contiguous)) {
-      if (auto contig{evaluate::IsContiguous(actual, foldingContext,
-              /*namedConstantSectionsAreContiguous=*/true,
-              /*firstDimensionStride1=*/true)}) {
-        if (!*contig) {
-          messages.Say(
-              "actual argument associated with assumed shape/rank device %s is known to be discontiguous on its first dimension"_err_en_US,
-              dummyName);
-        }
-      } else {
-        messages.Say(
-            "actual argument associated with assumed shape/rank device %s is not known to be contiguous on its first dimension"_warn_en_US,
-            dummyName);
-      }
-    }
     std::optional<std::string> warning;
     bool isHostDeviceProc{procedure.cudaSubprogramAttrs &&
         *procedure.cudaSubprogramAttrs ==

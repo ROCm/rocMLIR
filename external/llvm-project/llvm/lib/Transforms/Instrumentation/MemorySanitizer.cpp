@@ -5229,16 +5229,6 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       break;
     }
 
-    case Intrinsic::x86_avx512fp16_mask_add_sh_round:
-    case Intrinsic::x86_avx512fp16_mask_sub_sh_round:
-    case Intrinsic::x86_avx512fp16_mask_mul_sh_round:
-    case Intrinsic::x86_avx512fp16_mask_div_sh_round:
-    case Intrinsic::x86_avx512fp16_mask_max_sh_round:
-    case Intrinsic::x86_avx512fp16_mask_min_sh_round: {
-      visitGenericScalarHalfwordInst(I);
-      break;
-    }
-
     case Intrinsic::fshl:
     case Intrinsic::fshr:
       handleFunnelShift(I);

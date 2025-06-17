@@ -9,7 +9,6 @@
 #include "hdr/fcntl_macros.h"
 #include "src/__support/libc_errno.h"
 #include "src/__support/macros/config.h"
-#include "src/errno/libc_errno.h"
 #include "src/fcntl/open.h"
 #include "src/sys/stat/mkdirat.h"
 #include "src/sys/statvfs/fstatvfs.h"
