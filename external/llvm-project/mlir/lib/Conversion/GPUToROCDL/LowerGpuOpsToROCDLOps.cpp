@@ -253,7 +253,8 @@ struct LowerGpuOpsToROCDLOpsPass final
   LowerGpuOpsToROCDLOpsPass() = default;
   LowerGpuOpsToROCDLOpsPass(const std::string &chipset, unsigned indexBitwidth,
                             bool useBarePtrCallConv,
-                            gpu::amd::Runtime runtime) {
+                            gpu::amd::Runtime runtime,
+                            std::optional<llvm::SmallDenseSet<StringRef>> allowedDialects) {
     if (this->chipset.getNumOccurrences() == 0)
       this->chipset = chipset;
     if (this->indexBitwidth.getNumOccurrences() == 0)
@@ -262,6 +263,11 @@ struct LowerGpuOpsToROCDLOpsPass final
       this->useBarePtrCallConv = useBarePtrCallConv;
     if (this->runtime.getNumOccurrences() == 0)
       this->runtime = runtime;
+    if(this->allowedDialects.getNumOccurrences() == 0 && allowedDialects.has_value()) {
+      for (auto &str : allowedDialects.value()) {
+        this->allowedDialects.push_back(str.str());
+      }
+    }
   }
 
   void getDependentDialects(DialectRegistry &registry) const override {
@@ -466,7 +472,8 @@ std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
 mlir::createLowerGpuOpsToROCDLOpsPass(const std::string &chipset,
                                       unsigned indexBitwidth,
                                       bool useBarePtrCallConv,
-                                      gpu::amd::Runtime runtime) {
+                                      gpu::amd::Runtime runtime,
+                                      const std::optional<llvm::SmallDenseSet<StringRef>>& allowedDialects) {
   return std::make_unique<LowerGpuOpsToROCDLOpsPass>(
-      chipset, indexBitwidth, useBarePtrCallConv, runtime);
+      chipset, indexBitwidth, useBarePtrCallConv, runtime, allowedDialects);
 }

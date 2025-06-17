@@ -134,6 +134,7 @@ def Tosa_Conv2DOp : Tosa_ConvOp<"conv2d"> {
     Tosa_IntArrayAttr2:$stride,
     Tosa_IntArrayAttr2:$dilation,
     TypeAttrOf<Tosa_AccType>:$acc_type,
+    OptionalAttr<I64Attr>:$group,
     DefaultValuedOptionalAttr<BoolAttr, "false">:$local_bound
   );
 
@@ -153,8 +154,8 @@ def Tosa_Conv2DOp : Tosa_ConvOp<"conv2d"> {
     LogicalResult verifyWeightZeroPoint(int64_t zp);
   }];
 
-  let builders = [Tosa_ConvOpQuantInfoBuilder];
-
+  let builders = [Tosa_ConvOpQuantInfoBuilder, Tosa_ConvOpGroupQuantBuilder];
+  
   let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }

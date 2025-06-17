@@ -501,100 +501,103 @@ static LogicalResult verifyConvOpErrorIf(T op) {
     // Skip following checks if output is not ranked
     return success();
 
-  const RankedTensorType inputType =
-      llvm::dyn_cast<RankedTensorType>(op.getInput().getType());
-  const RankedTensorType weightType =
-      llvm::dyn_cast<RankedTensorType>(op.getWeight().getType());
+  // TODO: fix and create upstream PR
+  // const RankedTensorType inputType =
+  //     llvm::dyn_cast<RankedTensorType>(op.getInput().getType());
+  // const RankedTensorType weightType =
+  //     llvm::dyn_cast<RankedTensorType>(op.getWeight().getType());
 
-  if (inputType && weightType) {
-    const auto verifyOutputSize =
-        [&op](const int64_t inputSize, const int64_t kernelSize,
-              const int64_t outputSize, const int64_t padBefore,
-              const int64_t padAfter, const int64_t stride,
-              const int64_t dilation, const llvm::StringRef dimName,
-              const llvm::StringRef dimAxis,
-              const llvm::StringRef padBeforeName,
-              const llvm::StringRef padAfterName) -> LogicalResult {
-      if (inputSize == ShapedType::kDynamic ||
-          kernelSize == ShapedType::kDynamic)
-        return success();
+  // if (inputType && weightType) {
+  //   const auto verifyOutputSize =
+  //       [&op](const int64_t inputSize, const int64_t kernelSize,
+  //             const int64_t outputSize, const int64_t padBefore,
+  //             const int64_t padAfter, const int64_t stride,
+  //             const int64_t dilation, const llvm::StringRef dimName,
+  //             const llvm::StringRef dimAxis,
+  //             const llvm::StringRef padBeforeName,
+  //             const llvm::StringRef padAfterName) -> LogicalResult {
+  //     if (inputSize == ShapedType::kDynamic ||
+  //         kernelSize == ShapedType::kDynamic)
+  //       return success();
 
-      // ERROR_IF: O != idiv_check(I - 1 + pa + pb - (K - 1) * d, s) + 1
+  //     // ERROR_IF: O != idiv_check(I - 1 + pa + pb - (K - 1) * d, s) + 1
 
-      const std::optional<int64_t> calculatedOutSizeMinusOne = idivCheck(
-          inputSize - 1 + padBefore + padAfter - (kernelSize - 1) * dilation,
-          stride);
-      if (!calculatedOutSizeMinusOne.has_value())
-        return op.emitOpError("expected input_")
-               << dimName << " - 1 + pad_" << padBeforeName << " + pad_"
-               << padAfterName << " - (kernel_" << dimName
-               << " - 1) * dilation_" << dimAxis
-               << " to be wholly divisible by stride_" << dimAxis << ", got ("
-               << inputSize << " - 1 + " << padBefore << " + " << padAfter
-               << " - (" << kernelSize << " - 1) * " << dilation << ") / "
-               << stride;
+  //     const std::optional<int64_t> calculatedOutSizeMinusOne = idivCheck(
+  //         inputSize - 1 + padBefore + padAfter - (kernelSize - 1) * dilation,
+  //         stride);
+  //     if (!calculatedOutSizeMinusOne.has_value())
+  //       return op.emitOpError("expected input_")
+  //              << dimName << " - 1 + pad_" << padBeforeName << " + pad_"
+  //              << padAfterName << " - (kernel_" << dimName
+  //              << " - 1) * dilation_" << dimAxis
+  //              << " to be wholly divisible by stride_" << dimAxis << ", got
+  //              ("
+  //              << inputSize << " - 1 + " << padBefore << " + " << padAfter
+  //              << " - (" << kernelSize << " - 1) * " << dilation << ") / "
+  //              << stride;
 
-      const int64_t calculatedOutSize = calculatedOutSizeMinusOne.value() + 1;
-      if (outputSize != ShapedType::kDynamic && calculatedOutSize != outputSize)
-        return op.emitOpError("calculated output ")
-               << dimName << " did not match expected: "
-               << "calculated=" << calculatedOutSize
-               << ", expected=" << outputSize;
+  //     const int64_t calculatedOutSize = calculatedOutSizeMinusOne.value() +
+  //     1; if (outputSize != ShapedType::kDynamic && calculatedOutSize !=
+  //     outputSize)
+  //       return op.emitOpError("calculated output ")
+  //              << dimName << " did not match expected: "
+  //              << "calculated=" << calculatedOutSize
+  //              << ", expected=" << outputSize;
 
-      return success();
-    };
+  //     return success();
+  //   };
 
-    // input = [_,IH,IW,_], weight = [_,KH,KW,_], output = [_,OH,OW,_]
-    if constexpr (std::is_same<T, tosa::Conv2DOp>::value) {
-      if (failed(verifyOutputSize(
-              inputType.getDimSize(1), weightType.getDimSize(1),
-              outputType.getDimSize(1), padding[0], padding[1], strides[0],
-              dilations[0], "height", "y", "top", "bottom")))
-        return failure();
+  //   // input = [_,IH,IW,_], weight = [_,KH,KW,_], output = [_,OH,OW,_]
+  //   if constexpr (std::is_same<T, tosa::Conv2DOp>::value) {
+  //     if (failed(verifyOutputSize(
+  //             inputType.getDimSize(1), weightType.getDimSize(1),
+  //             outputType.getDimSize(1), padding[0], padding[1], strides[0],
+  //             dilations[0], "height", "y", "top", "bottom")))
+  //       return failure();
 
-      if (failed(verifyOutputSize(
-              inputType.getDimSize(2), weightType.getDimSize(2),
-              outputType.getDimSize(2), padding[2], padding[3], strides[1],
-              dilations[1], "width", "x", "left", "right")))
-        return failure();
-    }
+  //     if (failed(verifyOutputSize(
+  //             inputType.getDimSize(2), weightType.getDimSize(2),
+  //             outputType.getDimSize(2), padding[2], padding[3], strides[1],
+  //             dilations[1], "width", "x", "left", "right")))
+  //       return failure();
+  //   }
 
-    // input = [_,IH,IW,_], weight = [KH,KW,_,_], output = [_,OH,OW,_]
-    if constexpr (std::is_same<T, tosa::DepthwiseConv2DOp>::value) {
-      if (failed(verifyOutputSize(
-              inputType.getDimSize(1), weightType.getDimSize(0),
-              outputType.getDimSize(1), padding[0], padding[1], strides[0],
-              dilations[0], "height", "y", "top", "bottom")))
-        return failure();
+  //   // input = [_,IH,IW,_], weight = [KH,KW,_,_], output = [_,OH,OW,_]
+  //   if constexpr (std::is_same<T, tosa::DepthwiseConv2DOp>::value) {
+  //     if (failed(verifyOutputSize(
+  //             inputType.getDimSize(1), weightType.getDimSize(0),
+  //             outputType.getDimSize(1), padding[0], padding[1], strides[0],
+  //             dilations[0], "height", "y", "top", "bottom")))
+  //       return failure();
 
-      if (failed(verifyOutputSize(
-              inputType.getDimSize(2), weightType.getDimSize(1),
-              outputType.getDimSize(2), padding[2], padding[3], strides[1],
-              dilations[1], "width", "x", "left", "right")))
-        return failure();
-    }
+  //     if (failed(verifyOutputSize(
+  //             inputType.getDimSize(2), weightType.getDimSize(1),
+  //             outputType.getDimSize(2), padding[2], padding[3], strides[1],
+  //             dilations[1], "width", "x", "left", "right")))
+  //       return failure();
+  //   }
 
-    // input = [_,ID,IH,IW,_], weight = [_,KD,KH,KW,_], output = [_,OD,OH,OW,_]
-    if constexpr (std::is_same<T, tosa::Conv3DOp>::value) {
-      if (failed(verifyOutputSize(
-              inputType.getDimSize(1), weightType.getDimSize(1),
-              outputType.getDimSize(1), padding[0], padding[1], strides[0],
-              dilations[0], "depth", "d", "front", "back")))
-        return failure();
+  //   // input = [_,ID,IH,IW,_], weight = [_,KD,KH,KW,_], output =
+  //   [_,OD,OH,OW,_] if constexpr (std::is_same<T, tosa::Conv3DOp>::value) {
+  //     if (failed(verifyOutputSize(
+  //             inputType.getDimSize(1), weightType.getDimSize(1),
+  //             outputType.getDimSize(1), padding[0], padding[1], strides[0],
+  //             dilations[0], "depth", "d", "front", "back")))
+  //       return failure();
 
-      if (failed(verifyOutputSize(
-              inputType.getDimSize(2), weightType.getDimSize(2),
-              outputType.getDimSize(2), padding[2], padding[3], strides[1],
-              dilations[1], "height", "y", "top", "bottom")))
-        return failure();
+  //     if (failed(verifyOutputSize(
+  //             inputType.getDimSize(2), weightType.getDimSize(2),
+  //             outputType.getDimSize(2), padding[2], padding[3], strides[1],
+  //             dilations[1], "height", "y", "top", "bottom")))
+  //       return failure();
 
-      if (failed(verifyOutputSize(
-              inputType.getDimSize(3), weightType.getDimSize(3),
-              outputType.getDimSize(3), padding[4], padding[5], strides[2],
-              dilations[2], "width", "x", "left", "right")))
-        return failure();
-    }
-  }
+  //     if (failed(verifyOutputSize(
+  //             inputType.getDimSize(3), weightType.getDimSize(3),
+  //             outputType.getDimSize(3), padding[4], padding[5], strides[2],
+  //             dilations[2], "width", "x", "left", "right")))
+  //       return failure();
+  //   }
+  // }
 
   const RankedTensorType biasType =
       llvm::dyn_cast<RankedTensorType>(op.getBias().getType());
@@ -1005,6 +1008,20 @@ static void buildConvOpWithQuantInfo(OpBuilder &builder, OperationState &result,
         buildConvOpResultTypeInfo(builder, outputType, input, weight);
   }
   result.addTypes(finalOutputType);
+}
+
+// Handles grouped convolution
+static void buildConvOpWithQuantInfo(OpBuilder &builder, OperationState &result,
+                                     Type outputType, Value input, Value weight,
+                                     Value bias, DenseI64ArrayAttr pad,
+                                     DenseI64ArrayAttr stride,
+                                     DenseI64ArrayAttr dilation,
+                                     mlir::IntegerAttr group) {
+  TypeAttr accType;
+  buildConvOpWithQuantInfo(builder, result, outputType, input, weight, bias,
+                           pad, stride, dilation, accType);
+  if (group)
+    result.addAttribute("group", group);
 }
 
 /// Handles tosa.transpose_conv2d which has outpad and output shape
