@@ -1453,7 +1453,7 @@ pipeline {
                                 echo "Running Docker with: ${argsForThisNode}"
 
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(dockerImageCIMIGraphX())
                                 def pulled = img?.pull()
                                 img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1478,7 +1478,7 @@ pipeline {
                                 echo "Running Docker with: ${argsForThisNode}"
 
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(dockerImageCIMIGraphX())
                                 def pulled = img?.pull()
                                 img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
@@ -1507,7 +1507,7 @@ pipeline {
                                 echo "Running Docker with: ${argsForThisNode}"
 
                                 // Run a docker container
-                                def img = docker.image(dockerImage())
+                                def img = docker.image(dockerImageCIMIGraphX())
                                 def pulled = img?.pull()
                                 img.inside(argsForThisNode) {
                                     // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
