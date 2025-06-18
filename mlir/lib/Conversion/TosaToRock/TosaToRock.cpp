@@ -154,9 +154,9 @@ static bool isConstRange(Value v) {
 // Note:  we want something a bit more general than SmallString<8> for
 // the layout string, but it has to allow for inserting a character into
 // the string for the caller to see.
-static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, SmallString<8> &layout,
-                          StringRef lowerName, int64_t g, uint32_t idx = 4) {
+static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
+                          SmallString<8> &layout, StringRef lowerName,
+                          int64_t g, uint32_t idx = 4) {
   auto loc = op->getLoc();
   auto oprType = cast<ShapedType>(operand.getType());
   if (!oprType.hasStaticShape()) {
@@ -233,59 +233,84 @@ getArchAttributes(Operation *op, Type inputType) {
   return {arch, num_cu, features};
 }
 
-static FailureOr<rock::ConvOp>
-makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
-             Value filter, Value output, DenseI64ArrayAttr pad,
-             DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group, StringAttr arch, std::optional<uint32_t> numCU,
-             rock::GemmFeatures features) {
-  Location loc = op->getLoc();
+struct ConvFields {
+  SmallString<8> filterLayout;
+  SmallString<8> inputLayout;
+  SmallString<8> outputLayout;
+  Value inputExp;
+  Value filterExp;
+  Value outputExp;
+  IntegerAttr numCU;
+  ArrayAttr pad;
+  ArrayAttr stride;
+  ArrayAttr dilation;
+  rock::GemmFeaturesAttr features;
+  StringAttr perfConfig;
+};
 
-  SmallString<8> filterLayout("kyxc");
+static ConvFields commonConv(PatternRewriter &rw, Operation *op, Value input,
+                             Value filter, Value output, DenseI64ArrayAttr pad,
+                             DenseI64ArrayAttr stride,
+                             DenseI64ArrayAttr dilation, int64_t group,
+                             std::optional<uint32_t> numCU,
+                             rock::GemmFeatures features) {
+  ConvFields res;
+
+  res.filterLayout = "kyxc";
   if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
-    filterLayout = attr.getValue();
+    res.filterLayout = attr.getValue();
   else if (cast<ShapedType>(filter.getType()).getRank() > 4)
-    filterLayout = "k012c";
-  SmallString<8> inputLayout("nhwc");
+    res.filterLayout = "k012c";
+
+  res.inputLayout = "nhwc";
   if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
-    inputLayout = attr.getValue();
+    res.inputLayout = attr.getValue();
   else if (cast<ShapedType>(input.getType()).getRank() > 4)
-    inputLayout = "n012c";
-  SmallString<8> outputLayout("nhwk");
-  if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
-    outputLayout = attr.getValue();
-  else if (cast<ShapedType>(output.getType()).getRank() > 4)
-    outputLayout = "n012k";
+    res.inputLayout = "n012c";
+  if (output) {
+    res.outputLayout = "nhwk";
+    if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
+      res.outputLayout = attr.getValue();
+    else if (cast<ShapedType>(output.getType()).getRank() > 4)
+      res.outputLayout = "n012k";
+  }
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
   // and add 'g into the layout
-  auto inputExp = expandTensor(rw, op, input, inputLayout, "c", group);
-  auto filterExp = expandTensor(rw, op, filter, filterLayout, "k", group);
-  auto outputExp = expandTensor(rw, op, output, outputLayout, "k", group);
+  res.inputExp = expandTensor(rw, op, input, res.inputLayout, "c", group);
+  res.filterExp = expandTensor(rw, op, filter, res.filterLayout, "k", group);
+  if (output)
+    res.outputExp = expandTensor(rw, op, output, res.outputLayout, "k", group);
 
-  IntegerAttr numCUAttr =
-      numCU.has_value() ? rw.getI32IntegerAttr(numCU.value()) : nullptr;
-  auto cop = rw.create<rock::ConvOp>(
-      loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
-      rw.getAttr<rock::GemmFeaturesAttr>(features),
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
-      rw.getIndexArrayAttr(stride), rw.getIndexArrayAttr(dilation),
-      /*params=*/nullptr, numCUAttr);
+  res.numCU = numCU.has_value() ? rw.getI32IntegerAttr(numCU.value()) : nullptr;
+  res.pad = rw.getIndexArrayAttr(pad);
+  res.stride = rw.getIndexArrayAttr(stride);
+  res.dilation = rw.getIndexArrayAttr(dilation);
+  res.features = rw.getAttr<rock::GemmFeaturesAttr>(features);
+  res.perfConfig = op->getAttrOfType<StringAttr>("perf_config");
 
+  return res;
+}
+
+static void addConvAttributes(PatternRewriter &rw, Operation *cop,
+                              const ConvFields &convFields) {
   // specify layout attributes
   SmallVector<StringAttr, 5> filterLayoutSpec;
   SmallVector<StringAttr, 5> inputLayoutSpec;
   SmallVector<StringAttr, 5> outputLayoutSpec;
-  for (size_t i = 0; i < filterLayout.size(); ++i) {
-    filterLayoutSpec.push_back(rw.getStringAttr(filterLayout.substr(i, 1)));
-    inputLayoutSpec.push_back(rw.getStringAttr(inputLayout.substr(i, 1) + "i"));
-    outputLayoutSpec.push_back(
-        rw.getStringAttr(outputLayout.substr(i, 1) + "o"));
+  for (size_t i = 0; i < convFields.filterLayout.size(); ++i) {
+    filterLayoutSpec.push_back(
+        rw.getStringAttr(convFields.filterLayout.substr(i, 1)));
+    inputLayoutSpec.push_back(
+        rw.getStringAttr(convFields.inputLayout.substr(i, 1) + "i"));
+    if (convFields.outputExp)
+      outputLayoutSpec.push_back(
+          rw.getStringAttr(convFields.outputLayout.substr(i, 1) + "o"));
   }
 
   // arch-specific attributes
   // TODO: remove these
-  if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+  if (auto attr = convFields.perfConfig)
     cop->setAttr("perf_config", attr);
 
   // convolution config attributes
@@ -295,9 +320,32 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   cop->setAttr("input_layout",
                rw.getArrayAttr(ArrayRef<Attribute>(inputLayoutSpec.begin(),
                                                    inputLayoutSpec.end())));
-  cop->setAttr("output_layout",
-               rw.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
-                                                   outputLayoutSpec.end())));
+  if (convFields.outputExp)
+    cop->setAttr("output_layout",
+                 rw.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
+                                                     outputLayoutSpec.end())));
+}
+
+static FailureOr<rock::ConvOp>
+makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
+             Value filter, Value output, DenseI64ArrayAttr pad,
+             DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
+             int64_t group, StringAttr arch, std::optional<uint32_t> numCU,
+             rock::GemmFeatures features) {
+  Location loc = op->getLoc();
+
+  ConvFields convFields = commonConv(rw, op, input, filter, output, pad, stride,
+                                     dilation, group, numCU, features);
+
+  auto cop = rw.create<rock::ConvOp>(
+      loc, convFields.outputExp.getType(), convFields.filterExp,
+      convFields.inputExp, convFields.outputExp, arch, convFields.features,
+      /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
+      convFields.stride, convFields.dilation,
+      /*params=*/nullptr, convFields.numCU);
+
+  addConvAttributes(rw, cop, convFields);
+
   return cop;
 }
 
@@ -439,33 +487,65 @@ static Value addBlockArgument(OpBuilder &b, Value val, Block *block,
   return val;
 }
 
-// This function traverse an upward tree where the root is the  input.
-// It traverses the tree until it hit the gemm or last elementwise
+static Operation *getConvOp(Operation *op) {
+  if (isa<tensor::ExpandShapeOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+  }
+  if (!op)
+    return nullptr;
+
+  if (isa<tensor::CollapseShapeOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+  }
+  if (!op)
+    return nullptr;
+
+  while (isa<tosa::TransposeOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
+    if (!op)
+      return nullptr;
+  }
+  return (isa_and_nonnull<tosa::Conv2DOp>(op)) ? op : nullptr;
+}
+
+// This function traverse an upward tree where the root is the input.
+// It traverses the tree until it hit the gemm/conv or last elementwise
 // operation that may or maynot be interleaved with reshape-like ops. Note
 // there is a TODO to explore relaxing reshape-like ops constraints to more
 // of rock.transforms. (See the implementation for the TODO)
-static std::tuple<Value, FailureOr<tosa::MatMulOp>>
+template <typename OpT>
+static std::tuple<Value, FailureOr<OpT>>
 getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
                      SmallVector<Value> &elementwiseArgs,
                      std::optional<Location> loc = std::nullopt,
                      bool doRewrite = false, int recDepth = 0) {
   PatternRewriter::InsertionGuard guard(regionBuilder);
   regionBuilder.setInsertionPointToEnd(block);
-  // If the matmul is found, we return this information to the
+  // If the matmul/conv is found, we return this information to the
   // root.
   LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
                           << "getElementwiseRegion:input=" << input << "\n");
-  if (tosa::MatMulOp matmul = input.getDefiningOp<tosa::MatMulOp>()) {
-    Value matmulMemRef;
+
+  OpT fusionOp = input.getDefiningOp<OpT>();
+  Operation *op = input.getDefiningOp();
+  // we need to traverse tranposes if it's conv2d
+  if (std::is_same_v<OpT, tosa::Conv2DOp> && op) {
+    Operation *convOp = getConvOp(op);
+    if (convOp)
+      fusionOp = cast<OpT>(convOp);
+  }
+
+  if (fusionOp) {
+    Value fusionMemRef;
     if (doRewrite) {
-      matmulMemRef = addBlockArgument(regionBuilder, input, block, loc.value());
+      fusionMemRef = addBlockArgument(regionBuilder, input, block, loc.value());
       rock::RockGemmGemmWrapperInterface gemmGemmLikeOp =
           cast<rock::RockGemmGemmWrapperInterface>(block->getParentOp());
       gemmGemmLikeOp.setFirstGemmIndex(block->getArguments().size() - 1);
     }
     LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
-                            << "matmul found. terminating recursion.\n");
-    return {matmulMemRef, matmul};
+                            << "matmul/conv found. terminating recursion.\n");
+    return {fusionMemRef, fusionOp};
   }
   if (tosa::ConstOp constOp = input.getDefiningOp<tosa::ConstOp>()) {
     Value newConstOpRes;
@@ -477,7 +557,7 @@ getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
                             << "const found. terminating recursion.\n");
     return {newConstOpRes, failure()};
   }
-  Operation *op = input.getDefiningOp();
+
   // Right now, this is a bit restricted that we only allow reshape-like
   // ops between in the elementwise tree that get fused to the fusion point.
   // TODO: however, the latest code gridwise-gemm-to-blockwise should tackle
@@ -501,15 +581,15 @@ getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
   mlir::IRMapping mapper;
   SmallVector<Value> newOperands;
 
-  FailureOr<mlir::tosa::MatMulOp> maybeMatMul = failure();
+  FailureOr<OpT> maybeFusionOp = failure();
   for (auto operand : op->getOperands()) {
-    auto [result, maybeSubTreeMatMul] =
-        getElementwiseRegion(operand, regionBuilder, block, elementwiseArgs,
-                             loc, doRewrite, recDepth + 1);
+    auto [result, maybeSubTreeFusionOp] = getElementwiseRegion<OpT>(
+        operand, regionBuilder, block, elementwiseArgs, loc, doRewrite,
+        recDepth + 1);
     mapper.map(operand, result);
     newOperands.push_back(result);
-    if (succeeded(maybeSubTreeMatMul)) {
-      maybeMatMul = maybeSubTreeMatMul;
+    if (succeeded(maybeSubTreeFusionOp)) {
+      maybeFusionOp = maybeSubTreeFusionOp;
     }
   }
 
@@ -520,14 +600,14 @@ getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
   }
   // We convey to the caller the result
   // of the cloning as well if this subtree
-  // contains the first matmul.
-  if (succeeded(maybeMatMul)) {
+  // contains the first matmul/conv.
+  if (succeeded(maybeFusionOp)) {
     LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
-                            << "a subtree have a matmul in it.\n");
-    return {res, maybeMatMul};
+                            << "a subtree have a matmul/conv in it.\n");
+    return {res, maybeFusionOp};
   }
   LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
-                          << "none of subtress have a matmul in it.\n");
+                          << "none of subtress have a matmul/conv in it.\n");
   return {res, failure()};
 }
 
@@ -1041,6 +1121,100 @@ struct CollapseExpandRewritePattern
   }
 };
 
+struct ConvElementwiseGemmRewritePattern
+    : public OpRewritePattern<tosa::MatMulOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult match(tosa::MatMulOp op) const {
+    OpBuilder b{op};
+    SmallVector<Value> vec;
+    FailureOr<tosa::Conv2DOp> maybeConv;
+    std::tie(std::ignore, maybeConv) =
+        getElementwiseRegion<tosa::Conv2DOp>(op.getA(), b, nullptr, vec);
+
+    if (succeeded(maybeConv))
+      LLVM_DEBUG(llvm::dbgs() << "conv = " << maybeConv.value() << "\n");
+    else
+      LLVM_DEBUG(llvm::dbgs() << "conv not found\n");
+
+    return maybeConv;
+  }
+
+  void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const {
+    Location loc = op.getLoc();
+    auto outputType = cast<RankedTensorType>(op.getType());
+    Value output = rewriter.create<bufferization::AllocTensorOp>(
+        loc, outputType, ValueRange{});
+    StringAttr arch;
+    std::optional<uint32_t> numCu;
+    rock::GemmFeatures features;
+    std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
+    SmallVector<Value> elementwiseOtherArgs;
+
+    FailureOr<tosa::Conv2DOp> maybeConv;
+    std::tie(std::ignore, maybeConv) = getElementwiseRegion<tosa::Conv2DOp>(
+        op.getA(), rewriter, nullptr, elementwiseOtherArgs);
+
+    // This is guaranteed by the matcher
+    tosa::Conv2DOp firstConv = maybeConv.value();
+
+    // bias not supported
+    if (!isConstantZero(firstConv.getBias())) {
+      op.emitOpError("bias not supported yet");
+      return;
+    }
+
+    int64_t group = 1;
+    if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
+      group = attr.getInt(); // Use op.getGroup() when all OpT have it.
+    ConvFields convFields =
+        commonConv(rewriter, op, firstConv.getInput(), firstConv.getWeight(),
+                   output, firstConv.getPadAttr(), firstConv.getStrideAttr(),
+                   firstConv.getDilationAttr(), group, numCu, features);
+
+    auto convElentwiseGemmOp = rewriter.create<rock::ConvElementwiseGemmOp>(
+        loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
+        elementwiseOtherArgs, output,
+        /*cTransposed=*/nullptr,
+        /*oTransposed=*/nullptr, arch, convFields.features, convFields.numCU,
+        convFields.pad, convFields.stride, convFields.dilation,
+        /*params0=*/nullptr, /*params1=*/nullptr,
+        /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
+
+    addConvAttributes(rewriter, convElentwiseGemmOp, convFields);
+
+    Block *preSecondGemmElemwiseBlock =
+        &convElentwiseGemmOp.getPreSecondGemmBody().emplaceBlock();
+    {
+      PatternRewriter::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(preSecondGemmElemwiseBlock);
+      Value res;
+      std::tie(res, std::ignore) = getElementwiseRegion<tosa::Conv2DOp>(
+          op.getA(), rewriter, preSecondGemmElemwiseBlock, elementwiseOtherArgs,
+          loc, true);
+      RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
+      MemRefType resMemRefType = MemRefType::get(
+          resTensorType.getShape(), resTensorType.getElementType());
+      Value resMemref =
+          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
+      Value outMemref =
+          preSecondGemmElemwiseBlock->addArgument(resMemRefType, loc);
+      rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
+      rewriter.create<rock::YieldOp>(loc);
+    }
+    rewriter.replaceOp(op, convElentwiseGemmOp.getResult());
+  }
+
+  LogicalResult matchAndRewrite(tosa::MatMulOp op,
+                                PatternRewriter &rewriter) const override {
+    auto result = match(op);
+    if (result.succeeded()) {
+      rewrite(op, rewriter);
+    }
+    return result;
+  }
+};
+
 struct GemmElementwiseGemmRewritePattern
     : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -1050,7 +1224,7 @@ struct GemmElementwiseGemmRewritePattern
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
     std::tie(std::ignore, maybeFirstMatMul) =
-        getElementwiseRegion(op.getA(), b, nullptr, vec);
+        getElementwiseRegion<tosa::MatMulOp>(op.getA(), b, nullptr, vec);
 
     if (succeeded(maybeFirstMatMul))
       LLVM_DEBUG(llvm::dbgs()
@@ -1073,8 +1247,9 @@ struct GemmElementwiseGemmRewritePattern
     SmallVector<Value> elementwiseOtherArgs;
 
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
-    std::tie(std::ignore, maybeFirstMatMul) = getElementwiseRegion(
-        op.getA(), rewriter, nullptr, elementwiseOtherArgs);
+    std::tie(std::ignore, maybeFirstMatMul) =
+        getElementwiseRegion<tosa::MatMulOp>(op.getA(), rewriter, nullptr,
+                                             elementwiseOtherArgs);
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
     IntegerAttr numCUAttr =
@@ -1094,19 +1269,18 @@ struct GemmElementwiseGemmRewritePattern
 
     Block *preSecondGemmElemwiseBlock =
         &gemmElentwiseGemmOp.getPreSecondGemmBody().emplaceBlock();
-    FailureOr<tosa::MatMulOp> maybeMatMul;
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSecondGemmElemwiseBlock);
       Value res;
-      std::tie(res, maybeMatMul) =
-          getElementwiseRegion(op.getA(), rewriter, preSecondGemmElemwiseBlock,
-                               elementwiseOtherArgs, loc, true);
+      std::tie(res, std::ignore) = getElementwiseRegion<tosa::MatMulOp>(
+          op.getA(), rewriter, preSecondGemmElemwiseBlock, elementwiseOtherArgs,
+          loc, true);
       RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
       Value resMemref =
-          rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
+          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
       Value outMemref =
           preSecondGemmElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
@@ -1203,6 +1377,77 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
+  LogicalResult getConstComparison(TypedValue<TensorType> input,
+                                   size_t nonOneDimFromEnd) const {
+    // input is a constant with a range from 0 to maxSeqLen
+    FailureOr<Value> maybeNonZero = addBroadcast(input);
+    if (failed(maybeNonZero))
+      return failure();
+
+    // check that maybeNonZero is a const with range 0..maxSeqLen
+    bool isRange = false;
+    Value rangeResult;
+    if (auto constRange =
+            getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonZero.value())) {
+      rangeResult = constRange.getResult();
+      isRange = isConstRange(rangeResult);
+    } else if (auto constRange = getDefiningNonReshapeOp<tosa::ConstOp>(
+                   maybeNonZero.value())) {
+      rangeResult = constRange.getResult();
+      isRange = isConstRange(rangeResult);
+    }
+
+    if (!isRange)
+      return failure();
+
+    auto shapedType = dyn_cast<ShapedType>(rangeResult.getType());
+    if (!shapedType)
+      return failure();
+
+    auto shape = shapedType.getShape();
+    assert(nonOneDimFromEnd < shape.size());
+    size_t couldBeDiffOne = shape.size() - nonOneDimFromEnd - 1;
+    for (auto [i, dim] : llvm::enumerate(shape)) {
+      if (i != couldBeDiffOne && dim != 1) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
+  FailureOr<Value> getCausal(Value input) const {
+    auto select = getDefiningNonReshapeOp<tosa::SelectOp>(input);
+    if (select) {
+      // Check onTrue is -inf
+      auto onTrue = select.getInput2();
+      bool isConsNegInf = false;
+      if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
+        isConsNegInf = isConstIsNegInf(constOp.getResult());
+      else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
+        isConsNegInf = isConstIsNegInf(constOp.getResult());
+
+      if (!isConsNegInf)
+        return failure();
+
+      auto pred = select.getInput1();
+      if (auto greater =
+              getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
+        // input1 is a constant with a range from 0 to maxSeqLen (KV)
+        if (failed(getConstComparison(greater.getInput1(), 0)))
+          return failure();
+
+        // input2 is a constant with a range from 0 to seqLenQ
+        if (failed(getConstComparison(greater.getInput2(), 1)))
+          return failure();
+
+        Value result = select.getInput3();
+
+        return result;
+      }
+    }
+    return failure();
+  }
+
   FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
     auto select = getDefiningNonReshapeOp<tosa::SelectOp>(softmaxInput);
     if (select) {
@@ -1221,21 +1466,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (auto greater =
               getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen
-        auto input1 = greater.getInput1();
-        FailureOr<Value> maybeNonZero1 = addBroadcast(input1);
-        if (failed(maybeNonZero1))
-          return failure();
-
-        // check that maybeNonZero1 is a const with range 0..maxSeqLen
-        bool isRange = false;
-        if (auto constRange = getDefiningNonReshapeOp<arith::ConstantOp>(
-                maybeNonZero1.value()))
-          isRange = isConstRange(constRange.getResult());
-        if (auto constRange =
-                getDefiningNonReshapeOp<tosa::ConstOp>(maybeNonZero1.value()))
-          isRange = isConstRange(constRange.getResult());
-
-        if (!isRange)
+        if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();
 
         // input2 comes from argument: currentSeqLen
@@ -1279,7 +1510,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
-  FailureOr<std::tuple<Value, bool, Value>>
+  FailureOr<std::tuple<Value, bool, bool, Value>>
   maybeSoftmaxNumerator(Value val) const {
     Value currentSeqLen;
     tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
@@ -1312,12 +1543,17 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (succeeded(maybeKVCache))
       std::tie(result, currentSeqLen) = maybeKVCache.value();
 
-    return std::make_tuple(result, hasTosaReduce, currentSeqLen);
+    auto causal = getCausal(result);
+    bool isCausal = succeeded(causal);
+    if (isCausal)
+      result = causal.value();
+
+    return std::make_tuple(result, hasTosaReduce, isCausal, currentSeqLen);
   }
 
-  FailureOr<std::tuple<Value, bool, Value>>
+  FailureOr<std::tuple<Value, bool, bool, Value>>
   maybeSoftmaxDenominator(Value val) const {
-    FailureOr<std::tuple<Value, bool, Value>> result;
+    FailureOr<std::tuple<Value, bool, bool, Value>> result;
     auto rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
     if (rsum) {
       result = maybeSoftmaxNumerator(rsum.getInput());
@@ -1337,7 +1573,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return result;
   }
 
-  FailureOr<std::tuple<Value, bool, Value>> maybeSoftmax(Value val) const {
+  FailureOr<std::tuple<Value, bool, bool, Value>>
+  maybeSoftmax(Value val) const {
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
       return failure();
@@ -1379,14 +1616,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   LogicalResult match(tosa::MatMulOp op) const {
-    FailureOr<std::tuple<Value, bool, Value>> softmaxInputResult =
+    FailureOr<std::tuple<Value, bool, bool, Value>> softmaxInputResult =
         maybeSoftmax(op.getA());
     if (failed(softmaxInputResult))
       return failure();
 
     Value softmaxInput, currentSeqLen;
-    bool hasReduceOp;
-    std::tie(softmaxInput, hasReduceOp, currentSeqLen) =
+    bool hasReduceOp, isCausal;
+    std::tie(softmaxInput, hasReduceOp, isCausal, currentSeqLen) =
         softmaxInputResult.value();
 
     // currentSeqLen needs one or two dimensions
@@ -1398,7 +1635,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
     std::tie(std::ignore, maybeFirstMatMul) =
-        getElementwiseRegion(softmaxInput, b, nullptr, vec);
+        getElementwiseRegion<tosa::MatMulOp>(softmaxInput, b, nullptr, vec);
 
     if (succeeded(maybeFirstMatMul)) {
       TypedValue<TensorType> matC = maybeFirstMatMul.value().getOutput();
@@ -1409,6 +1646,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       LLVM_DEBUG(llvm::dbgs()
                  << "first matmul = " << maybeFirstMatMul.value() << "\n");
       LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
       if (isDotProduct && hasReduceOp)
         return failure();
       if (!isDotProduct && !hasReduceOp)
@@ -1423,7 +1661,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     Value softmaxInput, currentSeqLen;
-    std::tie(softmaxInput, std::ignore, currentSeqLen) =
+    bool isCausal;
+    std::tie(softmaxInput, std::ignore, isCausal, currentSeqLen) =
         maybeSoftmax(op.getA()).value();
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output = rewriter.create<bufferization::AllocTensorOp>(
@@ -1435,8 +1674,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     SmallVector<Value> elementwiseOtherArgs;
 
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
-    std::tie(std::ignore, maybeFirstMatMul) = getElementwiseRegion(
-        softmaxInput, rewriter, nullptr, elementwiseOtherArgs);
+    std::tie(std::ignore, maybeFirstMatMul) =
+        getElementwiseRegion<tosa::MatMulOp>(softmaxInput, rewriter, nullptr,
+                                             elementwiseOtherArgs);
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
     IntegerAttr numCUAttr =
@@ -1449,32 +1689,32 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       currentSeqLen = rewriter.create<tensor::CollapseShapeOp>(
           op.getLoc(), currentSeqLen, reassocIndices);
     }
-
+    UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
         elementwiseOtherArgs, currentSeqLen, output,
+        /*lse=*/nullptr,
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, arch,
+        /*oTransposed=*/nullptr, causalAttr, arch,
         rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
-    FailureOr<tosa::MatMulOp> maybeMatMul;
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
       Value res;
-      std::tie(res, maybeMatMul) =
-          getElementwiseRegion(softmaxInput, rewriter, preSoftmaxElemwiseBlock,
-                               elementwiseOtherArgs, loc, true);
+      std::tie(res, std::ignore) = getElementwiseRegion<tosa::MatMulOp>(
+          softmaxInput, rewriter, preSoftmaxElemwiseBlock, elementwiseOtherArgs,
+          loc, true);
       RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
       Value resMemref =
-          rewriter.create<bufferization::ToMemrefOp>(loc, resMemRefType, res);
+          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
       Value outMemref =
           preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
@@ -1645,6 +1885,11 @@ void tosa::populateTosaToRockAttentionConversionPatterns(
 void tosa::populateTosaToRockGemmGemmConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<GemmElementwiseGemmRewritePattern>(context);
+}
+
+void tosa::populateTosaToRockConvGemmConversionPatterns(
+    MLIRContext *context, RewritePatternSet &patterns) {
+  patterns.add<ConvElementwiseGemmRewritePattern>(context);
 }
 
 void tosa::populateTosaToRockTensorConversionPatterns(

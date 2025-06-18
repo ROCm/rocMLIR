@@ -1,5 +1,4 @@
 // RUN: rocmlir-gen -fut mlir_convolution_multi_reduce --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_convolution_multi_reduce_wrapper --verifier clone -relDiff_threshold 0.01 -RMS_threshold 0.01 -absDiff_threshold 0.4 -| rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
-// ALLOW_RETRIES: 2
 
 // We need a check for each output as this test case has three outputs in it.
 // CHECK: [1 1 1]

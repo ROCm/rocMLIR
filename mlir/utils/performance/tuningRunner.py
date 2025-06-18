@@ -16,6 +16,7 @@ from perfRunner import ConvConfiguration
 from perfRunner import GemmConfiguration
 from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
+from perfRunner import ConvGemmConfiguration
 from perfRunner import Paths
 from perfCommonUtils import CORRECT_RESULT_RE
 
@@ -86,7 +87,7 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
                 p3.kill()
                 outs, errs = p3.communicate()
                 return np.nan
-            nanoSeconds = perfRunner.getNanoSeconds(perfRunner.BENCHMARKING_STATS_FILE_NAME)
+            nanoSeconds = perfRunner.getNanoSeconds(perfRunner.getProfilerOutputPath(options.arch, perfRunner.BENCHMARKING_STATS_FILE_NAME))
         finally:
             os.chdir(prevdir)
     return nanoSeconds
@@ -230,7 +231,7 @@ def main(args=None):
     """
     usage examples:
 
-    python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/configs/gemm-configs --output=tuning_db.tsv
+    python3 tuningRunner.py --op gemm -configs_file=../mlir/utils/performance/configs/tier1-gemm-configs --output=tuning_db.tsv
     python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
     python3 tuningRunner.py --op conv --tuning-space=quick --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
     python3 tuningRunner.py --op fusion -test_dir=../mlir/test/fusion/resnet50-e2e --output=tuning_db.tsv
@@ -239,11 +240,10 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    archNames = perfRunner.getArch()
-    arch = ','.join(archNames)
+    arch = perfRunner.getArch()
     numCU = perfRunner.getNumCU(perfRunner.getChip())
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/conv-configs'
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
 
     parser = argparse.ArgumentParser(
         prog="rocMLIR tuning runner",
@@ -251,7 +251,7 @@ def main(args=None):
         allow_abbrev=False,
     )
 
-    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm'],
+    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm', 'conv_gemm'],
         default='conv',
         help="Operation for tuning")
 
@@ -378,6 +378,8 @@ def main(args=None):
         confClass = AttentionConfiguration
     elif opType == Operation.GEMM_GEMM:
         confClass = GemmGemmConfiguration
+    elif opType == Operation.CONV_GEMM:
+        confClass = ConvGemmConfiguration
     else:
         raise RuntimeError("Tuning operation was not provided/found")
 
@@ -392,6 +394,8 @@ def main(args=None):
         configs = perfRunner.getAttentionConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM_GEMM:
         configs = perfRunner.getGemmGemmConfigurations(paths.configuration_file_path)
+    elif opType == Operation.CONV_GEMM:
+        configs = perfRunner.getConvGemmConfigurations(paths.configuration_file_path)
 
     winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
 

@@ -50,8 +50,8 @@ struct GridLayoutInfo {
   Type outputType;
 };
 
-/// This function emits the right triplet of <group,block_m,block_n> identifers,
-/// given a flat blockId. This has been adapted from:
+/// This function emits the right triplet of <group,block_m,block_n>
+/// identifiers, given a flat blockId. This has been adapted from:
 /// https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html#sphx-glr-getting-started-tutorials-03-matrix-multiplication-py
 ///
 GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,

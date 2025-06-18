@@ -34,7 +34,7 @@ mlir_check_link_libraries(rocmlir-lib-test)
 llvm_canonicalize_cmake_booleans(BUILD_FAT_LIBROCKCOMPILER)
 # Static library target, enabled only when building static libs
 if(BUILD_FAT_LIBROCKCOMPILER)
-  find_package(ROCM 0.8 REQUIRED PATHS /opt/rocm)
+  find_package(ROCmCMakeBuildTools 0.8 REQUIRED PATHS /opt/rocm)
   include(ROCMInstallTargets)
   include(ROCMCreatePackage)
 
