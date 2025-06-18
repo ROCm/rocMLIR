@@ -260,6 +260,11 @@ void createHLFIRToFIRPassPipeline(mlir::PassManager &pm, bool enableOpenMP,
         pm, hlfir::createOptimizedBufferization);
     addNestedPassToAllTopLevelOperations<PassConstructor>(
         pm, hlfir::createInlineHLFIRAssign);
+
+    if (optLevel == llvm::OptimizationLevel::O3) {
+      addNestedPassToAllTopLevelOperations<PassConstructor>(
+          pm, hlfir::createInlineHLFIRCopyIn);
+    }
   }
   pm.addPass(hlfir::createLowerHLFIROrderedAssignments());
   pm.addPass(hlfir::createLowerHLFIRIntrinsics());
@@ -312,7 +317,7 @@ void createOpenMPFIRPassPipeline(mlir::PassManager &pm,
   // underlying data which is necessary to access the data on the offload
   // target device.
   pm.addPass(flangomp::createMapsForPrivatizedSymbolsPass());
-  pm.addPass(flangomp::createMapInfoFinalizationPass());
+  pm.addPass(flangomp::createMapInfoFinalizationPass(opts.deferDescMap));
   pm.addPass(flangomp::createMarkDeclareTargetPass());
   pm.addPass(flangomp::createGenericLoopConversionPass());
   if (opts.isTargetDevice) {
@@ -368,7 +373,8 @@ void createDefaultFIRCodeGenPassPipeline(mlir::PassManager &pm,
       {framePointerKind, config.InstrumentFunctionEntry,
        config.InstrumentFunctionExit, config.NoInfsFPMath, config.NoNaNsFPMath,
        config.ApproxFuncFPMath, config.NoSignedZerosFPMath, config.UnsafeFPMath,
-       config.PreferVectorWidth, /*tuneCPU=*/"", setNoCapture, setNoAlias}));
+       config.Reciprocals, config.PreferVectorWidth, /*tuneCPU=*/"",
+       setNoCapture, setNoAlias}));
 
   if (config.EnableOpenMP) {
     pm.addNestedPass<mlir::func::FuncOp>(
