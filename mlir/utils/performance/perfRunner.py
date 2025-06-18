@@ -146,11 +146,14 @@ def getChip():
     chip = GFX_CHIP_RE.search(arch).group(0)
     return chip
 
-if getChip().startswith('gfx94'):
-    DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
-else:
-    DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
+DATA_TYPES_ATTENTION = None
 
+def initialize_data_types_attention():
+    global DATA_TYPES_ATTENTION
+    if getChip().startswith('gfx94'):
+        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
+    else:
+        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
 def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
 
