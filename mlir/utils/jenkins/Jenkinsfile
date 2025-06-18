@@ -66,8 +66,8 @@ def advancedNodeCheck(Map params) {
 }
 
 def resetGPUs() {
-    // Abort this if runs longer than 5 minutes
-    timeout(time: 5, unit: 'MINUTES') {
+    // Abort this if runs longer than 10 minutes
+    timeout(time: 10, unit: 'MINUTES') {
         // Run the reset, but don't fail the build if anything is wrong
         def rc = sh(
             script: '''
