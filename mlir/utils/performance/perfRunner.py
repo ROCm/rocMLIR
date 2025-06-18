@@ -118,6 +118,39 @@ def find_mlir_build_dir() -> str:
     build_dir = Path(rocmlir_gen_path).parent.parent
     return str(build_dir)
 
+def hip_check(call_result):
+    err = call_result[0]
+    result = call_result[1:]
+    if len(result) == 1:
+        result = result[0]
+    if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
+        raise RuntimeError(str(err))
+    return result
+
+def getArch() -> str:
+    agents = set()
+    device_count = hip_check(hip.hipGetDeviceCount())
+    for device in range(device_count):
+        props = hip.hipDeviceProp_t()
+        hip_check(hip.hipGetDeviceProperties(props,device))
+        agent = props.gcnArchName.decode('utf-8')
+        agents.add(agent)
+    if(len(agents) > 1):
+        print(f"WARNING: Found {len(agents)} different kinds of agents on the same machine :  {', '.join(agents)}")
+        print("WARNING: Using the first agent by default. If you want to use a different agent, please set the HIP_VISIBLE_DEVICES environment variable.")
+    # select first agent by default
+    return list(agents)[0]
+
+def getChip():
+    arch = getArch()
+    chip = GFX_CHIP_RE.search(arch).group(0)
+    return chip
+
+if getChip().startswith('gfx94'):
+    DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
+else:
+    DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
+
 def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
 
@@ -1741,29 +1774,6 @@ def tuneMLIRKernels(configs, arch, numCU):
                 print("MIOpen tuning timed out")
                 _, errs = p1.communicate()
 
-def hip_check(call_result):
-    err = call_result[0]
-    result = call_result[1:]
-    if len(result) == 1:
-        result = result[0]
-    if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
-        raise RuntimeError(str(err))
-    return result
-
-def getArch() -> str:
-    agents = set()
-    device_count = hip_check(hip.hipGetDeviceCount())
-    for device in range(device_count):
-        props = hip.hipDeviceProp_t()
-        hip_check(hip.hipGetDeviceProperties(props,device))
-        agent = props.gcnArchName.decode('utf-8')
-        agents.add(agent)
-    if(len(agents) > 1):
-        print(f"WARNING: Found {len(agents)} different kinds of agents on the same machine :  {', '.join(agents)}")
-        print("WARNING: Using the first agent by default. If you want to use a different agent, please set the HIP_VISIBLE_DEVICES environment variable.")
-    # select first agent by default
-    return list(agents)[0]
-
 def parseDataTypes(data_types):
     if not data_types:
         return DATA_TYPES_GEMM, OUTPUT_DATA_TYPES_MAP
@@ -1780,11 +1790,6 @@ def parseDataTypes(data_types):
         elif dt[0] == 'fp8':
             outMap[dt[0]] = 'f32'
     return datatypes, outMap
-
-def getChip():
-    arch = getArch()
-    chip = GFX_CHIP_RE.search(arch).group(0)
-    return chip
 
 def getNumCU(chip):
     try:
@@ -1843,12 +1848,6 @@ def main(args=None):
     arch = getArch()
     chip = getChip() 
     numCU = getNumCU(chip)
-
-    global DATA_TYPES_ATTENTION
-    if chip.startswith('gfx9'):
-        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
-    else:
-        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
