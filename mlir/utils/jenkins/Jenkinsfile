@@ -1080,7 +1080,6 @@ pipeline {
                 }
             }
         }
-        // FIXME: run perf tests on both gfx90a and gfx908
         stage("Benchmark and Report Performance") {
             matrix {
                 axes {
