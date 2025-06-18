@@ -35,7 +35,8 @@ DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
-DATA_TYPES_ATTENTION = ['i8', 'f32', 'f16', 'bf16']
+DATA_TYPES_ATTENTION_WMMA = ['i8', 'f16', 'bf16']
+DATA_TYPES_ATTENTION_MFMA = ['i8', 'f32', 'f16', 'bf16']
 DATA_TYPES_GEMM_GEMM = ['f32', 'f16', 'bf16']
 DATA_TYPES_CONV_GEMM = ['f32', 'f16', 'bf16']
 OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8':'f32',
@@ -1842,6 +1843,12 @@ def main(args=None):
     arch = getArch()
     chip = getChip() 
     numCU = getNumCU(chip)
+
+    global DATA_TYPES_ATTENTION
+    if chip.startswith('gfx9'):
+        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
+    else:
+        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
