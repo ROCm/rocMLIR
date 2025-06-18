@@ -30,6 +30,7 @@ LLVMDebugInfoPDB
 LLVMDemangle
 LLVMExtensions
 LLVMFrontendAtomic
+LLVMFrontendDirective
 LLVMFrontendOffloading
 LLVMFrontendOpenMP
 LLVMGlobalISel
