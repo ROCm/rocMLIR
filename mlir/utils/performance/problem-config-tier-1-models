@@ -592,3 +592,23 @@ conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1
 -t f32 -transQ false -transK false -transV false -transO false -g 2 -seq_len_q 64 -seq_len_k 64 -head_dim_qk 512 -head_dim_v 512
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 512 -k 512
 conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 512 -H 8 -W 8 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+#llama3_8b_kv_cache_prefill
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 6144 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 28672 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 14336
+-t f32 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 1 -k 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 128256 -k 4096
+#llama3_8b_kv_cache_decode
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 6144 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 28672 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 14336
+-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 128 -k 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 1 -k 128
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 128256 -k 4096
+#mistral_8b_kc_cache_decode
+-t f32 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 1 -seq_len_k 4097 -head_dim_qk 128 -head_dim_v 128
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 32000 -k 4096
