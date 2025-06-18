@@ -327,6 +327,13 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 256 -y 3 -x 3 -p
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 #llama3_8b
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 6144 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 28672 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 14336
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 64 -n 256 -k 1
+-t f16 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 128256 -k 4096
 #whisper_large_encoder
 -t f32 -out_datatype f32 -transA true -transB false -g 1 -m 1500 -n 3840 -k 1280
 conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 80 -H 3000 -W 1 -k 1280 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
