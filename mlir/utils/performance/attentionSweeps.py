@@ -329,7 +329,7 @@ def sampleAttentionShape():
         currentSeqLen
     )
 
-
+# Keep in sync with RockTuningImpl.cpp
 perfConfigSpaceMFMA = list(itertools.product( # MFMA perfConfig space
         [32, 64, 128, 256], # M/block G0
         [32, 64, 128, 256], # M/block G1
@@ -389,7 +389,9 @@ def main():
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")
 
-    if chip in ['gfx900', 'gfx906', 'gfx908', 'gfx90a', 'gfx940', 'gfx941', 'gfx942']:
+    # TODO: use AmdArchDb python version when available
+    
+    if chip.startswith('gfx9'):
         perfConfigSpace = perfConfigSpaceMFMA
     else:
         perfConfigSpace = perfConfigSpaceWMMA
