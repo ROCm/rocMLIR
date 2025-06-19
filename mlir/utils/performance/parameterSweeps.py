@@ -138,6 +138,46 @@ class MLIROnlyConfig(ConvConfiguration):
         self.ho = math.floor((self.hi + self.paddingHL + self.paddingHR - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingWL + self.paddingWR * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
+def multilineRepr(obj, num_fields=4):
+    """ Returns a multi-line string representation of the given object,
+    inserting a newline after every defined number of comma-separated
+    fields in its repr(). Useful for making long configuration 
+    representations more readable in logs or debug output."""
+    s = repr(obj).replace('\n', ' ')  # Flatten to one line
+    lines = []
+    field = ''
+    fields = []
+    in_quotes = False
+    perf_config_str = None
+
+    i = 0
+    while i < len(s):
+        # Detect start of perf_config to prevent it from being split
+        if s.startswith('perf_config=', i):
+            perf_config_str = s[i:]
+            break
+        c = s[i]
+        if c == "'":
+            in_quotes = not in_quotes
+            field += c
+        elif c == ',' and not in_quotes:
+            fields.append(field.strip() + ',')
+            field = ''
+        else:
+            field += c
+        i += 1
+    if field:
+        fields.append(field.strip())
+    for j in range(0, len(fields), num_fields):
+        prefix = '\t' if j > 0 else ''
+        group = fields[j:j+num_fields]
+        if j + num_fields >= len(fields) and group and group[-1].endswith(','):
+            group[-1] = group[-1][:-1]
+        lines.append(f"{prefix}{' '.join(group)}")
+    if perf_config_str:
+        lines.append('\t' + perf_config_str.strip())
+        
+    return '\n'.join(lines)
 
 class TestResult(enum.Enum):
     PASS = 1
@@ -224,7 +264,7 @@ Return code = {runner.returncode}""", file=sys.stderr)
         return TestResult.FAIL
 
     if not CORRECT_RESULT_RE.search(runnerOut):
-        print(f"""Convolution returned intorrect result
+        print(f"""Config returned incorrect result
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}""", file=sys.stderr)
         return TestResult.FAIL
@@ -244,7 +284,10 @@ async def dropGoodConfig(config, options: Options, paths: Paths):
     and `None` on success or inapplicability"""
     result = await testConfig(config, options, paths)
     if not options.quiet:
-        print(f"{result.name}: {config!r}")
+        if isinstance(config, MLIROnlyConfig):
+            print(f"{result.name}: {config!r}")
+        else:
+            print(f"{result.name}: {multilineRepr(config)}")
     if result == TestResult.FAIL:
         return config
     return result
