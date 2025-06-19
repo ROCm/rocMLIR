@@ -34,6 +34,10 @@ from perfRunner import create_paths as createPaths
 from perfRunner import find_mlir_build_dir as findMlirBuildDir
 from perfRunner import DATA_TYPES_ATTENTION
 from perfRunner import GFX_CHIP_RE
+from parameterSweeps import TestResult
+from parameterSweeps import Options
+from parameterSweeps import dropGoodConfig
+from parameterSweeps import sweepParameters
 
 # GLOBAL VARIABLES
 BOOLS = [True, False]
@@ -42,22 +46,6 @@ LOGFILE = 'failing_configs.csv'
 # Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
 random.seed(seed)
-
-class TestResult(Enum):
-    PASS = 1
-    INVALID = 2
-    FAIL = 3
-    
-@dataclass(frozen=True)
-class Options:
-    """Class for keeping option state for the sweep."""
-    debug: bool
-    quiet: bool
-    arch: str
-    flags: list
-    concurrentTests: int
-    numCu: int
-
 
 def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
@@ -88,7 +76,6 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     )
     attnConfig.currentSeqLen = currentSeqLen
     return attnConfig
-
 
 def multilineRepr(obj, num_fields=4):
     """ Returns a multi-line string representation of the given object,
@@ -131,105 +118,6 @@ def multilineRepr(obj, num_fields=4):
         
     return '\n'.join(lines)
 
-
-async def testAttentionConfig(config: AttentionConfiguration, options: Options, paths) -> TestResult:
-    """Runs the given configuration and returns whether it successfully concluded,
-    failed validation, or was inapplicable."""
-    mlirGenOpts = config.generateMlirDriverCommandLine(' '.join(options.flags)).split()
-    if getattr(config, "currentSeqLen") is not None:
-        mlirGenOpts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
-    mlirGenOpts.append('-pv')
-
-    proc1 = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocmlir_gen_path,
-        *mlirGenOpts,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-
-    rocmlirGeneratorOutput, rocmlirGeneratorError = await proc1.communicate()
-
-    if proc1.returncode !=0:
-        if not options.quiet:
-            print(f"FAIL: {multilineRepr(config)}")
-        if options.debug:
-            print("rocmlir-gen failed:\nError = ", rocmlirGeneratorError.decode().strip())
-        return TestResult.FAIL
-
-    proc2 = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocmlir_driver_path,
-        '-c',
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-
-    rocmlirDriverOutput, rocmlirDriverError = await proc2.communicate(input=rocmlirGeneratorOutput)
-
-    if proc2.returncode !=0:
-        if not options.quiet:
-            print(f"INVALID: {multilineRepr(config)}")
-        if options.debug:
-            print("rocmlir-driver failed:\nError = ", rocmlirDriverError.decode().strip())
-        return TestResult.INVALID
-    
-    proc3 = subprocess.Popen(
-        [
-            paths.mlir_paths.cpu_runner_path,
-            '-O2',
-            f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},'
-            f'{paths.mlir_paths.libconv_validation_wrappers_path},'
-            f'{paths.mlir_paths.libmlir_runtime_utils_path}',
-            '--entry-point-result=void'
-        ],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
-    )
-    
-    try:
-        stdout3, stderr3 = proc3.communicate(input=rocmlirDriverOutput, timeout=900)
-    except BrokenPipeError:
-        if not options.quiet:
-            print(f"FAIL: {multilineRepr(config)}")
-        if options.debug:
-            print("Broken pipe: cpu-runner failed to read input")
-        return TestResult.FAIL
-    except subprocess.TimeoutExpired:
-        if not options.quiet:
-            print(f"FAIL: {multilineRepr(config)}")
-        proc3.kill()
-        if options.debug:
-            print("TimeoutExpired: cpu-runner timed out")
-        return TestResult.FAIL
-
-    if proc3.returncode != 0:
-        if 'hipErrorOutOfMemory' in stderr3.decode().strip():
-            if not options.quiet:
-                print(f"INVALID: {multilineRepr(config)}")
-            if options.debug:
-                print("\n---> Classified as INVALID since the reason is memory access fault")
-            return TestResult.INVALID
-        if not options.quiet:
-            print(f"FAIL: {multilineRepr(config)}")
-        if options.debug:
-            print("Runner failed:\nOutput = ", stdout3.decode().strip())
-            print("\nError = ", stderr3.decode().strip())
-        return TestResult.FAIL
-
-    output = stdout3.decode()
-    if 'FAILED' in output or 'nan' in output.lower():
-        if not options.quiet:
-            print(f"FAIL: {multilineRepr(config)}")
-        if options.debug:
-            print("FAILED in output or NaN:\nOutput = ", output)
-        return TestResult.FAIL
-    if not options.quiet:
-        print(f"PASS: {multilineRepr(config)}")
-
-    return TestResult.PASS
-
-
 IterType = TypeVar('IterType')
 def grouper(iterable: Iterable[IterType], n: int):
     it = iter(iterable)
@@ -239,47 +127,8 @@ def grouper(iterable: Iterable[IterType], n: int):
             return
         yield chunk
 
-
-async def dropGoodConfig(config: AttentionConfiguration,
-        options: Options, paths: Paths) -> Union[TestResult, AttentionConfiguration]:
-    """Test the given `params`, returning the corresponding `config` on failure
-    and `None` on success or inapplicability."""
-    result = await testAttentionConfig(config, options, paths)
-
-    return config if result == TestResult.FAIL else result
-
-
-async def sweepParameters(paramIter: Iterable[IterType],
-        toConfig: Callable[[IterType, Options], AttentionConfiguration],
-        options: Options, paths: Paths) -> Tuple[int, int, List[AttentionConfiguration]]:
-    """Iterates over sampled parameter combinations, runs tests and returns passed and
-      invalid count and list of failing configs."""
-    failingConfigs = []
-    passed = 0
-    invalid = 0
-    configs = (c for c in (toConfig(p, options) for p in paramIter))
-    for configs in grouper((dropGoodConfig(c, options, paths) for c in configs),
-            options.concurrentTests):
-        configsFuture = asyncio.gather(*configs)
-        try:
-            configsResults = await configsFuture
-        except Exception as e:
-            configsFuture.cancel()
-            raise e
-        for result in configsResults:
-            if result == TestResult.PASS:
-                passed = passed + 1
-            elif result == TestResult.INVALID:
-                invalid = invalid + 1
-            else:
-                failingConfigs.append(result)
-
-    return (passed, invalid, failingConfigs)
-
-
 def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
     return [random.randint(0, maxSeqLen-1) for _ in range(g)]
-
 
 def sampleAttentionShape():
     g = random.randint(1, 256) # GROUPS
@@ -381,7 +230,7 @@ def main():
         quiet=args.quiet,
         arch=arch,
         flags=[],
-        concurrentTests=args.jobs,
+        concurrent_tests=args.jobs,
         numCu=getNumCU(chip)
     )
    
@@ -413,7 +262,6 @@ def main():
     print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     
     return 0
-
 
 if __name__ == '__main__':
     ret = main()

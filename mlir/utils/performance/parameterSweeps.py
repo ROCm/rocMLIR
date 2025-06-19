@@ -34,6 +34,7 @@ class Options:
     arch: str
     flags: list
     concurrent_tests: int
+    numCu: int
 
 class PerfConfig:
     class Version(enum.Enum):
@@ -143,10 +144,15 @@ class TestResult(enum.Enum):
     INVALID = 2
     FAIL = 3
 
-async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
+async def testConfig(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
+    if isinstance(config, MLIROnlyConfig):
+        rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
+    else:
+        rocmlirGenOpts = config.generateMlirDriverCommandLine(' '.join(options.flags)).split()
+        if getattr(config, "currentSeqLen") is not None:
+            rocmlirGenOpts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
     rocmlirGenOpts.append('-pv')
 
     applicableFromGen, genToApplicable = os.pipe()
@@ -233,8 +239,7 @@ def grouper(iterable: Iterable[IterType], n: int):
             return
         yield chunk
 
-async def dropGoodConfig(config: ConvConfiguration,
-        options: Options, paths: Paths) -> Union[TestResult, ConvConfiguration]:
+async def dropGoodConfig(config, options: Options, paths: Paths):
     """Test the given `params`, returning the corresponding `config` on failure
     and `None` on success or inapplicability"""
     result = await testConfig(config, options, paths)
@@ -245,8 +250,8 @@ async def dropGoodConfig(config: ConvConfiguration,
     return result
 
 async def sweepParameters(paramIter: Iterable[IterType],
-        toConfig: Callable[[IterType, Options], MLIROnlyConfig],
-        options: Options, paths: Paths) -> Tuple[int, int, List[MLIROnlyConfig]]:
+        toConfig: Callable[[IterType, Options], PerfConfig],
+        options: Options, paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
     failingConfigs = []
     passed = 0
     invalid = 0
