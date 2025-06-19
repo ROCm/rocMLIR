@@ -9,7 +9,7 @@
 #       --r <number_of_iterations>  Number of times to run each testcase (default: 5).
 
 MODEL_NAME="resnet50-fp16"
-MODEL_PATH="/models/mlperf/resnet50_v1.onnx"
+MODEL_PATH="/mnt/sc_nas_share/migraphx/models/mlperf/resnet50_v1.onnx"
 RUNS=5
 
 export PATH="$HOME/AMDMIGraphX/build/bin:$PATH" # path to migraphx-driver
@@ -55,9 +55,12 @@ do
         test_name=$(basename "$testcase")
         total_time=0
 
+        compiled="$testcase.mxdb"
+        migraphx-driver compile "$testcase" --mlir -o "$compiled" > /dev/null
+
         for ((i = 1; i <= RUNS; i++))
         do
-                MIGRAPHX_DISABLE_PASSES=auto_contiguous migraphx-driver time $testcase --mlir > "$MODEL_NAME/results.out"
+                migraphx-driver time "$compiled" > "$MODEL_NAME/results.out"
                 run_time=$(awk -F'[/ ]' '/Total time/{print substr($3, 1, length($3)-2)}' "$MODEL_NAME/results.out")
                 echo $run_time
                 total_time=$(awk -v total="$total_time" -v run="$run_time" 'BEGIN {print total + run}')
@@ -77,9 +80,12 @@ do
         test_name=$(basename "$testcase")
         total_time=0
 
+        compiled="$testcase.mxdb"
+        migraphx-driver compile "$testcase" --mlir -o "$compiled" > /dev/null
+
         for ((i = 1; i <= RUNS; i++))
         do
-                MIGRAPHX_DISABLE_PASSES=auto_contiguous migraphx-driver time $testcase --mlir > "$MODEL_NAME/results.out"
+                migraphx-driver time "$compiled" > "$MODEL_NAME/results.out"
                 run_time=$(awk -F'[/ ]' '/Total time/{print substr($3, 1, length($3)-2)}' "$MODEL_NAME/results.out")
                 echo $run_time
                 total_time=$(awk -v total="$total_time" -v run="$run_time" 'BEGIN {print total + run}')
