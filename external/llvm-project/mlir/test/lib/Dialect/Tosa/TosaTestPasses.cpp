@@ -18,9 +18,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/SmallVector.h"
 
 #define PASS_NAME "tosa-test-quant-utils"
 
@@ -148,12 +146,10 @@ ConvertTosaConv2DOp::matchAndRewrite(Operation *op,
       RankedTensorType::get(outputType.getShape(), rewriter.getIntegerType(32));
 
   auto newTosaConv2DOp = rewriter.create<tosa::Conv2DOp>(
-    op->getLoc(), newTosaConv2DOpType, tosaConv2DOp.getInput(),
-    tosaConv2DOp.getWeight(), tosaConv2DOp.getBias(),
-    tosaConv2DOp.getPadAttr(), tosaConv2DOp.getStrideAttr(),
-    tosaConv2DOp.getDilationAttr(), tosaConv2DOp.getAccTypeAttr());
-
-  newTosaConv2DOp.setGroupAttr(tosaConv2DOp.getGroupAttr());
+      op->getLoc(), newTosaConv2DOpType, tosaConv2DOp.getInput(),
+      tosaConv2DOp.getWeight(), tosaConv2DOp.getBias(),
+      tosaConv2DOp.getPadAttr(), tosaConv2DOp.getStrideAttr(),
+      tosaConv2DOp.getDilationAttr(), tosaConv2DOp.getAccTypeAttr());
 
   // Create rescale to quantized type
   double inputScale = inputQType.getScale();
