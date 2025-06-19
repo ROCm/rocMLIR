@@ -1131,7 +1131,7 @@ pipeline {
                                         copyArtifacts filter: 'build/perfDB/**',\
                                             optional: true,\
                                             flatten: true,\
-                                            projectName: "/MLIR/mlir-pr1890",\
+                                            projectName: "${env.JOB_NAME}",\
                                             selector: specific("2"),\
                                             target: 'build'
                                             sh 'ls build'
