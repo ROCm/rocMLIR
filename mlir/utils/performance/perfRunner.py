@@ -724,6 +724,8 @@ def getGemmGemmConfigurations(fileName):
     return configs
 
 def getAttentionConfigurations(fileName):
+    if DATA_TYPES_ATTENTION is None:
+        initializeDataTypesAttention()
     bool_space = ['false', 'true']
     default_test_space = {
         "-t": DATA_TYPES_ATTENTION,
@@ -1852,6 +1854,7 @@ def main(args=None):
     arch = getArch()
     chip = getChip() 
     numCU = getNumCU(chip)
+    initializeDataTypesAttention()
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
