@@ -1723,6 +1723,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           worklist.push_back(user);
       }
     }
+    // Sort by IR order
+    llvm::sort(toMove, [](Operation *a, Operation *b) {
+      return a->isBeforeInBlock(b);
+    });
 
     // Move in reverse order to preserve dependencies
     for (Operation *op : llvm::reverse(toMove))
