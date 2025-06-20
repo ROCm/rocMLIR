@@ -15,5 +15,4 @@ mlir_target_link_libraries(MLIRTosaTestPasses PUBLIC
   MLIRPass
   MLIRTosaDialect
   MLIRTransformUtils
-  MLIRTosaTransforms
   )

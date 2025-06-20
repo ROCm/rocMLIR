@@ -31,6 +31,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/VectorUtils.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/TypeSize.h"
@@ -1015,13 +1016,11 @@ static void simplifyRecipe(VPRecipeBase &R, VPTypeAnalysis &TypeInfo) {
           .Default([](auto *) { return false; }))
     return;
 
-  // Fold PredPHI constant -> constant.
+  // Fold PredPHI LiveIn -> LiveIn.
   if (auto *PredPHI = dyn_cast<VPPredInstPHIRecipe>(&R)) {
     VPValue *Op = PredPHI->getOperand(0);
-    if (!Op->isLiveIn() || !Op->getLiveInIRValue())
-      return;
-    if (auto *C = dyn_cast<Constant>(Op->getLiveInIRValue()))
-      PredPHI->replaceAllUsesWith(Plan->getOrAddLiveIn(C));
+    if (Op->isLiveIn())
+      PredPHI->replaceAllUsesWith(Op);
   }
 
   VPValue *A;
@@ -1154,6 +1153,16 @@ static void simplifyRecipe(VPRecipeBase &R, VPTypeAnalysis &TypeInfo) {
       Steps->replaceAllUsesWith(Steps->getOperand(0));
       return;
     }
+  }
+  // Simplify redundant ReductionStartVector recipes after unrolling.
+  VPValue *StartV;
+  if (match(Def, m_VPInstruction<VPInstruction::ReductionStartVector>(
+                     m_VPValue(StartV), m_VPValue(), m_VPValue()))) {
+    Def->replaceUsesWithIf(StartV, [](const VPUser &U, unsigned Idx) {
+      auto *PhiR = dyn_cast<VPReductionPHIRecipe>(&U);
+      return PhiR && PhiR->isInLoop();
+    });
+    return;
   }
 }
 
@@ -2601,14 +2610,10 @@ void VPlanTransforms::convertToConcreteRecipes(VPlan &Plan,
   for (VPBasicBlock *VPBB : VPBlockUtils::blocksOnly<VPBasicBlock>(
            vp_depth_first_deep(Plan.getEntry()))) {
     for (VPRecipeBase &R : make_early_inc_range(*VPBB)) {
-      if (isa<VPCanonicalIVPHIRecipe, VPEVLBasedIVPHIRecipe>(&R)) {
-        auto *PhiR = cast<VPHeaderPHIRecipe>(&R);
-        StringRef Name =
-            isa<VPCanonicalIVPHIRecipe>(PhiR) ? "index" : "evl.based.iv";
-        VPBuilder Builder(PhiR);
-        auto *ScalarR = Builder.createScalarPhi(
+      if (auto *PhiR = dyn_cast<VPEVLBasedIVPHIRecipe>(&R)) {
+        auto *ScalarR = VPBuilder(PhiR).createScalarPhi(
             {PhiR->getStartValue(), PhiR->getBackedgeValue()},
-            PhiR->getDebugLoc(), Name);
+            PhiR->getDebugLoc(), "evl.based.iv");
         PhiR->replaceAllUsesWith(ScalarR);
         ToRemove.push_back(PhiR);
         continue;
@@ -3198,4 +3203,26 @@ void VPlanTransforms::narrowInterleaveGroups(VPlan &Plan, ElementCount VF,
   Plan.getVF().replaceAllUsesWith(
       Plan.getOrAddLiveIn(ConstantInt::get(CanIV->getScalarType(), 1)));
   removeDeadRecipes(Plan);
+}
+
+/// Add branch weight metadata, if the \p Plan's middle block is terminated by a
+/// BranchOnCond recipe.
+void VPlanTransforms::addBranchWeightToMiddleTerminator(VPlan &Plan,
+                                                        ElementCount VF) {
+  VPBasicBlock *MiddleVPBB = Plan.getMiddleBlock();
+  auto *MiddleTerm =
+      dyn_cast_or_null<VPInstruction>(MiddleVPBB->getTerminator());
+  // Only add branch metadata if there is a (conditional) terminator.
+  if (!MiddleTerm)
+    return;
+
+  assert(MiddleTerm->getOpcode() == VPInstruction::BranchOnCond &&
+         "must have a BranchOnCond");
+  // Assume that `TripCount % VectorStep ` is equally distributed.
+  unsigned VectorStep = Plan.getUF() * VF.getKnownMinValue();
+  assert(VectorStep > 0 && "trip count should not be zero");
+  MDBuilder MDB(Plan.getScalarHeader()->getIRBasicBlock()->getContext());
+  MDNode *BranchWeights =
+      MDB.createBranchWeights({1, VectorStep - 1}, /*IsExpected=*/false);
+  MiddleTerm->addMetadata(LLVMContext::MD_prof, BranchWeights);
 }

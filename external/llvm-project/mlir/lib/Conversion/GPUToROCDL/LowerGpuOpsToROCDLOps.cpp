@@ -10,7 +10,6 @@
 // GPU operations.
 //
 //===----------------------------------------------------------------------===//
-#include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
@@ -18,11 +17,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
-#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
-#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMPass.h"
@@ -48,7 +42,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/FormatVariadic.h"
-#include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 
 #include "../GPUCommon/GPUOpsLowering.h"
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
@@ -57,8 +50,6 @@ namespace mlir {
 #define GEN_PASS_DEF_CONVERTGPUOPSTOROCDLOPS
 #include "mlir/Conversion/Passes.h.inc"
 } // namespace mlir
-
-#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 
 using namespace mlir;
 
@@ -384,11 +375,6 @@ struct LowerGpuOpsToROCDLOpsPass final
 
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset);
-    // TODO (rocmlir): remove hardcoded passes
-    // related PR: https://github.com/llvm/llvm-project/pull/124439
-    mlir::vector::populateVectorInsertExtractStridedSliceTransforms(llvmPatterns);
-    // TODO: ends here
-
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime,
                                          *maybeChipset);
     configureGpuToROCDLConversionLegality(target);
@@ -424,9 +410,7 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addIllegalOp<func::FuncOp>();
   target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
   target.addLegalDialect<ROCDL::ROCDLDialect>();
-  // TODO (rocmlir): remove vector::VectorDialect
-  // related PR: https://github.com/llvm/llvm-project/pull/124439
-  target.addIllegalDialect<gpu::GPUDialect, vector::VectorDialect>();
+  target.addIllegalDialect<gpu::GPUDialect>();
   target.addIllegalOp<LLVM::CosOp, LLVM::ExpOp, LLVM::Exp2Op, LLVM::FCeilOp,
                       LLVM::FFloorOp, LLVM::FRemOp, LLVM::LogOp, LLVM::Log10Op,
                       LLVM::Log2Op, LLVM::PowOp, LLVM::SinOp>();

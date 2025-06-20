@@ -17,7 +17,7 @@
 /* The number of commits in the linear history from the
  * start of the universe up to the latest llvm main commit
  * that has been merged */
-#define LLVM_MAIN_REVISION 539334
+#define LLVM_MAIN_REVISION 540910
 
 /* Define if LLVM_ENABLE_DUMP is enabled */
 #cmakedefine LLVM_ENABLE_DUMP
@@ -136,6 +136,10 @@
 
 /* Define to 1 to enable expensive checks for debug location coverage checking,
    and to 0 otherwise. */
-#cmakedefine01 LLVM_ENABLE_DEBUGLOC_COVERAGE_TRACKING
+#cmakedefine01 LLVM_ENABLE_DEBUGLOC_TRACKING_COVERAGE
+
+/* Define to 1 to enable expensive tracking of the origin of debug location
+   coverage bugs, and to 0 otherwise. */
+#cmakedefine01 LLVM_ENABLE_DEBUGLOC_TRACKING_ORIGIN
 
 #endif

@@ -185,6 +185,8 @@ void MCContext::reset() {
   XCOFFUniquingMap.clear();
   DXCUniquingMap.clear();
 
+  RelSecNames.clear();
+  MacroMap.clear();
   ELFEntrySizeMap.clear();
   ELFSeenGenericMergeableSections.clear();
 
@@ -632,9 +634,6 @@ MCSectionELF *MCContext::getELFSection(const Twine &Section, unsigned Type,
                                        const MCSymbolELF *GroupSym,
                                        bool IsComdat, unsigned UniqueID,
                                        const MCSymbolELF *LinkedToSym) {
-  StringRef Group = "";
-  if (GroupSym)
-    Group = GroupSym->getName();
   assert(!(LinkedToSym && LinkedToSym->getName().empty()));
 
   // Sections are differentiated by the quadruple (section_name, group_name,

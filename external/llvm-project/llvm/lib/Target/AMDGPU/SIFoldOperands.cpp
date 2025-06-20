@@ -23,6 +23,11 @@
 #define DEBUG_TYPE "si-fold-operands"
 using namespace llvm;
 
+static cl::opt<int> SIFoldOperandsPreheaderThreshold(
+    "amdgpu-si-fold-operands-preheader-threshold", cl::init(1000),
+    cl::desc("Threshold for operand folding hazard check. "
+             "Defaults to 1000 MIs, upper limit 10000."));
+
 namespace {
 
 struct FoldCandidate {
@@ -1253,10 +1258,9 @@ void SIFoldOperandsImpl::foldOperand(
       }
 
       if (OpToFold.isReg() && TRI->isSGPRReg(*MRI, OpToFold.getReg())) {
-        if (execMayBeModifiedBeforeUse(*MRI,
-                                       UseMI->getOperand(UseOpIdx).getReg(),
-                                       *OpToFold.getParent(),
-                                       *UseMI))
+        if (checkIfExecMayBeModifiedBeforeUseAcrossBB(
+                *MRI, UseMI->getOperand(UseOpIdx).getReg(),
+                *OpToFold.getParent(), *UseMI, SIFoldOperandsPreheaderThreshold))
           return;
 
         // %vgpr = COPY %sgpr0
@@ -1674,6 +1678,12 @@ bool SIFoldOperandsImpl::foldInstOperand(MachineInstr &MI,
       LLVM_DEBUG(dbgs() << "Folded source from " << MI << " into OpNo "
                         << static_cast<int>(Fold.UseOpNo) << " of "
                         << *Fold.UseMI);
+
+      if (Fold.isImm() && tryConstantFoldOp(Fold.UseMI)) {
+        LLVM_DEBUG(dbgs() << "Constant folded " << *Fold.UseMI);
+        Changed = true;
+      }
+
     } else if (Fold.Commuted) {
       // Restoring instruction's original operand order if fold has failed.
       TII->commuteInstruction(*Fold.UseMI, false);
