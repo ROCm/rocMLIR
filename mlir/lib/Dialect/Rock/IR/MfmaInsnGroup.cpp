@@ -6,6 +6,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Support/LLVM.h"
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -423,22 +424,22 @@ static auto getMfmaInsnGroupAttrMapGfx942 = []() {
 static auto getMfmaInsnGroupAttrMapGfx950 = []() {
   static MfmaInsnGroupMap groupAttrMap{
       // fp16 double rate
-      {{MfmaTypeId::Fp16TyId, 16, 16},
-       {ROCDL::mfma_f32_16x16x32_f16::getOperationName()}},
       {{MfmaTypeId::Fp16TyId, 32, 32},
        {ROCDL::mfma_f32_32x32x16_f16::getOperationName()}},
+      {{MfmaTypeId::Fp16TyId, 16, 16},
+       {ROCDL::mfma_f32_16x16x32_f16::getOperationName()}},
+
       // bfp16 double rate
-      {{MfmaTypeId::Bf16TyId, 16, 16},
-       {ROCDL::mfma_f32_16x16x32_bf16::getOperationName()}},
       {{MfmaTypeId::Bf16TyId, 32, 32},
        {ROCDL::mfma_f32_32x32x16_bf16::getOperationName()}},
-      // i8 double rate
-      {{MfmaTypeId::I8TyId, 16, 16},
-       {ROCDL::mfma_i32_16x16x64_i8::getOperationName()}},
-      {{MfmaTypeId::I8TyId, 32, 32},
-       {ROCDL::mfma_i32_32x32x32_i8::getOperationName()}}
+      {{MfmaTypeId::Bf16TyId, 16, 16},
+       {ROCDL::mfma_f32_16x16x32_bf16::getOperationName()}},
 
-  };
+      // i8 double rate
+      {{MfmaTypeId::I8TyId, 32, 32},
+       {ROCDL::mfma_i32_32x32x32_i8::getOperationName()}},
+      {{MfmaTypeId::I8TyId, 16, 16},
+       {ROCDL::mfma_i32_16x16x64_i8::getOperationName()}}};
   return groupAttrMap;
 };
 
@@ -546,10 +547,9 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
   llvm_unreachable("Unsupported input argument type.");
 }
 
-FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(Type elementTypeA,
-                                               Type elementTypeB,
-                                               StringRef arch,
-                                               int64_t mnPerXdl) {
+FailureOr<MfmaInsnGroup>
+MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
+                      int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"
@@ -594,6 +594,15 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(Type elementTypeA,
     } else {
       // gfx950 has double rate instructions. Select from those first.
       selectFrom(getMfmaInsnGroupAttrMapGfx950());
+      if (succeeded(result)) {
+        if (result->isCoherentWithK(kPack, kPackPerBlock)) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Selected gfx950 double rate instruction\n");
+          return result;
+        }
+        // else select again
+        result = failure();
+      }
       selectFrom(getMfmaInsnGroupAttrMapGfx90aPlusBf16());
     }
   }
@@ -605,6 +614,14 @@ FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(Type elementTypeA,
   } else if (isGfx95x) {
     // select from new double rate instructions first
     selectFrom(getMfmaInsnGroupAttrMapGfx950());
+    if (succeeded(result)) {
+      if (result->isCoherentWithK(kPack, kPackPerBlock)) {
+        LLVM_DEBUG(llvm::dbgs() << "Selected gfx950 double rate instruction\n");
+        return result;
+      }
+      // else select again
+      result = failure();
+    }
     // all previous instructions are still valid for gfx950
     selectFrom(getMfmaInsnGroupAttrMapGfx942());
   }

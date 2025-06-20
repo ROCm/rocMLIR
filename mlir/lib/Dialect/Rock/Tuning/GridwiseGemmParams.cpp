@@ -525,7 +525,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
     mnPerXdl = derivedParam.getMnPerXdl();
   }
   auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
+      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
+                            param.getKpack(), param.getKpackPerBlock());
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -580,7 +581,8 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
       [&](const InitParamsAccel &param) {
         int64_t mnPerXdl = param.gemmNPerWaveOrMnPerXdl;
         auto maybeMfmaInsnGroup =
-            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
+            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
+                                  param.gemmKPack, param.gemmKPerBlock);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }
@@ -653,9 +655,9 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   if (minDPerWave <= 16) {
     validKPerWaveFactor = 4;
   }
-  if (!((param.getMPerBlock() % minDPerWave == 0) &&
-        (param.getNPerBlock() % minDPerWave == 0) &&
-        (param.getKpackPerBlock() % validKPerWaveFactor == 0))) {
+  if ((param.getMPerBlock() % minDPerWave != 0) ||
+      (param.getNPerBlock() % minDPerWave != 0) ||
+      (param.getKpackPerBlock() % validKPerWaveFactor != 0)) {
     return failure();
   }
 
@@ -689,7 +691,7 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
-  if (param.getForceUnroll() == false) {
+  if (!param.getForceUnroll()) {
     return failure();
   }
 
@@ -756,10 +758,7 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
           return false;
         }
         WmmaInsn wmmaInsn = *maybeWmmaInsn;
-        if (!wmmaInsn.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
-          return false;
-        }
-        return true;
+        return wmmaInsn.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock);
       });
   return res;
 }
