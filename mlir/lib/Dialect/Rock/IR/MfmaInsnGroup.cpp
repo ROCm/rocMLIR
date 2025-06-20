@@ -581,47 +581,42 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
       result = MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
     }
   };
+
+  auto selectForGfx950 = [&]() {
+    // gfx950 has double rate instructions. Select from those first.
+    selectFrom(getMfmaInsnGroupAttrMapGfx950());
+    if (succeeded(result)) {
+      if (result->isCoherentWithK(kPack, kPackPerBlock)) {
+        LLVM_DEBUG(llvm::dbgs() << "Selected gfx950 double rate instruction\n");
+        return;
+      }
+      // else select again
+      result = failure();
+      return;
+    }
+  };
+
   bool isGfx908 = arch.contains("gfx908");
   bool isGfx90a = arch.contains("gfx90a");
-  bool isGfx94x = arch.contains("gfx942");
-  bool isGfx95x = arch.contains("gfx950");
+  bool isGfx942 = arch.contains("gfx942");
   // TODO: refactor this later to not keep multiple maps for different arches
   if (elementTypeA.isBF16()) {
     if (isGfx908) {
       selectFrom(getMfmaInsnGroupAttrMapGfx908Bf16());
-    } else if (isGfx94x || isGfx90a) {
+    } else if (isGfx942 || isGfx90a) {
       selectFrom(getMfmaInsnGroupAttrMapGfx90aPlusBf16());
     } else {
-      // gfx950 has double rate instructions. Select from those first.
-      selectFrom(getMfmaInsnGroupAttrMapGfx950());
-      if (succeeded(result)) {
-        if (result->isCoherentWithK(kPack, kPackPerBlock)) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "Selected gfx950 double rate instruction\n");
-          return result;
-        }
-        // else select again
-        result = failure();
-      }
+      selectForGfx950();
       selectFrom(getMfmaInsnGroupAttrMapGfx90aPlusBf16());
     }
   }
 
   if (isGfx908 || isGfx90a) {
     selectFrom(getMfmaInsnGroupAttrMapPreGfx942Int8());
-  } else if (isGfx94x) {
+  } else if (isGfx942) {
     selectFrom(getMfmaInsnGroupAttrMapGfx942());
-  } else if (isGfx95x) {
-    // select from new double rate instructions first
-    selectFrom(getMfmaInsnGroupAttrMapGfx950());
-    if (succeeded(result)) {
-      if (result->isCoherentWithK(kPack, kPackPerBlock)) {
-        LLVM_DEBUG(llvm::dbgs() << "Selected gfx950 double rate instruction\n");
-        return result;
-      }
-      // else select again
-      result = failure();
-    }
+  } else {
+    selectForGfx950();
     // all previous instructions are still valid for gfx950
     selectFrom(getMfmaInsnGroupAttrMapGfx942());
   }
