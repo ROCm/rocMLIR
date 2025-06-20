@@ -136,7 +136,8 @@ private:
 
 public:
   static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
-                                         StringRef arch, int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock);
+                                         StringRef arch, int64_t mnPerXdl,
+                                         int64_t kPack, int64_t kPackPerBlock);
   MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);
