@@ -802,7 +802,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21'
+                        values 'mfma', 'vanilla', 'navi21', 'navi3x', 'navi4x'
                     }
                 }
                 agent { label getLabelFromCodepath("${CODEPATH}") }
