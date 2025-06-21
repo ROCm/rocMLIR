@@ -155,6 +155,8 @@ def initializeDataTypesAttention():
     else:
         DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
         
+    return DATA_TYPES_ATTENTION # For modules that import this function
+
 def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
 

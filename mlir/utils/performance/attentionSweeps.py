@@ -23,13 +23,14 @@ import random
 import os
 
 from perfRunner import AttentionConfiguration
-from perfRunner import getArch, getNumCU
+from perfRunner import getArch, getNumCU, initializeDataTypesAttention
 from perfRunner import create_paths as createPaths
 from perfRunner import find_mlir_build_dir as findMlirBuildDir
 from perfRunner import DATA_TYPES_ATTENTION, GFX_CHIP_RE
 from parameterSweeps import Options, sweepParameters, multilineRepr
 
 # GLOBAL VARIABLES
+DATA_TYPES_ATTENTION = initializeDataTypesAttention()
 BOOLS = [True, False]
 LOGFILE = 'failing_configs.csv'
 
