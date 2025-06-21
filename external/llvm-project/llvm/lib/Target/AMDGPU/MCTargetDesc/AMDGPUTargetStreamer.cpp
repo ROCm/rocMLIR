@@ -18,6 +18,7 @@
 #include "Utils/AMDKernelCodeTUtils.h"
 #include "llvm/BinaryFormat/AMDGPUMetadataVerifier.h"
 #include "llvm/BinaryFormat/ELF.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCELFObjectWriter.h"
@@ -282,7 +283,7 @@ void AMDGPUTargetAsmStreamer::EmitMCResourceInfo(
   OS << "\t.set ";                                                             \
   ARG->print(OS, getContext().getAsmInfo());                                   \
   OS << ", ";                                                                  \
-  ARG->getVariableValue()->print(OS, getContext().getAsmInfo());               \
+  getContext().getAsmInfo()->printExpr(OS, *ARG->getVariableValue());          \
   Streamer.addBlankLine();
 
   PRINT_RES_INFO(NumVGPR);
@@ -304,7 +305,7 @@ void AMDGPUTargetAsmStreamer::EmitMCResourceMaximums(const MCSymbol *MaxVGPR,
   OS << "\t.set ";                                                             \
   ARG->print(OS, getContext().getAsmInfo());                                   \
   OS << ", ";                                                                  \
-  ARG->getVariableValue()->print(OS, getContext().getAsmInfo());               \
+  getContext().getAsmInfo()->printExpr(OS, *ARG->getVariableValue());          \
   Streamer.addBlankLine();
 
   PRINT_RES_INFO(MaxVGPR);
@@ -1005,8 +1006,8 @@ void AMDGPUTargetELFStreamer::EmitAmdhsaKernelDescriptor(
   // It implies R_AMDGPU_REL64, but ends up being R_AMDGPU_ABS64.
   Streamer.emitValue(
       MCBinaryExpr::createSub(
-          MCSymbolRefExpr::create(KernelCodeSymbol,
-                                  MCSymbolRefExpr::VK_AMDGPU_REL64, Context),
+          MCSymbolRefExpr::create(KernelCodeSymbol, AMDGPUMCExpr::S_REL64,
+                                  Context),
           MCSymbolRefExpr::create(KernelDescriptorSymbol, Context), Context),
       sizeof(amdhsa::kernel_descriptor_t::kernel_code_entry_byte_offset));
   for (uint32_t i = 0; i < sizeof(amdhsa::kernel_descriptor_t::reserved1); ++i)

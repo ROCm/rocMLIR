@@ -1,10 +1,12 @@
 FROM ubuntu:22.04
 MAINTAINER Christopher Austen <chausten@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/6.3/
+ARG ROCM_VERSION=6.4
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/${ROCM_VERSION}
+ARG AMDGPU_DEB_REPO=https://repo.radeon.com/amdgpu/${ROCM_VERSION}/ubuntu
 ARG ROCM_BUILD_NAME=jammy
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-6.3
+ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -96,11 +98,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Has a copy of the requirements.txt install bit for the new python version
 
 # Need "render" group because some CI hosts have /dev/kfd under it.
-RUN groupadd -g 109 render
+RUN groupadd -f render
 
 # Add ROCm build distribution
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
-RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/rocm.list
+RUN echo "deb [arch=amd64] ${ROCM_DEB_REPO} ${ROCM_BUILD_NAME} ${ROCM_BUILD_NUM}" > /etc/apt/sources.list.d/rocm.list
+RUN echo "deb [arch=amd64] ${AMDGPU_DEB_REPO} ${ROCM_BUILD_NAME} ${ROCM_BUILD_NUM}" > /etc/apt/sources.list.d/amdgpu.list
 RUN echo 'Package: *' > /etc/apt/preferences.d/repo-radeon-pin-600 && \
     echo 'Pin: release o=repo.radeon.com' >> /etc/apt/preferences.d/repo-radeon-pin-600 && \
     echo 'Pin-Priority: 600' >> /etc/apt/preferences.d/repo-radeon-pin-600
@@ -128,6 +131,7 @@ RUN apt-get update && \
   kmod \
   file \
   netcat-openbsd \
+  libdrm-amdgpu-dev \
   libsqlite3-dev \
   parallel \
   libaio1 && \
@@ -144,7 +148,6 @@ RUN wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2
 # --ignore-installed because of problems upgrading PyYAML.  See also -U.
 ADD "https://raw.githubusercontent.com/ROCm/MITuna/pf-tuna-rocmlir-3/requirements.txt" tuna-requirements.txt
 RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
-    python3 -m pip install -r tuna-requirements.txt --ignore-installed
-
-# Workaround for 6.1.1 rocprof not supporting navi3x:  add it to list.
-RUN sed --in-place 's/gfx94x")/gfx94x","gfx11xx")/' /opt/rocm/bin/rocprof
+    python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
+    python3 -m pip install -r llvm-requirements.txt --ignore-installed && \
+    python3 -m pip install -r requirements.txt --ignore-installed

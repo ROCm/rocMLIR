@@ -1,3 +1,12 @@
+// used for public CI
+
+import groovy.transform.Field
+import java.util.concurrent.ConcurrentHashMap
+
+// ConcurrentHashMap helps when we need to write variables in parallel
+@Field                                 // one instance for the whole run
+ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -17,14 +26,38 @@ void showEnv() {
     sh 'cat /etc/os-release'
     sh 'ulimit -a'
     sh '/opt/rocm/bin/rocm-smi'
+    sh '/opt/rocm/.info/version'
 }
 
-String dockerArgs() {
-    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+Map<String,String> dockerArgs() {
+    // Helper to run a shell command and get its stdout
+    def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
+
+    // Enumerate /dev/dri/renderD* devices if they exist
+    String renderFlags = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
+                         .split()
+                         .collect { "--device=${it}" }
+                         .join(' ')
+
+    // /dev/kfd appears only on GPU-enabled nodes
+    boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
+    String   kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
+
+    // Get the GIDs of the render and video groups
+    String renderGid = run("getent group render | cut -d':' -f3")
+    String videoGid = run("getent group video | cut -d':' -f3")
+
+    String args = """
+        ${kfdFlg} \
+        ${renderFlags} \
+        --group-add ${videoGid} --group-add ${renderGid} 
+    """.trim().replaceAll(/\s+/, ' ')
+    DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
+    return DOCKER_ARGS_BY_NODE // ConcurrentHashMap
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm6.3-latest'
+    return 'rocm/mlir:rocm6.4-latest'
 }
 
 
@@ -62,48 +95,72 @@ pipeline {
                         beforeAgent true;
                         equals expected: true, actual: params.sharedLib;
                     }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label "rocm"
-                            alwaysPull true
-                        }
-                    }
-                    environment {
-                        PATH="/opt/rocm/llvm/bin:$PATH"
-                    }
+                    agent { label "rocm" }
                     stages {
-                        stage("Environment") {
+                        stage("Setup environment") {
                             steps {
-                                showEnv()
+                                script {
+                                    dockerArgs()
+                                    echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                }
                             }
                         }
                         stage("Shared library build and fixed tests") {
                             steps {
-                                buildProject('check-mlir check-rocmlir', """
-                                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
-                                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
-                                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                                  -DLLVM_LIT_ARGS=-v
-                                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                                """)
-                             }
+                                script {
+                                    def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                    echo "Running Docker with: ${argsForThisNode}"
+    
+                                    // Run a docker container
+                                    def img = docker.image(dockerImage())
+                                    def pulled = img?.pull()
+                                    img.inside(argsForThisNode) {
+                                        // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
+                                        withEnv([
+                                            "PATH=/opt/rocm/llvm/bin:${env.PATH}"
+                                        ]) {
+                                            // Limit the number of lit workers for gfx90a to 30 on public CI as a workaround for issue #1841
+                                            buildProject('check-mlir check-rocmlir', """
+                                            -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
+                                            -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
+                                            -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+                                            -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j 8'
+                                            -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                                            """)
+                                        }
+                                    }
+                                }
+                            }
                         }
                         stage("Tune selected rocmlir configs") {
                             steps {
-                                buildProject('ci-performance-scripts', '')
-                                dir('build') {
-                                    timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        // Tune gemms, fail if the DB is not created
-                                        sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                                --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                --output=tuning_gemm.tsv
-                                              [ -f tuning_gemm.tsv ]"""
-                                        sh """python3 ./bin/tuningRunner.py --operation conv \
-                                                --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                --output=tuning_conv.tsv
-                                              [ -f tuning_conv.tsv ]"""
+                                script {
+                                    def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                    echo "Running Docker with: ${argsForThisNode}"
+    
+                                    // Run a docker container
+                                    def img = docker.image(dockerImage())
+                                    def pulled = img?.pull()
+                                    img.inside(argsForThisNode) {
+                                        // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
+                                        withEnv([
+                                            "PATH=/opt/rocm/llvm/bin:${env.PATH}"
+                                        ]) {
+                                            buildProject('ci-performance-scripts', '')
+                                            dir('build') {
+                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                    // Tune gemms, fail if the DB is not created
+                                                    sh """python3 ./bin/tuningRunner.py --operation gemm \
+                                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                            --output=tuning_gemm.tsv
+                                                        [ -f tuning_gemm.tsv ]"""
+                                                    sh """python3 ./bin/tuningRunner.py --operation conv \
+                                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                            --output=tuning_conv.tsv
+                                                        [ -f tuning_conv.tsv ]"""
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -123,30 +180,38 @@ pipeline {
                         beforeAgent true;
                         equals expected: true, actual: params.staticLib;
                     }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label "rocm"
-                            alwaysPull true
-                        }
-                    }
-                    environment {
-                        PATH="/opt/rocm/llvm/bin:$PATH"
-                    }
+                    agent { label "rocm" }
                     stages {
-                        stage("Environment") {
+                        stage("Setup environment") {
                             steps {
-                                showEnv()
+                                script {
+                                    dockerArgs()
+                                    echo "Docker args for ${env.NODE_NAME}: ${DOCKER_ARGS_BY_NODE[env.NODE_NAME]}"
+                                }
                             }
                         }
                         stage("Build static library package") {
                             steps {
-                                checkout scm
-                                buildProject('package', "-DBUILD_FAT_LIBROCKCOMPILER=ON")
-                                echo "Running tests on the newly-built static library"
-                                dir ('build') {
-                                    sh 'ninja check-rocmlir'
+                                script {
+                                    def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                    echo "Running Docker with: ${argsForThisNode}"
+    
+                                    // Run a docker container
+                                    def img = docker.image(dockerImage())
+                                    def pulled = img?.pull()
+                                    img.inside(argsForThisNode) {
+                                        // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
+                                        withEnv([
+                                            "PATH=/opt/rocm/llvm/bin:${env.PATH}"
+                                        ]) {
+                                            checkout scm
+                                            buildProject('package', "-DBUILD_FAT_LIBROCKCOMPILER=ON")
+                                            echo "Running tests on the newly-built static library"
+                                            dir ('build') {
+                                                sh 'ninja check-rocmlir'
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

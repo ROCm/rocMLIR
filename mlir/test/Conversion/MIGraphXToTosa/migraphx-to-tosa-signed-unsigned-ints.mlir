@@ -108,7 +108,7 @@ func.func @migraphx_convert_int4_float_to_unsigned(%arg0: !migraphx.shaped<16xf3
 }
 
 // CHECK-LABEL: @migraphx_div_si32
-// CHECK: tosa.int_div
+// CHECK: tosa.intdiv
 // CHECK-SAME: (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi32>
 func.func @migraphx_div_si32(%arg0: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
   %0 = migraphx.div %arg0, %arg1 : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>

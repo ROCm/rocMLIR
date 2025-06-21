@@ -459,8 +459,7 @@ llvm::cl::opt<RocmlirTuningParamSetKind> tuningLevel(
                      clEnumVal(RocmlirTuningParamSetKindFull, "Full"),
                      clEnumVal(RocmlirTuningParamSetKindExhaustive,
                                "Exhaustive")),
-    llvm::cl::init(
-        RocmlirTuningParamSetKind::RocmlirTuningParamSetKindExhaustive));
+    llvm::cl::init(RocmlirTuningParamSetKind::RocmlirTuningParamSetKindFull));
 
 llvm::cl::opt<bool>
     useElementwiseOp("use-ew-op",

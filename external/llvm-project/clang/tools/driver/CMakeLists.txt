@@ -48,8 +48,7 @@ add_clang_tool(clang
   DEPENDS
   intrinsics_gen
   # These generated headers are included transitively.
-  ARMTargetParserTableGen
-  AArch64TargetParserTableGen
+  target_parser_gen
   ${support_plugins}
   ${CLANG_BOLT_DEPS}
   GENERATE_DRIVER
@@ -108,7 +107,7 @@ foreach(link ${CLANG_LINKS_TO_CREATE} ${HLSL_LINK})
       endif()
     endforeach()
     install(SCRIPT ${INSTALL_SYMLINK}
-            CODE "install_symlink(flang flang-new bin create_symlink)"
+            CODE "install_symlink(flang flang bin create_symlink)"
             COMPONENT ${component})
   else()
     add_clang_symlink(${link} clang)

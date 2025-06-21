@@ -29,7 +29,6 @@
 #include "llvm/CodeGen/AccelTable.h"
 #include "llvm/CodeGen/DbgEntityHistoryCalculator.h"
 #include "llvm/CodeGen/DebugHandlerBase.h"
-#include "llvm/CodeGen/PseudoSourceValueManager.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Metadata.h"
@@ -103,15 +102,6 @@ public:
 
 class DbgVariable;
 
-// A pair to capture the arguments of a call to DBG_DEF
-struct DbgDefProxy {
-  std::reference_wrapper<const DILifetime> Lifetime;
-  std::reference_wrapper<const MachineOperand> Referrer;
-  explicit DbgDefProxy(const DILifetime &Lifetime,
-                       const MachineOperand &Referrer)
-      : Lifetime(Lifetime), Referrer(Referrer) {}
-};
-
 bool operator<(const struct FrameIndexExpr &LHS,
                const struct FrameIndexExpr &RHS);
 bool operator<(const struct EntryValueInfo &LHS,
@@ -155,14 +145,24 @@ class Multi {
   /// DW_OP_LLVM_tag_offset value from DebugLocs.
   std::optional<uint8_t> DebugLocListTagOffset;
 
+  /// In DIOp-DIExpressions, if this variable has pointer type and all entries
+  /// in the loclist produce the same divergent address space, this is set to be
+  /// the that address space.
+  std::optional<unsigned> CommonAddrSpace;
+
 public:
   explicit Multi(unsigned DebugLocListIndex,
-                 std::optional<uint8_t> DebugLocListTagOffset)
+                 std::optional<uint8_t> DebugLocListTagOffset,
+                 std::optional<unsigned> CommonAddrSpace = std::nullopt)
       : DebugLocListIndex(DebugLocListIndex),
-        DebugLocListTagOffset(DebugLocListTagOffset) {}
+        DebugLocListTagOffset(DebugLocListTagOffset),
+        CommonAddrSpace(CommonAddrSpace) {}
   unsigned getDebugLocListIndex() const { return DebugLocListIndex; }
   std::optional<uint8_t> getDebugLocListTagOffset() const {
     return DebugLocListTagOffset;
+  }
+  std::optional<unsigned> getCommonDivergentAddrSpace() const {
+    return CommonAddrSpace;
   }
 };
 /// Single location defined by (potentially multiple) MMI entries.
@@ -195,17 +195,9 @@ struct EntryValue {
     EntryValues.insert({Reg, **NonVariadicExpr});
   }
 };
-/// Heterogeneous DWARF DBG_DEF location
-struct Def {
-  /// Records DbgDef referrers.
-  mutable SmallVector<DbgDefProxy, 1> DbgDefProxies;
-  explicit Def(const DILifetime &Lifetime, const MachineOperand &Referrer) {
-    DbgDefProxies.emplace_back(Lifetime, Referrer);
-  }
-};
 /// Alias for the std::variant specialization base class of DbgVariable.
 using Variant = std::variant<std::monostate, Loc::Single, Loc::Multi, Loc::MMI,
-                             Loc::EntryValue, Loc::Def>;
+                             Loc::EntryValue>;
 } // namespace Loc
 
 //===----------------------------------------------------------------------===//
@@ -294,6 +286,9 @@ public:
   }
 
   const DIType *getType() const;
+
+  bool isDivergentAddrSpaceCompatible() const;
+  std::optional<unsigned> getCommonDivergentAddrSpace() const;
 
   static bool classof(const DbgEntity *N) {
     return N->getDbgEntityID() == DbgVariableKind;
@@ -468,14 +463,6 @@ class DwarfDebug : public DebugHandlerBase {
   bool EnableOpConvert;
 
 public:
-  using GVFragmentMapTy = DenseMap<DIFragment *, WeakVH>;
-
-private:
-  GVFragmentMapTy GVFragmentMap;
-  DenseMap<DISubprogram *, SmallVector<DILifetime *>> SPLifetimeMap;
-  DenseSet<DILifetime *> ProcessedLifetimes;
-
-public:
   enum class MinimizeAddrInV5 {
     Default,
     Disabled,
@@ -490,6 +477,10 @@ public:
   };
 
 private:
+  /// Instructions which should get is_stmt applied because they implement key
+  /// functionality for a source atom.
+  SmallDenseSet<const MachineInstr *> KeyInstructions;
+
   /// Force the use of DW_AT_ranges even for single-entry range lists.
   MinimizeAddrInV5 MinimizeAddr = MinimizeAddrInV5::Disabled;
 
@@ -721,10 +712,6 @@ private:
   bool buildLocationList(SmallVectorImpl<DebugLocEntry> &DebugLoc,
                          const DbgValueHistoryMap::Entries &Entries);
 
-  /// Collect variable information from MF.
-  void collectVariableInfoFromMF(DwarfCompileUnit &TheCU,
-                                 DenseSet<InlinedEntity> &P);
-
   /// Collect variable information from the side table maintained by MF.
   void collectVariableInfoFromMFTable(DwarfCompileUnit &TheCU,
                                       DenseSet<InlinedEntity> &P);
@@ -733,6 +720,11 @@ private:
   void emitSectionReference(const DwarfCompileUnit &CU);
 
   void findForceIsStmtInstrs(const MachineFunction *MF);
+
+  /// Compute instructions which should get is_stmt applied because they
+  /// implement key functionality for a source location atom, store results in
+  /// DwarfDebug::KeyInstructions.
+  void computeKeyInstructions(const MachineFunction *MF);
 
 protected:
   /// Gather pre-function debug information.

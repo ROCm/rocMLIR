@@ -67,6 +67,9 @@ struct ConvolutionContext {
 // Populate ConvContext from a given Convolution Op.
 // TODO(whchung): adopt ConvolutionOp OpTrait check after supporting PR is in.
 ConvolutionContext populateConvContext(Operation *op);
+
+ConvolutionContext populateConvContextFromConvGemm(ConvElementwiseGemmOp op);
+
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_CONVCONTEXT_H

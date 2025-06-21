@@ -21,7 +21,6 @@
 #include "llvm/CodeGen/LiveIntervals.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/VirtRegMap.h"
-#include "llvm/InitializePasses.h"
 
 using namespace llvm;
 
@@ -33,9 +32,7 @@ class AMDGPUReserveWWMRegsLegacy : public MachineFunctionPass {
 public:
   static char ID;
 
-  AMDGPUReserveWWMRegsLegacy() : MachineFunctionPass(ID) {
-    initializeAMDGPUReserveWWMRegsLegacyPass(*PassRegistry::getPassRegistry());
-  }
+  AMDGPUReserveWWMRegsLegacy() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 

@@ -15,6 +15,7 @@
 
 #include "asan_descriptions.h"
 #include "asan_mapping.h"
+#include "asan_poisoning.h"
 #include "asan_report.h"
 #include "asan_stack.h"
 #include "sanitizer_common/sanitizer_file.h"
@@ -606,6 +607,44 @@ static void PrintShadowMemoryForAddress(uptr addr) {
   Printf("%s", str.data());
 }
 
+static void CheckPoisonRecords(uptr addr) {
+  if (!AddrIsInMem(addr))
+    return;
+
+  u8 *shadow_addr = (u8 *)MemToShadow(addr);
+  // If we are in the partial right redzone, look at the next shadow byte.
+  if (*shadow_addr > 0 && *shadow_addr < 128)
+    shadow_addr++;
+  u8 shadow_val = *shadow_addr;
+
+  if (shadow_val != kAsanUserPoisonedMemoryMagic)
+    return;
+
+  Printf("\n");
+
+  if (flags()->poison_history_size <= 0) {
+    Printf(
+        "NOTE: the stack trace above identifies the code that *accessed* "
+        "the poisoned memory.\n");
+    Printf(
+        "To identify the code that *poisoned* the memory, try the "
+        "experimental setting ASAN_OPTIONS=poison_history_size=<size>.\n");
+    return;
+  }
+
+  PoisonRecord record;
+  if (FindPoisonRecord(addr, record)) {
+    StackTrace poison_stack = StackDepotGet(record.stack_id);
+    if (poison_stack.size > 0) {
+      Printf("Memory was manually poisoned by thread T%u:\n", record.thread_id);
+      poison_stack.Print();
+    }
+  } else {
+    Printf("ERROR: no matching poison tracking record found.\n");
+    Printf("Try a larger value for ASAN_OPTIONS=poison_history_size=<size>.\n");
+  }
+}
+
 void ErrorGeneric::Print() {
   Decorator d;
   Printf("%s", d.Error());
@@ -629,6 +668,9 @@ void ErrorGeneric::Print() {
     PrintContainerOverflowHint();
   ReportErrorSummary(bug_descr, &stack);
   PrintShadowMemoryForAddress(addr);
+
+  // This is an experimental flag, hence we don't make a special handler.
+  CheckPoisonRecords(addr);
 }
 
 ErrorNonSelfGeneric::ErrorNonSelfGeneric(uptr *callstack_, u32 n_callstack,
@@ -737,14 +779,14 @@ static uptr ScanForMagicUp(uptr start, uptr hi, uptr magic0, uptr magic1) {
 
 void ErrorNonSelfAMDGPU::PrintMallocStack() {
   // Facts about asan malloc on device
-  const uptr magic = 0xfedcba1ee1abcdefULL;
+  const uptr magic = static_cast<uptr>(0xfedcba1ee1abcdefULL);
   const uptr offset = 32;
   const uptr min_chunk_size = 96;
   const uptr min_alloc_size = 48;
 
   Decorator d;
   HeapAddressDescription addr_description;
-  
+
   if (GetHeapAddressInformation(device_address[0], access_size,
               &addr_description) &&
       addr_description.chunk_access.chunk_size >= min_chunk_size) {

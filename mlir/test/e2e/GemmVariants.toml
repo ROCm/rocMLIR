@@ -22,6 +22,11 @@ name = "data type"
 values = ["f32", "f16", "i8", "fp8_fp8", "fp8_bf8", "bf8_fp8", "bf8_bf8"]
 prefix = "-t "
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version  "
+
 ## Gemm variants
 [[suite]]
 name = "gemm_variants"
@@ -35,6 +40,11 @@ config = "-g 1 -m 1024 -k 769 -n 1024"
 [[suite.test]]
 config = "-g 1 -m 1024 -k 769 -n 1024 --reverse_grid"
 
+[[suite.test]]
+config = "-g 1 -m 1024 -k 769 -n 1024 --reverse_grid"
+
 # Let's make sure the very silly thing works
 [[suite.test]]
 config = "-g 1 -m 1 -k 1 -n 1"
+
+

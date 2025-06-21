@@ -1173,7 +1173,7 @@ bool FastISel::selectCall(const User *I) {
 
     MachineInstrBuilder MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
                                       TII.get(TargetOpcode::INLINEASM));
-    MIB.addExternalSymbol(IA->getAsmString().c_str());
+    MIB.addExternalSymbol(IA->getAsmString().data());
     MIB.addImm(ExtraInfo);
 
     const MDNode *SrcLoc = Call->getMetadata("srcloc");
@@ -1440,61 +1440,9 @@ bool FastISel::selectIntrinsicCall(const IntrinsicInst *II) {
             TII.get(TargetOpcode::DBG_LABEL)).addMetadata(DI->getLabel());
     return true;
   }
-  case Intrinsic::dbg_def: {
-    const DbgDefInst &DDI = *cast<DbgDefInst>(II);
-    const Value *Referrer = DDI.getReferrer();
-    assert(Referrer);
-    if (isa<UndefValue>(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addReg(Register());
-    } else if (const auto *CI = dyn_cast<ConstantInt>(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addCImm(CI);
-    } else if (auto *CFP = dyn_cast<ConstantFP>(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addFPImm(CFP);
-    } else if (const auto *AI = dyn_cast<AllocaInst>(Referrer)) {
-      auto SI = FuncInfo.StaticAllocaMap.find(AI);
-      if (SI != FuncInfo.StaticAllocaMap.end()) {
-        DILifetime *Lifetime = DDI.getLifetime();
-        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-                TII.get(TargetOpcode::DBG_DEF))
-            .addMetadata(Lifetime)
-            .addFrameIndex(SI->second);
-        // The translation from an alloca (semantically a pointer) to a frame
-        // index (semantically the stack slot itself) removes one level of
-        // indirection, which needs to be reflected in the expression.
-        Lifetime->setLocation(
-            Lifetime->getLocation()
-                ->builder()
-                .removeReferrerIndirection(AI->getAllocatedType())
-                .intoExpr());
-      } else {
-        LLVM_DEBUG(dbgs() << "Dropping debug info for alloca " << DDI << "\n");
-      }
-    } else if (Register Reg = lookUpRegForValue(Referrer)) {
-      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-              TII.get(TargetOpcode::DBG_DEF))
-          .addMetadata(DDI.getLifetime())
-          .addReg(Reg);
-    } else {
-      LLVM_DEBUG(dbgs() << "Dropping debug info for " << DDI << "\n");
-    }
-    return true;
-  }
-  case Intrinsic::dbg_kill: {
-    const DbgKillInst &DKI = *cast<DbgKillInst>(II);
-    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, MIMD,
-            TII.get(TargetOpcode::DBG_KILL))
-        .addMetadata(DKI.getLifetime());
-    return true;
-  }
+  case Intrinsic::dbg_def:
+  case Intrinsic::dbg_kill:
+    report_fatal_error("unsupported DIExpr-based metadata");
   case Intrinsic::objectsize:
     llvm_unreachable("llvm.objectsize.* should have been lowered already");
 
@@ -1726,9 +1674,6 @@ void FastISel::fastEmitBranch(MachineBasicBlock *MSucc,
                               const DebugLoc &DbgLoc) {
   const BasicBlock *BB = FuncInfo.MBB->getBasicBlock();
   bool BlockHasMultipleInstrs = &BB->front() != &BB->back();
-  // Handle legacy case of debug intrinsics
-  if (BlockHasMultipleInstrs && !BB->getModule()->IsNewDbgInfoFormat)
-    BlockHasMultipleInstrs = BB->sizeWithoutDebug() > 1;
   if (BlockHasMultipleInstrs && FuncInfo.MBB->isLayoutSuccessor(MSucc)) {
     // For more accurate line information if this is the only non-debug
     // instruction in the block then emit it, otherwise we have the
@@ -1909,17 +1854,12 @@ bool FastISel::selectOperator(const User *I, unsigned Opcode) {
   }
 
   case Instruction::Unreachable: {
-    if (TM.Options.TrapUnreachable) {
-      if (TM.Options.NoTrapAfterNoreturn) {
-        const auto *Call =
-            dyn_cast_or_null<CallInst>(cast<Instruction>(I)->getPrevNode());
-        if (Call && Call->doesNotReturn())
-          return true;
-      }
+    auto UI = cast<UnreachableInst>(I);
+    if (!UI->shouldLowerToTrap(TM.Options.TrapUnreachable,
+                               TM.Options.NoTrapAfterNoreturn))
+      return true;
 
-      return fastEmit_(MVT::Other, MVT::Other, ISD::TRAP) != 0;
-    }
-    return true;
+    return fastEmit_(MVT::Other, MVT::Other, ISD::TRAP) != 0;
   }
 
   case Instruction::Alloca:

@@ -24,6 +24,11 @@ name = "data type"
 values = ["f32", "f16", "i8", "fp8_fp8"]
 prefix = "-t "
 
+[[axis]]
+name = "schedule_version"
+values = ["1", "2"]
+prefix = "--schedule_version  "
+
 ## Gemm variants
 [[suite]]
 name = "pr_gemm"
@@ -46,6 +51,7 @@ values = ["true"]
 # Test large tensors with padding
 [[suite.test]]
 config = "-g 1 -m 32768 -k 1 -n 32769"
+
 # Only test f32 here
 [[suite.test.exclude]]
 name = "data type"

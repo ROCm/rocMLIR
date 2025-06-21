@@ -83,8 +83,14 @@ enum class ThinOrFullLTOPhase {
   /// Full LTO prelink phase.
   FullLTOPreLink,
   /// Full LTO postlink (backend compile) phase.
-  FullLTOPostLink
+  FullLTOPostLink,
+  /// Custom LTO postlink (e.g. --lto-newpm-passes=...)
+  CustomLTOPostLink
 };
+
+#ifndef NDEBUG
+const char *to_string(ThinOrFullLTOPhase Phase);
+#endif
 
 //===----------------------------------------------------------------------===//
 /// Pass interface - Implemented by all 'passes'.  Subclass this if you are an

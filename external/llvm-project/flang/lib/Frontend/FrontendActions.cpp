@@ -56,10 +56,12 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Passes/StandardInstrumentations.h"
+#include "llvm/ProfileData/InstrProfCorrelator.h"
 #include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/PGOOptions.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -67,6 +69,7 @@
 #include "llvm/TargetParser/RISCVISAInfo.h"
 #include "llvm/TargetParser/RISCVTargetParser.h"
 #include "llvm/Transforms/IPO/Internalize.h"
+#include "llvm/Transforms/Instrumentation/InstrProfiling.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include <memory>
 #include <system_error>
@@ -170,63 +173,11 @@ static void addDependentLibs(mlir::ModuleOp mlirModule, CompilerInstance &ci) {
   }
 }
 
-// Add to MLIR code target specific items which are dependent on target
-// configuration specified by the user.
-// Clang equivalent function: AMDGPUTargetCodeGenInfo::emitTargetGlobals
-static void addAMDGPUSpecificMLIRItems(mlir::ModuleOp mlirModule,
-                                       CompilerInstance &ci) {
-  const TargetOptions &targetOpts = ci.getInvocation().getTargetOpts();
-  const llvm::Triple triple(targetOpts.triple);
-  const llvm::StringRef codeObjectVersionGlobalOpName = "__oclc_ABI_version";
-
-  if (!triple.isAMDGPU()) {
-    return;
-  }
-  const CodeGenOptions &codeGenOpts = ci.getInvocation().getCodeGenOpts();
-  if (codeGenOpts.CodeObjectVersion == llvm::CodeObjectVersionKind::COV_None) {
-    return;
-  }
-
-  mlir::IRRewriter builder(mlirModule.getContext());
-  unsigned oclcABIVERsion = codeGenOpts.CodeObjectVersion;
-  auto int32Type = builder.getI32Type();
-
-  std::optional<mlir::LLVM::GlobalOp> originalGV;
-
-  mlirModule.walk([&originalGV, codeObjectVersionGlobalOpName](
-                      mlir::LLVM::GlobalOp globalOp) {
-    if (globalOp.getName() == codeObjectVersionGlobalOpName)
-      originalGV = globalOp;
-  });
-  if (originalGV.has_value()) {
-    mlir::LLVM::GlobalOp originalGVOp = originalGV.value();
-    if (originalGVOp.getLinkage() != mlir::LLVM::Linkage::External) {
-      return;
-    }
-    // Update the variable if it is already present in MLIR but it was marked
-    // as external linkage variable
-    originalGVOp.setLinkage(mlir::LLVM::Linkage::WeakODR);
-    originalGVOp.setValueAttr(
-        builder.getIntegerAttr(int32Type, oclcABIVERsion));
-    originalGVOp.setUnnamedAddr(mlir::LLVM::UnnamedAddr::Local);
-    originalGVOp.setAddrSpace(llvm::AMDGPUAS::CONSTANT_ADDRESS);
-    originalGVOp.setVisibility_(mlir::LLVM::Visibility::Hidden);
-    return;
-  }
-
-  mlir::LLVM::GlobalOp covInfo = builder.create<mlir::LLVM::GlobalOp>(
-      /* Location */ mlirModule.getLoc(), /* Type */ int32Type,
-      /* IsConstant */ true, /* Linkage */ mlir::LLVM::Linkage::WeakODR,
-      /* Name */ codeObjectVersionGlobalOpName,
-      /* Value */ builder.getIntegerAttr(int32Type, oclcABIVERsion));
-  covInfo.setUnnamedAddr(mlir::LLVM::UnnamedAddr::Local);
-  covInfo.setAddrSpace(llvm::AMDGPUAS::CONSTANT_ADDRESS);
-  covInfo.setVisibility_(mlir::LLVM::Visibility::Hidden);
-  builder.setInsertionPointToStart(mlirModule.getBody());
-  builder.insert(covInfo);
-}
-
 bool CodeGenAction::beginSourceFileAction() {
+  // Delete previous LLVM module depending on old context before making a new
+  // one.
+  if (llvmModule)
+    llvmModule.reset(nullptr);
   llvmCtx = std::make_unique<llvm::LLVMContext>();
   CompilerInstance &ci = this->getInstance();
   mlir::DefaultTimingManager &timingMgr = ci.getTimingManager();
@@ -243,7 +194,7 @@ bool CodeGenAction::beginSourceFileAction() {
     llvm::SMDiagnostic err;
     llvmModule = llvm::parseIRFile(getCurrentInput().getFile(), err, *llvmCtx);
     if (!llvmModule || llvm::verifyModule(*llvmModule, &llvm::errs())) {
-      err.print("flang-new", llvm::errs());
+      err.print("flang", llvm::errs());
       unsigned diagID = ci.getDiagnostics().getCustomDiagID(
           clang::DiagnosticsEngine::Error, "Could not parse IR");
       ci.getDiagnostics().Report(diagID);
@@ -253,12 +204,16 @@ bool CodeGenAction::beginSourceFileAction() {
     return true;
   }
 
+  // Reset MLIR module if it was set before overriding the old context.
+  if (mlirModule)
+    mlirModule = mlir::OwningOpRef<mlir::ModuleOp>(nullptr);
   // Load the MLIR dialects required by Flang
   mlirCtx = std::make_unique<mlir::MLIRContext>();
   fir::support::loadDialects(*mlirCtx);
   fir::support::registerLLVMTranslation(*mlirCtx);
   mlir::DialectRegistry registry;
   fir::acc::registerOpenACCExtensions(registry);
+  fir::omp::registerOpenMPExtensions(registry);
   mlirCtx->appendDialectRegistry(registry);
 
   const llvm::TargetMachine &targetMachine = ci.getTargetMachine();
@@ -334,7 +289,6 @@ bool CodeGenAction::beginSourceFileAction() {
   // Add target specific items like dependent libraries, target specific
   // constants etc.
   addDependentLibs(*mlirModule, ci);
-  addAMDGPUSpecificMLIRItems(*mlirModule, ci);
   timingScopeMLIRGen.stop();
 
   // run the default passes.
@@ -356,13 +310,24 @@ bool CodeGenAction::beginSourceFileAction() {
       ci.getInvocation().getCodeGenOpts().getDoConcurrentMapping();
   opts.enableOffloadGlobalFiltering =
       ci.getInvocation().getCodeGenOpts().OffloadGlobalFiltering;
+  opts.deferDescMap =
+      ci.getInvocation().getCodeGenOpts().DeferDescriptorMapping;
 
   if (opts.doConcurrentMappingKind != DoConcurrentMappingKind::DCMK_None &&
       !isOpenMPEnabled) {
     unsigned diagID = ci.getDiagnostics().getCustomDiagID(
         clang::DiagnosticsEngine::Warning,
-        "lowering `do concurrent` loops to OpenMP is only supported if "
-        "OpenMP is enabled");
+        "OpenMP is required for lowering `do concurrent` loops to OpenMP."
+        "Enable OpenMP using `-fopenmp`."
+        "`do concurrent` loops will be serialized.");
+    ci.getDiagnostics().Report(diagID);
+    opts.doConcurrentMappingKind = DoConcurrentMappingKind::DCMK_None;
+  }
+
+  if (opts.doConcurrentMappingKind != DoConcurrentMappingKind::DCMK_None) {
+    unsigned diagID = ci.getDiagnostics().getCustomDiagID(
+        clang::DiagnosticsEngine::Warning,
+        "Mapping `do concurrent` to OpenMP is still experimental.");
     ci.getDiagnostics().Report(diagID);
   }
 
@@ -783,6 +748,9 @@ void CodeGenAction::generateLLVMIR() {
     config.VScaleMax = vsr->second;
   }
 
+  config.Reciprocals = opts.Reciprocals;
+  config.PreferVectorWidth = opts.PreferVectorWidth;
+
   if (ci.getInvocation().getFrontendOpts().features.IsEnabled(
           Fortran::common::LanguageFeature::OpenMP))
     config.EnableOpenMP = true;
@@ -854,6 +822,17 @@ void CodeGenAction::generateLLVMIR() {
     llvmModule->addModuleFlag(
         llvm::Module::Error, "target-abi",
         llvm::MDString::get(llvmModule->getContext(), targetOpts.abi));
+
+  if (triple.isAMDGPU() ||
+      (triple.isSPIRV() && triple.getVendor() == llvm::Triple::AMD)) {
+    // Emit amdhsa_code_object_version module flag, which is code object version
+    // times 100.
+    if (opts.CodeObjectVersion != llvm::CodeObjectVersionKind::COV_None) {
+      llvmModule->addModuleFlag(llvm::Module::Error,
+                                "amdhsa_code_object_version",
+                                opts.CodeObjectVersion);
+    }
+  }
 }
 
 static std::unique_ptr<llvm::raw_pwrite_stream>
@@ -947,14 +926,39 @@ void CodeGenAction::runOptimizationPipeline(llvm::raw_pwrite_stream &os) {
   llvm::PassInstrumentationCallbacks pic;
   llvm::PipelineTuningOptions pto;
   std::optional<llvm::PGOOptions> pgoOpt;
+
+  if (opts.hasProfileIRInstr()) {
+    // -fprofile-generate.
+    pgoOpt = llvm::PGOOptions(opts.InstrProfileOutput.empty()
+                                  ? llvm::driver::getDefaultProfileGenName()
+                                  : opts.InstrProfileOutput,
+                              "", "", opts.MemoryProfileUsePath, nullptr,
+                              llvm::PGOOptions::IRInstr,
+                              llvm::PGOOptions::NoCSAction,
+                              llvm::PGOOptions::ColdFuncOpt::Default, false,
+                              /*PseudoProbeForProfiling=*/false, false);
+  } else if (opts.hasProfileIRUse()) {
+    llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS =
+        llvm::vfs::getRealFileSystem();
+    // -fprofile-use.
+    auto CSAction = opts.hasProfileCSIRUse() ? llvm::PGOOptions::CSIRUse
+                                             : llvm::PGOOptions::NoCSAction;
+    pgoOpt = llvm::PGOOptions(
+        opts.ProfileInstrumentUsePath, "", opts.ProfileRemappingFile,
+        opts.MemoryProfileUsePath, VFS, llvm::PGOOptions::IRUse, CSAction,
+        llvm::PGOOptions::ColdFuncOpt::Default, false);
+  }
+
   llvm::StandardInstrumentations si(llvmModule->getContext(),
                                     opts.DebugPassManager);
   si.registerCallbacks(pic, &mam);
   if (ci.isTimingEnabled())
     si.getTimePasses().setOutStream(ci.getTimingStreamLLVM());
   pto.LoopUnrolling = opts.UnrollLoops;
+  pto.LoopInterchange = opts.InterchangeLoops;
   pto.LoopInterleaving = opts.UnrollLoops;
   pto.LoopVectorization = opts.VectorizeLoop;
+  pto.SLPVectorization = opts.VectorizeSLP;
 
   llvm::PassBuilder pb(targetMachine, pto, pgoOpt, &pic);
 

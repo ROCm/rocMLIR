@@ -4,7 +4,7 @@ suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | ro
 
 [[axis]]
 name = "splitKFactor"
-values = ["v3:64,64,16,32,32,4,1,1,2,1,1"]
+values = ["v3:64,64,16,32,32,4,1,1,2,1,1", "v3:64,64,16,32,32,4,1,2,2,1,1"]
 prefix = "-perf_config="
 
 [[axis]]

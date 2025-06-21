@@ -84,9 +84,6 @@ protected:
   /// variable.  Variables are listed in order of appearance.
   DbgValueHistoryMap DbgValues;
 
-  /// History of DBG_DEF and DBG_KILL instructions for each lifetime.
-  DbgDefKillHistoryMap DbgDefKills;
-
   /// Mapping of inlined labels and DBG_LABEL machine instruction.
   DbgLabelInstrMap DbgLabels;
 
@@ -104,12 +101,12 @@ protected:
 
   /// Ensure that a label will be emitted before MI.
   void requestLabelBeforeInsn(const MachineInstr *MI) {
-    LabelsBeforeInsn.insert(std::make_pair(MI, nullptr));
+    LabelsBeforeInsn.try_emplace(MI);
   }
 
   /// Ensure that a label will be emitted after MI.
   void requestLabelAfterInsn(const MachineInstr *MI) {
-    LabelsAfterInsn.insert(std::make_pair(MI, nullptr));
+    LabelsAfterInsn.try_emplace(MI);
   }
 
   virtual void beginFunctionImpl(const MachineFunction *MF) = 0;

@@ -1,11 +1,11 @@
-// RUN: rocmlir-opt -rock-reuse-lds %s | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -rock-reuse-lds | FileCheck %s
 
 #wg = #gpu.address_space<workgroup>
 #priv = #gpu.address_space<private>
 
 
 // CHECK-LABEL: func.func @rock_reuse_two
-func.func @rock_reuse_two() attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_two() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   // CHECK: %[[ALLOC:.*]] = rock.alloc() : memref<2048xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
   // CHECK-NEXT: memref.view %[[ALLOC]][%[[OFFSET]]][] : memref<2048xi8, #gpu.address_space<workgroup>> to memref<1024xi8, #gpu.address_space<workgroup>>
@@ -31,7 +31,7 @@ func.func @rock_reuse_two() attributes{arch = "", block_size = 256 : i32, grid_s
 }
 
 // CHECK-LABEL: func.func @rock_reuse_samesize
-func.func @rock_reuse_samesize() attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_samesize() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   // CHECK: %[[ALLOC:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
   // CHECK-NEXT: memref.view %[[ALLOC]][%[[OFFSET]]][] : memref<16384xi8, #gpu.address_space<workgroup>> to memref<16384xi8, #gpu.address_space<workgroup>>
@@ -51,7 +51,7 @@ func.func @rock_reuse_samesize() attributes{arch = "", block_size = 256 : i32, g
 }
 
 // CHECK-LABEL: func.func @rock_noreuse
-func.func @rock_noreuse() attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_noreuse() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
@@ -72,7 +72,7 @@ func.func @rock_noreuse() attributes{arch = "", block_size = 256 : i32, grid_siz
 }
 
 // CHECK-LABEL: func.func @rock_reuse_all
-func.func @rock_reuse_all() attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_all() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
@@ -116,7 +116,7 @@ func.func @rock_reuse_all() attributes{arch = "", block_size = 256 : i32, grid_s
 }
 
 // CHECK-LABEL: func.func @rock_reuse_fragmentation
-func.func @rock_reuse_fragmentation() attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_fragmentation() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
@@ -160,7 +160,7 @@ func.func @rock_reuse_fragmentation() attributes{arch = "", block_size = 256 : i
 }
 
 // CHECK-LABEL: func.func @rock_reuse_align
-func.func @rock_reuse_align() attributes{arch = "", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_align() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>

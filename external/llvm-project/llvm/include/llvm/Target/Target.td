@@ -314,7 +314,7 @@ class RegisterClass<string namespace, list<ValueType> regTypes, int alignment,
   // to use in a given machine function. The code will be inserted in a
   // function like this:
   //
-  //   static inline unsigned f(const MachineFunction &MF) { ... }
+  //   static inline unsigned f(const MachineFunction &MF, bool Rev) { ... }
   //
   // The function should return 0 to select the default order defined by
   // MemberList, 1 to select the first AltOrders entry and so on.
@@ -1311,20 +1311,6 @@ def DBG_LABEL : StandardPseudoInstruction {
   let OutOperandList = (outs);
   let InOperandList = (ins unknown:$label);
   let AsmString = "DBG_LABEL";
-  let hasSideEffects = false;
-  let isMeta = true;
-}
-def DBG_DEF : StandardPseudoInstruction {
-  let OutOperandList = (outs);
-  let InOperandList = (ins variable_ops);
-  let AsmString = "DBG_DEF";
-  let hasSideEffects = false;
-  let isMeta = true;
-}
-def DBG_KILL : StandardPseudoInstruction {
-  let OutOperandList = (outs);
-  let InOperandList = (ins unknown:$lifetime);
-  let AsmString = "DBG_KILL";
   let hasSideEffects = false;
   let isMeta = true;
 }

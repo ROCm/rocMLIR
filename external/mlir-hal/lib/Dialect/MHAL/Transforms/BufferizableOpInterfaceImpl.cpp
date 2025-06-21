@@ -102,7 +102,8 @@ struct LaunchOpInterface
   /// All function arguments are writable. It is the responsibility of the
   /// CallOp to insert buffer copies where necessary.
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
-                          const BufferizationOptions &options) const {
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
     mlir::CallOpInterface callOp(op);
     auto callOperands = callOp.getArgOperands();
     auto callResultTypes = callOp.getCallResultTypes();
@@ -124,7 +125,7 @@ struct LaunchOpInterface
       if (isa<TensorType>(returnType)) {
         assert(returnType == callResultTypes[funcResultIdx++]);
         FailureOr<BaseMemRefType> memrefType =
-            bufferization::getBufferType(returnVal, options);
+            bufferization::getBufferType(returnVal, options, state);
         if (failed(memrefType))
           return failure();
         resultTypes.push_back(*memrefType);
@@ -157,7 +158,7 @@ struct LaunchOpInterface
       Value buffer = newOperands[idx];
       if (!buffer) {
         FailureOr<Value> maybeBuffer =
-            getBuffer(rewriter, opOperand.get(), options);
+            getBuffer(rewriter, opOperand.get(), options, state);
         if (failed(maybeBuffer))
           return failure();
         buffer = *maybeBuffer;

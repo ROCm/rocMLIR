@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
@@ -85,7 +86,7 @@ static llvm::cl::opt<rock::TuningParamSetKind> tuningSpaceKind(
         clEnumValN(rock::TuningParamSetKind::Exhaustive, "exhaustive",
                    "All tuning space combinations, even inapplicable ones")),
     llvm::cl::value_desc("tuning space to use"),
-    llvm::cl::init(rock::TuningParamSetKind::Exhaustive));
+    llvm::cl::init(rock::TuningParamSetKind::Full));
 
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
@@ -210,11 +211,10 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
             toTuneType = gemmLike.getAType();
             outputType = gemmLike.getCType();
           });
-    }
-    if (!toTuneType) {
-      f.walk([&toTuneType, &outputType](rock::AttentionOp attnOp) {
-        toTuneType = attnOp.getQueries().getType().getElementType();
-        outputType = toTuneType;
+      f.walk([&toTuneType,
+              &outputType](rock::RockGemmGemmWrapperInterface attnLike) {
+        toTuneType = cast<MemRefType>(attnLike.getAType()).getElementType();
+        outputType = cast<MemRefType>(attnLike.getOutType()).getElementType();
       });
     }
   });
@@ -328,7 +328,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     tuneCopy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {
       op->setAttr("perf_config", perfConfigAttr);
     });
-    tuneCopy->walk([&perfConfigAttr](rock::AttentionOp op) {
+    tuneCopy->walk([&perfConfigAttr](rock::RockGemmGemmWrapperInterface op) {
       op->setAttr("perf_config", perfConfigAttr);
     });
 

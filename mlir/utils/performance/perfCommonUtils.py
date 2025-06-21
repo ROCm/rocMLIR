@@ -6,6 +6,8 @@ class Operation(enum.IntEnum):
   GEMM = 2
   FUSION = 3
   ATTENTION = 4
+  GEMM_GEMM = 5
+  CONV_GEMM = 6
 
   @staticmethod
   def fromName(name: str) -> 'self':
@@ -16,6 +18,10 @@ class Operation(enum.IntEnum):
       return Operation.GEMM
     elif name == 'attention':
       return Operation.ATTENTION
+    elif name == 'gemm_gemm':
+      return Operation.GEMM_GEMM
+    elif name == 'conv_gemm':
+      return Operation.CONV_GEMM
     elif name == 'fusion':
       return Operation.FUSION
     else:

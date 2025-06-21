@@ -1,3 +1,18 @@
+//===- comgr-clang-command.cpp - ClangCommand implementation --------------===//
+//
+// Part of Comgr, under the Apache License v2.0 with LLVM Exceptions. See
+// amd/comgr/LICENSE.TXT in this repository for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This file implements the CacheCommandAdaptor interface for
+/// clang::driver::Commands that are stored in the cache. These correspond to
+/// "clang -cc1" and "lld" invocations.
+///
+//===----------------------------------------------------------------------===//
+
 #include "comgr-clang-command.h"
 
 #include <clang/Driver/Job.h>
@@ -39,9 +54,11 @@ bool skipProblematicFlag(IteratorTy &It, const IteratorTy &End) {
   // Skip include paths, these should have been handled by preprocessing the
   // source first. Sadly, these are passed also to the middle-end commands. Skip
   // debug related flags (they should be ignored) like -dumpdir (used for
-  // profiling/coverage/split-dwarf)
+  // profiling/coverage/split-dwarf).
+  // Skip flags related to opencl-c headers or device-libs builtins.
   StringRef Arg = *It;
-  static const StringSet<> FlagsWithPathArg = {"-I", "-dumpdir"};
+  static const StringSet<> FlagsWithPathArg = {"-I", "-dumpdir", "-include",
+                                               "-mlink-builtin-bitcode"};
   bool IsFlagWithPathArg = It + 1 != End && FlagsWithPathArg.contains(Arg);
   if (IsFlagWithPathArg) {
     ++It;
@@ -104,19 +121,6 @@ void ClangCommand::addOptionsIdentifier(HashAlgorithm &H) const {
       continue;
 
     StringRef Arg = *It;
-    static const StringSet<> FlagsWithFileArgEmbededInComgr = {
-        "-include-pch", "-mlink-builtin-bitcode"};
-    if (FlagsWithFileArgEmbededInComgr.contains(Arg)) {
-      // The next argument is a path to a "secondary" input-file (pre-compiled
-      // header or device-libs builtin)
-      // These two files kinds of files are embedded in comgr at compile time,
-      // and in normally their remain constant with comgr's build. The user is
-      // not able to change them.
-      ++It;
-      if (It == End)
-        break;
-      continue;
-    }
 
     // input files are considered by their content
     // output files should not be considered at all
@@ -158,35 +162,16 @@ bool ClangCommand::canCache() const {
 
 Error ClangCommand::writeExecuteOutput(StringRef CachedBuffer) {
   StringRef OutputFilename = Command.getOutputFilenames().front();
-  std::error_code EC;
-  raw_fd_ostream Out(OutputFilename, EC);
-  if (EC) {
-    Error E = createStringError(EC, Twine("Failed to open ") + OutputFilename +
-                                        " : " + EC.message() + "\n");
-    return E;
-  }
-
-  Out.write(CachedBuffer.data(), CachedBuffer.size());
-  Out.close();
-  if (Out.has_error()) {
-    Error E = createStringError(EC, Twine("Failed to write ") + OutputFilename +
-                                        " : " + EC.message() + "\n");
-    return E;
-  }
-
-  return Error::success();
+  return CachedCommandAdaptor::writeSingleOutputFile(OutputFilename,
+                                                     CachedBuffer);
 }
 
 Expected<StringRef> ClangCommand::readExecuteOutput() {
-  StringRef OutputFilename = Command.getOutputFilenames().front();
-  ErrorOr<std::unique_ptr<MemoryBuffer>> MBOrErr =
-      MemoryBuffer::getFile(OutputFilename);
-  if (!MBOrErr) {
-    std::error_code EC = MBOrErr.getError();
-    return createStringError(EC, Twine("Failed to open ") + OutputFilename +
-                                     " : " + EC.message() + "\n");
-  }
-  Output = std::move(*MBOrErr);
+  auto MaybeBuffer = CachedCommandAdaptor::readSingleOutputFile(
+      Command.getOutputFilenames().front());
+  if (!MaybeBuffer)
+    return MaybeBuffer.takeError();
+  Output = std::move(*MaybeBuffer);
   return Output->getBuffer();
 }
 

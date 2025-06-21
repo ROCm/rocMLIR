@@ -45,7 +45,8 @@ RT_API_ATTRS void Terminator::CrashHeader() const {
 #if defined(RT_DEVICE_COMPILATION)
   std::printf("\nfatal Fortran runtime error");
   if (sourceFileName_) {
-    std::printf("(%s", sourceFileName_);
+    // commenting out temporarily to avoid ICE seen with amd-staging
+    // std::printf("(%s", sourceFileName_);
     if (sourceLine_) {
       std::printf(":%d", sourceLine_);
     }
@@ -75,15 +76,7 @@ RT_API_ATTRS void Terminator::CrashHeader() const {
 #endif
   NotifyOtherImagesOfErrorTermination();
 #if defined(RT_DEVICE_COMPILATION)
-#if defined(__CUDACC__)
-  // NVCC supports __trap().
-  __trap();
-#elif defined(__clang__)
-  // Clang supports __builtin_trap().
-  __builtin_trap();
-#else
-#error "unsupported compiler"
-#endif
+  DeviceTrap();
 #else
   std::abort();
 #endif

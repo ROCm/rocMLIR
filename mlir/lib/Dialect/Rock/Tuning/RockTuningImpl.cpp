@@ -11,6 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -22,14 +25,15 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 
 namespace mlir {
 namespace rock {
 
 // The full space is a brute-force search for attention kernels
-static void createAttnTuningRangeBF(TuningParamSet *newSpace,
-                                    AttentionOp attnOp,
+template <typename Op>
+static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
                                     TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
       /*gemm0MPerBlock=*/{32, 64, 128, 256},
@@ -47,7 +51,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       /*mPerWave=*/{32, 64},
       /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
-  GemmFeatures features = attnOp.getFeatures();
+  GemmFeatures features = attnOp.getGemmFeatures();
   int64_t numEUPerCU = rock::lookupArchInfo(attnOp.getArch()).numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
   bool isWMMA = false;
@@ -203,7 +207,16 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> validRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
+  // only enable tuning over gemm schedules when doing exhaustive tuning
+  auto getGemmSchedules = [](const TuningParamSetKind &tuningKind) {
+    if (tuningKind == TuningParamSetKind::Exhaustive) {
+      return std::vector<uint32_t>{1, 2};
+    }
+    return std::vector<uint32_t>{1};
+  };
+
+  // M/block N/block K/block M/wave N/wave kPack scheduleVersion
+  // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
@@ -211,9 +224,11 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 8, 16, 32, 64, 128},
       {4, 16, 32},
       {1, 4, 8},
+      getGemmSchedules(kind),
       {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
+  // M/block N/block K/block M/wave N/wave kPack scheduleVersion
+  // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>>
       validRangeAccelGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
                                                 {16, 32, 64, 128, 256},
@@ -221,9 +236,11 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                 {4, 8, 16, 32, 64, 128},
                                                 {4, 8, 16, 32, 64, 128},
                                                 {1, 4, 8, 16},
+                                                getGemmSchedules(kind),
                                                 {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore/forceUnroll
+  // M/block N/block K/block M/wave N/wave kPack scheduleVersion
+  // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
       {16, 32, 64, 128, 256},
@@ -231,6 +248,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
       {2, 4, 8},
+      getGemmSchedules(kind),
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
@@ -255,23 +273,24 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                     gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                     gemmKPack, isSplitKFusible);
                 for (int64_t splitKFactor : optimalSplitKFactors) {
-                  for (uint32_t forceUnroll : xdlopsParams[6]) {
-                    // hardcode schedule version to v1 and outputSwizzle to
-                    // heuristics = 2
-                    InitParamsAccel gemmParams(
-                        gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                        gemmMPerWave, gemmMnPerXdl, gemmKPack, splitKFactor, 1,
-                        2, forceUnroll, true);
-                    if (gemmMPerBlock >= gemmMPerWave &&
-                        gemmNPerBlock >= gemmMnPerXdl) {
-                      if (succeeded(tuningInfo.paramsProbablyValid(
-                              b, info, gemmParams)) &&
-                          (kind == TuningParamSetKind::Exhaustive ||
-                           succeeded(
-                               tuningInfo.couldBePerformant(info, gemmParams))))
-                        newSpace->tuningRange.push_back(
-                            cast<RockTuningParamAttrInterface>(
-                                tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                  for (int64_t gemmSchedule : xdlopsParams[6]) {
+                    for (uint32_t forceUnroll : xdlopsParams[7]) {
+                      // hardcode outputSwizzle to heuristics = 2
+                      InitParamsAccel gemmParams(
+                          gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                          gemmMPerWave, gemmMnPerXdl, gemmKPack, splitKFactor,
+                          gemmSchedule, 2, forceUnroll, true);
+                      if (gemmMPerBlock >= gemmMPerWave &&
+                          gemmNPerBlock >= gemmMnPerXdl) {
+                        if (succeeded(tuningInfo.paramsProbablyValid(
+                                b, info, gemmParams)) &&
+                            (kind == TuningParamSetKind::Exhaustive ||
+                             succeeded(tuningInfo.couldBePerformant(
+                                 info, gemmParams))))
+                          newSpace->tuningRange.push_back(
+                              cast<RockTuningParamAttrInterface>(
+                                  tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                      }
                     }
                   }
                 }
@@ -296,21 +315,22 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                     gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
                     gemmKPack, isSplitKFusible);
                 for (auto splitKFactor : optimalSplitKFactors) {
-                  for (uint32_t forceUnroll : wmmaParams[6]) {
-                    // hardcode schedule version to v1 and outputSwizzle to
-                    // heuristics = 2
-                    InitParamsAccel gemmParams(
-                        gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                        gemmMPerWave, gemmNPerWave, gemmKPack, splitKFactor, 1,
-                        2, forceUnroll, true);
-                    if (succeeded(tuningInfo.paramsProbablyValid(b, info,
-                                                                 gemmParams)) &&
-                        (kind == TuningParamSetKind::Exhaustive ||
-                         succeeded(
-                             tuningInfo.couldBePerformant(info, gemmParams))))
-                      newSpace->tuningRange.push_back(
-                          cast<RockTuningParamAttrInterface>(
-                              tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                  for (uint32_t gemmSchedule : wmmaParams[6]) {
+                    for (uint32_t forceUnroll : wmmaParams[7]) {
+                      // hardcode outputSwizzle to heuristics = 2
+                      InitParamsAccel gemmParams(
+                          gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                          gemmMPerWave, gemmNPerWave, gemmKPack, splitKFactor,
+                          gemmSchedule, 2, forceUnroll, true);
+                      if (succeeded(tuningInfo.paramsProbablyValid(
+                              b, info, gemmParams)) &&
+                          (kind == TuningParamSetKind::Exhaustive ||
+                           succeeded(
+                               tuningInfo.couldBePerformant(info, gemmParams))))
+                        newSpace->tuningRange.push_back(
+                            cast<RockTuningParamAttrInterface>(
+                                tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                    }
                   }
                 }
               }
@@ -401,12 +421,11 @@ static void createQuickTuningRange(TuningParamSet *newSpace,
 
 // This is temporary workaround to make MIGraphX integration
 // work until the tuning is setup for attention ops properly.
-static void createAttnTuningRangeQuick(TuningParamSet *newSpace,
-                                       AttentionOp attnOp) {
+template <typename Op>
+static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
+                                       Type elemType) {
   OpBuilder b(attnOp.getContext());
-  GemmFeatures currentFeatures = attnOp.getFeatures();
-  Type elemType =
-      cast<ShapedType>(attnOp.getQueries().getType()).getElementType();
+  GemmFeatures currentFeatures = attnOp.getGemmFeatures();
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   using PerfConfigVals =
       std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>;
@@ -482,20 +501,22 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
       });
-  WalkResult findAttention = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    switch (kind) {
-    case TuningParamSetKind::Full:
-    case TuningParamSetKind::Exhaustive:
-      createAttnTuningRangeBF(newSpace, op, kind);
-      break;
-    case TuningParamSetKind::Quick:
-      createAttnTuningRangeQuick(newSpace, op);
-    }
-    return WalkResult::interrupt();
-  });
-  if (!findPrimary.wasInterrupted() && !findAttention.wasInterrupted()) {
-    llvm::report_fatal_error(
-        "Expected to find GEMM, convolution, or attention op, and didn't.");
+  WalkResult findGemmGemm =
+      mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+        Type elemType = cast<ShapedType>(op.getAType()).getElementType();
+        switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createAttnTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Quick:
+          createAttnTuningRangeQuick(newSpace, op, elemType);
+        }
+        return WalkResult::interrupt();
+      });
+  if (!findPrimary.wasInterrupted() && !findGemmGemm.wasInterrupted()) {
+    llvm::report_fatal_error("Expected to find GEMM, convolution, attention, "
+                             "gemm+gemm or conv+gemm op, and didn't.");
   }
   return newSpace;
 }
@@ -519,15 +540,16 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  WalkResult setAttn = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    auto *ctx = op.getContext();
-    SmallString<64> perfConfig;
-    paramEntry->param.getPerfConfigStr(perfConfig);
-    StringAttr attr = StringAttr::get(ctx, perfConfig);
-    op->setAttr("perf_config", attr);
-    return WalkResult::interrupt();
-  });
-  return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
+  WalkResult setGemmGemm =
+      mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+        auto *ctx = op.getContext();
+        SmallString<64> perfConfig;
+        paramEntry->param.getPerfConfigStr(perfConfig);
+        StringAttr attr = StringAttr::get(ctx, perfConfig);
+        op->setAttr("perf_config", attr);
+        return WalkResult::interrupt();
+      });
+  return setPrimary.wasInterrupted() || setGemmGemm.wasInterrupted();
 }
 
 bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
@@ -538,13 +560,14 @@ bool tuningSetStr(ModuleOp &mod, StringRef perfConfig) {
         op->setAttr("perf_config", attr);
         return WalkResult::interrupt();
       });
-  WalkResult setAttn = mod->walk([&](rock::AttentionOp op) -> WalkResult {
-    auto *ctx = op.getContext();
-    StringAttr attr = StringAttr::get(ctx, perfConfig);
-    op->setAttr("perf_config", attr);
-    return WalkResult::interrupt();
-  });
-  return setPrimary.wasInterrupted() || setAttn.wasInterrupted();
+  WalkResult setGemmGemm =
+      mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+        auto *ctx = op.getContext();
+        StringAttr attr = StringAttr::get(ctx, perfConfig);
+        op->setAttr("perf_config", attr);
+        return WalkResult::interrupt();
+      });
+  return setPrimary.wasInterrupted() || setGemmGemm.wasInterrupted();
 }
 
 TuningTable *tuningTableCreate() {
@@ -552,11 +575,91 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
-                                         SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(attnOp.getArch()).minNumCU;
-  if (attnOp.getNumCU().has_value()) {
-    numCU = attnOp.getNumCU().value();
+static LogicalResult
+extractLayouts(Operation *op, llvm::StringMap<unsigned> &fLayoutMap,
+               llvm::StringMap<unsigned> &iLayoutMap,
+               llvm::StringMap<unsigned> &oLayoutMap, SmallString<6> &fLayout,
+               SmallString<6> &iLayout, SmallString<6> &oLayout,
+               bool computeOutput = true) {
+  // Extract layout information
+  auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
+  ArrayAttr outputLayoutAttr;
+  if (computeOutput)
+    outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
+
+  unsigned size = filterLayoutAttr.size();
+
+  for (unsigned i = 0; i < size; ++i) {
+    auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
+    StringRef fKey = filterAttr.getValue();
+    if (fKey == "y")
+      fKey = "0";
+    if (fKey == "x")
+      fKey = "1";
+    fLayoutMap[fKey] = i;
+    auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
+    StringRef iKey = inputAttr.getValue();
+    if (iKey == "hi")
+      iKey = "0i";
+    if (iKey == "wi")
+      iKey = "1i";
+    iLayoutMap[iKey] = i;
+    if (computeOutput) {
+      auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
+      StringRef oKey = outputAttr.getValue();
+      if (oKey == "ho")
+        oKey = "0o";
+      if (oKey == "wo")
+        oKey = "1o";
+      oLayoutMap[oKey] = i;
+    }
+  }
+
+  fLayout.assign(size, '#');
+  iLayout.assign(size, '#');
+  oLayout.assign(size, '#');
+
+  // dimensions need to be mapped 1 to 1.
+  fLayout[fLayoutMap["k"]] = 'N';
+  fLayout[fLayoutMap["c"]] = 'C';
+  fLayout[fLayoutMap["g"]] = 'G';
+  iLayout[iLayoutMap["ni"]] = 'N';
+  iLayout[iLayoutMap["ci"]] = 'C';
+  iLayout[iLayoutMap["gi"]] = 'G';
+  if (computeOutput) {
+    oLayout[oLayoutMap["no"]] = 'N';
+    oLayout[oLayoutMap["ko"]] = 'C';
+    oLayout[oLayoutMap["go"]] = 'G';
+  }
+
+  for (unsigned i = 0; i < size - 3; i++) {
+    std::string key = std::to_string(i);
+    char val = '0' + i;
+    fLayout[fLayoutMap[key]] = val;
+    iLayout[iLayoutMap[key + "i"]] = val;
+    if (computeOutput)
+      oLayout[oLayoutMap[key + "o"]] = val;
+  }
+
+  if (computeOutput) {
+    if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout, oLayout),
+                     [](const char c) { return c == '#'; }))
+      return failure();
+  } else {
+    if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout),
+                     [](const char c) { return c == '#'; }))
+      return failure();
+  }
+  return success();
+}
+
+static LogicalResult
+getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
+                    SmallVectorImpl<char> &out) {
+  int32_t numCU = rock::lookupArchInfo(gemmGemmOp.getArch()).minNumCU;
+  if (gemmGemmOp.getNumCU().has_value()) {
+    numCU = gemmGemmOp.getNumCU().value();
   }
   constexpr char sep = ' ';
   constexpr char tab = '\t';
@@ -566,19 +669,18 @@ static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
   int64_t seqLenK;
   llvm::raw_svector_ostream problemOS(out);
   // ARCH string
-  problemOS << attnOp.getArch() << tab;
+  problemOS << gemmGemmOp.getArch() << tab;
   // Num of Compute Units
   problemOS << numCU << tab;
 
-  TypedValue<ShapedType> queries = attnOp.getQueries();
-  TypedValue<ShapedType> keys = attnOp.getKeys();
-  TypedValue<ShapedType> values = attnOp.getValues();
-  ArrayRef<int64_t> qShape = queries.getType().getShape();
-  ArrayRef<int64_t> kShape = keys.getType().getShape();
-  ArrayRef<int64_t> vShape = values.getType().getShape();
-  int64_t g = qShape[0];
+  ArrayRef<int64_t> qShape = cast<MemRefType>(gemmGemmOp.getAType()).getShape();
+  ArrayRef<int64_t> kShape = cast<MemRefType>(gemmGemmOp.getBType()).getShape();
+  ArrayRef<int64_t> vShape = cast<MemRefType>(gemmGemmOp.getCType()).getShape();
 
-  Type elemTypeQ = queries.getType().getElementType();
+  bool isAttention = isa<AttentionOp>(gemmGemmOp);
+  bool isConvGemm = isa<ConvElementwiseGemmOp>(gemmGemmOp);
+
+  Type elemTypeQ = cast<MemRefType>(gemmGemmOp.getAType()).getElementType();
   problemOS << "-t ";
   if (elemTypeQ.isF32()) {
     problemOS << "f32" << sep;
@@ -586,37 +688,61 @@ static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
     problemOS << "f16" << sep;
   } else if (elemTypeQ.isBF16()) {
     problemOS << "bf16" << sep;
-  } else if (elemTypeQ.isInteger(8)) {
+  } else if (elemTypeQ.isInteger(8) && isAttention) {
     problemOS << "i8" << sep;
   } else {
-    return attnOp.emitError("invalid type:") << elemTypeQ << "\n";
+    return gemmGemmOp.emitError("invalid type:") << elemTypeQ << "\n";
   }
 
-  // TransQ
-  problemOS << "-transQ ";
-  if (attnOp.getQTransposed()) {
-    seqLenQ = qShape[2];
-    headDimQK = qShape[1];
-    problemOS << "true" << sep;
-  } else {
-    seqLenQ = qShape[1];
-    headDimQK = qShape[2];
-    problemOS << "false" << sep;
-  }
+  // Extract layout information
+  llvm::StringMap<unsigned> fLayoutMap, iLayoutMap, oLayoutMap;
+  SmallString<6> fLayout, iLayout, oLayout;
 
-  // TransK
-  problemOS << "-transK ";
-  if (attnOp.getKTransposed()) {
-    seqLenK = kShape[1];
-    problemOS << "true" << sep;
+  if (isConvGemm) {
+    if (failed(extractLayouts(gemmGemmOp, fLayoutMap, iLayoutMap, oLayoutMap,
+                              fLayout, iLayout, oLayout, false)))
+      return gemmGemmOp.emitError("layout can't be extracted");
+
+    // filter layout
+    problemOS << "-f " << fLayout << sep;
+    // input layout
+    problemOS << "-I " << iLayout << sep;
   } else {
-    seqLenK = kShape[2];
-    problemOS << "false" << sep;
+    // TransQ
+    if (isAttention)
+      problemOS << "-transQ ";
+    else
+      problemOS << "-transA ";
+    if (gemmGemmOp.getTransposedA()) {
+      seqLenQ = qShape[2];
+      headDimQK = qShape[1];
+      problemOS << "true" << sep;
+    } else {
+      seqLenQ = qShape[1];
+      headDimQK = qShape[2];
+      problemOS << "false" << sep;
+    }
+
+    // TransK
+    if (isAttention)
+      problemOS << "-transK ";
+    else
+      problemOS << "-transB ";
+    if (gemmGemmOp.getTransposedB()) {
+      seqLenK = kShape[1];
+      problemOS << "true" << sep;
+    } else {
+      seqLenK = kShape[2];
+      problemOS << "false" << sep;
+    }
   }
 
   // TransV
-  problemOS << "-transV ";
-  if (attnOp.getVTransposed()) {
+  if (isAttention)
+    problemOS << "-transV ";
+  else
+    problemOS << "-transC ";
+  if (gemmGemmOp.getTransposedC()) {
     headDimV = vShape[1];
     problemOS << "true" << sep;
   } else {
@@ -626,16 +752,78 @@ static LogicalResult getTuningProblemStr(rock::AttentionOp attnOp,
 
   // TransO
   problemOS << "-transO ";
-  if (attnOp.getOTransposed())
+  if (gemmGemmOp.getTransposedOut())
     problemOS << "true" << sep;
   else
     problemOS << "false" << sep;
 
-  problemOS << "-g " << g << sep;
-  problemOS << "-seq_len_q " << seqLenQ << sep;
-  problemOS << "-seq_len_k " << seqLenK << sep;
-  problemOS << "-head_dim_qk " << headDimQK << sep;
-  problemOS << "-head_dim_v " << headDimV;
+  if (isAttention) {
+    auto attentionOp = cast<AttentionOp>(gemmGemmOp);
+    problemOS << "-causal ";
+    if (attentionOp.getCausal())
+      problemOS << "true" << sep;
+    else
+      problemOS << "false" << sep;
+
+    problemOS << "-return_lse ";
+    if (attentionOp.getLse())
+      problemOS << "true" << sep;
+    else
+      problemOS << "false" << sep;
+  }
+
+  if (!isConvGemm)
+    problemOS << "-g " << qShape[0] << sep;
+
+  if (isAttention) {
+    problemOS << "-seq_len_q " << seqLenQ << sep;
+    problemOS << "-seq_len_k " << seqLenK << sep;
+    problemOS << "-head_dim_qk " << headDimQK << sep;
+    problemOS << "-head_dim_v " << headDimV;
+  } else if (isConvGemm) {
+    auto convGemmOp = cast<ConvElementwiseGemmOp>(gemmGemmOp);
+    ArrayRef<int64_t> inShape = convGemmOp.getInput().getType().getShape();
+    ArrayRef<int64_t> filShape = convGemmOp.getFilter().getType().getShape();
+
+    // N
+    problemOS << "-n " << inShape[iLayoutMap["ni"]] << sep;
+    // C
+    problemOS << "-c " << inShape[iLayoutMap["ci"]] * inShape[iLayoutMap["gi"]]
+              << sep;
+    // H
+    problemOS << "-H " << inShape[iLayoutMap["0i"]] << sep;
+    // W
+    problemOS << "-W " << inShape[iLayoutMap["1i"]] << sep;
+    // K
+    problemOS << "-k " << filShape[fLayoutMap["k"]] * filShape[fLayoutMap["g"]]
+              << sep;
+    // Y
+    problemOS << "-y " << filShape[fLayoutMap["0"]] << sep;
+    // X
+    problemOS << "-x " << filShape[fLayoutMap["1"]] << sep;
+
+    auto paddingVal =
+        extractFromIntegerArrayAttr<int64_t>(convGemmOp.getPadding());
+    auto strideVal =
+        extractFromIntegerArrayAttr<int64_t>(convGemmOp.getStrides());
+    auto dilationVal =
+        extractFromIntegerArrayAttr<int64_t>(convGemmOp.getDilations());
+
+    // padding
+    problemOS << "-p " << paddingVal[0] << " -q " << paddingVal[2] << sep;
+    // stride
+    problemOS << "-u " << strideVal[0] << " -v " << strideVal[1] << sep;
+    // dilation
+    problemOS << "-l " << dilationVal[0] << " -j " << dilationVal[1] << sep;
+    // group
+    problemOS << "-g " << inShape[iLayoutMap["gi"]] << sep;
+    problemOS << "-gemmO " << headDimV;
+  } else {
+    problemOS << "-m " << seqLenQ << sep;
+    problemOS << "-n " << seqLenK << sep;
+    problemOS << "-k " << headDimQK << sep;
+    problemOS << "-gemmO " << headDimV;
+  }
   return success();
 }
 
@@ -674,72 +862,11 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     ArrayRef<int64_t> filShape = filType.getShape();
 
     // Extract layout information
-    auto filterLayoutAttr =
-        gemmOp->template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr =
-        gemmOp->template getAttrOfType<ArrayAttr>("input_layout");
-    auto outputLayoutAttr =
-        gemmOp->template getAttrOfType<ArrayAttr>("output_layout");
-
-    unsigned size = filterLayoutAttr.size();
-    llvm::StringMap<unsigned> fLayoutMap;
-    llvm::StringMap<unsigned> iLayoutMap;
-    llvm::StringMap<unsigned> oLayoutMap;
-
-    for (unsigned i = 0; i < size; ++i) {
-      auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
-      StringRef fKey = filterAttr.getValue();
-      if (fKey == "y")
-        fKey = "0";
-      if (fKey == "x")
-        fKey = "1";
-      fLayoutMap[fKey] = i;
-      auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
-      StringRef iKey = inputAttr.getValue();
-      if (iKey == "hi")
-        iKey = "0i";
-      if (iKey == "wi")
-        iKey = "1i";
-      iLayoutMap[iKey] = i;
-      auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
-      StringRef oKey = outputAttr.getValue();
-      if (oKey == "ho")
-        oKey = "0o";
-      if (oKey == "wo")
-        oKey = "1o";
-      oLayoutMap[oKey] = i;
-    }
-
-    SmallString<6> fLayout;
-    SmallString<6> iLayout;
-    SmallString<6> oLayout;
-    fLayout.assign(size, '#');
-    iLayout.assign(size, '#');
-    oLayout.assign(size, '#');
-
-    // dimensions need to be mapped 1 to 1.
-    fLayout[fLayoutMap["k"]] = 'N';
-    fLayout[fLayoutMap["c"]] = 'C';
-    fLayout[fLayoutMap["g"]] = 'G';
-    iLayout[iLayoutMap["ni"]] = 'N';
-    iLayout[iLayoutMap["ci"]] = 'C';
-    iLayout[iLayoutMap["gi"]] = 'G';
-    oLayout[oLayoutMap["no"]] = 'N';
-    oLayout[oLayoutMap["ko"]] = 'C';
-    oLayout[oLayoutMap["go"]] = 'G';
-
-    for (unsigned i = 0; i < size - 3; i++) {
-      std::string key = std::to_string(i);
-      char val = '0' + i;
-      fLayout[fLayoutMap[key]] = val;
-      iLayout[iLayoutMap[key + "i"]] = val;
-      oLayout[oLayoutMap[key + "o"]] = val;
-    }
-
-    if (llvm::any_of(llvm::concat<const char>(fLayout, iLayout, oLayout),
-                     [](const char c) { return c == '#'; })) {
-      return failure();
-    }
+    llvm::StringMap<unsigned> fLayoutMap, iLayoutMap, oLayoutMap;
+    SmallString<6> fLayout, iLayout, oLayout;
+    if (failed(extractLayouts(gemmOp, fLayoutMap, iLayoutMap, oLayoutMap,
+                              fLayout, iLayout, oLayout)))
+      return convIF.emitError("layout can't be extracted");
 
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
 
@@ -896,14 +1023,14 @@ LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out) {
       return getTuningProblemStr(gemmIF, out);
   }
   {
-    rock::AttentionOp attnOp;
-    WalkResult findAttention =
-        mod->walk([&](rock::AttentionOp op) -> WalkResult {
-          attnOp = op;
+    rock::RockGemmGemmWrapperInterface gemmGemmOp;
+    WalkResult findGemmGemm =
+        mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+          gemmGemmOp = op;
           return WalkResult::interrupt();
         });
-    if (findAttention.wasInterrupted())
-      return getTuningProblemStr(attnOp, out);
+    if (findGemmGemm.wasInterrupted())
+      return getTuningProblemStr(gemmGemmOp, out);
   }
   return failure();
 }

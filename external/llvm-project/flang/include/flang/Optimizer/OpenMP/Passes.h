@@ -23,8 +23,6 @@
 
 namespace flangomp {
 
-std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass(bool mapToDevice);
-
 #define GEN_PASS_DECL
 #define GEN_PASS_REGISTRATION
 #include "flang/Optimizer/OpenMP/Passes.h.inc"
@@ -34,6 +32,9 @@ std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass(bool mapToDevice);
 /// divided into units of work.
 bool shouldUseWorkshareLowering(mlir::Operation *op);
 
+std::unique_ptr<mlir::Pass> createDoConcurrentConversionPass(bool mapToDevice);
+
+std::unique_ptr<mlir::Pass> createMapInfoFinalizationPass(bool deferDescMap);
 } // namespace flangomp
 
 #endif // FORTRAN_OPTIMIZER_OPENMP_PASSES_H

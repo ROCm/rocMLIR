@@ -186,6 +186,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/ScopedNoAliasAA.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DIBuilder.h"
@@ -197,7 +198,6 @@
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/ReplaceConstant.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -534,8 +534,7 @@ public:
       auto InsertAt = F->getEntryBlock().getFirstNonPHIOrDbgOrAlloca();
       IRBuilder<> Builder(&*InsertAt);
 
-      It->second =
-          Builder.CreateIntrinsic(Intrinsic::amdgcn_lds_kernel_id, {}, {});
+      It->second = Builder.CreateIntrinsic(Intrinsic::amdgcn_lds_kernel_id, {});
     }
 
     return It->second;
@@ -1018,7 +1017,7 @@ public:
         auto NewGV = uniquifyGVPerKernel(M, GV, F);
         Changed |= (NewGV != GV);
         int BarId = (NumAbsolutes + 1);
-        if (Kernel2BarId.find(F) != Kernel2BarId.end()) {
+        if (Kernel2BarId.contains(F)) {
           BarId = (Kernel2BarId[F] + 1);
         }
         Kernel2BarId[F] = BarId;
@@ -1317,12 +1316,6 @@ private:
 
     performOptimizedStructLayout(LayoutFields);
 
-    struct DIExprVarInfo {
-      GlobalVariable *Var;
-      uint64_t Offset;
-    };
-    DenseMap<DIFragment *, DIExprVarInfo> Fragment2VarInfo;
-
     struct DIExpressionVarInfo {
       GlobalVariable *Var;
       Metadata *DIVar;
@@ -1359,19 +1352,13 @@ private:
           CurrentOffset += Padding;
         }
 
-        if (isHeterogeneousDebug(M)) {
-          Fragment2VarInfo[FGV->getDbgDef()] =
-              DIExprVarInfo{FGV, CurrentOffset};
-        } else {
-          SmallVector<DIGlobalVariableExpression *, 1> OriginalGVEs;
-          FGV->getDebugInfo(OriginalGVEs);
-          for (const auto *OriginalGVE : OriginalGVEs) {
-            if (auto NewElementsRef =
-                    OriginalGVE->getExpression()->getNewElementsRef()) {
-              DIExpressionVarInfos.push_back({FGV,
-                                              OriginalGVE->getRawVariable(),
-                                              *NewElementsRef, CurrentOffset});
-            }
+        SmallVector<DIGlobalVariableExpression *, 1> OriginalGVEs;
+        FGV->getDebugInfo(OriginalGVEs);
+        for (const auto *OriginalGVE : OriginalGVEs) {
+          if (auto NewElementsRef =
+                  OriginalGVE->getExpression()->getNewElementsRef()) {
+            DIExpressionVarInfos.push_back({FGV, OriginalGVE->getRawVariable(),
+                                            *NewElementsRef, CurrentOffset});
           }
         }
 
@@ -1397,73 +1384,34 @@ private:
         false);
     SGV->setAlignment(StructAlign);
 
-    if (isHeterogeneousDebug(M)) {
-      DIBuilder DBuilder(M);
-
-      DIFragment *DbgVarFragment = DBuilder.createFragment();
-      SGV->setDbgDef(DbgVarFragment);
-
-      if (NamedMDNode *RN = M.getNamedMetadata("llvm.dbg.retainedNodes")) {
-        for (MDNode *O : RN->operands()) {
-          auto *L = dyn_cast<DILifetime>(O);
-          if (!L)
-            continue;
-
-          if (L->argObjects().empty())
-            continue;
-
-          // FIXME(KZHURAVL): Handle more than one arg object?
-          auto *F = dyn_cast<DIFragment>(*L->argObjectsBegin());
-          if (!F)
-            continue;
-
-          auto FragmentIterator = Fragment2VarInfo.find(F);
-          if (FragmentIterator == Fragment2VarInfo.end())
-            continue;
-
-          DIExprBuilder ExprBuilder(Ctx);
-          ExprBuilder.append<DIOp::Arg>(0, SGV->getType());
-          ExprBuilder.append<DIOp::Deref>(
-              FragmentIterator->second.Var->getValueType());
-          ExprBuilder.append<DIOp::Constant>(
-              ConstantInt::get(Type::getInt32Ty(Ctx), FragmentIterator->second.Offset));
-          ExprBuilder.append<DIOp::ByteOffset>(
-              FragmentIterator->second.Var->getValueType());
-
-          L->setLocation(ExprBuilder.intoExpr());
-          L->replaceOperandWith(2, DbgVarFragment);
+    for (auto VarInfo : DIExpressionVarInfos) {
+      DIExprBuilder ExprBuilder(Ctx);
+      for (auto Op : VarInfo.Expr) {
+        if (auto *ArgOp = std::get_if<DIOp::Arg>(&Op)) {
+          assert(ArgOp->getIndex() == 0u &&
+                 "DIOp-based DIExpression in DIGlobalVariableExpression must "
+                 "have only one argument");
+          Type *ArgTy = SGV->getType();
+          assert(isa<PointerType>(ArgTy));
+          Type *ResultTy = VarInfo.Var->getType();
+          assert(isa<PointerType>(ResultTy));
+          assert(ArgTy->getPointerAddressSpace() ==
+                 ResultTy->getPointerAddressSpace());
+          unsigned PointerSizeInBits =
+              DL.getPointerSizeInBits(ArgTy->getPointerAddressSpace());
+          auto *IntTy = IntegerType::get(Ctx, PointerSizeInBits);
+          ConstantData *C = ConstantInt::get(IntTy, VarInfo.Offset, true);
+          ExprBuilder.append<DIOp::Arg>(0u, ArgTy);
+          ExprBuilder.append<DIOp::Reinterpret>(IntTy);
+          ExprBuilder.append<DIOp::Constant>(C);
+          ExprBuilder.append<DIOp::Add>();
+          ExprBuilder.append<DIOp::Reinterpret>(ResultTy);
+        } else {
+          ExprBuilder.append(Op);
         }
       }
-    } else {
-      for (auto VarInfo : DIExpressionVarInfos) {
-        DIExprBuilder ExprBuilder(Ctx);
-        for (auto Op : VarInfo.Expr) {
-          if (auto *ArgOp = std::get_if<DIOp::Arg>(&Op)) {
-            assert(ArgOp->getIndex() == 0u &&
-                   "DIOp-based DIExpression in DIGlobalVariableExpression must "
-                   "have only one argument");
-            Type *ArgTy = SGV->getType();
-            assert(isa<PointerType>(ArgTy));
-            Type *ResultTy = VarInfo.Var->getType();
-            assert(isa<PointerType>(ResultTy));
-            assert(ArgTy->getPointerAddressSpace() ==
-                   ResultTy->getPointerAddressSpace());
-            unsigned PointerSizeInBits =
-                DL.getPointerSizeInBits(ArgTy->getPointerAddressSpace());
-            auto *IntTy = IntegerType::get(Ctx, PointerSizeInBits);
-            ConstantData *C = ConstantInt::get(IntTy, VarInfo.Offset, true);
-            ExprBuilder.append<DIOp::Arg>(0u, ArgTy);
-            ExprBuilder.append<DIOp::Reinterpret>(IntTy);
-            ExprBuilder.append<DIOp::Constant>(C);
-            ExprBuilder.append<DIOp::Add>();
-            ExprBuilder.append<DIOp::Reinterpret>(ResultTy);
-          } else {
-            ExprBuilder.append(Op);
-          }
-        }
-        SGV->addDebugInfo(DIGlobalVariableExpression::get(
-            Ctx, VarInfo.DIVar, ExprBuilder.intoExpression()));
-      }
+      SGV->addDebugInfo(DIGlobalVariableExpression::get(
+          Ctx, VarInfo.DIVar, ExprBuilder.intoExpression()));
     }
 
     DenseMap<GlobalVariable *, Constant *> Map;
@@ -1544,6 +1492,8 @@ private:
     if (!MaxDepth || (A == 1 && !AliasScope))
       return;
 
+    ScopedNoAliasAAResult ScopedNoAlias;
+
     for (User *U : Ptr->users()) {
       if (auto *I = dyn_cast<Instruction>(U)) {
         if (AliasScope && I->mayReadOrWriteMemory()) {
@@ -1553,7 +1503,34 @@ private:
           I->setMetadata(LLVMContext::MD_alias_scope, AS);
 
           MDNode *NA = I->getMetadata(LLVMContext::MD_noalias);
-          NA = (NA ? MDNode::intersect(NA, NoAlias) : NoAlias);
+
+          // Scoped aliases can originate from two different domains.
+          // First domain would be from LDS domain (created by this pass).
+          // All entries (LDS vars) into LDS struct will have same domain.
+
+          // Second domain could be existing scoped aliases that are the
+          // results of noalias params and subsequent optimizations that
+          // may alter thesse sets.
+
+          // We need to be careful how we create new alias sets, and
+          // have right scopes and domains for loads/stores of these new
+          // LDS variables. We intersect NoAlias set if alias sets belong
+          // to the same domain. This is the case if we have memcpy using
+          // LDS variables. Both src and dst of memcpy would belong to
+          // LDS struct, they donot alias.
+          // On the other hand, if one of the domains is LDS and other is
+          // existing domain prior to LDS, we need to have a union of all
+          // these aliases set to preserve existing aliasing information.
+
+          SmallPtrSet<const MDNode *, 16> ExistingDomains, LDSDomains;
+          ScopedNoAlias.collectScopedDomains(NA, ExistingDomains);
+          ScopedNoAlias.collectScopedDomains(NoAlias, LDSDomains);
+          auto Intersection = set_intersection(ExistingDomains, LDSDomains);
+          if (Intersection.empty()) {
+            NA = NA ? MDNode::concatenate(NA, NoAlias) : NoAlias;
+          } else {
+            NA = NA ? MDNode::intersect(NA, NoAlias) : NoAlias;
+          }
           I->setMetadata(LLVMContext::MD_noalias, NA);
         }
       }
@@ -1605,10 +1582,8 @@ public:
   const AMDGPUTargetMachine *TM;
   static char ID;
 
-  AMDGPULowerModuleLDSLegacy(const AMDGPUTargetMachine *TM_ = nullptr)
-      : ModulePass(ID), TM(TM_) {
-    initializeAMDGPULowerModuleLDSLegacyPass(*PassRegistry::getPassRegistry());
-  }
+  AMDGPULowerModuleLDSLegacy(const AMDGPUTargetMachine *TM = nullptr)
+      : ModulePass(ID), TM(TM) {}
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     if (!TM)

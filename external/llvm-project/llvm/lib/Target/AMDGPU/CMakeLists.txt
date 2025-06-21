@@ -54,6 +54,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPUCodeGenPrepare.cpp
   AMDGPUCombinerHelper.cpp
   AMDGPUCtorDtorLowering.cpp
+  AMDGPUExpandFeaturePredicates.cpp
   AMDGPUExportClustering.cpp
   AMDGPUExportKernelRuntimeHandles.cpp
   AMDGPUFrameLowering.cpp
@@ -74,7 +75,6 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPULowerBufferFatPointers.cpp
   AMDGPULowerKernelArguments.cpp
   AMDGPULowerKernelAttributes.cpp
-  AMDGPULowerKernelCalls.cpp
   AMDGPULowerModuleLDSPass.cpp
   AMDGPUSwLowerLDS.cpp
   AMDGPUMachineFunction.cpp
@@ -90,6 +90,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPUPostLegalizerCombiner.cpp
   AMDGPUPreLegalizerCombiner.cpp
   AMDGPUPreloadKernArgProlog.cpp
+  AMDGPUPreloadKernelArguments.cpp
   AMDGPUPrintfRuntimeBinding.cpp
   AMDGPUPromoteAlloca.cpp
   AMDGPUPromoteKernelArguments.cpp

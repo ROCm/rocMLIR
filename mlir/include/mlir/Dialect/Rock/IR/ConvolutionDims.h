@@ -37,7 +37,7 @@ struct ConvolutionDims {
                   int64_t g)
       : fil(fil), out(out), in(in), k(k), c(c), n(n), g(g) {}
 
-  static ConvolutionDims fromOp(Operation *op);
+  static ConvolutionDims fromOp(Operation *op, bool enableOutput = true);
 };
 
 } // namespace rock

@@ -72,7 +72,7 @@ export TUNA_DIR=/tmp/MITuna
 export ROCMLIR_DIR=$(pwd)/..      # Assumes we're in the build directory
 export OUT_FILE=results.tsv
 export OP=convolution
-export TUNING_SPACE=exhaustive
+export TUNING_SPACE=full
 export LOAD_FACTOR=
 
 # -c configs
@@ -101,7 +101,7 @@ while getopts ":hc:t:r:f:o:s:l:" arg; do
     f) # File to write tuning results to.
       OUT_FILE="${OPTARG}"
       ;;
-    s) # Tuning space (default exhaustive)
+    s) # Tuning space (default full)
       TUNING_SPACE="${OPTARG}"
       ;;
     l) # Load factor (default 1.0)

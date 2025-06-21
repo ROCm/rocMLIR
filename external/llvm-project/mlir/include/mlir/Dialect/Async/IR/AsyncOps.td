@@ -15,7 +15,6 @@
 
 include "mlir/Dialect/Async/IR/AsyncDialect.td"
 include "mlir/Dialect/Async/IR/AsyncTypes.td"
-include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -248,10 +247,6 @@ def Async_CallOp : Async_Op<"call",
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
-    
-    operand_range getCallOperands() {
-      return {arg_operand_begin(), arg_operand_end()};
-    }
 
     MutableOperandRange getArgOperandsMutable() {
       return getOperandsMutable();
@@ -381,7 +376,7 @@ def Async_CreateGroupOp : Async_Op<"create_group", [Pure]> {
 }
 
 def Async_AddToGroupOp : Async_Op<"add_to_group", []> {
-  let summary = "adds and async token or value to the group";
+  let summary = "adds an async token or value to the group";
   let description = [{
     The `async.add_to_group` adds an async token or value to the async group.
     Returns the rank of the added element in the group. This rank is fixed
@@ -660,7 +655,7 @@ def Async_RuntimeLoadOp : Async_Op<"runtime.load",
 }
 
 def Async_RuntimeAddToGroupOp : Async_Op<"runtime.add_to_group", []> {
-  let summary = "adds and async token or value to the group";
+  let summary = "adds an async token or value to the group";
   let description = [{
     The `async.runtime.add_to_group` adds an async token or value to the async
     group. Returns the rank of the added element in the group.

@@ -36,7 +36,6 @@ endif(EXISTS "${CMAKE_SOURCE_DIR}/../../.git")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-option(FILE_REORG_BACKWARD_COMPATIBILITY "Enable File Reorg with backward compatibility" OFF)
 # Optionally, build Compiler Support with ccache.
 set(ROCM_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
 if (ROCM_CCACHE_BUILD)
@@ -47,12 +46,6 @@ if (ROCM_CCACHE_BUILD)
     message(WARNING "Unable to find ccache. Falling back to real compiler")
   endif() # if (CCACHE_PROGRAM)
 endif() # if (ROCM_CCACHE_BUILD)
-
-find_package(ROCM QUIET)
-if (ROCM_FOUND)
-  include(ROCMSetupVersion)
-  rocm_setup_version(VERSION "${amd_comgr_VERSION}")
-endif()
 
 # BUILD_SHARED_LIBS is a frustratingly global variable common to all
 # projects. LLVM also defines an option for the same varible with the
@@ -85,6 +78,7 @@ set(SOURCES
   src/comgr-spirv-command.cpp
   src/comgr-symbol.cpp
   src/comgr-symbolizer.cpp
+  src/comgr-unbundle-command.cpp
   src/time-stat/time-stat.cpp)
 
 if(COMGR_BUILD_SHARED_LIBS)
@@ -129,6 +123,12 @@ else()
         ${LLVM_EXTERNAL_LLD_SOURCE_DIR}/include
         ${LLVM_BINARY_DIR}/tools/lld/include)
   endif()
+
+  if (LLVM_EXTERNAL_SPIRV_LLVM_TRANSLATOR_SOURCE_DIR)
+    target_include_directories(amd_comgr
+      PRIVATE
+        ${LLVM_EXTERNAL_SPIRV_LLVM_TRANSLATOR_SOURCE_DIR}/include)
+  endif()
 endif()
 
 target_include_directories(amd_comgr
@@ -143,7 +143,6 @@ message("-----------Clang_DIR: ${Clang_DIR}")
 message("--CLANG_INCLUDE_DIRS: ${CLANG_INCLUDE_DIRS}")
 message("----LLD_INCLUDE_DIRS: ${LLD_INCLUDE_DIRS}")
 message("---AMDDeviceLibs_DIR: ${AMDDeviceLibs_DIR}")
-message("------------ROCM_DIR: ${ROCM_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -180,12 +179,24 @@ message("")
 option(COMGR_DISABLE_SPIRV "To disable SPIRV in Comgr" OFF)
 
 if (NOT COMGR_DISABLE_SPIRV)
-  # TODO: Explore switching this to CHECK_INCLUDE_FILE_CXX() macro
-  if (NOT EXISTS "${LLVM_INCLUDE_DIRS}/LLVMSPIRVLib/LLVMSPIRVLib.h")
+  # Candidate include paths for LLVMSPIRVLib.h:
+  # 1. ${LLVM_INCLUDE_DIRS}/LLVMSPIRVLib (standalone build)
+  # 2. ${LLVM_EXTERNAL_SPIRV_LLVM_TRANSLATOR_SOURCE_DIR}/include (external project)
+  # 3. ${CMAKE_SOURCE_DIR}/projects/SPIRV-LLVM-Translator/include (usual location)
+  find_path(
+    FOUND_SPIRV_INCLUDE_DIR
+    LLVMSPIRVLib.h
+    PATHS
+      "${LLVM_INCLUDE_DIRS}/LLVMSPIRVLib"
+      "${LLVM_EXTERNAL_SPIRV_LLVM_TRANSLATOR_SOURCE_DIR}/include"
+      "${CMAKE_SOURCE_DIR}/projects/SPIRV-LLVM-Translator/include"
+    NO_DEFAULT_PATH
+  )
+  if (NOT EXISTS "${FOUND_SPIRV_INCLUDE_DIR}/LLVMSPIRVLib.h")
     message("-- LLVMSPIRVLib/LLVMSPIRVLib.h not found")
     set(COMGR_DISABLE_SPIRV ON)
   else()
-    message("-- LLVMSPIRVLib/LLVMSPIRVLib.h found")
+    message("-- LLVMSPIRVLib/LLVMSPIRVLib.h found at ${FOUND_SPIRV_INCLUDE_DIR}")
   endif()
 endif()
 
@@ -194,6 +205,9 @@ if(${COMGR_DISABLE_SPIRV})
   message("-- Comgr SPIRV Disabled")
 else()
   message("-- Comgr SPIRV Enabled")
+  target_include_directories(amd_comgr
+      PRIVATE
+        "${FOUND_SPIRV_INCLUDE_DIR}")
 endif()
 
 
@@ -226,7 +240,8 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     "/wd4624" #[[Suppress 'derived class' : destructor could not be generated because a base class destructor is inaccessible]]
     "/wd4267" #[[Suppress 'var' : conversion from 'size_t' to 'type', possible loss of data]]
     "/wd4291" #[[Suppress 'declaration' : no matching operator delete found; memory will not be freed if initialization throws an exception]]
-    "/wd4146" #[[Suppress 'unary minus operator applied to unsigned type, result still unsigned]])
+    "/wd4146" #[[Suppress 'unary minus operator applied to unsigned type, result still unsigned]]
+    "/Zc:preprocessor" #[[Enable standards conforming preprocessor - https://learn.microsoft.com/en-us/cpp/build/reference/zc-preprocessor]])
   list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS _HAS_EXCEPTIONS=0)
 endif()
 
@@ -236,7 +251,7 @@ endif()
 list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS AMD_COMGR_EXPORT)
 
 include(bc2h)
-include(opencl_pch)
+include(opencl_header)
 include(DeviceLibs)
 
 # Add major version to the name on windows, including Win64
@@ -249,13 +264,9 @@ set_target_properties(amd_comgr PROPERTIES
   CXX_STANDARD 17
   CXX_STANDARD_REQUIRED Yes
   CXX_EXTENSIONS No)
-if (ROCM_FOUND)
-  rocm_set_soversion(amd_comgr "${amd_comgr_VERSION_MAJOR}.${amd_comgr_VERSION_MINOR}")
-else()
-  set_target_properties(amd_comgr PROPERTIES
-    SOVERSION "${amd_comgr_VERSION_MAJOR}"
-    VERSION "${amd_comgr_VERSION_MAJOR}.${amd_comgr_VERSION_MINOR}.${amd_comgr_VERSION_PATCH}")
-endif()
+set_target_properties(amd_comgr PROPERTIES
+  SOVERSION "${amd_comgr_VERSION_MAJOR}"
+  VERSION "${amd_comgr_VERSION_MAJOR}.${amd_comgr_VERSION_MINOR}.${amd_comgr_VERSION_PATCH}")
 
 if (NOT COMGR_BUILD_SHARED_LIBS)
   set_target_properties(amd_comgr PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -264,6 +275,27 @@ endif()
 # Overwrite the name on 32-bit Linux and Windows
 if (CMAKE_SIZEOF_VOID_P EQUAL 4)
   set_target_properties(amd_comgr PROPERTIES OUTPUT_NAME "amd_comgr32")
+endif()
+
+option(LLVM_BUILD_INSTRUMENTED_COVERAGE "Build LLVM and tools with Code Coverage instrumentation" Off)
+mark_as_advanced(LLVM_BUILD_INSTRUMENTED_COVERAGE)
+if(LLVM_BUILD_INSTRUMENTED_COVERAGE)
+  if(NOT LLVM_PROFILE_MERGE_POOL_SIZE)
+    # A pool size of 1-2 is probably sufficient on an SSD. 3-4 should be fine
+    # for spinning disks. Anything higher may only help on slower mediums.
+    set(LLVM_PROFILE_MERGE_POOL_SIZE "4")
+  endif()
+  if(NOT LLVM_PROFILE_FILE_PATTERN)
+    if(NOT LLVM_PROFILE_DATA_DIR)
+      file(TO_NATIVE_PATH "${LLVM_BINARY_DIR}/profiles" LLVM_PROFILE_DATA_DIR)
+    endif()
+    file(TO_NATIVE_PATH "${LLVM_PROFILE_DATA_DIR}/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
+  endif()
+  set(INSTRUMENTED_COVERAGE_FLAGS -O0 -fprofile-instr-generate=${LLVM_PROFILE_FILE_PATTERN} -fcoverage-mapping)
+  list(APPEND AMD_COMGR_PRIVATE_COMPILE_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS})
+  list(APPEND AMD_COMGR_PUBLIC_COMPILE_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS})
+  list(APPEND AMD_COMGR_PRIVATE_LINKER_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS} -L${LLVM_LIBRARY_DIRS})
+  list(APPEND AMD_COMGR_PUBLIC_LINKER_OPTIONS ${INSTRUMENTED_COVERAGE_FLAGS} -L${LLVM_LIBRARY_DIRS})
 endif()
 
 target_compile_options(amd_comgr
@@ -324,26 +356,6 @@ install(FILES
   COMPONENT amd-comgr
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${amd_comgr_NAME})
 
-#File reorg Backward compatibility function
-if(FILE_REORG_BACKWARD_COMPATIBILITY)
-# To enable/disable #error in wrapper header files
- if(NOT DEFINED ROCM_HEADER_WRAPPER_WERROR)
-      if(DEFINED ENV{ROCM_HEADER_WRAPPER_WERROR})
-          set(ROCM_HEADER_WRAPPER_WERROR "$ENV{ROCM_HEADER_WRAPPER_WERROR}"
-                  CACHE STRING "Header wrapper warnings as errors.")
-      else()
-          set(ROCM_HEADER_WRAPPER_WERROR "OFF" CACHE STRING "Header wrapper warnings as errors.")
-      endif()
-  endif()
-  if(ROCM_HEADER_WRAPPER_WERROR)
-      set(deprecated_error 1)
-  else()
-      set(deprecated_error 0)
-  endif()
-
-  include(comgr-backward-compat.cmake)
-endif()
-
 if(ENABLE_ASAN_PACKAGING)
   install(FILES
     "LICENSE.txt"
@@ -353,7 +365,6 @@ else()
   install(FILES
     "README.md"
     "LICENSE.txt"
-    "NOTICES.txt"
     COMPONENT amd-comgr
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
 endif()

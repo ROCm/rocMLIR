@@ -1,4 +1,5 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+// used for release CI
 void buildProject(String target, String cmakeOpts) {
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\
@@ -26,7 +27,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm6.3-latest'
+    return 'rocm/mlir:rocm6.4-latest'
 }
 
 pipeline {

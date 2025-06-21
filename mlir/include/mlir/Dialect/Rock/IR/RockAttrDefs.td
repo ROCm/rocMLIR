@@ -10,6 +10,7 @@
 #define ROCK_ATTRS
 
 include "mlir/Dialect/Rock/IR/RockBase.td"
+include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.td"
@@ -63,11 +64,15 @@ def KernelTypeConvBwdData : I32EnumAttrCase<"ConvBwdData", 1>;
 def KernelTypeConvBwdWeight : I32EnumAttrCase<"ConvBwdWeight", 2>;
 def KernelTypeGemm : I32EnumAttrCase<"Gemm", 3>;
 def KernelTypeAttention : I32EnumAttrCase<"Attention", 4>;
+def KernelTypeGemmElementwiseGemm : I32EnumAttrCase<"GemmElementwiseGemm", 5>;
+def KernelTypeConvElementwiseGemm : I32EnumAttrCase<"ConvElementwiseGemm", 6>;
 
-def KernelType : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
-  [KernelTypeConv, KernelTypeConvBwdData,
-    KernelTypeConvBwdWeight, KernelTypeGemm,
-    KernelTypeAttention]>;
+def KernelType
+    : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
+                   [KernelTypeConv, KernelTypeConvBwdData,
+                    KernelTypeConvBwdWeight, KernelTypeGemm,
+                    KernelTypeAttention, KernelTypeGemmElementwiseGemm,
+                    KernelTypeConvElementwiseGemm]>;
 
 /// TransformType
 def PassThrough : I32EnumAttrCase<"PassThrough", 0>;
@@ -479,7 +484,7 @@ def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
 // Misc Attrs
-def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
+def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
   let mnemonic = "pipeline";
   let parameters = (ins
     "int64_t":$InitiationInterval
@@ -487,6 +492,15 @@ def Rock_PipelineAttr: Rock_Attr<"Pipeline">  {
   let assemblyFormat = "`<` params `>`";
   let description = [{
     An attribute to express the properties of a loop to be pipelined
+  }];
+}
+
+def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
+  let mnemonic = "schedule_version";
+  let parameters = (ins "int64_t":$ScheduleVersion);
+  let assemblyFormat = "`<` params `>`";
+  let description = [{
+    Attribute to express which GEMM Scheduling strategies a kernel lowering should use inside rocMLIR
   }];
 }
 

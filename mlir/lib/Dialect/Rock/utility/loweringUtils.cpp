@@ -409,6 +409,21 @@ Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
   return b.create<TransformOp>(loc, matrix, normalizeAttr);
 }
 
+Value mlir::rock::padVector(Value vector, OpBuilder &b, Location loc,
+                            StringRef firstDim, int64_t firstDimPad) {
+  if (firstDimPad == 0)
+    return vector;
+  ArrayRef<int64_t> shape = cast<MemRefType>(vector.getType()).getShape();
+  assert(shape.size() == 2);
+  BottomUpTMBuilder padder(b, {"gemmG", firstDim}, shape, loc);
+  padder.passThrough("gemmG");
+  SmallString<8> paddedName;
+  (firstDim + Twine("Pad")).toVector(paddedName);
+  padder.pad(paddedName, firstDim, 0, firstDimPad);
+  TransformMapAttr padAttr = padder.get();
+  return b.create<TransformOp>(loc, vector, padAttr);
+}
+
 Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
                             StringRef firstDim, int64_t firstDimPad,
                             StringRef secondDim, int64_t secondDimPad) {

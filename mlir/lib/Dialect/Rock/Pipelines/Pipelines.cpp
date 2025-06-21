@@ -77,6 +77,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   tosa::TosaValidationOptions validationOptions;
   validationOptions.level = tosa::TosaLevelEnum::None;
   validationOptions.profile = {"pro_int", "pro_fp"};
+  validationOptions.allowInvalidOpDatatypeCombinations = true;
   tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
                               validationOptions);
 
@@ -127,8 +128,10 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bufferization::OneShotBufferizePassOptions bufOpts;
   bufOpts.allowReturnAllocsFromLoops = true;
   bufOpts.bufferizeFunctionBoundaries = true;
-  bufOpts.functionBoundaryTypeConversion = "identity-layout-map";
-  bufOpts.unknownTypeConversion = "identity-layout-map";
+  bufOpts.functionBoundaryTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
+  bufOpts.unknownTypeConversion =
+      bufferization::LayoutMapOption::IdentityLayoutMap;
 
   pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
@@ -236,7 +239,9 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
   ArithToAMDGPUConversionPassOptions arithOptions;
   arithOptions.chipset = options.chip;
-  arithOptions.allowPackedF16Rtz = true;
+  // disable packed truncation to fp16 with rtz (round towards zero) as it
+  // generates less accurate results.
+  arithOptions.allowPackedF16Rtz = false;
   arithOptions.saturateFP8Truncf = true;
   gpuPm.addPass(createArithToAMDGPUConversionPass(arithOptions));
   EmulateFp8ExtTruncPassOptions f8ConversionOptions;

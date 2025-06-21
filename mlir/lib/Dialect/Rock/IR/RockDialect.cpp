@@ -6,7 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -22,6 +24,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -33,6 +36,7 @@
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -46,6 +50,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
 #include <algorithm>
@@ -393,22 +399,23 @@ void RockDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // Convolution operations
 //===----------------------------------------------------------------------===//
-ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
+ConvolutionDims ConvolutionDims::fromOp(Operation *op, bool enableOutput) {
   auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
   auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
+  ArrayAttr outputLayoutAttr;
+  if (enableOutput)
+    outputLayoutAttr = op->template getAttrOfType<ArrayAttr>("output_layout");
 
   // Get shape of filter tensor.
-  auto filterType = cast<MemRefType>(op->getOperand(0).getType());
+  auto filterType = cast<ShapedType>(op->getOperand(0).getType());
   ArrayRef<int64_t> filterShape = filterType.getShape();
 
   // Get shape of input tensor.
-  auto inputType = cast<MemRefType>(op->getOperand(1).getType());
+  auto inputType = cast<ShapedType>(op->getOperand(1).getType());
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
   // Get shape of output tensor.
-  auto outputType = cast<MemRefType>(op->getOperand(2).getType());
+  auto outputType = cast<ShapedType>(op->getOperand(2).getType());
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
   int64_t y, x, z, ho, wo, dout, hi, wi, di, k, c, n, g;
@@ -417,15 +424,13 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr = cast<StringAttr>(filterLayoutAttr.getValue()[i]);
     auto inputAttr = cast<StringAttr>(inputLayoutAttr.getValue()[i]);
-    auto outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
+    StringAttr outputAttr;
+    if (enableOutput)
+      outputAttr = cast<StringAttr>(outputLayoutAttr.getValue()[i]);
 
-    if (filterAttr.getValue() == "y") {
+    if (filterAttr.getValue() == "0" || filterAttr.getValue() == "y") {
       y = filterShape[i];
-    } else if (filterAttr.getValue() == "0") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "1") {
+    } else if (filterAttr.getValue() == "x" || filterAttr.getValue() == "1") {
       x = filterShape[i];
     } else if (filterAttr.getValue() == "2") {
       z = filterShape[i];
@@ -437,13 +442,9 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       g = filterShape[i];
     }
 
-    if (inputAttr.getValue() == "hi") {
+    if (inputAttr.getValue() == "hi" || inputAttr.getValue() == "0i") {
       hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "0i") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "1i") {
+    } else if (inputAttr.getValue() == "wi" || inputAttr.getValue() == "1i") {
       wi = inputShape[i];
     } else if (inputAttr.getValue() == "2i") {
       di = inputShape[i];
@@ -451,16 +452,15 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
       n = inputShape[i];
     }
 
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    } else if (outputAttr.getValue() == "0o") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "1o") {
-      wo = outputShape[i];
-    } else if (outputAttr.getValue() == "2o") {
-      dout = outputShape[i];
+    if (enableOutput) {
+      if (outputAttr.getValue() == "ho" || outputAttr.getValue() == "0o") {
+        ho = outputShape[i];
+      } else if (outputAttr.getValue() == "wo" ||
+                 outputAttr.getValue() == "1o") {
+        wo = outputShape[i];
+      } else if (outputAttr.getValue() == "2o") {
+        dout = outputShape[i];
+      }
     }
   }
 
@@ -479,6 +479,7 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
 ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
   switch (kernelType) {
   case KernelType::Conv:
+  case KernelType::ConvElementwiseGemm:
     return ConvOpType::Fwd;
   case KernelType::ConvBwdData:
     return ConvOpType::BwdData;
@@ -486,10 +487,13 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
     return ConvOpType::BwdWeight;
   case KernelType::Gemm:
     llvm_unreachable(
-        "Gemm ops shouldn't be in convolution-specific lowering passes");
+        "GEMM ops shouldn't be in convolution-specific lowering passes");
   case KernelType::Attention:
     llvm_unreachable(
         "Attention ops shouldn't be in convolution-specific lowering passes");
+  case KernelType::GemmElementwiseGemm:
+    llvm_unreachable(
+        "gemm+gemm ops shouldn't be in convolution-specific lowering passes");
   }
   llvm_unreachable("Unsuppported KernelType");
 }
@@ -566,25 +570,27 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
           "Mfma gridwise does not support E4M3/E5M2 data types ");
     }
   }
-  if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
-    return op->emitOpError("floating-point input type ")
-           << elemTypeA
-           << " requires a floating-point output type, but the output type is "
-           << elemTypeC;
-  }
-  if (isa<IntegerType>(elemTypeA) && !isa<IntegerType>(elemTypeC)) {
-    return op->emitOpError("integer input type ")
-           << elemTypeA
-           << " requires an integer output type, but the output type is "
-           << elemTypeC;
+  if (elemTypeC) {
+    if (isa<FloatType>(elemTypeA) && !isa<FloatType>(elemTypeC)) {
+      return op->emitOpError("floating-point input type ")
+             << elemTypeA
+             << " requires a floating-point output type, but the output type "
+                "is "
+             << elemTypeC;
+    }
+    if (isa<IntegerType>(elemTypeA) && !isa<IntegerType>(elemTypeC)) {
+      return op->emitOpError("integer input type ")
+             << elemTypeA
+             << " requires an integer output type, but the output type is "
+             << elemTypeC;
+    }
   }
   return success();
 }
 
 static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
-  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType();
-  Type elemTypeC = cast<ShapedType>(gemmOp.getOutArgument()->get().getType())
-                       .getElementType();
+  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType(),
+       elemTypeC = gemmOp.getCType();
 
   return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), gemmOp.getArch(),
                          elemTypeA, elemTypeB, elemTypeC);
@@ -1863,7 +1869,11 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
   if (gemm0NPerBlock % gemm0kpack != 0) {
-    return emitError("NPerBlock should be divisble by kpack.");
+    return emitError("NPerBlock should be divisible by kpack.");
+  }
+
+  if (!getEnableSoftmax() && getLse()) {
+    return emitError("LSE only works for attention.");
   }
 
   int64_t linalgOpCount = 0;
@@ -2068,75 +2078,303 @@ LogicalResult BlockwiseFillOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// AttentionOp
+// GemmElementwiseGemmOp
 //===-----------------------------------------------------===//
 
-LogicalResult AttentionOp::verify() {
-  ShapedType qType = getQueries().getType();
+OpOperand *GemmElementwiseGemmOp::getOutArgument() {
+  return &(*this)->getOpOperand(getNumOperands() - 1);
+}
+
+Type GemmElementwiseGemmOp::getOutType() { return getOut().getType(); }
+
+Type GemmElementwiseGemmOp::getAType() { return getA().getType(); }
+
+Type GemmElementwiseGemmOp::getBType() { return getB().getType(); }
+
+Type GemmElementwiseGemmOp::getCType() { return getC().getType(); }
+
+bool GemmElementwiseGemmOp::getTransposedA() { return getATransposed(); }
+
+bool GemmElementwiseGemmOp::getTransposedB() { return getBTransposed(); }
+
+bool GemmElementwiseGemmOp::getTransposedC() { return getCTransposed(); }
+
+bool GemmElementwiseGemmOp::getTransposedOut() { return getOTransposed(); }
+
+KernelType GemmElementwiseGemmOp::getKernelType() {
+  return KernelType::GemmElementwiseGemm;
+}
+
+uint32_t GemmElementwiseGemmOp::getFirstGemmIndex() {
+  return getFirstGemmIdx();
+}
+
+void GemmElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
+  setFirstGemmIdx(index);
+}
+
+GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
+  ShapedType typeA = getA().getType(), typeB = getB().getType(),
+             typeC = getC().getType();
+  ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
+                    dimsC = typeC.getShape();
+  int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
+          offsetB = dimsB.size() == 2 ? 0 : 1,
+          offsetC = dimsC.size() == 2 ? 0 : 1;
+  int64_t g = offsetA ? dimsA[0] : 1,
+          m = dimsA[offsetA + (getATransposed() ? 1 : 0)],
+          k = dimsA[offsetA + (getATransposed() ? 0 : 1)],
+          n = dimsB[offsetB + (getBTransposed() ? 0 : 1)],
+          o = dimsC[offsetC + (getCTransposed() ? 1 : 0)];
+  return GemmGemmSize(g, m, k, n, o);
+}
+
+static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
+                                              Value currentSeqLen, Value lse) {
+  ShapedType qType = cast<ShapedType>(op.getAType());
   int64_t qBatchDim = qType.getShape().size() == 3 ? qType.getShape()[0] : 1;
   ArrayRef<int64_t> qLastDims = qType.getShape().slice(qType.getRank() - 2);
-  auto [queryM, queryK] = getQTransposed()
+  auto [queryM, queryK] = op.getTransposedA()
                               ? std::tuple{qLastDims[1], qLastDims[0]}
                               : std::tuple{qLastDims[0], qLastDims[1]};
 
-  ShapedType kType = getKeys().getType();
+  ShapedType kType = cast<ShapedType>(op.getBType());
   int64_t kBatchDim = kType.getShape().size() == 3 ? kType.getShape()[0] : 1;
   ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
-  auto [keyK, keyN] = getKTransposed() ? std::tuple{kLastDims[1], kLastDims[0]}
-                                       : std::tuple{kLastDims[0], kLastDims[1]};
+  auto [keyK, keyN] = op.getTransposedB()
+                          ? std::tuple{kLastDims[1], kLastDims[0]}
+                          : std::tuple{kLastDims[0], kLastDims[1]};
 
-  ShapedType vType = getValues().getType();
+  ShapedType vType = cast<ShapedType>(op.getCType());
   int64_t vBatchDim = vType.getShape().size() == 3 ? vType.getShape()[0] : 1;
   ArrayRef<int64_t> vLastDims = vType.getShape().slice(vType.getRank() - 2);
-  auto [valueK, valueN] = getVTransposed()
+  auto [valueK, valueN] = op.getTransposedC()
                               ? std::tuple{vLastDims[1], vLastDims[0]}
                               : std::tuple{vLastDims[0], vLastDims[1]};
 
   if (qBatchDim != kBatchDim || kBatchDim != vBatchDim) {
-    return emitError("Batch dimensions do not match");
+    return op.emitError("Batch dimensions do not match");
   }
   if (queryK != keyK) {
-    return emitError("reduction dimensions of first gemm do not match");
+    return op.emitError("reduction dimensions of first gemm do not match");
   }
   if (keyN != valueK) {
-    return emitError("reduction dimensions of second gemm do not match");
+    return op.emitError("reduction dimensions of second gemm do not match");
   }
 
   // check output type
-  ShapedType oType = getOut().getType();
+  ShapedType oType = cast<ShapedType>(op.getOutType());
   int64_t oBatchDim = oType.getShape().size() == 3 ? oType.getShape()[0] : 1;
 
   ArrayRef<int64_t> oLastDims = oType.getShape().slice(oType.getRank() - 2);
   auto [outputSeqLen, outputHeadDim] =
-      getOTransposed() ? std::tuple{oLastDims[1], oLastDims[0]}
-                       : std::tuple{oLastDims[0], oLastDims[1]};
+      op.getTransposedOut() ? std::tuple{oLastDims[1], oLastDims[0]}
+                            : std::tuple{oLastDims[0], oLastDims[1]};
 
   if (qType.getShape().size() != oType.getShape().size()) {
-    return emitError("Number of dimensions do not match (Q and Output)");
+    return op.emitError("Number of dimensions do not match (Q and Output)");
   }
   if (qBatchDim != oBatchDim) {
-    return emitError("Batch dimensions do not match (Q and Output)");
+    return op.emitError("Batch dimensions do not match (Q and Output)");
   }
   if (queryM != outputSeqLen) {
-    return emitError("Sequence length does not match (Q and Output)");
+    return op.emitError("Sequence length does not match (Q and Output)");
   }
   if (valueN != outputHeadDim) {
-    return emitError("Head dimensions do not match (V and Output)");
+    return op.emitError("Head dimensions do not match (V and Output)");
   }
 
   // check currentSeqLen (KV Cache)
-  auto currentSeqLen = getCurrentSeqLen();
   if (currentSeqLen) {
-    ShapedType seqLenType = currentSeqLen.getType();
+    ShapedType seqLenType = cast<ShapedType>(currentSeqLen.getType());
     if (seqLenType.getShape().size() != 1) {
-      return emitError("Number of dimensions is not one (currentSeqLen)");
+      return op.emitError("Number of dimensions is not one (currentSeqLen)");
     }
     if (seqLenType.getShape()[0] != oBatchDim) {
-      return emitError(
+      return op.emitError(
           "Batch dimensions do not match (currentSeqLen and Output)");
     }
   }
+
+  // check LSE (log-sum-exp)
+  if (lse) {
+    ShapedType lseType = cast<ShapedType>(lse.getType());
+    if (lseType.getShape().size() != 2) {
+      return op.emitError("Number of dimensions is not two (LSE)");
+    }
+    if (lseType.getShape()[0] != oBatchDim) {
+      return op.emitError("Batch dimensions do not match (LSE and Output)");
+    }
+    if (lseType.getShape()[1] != queryM) {
+      return op.emitError("SeqLenQ dimensions do not match (LSE and Q)");
+    }
+  }
   return success();
+}
+
+LogicalResult GemmElementwiseGemmOp::verify() {
+  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
+                                  /*lse=*/nullptr);
+}
+
+void GemmElementwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  effects.emplace_back(read, &getAMutable());
+  effects.emplace_back(read, &getBMutable());
+  effects.emplace_back(read, &getCMutable());
+  for (auto &regionArg : getElemwiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+//===-----------------------------------------------------===//
+// ConvElementwiseGemmOp
+//===-----------------------------------------------------===//
+
+OpOperand *ConvElementwiseGemmOp::getOutArgument() {
+  return &(*this)->getOpOperand(getNumOperands() - 1);
+}
+
+Type ConvElementwiseGemmOp::getOutType() { return getOut().getType(); }
+
+Type ConvElementwiseGemmOp::getAType() {
+  auto size = getGemmGemmSize();
+  auto elementType = getInput().getType().getElementType();
+  int64_t dim1 = getTransposedA() ? size.k : size.n;
+  int64_t dim2 = getTransposedA() ? size.n : size.k;
+  return MemRefType::get({size.g, dim1, dim2}, elementType);
+}
+
+Type ConvElementwiseGemmOp::getBType() {
+  auto size = getGemmGemmSize();
+  auto elementType = getFilter().getType().getElementType();
+  int64_t dim1 = getTransposedB() ? size.m : size.k;
+  int64_t dim2 = getTransposedB() ? size.k : size.m;
+  return MemRefType::get({size.g, dim1, dim2}, elementType);
+}
+
+Type ConvElementwiseGemmOp::getCType() { return getC().getType(); }
+
+bool ConvElementwiseGemmOp::getTransposedA() {
+  // see ConvToGemm pass
+  return true;
+}
+
+bool ConvElementwiseGemmOp::getTransposedB() {
+  // see ConvToGemm pass
+  return false;
+}
+
+bool ConvElementwiseGemmOp::getTransposedC() { return getCTransposed(); }
+
+bool ConvElementwiseGemmOp::getTransposedOut() { return getOTransposed(); }
+
+KernelType ConvElementwiseGemmOp::getKernelType() {
+  return KernelType::ConvElementwiseGemm;
+}
+
+uint32_t ConvElementwiseGemmOp::getFirstGemmIndex() {
+  return getFirstGemmIdx();
+}
+
+void ConvElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
+  setFirstGemmIdx(index);
+}
+
+GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
+  auto strideVal = extractFromIntegerArrayAttr<int64_t>(getStrides());
+  auto dilationVal = extractFromIntegerArrayAttr<int64_t>(getDilations());
+  auto paddingVal = extractFromIntegerArrayAttr<int64_t>(getPadding());
+  auto sizes = ConvolutionDims::fromOp(*this, false);
+
+  // generate sizes.out with ConvGenerator
+  sizes.out[0] = rock::ConvGenerator::outputDim(sizes.in[0], sizes.fil[0],
+                                                paddingVal[0], paddingVal[1],
+                                                strideVal[0], dilationVal[0]);
+  sizes.out[1] = rock::ConvGenerator::outputDim(sizes.in[1], sizes.fil[1],
+                                                paddingVal[2], paddingVal[3],
+                                                strideVal[1], dilationVal[1]);
+
+  rock::GemmSize gemmSize =
+      rock::GemmSize::fromConvolution(rock::ConvOpType::Fwd, sizes);
+  ArrayRef<int64_t> dimsC = getC().getType().getShape();
+  int64_t offsetC = dimsC.size() == 2 ? 0 : 1;
+  int64_t g = gemmSize.g, m = gemmSize.m, k = gemmSize.k, n = gemmSize.n,
+          o = dimsC[offsetC + (getCTransposed() ? 0 : 1)];
+  return GemmGemmSize(g, m, k, n, o);
+}
+
+LogicalResult ConvElementwiseGemmOp::verify() {
+  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
+                                  /*lse=*/nullptr);
+}
+
+void ConvElementwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  effects.emplace_back(read, &getFilterMutable());
+  effects.emplace_back(read, &getInputMutable());
+  effects.emplace_back(read, &getCMutable());
+  for (auto &regionArg : getElemwiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+//===-----------------------------------------------------===//
+// AttentionOp
+//===-----------------------------------------------------===//
+
+OpOperand *AttentionOp::getOutArgument() {
+  return &(*this)->getOpOperand(getNumOperands() - 1);
+}
+
+Type AttentionOp::getOutType() { return getOut().getType(); }
+
+Type AttentionOp::getAType() { return getQueries().getType(); }
+
+Type AttentionOp::getBType() { return getKeys().getType(); }
+
+Type AttentionOp::getCType() { return getValues().getType(); }
+
+bool AttentionOp::getTransposedA() { return getQTransposed(); }
+
+bool AttentionOp::getTransposedB() { return getKTransposed(); }
+
+bool AttentionOp::getTransposedC() { return getVTransposed(); }
+
+bool AttentionOp::getTransposedOut() { return getOTransposed(); }
+
+KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
+
+uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
+
+void AttentionOp::setFirstGemmIndex(uint32_t index) { setFirstGemmIdx(index); }
+
+GemmGemmSize AttentionOp::getGemmGemmSize() {
+  ShapedType typeA = getQueries().getType(), typeB = getKeys().getType(),
+             typeC = getValues().getType();
+  ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
+                    dimsC = typeC.getShape();
+  int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
+          offsetB = dimsB.size() == 2 ? 0 : 1,
+          offsetC = dimsC.size() == 2 ? 0 : 1;
+  int64_t g = offsetA ? dimsA[0] : 1,
+          m = dimsA[offsetA + (getQTransposed() ? 1 : 0)],
+          k = dimsA[offsetA + (getQTransposed() ? 0 : 1)],
+          n = dimsB[offsetB + (getKTransposed() ? 0 : 1)],
+          o = dimsC[offsetC + (getVTransposed() ? 1 : 0)];
+  return GemmGemmSize(g, m, k, n, o);
+}
+
+LogicalResult AttentionOp::verify() {
+  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse());
 }
 
 void AttentionOp::getEffects(

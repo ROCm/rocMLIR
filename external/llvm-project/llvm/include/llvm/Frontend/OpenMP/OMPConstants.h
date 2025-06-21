@@ -190,6 +190,9 @@ enum class OMPScheduleType {
   LLVM_MARK_AS_BITMASK_ENUM(/* LargestValue */ ModifierMask)
 };
 
+// Default OpenMP mapper name suffix.
+inline constexpr const char *OmpDefaultMapperName = ".omp.default.mapper";
+
 /// Values for bit flags used to specify the mapping type for
 /// offloading.
 enum class OpenMPOffloadMappingFlags : uint64_t {
@@ -238,6 +241,8 @@ enum class OpenMPOffloadMappingFlags : uint64_t {
   OMP_MAP_OMPX_HOLD = 0x2000,
   // Mapping is for a descriptor (a.k.a. dope vector)
   OMP_MAP_DESCRIPTOR = 0x4000,
+  // Mapping is for a descriptor's (a.k.a. dope vector) data base address
+  OMP_MAP_DESCRIPTOR_BASE_ADDR = 0x8000,
   /// Signal that the runtime library should use args as an array of
   /// descriptor_dim pointers and use args_size as dims. Used when we have
   /// non-contiguous list items in target update directive

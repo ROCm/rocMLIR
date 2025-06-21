@@ -1208,12 +1208,11 @@ struct WhereConverter final : public OpConversionPattern<migraphx::WhereOp> {
                   ConversionPatternRewriter &rewriter) const final;
 };
 
-struct GreaterOrEqualConverter final
-    : public OpConversionPattern<migraphx::GreaterOrEqual> {
-  using OpConversionPattern<migraphx::GreaterOrEqual>::OpConversionPattern;
+struct GreaterConverter final : public OpConversionPattern<migraphx::Greater> {
+  using OpConversionPattern<migraphx::Greater>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(migraphx::GreaterOrEqual op, OpAdaptor adaptor,
+  matchAndRewrite(migraphx::Greater op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
 } // namespace
@@ -1306,17 +1305,17 @@ WhereConverter::matchAndRewrite(migraphx::WhereOp op, OpAdaptor adaptor,
   return success();
 }
 
-LogicalResult GreaterOrEqualConverter::matchAndRewrite(
-    migraphx::GreaterOrEqual op, OpAdaptor adaptor,
-    ConversionPatternRewriter &rewriter) const {
+LogicalResult
+GreaterConverter::matchAndRewrite(migraphx::Greater op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
   Value inA = adaptor.getInA();
   Value inB = adaptor.getInB();
 
   // Create a new tensor type with I1 element type
   auto newType =
       RankedTensorType::get(op.getType().getShape(), rewriter.getI1Type());
-  auto goe = rewriter.createOrFold<tosa::GreaterEqualOp>(op->getLoc(), newType,
-                                                         inA, inB);
+  auto goe =
+      rewriter.createOrFold<tosa::GreaterOp>(op->getLoc(), newType, inA, inB);
   rewriter.replaceOpWithNewOp<tosa::CastOp>(op, adaptor.getInA().getType(),
                                             goe);
 
@@ -1509,8 +1508,8 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                TrivialConverter<TanhOp, tosa::TanhOp>, QuantizeLinearConverter,
                DeQuantizeLinearConverter, ConvertConverter, NegConverter,
                ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-               WhereConverter, GreaterOrEqualConverter>(typeConverter,
-                                                        patterns.getContext());
+               WhereConverter, GreaterConverter>(typeConverter,
+                                                 patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(

@@ -77,8 +77,7 @@ def MIGraphX_DivOp :
     MIGraphX_ElementwiseBinaryOp<"div">;
 def MIGraphX_PowOp :
     MIGraphX_ElementwiseBinaryOp<"pow">;
-def MIGraphX_GreaterOrEqual :
-    MIGraphX_ElementwiseBinaryOp<"greater_or_equal">;
+def MIGraphX_Greater : MIGraphX_ElementwiseBinaryOp<"greater">;
 
 def MIGraphX_ClipOp :
     MIGraphX_Op<"clip">,

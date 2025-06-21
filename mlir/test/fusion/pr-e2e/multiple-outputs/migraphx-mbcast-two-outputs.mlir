@@ -1,6 +1,5 @@
 // RUN: rocmlir-gen -fut test_mo --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -print-results -rand 1 -rand_type float -fut test_mo_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full -targets %arch | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
-// ALLOW_RETRIES: 2
 // CHECK-COUNT-2:  [1 1 1]
 module {
     func.func @test_mo(%arg0: !migraphx.shaped<1x256x768xf32, 196608x768x1>, %arg1: !migraphx.shaped<1x768x768xf32, 589824x768x1>, %arg2: !migraphx.shaped<1x256x1xf32, 256x1x1>, %arg3: !migraphx.shaped<1x256x768xf32, 196608x768x1>) -> (!migraphx.shaped<1x256x768xf32, 196608x768x1>, !migraphx.shaped<1x256x768xf32, 196608x768x1>) {

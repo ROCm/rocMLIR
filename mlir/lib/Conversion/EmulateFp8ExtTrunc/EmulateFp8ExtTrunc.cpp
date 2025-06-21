@@ -48,25 +48,31 @@ struct EmulateFp8ExtTruncPass final
   void runOnOperation() override;
 };
 
-struct Fp8ExtToTableLookupPattern final
-    : public OpConversionPattern<ExtFOp>::SplitMatchAndRewrite {
-  using SplitMatchAndRewrite::SplitMatchAndRewrite;
+struct Fp8ExtToTableLookupPattern final : public OpConversionPattern<ExtFOp> {
+  using OpConversionPattern<ExtFOp>::OpConversionPattern;
 
   bool hasF8ConversionInstrs = false;
   bool hasOcpF8ConversionInstrs = false;
   Fp8ExtToTableLookupPattern(MLIRContext *ctx, bool hasF8ConversionInstrs,
                              bool hasOcpF8ConversionInstrs)
-      : OpConversionPattern<ExtFOp>::SplitMatchAndRewrite(ctx),
-        hasF8ConversionInstrs(hasF8ConversionInstrs),
+      : OpConversionPattern(ctx), hasF8ConversionInstrs(hasF8ConversionInstrs),
         hasOcpF8ConversionInstrs(hasOcpF8ConversionInstrs) {}
-  LogicalResult match(ExtFOp op) const override;
+  LogicalResult match(ExtFOp op) const;
   void rewrite(ExtFOp op, OpAdaptor adaptor,
-               ConversionPatternRewriter &rewriter) const override;
+               ConversionPatternRewriter &rewriter) const;
+  LogicalResult
+  matchAndRewrite(ExtFOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto result = match(op);
+    if (result.succeeded()) {
+      rewrite(op, adaptor, rewriter);
+    }
+    return result;
+  }
 };
 
-struct Fp8TruncToCallPattern final
-    : public OpConversionPattern<TruncFOp>::SplitMatchAndRewrite {
-  using SplitMatchAndRewrite::SplitMatchAndRewrite;
+struct Fp8TruncToCallPattern final : public OpConversionPattern<TruncFOp> {
+  using OpConversionPattern::OpConversionPattern;
 
   FlatSymbolRefAttr f8E4M3FNUZFunc;
   FlatSymbolRefAttr f8E5M2FNUZFunc;
@@ -83,16 +89,25 @@ struct Fp8TruncToCallPattern final
                         FlatSymbolRefAttr f8E5M2Func,
                         bool hasF8ConversionInstrs,
                         bool hasOcpF8ConversionInstrs)
-      : OpConversionPattern<TruncFOp>::SplitMatchAndRewrite(ctx),
-        f8E4M3FNUZFunc(f8E4M3FNUZFunc), f8E5M2FNUZFunc(f8E5M2FNUZFunc),
-        f8E4M3FNFunc(f8E4M3FNFunc), f8E5M2Func(f8E5M2Func),
-        hasF8ConversionInstrs(hasF8ConversionInstrs),
+      : OpConversionPattern(ctx), f8E4M3FNUZFunc(f8E4M3FNUZFunc),
+        f8E5M2FNUZFunc(f8E5M2FNUZFunc), f8E4M3FNFunc(f8E4M3FNFunc),
+        f8E5M2Func(f8E5M2Func), hasF8ConversionInstrs(hasF8ConversionInstrs),
         hasOcpF8ConversionInstrs(hasOcpF8ConversionInstrs) {}
 
-  LogicalResult match(TruncFOp op) const override;
+  LogicalResult match(TruncFOp op) const;
   void rewrite(TruncFOp op, OpAdaptor adaptor,
-               ConversionPatternRewriter &rewriter) const override;
+               ConversionPatternRewriter &rewriter) const;
+  LogicalResult
+  matchAndRewrite(TruncFOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto result = match(op);
+    if (result.succeeded()) {
+      rewrite(op, adaptor, rewriter);
+    }
+    return result;
+  }
 };
+
 } // namespace
 
 static bool isFp8(Type t) {

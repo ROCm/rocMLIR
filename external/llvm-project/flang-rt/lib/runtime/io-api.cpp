@@ -31,24 +31,9 @@
 #include <memory>
 
 namespace Fortran::runtime::io {
+#ifdef RT_OFFLOAD_IO
 RT_EXT_API_GROUP_BEGIN
-
-RT_API_ATTRS const char *InquiryKeywordHashDecode(
-    char *buffer, std::size_t n, InquiryKeywordHash hash) {
-  if (n < 1) {
-    return nullptr;
-  }
-  char *p{buffer + n};
-  *--p = '\0';
-  while (hash > 1) {
-    if (p < buffer) {
-      return nullptr;
-    }
-    *--p = 'A' + (hash % 26);
-    hash /= 26;
-  }
-  return hash == 1 ? p : nullptr;
-}
+#endif
 
 template <Direction DIR>
 RT_API_ATTRS Cookie BeginInternalArrayListIO(const Descriptor &descriptor,
@@ -1074,14 +1059,15 @@ bool IODEF(InputDescriptor)(Cookie cookie, const Descriptor &descriptor) {
 }
 
 bool IODEF(InputInteger)(Cookie cookie, std::int64_t &n, int kind) {
-  if (!cookie->CheckFormattedStmtType<Direction::Input>("InputInteger")) {
-    return false;
+  IoStatementState &io{*cookie};
+  if (io.BeginReadingRecord()) {
+    if (auto edit{io.GetNextDataEdit()}) {
+      return edit->descriptor == DataEdit::ListDirectedNullValue ||
+          EditIntegerInput(io, *edit, reinterpret_cast<void *>(&n), kind,
+              /*isSigned=*/true);
+    }
   }
-  StaticDescriptor<0> staticDescriptor;
-  Descriptor &descriptor{staticDescriptor.descriptor()};
-  descriptor.Establish(
-      TypeCategory::Integer, kind, reinterpret_cast<void *>(&n), 0);
-  return descr::DescriptorIO<Direction::Input>(*cookie, descriptor);
+  return false;
 }
 
 bool IODEF(InputReal32)(Cookie cookie, float &x) {
@@ -1315,5 +1301,7 @@ enum Iostat IODEF(CheckUnitNumberInRange128)(common::int128_t unit,
 }
 #endif
 
+#ifdef RT_OFFLOAD_IO
 RT_EXT_API_GROUP_END
+#endif
 } // namespace Fortran::runtime::io

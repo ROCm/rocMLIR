@@ -1,4 +1,16 @@
 [[suite]]
+name = "type-only gemm+gemm"
+kind = "type-only"
+
+[[suite.axis]]
+name = "data type"
+values = ["f16", "bf16"]
+
+[[suite.axis]]
+name = "test files"
+values = ["mixr-gemm-gemm/mixr-gemm-gemm-add"]
+
+[[suite]]
 name = "type-only tests"
 kind = "type-only"
 

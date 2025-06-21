@@ -33,6 +33,7 @@ public:
     // TODO: drop these
     std::string chip;
     bool disableSplitKForTuning;
+    int64_t scheduleVersion;
     std::string triple;
     std::string chipFeatures;
     std::string perfConfig;
@@ -64,8 +65,9 @@ public:
 
   ConvGenerator(
       const std::string &arch = "", const std::string &chip = "",
-      bool disableSplitKForTuning = false, const std::string &triple = "",
-      const std::string &chipFeatures = "", const std::string &perfConfig = "",
+      bool disableSplitKForTuning = false, int64_t scheduleVersion = 1,
+      const std::string &triple = "", const std::string &chipFeatures = "",
+      const std::string &perfConfig = "",
       std::optional<int> num_cu = std::nullopt, bool reverseGrid = false,
       GemmFeatures features = GemmFeatures::none,
       const std::optional<rock::ConvOpType> operation = std::nullopt,
@@ -96,7 +98,7 @@ public:
 
   void setPerfConfig(StringRef perfConfig);
 
-  ConvolutionDims getConvolutionDims() const;
+  static ConvolutionDims getConvolutionDims(const Config *config);
 
   static inline constexpr int64_t outputDim(int64_t inputLen, int64_t filLen,
                                             int64_t leftPadLen,
@@ -115,8 +117,8 @@ public:
                               ArrayRef<int64_t> outputDims,
                               ArrayRef<int64_t> filterDims);
 
-  LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1,
-                              bool is_verifier = false,
+  LogicalResult genConvModule(ModuleOp &module, int rawKernelId = -1,
+                              bool isVerifier = false,
                               bool ignoreTuning = false);
 
   func::FuncOp getKernelFunc() const;

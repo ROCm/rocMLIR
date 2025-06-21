@@ -67,7 +67,7 @@ struct AliasAnalysis {
   //  end subroutine
   //  -------------------------------------------------
   //
-  //  flang-new -fc1 -emit-fir test.f90 -o test.fir
+  //  flang -fc1 -emit-fir test.f90 -o test.fir
   //
   //  ------------------- test.fir --------------------
   //  fir.global @_QMtopEa : !fir.box<!fir.ptr<!fir.array<?xf32>>>
@@ -154,6 +154,12 @@ struct AliasAnalysis {
 
     /// Return true, if Target or Pointer attribute is set.
     bool isTargetOrPointer() const;
+
+    /// Return true, if Target attribute is set.
+    bool isTarget() const;
+
+    /// Return true, if Pointer attribute is set.
+    bool isPointer() const;
 
     bool isDummyArgument() const;
     bool isData() const;

@@ -135,6 +135,10 @@ Type vectorTypeOrSelf(Type elementType, int64_t len);
 Value padMatrix(Value matrix, OpBuilder &b, Location loc, StringRef firstDim,
                 int64_t firstDimPad, StringRef secondDim, int64_t secondDimPad);
 
+// Apply padding to a vector in its `firstDim` if applicable.
+Value padVector(Value vector, OpBuilder &b, Location loc, StringRef firstDim,
+                int64_t firstDimPad);
+
 /// Normalize the argument into the form requested.
 /// If a group dimension is not present, add one.
 /// If doTranspose is true, meaning the user's transpose requests don't match

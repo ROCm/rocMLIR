@@ -8,26 +8,16 @@
 
 #include "AMDGPUOpenMP.h"
 #include "AMDGPU.h"
-#include "CommonArgs.h"
-#include "HIPUtility.h"
-#include "ROCm.h"
-#include "clang/Basic/DiagnosticDriver.h"
-#include "clang/Config/config.h"
+#include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
-#include "clang/Driver/DriverDiagnostic.h"
-#include "clang/Driver/InputInfo.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/SanitizerArgs.h"
 #include "clang/Driver/Tool.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/FormatAdapters.h"
-#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
-#include "llvm/TargetParser/TargetParser.h"
 
 using namespace clang::driver;
 using namespace clang::driver::toolchains;
@@ -269,10 +259,11 @@ const char *amdgpu::dlr::getLinkCommandArgs(
           << "libomptarget-amdgpu.bc";
     }
 
-    // Add the generic set of libraries, OpenMP subset only
-    BCLibs.append(amdgpu::dlr::getCommonDeviceLibNames(
-        C.getArgs(), TC.getSanitizerArgs(C.getArgs()), C.getDriver(),
-        GPUArch.str(), /* isOpenMP=*/true, RocmInstallation));
+    if (!Args.hasArg(options::OPT_no_offloadlib))
+      // Add the generic set of libraries, OpenMP subset only
+      BCLibs.append(amdgpu::dlr::getCommonDeviceLibNames(
+          C.getArgs(), TC.getSanitizerArgs(C.getArgs()), C.getDriver(),
+          GPUArch.str(), /* isOpenMP=*/true, RocmInstallation));
   }
 
   llvm::for_each(BCLibs, [&](auto BCLib) {

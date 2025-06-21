@@ -16,15 +16,14 @@
 namespace llvm {
 
 /// A expression in AVR machine code.
-class AVRMCExpr : public MCTargetExpr {
+class AVRMCExpr : public MCSpecifierExpr {
 public:
+  using Specifier = Spec;
   /// Specifies the type of an expression.
-  enum VariantKind {
+  enum {
     VK_None,
 
-    // While not strictly necessary, start at a larger number to avoid confusion
-    // with MCSymbolRefExpr::VariantKind.
-    VK_AVR_NONE = 100,
+    VK_AVR_NONE = MCSymbolRefExpr::FirstTargetSpecifier,
 
     VK_HI8,  ///< Corresponds to `hi8()`.
     VK_LO8,  ///< Corresponds to `lo8()`.
@@ -47,14 +46,11 @@ public:
 
 public:
   /// Creates an AVR machine code expression.
-  static const AVRMCExpr *create(VariantKind Kind, const MCExpr *Expr,
+  static const AVRMCExpr *create(Specifier S, const MCExpr *Expr,
                                  bool isNegated, MCContext &Ctx);
 
-  /// Gets the type of the expression.
-  VariantKind getKind() const { return Kind; }
   /// Gets the name of the expression.
   const char *getName() const;
-  const MCExpr *getSubExpr() const { return SubExpr; }
   /// Gets the fixup which corresponds to the expression.
   AVR::Fixups getFixupKind() const;
   /// Evaluates the fixup as a constant value.
@@ -66,30 +62,18 @@ public:
   void printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const override;
   bool evaluateAsRelocatableImpl(MCValue &Res,
                                  const MCAssembler *Asm) const override;
-  void visitUsedExpr(MCStreamer &streamer) const override;
-
-  MCFragment *findAssociatedFragment() const override {
-    return getSubExpr()->findAssociatedFragment();
-  }
-
-  static bool classof(const MCExpr *E) {
-    return E->getKind() == MCExpr::Target;
-  }
 
 public:
-  static VariantKind getKindByName(StringRef Name);
+  static Specifier parseSpecifier(StringRef Name);
 
 private:
   int64_t evaluateAsInt64(int64_t Value) const;
 
-  const VariantKind Kind;
-  const MCExpr *SubExpr;
   bool Negated;
 
 private:
-  explicit AVRMCExpr(VariantKind Kind, const MCExpr *Expr, bool Negated)
-      : Kind(Kind), SubExpr(Expr), Negated(Negated) {}
-  ~AVRMCExpr() = default;
+  explicit AVRMCExpr(Specifier S, const MCExpr *Expr, bool Negated)
+      : MCSpecifierExpr(Expr, S), Negated(Negated) {}
 };
 
 } // end namespace llvm

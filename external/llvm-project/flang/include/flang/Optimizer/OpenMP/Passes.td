@@ -21,6 +21,12 @@ def MapInfoFinalizationPass
     explicit individual mapping by the OpenMP runtime.
   }];
   let dependentDialects = ["mlir::omp::OpenMPDialect"];
+
+  let options = [Option<"deferDescMapping", "opt-defer-desc-mapping",
+                      "bool", /*default=*/"false",
+                      "Activates or deactivates deferred descriptor mapping, "
+                      "which delays mapping of top-level descriptors to target "
+                      "regions and target data regions">];
 }
 
 def MapsForPrivatizedSymbolsPass
@@ -60,7 +66,7 @@ def GlobalFilteringPass : Pass<"omp-global-filtering"> {
   ];
 }
 
-def DoConcurrentConversionPass : Pass<"fopenmp-do-concurrent-conversion", "mlir::func::FuncOp"> {
+def DoConcurrentConversionPass : Pass<"omp-do-concurrent-conversion", "mlir::func::FuncOp"> {
   let summary = "Map `DO CONCURRENT` loops to OpenMP worksharing loops.";
 
   let description = [{ This is an experimental pass to map `DO CONCURRENT` loops
@@ -69,7 +75,7 @@ def DoConcurrentConversionPass : Pass<"fopenmp-do-concurrent-conversion", "mlir:
      For now the following is supported:
        - Mapping simple loops to `parallel do`.
 
-     Still to TODO:
+     Still TODO:
        - More extensive testing.
   }];
 
@@ -79,7 +85,7 @@ def DoConcurrentConversionPass : Pass<"fopenmp-do-concurrent-conversion", "mlir:
     Option<"mapTo", "map-to",
            "flangomp::DoConcurrentMappingKind",
            /*default=*/"flangomp::DoConcurrentMappingKind::DCMK_None",
-           "Try to map `do concurrent` loops to OpenMP (on host or device)",
+           "Try to map `do concurrent` loops to OpenMP [none|host|device]",
            [{::llvm::cl::values(
                clEnumValN(flangomp::DoConcurrentMappingKind::DCMK_None,
                           "none", "Do not lower `do concurrent` to OpenMP"),
@@ -89,6 +95,13 @@ def DoConcurrentConversionPass : Pass<"fopenmp-do-concurrent-conversion", "mlir:
                           "device", "Lower to run in parallel on the GPU")
            )}]>,
   ];
+}
+
+def LowerNontemporalPass : Pass<"lower-nontemporal", "mlir::func::FuncOp"> {
+  let summary =
+      "Adds nontemporal attribute to loads and stores performed on "
+      "the list items specified in the nontemporal clause of omp.simd.";
+  let dependentDialects = ["mlir::omp::OpenMPDialect"];
 }
 
 // Needs to be scheduled on Module as we create functions in it
