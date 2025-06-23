@@ -388,7 +388,7 @@ void check_randomE2ETests(String codepath) {
              """)
 }
 
-void parameterSweep(String CONFIG, String codepath, String sweepType = "default") {
+void parameterSweep(String CONFIG, String sweepType = "default") {
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
             if (sweepType == "attention") {
@@ -868,10 +868,10 @@ pipeline {
                                     withEnv([
                                         "HOME=${env.WORKSPACE}"
                                     ]) {
-                                        parameterSweep("conv_structure", "${CODEPATH}")
-                                        parameterSweep("perf_config", "${CODEPATH}")
+                                        parameterSweep("conv_structure")
+                                        parameterSweep("perf_config")
                                         // attention_config is dummy value used to match with the function signature
-                                        parameterSweep("attention_config", "${CODEPATH}", "attention")
+                                        parameterSweep("attention_config", "attention")
                                     }
                                 }
                             }
