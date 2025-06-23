@@ -414,9 +414,8 @@ boolean shouldRunFromCodepath(String codepath) {
     if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
         return true
     }
-    // Run navi4x on private nightly CI only  
-    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x") &&  
-        params.nightly) {  
+    // Run navi4x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x")) {  
         return true;  
     }  
     return false
