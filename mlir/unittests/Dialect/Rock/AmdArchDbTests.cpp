@@ -16,18 +16,6 @@
 
 using namespace mlir::rock;
 
-#define SOFT_CHECK_EQ(val1, val2)                                              \
-  do {                                                                         \
-    auto v1 = (val1);                                                          \
-    auto v2 = (val2);                                                          \
-    if (!(v1 == v2)) {                                                         \
-      GTEST_LOG_(INFO)                                                         \
-          << "(SOFT_CHECK_EQ) Expected equality of these values:\n"            \
-          << "  " #val1 "\n    Which is: " << v1 << "\n"                       \
-          << "  " #val2 "\n    Which is: " << v2 << "\n";                      \
-    }                                                                          \
-  } while (0)
-
 class NativeArchTest : public ::testing::TestWithParam<int> {
 public:
   static auto getDeviceIds() {

@@ -114,16 +114,6 @@ checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
   }
 }
 
-GemmFeatures &operator|=(GemmFeatures &lhs, const GemmFeatures &rhs) {
-  lhs = lhs | rhs;
-  return lhs;
-}
-
-GemmFeatures &operator&=(GemmFeatures &lhs, const GemmFeatures &rhs) {
-  lhs = lhs & rhs;
-  return lhs;
-}
-
 std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tuple<StringRef, unsigned> ret("", 0);
 
@@ -203,25 +193,25 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop) {
 
     auto features = ret.defaultFeatures;
     if (st.hasAtomicFaddInsts()) {
-      features |= GemmFeatures::atomic_add;
+      features = bitEnumSet(features, GemmFeatures::atomic_add);
     } else {
-      features &= ~GemmFeatures::atomic_add;
+      features = bitEnumClear(features, GemmFeatures::atomic_add);
     }
     if (st.hasAtomicBufferGlobalPkAddF16Insts() ||
         st.hasAtomicBufferGlobalPkAddF16NoRtnInsts()) {
-      features |= GemmFeatures::atomic_add_f16;
+      features = bitEnumSet(features, GemmFeatures::atomic_add_f16);
     } else {
-      features &= ~GemmFeatures::atomic_add_f16;
+      features = bitEnumClear(features, GemmFeatures::atomic_add_f16);
     }
     if (st.hasAtomicBufferPkAddBF16Inst()) {
-      features |= GemmFeatures::atomic_add_bf16;
+      features = bitEnumSet(features, GemmFeatures::atomic_add_bf16);
     } else {
-      features &= ~GemmFeatures::atomic_add_bf16;
+      features = bitEnumClear(features, GemmFeatures::atomic_add_bf16);
     }
     if (st.hasAtomicFMinFMaxF32GlobalInsts()) {
-      features |= GemmFeatures::atomic_fmax_f32;
+      features = bitEnumSet(features, GemmFeatures::atomic_fmax_f32);
     } else {
-      features &= ~GemmFeatures::atomic_fmax_f32;
+      features = bitEnumClear(features, GemmFeatures::atomic_fmax_f32);
     }
     checkAndSetInfo("(LLVM) defaultFeatures", ret.defaultFeatures, features);
 
