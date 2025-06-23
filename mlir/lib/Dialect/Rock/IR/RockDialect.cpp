@@ -1869,7 +1869,11 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
   if (gemm0NPerBlock % gemm0kpack != 0) {
-    return emitError("NPerBlock should be divisble by kpack.");
+    return emitError("NPerBlock should be divisible by kpack.");
+  }
+
+  if (!getEnableSoftmax() && getLse()) {
+    return emitError("LSE only works for attention.");
   }
 
   int64_t linalgOpCount = 0;
@@ -2126,7 +2130,7 @@ GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
 }
 
 static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
-                                              Value currentSeqLen) {
+                                              Value currentSeqLen, Value lse) {
   ShapedType qType = cast<ShapedType>(op.getAType());
   int64_t qBatchDim = qType.getShape().size() == 3 ? qType.getShape()[0] : 1;
   ArrayRef<int64_t> qLastDims = qType.getShape().slice(qType.getRank() - 2);
@@ -2191,11 +2195,26 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
           "Batch dimensions do not match (currentSeqLen and Output)");
     }
   }
+
+  // check LSE (log-sum-exp)
+  if (lse) {
+    ShapedType lseType = cast<ShapedType>(lse.getType());
+    if (lseType.getShape().size() != 2) {
+      return op.emitError("Number of dimensions is not two (LSE)");
+    }
+    if (lseType.getShape()[0] != oBatchDim) {
+      return op.emitError("Batch dimensions do not match (LSE and Output)");
+    }
+    if (lseType.getShape()[1] != queryM) {
+      return op.emitError("SeqLenQ dimensions do not match (LSE and Q)");
+    }
+  }
   return success();
 }
 
 LogicalResult GemmElementwiseGemmOp::verify() {
-  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr);
+  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
+                                  /*lse=*/nullptr);
 }
 
 void GemmElementwiseGemmOp::getEffects(
@@ -2290,7 +2309,8 @@ GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
 }
 
 LogicalResult ConvElementwiseGemmOp::verify() {
-  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr);
+  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
+                                  /*lse=*/nullptr);
 }
 
 void ConvElementwiseGemmOp::getEffects(
@@ -2354,7 +2374,7 @@ GemmGemmSize AttentionOp::getGemmGemmSize() {
 }
 
 LogicalResult AttentionOp::verify() {
-  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen());
+  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse());
 }
 
 void AttentionOp::getEffects(

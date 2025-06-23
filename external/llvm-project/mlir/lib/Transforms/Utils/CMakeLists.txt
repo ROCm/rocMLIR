@@ -8,15 +8,11 @@ add_mlir_library(MLIRTransformUtils
   Inliner.cpp
   InliningUtils.cpp
   LoopInvariantCodeMotionUtils.cpp
-  OneToNTypeConversion.cpp
   RegionUtils.cpp
   WalkPatternRewriteDriver.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Transforms
-
-  DEPENDS
-  MLIRTransformsPassIncGen
 
   LINK_LIBS PUBLIC
   MLIRAnalysis
@@ -27,5 +23,4 @@ add_mlir_library(MLIRTransformUtils
   MLIRSideEffectInterfaces
   MLIRSubsetOpInterface
   MLIRRewrite
-  MLIRFuncDialect
   )

@@ -2,7 +2,7 @@
 // RUN: rocmlir-driver -kernel-pipeline=migraphx,highlevel %s | rocmlir-gen --emit-tuning-key - | FileCheck %s
 // CHECK: gfx942
 // CHECK-SAME: 304
-// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal true -g 32 -seq_len_q 2 -seq_len_k 64 -head_dim_qk 128 -head_dim_v 128
+// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal true -return_lse false -g 32 -seq_len_q 2 -seq_len_k 64 -head_dim_qk 128 -head_dim_v 128
 module {
   func.func @mlir_attention(%arg0: !migraphx.shaped<1x96x2x128xf16, 24576x128x12288x1>, %arg1: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %arg2: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>) -> !migraphx.shaped<1x2x4096xf16, 8192x4096x1> attributes {kernel, arch = "gfx942", num_cu = 304 : i64} {
     %0 = migraphx.literal(dense<[0, 1]> : tensor<2xsi32>) : <2xsi32, 1>

@@ -183,6 +183,8 @@ private:
   bool verifyCopy(const MachineInstr &MI, const MachineRegisterInfo &MRI,
                   StringRef &ErrInfo) const;
 
+  bool resultDependsOnExec(const MachineInstr &MI) const;
+
 protected:
   /// If the specific machine instruction is a instruction that moves/copies
   /// value from one register to another register return destination and source
@@ -462,7 +464,7 @@ public:
   }
 
   static bool isVMEM(const MachineInstr &MI) {
-    return isMUBUF(MI) || isMTBUF(MI) || isImage(MI);
+    return isMUBUF(MI) || isMTBUF(MI) || isImage(MI) || isFLAT(MI);
   }
 
   bool isVMEM(uint16_t Opcode) const {
@@ -676,6 +678,21 @@ public:
   // Any FLAT encoded instruction, including global_* and scratch_*.
   bool isFLAT(uint16_t Opcode) const {
     return get(Opcode).TSFlags & SIInstrFlags::FLAT;
+  }
+
+  static bool isBlockLoadStore(uint16_t Opcode) {
+    switch (Opcode) {
+    case AMDGPU::SI_BLOCK_SPILL_V1024_SAVE:
+    case AMDGPU::SI_BLOCK_SPILL_V1024_CFI_SAVE:
+    case AMDGPU::SI_BLOCK_SPILL_V1024_RESTORE:
+    case AMDGPU::SCRATCH_STORE_BLOCK_SADDR:
+    case AMDGPU::SCRATCH_LOAD_BLOCK_SADDR:
+    case AMDGPU::SCRATCH_STORE_BLOCK_SVS:
+    case AMDGPU::SCRATCH_LOAD_BLOCK_SVS:
+      return true;
+    default:
+      return false;
+    }
   }
 
   static bool isEXP(const MachineInstr &MI) {
@@ -1303,6 +1320,8 @@ public:
   /// Fix operands in Inst to fix 16bit SALU to VALU lowering.
   void legalizeOperandsVALUt16(MachineInstr &Inst,
                                MachineRegisterInfo &MRI) const;
+  void legalizeOperandsVALUt16(MachineInstr &Inst, unsigned OpIdx,
+                               MachineRegisterInfo &MRI) const;
 
   /// Replace the instructions opcode with the equivalent VALU
   /// opcode.  This function will also move the users of MachineInstruntions
@@ -1544,6 +1563,10 @@ bool execMayBeModifiedBeforeUse(const MachineRegisterInfo &MRI,
                                 const MachineInstr &DefMI,
                                 const MachineInstr &UseMI);
 
+bool checkIfExecMayBeModifiedBeforeUseAcrossBB(
+    const MachineRegisterInfo &MRI, Register VReg, const MachineInstr &DefMI,
+    const MachineInstr &UseMI, const int SIFoldOperandsPreheaderThreshold);
+    
 /// \brief Return false if EXEC is not changed between the def of \p VReg at \p
 /// DefMI and all its uses. Should be run on SSA. Currently does not attempt to
 /// track between blocks.

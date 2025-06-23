@@ -63,7 +63,6 @@ if(LLVM_LIBC_FULL_BUILD AND NOT LIBC_TARGET_OS_IS_GPU)
     SUITE
       libc-support-tests
     SRCS
-      fake_heap.s
       freelist_heap_test.cpp
     DEPENDS
       libc.src.__support.CPP.span
@@ -128,7 +127,6 @@ add_libc_test(
     libc.src.__support.integer_literals
     libc.src.__support.str_to_float
     libc.src.__support.uint128
-    libc.src.errno.errno
 )
 
 
@@ -141,7 +139,6 @@ add_libc_test(
   DEPENDS
     libc.src.__support.integer_literals
     libc.src.__support.str_to_integer
-    libc.src.errno.errno
 )
 
 add_libc_test(

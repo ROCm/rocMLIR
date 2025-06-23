@@ -53,7 +53,7 @@ struct GemmLikeInterface
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
-                                            const AnalysisState &state) const {
+                                      const AnalysisState &state) const {
     auto cop = mlir::cast<Concrete>(op);
     if (&opOperand == cop.getOutArgument()) {
       SmallVector<AliasingValue, 4> opResults;
@@ -72,13 +72,15 @@ struct GemmLikeInterface
   }
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
-                          const BufferizationOptions &options) const {
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
     auto cop = mlir::cast<Concrete>(op);
     SmallVector<Value> bufferArgs;
     Value outBuffer;
 
     for (OpOperand &operand : op->getOpOperands()) {
-      FailureOr<Value> buffer = getBuffer(rewriter, operand.get(), options);
+      FailureOr<Value> buffer =
+          getBuffer(rewriter, operand.get(), options, state);
       if (failed(buffer)) {
         LLVM_DEBUG(llvm::dbgs()
                    << "Failed to bufferize value " << operand.get() << "\n");
@@ -113,7 +115,7 @@ struct TransformOpInterface
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
-                                            const AnalysisState &state) const {
+                                      const AnalysisState &state) const {
     AliasingValueList result;
     for (auto opResult : op->getOpResults())
       result.addAlias({opResult, BufferRelation::Equivalent});
@@ -127,10 +129,11 @@ struct TransformOpInterface
   }
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
-                          const BufferizationOptions &options) const {
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
     auto transformOp = mlir::cast<rock::TransformOp>(op);
     FailureOr<Value> input =
-        getBuffer(rewriter, transformOp.getInput(), options);
+        getBuffer(rewriter, transformOp.getInput(), options, state);
     if (failed(input))
       return failure();
 
@@ -163,7 +166,7 @@ struct TensorUntransformCastOpInterface
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
-                                            const AnalysisState &state) const {
+                                      const AnalysisState &state) const {
     auto castOp = mlir::cast<rock::TensorUntransformCastOp>(op);
     Value operand = opOperand.get();
     if (operand == castOp.getTransformedResult()) {
@@ -182,14 +185,15 @@ struct TensorUntransformCastOpInterface
   }
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
-                          const BufferizationOptions &options) const {
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
     auto castOp = mlir::cast<rock::TensorUntransformCastOp>(op);
     FailureOr<Value> transformedArg =
-        getBuffer(rewriter, castOp.getTransformedArg(), options);
+        getBuffer(rewriter, castOp.getTransformedArg(), options, state);
     if (failed(transformedArg))
       return failure();
     FailureOr<Value> transformedResult =
-        getBuffer(rewriter, castOp.getTransformedResult(), options);
+        getBuffer(rewriter, castOp.getTransformedResult(), options, state);
     if (failed(transformedResult))
       return failure();
     if (*transformedArg != *transformedResult)
