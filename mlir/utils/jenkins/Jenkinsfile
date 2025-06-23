@@ -65,7 +65,7 @@ def advancedNodeCheck(Map params) {
 }
 
 def resetGPUs() {
-    // Abort this if runs longer than 5 minutes
+    // Abort this if runs longer than 10 minutes
     timeout(time: 10, unit: 'MINUTES') {
         // Run the reset, but don't fail the build if anything is wrong
         def rc = sh(
@@ -202,7 +202,7 @@ void preMergeCheck(String codepath) {
           ln -s build/compile_commands.json compile_commands.json
         fi
         '''
-        if (params.ignoreExternalLinting == false) {
+        if (params.ignoreExternalLinting) {
             sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=${params.rocMLIRTargetBranch} --ignore-external"
         }
         else {
@@ -609,8 +609,8 @@ pipeline {
                      description: 'Disable testing on gfx950')
 
         // option only to be used with upstream merges
-        booleanParam(name: 'ignoreExternalLinting', defaultValue: true,
-                     description: 'Ignore linting on files in external/')
+        booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
+                     description: 'Ignore linting on files in external')
 
         // choose the task to run in weekly
         choice(name: 'weeklyTasks',
