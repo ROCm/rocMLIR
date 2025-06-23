@@ -219,7 +219,7 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 
 -t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
 -t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
-#unet_model
+#stable-diffusion-2-onnx-unet
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 1920 -k 640
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -282,7 +282,14 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 4 -y 3 -x 3 
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-#sd2_vae_decoder_model
+#stable-diffusion-2-onnx-text_encoder
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 16 -m 1 -n 1 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 16 -m 1 -n 64 -k 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1024 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 4096 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1024 -k 4096
+#stable-diffusion-2-onnx-vae_decoder
 -t f16 -transQ false -transK true -transV false -transO false -g 1 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 512 -head_dim_v 512
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 512 -k 512
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 1536 -k 512
