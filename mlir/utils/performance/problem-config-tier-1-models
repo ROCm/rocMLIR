@@ -977,7 +977,7 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 65 -W 65 -k 128 -y 3 -x 3 -p
 -t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 128 -k 1
 -t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 1 -k 128
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 128256 -k 4096
-#mistral_8b_kc_cache_decode
+#mistral_8b_kv_cache_decode
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 6144 -k 4096
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 28672 -k 4096
 -t f32 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 1 -seq_len_k 4097 -head_dim_qk 128 -head_dim_v 128
