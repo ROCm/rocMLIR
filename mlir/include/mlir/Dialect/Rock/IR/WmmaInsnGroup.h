@@ -25,6 +25,7 @@ namespace rock {
 struct WmmaInsn {
   StringRef insn;
   int64_t dPerAccel;
+  int64_t inputVectorLen;
   int64_t outputStride;
   int64_t mRepeats;
   int64_t nRepeats;

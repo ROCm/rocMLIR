@@ -465,6 +465,20 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
                << chipset.majorVersion;
 
       Location loc = op->getLoc();
+      // HACK for direct to LDS
+      {
+        // unsigned vmCnt = std::min(63u, op.getNum());
+        unsigned vmCnt = 0;
+
+        // Extract low and high bits and combine while setting all other bits to
+        // 1
+        unsigned lowBits = vmCnt & 0xF;
+        unsigned highBits = vmCnt >> 4 << 14;
+        unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
+        unsigned waitValue = lowBits | highBits | otherCnts;
+
+        rewriter.create<ROCDL::SWaitcntOp>(loc, waitValue);
+      }
       rewriter.create<ROCDL::SWaitcntOp>(loc, ldsOnlyBits);
       rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
     } else {
@@ -1129,8 +1143,8 @@ struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
       return transferType.getIntOrFloatBitWidth() / 8;
     }();
 
-    // Currently only 1, 2, and 4 byte loads are supported.
-    if (loadWidth != 1 && loadWidth != 2 && loadWidth != 4)
+    // Currently only 1, 2, 4 and 16 byte loads are supported.
+    if (loadWidth != 1 && loadWidth != 2 && loadWidth != 4 && loadWidth != 16)
       return op.emitOpError("chipset unsupported element size");
 
     Value srcPtr =

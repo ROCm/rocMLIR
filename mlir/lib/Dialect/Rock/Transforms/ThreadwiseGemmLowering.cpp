@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -492,11 +493,39 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   auto sourceViewType = cast<MemRefType>(sourceView.getType());
   Value dest = adaptor.getDest();
   MemRefType dstBufferType = cast<MemRefType>(dest.getType());
-
-  int64_t numValues = dstBufferType.getNumElements();
-
   bool isSrcVectorBuffer = isa<VectorType>(sourceViewType.getElementType());
   bool isDstVectorBuffer = isa<VectorType>(dstBufferType.getElementType());
+
+  auto [buffer, transforms, needs64BitIdx] = untransform(b, sourceView);
+  // Unless specified it is assumed to be global
+  auto srcBufferType = cast<MemRefType>(buffer.getType());
+  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
+  if (srcBufferType.getMemorySpace()) {
+    srcAddrSpace =
+        cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
+  }
+  auto destBufferType = cast<MemRefType>(dest.getType());
+  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Private;
+  if (destBufferType.getMemorySpace()) {
+    dstAddrSpace =
+        cast<gpu::AddressSpaceAttr>(destBufferType.getMemorySpace()).getValue();
+  }
+  bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
+                       dstAddrSpace == gpu::AddressSpace::Workgroup;
+
+  int64_t numValues = dstBufferType.getNumElements();
+  if (isGlobalToLDS) {
+    if (transforms.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
+      return failure();
+    }
+    TransformMapAttr topMap = cast<TransformMapAttr>(transforms[0]);
+    numValues = topMap.getUpperBounds().asArrayRef().back();
+    assert(!isSrcVectorBuffer &&
+           "Global to LDS should not have vector buffers, not implemented yet");
+    assert(!isDstVectorBuffer &&
+           "Global to LDS should not have vector buffers, not implemented yet");
+  }
 
   size_t extraIdxCount = op.getExtraIndices().size();
   // We are vectorizing in the iter dimension, not block ID or thread ID
@@ -541,15 +570,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     }
   }
 
-  auto [buffer, transforms, needs64BitIdx] = untransform(b, sourceView);
-  // Unless specified it is assumed to be global
-  auto srcBufferType = cast<MemRefType>(buffer.getType());
-  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
-  if (srcBufferType.getMemorySpace()) {
-    srcAddrSpace =
-        cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
-  }
-
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
                           << vectorSrcLen << "\n");
   bool forceUnroll = op.getForceUnroll();
@@ -568,6 +588,50 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   SmallVector<Attribute> transformAttrs;
 
+  ArrayAttr globalToLDSTransform = b.getArrayAttr({});
+  auto maybeBlocksize = rock::getBlockSize(op);
+  if (failed(maybeBlocksize))
+    return b.notifyMatchFailure(loc, "must have a block size attribute");
+  int64_t blockSize = maybeBlocksize.value().getValue().getSExtValue();
+  auto maybeArch = rock::getArch(op);
+  if (failed(maybeArch))
+    return b.notifyMatchFailure(loc, "must have an arch attribute");
+  int64_t waveSize = rock::lookupArchInfo(maybeArch.value()).waveSize;
+  // Transform used to compute LDS pointer for global to LDS
+  if (isGlobalToLDS) {
+    if (transforms.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
+      return failure();
+    }
+    TransformMapAttr topMap = cast<TransformMapAttr>(transforms[0]);
+
+    // Create views as gridwise sub-tile of C
+    if (readStartCoords.size() < 2) {
+      return b.notifyMatchFailure(
+          loc, "read_into must have at least 2 extra indices");
+    }
+    SmallVector<StringRef> nonLDSDims = {};
+    SmallVector<StringRef> dims = {};
+    for (size_t i = 0; i < readStartCoords.size() - 2; i++) {
+      auto dim = b.getStringAttr(std::to_string(i));
+      dims.push_back(dim);
+      nonLDSDims.push_back(dim);
+    }
+    dims.push_back(b.getStringAttr("tid"));
+    dims.push_back(b.getStringAttr("item"));
+    TopDownTMBuilder splitMemoryCoords(b, dims, topMap.getUpperBounds(), loc);
+    for (auto dim : nonLDSDims) {
+      splitMemoryCoords.ignore(dim);
+    }
+
+    int64_t waveId = blockSize / waveSize;
+    splitMemoryCoords.merge({"wave", "wave_tid"}, {1, 2}, "tid",
+                            {waveId, waveSize});
+    splitMemoryCoords.passThrough({"item"}, 0, {"item"});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    globalToLDSTransform = b.getArrayAttr({splitMemoryCoordsAttr});
+  }
+
   bool recordsValidity =
       op.getValidityRecord() && !op.getValidityRecord().use_empty();
   Value validityInit = nullptr;
@@ -578,9 +642,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         loc, op.getValidityRecord().getType(), trueConst);
   }
   auto loadLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
-      ArrayRef<Attribute>{transforms, b.getArrayAttr({})}, bounds, strides,
-      forceUnroll, useIndexDiffs,
+      loc,
+      ArrayRef<ValueRange>{readStartCoords, readStartCoords, readStartCoords},
+      ArrayRef<Attribute>{transforms, b.getArrayAttr({}), globalToLDSTransform},
+      bounds, strides, forceUnroll, useIndexDiffs,
       recordsValidity ? ValueRange{validityInit} : std::nullopt);
   {
     OpBuilder::InsertionGuard guard(b);
@@ -610,15 +675,55 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
                                   validityToStore, validityRecord, destIndex);
     }
 
-    if (srcAddrSpace == gpu::AddressSpace::Global) {
+    if (srcAddrSpace == gpu::AddressSpace::Global &&
+        dstAddrSpace == gpu::AddressSpace::Private) {
       Value loaded = b.create<GlobalLoadOp>(
           loc, loadType, buffer, validity,
           loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx);
       b.create<InBoundsStoreOp>(loc, loaded, dest, destIndex);
+    } else if (isGlobalToLDS) {
+      int64_t loadTypeByteWidth = getByteWidth(loadType);
+      if (loadTypeByteWidth != 16 && loadTypeByteWidth != 4)
+        return b.notifyMatchFailure(loc, "global to LDS is only supported for "
+                                         "128-bit or 32-bit loads currently");
+      ValueRange ldsCoords = loadLoop.getLowerCoords(/*domain=*/2);
+      Value item = ldsCoords[0];
+      Value waveId = ldsCoords[1];
+      // LDS index is index=item*(workgroup size)*16+wave_id*(wave size)*16 (in
+      // bytes)
+      int64_t constantNumElements;
+      Type directToLDSType;
+      if (loadTypeByteWidth == 16) {
+        assert(128 % dstBufferType.getElementTypeBitWidth() == 0);
+        constantNumElements = 128 / dstBufferType.getElementTypeBitWidth();
+        directToLDSType = b.getF128Type();
+      } else {
+        assert(32 % dstBufferType.getElementTypeBitWidth() == 0);
+        constantNumElements = 32 / dstBufferType.getElementTypeBitWidth();
+        directToLDSType = b.getF32Type();
+      }
+      assert(srcStride == constantNumElements);
+
+      // no need to multiply blockSize by constantNumElements, because the
+      // stride of the loop is already srcStride
+      Value itemConst = b.create<arith::ConstantIndexOp>(loc, blockSize);
+      Value ldsIndex = b.create<arith::MulIOp>(loc, item, itemConst);
+      Value waveIdConst =
+          b.create<arith::ConstantIndexOp>(loc, waveSize * constantNumElements);
+      Value ldsIndexWave = b.create<arith::MulIOp>(loc, waveId, waveIdConst);
+      // LDS index is wavefront-uniform as that is needed by load to LDS
+      // instruction
+      ldsIndex = b.create<arith::AddIOp>(loc, ldsIndex, ldsIndexWave);
+      b.create<GlobalLoadToLDSOp>(loc, buffer, dest, validity, directToLDSType,
+                                  loadLoop.getLowerCoords(/*domain=*/0),
+                                  ValueRange{ldsIndex}, needs64BitIdx);
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(
             loc, "non-global address spaces must have 32-bit pointers");
+      if (dstAddrSpace != gpu::AddressSpace::Private)
+        return b.notifyMatchFailure(loc, "destination must be private");
+
       scf::IfOp ifb =
           b.create<scf::IfOp>(loc, loadType, validity, /*withElseRegion=*/true);
       {

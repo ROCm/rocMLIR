@@ -92,6 +92,6 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
     return failure();
   }
 
-  return WmmaInsn{insn,     dPerAccel, outStride, mRepeats,
-                  nRepeats, argTypeA,  argTypeB,  retType};
+  return WmmaInsn{insn,     dPerAccel, inputVectorLen, outStride, mRepeats,
+                  nRepeats, argTypeA,  argTypeB,       retType};
 }

@@ -101,7 +101,8 @@ struct AccelEmitter {
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK,
+                       StringRef dName, bool rotateDWithK, bool directToLds,
+                       bool ldsLayoutKxD,
                        bool doSplitKAcrossThreadsFirst = false) const = 0;
 
   /// This functions creates the subtile views that is :
@@ -179,7 +180,8 @@ struct MfmaEmitter : public AccelEmitter {
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK,
+                       StringRef dName, bool rotateDWithK, bool directToLds,
+                       bool ldsLayoutKxD,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
   virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
@@ -226,7 +228,8 @@ struct WmmaEmitter : public AccelEmitter {
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK,
+                       StringRef dName, bool rotateDWithK, bool directToLds,
+                       bool ldsLayoutKxD,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
   virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(

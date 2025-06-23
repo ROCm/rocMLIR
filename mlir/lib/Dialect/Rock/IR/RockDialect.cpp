@@ -1519,22 +1519,49 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
-//===-----------------------------------------------------===//
-// GlobalLoadOp
-//===-----------------------------------------------------===//
-LogicalResult GlobalLoadOp::verify() {
-  MemRefType sourceType = getSource().getType();
+template <typename Load>
+static LogicalResult verifyGlobalLoad(Load op) {
+  MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  if (getSourceCoord().size() != nDims)
-    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (getCanReadOffEnd() && nDims != 1)
-    return emitOpError("can only have one dimension in canReadOffEnd loads");
+  if (op.getSourceCoord().size() != nDims)
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  if (op.getCanReadOffEnd() && nDims != 1)
+    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
-    return emitOpError("Source memref must live in global memory");
+    return op.emitOpError("Source memref must live in global memory");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// GlobalLoadOp
+//===-----------------------------------------------------===//
+LogicalResult GlobalLoadOp::verify() { return verifyGlobalLoad(*this); }
+
+//===-----------------------------------------------------===//
+// GlobalLoadToLDSOp
+//===-----------------------------------------------------===//
+LogicalResult GlobalLoadToLDSOp::verify() {
+  LogicalResult res = verifyGlobalLoad(*this);
+  if (failed(res))
+    return res;
+
+  MemRefType destType = getDest().getType();
+  Attribute destMemSpaceAttr = destType.getMemorySpace();
+  auto destGpuMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
+  if (destMemSpaceAttr &&
+      (!destGpuMemSpaceAttr ||
+       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+    return emitOpError("Destination memref must live in workgroup memory");
+
+  int64_t numBits = getTransferType().getIntOrFloatBitWidth();
+  if (numBits != 128 && numBits != 32)
+    return emitOpError(
+        "Direct to LDS is implemented for 128bit and 32bit loads only");
   return success();
 }
 
@@ -1632,8 +1659,8 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
       dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
   if (dstMemSpaceAttr &&
       (!gpuDstMemSpaceAttr ||
-       gpuDstMemSpaceAttr.getValue() != gpu::AddressSpace::Private))
-    return emitOpError("dest must be private registers");
+       gpuDstMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
+    return emitOpError("dest must be private registers or LDS");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
   if (extraViews.empty())
@@ -1654,15 +1681,15 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   VectorType srcVectorType = dyn_cast<VectorType>(srcType.getElementType());
   VectorType dstVectorType = dyn_cast<VectorType>(destType.getElementType());
   if ((srcVectorType || dstVectorType) &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
     return emitOpError(
         "Vector buffers are not allowed when we read from global memory");
   if (srcVectorType && dstVectorType) {
     int64_t srcVectorLen = srcVectorType.getNumElements();
     int64_t dstVectorLen = dstVectorType.getNumElements();
     if ((srcVectorLen > dstVectorLen && srcVectorLen % dstVectorLen != 0) ||
-        (dstVectorLen > srcVectorLen && dstVectorLen % dstVectorLen != 0))
+        (dstVectorLen > srcVectorLen && dstVectorLen % srcVectorLen != 0))
       return emitOpError(
           "Vector buffers vector's lengths need to be evenly divisible");
   }

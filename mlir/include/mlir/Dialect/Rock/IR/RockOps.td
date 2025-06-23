@@ -1066,6 +1066,41 @@ def Rock_GlobalLoadOp :
   let hasVerifier = 1;
 }
 
+// global_load_to_lds
+def Rock_GlobalLoadToLDSOp
+    : Rock_Op<"global_load_to_lds", [AllElementTypesMatch<["source", "dest"]>,
+                                     AttrSizedOperandSegments]>,
+      Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>,
+                         "source memory", [MemRead]>:$source,
+          Arg<MemRefOf<SupportedMemoryElems>,
+              "destination memory", [MemWrite]>:$dest,
+          I1:$valid, TypeAttr:$transferType, Variadic<Index>:$sourceCoord,
+          Variadic<Index>:$destCoord, UnitAttr:$needs64BitIdx,
+          UnitAttr:$canReadOffEnd)> {
+  let summary = "Load from global memory to LDS, applying bounds checks";
+  let description = [{
+    `global_load_to_lds` loads an item or vector of items from the provided memref
+    (applying no coordinate transformations), starting at `sourceCoord` and stores.
+    to LDS. However, if `valid` is false, it will instead store 0s.
+    Note that the lowering of this operation may be optimized when `valid`
+    is unconditionally true.
+
+    If `needs64BitIdx` is present, then this operation will force its containing
+    kernel to be compiled with `index == i64` and will use less-efficient
+    implementations of bounds-checked load.
+
+    If `canReadOffEnd` is present, then the `valid` input is ignored and the
+    bounds-checked implementation of this operation is always used. This
+    is used to simplify the implementation of certain utility kernels.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` 
+    `->` $dest `[` $destCoord `]`  `if` $valid attr-dict
+    `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 1;
+}
+
 // global_store
 def Rock_GlobalStoreOp :
     Rock_Op<"global_store", [AllElementTypesMatch<["source", "dest"]>]>,
@@ -1346,21 +1381,20 @@ defvar AccelArgTypes = [F32,
 defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
-def Rock_BlockwiseGemmAccelOp:
-    Rock_Op<"blockwise_gemm_accel">,
-    Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
-                   MemRefOf<LdsBufferTypes>:$matrixB,
-                   I32Attr:$inMPerThread,
-                   I32Attr:$inNPerThread,
-                   UnitAttr:$rotateMWithK,
-                   UnitAttr:$rotateNWithK,
-                   MemRefOf<AccelArgTypes>:$bufferA,
-                   MemRefOf<AccelArgTypes>:$bufferB,
-                   MemRefOf<AccelResTypes>:$matrixC,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   I32Attr:$blockSize,
-                   RockAccelTuningParamAttrInterface:$params)>{
+def Rock_BlockwiseGemmAccelOp
+    : Rock_Op<"blockwise_gemm_accel">,
+      Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
+          MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
+          I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
+          UnitAttr:$directToLDS, UnitAttr:$ldsLayoutKxM, UnitAttr:$ldsLayoutKxN,
+          MemRefOf<AccelArgTypes>:$bufferA, MemRefOf<AccelArgTypes>:$bufferB,
+          AnyTypeOf<[MemRefOf<AccelArgTypes>,
+                     MemRefOf<LdsBufferTypes>]>:$bufferAForLoad,
+          AnyTypeOf<[MemRefOf<AccelArgTypes>,
+                     MemRefOf<LdsBufferTypes>]>:$bufferBForLoad,
+          MemRefOf<AccelResTypes>:$matrixC, StrAttr:$arch,
+          Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.block_gemm_v2` op does GEMM at workgroup (block) level.
@@ -1371,10 +1405,10 @@ def Rock_BlockwiseGemmAccelOp:
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA `from` $matrixA `*`
-                        $bufferB `from` $matrixB `features` `=` $features attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
-                                  type($bufferB) `from` type($matrixB)
+    $matrixC `+` `` `=` $bufferA `(` $bufferAForLoad `)` `from` $matrixA `*`
+                        $bufferB `(` $bufferBForLoad `)` `from` $matrixB `features` `=` $features attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) `(` type($bufferAForLoad) `)` `from` type($matrixA) `*`
+                                  type($bufferB) `(` type($bufferBForLoad) `)` `from` type($matrixB)
   }];
 }
 

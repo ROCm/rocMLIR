@@ -410,6 +410,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName, bool rotateDWithK,
+                                        bool directToLds, bool ldsLayoutKxD,
                                         bool doSplitKAcrossThreadsFirst) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
@@ -428,6 +429,12 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   bool isKReduction = mfmaAttr.isKReduction;
+  int64_t kIter = kpackPerThread;
+  if (directToLds) {
+    kIter *= kPack;
+    kPerBlock *= kPack;
+    assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
+  }
 
   // Extract relevant derived parameters
   int64_t mWaves = mPerBlock / mPerWave;
@@ -442,7 +449,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   SmallVector<Attribute> transformAttrs;
   if (!isKReduction) {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kpackPerThread});
+                              {blockSize, dRepeats, kIter});
     splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                    {blockSize / waveSize, waveSize});
 
@@ -479,14 +486,17 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+    if (ldsLayoutKxD)
+      offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+    else
+      offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
 
     TransformMapAttr offsetAttr = offset.get();
     transformAttrs.push_back(offsetAttr);
 
   } else {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kpackPerThread});
+                              {blockSize, dRepeats, kIter});
     splitTid.merge(
         {"wave_id", "blk_id", "blk_td"}, {0, 1, 2}, "tid",
         {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
@@ -514,11 +524,11 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     if (doSplitKAcrossThreadsFirst) {
       // k = blk_id + (waveSize / inputSpanLen) * k_i
       toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
-                          {kpackPerThread, waveSize / inputSpanLen});
+                          {kIter, waveSize / inputSpanLen});
     } else {
       // k = k_i + kpackPerBlock * blk_id
       toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
-                          {waveSize / inputSpanLen, kpackPerThread});
+                          {waveSize / inputSpanLen, kIter});
     }
 
     toLDSRowCol.ignore(otherWaveDim);
@@ -531,7 +541,10 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+    if (ldsLayoutKxD)
+      offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+    else
+      offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
 
     TransformMapAttr offsetAttr = offset.get();
     transformAttrs.push_back(offsetAttr);
@@ -794,6 +807,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName, bool rotateDWithK,
+                                        bool directToLds, bool ldsLayoutKxD,
                                         bool doSplitKAcrossThreadsFirst) const {
 
   // Extract relevant tuning parameters
@@ -818,13 +832,16 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t dPerBlock = (dName == "m" ? mPerBlock : nPerBlock);
   int64_t mWaves = mPerBlock / mPerWave;
   int64_t nWaves = nPerBlock / nPerWave;
+  int64_t kIter = kpackPerThread;
+  if (directToLds)
+    kIter *= wmmaInsn.inputVectorLen;
 
   SmallVector<Attribute> transformAttrs;
 
   // Compute source offset as
   // sourceOffset = k_i * MN + (laneId % wmmaInputLen) + waveOffset * mn_i;
   TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                            {blockSize, dRepeats, kpackPerThread});
+                            {blockSize, dRepeats, kIter});
   splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                  {blockSize / waveSize, waveSize});
 
@@ -858,7 +875,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     toLDSRowCol.ignore("block_id");
   } else {
     toLDSRowCol.unmerge({"k"}, 1, {"block_id", "k_iter"},
-                        {wmmaInsn.outputStride, kpackPerThread});
+                        {wmmaInsn.outputStride, kIter});
   }
   toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "block_td"},
                       {dRepeats, dWaves, dPerAccel});
@@ -872,7 +889,10 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
       rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-  offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+  if (ldsLayoutKxD)
+    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+  else
+    offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
 
   TransformMapAttr offsetAttr = offset.get();
   transformAttrs.push_back(offsetAttr);

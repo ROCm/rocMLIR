@@ -510,8 +510,9 @@ LogicalResult GatherToLDSOp::verify() {
   } else {
     transferSize = transferType.getIntOrFloatBitWidth();
   }
-  if (transferSize != 8 && transferSize != 16 && transferSize != 32)
-    return emitOpError("Transfering type size must be 8, 16, or 32 bits");
+  if (transferSize != 8 && transferSize != 16 && transferSize != 32 &&
+      transferSize != 128)
+    return emitOpError("Transfering type size must be 8, 16, 32, or 128 bits");
 
   if (!hasGlobalMemorySpace(srcType.getMemorySpace()) &&
       !hasFatRawBufferMemorySpace(srcType.getMemorySpace()))

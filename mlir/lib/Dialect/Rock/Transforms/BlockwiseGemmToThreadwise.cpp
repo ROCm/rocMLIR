@@ -462,12 +462,13 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
+    // TODO (direct_to_lds): set directToLDS correctly
     Value wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-        op.getRotateMWithK());
+        op.getRotateMWithK(), op.getDirectToLDS(), op.getLdsLayoutKxM());
     Value wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-        op.getRotateNWithK());
+        op.getRotateNWithK(), op.getDirectToLDS(), op.getLdsLayoutKxN());
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
@@ -476,9 +477,10 @@ struct BlockwiseGemmAccelRewritePattern
       Value i = mLoop.getInductionVar();
 
       // regsA = read A from LDS
-      b.create<ThreadwiseReadIntoOp>(
-          loc, wrappedLDSBufferForLoadA, op.getBufferA(), b.getArrayAttr({}),
-          ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadA,
+                                     op.getBufferAForLoad(), b.getArrayAttr({}),
+                                     ValueRange{tid, i}, /*forceUnroll=*/true,
+                                     /*useIndexDiffs=*/true);
 
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
@@ -488,8 +490,9 @@ struct BlockwiseGemmAccelRewritePattern
 
         // regsB = read B from LDS
         b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedLDSBufferForLoadB, op.getBufferB(), b.getArrayAttr({}),
-            ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+            loc, wrappedLDSBufferForLoadB, op.getBufferBForLoad(),
+            b.getArrayAttr({}), ValueRange{tid, j}, /*forceUnroll=*/true,
+            /*useIndexDiffs=*/true);
 
         // regsC += regsA * regsB
         auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
