@@ -939,23 +939,37 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 32 -W 32 -k 256 -y 1 -x 1 -p
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 65 -W 65 -k 128 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 512 -k 512
 -t f32 -transQ false -transK true -transV false -transO false -g 1 -seq_len_q 64 -seq_len_k 64 -head_dim_qk 512 -head_dim_v 512
+#Llama-2-7b-chat-hf-awq-int4-asym-gs128-onnx_prefill
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 22016 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 12288 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 4096 -k 11008
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -transQ false -transK true -transV false -transO false -causal true -return_lse false -g 32 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 4096 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 32000 -k 4096
+#Llama-2-7b-chat-hf-awq-int4-asym-gs128-onnx_decode
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 12288 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 4096 -k 11008
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 22016 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -transQ false -transK true -transV false -transO false -causal false -return_lse false -g 32 -seq_len_q 1 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 4096 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 32000 -k 4096
 #llama3_8b_kv_cache_prefill
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 28672 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 6144 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 14336
--t f32 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 1 -k 1
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 128256 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 6144 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 28672 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 1 -k 1
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 14336
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -transQ false -transK true -transV false -transO false -causal false -return_lse false -g 32 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 128256 -k 4096
 #llama3_8b_kv_cache_decode
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 6144 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 28672 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 14336
--t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 128 -k 1
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 1 -k 128
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 1 -k 1
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 128256 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 6144 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 28672 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 1 -k 1
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 4096
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 14336
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 128 -k 1
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 1 -k 128
+Problem: gfx942:sramecc+:xnack-	304	-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 128256 -k 4096
 #mistral_8b_kc_cache_decode
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 6144 -k 4096
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 28672 -k 4096
