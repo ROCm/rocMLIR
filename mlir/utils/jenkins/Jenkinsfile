@@ -115,14 +115,10 @@ Map<String,String> dockerArgs() {
     boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
     String kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
 
-    // Get the GIDs of the render and video groups
-    String renderGid = run("getent group render | cut -d':' -f3")
-    String videoGid = run("getent group video | cut -d':' -f3")
-
     String args = """
         ${kfdFlg} \
         ${renderFlags} \
-        --group-add ${videoGid} --group-add ${renderGid}
+        --group-add render --group-add video
     """.trim().replaceAll(/\s+/, ' ')
 
     DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
