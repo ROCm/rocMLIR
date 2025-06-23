@@ -1131,8 +1131,8 @@ pipeline {
                                         copyArtifacts filter: 'build/perfDB/**',\
                                             optional: true,\
                                             flatten: true,\
-                                            projectName: "${env.JOB_NAME}",\
-                                            selector: specific("2"),\
+                                            projectName: "/MLIR/mlir-weekly",\
+                                            selector: lastSuccessful(),\
                                             target: 'build'
                                             sh 'ls build'
                                             sh 'cat build/tuning-date'
