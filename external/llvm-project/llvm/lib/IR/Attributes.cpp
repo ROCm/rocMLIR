@@ -295,9 +295,13 @@ Attribute Attribute::getWithCaptureInfo(LLVMContext &Context, CaptureInfo CI) {
 Attribute
 Attribute::getWithAllocSizeArgs(LLVMContext &Context, unsigned ElemSizeArg,
                                 const std::optional<unsigned> &NumElemsArg) {
-  assert(!(ElemSizeArg == 0 && NumElemsArg && *NumElemsArg == 0) &&
+  assert(!(ElemSizeArg == 0 && NumElemsArg == 0) &&
          "Invalid allocsize arguments -- given allocsize(0, 0)");
   return get(Context, AllocSize, packAllocSizeArgs(ElemSizeArg, NumElemsArg));
+}
+
+Attribute Attribute::getWithAllocKind(LLVMContext &Context, AllocFnKind Kind) {
+  return get(Context, AllocKind, static_cast<uint64_t>(Kind));
 }
 
 Attribute Attribute::getWithVScaleRangeArgs(LLVMContext &Context,
@@ -1244,7 +1248,7 @@ LLVM_DUMP_METHOD void AttributeSet::dump() const {
 AttributeSetNode::AttributeSetNode(ArrayRef<Attribute> Attrs)
     : NumAttrs(Attrs.size()) {
   // There's memory after the node where we can store the entries in.
-  llvm::copy(Attrs, getTrailingObjects<Attribute>());
+  llvm::copy(Attrs, getTrailingObjects());
 
   for (const auto &I : *this) {
     if (I.isStringAttribute())
@@ -1430,7 +1434,7 @@ AttributeListImpl::AttributeListImpl(ArrayRef<AttributeSet> Sets)
   assert(!Sets.empty() && "pointless AttributeListImpl");
 
   // There's memory after the node where we can store the entries in.
-  llvm::copy(Sets, getTrailingObjects<AttributeSet>());
+  llvm::copy(Sets, getTrailingObjects());
 
   // Initialize AvailableFunctionAttrs and AvailableSomewhereAttrs
   // summary bitsets.

@@ -15,7 +15,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "CodeGenTBAA.h"
-#include "ABIInfoImpl.h"
 #include "CGCXXABI.h"
 #include "CGRecordLayout.h"
 #include "CodeGenTypes.h"
@@ -130,6 +129,13 @@ static bool TypeHasMayAlias(QualType QTy) {
       return true;
     QTy = TT->desugar();
   }
+
+  // Also consider an array type as may_alias when its element type (at
+  // any level) is marked as such.
+  if (auto *ArrayTy = QTy->getAsArrayTypeUnsafe())
+    if (TypeHasMayAlias(ArrayTy->getElementType()))
+      return true;
+
   return false;
 }
 
@@ -441,7 +447,7 @@ CodeGenTBAA::CollectFields(uint64_t BaseOffset,
     unsigned idx = 0;
     for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
          i != e; ++i, ++idx) {
-      if (isEmptyFieldForLayout(Context, *i))
+      if ((*i)->isZeroSize(Context))
         continue;
 
       uint64_t Offset =

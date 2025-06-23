@@ -261,7 +261,7 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIdx = 0 : i32,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
@@ -284,14 +284,14 @@ func.func @gridwise_attn_grid_reversed(%arg0: memref<1x384x64xf32>, %arg1: memre
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIdx = 0 : i32,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1>
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
 
 // -----
 
-// CHECK: @gridwise_attn_issue_1661_workaround
+// CHECK-LABEL: @gridwise_attn_issue_1661_workaround
 func.func @gridwise_attn_issue_1661_workaround(%arg0: memref<256xf16>, %arg1: memref<98304xf16>, %arg2: memref<98304xf16>, %arg3: memref<256xf16>) attributes {block_size = 32 : i32, grid_size = 4 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 + d1) * 64 + d2)> by [<Unmerge{4, 1, 64} ["g", "seq_q", "head_qk"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [4, 1, 64] -> [256]> : memref<256xf16> to memref<4x1x64xf16>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 64 + d1) * 384 + d2)> by [<Unmerge{4, 64, 384} ["g", "seq_k", "head_qk"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [4, 64, 384] -> [98304]> : memref<98304xf16> to memref<4x64x384xf16>
@@ -307,13 +307,13 @@ func.func @gridwise_attn_issue_1661_workaround(%arg0: memref<256xf16>, %arg1: me
   // CHECK-NEXT: scf.if %[[cmpres]]
   // CHECK-NEXT: rock.in_bounds_store %[[neginf]] -> %{{.*}}[%{{.*}}] : f16 -> memref<32xf16, #gpu.address_space<private>>, index
   rock.gridwise_attention_accel(%5, %1, %2, %6) features =  dot|atomic_add|atomic_fmax_f32|wmma preSoftmaxOps = {
-  } {arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 32 : i32, firstGemmIdx = 0 : i32, gridSize = 4 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0N = 1 : index} : memref<4x64x32xf16>, memref<4x64x384xf16>, memref<4x384x64xf16>, memref<4x32x64xf16>
+  } {arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 32 : i32, firstGemmIdx = 0 : i32, gridSize = 4 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0N = 1 : index} : memref<4x64x32xf16>, memref<4x64x384xf16>, memref<4x384x64xf16>, memref<4x32x64xf16>
   return
 }
 
 // -----
 
-// CHECK: @gridwise_attn_kvcache
+// CHECK-LABEL: @gridwise_attn_kvcache
 func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
@@ -338,7 +338,7 @@ func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64
     arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIdx = 0 : i32
@@ -348,7 +348,7 @@ func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64
 
 // -----
 
-// CHECK: @gridwise_attn_causal_kvcache
+// CHECK-LABEL: @gridwise_attn_causal_kvcache
 func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
@@ -385,7 +385,7 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
     blockSize = 64 : i32,
     causal,
     gridSize = 24 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIdx = 0 : i32
@@ -395,7 +395,53 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
 
 // -----
 
-// CHECK: @gridwise_attn_barriers_before_lds_write_issue_1811
+// CHECK-LABEL: @gridwise_attn_lse_kvcache
+func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>, %arg5: memref<1x384xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+  // CHECK-DAG: %[[log2:.+]] = arith.constant 0.693147182 : f32
+  // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
+  // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
+  // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
+  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
+  // CHECK: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+  // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
+  // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
+  // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
+  // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
+  // CHECK-NEXT: scf.if %[[comparison]] {
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
+  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
+  // CHECK-NEXT: scf.if %[[secondComparison]] {
+  // CHECK-NEXT: rock.in_bounds_store
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%{{.*}}, %{{.*}}) = [](%[[c0]], %[[c0]]), (%arg8) = [{{.*}}](%[[c0]], %[[c0]]) (%{{.*}}, %{{.*}}) = validity bounds [1, 16] strides [1, 1] {
+  // CHECK-NEXT: %[[loadM:.+]] = rock.in_bounds_load {{.*}} : memref<1xf32, #gpu.address_space<private>>, index -> f32
+  // CHECK-NEXT: %[[loadL:.+]] = rock.in_bounds_load {{.*}} : memref<1xf32, #gpu.address_space<private>>, index -> f32
+  // CHECK-NEXT: %[[logL:.+]] = math.log2 %[[loadL]] : f32
+  // CHECK-NEXT: %[[lseLog2:.+]] = arith.addf %[[logL]], %[[loadM]] : f32
+  // CHECK-NEXT: %[[lse:.+]] = arith.mulf %[[lseLog2]], %[[log2]] : f32
+  // CHECK-NEXT: rock.in_bounds_store %[[lse]] -> %[[lseBuffer:.+]][{{.*}}] : f32 -> memref<16xf32, #gpu.address_space<private>>, index
+  // CHECK-NEXT: rock.yield
+  // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf32, #gpu.address_space<private>> -> memref<1x64x384xf32>
+  // CHECK-NEXT: rock.threadwise_write_all features =  mfma|dot|atomic_add|atomic_add_f16 {forceUnroll, useIndexDiffs} %[[lseBuffer]] {{.*}} set : memref<16xf32, #gpu.address_space<private>> -> memref<1x384xf32>
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {} {
+    arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
+    blockSize = 64 : i32,
+    gridSize = 24 : i32,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
+    params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    firstGemmIdx = 0 : i32
+  } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>, memref<1x384xf32>
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_issue_1811
 func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096xi8>, %arg1: memref<4096xi8>, %arg2: memref<4096xf16>, %arg3: memref<1xi8>, %arg4: memref<1xf16>, %arg5: memref<4096xf16>) attributes {block_size = 64 : i32, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // CHECK: affine.for %{{.*}} = 0 to 2
   // CHECK: rock.threadwise_read_into
@@ -438,13 +484,13 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096
     }
     memref.copy %alloc, %arg9 : memref<1x64x64xf16> to memref<1x64x64xf16>
     rock.yield
-  } {arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 64 : i32, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 16, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xi8>, memref<1x128x64xi8>, memref<1x64x64xf16>, memref<1x1x1xi8>, memref<1x1x1xf16>, memref<1x64x64xf16>
+  } {arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 64 : i32, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1, 0>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 16, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xi8>, memref<1x128x64xi8>, memref<1x64x64xf16>, memref<1x1x1xi8>, memref<1x1x1xf16>, memref<1x64x64xf16>
   return
 }
 
 // -----
 
-// CHECK: @gridwise_attn_barriers_before_lds_write_issue_1844
+// CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_issue_1844
 func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<32768xf16>, %arg1: memref<32768xf16>, %arg2: memref<32768xf16>, %arg3: memref<32768xf16>) attributes {block_size = 256 : i32, grid_size = 2 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
   // CHECK: affine.for %{{.*}} = 0 to 1
   // CHECK: rock.threadwise_read_into
@@ -462,13 +508,13 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<3276
   %4 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 128, 256] -> [1, 256, 128]> : memref<1x256x128xf16> to memref<1x128x256xf16>
   %5 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [1, 128, 256] -> [1, 256, 128]> : memref<1x256x128xf16> to memref<1x128x256xf16>
   rock.gridwise_attention_accel(%4, %5, %2, %3) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
-  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 2 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x256xf16>, memref<1x128x256xf16>, memref<1x256x128xf16>, memref<1x256x128xf16>
+  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 2 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x256xf16>, memref<1x128x256xf16>, memref<1x256x128xf16>, memref<1x256x128xf16>
   return
 }
 
 // -----
 
-// CHECK: @gridwise_attn_barriers_before_lds_write_nobarriers
+// CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_nobarriers
 func.func @gridwise_attn_barriers_before_lds_write_nobarriers(%arg0: memref<16384xf16>, %arg1: memref<16384xf16>, %arg2: memref<16384xf16>, %arg3: memref<16384xf16>) attributes {block_size = 256 : i32, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
   // CHECK: affine.for %{{.*}} = 0 to 1
   // CHECK: rock.threadwise_read_into
@@ -486,13 +532,13 @@ func.func @gridwise_attn_barriers_before_lds_write_nobarriers(%arg0: memref<1638
   %4 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 128, 128] -> [1, 128, 128]> : memref<1x128x128xf16> to memref<1x128x128xf16>
   %5 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [1, 128, 128] -> [1, 128, 128]> : memref<1x128x128xf16> to memref<1x128x128xf16>
   rock.gridwise_attention_accel(%4, %5, %2, %3) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
-  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
+  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
   return
 }
 
 // -----
 
-// CHECK: @gridwise_attn_barriers_before_lds_write_nofallback_barrier
+// CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_nofallback_barrier
 func.func @gridwise_attn_barriers_before_lds_write_nofallback_barrier(%arg0: memref<32768xf16>, %arg1: memref<32768xf16>, %arg2: memref<16384xf16>, %arg3: memref<16384xf16>) attributes {block_size = 256 : i32, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK: affine.for %{{.*}} = 0 to 2 {
@@ -509,6 +555,6 @@ func.func @gridwise_attn_barriers_before_lds_write_nofallback_barrier(%arg0: mem
   %4 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 256, 128] -> [1, 128, 256]> : memref<1x128x256xf16> to memref<1x256x128xf16>
   %5 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [1, 256, 128] -> [1, 128, 256]> : memref<1x128x256xf16> to memref<1x256x128xf16>
   rock.gridwise_attention_accel(%4, %5, %2, %3) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
-  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x256x128xf16>, memref<1x256x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
+  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x256x128xf16>, memref<1x256x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
   return
 }

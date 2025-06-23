@@ -2,7 +2,7 @@
 ; RUN: llc -global-isel -amdgpu-codegenprepare-widen-16-bit-ops=0 -mtriple=amdgcn-mesa-mesa3d -mcpu=tahiti < %s | FileCheck -check-prefixes=GCN,GFX6 %s
 ; RUN: llc -global-isel -amdgpu-codegenprepare-widen-16-bit-ops=0 -mtriple=amdgcn-mesa-mesa3d -mcpu=gfx900 < %s | FileCheck -check-prefixes=GCN,GFX9 %s
 ; RUN: llc -global-isel -amdgpu-codegenprepare-widen-16-bit-ops=0 -mtriple=amdgcn-mesa-mesa3d -mcpu=gfx1010 < %s | FileCheck -check-prefixes=GFX10PLUS,GFX10 %s
-; RUN: llc -global-isel -amdgpu-codegenprepare-widen-16-bit-ops=0 -mtriple=amdgcn-mesa-mesa3d -mcpu=gfx1100 -amdgpu-enable-delay-alu=0 < %s | FileCheck -check-prefixes=GFX10PLUS,GFX11 %s
+; RUN: llc -global-isel -amdgpu-codegenprepare-widen-16-bit-ops=0 -mtriple=amdgcn-mesa-mesa3d -mcpu=gfx1100 -mattr=-real-true16 -amdgpu-enable-delay-alu=0 < %s | FileCheck -check-prefixes=GFX10PLUS,GFX11 %s
 
 define amdgpu_ps i32 @s_orn2_i32(i32 inreg %src0, i32 inreg %src1) {
 ; GCN-LABEL: s_orn2_i32:
@@ -919,9 +919,7 @@ define amdgpu_ps i64 @s_orn2_v4i16(<4 x i16> inreg %src0, <4 x i16> inreg %src1)
 ; GFX6-NEXT:    s_lshl_b32 s3, s9, 16
 ; GFX6-NEXT:    s_and_b32 s4, s8, 0xffff
 ; GFX6-NEXT:    s_or_b32 s3, s3, s4
-; GFX6-NEXT:    s_mov_b32 s4, -1
-; GFX6-NEXT:    s_mov_b32 s5, s4
-; GFX6-NEXT:    s_xor_b64 s[2:3], s[2:3], s[4:5]
+; GFX6-NEXT:    s_xor_b64 s[2:3], s[2:3], -1
 ; GFX6-NEXT:    s_or_b64 s[0:1], s[0:1], s[2:3]
 ; GFX6-NEXT:    ; return to shader part epilog
 ;
@@ -961,9 +959,7 @@ define amdgpu_ps i64 @s_orn2_v4i16_commute(<4 x i16> inreg %src0, <4 x i16> inre
 ; GFX6-NEXT:    s_lshl_b32 s3, s9, 16
 ; GFX6-NEXT:    s_and_b32 s4, s8, 0xffff
 ; GFX6-NEXT:    s_or_b32 s3, s3, s4
-; GFX6-NEXT:    s_mov_b32 s4, -1
-; GFX6-NEXT:    s_mov_b32 s5, s4
-; GFX6-NEXT:    s_xor_b64 s[2:3], s[2:3], s[4:5]
+; GFX6-NEXT:    s_xor_b64 s[2:3], s[2:3], -1
 ; GFX6-NEXT:    s_or_b64 s[0:1], s[2:3], s[0:1]
 ; GFX6-NEXT:    ; return to shader part epilog
 ;
@@ -1003,9 +999,7 @@ define amdgpu_ps { i64, i64 } @s_orn2_v4i16_multi_use(<4 x i16> inreg %src0, <4 
 ; GFX6-NEXT:    s_lshl_b32 s3, s9, 16
 ; GFX6-NEXT:    s_and_b32 s4, s8, 0xffff
 ; GFX6-NEXT:    s_or_b32 s3, s3, s4
-; GFX6-NEXT:    s_mov_b32 s4, -1
-; GFX6-NEXT:    s_mov_b32 s5, s4
-; GFX6-NEXT:    s_xor_b64 s[2:3], s[2:3], s[4:5]
+; GFX6-NEXT:    s_xor_b64 s[2:3], s[2:3], -1
 ; GFX6-NEXT:    s_or_b64 s[0:1], s[0:1], s[2:3]
 ; GFX6-NEXT:    ; return to shader part epilog
 ;
@@ -1059,9 +1053,7 @@ define amdgpu_ps { i64, i64 } @s_orn2_v4i16_multi_foldable_use(<4 x i16> inreg %
 ; GFX6-NEXT:    s_lshl_b32 s5, s13, 16
 ; GFX6-NEXT:    s_and_b32 s6, s12, 0xffff
 ; GFX6-NEXT:    s_or_b32 s5, s5, s6
-; GFX6-NEXT:    s_mov_b32 s6, -1
-; GFX6-NEXT:    s_mov_b32 s7, s6
-; GFX6-NEXT:    s_xor_b64 s[4:5], s[4:5], s[6:7]
+; GFX6-NEXT:    s_xor_b64 s[4:5], s[4:5], -1
 ; GFX6-NEXT:    s_or_b64 s[0:1], s[0:1], s[4:5]
 ; GFX6-NEXT:    s_or_b64 s[2:3], s[2:3], s[4:5]
 ; GFX6-NEXT:    ; return to shader part epilog

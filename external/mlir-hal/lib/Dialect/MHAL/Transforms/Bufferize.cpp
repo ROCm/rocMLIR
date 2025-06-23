@@ -34,7 +34,9 @@ struct MHALBufferizePass
     BufferizationOptions options = getPartialBufferizationOptions();
     options.opFilter.allowDialect<mhal::MHALDialect>();
 
-    if (failed(bufferizeOp(getOperation(), options)))
+    BufferizationState state;
+
+    if (failed(bufferizeOp(getOperation(), options, state)))
       signalPassFailure();
   }
 

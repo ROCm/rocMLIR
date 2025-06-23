@@ -24,11 +24,13 @@ LLVMCoroutines
 LLVMDebugInfoBTF
 LLVMDebugInfoCodeView
 LLVMDebugInfoDWARF
+LLVMDebugInfoGSYM
 LLVMDebugInfoMSF
 LLVMDebugInfoPDB
 LLVMDemangle
 LLVMExtensions
 LLVMFrontendAtomic
+LLVMFrontendDirective
 LLVMFrontendOffloading
 LLVMFrontendOpenMP
 LLVMGlobalISel

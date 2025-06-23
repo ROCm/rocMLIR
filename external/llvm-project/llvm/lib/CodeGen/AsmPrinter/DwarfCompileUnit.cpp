@@ -805,6 +805,8 @@ DIE *DwarfCompileUnit::constructLexicalScopeDIE(LexicalScope *Scope) {
     assert(!LexicalBlockDIEs.count(DS) &&
            "Concrete out-of-line DIE for this scope exists!");
     LexicalBlockDIEs[DS] = ScopeDIE;
+  } else {
+    InlinedLocalScopeDIEs[DS].push_back(ScopeDIE);
   }
 
   attachRangesOrLowHighPC(*ScopeDIE, Scope->getRanges());
@@ -889,6 +891,8 @@ void DwarfCompileUnit::applyConcreteDbgVariableAttributes(
 
   if (Expr) {
     if (auto NewElementsRef = Expr->getNewElementsRef()) {
+      if (DV.isDivergentAddrSpaceCompatible())
+        DwarfExpr.permitDivergentAddrSpace();
       DwarfExpr.addExpression(*NewElementsRef, DVal->getLocEntries(), &TRI);
       addBlock(VariableDie, dwarf::DW_AT_location, DwarfExpr.finalize());
       return;
@@ -971,6 +975,8 @@ void DwarfCompileUnit::applyConcreteDbgVariableAttributes(const Loc::MMI &MMI,
     addBlock(VariableDie, dwarf::DW_AT_location, DwarfExpr.finalize());
     return;
   }
+  if (DV.isDivergentAddrSpaceCompatible())
+    DwarfExpr.permitDivergentAddrSpace();
   for (const auto &Fragment : MMI.getFrameIndexExprs()) {
     Register FrameReg;
     const DIExpression *Expr = Fragment.Expr;
@@ -1550,6 +1556,19 @@ void DwarfCompileUnit::finishEntityDefinition(const DbgEntity *Entity) {
     getDwarfDebug().addAccelName(*this, CUNode->getNameTableKind(), Name, *Die);
 }
 
+void DwarfCompileUnit::attachLexicalScopesAbstractOrigins() {
+  auto AttachAO = [&](const DILocalScope *LS, DIE *ScopeDIE) {
+    if (auto *AbsLSDie = getAbstractScopeDIEs().lookup(LS))
+      addDIEEntry(*ScopeDIE, dwarf::DW_AT_abstract_origin, *AbsLSDie);
+  };
+
+  for (auto [LScope, ScopeDIE] : LexicalBlockDIEs)
+    AttachAO(LScope, ScopeDIE);
+  for (auto &[LScope, ScopeDIEs] : InlinedLocalScopeDIEs)
+    for (auto *ScopeDIE : ScopeDIEs)
+      AttachAO(LScope, ScopeDIE);
+}
+
 DbgEntity *DwarfCompileUnit::getExistingAbstractEntity(const DINode *Node) {
   auto &AbstractEntities = getAbstractEntities();
   auto I = AbstractEntities.find(Node);
@@ -1743,7 +1762,19 @@ void DwarfCompileUnit::applyCommonDbgVariableAttributes(const DbgVariable &Var,
   }
 
   addSourceLine(VariableDie, DIVar);
-  addType(VariableDie, Var.getType());
+
+  const DIType *VarTy = Var.getType();
+  if (Var.isDivergentAddrSpaceCompatible()) {
+    if (std::optional<unsigned> EntityAS = Var.getCommonDivergentAddrSpace()) {
+      if (auto DwarfAS = getAsmPrinter()->TM.mapToDWARFAddrSpace(*EntityAS)) {
+        TempDIDerivedType Tmp =
+            cast<DIDerivedType>(VarTy)->cloneWithAddressSpace(*DwarfAS);
+        VarTy = MDNode::replaceWithUniqued(std::move(Tmp));
+      }
+    }
+  }
+
+  addType(VariableDie, VarTy);
   if (Var.isArtificial())
     addFlag(VariableDie, dwarf::DW_AT_artificial);
 }
