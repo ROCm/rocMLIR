@@ -34,7 +34,7 @@ class Options:
     arch: str
     flags: list
     concurrent_tests: int
-    numCu: int
+    numCu: Optional[int] = None
 
 class PerfConfig:
     class Version(enum.Enum):
