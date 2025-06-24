@@ -1196,8 +1196,9 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   if (isMfma) {
     XdlopsGemmDerivedParamsAttr mfmaParams =
         cast<XdlopsGemmDerivedParamsAttr>(tuningParams);
-    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch,
-                                                    mfmaParams.getMnPerXdl());
+    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+        dataTypeA, dataTypeB, arch, mfmaParams.getMnPerXdl(),
+        mfmaParams.getKpack(), mfmaParams.getKpackPerBlock());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }
