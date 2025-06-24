@@ -124,6 +124,7 @@ Map<String,String> dockerArgs() {
     String args = """
         ${kfdFlg} \
         ${renderFlags} \
+        --user 0:0 \
         --group-add ${renderGid} --group-add ${videoGid}
     """.trim().replaceAll(/\s+/, ' ')
 
@@ -695,7 +696,12 @@ pipeline {
                                                 }
 
                                                 if (params.sharedLib && !params.nightly) {
-                                                    stage('Tune selected rocMLIR configs') {                                 
+                                                    stage('Tune selected rocMLIR configs') {
+                                                        // We need to create the folder for pods from k8s. Don't have this issue on bares
+                                                        sh '''
+                                                        mkdir -p /home/jenkins/agent
+                                                        chown $(id -u):$(id -g) /home/jenkins/agent
+                                                        '''
                                                         buildProject('ci-performance-scripts', '')
                                                         // How to check out into specific directory, according to stackoverflow.
                                                         dir('MITuna') {
@@ -778,7 +784,7 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromCodepath("${CODEPATH}") }
+                            expression { shouldRunFromCodepath(CODEPATH) }
                         }
                         steps {
                             script {
@@ -853,7 +859,7 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromChip("${CHIP}") }
+                            expression { shouldRunFromChip(CHIP) }
                         }
                         steps {
                             script {
@@ -994,7 +1000,7 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromChip("${CHIP}") }
+                            expression { shouldRunFromChip(CHIP) }
                         }
                         steps {
                             script {
@@ -1069,7 +1075,7 @@ pipeline {
                                                         sh 'date --utc +%Y-%m-%d > perf-run-date'
                                                         sh 'ls -l /dev/kfd'
                                                         sh 'ls -l /dev/dri'
-                                                        // Run MLIR vs MI perf benchmarks.
+                                                        // Run MLIR vs MIOpen perf benchmarks.
                                                         sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                                             --configs_file=${convToUse} \
                                                             --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
@@ -1199,7 +1205,7 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromCodepath("${CODEPATH}") }
+                            expression { shouldRunFromCodepath(CODEPATH) }
                         }
                         steps {
                             script {
