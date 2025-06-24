@@ -294,9 +294,13 @@
 -t f32 -out_datatype f32 -transA true -transB false -g 1 -m 128 -n 1536 -k 512
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 512 -k 512
 
-# latest configs
+# bert_base_cased_1_int8
 -t i8 -out_datatype i32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
+
+# gpt2_fp16
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 1 -k 64
+
+# latest configs, after removing duplicates, some come in more models
 -t f16 -out_datatype f16 -transA true -transB false -g 1 -m 2048 -n 640 -k 640
 -t f16 -out_datatype f16 -transA true -transB false -g 1 -m 512 -n 1280 -k 1280
 -t f16 -out_datatype f16 -transA true -transB false -g 1 -m 128 -n 1280 -k 1280

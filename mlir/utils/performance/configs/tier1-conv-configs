@@ -290,7 +290,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 2 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1
 conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GN01C -I N01GC -O NGC01 -n 2 -c 512 -H 8 -W 8 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 
-# latest configs
+# resnet50_v1, resnet50_v1_int8, resnet50_v1_fp16
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -359,6 +359,8 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1536 -H 7 -W 7 -k 2048 -y 1 -x 
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 56 -W 56 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# stable-diffusion-2-onnx-unet
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -390,10 +392,14 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 4 -y 3 -x 3 
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# stable-diffusion-2-onnx-vae_decoder
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 64 -W 64 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 4 -H 64 -W 64 -k 4 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 4 -H 64 -W 64 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 128 -W 128 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# mask_rcnn_fp16
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 800 -W 800 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -434,6 +440,8 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 128 -y 1 -
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 25 -W 25 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# mask_rcnn_int8
 convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 768 -H 50 -W 50 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 25 -W 25 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 128 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
@@ -474,6 +482,8 @@ convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 12 -y 1 -x
 convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 3 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 50 -W 50 -k 512 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
 convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 28 -W 28 -k 81 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# yolov10_model, yolov10_model fp16, int8
 conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 40 -W 40 -k 256 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 256
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 80 -W 80 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 128
@@ -618,6 +628,8 @@ convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 1 -x 1 
 convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
 convint8 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80
 convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 80 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# yolov4_model
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 208 -W 208 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 52 -W 52 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 208 -W 208 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -651,6 +663,8 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 13 -W 13 -k 1024 -y 3 -x
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 27 -W 27 -k 512 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 52 -W 52 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 26 -W 26 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# sd3_medium_vae_encoder
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 17 -W 17 -k 512 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 16 -W 16 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
