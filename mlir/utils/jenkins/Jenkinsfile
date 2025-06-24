@@ -4,7 +4,8 @@ import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
 
 // ConcurrentHashMap helps when we need to write variables in parallel
-@Field                                 // one instance for the whole run
+// one instance for the whole run
+@Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 
 void buildProject(String target, String cmakeOpts) {
@@ -20,12 +21,45 @@ void buildProject(String target, String cmakeOpts) {
     }
 }
 
+def resetGPUs() {
+    // Abort this if runs longer than 10 minutes
+    timeout(time: 10, unit: 'MINUTES') {
+        // Run the reset, but don't fail the build if anything is wrong
+        def rc = sh(
+            script: '''
+            reset_all_gpus() {
+                echo "Scanning GPUs..."
+                GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
+                if [ -z "$GPU_IDS" ]; then
+                    echo "WARNING: No GPUs found to reset."
+                    return 0
+                fi
+                for id in $GPU_IDS; do
+                    echo "Resetting GPU ID: $id"
+                    if ! rocm-smi --gpureset -d $id; then
+                        echo "WARNING: Unable to reset GPU $id"
+                    fi
+                    sleep 2
+                done
+                return 0
+            }
+            reset_all_gpus
+            ''',
+            returnStatus: true
+        )
+        if (rc != 0) {
+            echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
+        }
+    }
+}
+
 def advancedNodeCheck(Map params) {
     script {
         echo "Jenkins-side PATH = '${env.PATH}'"
     }
     boolean doCleanWs = params.doCleanWs
     boolean doGPUcheck = params.doGPUcheck
+    resetGPUs()
 
     if (doCleanWs) {
         timeout(time: 15, unit: 'MINUTES', activity: true) {
@@ -61,38 +95,6 @@ def advancedNodeCheck(Map params) {
         }
     } else {
         echo 'Skipping GPU checks…'
-    }
-}
-
-def resetGPUs() {
-    // Abort this if runs longer than 10 minutes
-    timeout(time: 10, unit: 'MINUTES') {
-        // Run the reset, but don't fail the build if anything is wrong
-        def rc = sh(
-            script: '''
-            reset_all_gpus() {
-                echo "Scanning GPUs..."
-                GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
-                if [ -z "$GPU_IDS" ]; then
-                    echo "WARNING: No GPUs found to reset."
-                    return 0
-                fi
-                for id in $GPU_IDS; do
-                    echo "Resetting GPU ID: $id"
-                    if ! rocm-smi --gpureset -d $id; then
-                        echo "WARNING: Unable to reset GPU $id"
-                    fi
-                    sleep 2
-                done
-                return 0
-            }
-            reset_all_gpus
-            ''',
-            returnStatus: true
-        )
-        if (rc != 0) {
-            echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
-        }
     }
 }
 
@@ -512,11 +514,7 @@ void collectCoverageData(String profdata, String cov, String cpath) {
 
 // Run the body on a node that passes the supplied healthChecks() block
 // The health check is retried on fresh executors; the body is not retried.
-def withHealthyNode(String baseLabel,
-                    Closure<?> healthChecks,
-                    Closure<?> body,
-                    int maxAttempts = 3) {
-
+def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, int maxAttempts = 3) {
     def blacklist = [] // nodes and pods that already failed the check
     int attempt = 0
     boolean done = false
@@ -657,7 +655,6 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            resetGPUs()
                                             checkout scm
                                             // Fill in the docker args from the node
                                             dockerArgs()
@@ -789,7 +786,6 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            resetGPUs()
                                             checkout scm
                                             // Fill in the docker args from the node
                                             dockerArgs()
@@ -866,7 +862,6 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            resetGPUs()
                                             checkout scm
                                             // Fill in the docker args from the node
                                             dockerArgs()
@@ -1009,7 +1004,6 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            resetGPUs()
                                             checkout scm
                                             // Fill in the docker args from the node
                                             dockerArgs()
@@ -1216,7 +1210,6 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            resetGPUs()
                                             checkout scm
                                             // Fill in the docker args from the node
                                             dockerArgs()
@@ -1324,7 +1317,6 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            resetGPUs()
                                             checkout scm
                                             // Fill in the docker args from the node
                                             dockerArgs()
