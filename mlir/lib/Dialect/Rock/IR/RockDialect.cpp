@@ -1892,6 +1892,14 @@ void GridwiseAttentionAccelOp::getEffects(
   effects.emplace_back(read, &getOutMutable());
   effects.emplace_back(write, &getOutMutable());
 
+  if (getLse()) {
+    effects.emplace_back(read, &getLseMutable()[0]);
+    effects.emplace_back(write, &getLseMutable()[0]);
+  }
+  if (getCurrentSeqLen()) {
+    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
+  }
+
   effects.emplace_back(read, &getQueriesMutable());
   effects.emplace_back(read, &getKeysMutable());
   effects.emplace_back(read, &getValuesMutable());
@@ -2332,7 +2340,10 @@ void ConvElementwiseGemmOp::getEffects(
 //===-----------------------------------------------------===//
 
 OpOperand *AttentionOp::getOutArgument() {
-  return &(*this)->getOpOperand(getNumOperands() - 1);
+  // The output is the last operand unless LSE is used.
+  // In that case, the output is the second to last operand.
+  int64_t outIndex = getLse() ? 2 : 1;
+  return &(*this)->getOpOperand(getNumOperands() - outIndex);
 }
 
 Type AttentionOp::getOutType() { return getOut().getType(); }
@@ -2383,6 +2394,14 @@ void AttentionOp::getEffects(
   auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &getOutMutable());
   effects.emplace_back(write, &getOutMutable());
+
+  if (getLse()) {
+    effects.emplace_back(read, &getLseMutable()[0]);
+    effects.emplace_back(write, &getLseMutable()[0]);
+  }
+  if (getCurrentSeqLen()) {
+    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
+  }
 
   effects.emplace_back(read, &getQueriesMutable());
   effects.emplace_back(read, &getKeysMutable());

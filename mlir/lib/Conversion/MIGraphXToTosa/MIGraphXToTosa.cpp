@@ -738,14 +738,18 @@ struct ReduceMeanConverter final
                   ConversionPatternRewriter &rewriter) const final;
 };
 
-struct ReduceSumConverter final
-    : public OpConversionPattern<migraphx::ReduceSumOp> {
-  using OpConversionPattern<migraphx::ReduceSumOp>::OpConversionPattern;
+namespace {
+template <typename MIGraphXOp, typename TosaOp>
+struct ReduceConverter final : public OpConversionPattern<MIGraphXOp> {
+  using OpConversionPattern<MIGraphXOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<MIGraphXOp>::OpAdaptor;
 
   LogicalResult
-  matchAndRewrite(migraphx::ReduceSumOp op, OpAdaptor adaptor,
+  matchAndRewrite(MIGraphXOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+} // namespace
+
 } // namespace
 
 tosa::ConstOp ReduceMeanConverter::createNumElementsTosaConst(
@@ -805,9 +809,10 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
   return success();
 }
 
-LogicalResult
-ReduceSumConverter::matchAndRewrite(migraphx::ReduceSumOp op, OpAdaptor adaptor,
-                                    ConversionPatternRewriter &rewriter) const {
+template <typename MIGraphXOp, typename TosaOp>
+LogicalResult ReduceConverter<MIGraphXOp, TosaOp>::matchAndRewrite(
+    MIGraphXOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   ArrayRef<Attribute> axes = op.getAxes().getValue();
   if (axes.size() != 1) {
@@ -817,9 +822,9 @@ ReduceSumConverter::matchAndRewrite(migraphx::ReduceSumOp op, OpAdaptor adaptor,
       rewriter.getI32IntegerAttr(cast<IntegerAttr>(axes[0]).getInt());
   auto input = cast<TypedValue<RankedTensorType>>(adaptor.getInput());
   Type elementType = input.getType().getElementType();
-  auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
-      rewriter, loc, elementType, input, axis);
-  rewriter.replaceOp(op, tosaReduceSum);
+  auto tosaReduce =
+      createOpAndInfer<TosaOp>(rewriter, loc, elementType, input, axis);
+  rewriter.replaceOp(op, tosaReduce);
   return success();
 }
 
@@ -1493,7 +1498,9 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                DotConverter<DotOp>, DotConverter<QuantDotOp>,
                BroadcastConverter, MultiBroadcastConverter, TransposeConverter,
                ReshapeConverter, SliceConverter, ReduceMeanConverter,
-               ReduceSumConverter, TrivialConverter<AddOp, tosa::AddOp>,
+               ReduceConverter<ReduceSumOp, tosa::ReduceSumOp>,
+               ReduceConverter<ReduceMaxOp, tosa::ReduceMaxOp>,
+               TrivialConverter<AddOp, tosa::AddOp>,
                TrivialConverter<SubOp, tosa::SubOp>,
                TrivialConverter<PowOp, tosa::PowOp>, DivConverter, MulConverter,
                TrivialConverter<AbsOp, tosa::AbsOp>,
