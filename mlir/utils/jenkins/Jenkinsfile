@@ -106,7 +106,7 @@ def checkNodeHealth(Map opts = [:]) {
 }
 
 Map<String,String> dockerArgs() {
-    echo "Getting Docker args from ${env.NODE_NAME}"
+    echo "Getting Docker args from ${env.NODE_NAME}..."
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
     // discover devices
     String renderFlags = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
@@ -124,12 +124,11 @@ Map<String,String> dockerArgs() {
     String args = """
         ${kfdFlg} \
         ${renderFlags} \
-        --user 0:0 \
         --group-add ${renderGid} --group-add ${videoGid}
     """.trim().replaceAll(/\s+/, ' ')
 
     DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
-    echo "Docker for ${env.NODE_NAME} are ${args}"
+    echo "Received Docker args for ${env.NODE_NAME}: ${args}"
     return DOCKER_ARGS_BY_NODE // ConcurrentHashMap
 }
 
@@ -649,7 +648,7 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunBuildAndTest("${CODEPATH}") }
+                            expression { shouldRunBuildAndTest(CODEPATH) }
                         }
                         steps {
                             script {
@@ -664,6 +663,7 @@ pipeline {
                                             checkout scm
                                             // Fill in the docker args from the node
                                             dockerArgs()
+
                                             def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                             // Check these args
                                             echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
@@ -671,78 +671,75 @@ pipeline {
                                             def pulled = img?.pull()
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
-                                                // The only way the env variables worked with all other changes
-                                                env.PATH = "/opt/rocm/llvm/bin:${env.PATH}"
-                                                env.HOME = "${env.WORKSPACE}"
-                                                
-                                                if (params.sharedLib) {
-                                                    stage('Shared Library: fixed E2E') {
-                                                        echo "codepath is ${CODEPATH}"
-                                                        echo "Container environment:"
-                                                        showEnv()
+                                                withEnv([
+                                                    "HOME=${env.WORKSPACE}",
+                                                    "PATH=/opt/rocm/llvm/bin:${env.PATH}"
+                                                ]) {
+                                                    
+                                                    if (params.sharedLib) {
+                                                        stage('Shared Library: fixed E2E') {
+                                                            echo "codepath is ${CODEPATH}"
+                                                            echo "Container environment:"
+                                                            showEnv()
 
-                                                        build_fixedE2ETests("${CODEPATH}")
-                                                        preMergeCheck("${CODEPATH}")
-                                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                            sh 'cd build; ninja check-mlir check-rocmlir'
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                if (params.sharedLib && params.nightly) {
-                                                    stage('Shared Library: random E2E') {
-                                                        check_randomE2ETests("${CODEPATH}")
-                                                    }
-                                                }
-
-                                                if (params.sharedLib && !params.nightly) {
-                                                    stage('Tune selected rocMLIR configs') {
-                                                        // We need to create the folder for pods from k8s. Don't have this issue on bares
-                                                        sh '''
-                                                        mkdir -p /home/jenkins/agent
-                                                        chown $(id -u):$(id -g) /home/jenkins/agent
-                                                        '''
-                                                        buildProject('ci-performance-scripts', '')
-                                                        // How to check out into specific directory, according to stackoverflow.
-                                                        dir('MITuna') {
-                                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                        }
-                                                        dir('build') {
+                                                            build_fixedE2ETests("${CODEPATH}")
+                                                            preMergeCheck("${CODEPATH}")
                                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                                // Tune gemms, fail if the DB is not created
-                                                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                        -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                        -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
-                                                                    [ -f tuning_gemm.tsv ]"""
-                                                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                        -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                        -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
-                                                                    [ -f tuning_conv.tsv ]"""
-                                                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                        -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                                        -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
-                                                                    [ -f tuning_attention.tsv ]"""
-                                                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                        -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                        -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
-                                                                    [ -f quick_tuning_gemm.tsv ]"""
-                                                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                        -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                        -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
-                                                                    [ -f quick_tuning_conv.tsv ]"""
+                                                                sh 'cd build; ninja check-mlir check-rocmlir'
                                                             }
                                                         }
                                                     }
-                                                }
+                                                    
+                                                    if (params.sharedLib && params.nightly) {
+                                                        stage('Shared Library: random E2E') {
+                                                            check_randomE2ETests("${CODEPATH}")
+                                                        }
+                                                    }
 
-                                                if (params.staticLib && !params.nightly) {
-                                                    stage('Static Lib: build packages') {
-                                                        sh 'rm -f build/CMakeCache.txt'
-                                                        buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                                        preMergeCheckPackage("${CODEPATH}")
-                                                        echo "Running tests on the newly-built static library"
-                                                        dir ('build') {
-                                                            sh 'ninja check-rocmlir'
+                                                    if (params.sharedLib && !params.nightly) {
+                                                        stage('Tune selected rocMLIR configs') {
+                                                            buildProject('ci-performance-scripts', '')
+                                                            // How to check out into specific directory, according to stackoverflow.
+                                                            dir('MITuna') {
+                                                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                                            }
+                                                            dir('build') {
+                                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                                    // Tune gemms, fail if the DB is not created
+                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                                                        [ -f tuning_gemm.tsv ]"""
+                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                                                        [ -f tuning_conv.tsv ]"""
+                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                                                        [ -f tuning_attention.tsv ]"""
+                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                                                        [ -f quick_tuning_gemm.tsv ]"""
+                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                                                        [ -f quick_tuning_conv.tsv ]"""
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (params.staticLib && !params.nightly) {
+                                                        stage('Static Lib: build packages') {
+                                                            sh 'rm -f build/CMakeCache.txt'
+                                                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                                            preMergeCheckPackage("${CODEPATH}")
+                                                            echo "Running tests on the newly-built static library"
+                                                            dir ('build') {
+                                                                sh 'ninja check-rocmlir'
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -807,19 +804,21 @@ pipeline {
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
-                                                env.HOME = "${env.WORKSPACE}"
-                                                
-                                                stage("Prepare Performance Scripts") {
-                                                    echo "codepath is ${CODEPATH}"
-                                                    echo "Container environment:"
-                                                    showEnv()
-                                                    setHeartbeat()
-                                                    buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                                }
+                                                withEnv([
+                                                    "HOME=${env.WORKSPACE}"
+                                                ]) {                                               
+                                                    stage("Prepare Performance Scripts") {
+                                                        echo "codepath is ${CODEPATH}"
+                                                        echo "Container environment:"
+                                                        showEnv()
+                                                        setHeartbeat()
+                                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                                    }
 
-                                                stage("Parameter Sweep") {
-                                                    parameterSweep("conv_structure", "${CODEPATH}")
-                                                    parameterSweep("perf_config", "${CODEPATH}")
+                                                    stage("Parameter Sweep") {
+                                                        parameterSweep("conv_structure", "${CODEPATH}")
+                                                        parameterSweep("perf_config", "${CODEPATH}")
+                                                    }
                                                 }
                                             }
                                         }
@@ -882,65 +881,67 @@ pipeline {
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
-                                                env.HOME = "${env.WORKSPACE}"
-                                                env.PATH = "/opt/rocm/llvm/bin:${env.PATH}"
-
-                                                if (CHIP == "gfx90a") {
-                                                    stage("Set System Property on Lockhart nodes") {
-                                                        showEnv()
-                                                        setHeartbeat()
-                                                    }
-                                                }
-
-                                                stage("Tune rocMLIR") {
-                                                    buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                                    dir('MITuna') {
-                                                        git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                    }
-                                                    dir('build') {
-                                                        // Tune gemms with default datatypes, fail if the DB is not created
-                                                        // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
-                                                                -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
-                                                            [ -f mlir_tuning_${CHIP}.tsv ]"""
-                                                        // Tune resnet50 and unet configs
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
-                                                                -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
-                                                        // Tune attention configs
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                -c ../mlir/utils/performance/configs/tier1-attention-configs \
-                                                                -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
-                                                        // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                                        // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
-                                                                -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
-                                                            [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                        // Tune resnet50 and unet configs (quick tuning)
-                                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
-                                                                -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv"""
+                                                withEnv([
+                                                    "HOME=${env.WORKSPACE}",
+                                                    "PATH=/opt/rocm/llvm/bin:${env.PATH}"
+                                                ]) {   
+                                                    if (CHIP == "gfx90a") {
+                                                        stage("Set System Property on Lockhart nodes") {
+                                                            showEnv()
+                                                            setHeartbeat()
+                                                        }
                                                     }
 
-                                                }
+                                                    stage("Tune rocMLIR") {
+                                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                                        dir('MITuna') {
+                                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                                        }
+                                                        dir('build') {
+                                                            // Tune gemms with default datatypes, fail if the DB is not created
+                                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv
+                                                                [ -f mlir_tuning_${CHIP}.tsv ]"""
+                                                            // Tune resnet50 and unet configs
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
+                                                            // Tune attention configs
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    -c ../mlir/utils/performance/configs/tier1-attention-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv"""
+                                                            // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
+                                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
+                                                                [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
+                                                            // Tune resnet50 and unet configs (quick tuning)
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv"""
+                                                        }
 
-                                                stage("Tune Fusion") {
-                                                    dir('build') {
-                                                        // Tune resnet50
-                                                        sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
-
-                                                        // Tune bert
-                                                        sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
                                                     }
-                                                    sh 'rm -f build/CMakeCache.txt'
-                                                }
 
-                                                stage("Stash Databases") {
-                                                    // Save user database for nightly jobs
-                                                    dir ('build') {
-                                                        stash name: "MLIR-PerfDB-${params.canXdlops ? CHIP : 'vanilla'}", includes: "*.tsv"
+                                                    stage("Tune Fusion") {
+                                                        dir('build') {
+                                                            // Tune resnet50
+                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+
+                                                            // Tune bert
+                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                        }
+                                                        sh 'rm -f build/CMakeCache.txt'
+                                                    }
+
+                                                    stage("Stash Databases") {
+                                                        // Save user database for nightly jobs
+                                                        dir ('build') {
+                                                            stash name: "MLIR-PerfDB-${params.canXdlops ? CHIP : 'vanilla'}", includes: "*.tsv"
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1023,151 +1024,153 @@ pipeline {
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
-                                                env.HOME = "${env.WORKSPACE}"
-                                                env.PATH = "/opt/rocm/llvm/bin:${env.PATH}"
-
-                                                stage("Copy tuning database") {
-                                                    echo "chip is ${CHIP}"
-                                                    echo "Container environment:"
-                                                    showEnv()
-                                                    copyArtifacts filter: 'build/perfDB/**',\
-                                                        optional: true,\
-                                                        flatten: true,\
-                                                        projectName: "/MLIR/mlir-weekly",\
-                                                        selector: lastSuccessful(),\
-                                                        target: 'build'
-                                                        sh 'ls build'
-                                                        sh 'cat build/tuning-date'
-                                                }
-
-                                                stage("Build MLIR") {
-                                                    // Clean up build settings to disable static library and allow ROCm testing
-                                                    buildProject(
-                                                        'check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver',
-                                                        '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
-                                                        '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
-                                                        '-DROCMLIR_ENABLE_BENCHMARKS=rocblas'
-                                                    )
-                                                }
-
-                                                stage("Copy earlier performance results") {
-                                                    copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
-                                                        optional: true,\
-                                                        flatten: true,\
-                                                        projectName: "/${JOB_NAME}",\
-                                                        selector: lastSuccessful(),\
-                                                        target: 'build/oldData'
-                                                }
-
-                                                stage("Test MLIR vs MIOpen/rocBLAS") {
-                                                    dir('build') {
-                                                        def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
-                                                        def convToUse = "${WORKSPACE}/build/tier1-conv-configs"
-                                                        def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
-                                                        def gemmToUse = "${WORKSPACE}/build/tier1-gemm-configs"
-                                                        script {
-                                                            if (params.nightly) {
-                                                                def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                splitConfigFile(convInput, convToUse, runIndex)
-                                                                splitConfigFile(gemmInput, gemmToUse, runIndex)
-                                                            }
-                                                        }
-                                                        sh 'date --utc +%Y-%m-%d > perf-run-date'
-                                                        sh 'ls -l /dev/kfd'
-                                                        sh 'ls -l /dev/dri'
-                                                        // Run MLIR vs MIOpen perf benchmarks.
-                                                        sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                                            --configs_file=${convToUse} \
-                                                            --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                            --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
-                                                        // Run MLIR vs rocBLAS perf benchmarks
-                                                        sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                            --configs_file=${gemmToUse} \
-                                                            --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                            --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                withEnv([
+                                                    "HOME=${env.WORKSPACE}",
+                                                    "PATH=/opt/rocm/llvm/bin:${env.PATH}"
+                                                ]) {   
+                                                    stage("Copy tuning database") {
+                                                        echo "chip is ${CHIP}"
+                                                        echo "Container environment:"
+                                                        showEnv()
+                                                        copyArtifacts filter: 'build/perfDB/**',\
+                                                            optional: true,\
+                                                            flatten: true,\
+                                                            projectName: "/MLIR/mlir-weekly",\
+                                                            selector: lastSuccessful(),\
+                                                            target: 'build'
+                                                            sh 'ls build'
+                                                            sh 'cat build/tuning-date'
                                                     }
-                                                }
 
-                                                stage("Test Fusion") {
-                                                    dir('build') {
-                                                        // Run fusion resnet50 perf benchmarks
-                                                        sh """python3 ./bin/perfRunner.py --op=fusion --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
-                                                        // Run bert perf benchmarks
-                                                        sh """python3 ./bin/perfRunner.py --op fusion --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                    stage("Build MLIR") {
+                                                        // Clean up build settings to disable static library and allow ROCm testing
+                                                        buildProject(
+                                                            'check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver',
+                                                            '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
+                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
+                                                            '-DROCMLIR_ENABLE_BENCHMARKS=rocblas'
+                                                        )
                                                     }
-                                                }
 
-                                                if (isNotNavi3x(CHIP)) {
-                                                    stage("Test Attention") {
+                                                    stage("Copy earlier performance results") {
+                                                        copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
+                                                            optional: true,\
+                                                            flatten: true,\
+                                                            projectName: "/${JOB_NAME}",\
+                                                            selector: lastSuccessful(),\
+                                                            target: 'build/oldData'
+                                                    }
+
+                                                    stage("Test MLIR vs MIOpen/rocBLAS") {
                                                         dir('build') {
-                                                            def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
-                                                            def attnToUse = "${WORKSPACE}/build/tier1-attention-configs"
+                                                            def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
+                                                            def convToUse = "${WORKSPACE}/build/tier1-conv-configs"
+                                                            def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                                            def gemmToUse = "${WORKSPACE}/build/tier1-gemm-configs"
                                                             script {
                                                                 if (params.nightly) {
                                                                     def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                    splitConfigFile(attnInput, attnToUse, runIndex)
+                                                                    splitConfigFile(convInput, convToUse, runIndex)
+                                                                    splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                 }
                                                             }
-                                                            // Run attention benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                                                --configs_file=${attnToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                                            sh 'date --utc +%Y-%m-%d > perf-run-date'
+                                                            sh 'ls -l /dev/kfd'
+                                                            sh 'ls -l /dev/dri'
+                                                            // Run MLIR vs MIOpen perf benchmarks.
+                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
+                                                                --configs_file=${convToUse} \
+                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            // Run MLIR vs rocBLAS perf benchmarks
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                                                --configs_file=${gemmToUse} \
+                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
                                                     }
-                                                }
 
-                                                if (params.checkCK && isNotNavi3x(CHIP)) {
-                                                    stage("Test MLIR vs CK") {
-                                                        catchError (buildResult: null) { // This is an optional stage
-                                                            dir('composable_kernel') {
-                                                                sh 'rm -rf composable_kernel'
-                                                                getAndBuildCK('''
-                                                                    -DGPU_TARGETS=${CHIP}
-                                                                    -DCMAKE_CXX_FLAGS="-O3"
-                                                                    -DCMAKE_PREFIX_PATH="/opt/rocm"
-                                                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                                    -DCMAKE_BUILD_TYPE=Release
-                                                                    ''')
-                                                                sh 'cd build; make install'
-                                                                sh 'echo `git rev-parse HEAD`'
-                                                            }
-                                                            sh 'rm -f build/CMakeCache.txt'
-                                                            buildProject("ck-benchmark-driver",
-                                                                        '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                                            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                                            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                                            -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+                                                    stage("Test Fusion") {
+                                                        dir('build') {
+                                                            // Run fusion resnet50 perf benchmarks
+                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            // Run bert perf benchmarks
+                                                            sh """python3 ./bin/perfRunner.py --op fusion --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                        }
+                                                    }
 
-
+                                                    if (isNotNavi3x(CHIP)) {
+                                                        stage("Test Attention") {
                                                             dir('build') {
-                                                                def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
-                                                                def gemmToUse = "${WORKSPACE}/build/tier1-gemm-configs"
+                                                                def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
+                                                                def attnToUse = "${WORKSPACE}/build/tier1-attention-configs"
                                                                 script {
                                                                     if (params.nightly) {
                                                                         def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                        splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                                                        splitConfigFile(attnInput, attnToUse, runIndex)
                                                                     }
                                                                 }
-                                                                sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                            --configs_file=${gemmToUse} \
-                                                            --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
-                                                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                                // Run attention benchmarks
+                                                                sh """python3 ./bin/perfRunner.py --op=attention -b \
+                                                                    --configs_file=${attnToUse} \
+                                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                             }
                                                         }
                                                     }
-                                                }
 
-                                                stage("Create performance reports") {
-                                                    dir('build') {
-                                                        sh 'ls -l'
-                                                        sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                                        sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
-                                                        sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
-                                                        sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                                        sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
-                                                        sh 'mkdir -p reports && cp ./*.html reports'
+                                                    if (params.checkCK && isNotNavi3x(CHIP)) {
+                                                        stage("Test MLIR vs CK") {
+                                                            catchError (buildResult: null) { // This is an optional stage
+                                                                dir('composable_kernel') {
+                                                                    sh 'rm -rf composable_kernel'
+                                                                    getAndBuildCK('''
+                                                                        -DGPU_TARGETS=${CHIP}
+                                                                        -DCMAKE_CXX_FLAGS="-O3"
+                                                                        -DCMAKE_PREFIX_PATH="/opt/rocm"
+                                                                        -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                        -DCMAKE_BUILD_TYPE=Release
+                                                                        ''')
+                                                                    sh 'cd build; make install'
+                                                                    sh 'echo `git rev-parse HEAD`'
+                                                                }
+                                                                sh 'rm -f build/CMakeCache.txt'
+                                                                buildProject("ck-benchmark-driver",
+                                                                            '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                                -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                                                -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+
+
+                                                                dir('build') {
+                                                                    def gemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemm-configs"
+                                                                    def gemmToUse = "${WORKSPACE}/build/tier1-gemm-configs"
+                                                                    script {
+                                                                        if (params.nightly) {
+                                                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                                                            splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                                                        }
+                                                                    }
+                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                                                --configs_file=${gemmToUse} \
+                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                                                    sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                                }
+                                                            }
+                                                        }
                                                     }
-                                                    postProcessPerfRes("${CHIP}")
+
+                                                    stage("Create performance reports") {
+                                                        dir('build') {
+                                                            sh 'ls -l'
+                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
+                                                            sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
+                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
+                                                            sh 'mkdir -p reports && cp ./*.html reports'
+                                                        }
+                                                        postProcessPerfRes("${CHIP}")
+                                                    }
                                                 }
                                             }
                                         }
@@ -1228,51 +1231,53 @@ pipeline {
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
-                                                env.PYTHONPATH = "${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
-                                                env.HOME = "${env.WORKSPACE}"
-
-                                                stage("Install MIGraphX Dependencies") {
-                                                    echo "codepath is ${CODEPATH}"
-                                                    echo "Container environment:"
-                                                    showEnv()
-                                                    // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                                                    sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
-                                                }
-
-                                                stage("Build and Verify MIGraphX with MLIR") {
-                                                    def gpu_arch = get_gpu_architecture()
-                                                    sh 'rm -rf MIGraphX'
-                                                    dir('MIGraphX') {
-                                                        getAndBuildMIGraphX("""
-                                                                        -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
-                                                                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                                        -DGPU_TARGETS="${gpu_arch}"
-                                                                        """)
+                                                withEnv([
+                                                    "HOME=${env.WORKSPACE}",
+                                                    "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}"
+                                                ]) {   
+                                                    stage("Install MIGraphX Dependencies") {
+                                                        echo "codepath is ${CODEPATH}"
+                                                        echo "Container environment:"
+                                                        showEnv()
+                                                        // Package and install current checkout of rocMLIR as MIGraphX dependency.
+                                                        sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                                                     }
-                                                }
 
-                                                stage("Verify MIGraphX with MLIR") {
-                                                    dir('MIGraphX/build') {
-                                                        timeout(time: 120, activity: true, unit: 'MINUTES') {
-                                                            withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
-                                                                // run test_verify for accuracy and run MLIR related unit-tests
-                                                                sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
-                                                                // Verify ResNet50, Bert, Gpt2
-                                                                sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                                sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
-                                                                sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
-                                                                sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                                sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
-                                                                sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                            }
+                                                    stage("Build and Verify MIGraphX with MLIR") {
+                                                        def gpu_arch = get_gpu_architecture()
+                                                        sh 'rm -rf MIGraphX'
+                                                        dir('MIGraphX') {
+                                                            getAndBuildMIGraphX("""
+                                                                            -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
+                                                                            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                                            -DGPU_TARGETS="${gpu_arch}"
+                                                                            """)
                                                         }
                                                     }
-                                                    //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
-                                                    dir('MIGraphX/tools/accuracy') {
-                                                        withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
-                                                            sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                            sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
-                                                            sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
+
+                                                    stage("Verify MIGraphX with MLIR") {
+                                                        dir('MIGraphX/build') {
+                                                            timeout(time: 120, activity: true, unit: 'MINUTES') {
+                                                                withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                                                    // run test_verify for accuracy and run MLIR related unit-tests
+                                                                    sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
+                                                                    // Verify ResNet50, Bert, Gpt2
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                                }
+                                                            }
+                                                        }
+                                                        //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
+                                                        dir('MIGraphX/tools/accuracy') {
+                                                            withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1']) {
+                                                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx'
+                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx'
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1331,43 +1336,45 @@ pipeline {
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
-                                                env.HOME = "${env.WORKSPACE}"
-                                                env.PATH = "/opt/rocm/llvm/bin:${env.PATH}"
-                                                // Note the %m to avoid issues with threads and dynamic libraries.
-                                                env.LLVM_PROFILE_FILE = "${env.WORKSPACE}/build/%m-%p.profraw"
-                                                env.LLVM_PROFDATA = "/opt/rocm/llvm/bin/llvm-profdata"
-                                                env.LLVM_COV = "/opt/rocm/llvm/bin/llvm-cov"
-
-                                                stage ("body") {
-                                                    echo "Container environment:"
-                                                    showEnv()
-                                                    // Build with profiling on, and just code-generation tests.
-                                                    try {
-                                                        timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                            sh 'rm -f build/CMakeCache.txt'
-                                                            sh 'rm -f build/*.profraw'
-                                                            buildProject('check-rocmlir-build-only',
-                                                                        '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
-                                                            dir ('build') {
-                                                                // Run tests.
-                                                                collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                                // Upload to codecov.
-                                                                withCredentials([string(credentialsId: 'codecov-token-rocmlir',
-                                                                                        variable: 'CODECOV_TOKEN')]) {
-                                                                    sh '''
-                                                                    curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                                    proxy_opt=""
-                                                                    if [ -n "${http_proxy}" ]; then
-                                                                        proxy_opt="-U ${http_proxy}"
-                                                                    fi
-                                                                    ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                                    '''
+                                                withEnv([
+                                                    "HOME=${env.WORKSPACE}",
+                                                    "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}",
+                                                    // Note the %m to avoid issues with threads and dynamic libraries.
+                                                    "LLVM_PROFILE_FILE=${env.WORKSPACE}/build/%m-%p.profraw",
+                                                    "LLVM_PROFDATA=/opt/rocm/llvm/bin/llvm-profdata",
+                                                    "LLVM_COV=/opt/rocm/llvm/bin/llvm-cov"
+                                                ]) {   
+                                                    stage ("body") {
+                                                        echo "Container environment:"
+                                                        showEnv()
+                                                        // Build with profiling on, and just code-generation tests.
+                                                        try {
+                                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                                sh 'rm -f build/CMakeCache.txt'
+                                                                sh 'rm -f build/*.profraw'
+                                                                buildProject('check-rocmlir-build-only',
+                                                                            '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                                                dir ('build') {
+                                                                    // Run tests.
+                                                                    collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
+                                                                    // Upload to codecov.
+                                                                    withCredentials([string(credentialsId: 'codecov-token-rocmlir',
+                                                                                            variable: 'CODECOV_TOKEN')]) {
+                                                                        sh '''
+                                                                        curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                                        proxy_opt=""
+                                                                        if [ -n "${http_proxy}" ]; then
+                                                                            proxy_opt="-U ${http_proxy}"
+                                                                        fi
+                                                                        ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
+                                                                        '''
+                                                                    }
                                                                 }
+                                                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                                             }
-                                                            archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
+                                                        } catch (Exception e) {
+                                                            echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                                         }
-                                                    } catch (Exception e) {
-                                                        echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                                     }
                                                 }
                                             }
