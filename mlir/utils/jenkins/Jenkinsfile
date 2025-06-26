@@ -392,7 +392,7 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
             if (sweepType == "attention") {
-                sh """python3  ./bin/attentionSweeps.py"""
+                sh """python3  ./bin/attentionSweeps.py -j 5"""
             } else {
                 sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG}"""
             }

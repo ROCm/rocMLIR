@@ -2,15 +2,15 @@
 """Sweeps the parameters of the rocmlir driver for bugs for attention-based kernel configurations.
 
 Usage:
-    python3 attentionSweeps.py --mlir-build-dir <path-to-mlir-build-dir> [options]
+    python3 attentionSweeps.py [options]
 
 Options:
-    --mlir-build-dir    Path to the MLIR build directory (default: auto-detected)
-    --samples           Number of random configuration samples to the test (default: 1000)
-    --jobs              Number of concurrent tests to run in parallel (default: os.cpu_count())
-    --debug             Enable debug output
-    --quiet             Disable per-test result output
-    --log-failures      Save failing configurations to csv file
+    -b, --mlir-build-dir    Path to the MLIR build directory (default: auto-detected)
+    -s, --samples       Number of random configuration samples to the test (default: 1000)
+    -j, --jobs          Number of concurrent tests to run in parallel (default: os.cpu_count())
+    -d, --debug             Enable debug output
+    -q, --quiet             Disable per-test result output
+    -l, --log-failures      Save failing configurations to csv file
 """
 import argparse
 import itertools
@@ -161,12 +161,12 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
 def main():
     parser = argparse.ArgumentParser(
             description='Sweep parameter values for attention to detect bugs')
-    parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--quiet', action='store_true')
-    parser.add_argument('--jobs', type=int, default=os.cpu_count())
-    parser.add_argument('--mlir-build-dir', type=str, default=findMlirBuildDir()),
-    parser.add_argument('--samples', type=int, default=1000)
-    parser.add_argument('--log-failures', action='store_true')
+    parser.add_argument('-d', '--debug', action='store_true')
+    parser.add_argument('-q', '--quiet', action='store_true')
+    parser.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
+    parser.add_argument('-b', '--mlir-build-dir', type=str, default=findMlirBuildDir()),
+    parser.add_argument('-s', '--samples', type=int, default=1000)
+    parser.add_argument('-l', '--log-failures', action='store_true')
 
     args = parser.parse_args()
     arch = getArch()
