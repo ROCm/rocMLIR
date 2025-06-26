@@ -159,8 +159,8 @@ void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
       });
 }
 
-void createTypeConversionStore(PatternRewriter &rewriter, Location loc,
-                               Value src, Value dst) {
+void createTypeConversionFlatAndStore(PatternRewriter &rewriter, Location loc,
+                                      Value src, Value dst) {
   src = getFlattenedMemref(rewriter, src);
   dst = getFlattenedMemref(rewriter, dst);
   auto zeroConstantOp = rewriter.create<arith::ConstantIndexOp>(loc, 0);
