@@ -39,6 +39,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/bit.h"
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/raw_ostream.h"
 #include <utility>
 
 #define DEBUG_TYPE "convert-tosa-to-rock"
@@ -1302,7 +1303,8 @@ struct GemmElementwiseGemmRewritePattern
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  FailureOr<Value> getValueNonReshapeOpNonBroadcast(Value val) const {
+  FailureOr<Value>
+  getValueNonReshapeOpNonBroadcastNonTranspose(Value val) const {
     while (val.getDefiningOp() &&
            (val.getDefiningOp<tensor::CollapseShapeOp>() ||
             val.getDefiningOp<tensor::ExpandShapeOp>() ||
@@ -1326,6 +1328,22 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       val = val.getDefiningOp()->getOperand(0);
     }
     return val;
+  }
+
+  template <typename TosaOp>
+  TosaOp getDefiningNonReshapeOpNonBroadcast(Value val) const {
+    while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+           val.getDefiningOp<tensor::ExpandShapeOp>() ||
+           val.getDefiningOp<tosa::AddOp>()) {
+      if (val.getDefiningOp<tosa::AddOp>()) {
+        auto maybeBroadcast = addBroadcast(val);
+        if (failed(maybeBroadcast))
+          return nullptr;
+        val = maybeBroadcast.value();
+      } else
+        val = val.getDefiningOp()->getOperand(0);
+    }
+    return val.getDefiningOp<TosaOp>();
   }
 
   template <typename TosaOp>
@@ -1448,6 +1466,67 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
+  /**
+   * Attempts to match and extract a Log-Sum-Exp (LSE) pattern from TOSA
+   * operations.
+   *
+   * This function traverses the users of a reduce sum operation to identify a
+   * complete LSE computation pattern, which typically consists of:
+   * 1. A reduce_max operation to find the maximum values (in some cases this
+   * might not exist)
+   * 2. Subtraction of the max from original values (implicit in the pattern)
+   * 3. Exponential and sum operations (represented by reduceSum)
+   * 4. A logarithm operation on the result
+   * 5. Addition of the original max values back
+   *
+   * Note that reduceSum and reduceMax are given.
+   *
+   * The LSE pattern: log(sum(exp(x - max(x)))) + max(x)
+   */
+  Value getLSE(Operation *reduceSum, Operation *reduceMax,
+               tosa::LogOp logOp = nullptr) const {
+    for (auto *user : reduceSum->getUsers()) {
+      if (auto op = dyn_cast<tosa::LogOp>(user)) {
+        // we already found a log
+        if (logOp != nullptr)
+          return nullptr;
+        Value val = getLSE(op, reduceMax, op);
+        if (val)
+          return val;
+      } else if (auto addOp = dyn_cast<tosa::AddOp>(user)) {
+        auto logOpFromAdd =
+            getDefiningNonReshapeOp<tosa::LogOp>(addOp.getInput1());
+        if (!logOpFromAdd)
+          logOpFromAdd =
+              getDefiningNonReshapeOp<tosa::LogOp>(addOp.getInput2());
+
+        // must match the logOp
+        if (!logOp || logOp != logOpFromAdd)
+          return nullptr;
+
+        // ReduceMax could be gone if there's only one dim, then, we don't know
+        // the previous op, because it could be anything we want to fuse
+        auto *reduceMaxOpFromAdd =
+            getDefiningNonReshapeOp<Operation *>(addOp.getInput1());
+        if (!reduceMaxOpFromAdd || isa<tosa::LogOp>(reduceMaxOpFromAdd))
+          reduceMaxOpFromAdd =
+              getDefiningNonReshapeOp<Operation *>(addOp.getInput2());
+
+        // must match the reduceMax
+        if (!reduceMax || reduceMax != reduceMaxOpFromAdd)
+          return nullptr;
+
+        return addOp.getOutput();
+      } else if (isa<tensor::CollapseShapeOp>(user) ||
+                 isa<tensor::ExpandShapeOp>(user)) {
+        Value val = getLSE(user, reduceMax, logOp);
+        if (val)
+          return val;
+      }
+    }
+    return nullptr;
+  }
+
   FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
     auto select = getDefiningNonReshapeOp<tosa::SelectOp>(softmaxInput);
     if (select) {
@@ -1498,7 +1577,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         // we'll check now if currentSeqLen comes from a block argument
         FailureOr<Value> mustBeBlockArg =
-            getValueNonReshapeOpNonBroadcast(currentSeqLen);
+            getValueNonReshapeOpNonBroadcastNonTranspose(currentSeqLen);
 
         if (failed(mustBeBlockArg) ||
             !isa<BlockArgument>(mustBeBlockArg.value()))
@@ -1510,8 +1589,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
-  FailureOr<std::tuple<Value, bool, bool, Value>>
-  maybeSoftmaxNumerator(Value val) const {
+  FailureOr<std::tuple<Value, bool, bool, Value, Value>>
+  maybeSoftmaxNumerator(Value val, Operation *rsum) const {
     Value currentSeqLen;
     tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
     if (!exp)
@@ -1523,7 +1602,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     bool hasTosaReduce = false;
     Value result;
-    auto rmax = getDefiningNonReshapeOp<tosa::ReduceMaxOp>(sub.getInput2());
+    auto rmax =
+        getDefiningNonReshapeOpNonBroadcast<tosa::ReduceMaxOp>(sub.getInput2());
     if (rmax) {
       if (rmax.getInput() != sub.getInput1())
         return failure();
@@ -1548,42 +1628,46 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (isCausal)
       result = causal.value();
 
-    return std::make_tuple(result, hasTosaReduce, isCausal, currentSeqLen);
+    Value lse = getLSE(rsum, rmax ? rmax : sub);
+
+    return std::make_tuple(result, hasTosaReduce, isCausal, currentSeqLen, lse);
   }
 
-  FailureOr<std::tuple<Value, bool, bool, Value>>
+  FailureOr<std::tuple<Value, bool, bool, Value, Value>>
   maybeSoftmaxDenominator(Value val) const {
-    FailureOr<std::tuple<Value, bool, bool, Value>> result;
-    auto rsum = getDefiningNonReshapeOp<tosa::ReduceSumOp>(val);
+    FailureOr<std::tuple<Value, bool, bool, Value, Value>> result;
+    auto rsum = getDefiningNonReshapeOpNonBroadcast<tosa::ReduceSumOp>(val);
+
     if (rsum) {
-      result = maybeSoftmaxNumerator(rsum.getInput());
+      result = maybeSoftmaxNumerator(rsum.getInput(), rsum);
       if (succeeded(result) && !(std::get<1>(result.value()))) {
         // if we see tosa::Reduce Op in the denominator then we expect to see
         // tosa::Reduce Op in the numerator as well
         return failure();
       }
-      return result;
-    }
-    result = maybeSoftmaxNumerator(val);
-    if (succeeded(result) && std::get<1>(result.value())) {
-      // if we don't see tosa::Reduce Op in the denominator then we expect to
-      // not see any tosa::Reduce Op in the numerator as well
-      return failure();
+    } else {
+      result = maybeSoftmaxNumerator(val, val.getDefiningOp());
+      if (succeeded(result) && std::get<1>(result.value())) {
+        // if we don't see tosa::Reduce Op in the denominator then we expect to
+        // not see any tosa::Reduce Op in the numerator as well
+        return failure();
+      }
     }
     return result;
   }
 
-  FailureOr<std::tuple<Value, bool, bool, Value>>
+  FailureOr<std::tuple<Value, bool, bool, Value, Value>>
   maybeSoftmax(Value val) const {
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
       return failure();
     }
-    if (auto rec =
-            getDefiningNonReshapeOp<tosa::ReciprocalOp>(mul.getInput1())) {
+    if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
+            mul.getInput1())) {
       return maybeSoftmaxDenominator(rec.getInput1());
-    } else if (auto rec = getDefiningNonReshapeOp<tosa::ReciprocalOp>(
-                   mul.getInput2())) {
+    } else if (auto rec =
+                   getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
+                       mul.getInput2())) {
       return maybeSoftmaxDenominator(rec.getInput1());
     } else {
       return failure();
@@ -1615,21 +1699,66 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return reshapeOp;
   }
 
+  void moveUsersAfterExpandShape(PatternRewriter &rewriter, Location loc,
+                                 Operation *expandedOutLse,
+                                 tosa::AddOp addOp) const {
+    llvm::SmallVector<Operation *> toMove;
+    llvm::SmallDenseSet<Operation *> visited;
+    llvm::SmallVector<Operation *> worklist;
+
+    // Seed the worklist with direct users
+    for (Operation *user : addOp->getUsers()) {
+      if (!isa<func::ReturnOp>(user))
+        worklist.push_back(user);
+    }
+
+    // Collect all transitive users (BFS)
+    while (!worklist.empty()) {
+      Operation *op = worklist.pop_back_val();
+      if (!visited.insert(op).second)
+        continue;
+      toMove.push_back(op);
+      for (Operation *user : op->getUsers()) {
+        if (!isa<func::ReturnOp>(user))
+          worklist.push_back(user);
+      }
+    }
+    // Sort by IR order
+    llvm::sort(toMove, [](Operation *a, Operation *b) {
+      return a->isBeforeInBlock(b);
+    });
+
+    // Move in reverse order to preserve dependencies
+    for (Operation *op : llvm::reverse(toMove))
+      op->moveAfter(expandedOutLse);
+  }
+
   LogicalResult match(tosa::MatMulOp op) const {
-    FailureOr<std::tuple<Value, bool, bool, Value>> softmaxInputResult =
+    FailureOr<std::tuple<Value, bool, bool, Value, Value>> softmaxInputResult =
         maybeSoftmax(op.getA());
+
     if (failed(softmaxInputResult))
       return failure();
 
-    Value softmaxInput, currentSeqLen;
+    Value softmaxInput, currentSeqLen, lse;
     bool hasReduceOp, isCausal;
-    std::tie(softmaxInput, hasReduceOp, isCausal, currentSeqLen) =
+    std::tie(softmaxInput, hasReduceOp, isCausal, currentSeqLen, lse) =
         softmaxInputResult.value();
 
     // currentSeqLen needs one or two dimensions
     if (currentSeqLen &&
         cast<ShapedType>(currentSeqLen.getType()).getRank() > 2)
       return failure();
+
+    // lse has four dimensions
+    if (lse) {
+      auto type = cast<ShapedType>(lse.getType());
+      if (type.getRank() != 4)
+        return failure();
+      // last dimension must be 1: {B, NUM_HEADS, SEQ_LEN_Q, 1}
+      if (type.getDimSize(type.getRank() - 1) != 1)
+        return failure();
+    }
 
     OpBuilder b{op};
     SmallVector<Value> vec;
@@ -1660,13 +1789,28 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   void rewrite(tosa::MatMulOp op, PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
-    Value softmaxInput, currentSeqLen;
+    Value softmaxInput, currentSeqLen, lse;
     bool isCausal;
-    std::tie(softmaxInput, std::ignore, isCausal, currentSeqLen) =
+    std::tie(softmaxInput, std::ignore, isCausal, currentSeqLen, lse) =
         maybeSoftmax(op.getA()).value();
+
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
+    RankedTensorType lseType;
+    Value lseOut;
+    Value lseOrig;
+    if (lse) {
+      // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
+      lseOrig = lse;
+      SmallVector<ReassociationIndices> reassocIndices = {{0, 1}, {2, 3}};
+      lse = rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), lse,
+                                                     reassocIndices);
+
+      lseType = cast<RankedTensorType>(lse.getType());
+      lseOut = rewriter.create<bufferization::AllocTensorOp>(loc, lseType,
+                                                             ValueRange{});
+    }
     StringAttr arch;
     std::optional<uint32_t> numCu;
     rock::GemmFeatures features;
@@ -1691,9 +1835,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
-        loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB(),
-        elementwiseOtherArgs, currentSeqLen, output,
-        /*lse=*/nullptr,
+        loc, outputType, lseType, firstMatMulOp.getA(), firstMatMulOp.getB(),
+        op.getB(), elementwiseOtherArgs, currentSeqLen, output, lseOut,
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
@@ -1720,7 +1863,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
       rewriter.create<rock::YieldOp>(loc);
     }
-    rewriter.replaceOp(op, attnOp.getResult());
+    tosa::AddOp addOp;
+    Value expandedOutLse;
+    if (lse) {
+      // Reverse the collapse operation
+      SmallVector<ReassociationIndices> reassocIndices = {{0, 1}, {2, 3}};
+      expandedOutLse = rewriter.create<tensor::ExpandShapeOp>(
+          op.getLoc(), lseOrig.getType(), attnOp->getResult(1), reassocIndices);
+
+      // collecting AddOp before the first replace
+      addOp = lseOrig.getDefiningOp<tosa::AddOp>();
+
+      // all users have to be moved after the expand shape
+      moveUsersAfterExpandShape(rewriter, op.getLoc(),
+                                expandedOutLse.getDefiningOp(), addOp);
+    }
+    rewriter.replaceOp(op, attnOp->getResult(0));
+    if (lse) {
+      rewriter.replaceOp(addOp, expandedOutLse);
+    }
   }
 
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
