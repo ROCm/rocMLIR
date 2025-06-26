@@ -1309,85 +1309,88 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'navi3x', 'navi4x'
+                        values 'mfma', 'navi4x'
                     }
                 }
                 // One big scripted step per matrix row
                 stages {
                     stage('Matrix row orchestration') {
                         steps {
-                            script {
-                                // Prepare node
-                                withHealthyNode(
-                                    getLabelFromCodepath(CODEPATH),
-                                    {
-                                        checkNodeHealth()
-                                    },
-                                    {
-                                        try {
-                                            checkout scm
-                                            // Fill in the docker args from the node
-                                            dockerArgs()
-                                            def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                            // Check these args
-                                            echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
-                                            // Spin up ONE container and stay in it for all substages
-                                            img.inside(args) {
-                                                // The only way the env variables worked with all other changes
-                                                withEnv([
-                                                    "HOME=${env.WORKSPACE}",
-                                                    "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}",
-                                                    // Note the %m to avoid issues with threads and dynamic libraries.
-                                                    "LLVM_PROFILE_FILE=${env.WORKSPACE}/build/%m-%p.profraw",
-                                                    "LLVM_PROFDATA=/opt/rocm/llvm/bin/llvm-profdata",
-                                                    "LLVM_COV=/opt/rocm/llvm/bin/llvm-cov"
-                                                ]) {   
-                                                    stage ("body") {
-                                                        echo "Container environment:"
-                                                        showEnv()
-                                                        // Build with profiling on, and just code-generation tests.
-                                                        try {
-                                                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                                sh 'rm -f build/CMakeCache.txt'
-                                                                sh 'rm -f build/*.profraw'
-                                                                buildProject('check-rocmlir-build-only',
-                                                                            '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
-                                                                dir ('build') {
-                                                                    // Run tests.
-                                                                    collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                                    // Upload to codecov.
-                                                                    withCredentials([string(credentialsId: 'codecov-token-rocmlir',
-                                                                                            variable: 'CODECOV_TOKEN')]) {
-                                                                        sh '''
-                                                                        curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                                        proxy_opt=""
-                                                                        if [ -n "${http_proxy}" ]; then
-                                                                            proxy_opt="-U ${http_proxy}"
-                                                                        fi
-                                                                        ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                                        '''
+                            // Do not fail the build on code coverage
+                            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                                script {
+                                    // Prepare node
+                                    withHealthyNode(
+                                        getLabelFromCodepath(CODEPATH),
+                                        {
+                                            checkNodeHealth()
+                                        },
+                                        {
+                                            try {
+                                                checkout scm
+                                                // Fill in the docker args from the node
+                                                dockerArgs()
+                                                def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                // Check these args
+                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                def img = docker.image(dockerImage())
+                                                def pulled = img?.pull()
+                                                // Spin up ONE container and stay in it for all substages
+                                                img.inside(args) {
+                                                    // The only way the env variables worked with all other changes
+                                                    withEnv([
+                                                        "HOME=${env.WORKSPACE}",
+                                                        "PYTHONPATH=${env.WORKSPACE}/MIGraphX/build/lib:${env.PYTHONPATH}",
+                                                        // Note the %m to avoid issues with threads and dynamic libraries.
+                                                        "LLVM_PROFILE_FILE=${env.WORKSPACE}/build/%m-%p.profraw",
+                                                        "LLVM_PROFDATA=/opt/rocm/llvm/bin/llvm-profdata",
+                                                        "LLVM_COV=/opt/rocm/llvm/bin/llvm-cov"
+                                                    ]) {   
+                                                        stage ("body") {
+                                                            echo "Container environment:"
+                                                            showEnv()
+                                                            // Build with profiling on, and just code-generation tests.
+                                                            try {
+                                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                                    sh 'rm -f build/CMakeCache.txt'
+                                                                    sh 'rm -f build/*.profraw'
+                                                                    buildProject('check-rocmlir-build-only',
+                                                                                '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                                                    dir ('build') {
+                                                                        // Run tests.
+                                                                        collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
+                                                                        // Upload to codecov.
+                                                                        withCredentials([string(credentialsId: 'codecov-token-rocmlir',
+                                                                                                variable: 'CODECOV_TOKEN')]) {
+                                                                            sh '''
+                                                                            curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                                            proxy_opt=""
+                                                                            if [ -n "${http_proxy}" ]; then
+                                                                                proxy_opt="-U ${http_proxy}"
+                                                                            fi
+                                                                            ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
+                                                                            '''
+                                                                        }
                                                                     }
+                                                                    archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                                                 }
-                                                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
+                                                            } catch (Exception e) {
+                                                                echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                                             }
-                                                        } catch (Exception e) {
-                                                            echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
                                                         }
                                                     }
                                                 }
                                             }
+                                            // Post block in scripted Jenkins
+                                            catch(Exception e) {
+                                                rebootNode()
+                                            }
+                                            finally {
+                                                cleanWs()
+                                            }
                                         }
-                                        // Post block in scripted Jenkins
-                                        catch(Exception e) {
-                                            rebootNode()
-                                        }
-                                        finally {
-                                            cleanWs()
-                                        }
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
