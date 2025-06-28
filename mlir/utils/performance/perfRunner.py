@@ -760,6 +760,11 @@ def getAttentionConfigurations(fileName):
                     oneConfig = line.strip()
                     for arg, value in zip(args, test_vector):
                         oneConfig = f"{arg} {value} {oneConfig}"
+
+                    # Skip f32 for attention if executed on Navi
+                    if getChip().startswith("gfx1") and "-t f32" in oneConfig:
+                        continue
+
                     if oneConfig not in configs:
                         configs.append(oneConfig)
     return configs
