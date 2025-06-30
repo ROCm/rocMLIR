@@ -761,8 +761,8 @@ def getAttentionConfigurations(fileName):
                     for arg, value in zip(args, test_vector):
                         oneConfig = f"{arg} {value} {oneConfig}"
 
-                    # Skip f32 for attention if executed on Navi
-                    if getChip().startswith("gfx1") and "-t f32" in oneConfig:
+                    # Check for valid dtypes
+                    if re.search(r"-t\s+(\w+)", oneConfig) not in DATA_TYPES_ATTENTION:
                         continue
 
                     if oneConfig not in configs:
