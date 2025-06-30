@@ -1841,7 +1841,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, causalAttr, arch,
-        rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
+        rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+        /*softmaxType=*/nullptr, numCUAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 
