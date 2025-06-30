@@ -761,6 +761,9 @@ def getAttentionConfigurations(fileName):
                     for arg, value in zip(args, test_vector):
                         oneConfig = f"{arg} {value} {oneConfig}"
 
+                    # TEMPORARY TO CHECK FORMAT OF ONECONFIG
+                    print(oneConfig)
+                    
                     # Check for valid dtypes
                     if re.search(r"-t\s+(\w+)", oneConfig) not in DATA_TYPES_ATTENTION:
                         continue
