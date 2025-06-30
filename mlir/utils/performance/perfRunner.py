@@ -725,6 +725,9 @@ def getGemmGemmConfigurations(fileName):
                         configs.append(oneConfig)
     return configs
 
+def attachAttentionDatatypes(config, dtypes):
+    return [config + f" -t {dt}" for dt in dtypes]
+
 def getAttentionConfigurations(fileName):
     if DATA_TYPES_ATTENTION is None:
         initializeDataTypesAttention()
@@ -749,19 +752,26 @@ def getAttentionConfigurations(fileName):
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-                test_space = []
-                args = []
-                for arg in default_test_space.keys():
-                    if arg not in line:
-                        test_space.append(default_test_space[arg])
-                        args.append(arg)
-                for test_vector in itertools.product(*test_space):
-                    # Strip to avoid spurious spaces
-                    oneConfig = line.strip()
-                    for arg, value in zip(args, test_vector):
-                        oneConfig = f"{arg} {value} {oneConfig}"
-                    if oneConfig not in configs:
-                        configs.append(oneConfig)
+
+                if "-t" in line:
+                    newLines = [line]
+                else:
+                    newLines = attachAttentionDatatypes(line, DATA_TYPES_ATTENTION)
+
+                for configline in newLines:
+                    testSpace = []
+                    args = []
+                    for arg in default_test_space.keys():
+                        if arg not in configline:
+                            testSpace.append(default_test_space[arg])
+                            args.append(arg)
+                    for testVector in itertools.product(*testSpace):
+                        # Strip to avoid spurious spaces
+                        oneConfig = configline.strip()
+                        for arg, value in zip(args, testVector):
+                            oneConfig = f"{arg} {value} {oneConfig}"
+                        if oneConfig not in configs:
+                            configs.append(oneConfig)
     return configs
 
 
