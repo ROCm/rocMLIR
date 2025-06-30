@@ -220,7 +220,8 @@ def Rock_AttentionOp
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
           UnitAttr:$qTransposed, UnitAttr:$kTransposed, UnitAttr:$vTransposed,
           UnitAttr:$oTransposed, UnitAttr:$causal, StrAttr:$arch,
-          Rock_GemmFeaturesAttr:$features, OptionalAttr<I32Attr>:$numCU,
+          Rock_GemmFeaturesAttr:$features, OptionalAttr<TypeAttr>:$softmaxType,
+          OptionalAttr<I32Attr>:$numCU,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           I32Attr:$firstGemmIdx)>,
@@ -568,6 +569,7 @@ def Rock_GridwiseAttentionAccelOp
           I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
           OptionalAttr<IndexAttr>:$prePadG0M,
           OptionalAttr<IndexAttr>:$prePadG0N,
+          OptionalAttr<TypeAttr>:$softmaxType,
           RockAccelTuningParamAttrInterface:$params0,
           RockAccelTuningParamAttrInterface:$params1, I32Attr:$firstGemmIdx,
           DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {
