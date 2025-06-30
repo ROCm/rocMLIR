@@ -209,7 +209,8 @@ def Rock_AttentionOp
     : Rock_Op<
           "attention", [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                        RockFusionRoot, AttrSizedOperandSegments]>,
+                        RockFusionRoot, AttrSizedOperandSegments,
+                        AttrSizedResultSegments]>,
       Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
           TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
           TensorOrMemRefOf<[F32, F16, BF16]>:$values,
@@ -219,11 +220,13 @@ def Rock_AttentionOp
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
           UnitAttr:$qTransposed, UnitAttr:$kTransposed, UnitAttr:$vTransposed,
           UnitAttr:$oTransposed, UnitAttr:$causal, StrAttr:$arch,
-          Rock_GemmFeaturesAttr:$features, OptionalAttr<I32Attr>:$numCU,
+          Rock_GemmFeaturesAttr:$features, OptionalAttr<TypeAttr>:$softmaxType,
+          OptionalAttr<I32Attr>:$numCU,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           I32Attr:$firstGemmIdx)>,
-      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
+          Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
   let summary = "Attention operation of transformer models";
   let description = [{
     Performs the operation out = SOFTMAX(preSoftmaxBody(queries * keys, preSoftmaxElemWiseInputs)) * values.
@@ -261,7 +264,12 @@ def Rock_AttentionOp
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
         (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
-    `}` attr-dict (`->` type($result)^)?
+    `}` attr-dict (`->` type($result)^)? (`,` type($lseOut)^)?
+  }];
+
+  // Return operand of LSE if it exists.
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutLseArgument() { return getLse() ? &(*this)->getOpOperand(getNumOperands() - 1) : nullptr; }
   }];
 }
 
@@ -561,6 +569,7 @@ def Rock_GridwiseAttentionAccelOp
           I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
           OptionalAttr<IndexAttr>:$prePadG0M,
           OptionalAttr<IndexAttr>:$prePadG0N,
+          OptionalAttr<TypeAttr>:$softmaxType,
           RockAccelTuningParamAttrInterface:$params0,
           RockAccelTuningParamAttrInterface:$params1, I32Attr:$firstGemmIdx,
           DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {

@@ -31,6 +31,7 @@
 namespace mlir {
 namespace rock {
 
+// Keep in sync with attentionSweeps.py
 // The full space is a brute-force search for attention kernels
 template <typename Op>
 static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
