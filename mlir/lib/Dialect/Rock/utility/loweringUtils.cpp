@@ -259,8 +259,15 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
                         {kGlobal / kPerBlock, kThreads, kPerThread});
 
-    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                        {dGlobal / dPerBlock, dThreads, dPerThread});
+    // if the matrix is DxK, we want the wave to load coallescedly. So, d_thread
+    // is the fastest changing dimension.
+    if (isKContigousDim) {
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
+                          {dGlobal / dPerBlock, dPerThread, dThreads});
+    } else {
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                          {dGlobal / dPerBlock, dThreads, dPerThread});
+    }
 
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
@@ -344,15 +351,17 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge(
         "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
-        {kGlobal / kPerBlock, kThreads, kOuterPerThread, kpackPerThread});
+        {kGlobal / kPerBlock, kThreads, kpackPerThread, kOuterPerThread});
     // if the matrix is KxD swap the iter/thread dimension. This is so that
-    // each thread writes in LDS contiguously, minimizing bank conflicts
-    if (!doSwapThreadIterSubDimsForD)
-      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                          {dGlobal / dPerBlock, dThreads, dPerThread});
-    else
+    // each thread writes in LDS contiguously, minimizing bank conflicts.
+    // if the matrix is DxK, we swapped the iter/thread dimension while
+    // loading from device memory.
+    if (doSwapThreadIterSubDimsForD || isKContigousDim)
       toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
                           {dGlobal / dPerBlock, dPerThread, dThreads});
+    else
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                          {dGlobal / dPerBlock, dThreads, dPerThread});
 
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();

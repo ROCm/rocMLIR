@@ -461,6 +461,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
+
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
                << "bCopyPerThread: " << bCopyPerThread << "\n"
@@ -522,8 +523,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr loadBufferAViews =
         invertTransforms(b, loc, maybeABufferViews->threadSubTile);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
-    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
-    // vectorization Hence, creating the view w.r.t global that correspond to
+    // Prior to LDS store, we need re-arrange register buffer to maximize LDS
+    // vectorization. Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
         getPackedRegsAsTileViews(
@@ -541,8 +542,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
-    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
-    // vectorization Hence, creating the view w.r.t global that correspond to
+    // Prior to LDS store, we need re-arrange register buffer to maximize LDS
+    // vectorization. Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
         getPackedRegsAsTileViews(
@@ -2994,6 +2995,7 @@ struct GridwiseGemmAccelRewritePattern
     }
     auto copyMPerThread = maybeVecDimInfoA->inDPerThread;
     auto copyNPerThread = maybeVecDimInfoB->inDPerThread;
+
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
                << "blockSize: " << blockSize << "\n"
