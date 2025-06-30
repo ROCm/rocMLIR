@@ -765,10 +765,10 @@ def getAttentionConfigurations(fileName):
                         if arg not in configline:
                             test_space.append(default_test_space[arg])
                             args.append(arg)
-                    for testVector in itertools.product(*test_space):
+                    for test_vector in itertools.product(*test_space):
                         # Strip to avoid spurious spaces
                         oneConfig = configline.strip()
-                        for arg, value in zip(args, testVector):
+                        for arg, value in zip(args, test_vector):
                             oneConfig = f"{arg} {value} {oneConfig}"
                         if oneConfig not in configs:
                             configs.append(oneConfig)
