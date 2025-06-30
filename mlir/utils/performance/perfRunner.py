@@ -759,13 +759,13 @@ def getAttentionConfigurations(fileName):
                     newLines = attachAttentionDatatypes(line, DATA_TYPES_ATTENTION)
 
                 for configline in newLines:
-                    testSpace = []
+                    test_space = []
                     args = []
                     for arg in default_test_space.keys():
                         if arg not in configline:
-                            testSpace.append(default_test_space[arg])
+                            test_space.append(default_test_space[arg])
                             args.append(arg)
-                    for testVector in itertools.product(*testSpace):
+                    for testVector in itertools.product(*test_space):
                         # Strip to avoid spurious spaces
                         oneConfig = configline.strip()
                         for arg, value in zip(args, testVector):
