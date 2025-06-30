@@ -1876,6 +1876,10 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
     return emitError("LSE only works for attention.");
   }
 
+  if (!getEnableSoftmax() && getSoftmaxType()) {
+    return emitError("Setting softmax type only works for attention.");
+  }
+
   int64_t linalgOpCount = 0;
   getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) { linalgOpCount++; });
   if (linalgOpCount > 1) {
