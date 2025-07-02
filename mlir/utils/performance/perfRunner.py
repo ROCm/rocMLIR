@@ -774,9 +774,6 @@ def getAttentionConfigurations(fileName):
                     if oneConfig not in configs:
                         configs.append(oneConfig)
 
-                if line not in configs:
-                    configs.append(line)
-
     return configs
 
 
