@@ -740,6 +740,7 @@ def getAttentionConfigurations(fileName):
         "-with-attn-scale": bool_space,
         "-with-attn-bias": bool_space
     }
+
     configs = []
     if fileName:
         with open(fileName, 'r') as configFile:
@@ -752,21 +753,29 @@ def getAttentionConfigurations(fileName):
                 test_space = []
                 args = []
                 for arg in default_test_space.keys():
+                    """
+                    Next condition checks if a flag is not present in the line. Check with re.search(...)
+                    ensures flags are matched exactly and not as substring.
+
+                    - (?<!\S) ensures that flag is not part of another token (e.g. that -t is not part of -transQ)
+                    - (?!\S) ensures that flag is followed by a space or line end.
+                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is. 
+                    """
                     if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
                         test_space.append(default_test_space[arg])
                         args.append(arg)
 
-                if args:
-                    for test_vector in itertools.product(*test_space):
-                        # Strip to avoid spurious spaces
-                        oneConfig = line.strip()
-                        for arg, value in zip(args, test_vector):
-                            oneConfig = f"{arg} {value} {oneConfig}"
-                        if oneConfig not in configs:
-                            configs.append(oneConfig)
-                else:
-                    if line not in configs:
-                        configs.append(line)
+
+                for test_vector in itertools.product(*test_space):
+                    # Strip to avoid spurious spaces
+                    oneConfig = line.strip()
+                    for arg, value in zip(args, test_vector):
+                        oneConfig = f"{arg} {value} {oneConfig}"
+                    if oneConfig not in configs:
+                        configs.append(oneConfig)
+
+                if line not in configs:
+                    configs.append(line)
 
     return configs
 
