@@ -725,13 +725,6 @@ def getGemmGemmConfigurations(fileName):
                         configs.append(oneConfig)
     return configs
 
-def attachAttentionDatatypes(config, dtypes):
-    """
-    Expands attention configuration by appending all supported attention data types.
-    Purpose of this function is to be used when there is no data type present in config
-    """
-    return [config + f" -t {dt}" for dt in dtypes]
-
 def getAttentionConfigurations(fileName):
     if DATA_TYPES_ATTENTION is None:
         initializeDataTypesAttention()
