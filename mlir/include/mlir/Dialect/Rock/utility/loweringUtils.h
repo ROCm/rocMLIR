@@ -196,6 +196,9 @@ AffineMap getIdxReversalMap(OpBuilder &b);
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
 
+// helper to obtain a flattened memref
+Value getFlattenedMemref(OpBuilder &b, Value nonFlatMemRef);
+
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.
 TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer, Type type);

@@ -38,6 +38,7 @@
 // CHECK: %[[ones:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x512x1024xf32>}> : () -> tensor<1x512x1024xf32>
 // CHECK: %[[scaleTensor:.*]] = tosa.select %[[mask2]], %[[ones]], %[[scaledReshaped]] : (tensor<1x512x1024xi1>, tensor<1x512x1024xf32>, tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32>
 // CHECK: %[[sqkTensor:.*]] = tosa.mul %[[qkTensorOrig]], %[[scaleTensor]], %{{.*}} : (tensor<1x512x1024xf32>, tensor<1x512x1024xf32>, tensor<1xi8>) -> tensor<1x512x1024xf32>
+// CHECK:  %[[sqkTensorCast:.*]] = tosa.cast %[[sqkTensor]] : (tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32>
 
 // CHECK: %[[range4:.*]] = "tosa.const"() <{values = {{.*}} : tensor<512xi32>}> : () -> tensor<512xi32>
 // CHECK: %[[range4Reshaped:.*]] = tosa.reshape %[[range4:.*]], %{{.*}} : (tensor<512xi32>, !tosa.shape<3>) -> tensor<1x512x1xi32>
@@ -49,7 +50,7 @@
 // CHECK: %[[rangeBroadcast5:.*]] = tosa.add %[[zero4]], %[[range5Reshaped]] : (tensor<1x512x1024xi32>, tensor<1x1x1024xi32>) -> tensor<1x512x1024xi32>
 // CHECK: %[[mask3:.*]] = tosa.greater %[[rangeBroadcast5]], %[[rangeBroadcast4]] : (tensor<1x512x1024xi32>, tensor<1x512x1024xi32>) -> tensor<1x512x1024xi1>
 // CHECK: %[[negInf:.*]] = "tosa.const"() <{values = dense<0xFF800000> : tensor<1x512x1024xf32>}> : () -> tensor<1x512x1024xf32>
-// CHECK: %[[qkTensor:.*]] = tosa.select %[[mask3]], %[[negInf]], %[[sqkTensor]] : (tensor<1x512x1024xi1>, tensor<1x512x1024xf32>, tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32
+// CHECK: %[[qkTensor:.*]] = tosa.select %[[mask3]], %[[negInf]], %[[sqkTensorCast]] : (tensor<1x512x1024xi1>, tensor<1x512x1024xf32>, tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32>
 
 // CHECK-DAG: %[[sqkMaxs:.*]] = tosa.reduce_max %[[qkTensor]] {{.*}} : (tensor<1x512x1024xf32>) -> tensor<1x512x1xf32>
 // CHECK-DAG: %[[normilizedSqkTensor:.*]] = tosa.sub %[[qkTensor]], %[[sqkMaxs]] : (tensor<1x512x1024xf32>, tensor<1x512x1xf32>) -> tensor<1x512x1024xf32>
@@ -57,5 +58,6 @@
 // CHECK-DAG: %[[expsSumsTensor:.*]] = tosa.reduce_sum %[[expsTensor]] {{.*}} : (tensor<1x512x1024xf32>) -> tensor<1x512x1xf32>
 // CHECK-DAG: %[[invExpsSums:.*]] = tosa.reciprocal %[[expsSumsTensor]] : (tensor<1x512x1xf32>) -> tensor<1x512x1xf32>
 // CHECK-DAG: %[[softmaxTensor:.*]] = tosa.mul %[[expsTensor]], %[[invExpsSums]], %{{.*}} : (tensor<1x512x1024xf32>, tensor<1x512x1xf32>, tensor<1xi8>) -> tensor<1x512x1024xf32>
-// CHECK-DAG: %[[resultTensor:.*]] = tosa.matmul %[[softmaxTensor]], %[[valuesTensor:.*]], %{{.*}}, %{{.*}} : (tensor<1x512x1024xf32>, tensor<1x1024x32xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x512x32xf32>
+// CHECK-DAG: %[[softmaxTensorCast:.*]] = tosa.cast %[[softmaxTensor]] : (tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32>
+// CHECK-DAG: %[[resultTensor:.*]] = tosa.matmul %[[softmaxTensorCast]], %[[valuesTensor:.*]], %{{.*}}, %{{.*}} : (tensor<1x512x1024xf32>, tensor<1x1024x32xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x512x32xf32>
 // CHECK: return

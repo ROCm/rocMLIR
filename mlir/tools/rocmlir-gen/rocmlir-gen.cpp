@@ -622,6 +622,11 @@ static llvm::cl::opt<bool> returnLSE(
     llvm::cl::desc("whether the attention kernel returns LSE (log-sum-exp)"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<std::string>
+    softmaxDataType("softmax_dtype",
+                    llvm::cl::desc("Data type for softmax (attention)"),
+                    llvm::cl::init("f32"));
+
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
 //////////////////////////////////////////////////////////////////////////
@@ -2848,10 +2853,14 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  auto softmaxType =
+      TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
-      transposeO, causalMasking, archAttr, params.features, numCUAttr,
+      transposeO, causalMasking, archAttr, params.features, softmaxType,
+      numCUAttr,
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSoftmaxElemwiseBlock =
@@ -3708,6 +3717,10 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
         builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
         qkTensor, biasTensor);
   }
+  // cast to softmaxType
+  auto softmaxType = typeFromString(softmaxDataType.getValue(), ctx);
+  qkTensor =
+      createOpAndInfer<tosa::CastOp>(builder, loc, softmaxType, qkTensor);
 
   if (currentSeqLenTensor) {
     qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
@@ -3724,35 +3737,33 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                  -std::numeric_limits<float>::infinity());
 
   constexpr int64_t reductionAxis = 2;
-  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(
-      builder, loc, cast<ShapedType>(qkTensor.getType()).getElementType(),
-      qkTensor, reductionAxis);
+  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, softmaxType,
+                                                    qkTensor, reductionAxis);
   auto normalizedQkTensor = createOpAndInfer<tosa::SubOp>(
-      builder, loc, cast<ShapedType>(qkTensor.getType()).getElementType(),
-      qkTensor, qkMaxs);
-  auto expsTensor = createOpAndInfer<tosa::ExpOp>(
-      builder, loc,
-      cast<ShapedType>(normalizedQkTensor.getType()).getElementType(),
-      normalizedQkTensor);
+      builder, loc, softmaxType, qkTensor, qkMaxs);
+  auto expsTensor = createOpAndInfer<tosa::ExpOp>(builder, loc, softmaxType,
+                                                  normalizedQkTensor);
   auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(
-      builder, loc, cast<ShapedType>(expsTensor.getType()).getElementType(),
-      expsTensor, reductionAxis);
+      builder, loc, softmaxType, expsTensor, reductionAxis);
+  Type resultOutElementType =
+      isQuantized ? Float16Type::get(ctx) : firstGemmOutElemType;
   Value lseTensor;
   // qkMaxs = max x
   // expsSums = sum e^(x-qkMaxs)
   // lse = (log(expsSums) + qkMaxs)
   if (returnLSE) {
-    auto expsSumElemType =
-        cast<ShapedType>(expsSums.getType()).getElementType();
-    lseTensor =
-        createOpAndInfer<tosa::LogOp>(builder, loc, expsSumElemType, expsSums);
-    lseTensor = createOpAndInfer<tosa::AddOp>(builder, loc, expsSumElemType,
-                                              lseTensor, qkMaxs);
+    Value expsSumsForLSE = createOpAndInfer<tosa::CastOp>(
+        builder, loc, resultOutElementType, expsSums);
+    Value qkMaxsForLSE = createOpAndInfer<tosa::CastOp>(
+        builder, loc, resultOutElementType, qkMaxs);
+    lseTensor = createOpAndInfer<tosa::LogOp>(
+        builder, loc, resultOutElementType, expsSumsForLSE);
+    lseTensor = createOpAndInfer<tosa::AddOp>(
+        builder, loc, resultOutElementType, lseTensor, qkMaxsForLSE);
   }
 
-  auto invExpsSums = createOpAndInfer<tosa::ReciprocalOp>(
-      builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
-      expsSums);
+  auto invExpsSums =
+      createOpAndInfer<tosa::ReciprocalOp>(builder, loc, softmaxType, expsSums);
 
   auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
   auto shiftZeroAttr = DenseElementsAttr::get(
@@ -3760,10 +3771,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   Value constZero =
       builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
   Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
-      builder, loc, cast<ShapedType>(expsSums.getType()).getElementType(),
-      expsTensor, invExpsSums, /*shift=*/constZero);
-  auto resultOutElementType =
-      cast<ShapedType>(softmaxTensor.getType()).getElementType();
+      builder, loc, softmaxType, expsTensor, invExpsSums, /*shift=*/constZero);
+  softmaxTensor = createOpAndInfer<tosa::CastOp>(
+      builder, loc, resultOutElementType, softmaxTensor);
   auto softmaxZp =
       tosa::createZeroPointTensor(builder, loc, softmaxTensor.getType(), 0)
           .value();

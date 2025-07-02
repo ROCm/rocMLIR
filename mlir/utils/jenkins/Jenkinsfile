@@ -414,9 +414,8 @@ boolean shouldRunFromCodepath(String codepath) {
     if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
         return true
     }
-    // Run navi4x on private nightly CI only  
-    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x") &&  
-        params.nightly) {  
+    // Run navi4x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x")) {  
         return true;  
     }  
     return false
@@ -450,7 +449,7 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942'] : ['vanilla']
+        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942', 'gfx1100', 'gfx1201'] : ['vanilla']
         for (arch in architectures) {
             try {
                 unstash name: "MLIR-PerfDB-${arch}"
@@ -896,7 +895,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx942'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1100', 'gfx1201'
                     }
                 }
                 agent { label getLabelFromChip("${CHIP}") }
@@ -1080,13 +1079,12 @@ pipeline {
                 }
             }
         }
-        // FIXME: run perf tests on both gfx90a and gfx908
         stage("Benchmark and Report Performance") {
             matrix {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1100', 'gfx1201'
                     }
                 }
                 when {
