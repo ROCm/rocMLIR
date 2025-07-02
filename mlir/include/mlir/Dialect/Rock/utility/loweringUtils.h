@@ -63,12 +63,11 @@ RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
-FailureOr<RegsAsMatrixSubTiles>
-getLoadRegsAsTileViews(OpBuilder &b, Location loc, Value globalBuffer,
-                       StringRef dName, ArrayRef<StringRef> bidGridOrder,
-                       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-                       int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-                       int64_t dPerThread, bool isKContigousDim);
+FailureOr<RegsAsMatrixSubTiles> getLoadRegsAsTileViews(
+    OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
+    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
+    int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
+    int64_t dPerThread, bool isKContigousDim, bool waveLoadContiguousK);
 
 // This function will create views of the register buffer of the loaded tile
 // but packed as kOuterPerThread, dPerThread and kPackPerThread for max
@@ -79,7 +78,7 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
     int64_t dPerThread, int64_t kpack, bool isKContigousDim,
-    bool doSwapThreadIterSubDimsForD = false);
+    bool doSwapThreadIterSubDimsForD = false, bool waveLoadContiguousK = false);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);

@@ -43,6 +43,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -230,6 +231,7 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
 struct LDSLayoutConfigDim {
   bool doRotateWithK;
   bool doSwapThreadIterSubDims;
+  bool waveLoadContiguousK;
 };
 
 // This is helper struct to aggregate
@@ -267,9 +269,170 @@ static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
                        vectorTiebreaker};
 }
 
-static LDSLayoutConfigDim
-getLDSLayoutConfigDim(Type elementType, int64_t kpack,
-                      const VectorDimInfo &vecDimInfo) {
+//  traces input arguments of the GEMM operation back to blockArguments. It
+//  records sequence of rock.transforms between gemm argument to blockArgument
+//  if there is any. It is possible that single gemm arg is mapped to multiple
+//  blockArguments. BlockArguments are recorded in `blockArgs` and series of
+//  rock.TransformAttr sequences for each `blockArgs` is recorded in
+//  transformAttrsMap.
+static LogicalResult traceGemmInputToBlockArgs(
+    Value inputArg, PatternRewriter &b,
+    llvm::DenseMap<Value, SmallVector<Attribute>> &transformAttrsMap,
+    llvm::SmallSetVector<Value, 2> &blockArgs,
+    const BufferDependencyAnalysis &deps) {
+  Value source;
+  ArrayAttr transforms;
+  // below call to `rock.untransform` is concatenating existing transform
+  // sequence on `inputArg` with rock.transform sequence found by tracing upto
+  // source from `inputArg` as staring point.
+  // For example,
+  // SeqExisting -> inputArgs --> Seq --> source
+  // transforms == SeqExisting + Seq
+  // transformAttrsMap[inputArg] = SeqExisting
+  // transformAttrsMap[Source] = SeqExisting + Seq
+  std::tie(source, transforms, std::ignore) =
+      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
+  // insert transform sequence on source into the map if it doesn't already
+  // exists. if it does then we've found a loop or case where multiple operators
+  // are writing to same `memref.alloc`
+  if (!transformAttrsMap
+           .insert({source, SmallVector<Attribute>{transforms.begin(),
+                                                   transforms.end()}})
+           .second) {
+    return failure();
+  }
+  if (isa<BlockArgument>(source)) {
+    blockArgs.insert(source);
+    return success();
+  }
+  FailureOr<memref::AllocOp> allocOp = mlir::rock::findMemrefAlloc(source);
+  if (failed(allocOp)) {
+    return failure();
+  }
+  std::optional<llvm::SmallVector<OpOperand *>> allocOpWriters =
+      deps.getWriters(allocOp.value());
+  if (!allocOpWriters.has_value()) {
+    return failure();
+  }
+  bool hasSuccess = false;
+  for (OpOperand *allocWriteOperand : allocOpWriters.value()) {
+    auto writerOp =
+        dyn_cast<MemoryEffectOpInterface>(allocWriteOperand->getOwner());
+    if (!writerOp)
+      continue;
+    SmallVector<MemoryEffects::EffectInstance> effects;
+    writerOp.getEffects(effects);
+    for (const MemoryEffects::EffectInstance &effect : effects) {
+      OpOperand *writerOpOperand = effect.getEffectValue<OpOperand *>();
+      // test that same buffer is not being read and written to
+      if (writerOpOperand && isa<MemoryEffects::Read>(effect.getEffect()) &&
+          writerOpOperand != allocWriteOperand) {
+        Value writerOpOperandValue = writerOpOperand->get();
+        // Add existing transform sequences on `writerOpOperandValue` to
+        // continue concatenating in recursive calls.
+        transformAttrsMap[writerOpOperandValue] = transformAttrsMap.at(source);
+        if (succeeded(traceGemmInputToBlockArgs(
+                writerOpOperandValue, b, transformAttrsMap, blockArgs, deps))) {
+          hasSuccess = true;
+        }
+      }
+    }
+  }
+  // return success if it has found trace to any blockArg
+  return success(hasSuccess);
+}
+
+static FailureOr<GemmDimension>
+getFastestChangingDimension(Value tensor, PatternRewriter &b) {
+  // use getMaxVectorization to determine the fastest changing dimension
+  VectorizationResult dVectorRes = getMaxVectorization(
+      tensor, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
+      std::nullopt, tensor.getDefiningOp());
+  int64_t dVectorLen = dVectorRes.max;
+  VectorizationResult kVectorRes = getMaxVectorization(
+      tensor, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
+      std::nullopt, tensor.getDefiningOp());
+  int64_t kVectorLen = kVectorRes.max;
+  if (dVectorLen != kVectorLen) {
+    auto dim =
+        (dVectorLen > kVectorLen) ? GemmDimension::MorN : GemmDimension::K;
+    return dim;
+  }
+  // if getMaxVectorization returns same vectorization for MorN and K
+  // then we try getLowerSubDimensions() to determine the fastest changing
+  // dimension
+
+  // trace input tensor to blockArgument first and do necessary error checking
+  llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
+  llvm::SmallSetVector<Value, 2> blockArgs;
+  BufferDependencyAnalysis deps(tensor.getParentBlock()->getParentOp());
+  if (failed(traceGemmInputToBlockArgs(tensor, b, transformAttrsMap, blockArgs,
+                                       deps))) {
+    return failure();
+  }
+  assert(!blockArgs.empty());
+  // SmallVector<Attribute> transformsList;
+  SmallVector<uint32_t> strides(3);
+  for (const auto blockArg : blockArgs) {
+    // make sure all the blockArgs have been mapped to some transform sequence
+    // or empty transform sequence
+    if (!transformAttrsMap.contains(blockArg)) {
+      return failure();
+    }
+    SmallVector<Attribute> transformsList = transformAttrsMap[blockArg];
+    if (transformsList.empty()) {
+      return failure();
+    }
+    ArrayAttr transforms = b.getArrayAttr(transformsList);
+    rock::TransformMapAttr firstCoordTransform =
+        cast<rock::TransformMapAttr>(transformsList[0]);
+    int64_t upperRank = firstCoordTransform.getUpperBounds().size();
+    if (upperRank != 3)
+      return failure(); // all blockArgs should have same upper rank
+
+    for (int64_t idx = 0; idx < upperRank; idx++) {
+      FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<rock::SubDimInfo>>>
+          maybeLowerSubDims =
+              rock::getLowerSubDimensions(b, transforms, idx, false);
+      if (failed(maybeLowerSubDims)) {
+        return failure();
+      }
+
+      auto lowerSubDims = maybeLowerSubDims.value();
+      // if it's empty, let's use a big stride
+      uint32_t minStride = std::numeric_limits<uint32_t>::max();
+
+      for (auto [dim, subDimInfos] : lowerSubDims) {
+        LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << ":");
+        LLVM_DEBUG(llvm::interleaveComma(subDimInfos, llvm::dbgs()));
+        LLVM_DEBUG(llvm::dbgs() << "\n");
+        for (auto subDim : subDimInfos)
+          minStride = std::min(minStride, static_cast<uint32_t>(subDim.stride));
+      }
+      strides[idx] = minStride;
+    }
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "strides=");
+  LLVM_DEBUG(llvm::interleaveComma(strides, llvm::dbgs()));
+  LLVM_DEBUG(llvm::dbgs() << "\n");
+  dVectorLen = strides[static_cast<uint32_t>(GemmDimension::MorN)];
+  kVectorLen = strides[static_cast<uint32_t>(GemmDimension::K)];
+  if (dVectorLen != kVectorLen) {
+    auto dim =
+        (dVectorLen > kVectorLen) ? GemmDimension::MorN : GemmDimension::K;
+    return dim;
+  }
+  return failure();
+}
+
+static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
+                                                const VectorDimInfo &vecDimInfo,
+                                                Value tensor,
+                                                PatternRewriter &b) {
+  // set default for A as K
+  FailureOr<GemmDimension> fastestChanging =
+      getFastestChangingDimension(tensor, b);
   LDSLayoutConfigDim cfg;
   int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
   int64_t copyDPerThread = vecDimInfo.inDPerThread;
@@ -281,6 +444,8 @@ getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   bool isPossibleToVectorizeD = (kpack < maxVlen && copyDPerThread > 1);
   cfg.doRotateWithK = isKContigousDim && !isPossibleToVectorizeD;
   cfg.doSwapThreadIterSubDims = !isKContigousDim && !isPossibleToVectorizeD;
+  cfg.waveLoadContiguousK = isKContigousDim && succeeded(fastestChanging) &&
+                            fastestChanging.value() == GemmDimension::K;
   LLVM_DEBUG(llvm::dbgs() << "rotateWithK: " << cfg.doRotateWithK << "\n"
                           << "doSwapThreadIterSubDimsForM: "
                           << cfg.doSwapThreadIterSubDims << "\n");
@@ -462,6 +627,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
     }
 
+    LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
+        elementTypeA, kpack, maybeVecDimInfoA.value(), op.getA(), b);
+    LDSLayoutConfigDim ldsLayoutConfigB = getLDSLayoutConfigDim(
+        elementTypeB, kpack, maybeVecDimInfoB.value(), op.getB(), b);
+
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
                << "bCopyPerThread: " << bCopyPerThread << "\n"
@@ -477,7 +647,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
         maybeVecDimInfoA->inDPerThread,
-        maybeVecDimInfoA->vectorDim == GemmDimension::K);
+        maybeVecDimInfoA->vectorDim == GemmDimension::K,
+        ldsLayoutConfigA.waveLoadContiguousK);
     if (failed(maybeABufferViews)) {
       return failure();
     }
@@ -486,7 +657,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
         maybeVecDimInfoB->inDPerThread,
-        maybeVecDimInfoB->vectorDim == GemmDimension::K);
+        maybeVecDimInfoB->vectorDim == GemmDimension::K,
+        ldsLayoutConfigB.waveLoadContiguousK);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -513,11 +685,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
     Value storeBufferB = b.create<GpuAllocOp>(loc, loadBufferB.getType());
 
-    LDSLayoutConfigDim ldsLayoutConfigA =
-        getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value());
-    LDSLayoutConfigDim ldsLayoutConfigB =
-        getLDSLayoutConfigDim(elementTypeB, kpack, maybeVecDimInfoB.value());
-
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
     ArrayAttr loadBufferAViews =
@@ -532,7 +699,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
             maybeVecDimInfoA->inDPerThread, kpack,
             maybeVecDimInfoA->vectorDim == GemmDimension::K,
-            ldsLayoutConfigA.doSwapThreadIterSubDims);
+            ldsLayoutConfigA.doSwapThreadIterSubDims,
+            ldsLayoutConfigA.waveLoadContiguousK);
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
@@ -551,7 +719,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
             maybeVecDimInfoB->inDPerThread, kpack,
             maybeVecDimInfoB->vectorDim == GemmDimension::K,
-            ldsLayoutConfigB.doSwapThreadIterSubDims);
+            ldsLayoutConfigB.doSwapThreadIterSubDims,
+            ldsLayoutConfigB.waveLoadContiguousK);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }
@@ -833,7 +1002,8 @@ struct GridwiseAttentionAccelRewritePattern
       maybeInBufferViews = getLoadRegsAsTileViews(
           rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths,
           blockSize, kPerBlock, dPerBlock, maybeVectorDimInfo->inKPerThread,
-          maybeVectorDimInfo->inDPerThread, vectorDim == GemmDimension::K);
+          maybeVectorDimInfo->inDPerThread, vectorDim == GemmDimension::K,
+          ldsLayoutCfg.waveLoadContiguousK);
     }
     if (failed(maybeInBufferViews)) {
       return failure();
@@ -863,7 +1033,8 @@ struct GridwiseAttentionAccelRewritePattern
                                    dPerBlock, maybeVectorDimInfo->inKPerThread,
                                    maybeVectorDimInfo->inDPerThread, kpack,
                                    vectorDim == GemmDimension::K,
-                                   ldsLayoutCfg.doSwapThreadIterSubDims);
+                                   ldsLayoutCfg.doSwapThreadIterSubDims,
+                                   ldsLayoutCfg.waveLoadContiguousK);
       if (failed(maybeLdsStoreViews)) {
         return failure();
       }
@@ -1932,7 +2103,7 @@ struct GridwiseAttentionAccelRewritePattern
       return failure();
     }
     LDSLayoutConfigDim ldsLayoutCfgNG0 = getLDSLayoutConfigDim(
-        elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value());
+        elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value(), inQ, rewriter);
     if (doBypassLDSForQ) {
       ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
     }
@@ -1956,7 +2127,7 @@ struct GridwiseAttentionAccelRewritePattern
                << "kVectorDim: " << maybeVectorDimInfoK->vectorDim << "\n"
                << "kVectorLen: " << maybeVectorDimInfoK->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG0 = getLDSLayoutConfigDim(
-        elemTypeK, gemm0kpack, maybeVectorDimInfoK.value());
+        elemTypeK, gemm0kpack, maybeVectorDimInfoK.value(), inK, rewriter);
     ldsLayoutCfgMG0.doRotateWithK = false;
     if (doBypassLDSSecondGemm) {
       ldsLayoutCfgMG0.doSwapThreadIterSubDims = false;
@@ -2082,7 +2253,7 @@ struct GridwiseAttentionAccelRewritePattern
                << "vVectorDim: " << maybeVectorDimInfoV->vectorDim << "\n"
                << "vVectorLen: " << maybeVectorDimInfoV->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG1 = getLDSLayoutConfigDim(
-        elemTypeV, gemm1kpack, maybeVectorDimInfoV.value());
+        elemTypeV, gemm1kpack, maybeVectorDimInfoV.value(), inV, rewriter);
     int64_t gemm1InMPerThread = maybeVectorDimInfoV->inDPerThread;
     FailureOr<RegsAsMatrixSubTiles> maybeGemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
@@ -2996,6 +3167,11 @@ struct GridwiseGemmAccelRewritePattern
     auto copyMPerThread = maybeVecDimInfoA->inDPerThread;
     auto copyNPerThread = maybeVecDimInfoB->inDPerThread;
 
+    LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
+        elementTypeA, kpack, maybeVecDimInfoA.value(), matA, b);
+    LDSLayoutConfigDim ldsLayoutConfigB = getLDSLayoutConfigDim(
+        elementTypeB, kpack, maybeVecDimInfoB.value(), matB, b);
+
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
                << "blockSize: " << blockSize << "\n"
@@ -3024,7 +3200,8 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, matA, "m", bidGridOrder, bidGridLengths, blockSize, kPerBlock,
         mPerBlock, maybeVecDimInfoA->inKPerThread,
         maybeVecDimInfoA->inDPerThread,
-        maybeVecDimInfoA->vectorDim == GemmDimension::K);
+        maybeVecDimInfoA->vectorDim == GemmDimension::K,
+        ldsLayoutConfigA.waveLoadContiguousK);
     if (failed(maybeABufferViews)) {
       return failure();
     }
@@ -3033,7 +3210,8 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, matB, "n", bidGridOrder, bidGridLengths, blockSize, kPerBlock,
         nPerBlock, maybeVecDimInfoB->inKPerThread,
         maybeVecDimInfoB->inDPerThread,
-        maybeVecDimInfoB->vectorDim == GemmDimension::K);
+        maybeVecDimInfoB->vectorDim == GemmDimension::K,
+        ldsLayoutConfigB.waveLoadContiguousK);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -3062,10 +3240,6 @@ struct GridwiseGemmAccelRewritePattern
 
     bool isKContiguousDimA = maybeVecDimInfoA->vectorDim == GemmDimension::K;
     bool isKContiguousDimB = maybeVecDimInfoB->vectorDim == GemmDimension::K;
-    LDSLayoutConfigDim ldsLayoutConfigA =
-        getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value());
-    LDSLayoutConfigDim ldsLayoutConfigB =
-        getLDSLayoutConfigDim(elementTypeB, kpack, maybeVecDimInfoB.value());
 
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
@@ -3080,7 +3254,8 @@ struct GridwiseGemmAccelRewritePattern
             b, loc, matA, "m", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
             maybeVecDimInfoA->inDPerThread, kpack, isKContiguousDimA,
-            ldsLayoutConfigA.doSwapThreadIterSubDims);
+            ldsLayoutConfigA.doSwapThreadIterSubDims,
+            ldsLayoutConfigA.waveLoadContiguousK);
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
@@ -3098,7 +3273,8 @@ struct GridwiseGemmAccelRewritePattern
             b, loc, matB, "n", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
             maybeVecDimInfoB->inDPerThread, kpack, isKContiguousDimB,
-            ldsLayoutConfigB.doSwapThreadIterSubDims);
+            ldsLayoutConfigB.doSwapThreadIterSubDims,
+            ldsLayoutConfigB.waveLoadContiguousK);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }

@@ -2420,13 +2420,14 @@ mlir::rock::removeUpperDims(OpBuilder &b, ArrayAttr transformAttrs,
 
 FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
 mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
-                                  int64_t dim) {
-  return getLowerSubDimensions(b, transformAttrs, ArrayRef<int64_t>{dim});
+                                  int64_t dim, bool exactStrides) {
+  return getLowerSubDimensions(b, transformAttrs, ArrayRef<int64_t>{dim},
+                               exactStrides);
 }
 
 FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>>
 mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
-                                  ArrayRef<int64_t> dims) {
+                                  ArrayRef<int64_t> dims, bool exactStrides) {
   llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> subDimInfo;
   if (transformAttrs.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "transformAttrs is empty.\n");
@@ -2448,8 +2449,9 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
     LLVM_DEBUG(llvm::dbgs() << "analyzing trMap:" << trMap << "\n");
     // local function to update the next subdim info
     auto getNextSubDimInfo =
-        [&trMap](const llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>
-                     &currSubDimInfo)
+        [&trMap, exactStrides](
+            const llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>
+                &currSubDimInfo)
         -> FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>>> {
       llvm::SmallDenseMap<int64_t, SmallVector<SubDimInfo>> nextSubDimInfo;
       for (TransformAttr trAttr : trMap.getOps()) {
@@ -2548,19 +2550,47 @@ mlir::rock::getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
             }
           }
         } break;
+        case TransformType::Pad: {
+          if (exactStrides) {
+            LLVM_DEBUG(llvm::dbgs()
+                       << "Unsupported transform type : " << trAttr << "\n");
+            return failure();
+          }
+          for (size_t subDim = 0; subDim < trAttr.getLowerDims().size();
+               subDim++) {
+            int64_t upperDim = trAttr.getUpperDims()[subDim];
+
+            if (currSubDimInfo.contains(upperDim)) {
+              // TODO: fail if used for reduction output
+              int64_t lowDim = trAttr.getLowerDims()[subDim];
+              auto padLeft = trAttr.getParams()[subDim * 2];
+              auto padRight = trAttr.getParams()[subDim * 2 + 1];
+
+              if (currSubDimInfo.at(upperDim).size() > 1) {
+                LLVM_DEBUG(llvm::dbgs()
+                           << "Unsupported pad with multiple subDims: "
+                           << trAttr << "\n");
+                return failure();
+              }
+              const SubDimInfo &sdInfo = currSubDimInfo.at(upperDim)[0];
+              auto newSize = sdInfo.size - padLeft - padRight;
+              nextSubDimInfo[lowDim].push_back({newSize, sdInfo.stride});
+              LLVM_DEBUG(llvm::dbgs() << "pad from size " << sdInfo.size
+                                      << " to " << newSize << ", remapping:"
+                                      << upperDim << " to " << lowDim << "\n");
+            }
+          }
+        } break;
         case TransformType::Broadcast: {
+          if (exactStrides) {
+            LLVM_DEBUG(llvm::dbgs()
+                       << "Unsupported transform type : " << trAttr << "\n");
+            return failure();
+          }
           auto newSize = trAttr.getParams()[0];
           int64_t lowDim = trAttr.getLowerDims()[0];
           int64_t upperDim = trAttr.getUpperDims()[0];
           if (currSubDimInfo.contains(upperDim)) {
-            // size is not used for reduction output (broadcast not supported),
-            // so we can skip this for now
-            // TODO: fix this
-            if (currSubDimInfo.at(upperDim).size() > 1)
-              LLVM_DEBUG(llvm::dbgs()
-                         << "broadcast size info will be incorrect, make sure "
-                            "to fix this if it's ever used for anything\n");
-
             for (const SubDimInfo &sdInfo : currSubDimInfo.at(upperDim)) {
               nextSubDimInfo[lowDim].push_back({newSize, sdInfo.stride});
               LLVM_DEBUG(llvm::dbgs() << "broadcast from size " << sdInfo.size

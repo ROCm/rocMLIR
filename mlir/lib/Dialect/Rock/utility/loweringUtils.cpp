@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -215,7 +216,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, bool isKContigousDim) {
+    int64_t dPerThread, bool isKContigousDim, bool waveLoadContiguousK) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -261,7 +262,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
     // if the matrix is DxK, we want the wave to load coallescedly. So, d_thread
     // is the fastest changing dimension.
-    if (isKContigousDim) {
+    if (waveLoadContiguousK) {
       toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
                           {dGlobal / dPerBlock, dPerThread, dThreads});
     } else {
@@ -303,7 +304,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
     int64_t dPerThread, int64_t kpack, bool isKContigousDim,
-    bool doSwapThreadIterSubDimsForD) {
+    bool doSwapThreadIterSubDimsForD, bool waveLoadContiguousK) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -351,12 +352,12 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge(
         "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
-        {kGlobal / kPerBlock, kThreads, kpackPerThread, kOuterPerThread});
+        {kGlobal / kPerBlock, kThreads, kOuterPerThread, kpackPerThread});
     // if the matrix is KxD swap the iter/thread dimension. This is so that
     // each thread writes in LDS contiguously, minimizing bank conflicts.
     // if the matrix is DxK, we swapped the iter/thread dimension while
     // loading from device memory.
-    if (doSwapThreadIterSubDimsForD || isKContigousDim)
+    if (doSwapThreadIterSubDimsForD || waveLoadContiguousK)
       toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
                           {dGlobal / dPerBlock, dPerThread, dThreads});
     else

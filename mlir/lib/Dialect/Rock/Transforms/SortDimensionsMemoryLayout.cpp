@@ -187,7 +187,8 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   SmallVector<uint32_t> strides(upperRank);
   for (int64_t idx = 0; idx < upperRank; idx++) {
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<rock::SubDimInfo>>>
-        maybeLowerSubDims = rock::getLowerSubDimensions(b, transforms, idx);
+        maybeLowerSubDims =
+            rock::getLowerSubDimensions(b, transforms, idx, false);
     if (failed(maybeLowerSubDims)) {
       return failure();
     }
