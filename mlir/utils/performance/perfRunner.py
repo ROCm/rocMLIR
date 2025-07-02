@@ -753,29 +753,28 @@ def getAttentionConfigurations(fileName):
             lines = configFile.readlines()
             for line in lines:
                 line = line.strip()
-                # Skip empty lines
-                if len(line) == 0 or line[0] == '#':
+                if len(line) == 0 or line.startswith('#'):
                     continue
 
-                if "-t" in line:
-                    newLines = [line]
-                else:
-                    newLines = attachAttentionDatatypes(line, DATA_TYPES_ATTENTION)
+                test_space = []
+                args = []
+                for arg in default_test_space.keys():
+                    if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
+                        test_space.append(default_test_space[arg])
+                        args.append(arg)
 
-                for configline in newLines:
-                    test_space = []
-                    args = []
-                    for arg in default_test_space.keys():
-                        if arg not in configline:
-                            test_space.append(default_test_space[arg])
-                            args.append(arg)
+                if args:
                     for test_vector in itertools.product(*test_space):
                         # Strip to avoid spurious spaces
-                        oneConfig = configline.strip()
+                        oneConfig = line.strip()
                         for arg, value in zip(args, test_vector):
                             oneConfig = f"{arg} {value} {oneConfig}"
                         if oneConfig not in configs:
                             configs.append(oneConfig)
+                else:
+                    if line not in configs:
+                        configs.append(line)
+
     return configs
 
 
