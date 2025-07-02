@@ -561,6 +561,19 @@ def MIGraphX_ReduceSumOp :
   }];
 }
 
+def MIGraphX_ReduceMaxOp
+    : MIGraphX_Op<"reduce_max">,
+      Arguments<(ins AnyMIXRShaped:$input, I64ArrayAttr:$axes)>,
+      Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Get the max of the values in given axis";
+  let description = [{
+    The `migraphx.reduce_max` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
 //--------- Execution layer Ops
 def MIGraphX_CodeObjOp :
     MIGraphX_Op<"code_object">,

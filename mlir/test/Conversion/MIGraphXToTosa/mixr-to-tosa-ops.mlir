@@ -502,7 +502,7 @@ module  {
   // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
   // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
   // CHECK-DAG: %[[REDUCE_SUM:.*]] = tosa.reduce_sum %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
-  // CHECK-DAG: %[[RET:.*]] = tosa.reshape
+  // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_SUM]]
   // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
   // CHECK: return %[[RET]]
   func.func @func_reduce_sum_f16(%arg0: !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1> {
@@ -546,6 +546,72 @@ module  {
   // CHECK: return %[[RET]]
   func.func @func_reduce_sum_i8(%arg0: !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1> {
     %0 = migraphx.reduce_sum %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1>
+  }
+
+
+  // CHECK-LABEL: func.func @func_reduce_max_f32
+  // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
+  // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
+  // CHECK-DAG: %[[REDUCE_MAX:.*]] = tosa.reduce_max %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
+  // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_MAX]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
+  // CHECK: return %[[RET]]
+  func.func @func_reduce_max_f32(%arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1> {
+    %0 = migraphx.reduce_max %arg0 {axes = [2 : i64]} : <1x64x112x112xf32, 802816x12544x112x1> -> <1x64x1x112xf32, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xf32, 7168x112x112x1>
+  }
+
+  // CHECK-LABEL: func.func @func_reduce_max_f16
+  // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
+  // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
+  // CHECK-DAG: %[[REDUCE_MAX:.*]] = tosa.reduce_max %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
+  // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_MAX]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
+  // CHECK: return %[[RET]]
+  func.func @func_reduce_max_f16(%arg0: !migraphx.shaped<1x64x112x112xf16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1> {
+    %0 = migraphx.reduce_max %arg0 {axes = [2 : i64]} : <1x64x112x112xf16, 802816x12544x112x1> -> <1x64x1x112xf16, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xf16, 7168x112x112x1>
+  }
+
+  // CHECK-LABEL: func.func @func_reduce_max_i32
+  // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
+  // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
+  // CHECK-DAG: %[[REDUCE_MAX:.*]] = tosa.reduce_max %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
+  // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_MAX]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
+  // CHECK: return %[[RET]]
+  func.func @func_reduce_max_i32(%arg0: !migraphx.shaped<1x64x112x112xi32, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1> {
+    %0 = migraphx.reduce_max %arg0 {axes = [2 : i64]} : <1x64x112x112xi32, 802816x12544x112x1> -> <1x64x1x112xi32, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xi32, 7168x112x112x1>
+  }
+
+  // CHECK-LABEL: func.func @func_reduce_max_i16
+  // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
+  // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
+  // CHECK-SAME: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
+  // CHECK-DAG: %[[REDUCE_MAX:.*]] = tosa.reduce_max %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
+  // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_MAX]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
+  // CHECK: return %[[RET]]
+  func.func @func_reduce_max_i16(%arg0: !migraphx.shaped<1x64x112x112xi16, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1> {
+    %0 = migraphx.reduce_max %arg0 {axes = [2 : i64]} : <1x64x112x112xi16, 802816x12544x112x1> -> <1x64x1x112xi16, 7168x112x112x1>
+    return %0 : !migraphx.shaped<1x64x1x112xi16, 7168x112x112x1>
+  }
+
+  // CHECK-LABEL: func.func @func_reduce_max_i8
+  // CHECK-SAME: (%arg0: [[INTYPE_FLAT:.*]]) -> [[OUTTYPE_FLAT:.*]] {
+  // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0
+  // CHECK-DAG: ([[INTYPE_FLAT]], !tosa.shape<4>) -> [[INTYPE:.*]]
+  // CHECK-DAG: %[[REDUCE_MAX:.*]] = tosa.reduce_max %[[ARG0]] {axis = 2 : i32} : ([[INTYPE]]) -> [[OUTTYPE:.*]]
+  // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[REDUCE_MAX]]
+  // CHECK-SAME: ([[OUTTYPE]], !tosa.shape<1>) -> [[OUTTYPE_FLAT]]
+  // CHECK: return %[[RET]]
+  func.func @func_reduce_max_i8(%arg0: !migraphx.shaped<1x64x112x112xi8, 802816x12544x112x1>) -> !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1> {
+    %0 = migraphx.reduce_max %arg0 {axes = [2 : i64]} : <1x64x112x112xi8, 802816x12544x112x1> -> <1x64x1x112xi8, 7168x112x112x1>
     return %0 : !migraphx.shaped<1x64x1x112xi8, 7168x112x112x1>
   }
 

@@ -129,12 +129,11 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
   return success();
 }
 
-static LogicalResult
-commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
-                            RockGemmGemmWrapperInterface op, Value a, Value b,
-                            Value c, Value out, Value lse, Value currentSeqLen,
-                            UnitAttr causal, ValueRange elementwiseInputs,
-                            Region &preSecondOpRegion, bool enableSoftmax) {
+static LogicalResult commonAttentionGemmElmtGemm(
+    ConversionPatternRewriter &rw, RockGemmGemmWrapperInterface op, Value a,
+    Value b, Value c, Value out, Value lse, Value currentSeqLen,
+    UnitAttr causal, ValueRange elementwiseInputs, Region &preSecondOpRegion,
+    bool enableSoftmax, TypeAttr softmaxType) {
   Location loc = op->getLoc();
 
   if (!isa<MemRefType>(op.getAType()))
@@ -218,8 +217,8 @@ commonAttentionGemmElmtGemm(ConversionPatternRewriter &rw,
       rw.getStringAttr(op.getArch()),
       rw.getAttr<rock::GemmFeaturesAttr>(op.getGemmFeatures()), blockSizeAttr,
       gridSizeAttr,
-      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, params0,
-      params1, rw.getI32IntegerAttr(op.getFirstGemmIndex()),
+      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
+      params0, params1, rw.getI32IntegerAttr(op.getFirstGemmIndex()),
       rw.getBoolAttr(enableSoftmax));
   bool linalgOpFound = false;
   preSecondOpRegion.walk(
@@ -584,7 +583,7 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
       adaptor.getCausalAttr(), adaptor.getPreSoftmaxElemWiseInputs(),
       op.getPreSoftmaxBody(),
-      /*enableSoftmax=*/true);
+      /*enableSoftmax=*/true, op.getSoftmaxTypeAttr());
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
@@ -595,7 +594,7 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
       /*lse=*/nullptr,
       /*currentSeqLen=*/nullptr, /*causal=*/nullptr,
       adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
-      /*enableSoftmax=*/false);
+      /*enableSoftmax=*/false, /*softmaxType=*/nullptr);
 }
 
 void RockGemmToGridwisePass::runOnOperation() {

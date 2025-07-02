@@ -146,11 +146,13 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
   for (long long i = 0; i < dataSize; ++i) {
     valNum = static_cast<float>(validationResults[i]);
     gpuNum = static_cast<float>(gpuResults[i]);
-    // Update the max magnitutde value
+    // Update the max magnitude value
     float maxNum = std::max(fabs(valNum), fabs(gpuNum));
     maxMag = std::max(maxMag, maxNum);
 
-    if (valNum == gpuNum) {
+    // If cpu value is a denorm, we skip checks.
+    // We need this because we only preserve sign in denorm fp (GPU).
+    if (valNum == gpuNum || std::fpclassify(valNum) == FP_SUBNORMAL) {
       hist_relDiff[0]++;
     } else {
       // We know valNum != gpuNum. If valNum is inf, this branch will simply
@@ -160,7 +162,7 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
       if (std::isinf(valNum))
         valNum = (valNum > 0 ? fp16MaxVal : -fp16MaxVal);
       float absDiff = fabs(valNum - gpuNum);
-      // Update maxAbsDiff and its correspinding pair of values
+      // Update maxAbsDiff and its corresponding pair of values
       if (absDiff > maxAbsDiff) {
         maxVAL_abs = valNum;
         maxGPU_abs = gpuNum;
