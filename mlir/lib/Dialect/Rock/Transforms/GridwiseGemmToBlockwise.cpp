@@ -1864,8 +1864,8 @@ struct GridwiseAttentionAccelRewritePattern
     bool isKVCache = currentSeqLenTensor != nullptr;
     bool isCausal = op.getCausal();
 
-    // Gemm0 out is casted to be elemTypeV
-    Type elemTypeQxK = elemTypeV;
+    // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
+    Type elemTypeSoftmax = op.getSoftmaxType().value_or(elemTypeV);
 
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
@@ -2018,30 +2018,35 @@ struct GridwiseAttentionAccelRewritePattern
         createBufferForAccelGemmOut(loc, accelParamsGemm0, rewriter);
     // Currently, there is a working assumption that this kernel is meant
     // support fp32/fp16/bf16. This should be guaranteed by op verifiers.
-    Type gemmOutElemType = elemTypeQxK;
-    Type fusionOutElemType = elemTypeQxK;
+    Type gemmOutElemType = elemTypeV;
+    Type fusionOutElemType = elemTypeV;
     if (elemTypeQ == rewriter.getI8Type()) {
       gemmOutElemType = rewriter.getI32Type();
     }
     Value gemm0OutBuffer = createBufferForGemmOut(loc, gemmOutElemType,
                                                   accelParamsGemm0, rewriter);
+    Value softmaxInputBuffer;
+    if (fusionOutElemType != elemTypeSoftmax) {
+      softmaxInputBuffer = createBufferForGemmOut(loc, elemTypeSoftmax,
+                                                  accelParamsGemm0, rewriter);
+    }
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
     Value fusionOutBuffer = createBufferForGemmOut(loc, fusionOutElemType,
                                                    accelParamsGemm0, rewriter);
     // Buffers for reductions and softmax input
-    Value gemm0OutBufferMax, gemm0OutBufferExp, gemm0OutBufferSum;
+    Value softmaxBufferMax, softmaxBufferExp, softmaxBufferSum;
     if (op.getEnableSoftmax()) {
-      gemm0OutBufferMax =
-          createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
-      gemm0OutBufferExp =
-          createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
-      gemm0OutBufferSum =
-          createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm0, rewriter);
+      softmaxBufferMax = createBufferForGemmOut(loc, elemTypeSoftmax,
+                                                accelParamsGemm0, rewriter);
+      softmaxBufferExp = createBufferForGemmOut(loc, elemTypeSoftmax,
+                                                accelParamsGemm0, rewriter);
+      softmaxBufferSum = createBufferForGemmOut(loc, elemTypeSoftmax,
+                                                accelParamsGemm0, rewriter);
     }
     // Buffers for gemm 1
     Value gemm1RegBufferB;
-    if (elemTypeV != elemTypeQxK) {
+    if (elemTypeV != elemTypeSoftmax) {
       gemm1RegBufferB =
           createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
     }
@@ -2055,13 +2060,13 @@ struct GridwiseAttentionAccelRewritePattern
     if (op.getEnableSoftmax()) {
       accRegBufferGemm1 =
           createBufferForAccelGemmOut(loc, accelParamsGemm1, rewriter);
-      gemm1OutBuffer =
-          createBufferForGemmOut(loc, elemTypeQxK, accelParamsGemm1, rewriter);
+      gemm1OutBuffer = createBufferForGemmOut(loc, elemTypeSoftmax,
+                                              accelParamsGemm1, rewriter);
     } else {
       accRegBufferGemm1 = createBufferForAccelGemmOut(loc, accelParamsGemm1,
                                                       rewriter, gemm1MBlocks);
       gemm1OutBuffer = createBufferForGemmOut(
-          loc, elemTypeQxK, accelParamsGemm1, rewriter, gemm1MBlocks);
+          loc, elemTypeSoftmax, accelParamsGemm1, rewriter, gemm1MBlocks);
     }
 
     SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm1MBlocks,
@@ -2103,17 +2108,17 @@ struct GridwiseAttentionAccelRewritePattern
     ArrayAttr attentionOutAccBufferThreadSubTileViewMaps;
     if (op.getEnableSoftmax()) {
       attentionOutAccBuffer = createBufferForGemmOut(
-          loc, elemTypeQxK, accelParamsGemm1, rewriter, gemm1MBlocks);
+          loc, elemTypeSoftmax, accelParamsGemm1, rewriter, gemm1MBlocks);
       outAccBufferOutTyped = attentionOutAccBuffer;
-      if (elemTypeQxK != elemTypeOut) {
+      if (elemTypeSoftmax != elemTypeOut) {
         outAccBufferOutTyped = createBufferForGemmOut(
-            loc, elemTypeOut, accelParamsGemm1, rewriter);
+            loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
       }
       attentionOutAccBufferThreadSubTileViewMaps =
           invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
       // m buffer; this only contains a reduced single value per row
       auto reducedBufferType =
-          MemRefType::get({gemm1MPerThread}, elemTypeQxK, AffineMap{},
+          MemRefType::get({gemm1MPerThread}, elemTypeSoftmax, AffineMap{},
                           /*memorySpace=*/privateMemoryAddressSpace);
       auto negInfSumTyped = createConstantFloatOp(
           rewriter, loc, reducedBufferType.getElementType(),
@@ -2125,8 +2130,9 @@ struct GridwiseAttentionAccelRewritePattern
       rewriter.create<FillOp>(loc, maxRowBuffer, negInfSumTyped);
       // l buffer; this only contains a reduced single value per row
       sumRowBuffer = rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
-      rewriter.create<FillOp>(loc, sumRowBuffer,
-                              createZeroConstantOp(rewriter, loc, elemTypeQxK));
+      rewriter.create<FillOp>(
+          loc, sumRowBuffer,
+          createZeroConstantOp(rewriter, loc, elemTypeSoftmax));
       if (lse) {
         Type elemTypeLse = cast<MemRefType>(lse.getType()).getElementType();
         lseBuffer = createBufferForGemmOut(loc, elemTypeLse, accelParamsGemm1,
@@ -2136,7 +2142,7 @@ struct GridwiseAttentionAccelRewritePattern
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
     } else {
       outAccBufferOutTyped = gemm1OutBuffer;
-      if (elemTypeQxK != elemTypeOut) {
+      if (elemTypeSoftmax != elemTypeOut) {
         outAccBufferOutTyped = createBufferForGemmOut(
             loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
       }
@@ -2394,16 +2400,23 @@ struct GridwiseAttentionAccelRewritePattern
         return op.emitError("post processing first gemm failed.\n");
       }
       gemm0OutBuffer = maybeFusionOutBuffer.value();
+      if (fusionOutElemType == elemTypeSoftmax)
+        softmaxInputBuffer = gemm0OutBuffer;
 
       // Softmax
       if (op.getEnableSoftmax()) {
+        // convert gemm0OutBuffer to elemTypeSoftmax
+        if (fusionOutElemType != elemTypeSoftmax) {
+          createTypeConversionFlatAndStore(rewriter, loc, gemm0OutBuffer,
+                                           softmaxInputBuffer);
+        }
         // Scale gemm0 output by (1/ln2)
         // So that we can use exp2 instead of exp.
         Value ln2Recip = createConstantFloatOp(
-            rewriter, loc, elemTypeQxK, elemTypeQxK, 1.44269504f,
-            elemTypeQxK.isF32() ? APFloat::opOK : APFloat::opInexact);
+            rewriter, loc, elemTypeSoftmax, elemTypeSoftmax, 1.44269504f,
+            elemTypeSoftmax.isF32() ? APFloat::opOK : APFloat::opInexact);
         postProcessFirstGemmSplat<ElementwiseMultOp>(
-            rewriter, loc, gridCoordsGemm0, gemm0OutBuffer,
+            rewriter, loc, gridCoordsGemm0, softmaxInputBuffer,
             gemm0OutSubTileViews,
             ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
 
@@ -2413,29 +2426,30 @@ struct GridwiseAttentionAccelRewritePattern
         if (hasPadding) {
           bool isGfx11 = arch.contains("gfx11");
           createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
-                                       gemm0OutBuffer,
+                                       softmaxInputBuffer,
                                        gemm0OutSubTileViewsTrUnPadded, isGfx11);
         }
         // Negative Infinite for extra values (KV cache)
         setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
-                                 gridCoordsGemm0, gemm0OutBuffer,
+                                 gridCoordsGemm0, softmaxInputBuffer,
                                  gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
                                  gemm0MBlocksLastIter, currentSeqLen);
 
         // Negative Infinite for extra values (causal masking)
         setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::Causal,
-                                 gridCoordsGemm0, gemm0OutBuffer,
+                                 gridCoordsGemm0, softmaxInputBuffer,
                                  gemm0OutSubTileViewsTr, isCausal, mLoopIV,
                                  gemm0MBlocksLastIter);
 
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction
         Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
-            rewriter, loc, reductionWorkspaceSize, elemTypeQxK);
+            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
         TypedValue<MemRefType> ldsReductionWorkspaceBuffer = viewBufferAs(
-            rewriter, ldsReductionWorkspaceByteBuffer, elemTypeQxK);
+            rewriter, ldsReductionWorkspaceByteBuffer, elemTypeSoftmax);
         rewriter.create<BlockwiseBroadcastReduceOp>(
-            loc, gemm0OutBuffer, ldsReductionWorkspaceBuffer, gemm0OutBufferMax,
+            loc, softmaxInputBuffer, ldsReductionWorkspaceBuffer,
+            softmaxBufferMax,
             /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Max,
             gemm0OutSubTileViewsTr.blockSubTile,
             gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
@@ -2445,15 +2459,15 @@ struct GridwiseAttentionAccelRewritePattern
 
         // softmax normalization.
         Value gemm0MNThreadwiseView =
-            transform(rewriter, gemm0OutBuffer,
+            transform(rewriter, softmaxInputBuffer,
                       invertTransforms(rewriter, loc,
                                        gemm0OutSubTileViewsTr.threadSubTile));
         Value gemm0MNExpThreadwiseView =
-            transform(rewriter, gemm0OutBufferExp,
+            transform(rewriter, softmaxBufferExp,
                       invertTransforms(rewriter, loc,
                                        gemm0OutSubTileViewsTr.threadSubTile));
         Value gemm0MNMaxThreadwiseView =
-            transform(rewriter, gemm0OutBufferMax,
+            transform(rewriter, softmaxBufferMax,
                       invertTransforms(rewriter, loc,
                                        gemm0OutSubTileViewsTr.threadSubTile));
         expSubstractMaxFromGemm0(rewriter, loc, gemm0MNThreadwiseView,
@@ -2462,12 +2476,12 @@ struct GridwiseAttentionAccelRewritePattern
 
         // Softmax sum reduction
         Value ldsReductionWorkspaceByteSecondBuffer = createLDSByteBuffer(
-            rewriter, loc, reductionWorkspaceSize, elemTypeQxK);
+            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
         TypedValue<MemRefType> ldsReductionWorkspaceSecondBuffer = viewBufferAs(
-            rewriter, ldsReductionWorkspaceByteSecondBuffer, elemTypeQxK);
+            rewriter, ldsReductionWorkspaceByteSecondBuffer, elemTypeSoftmax);
         rewriter.create<BlockwiseBroadcastReduceOp>(
-            loc, gemm0OutBufferExp, ldsReductionWorkspaceSecondBuffer,
-            gemm0OutBufferSum, /*extraOut=*/nullptr, reductionAxis,
+            loc, softmaxBufferExp, ldsReductionWorkspaceSecondBuffer,
+            softmaxBufferSum, /*extraOut=*/nullptr, reductionAxis,
             rock::ReduceMethod::Sum, gemm0OutSubTileViewsTr.blockSubTile,
             gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
             gemm0OutSubTileViewsTr.threadSubTile,
@@ -2475,11 +2489,11 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter.create<GpuDeallocOp>(loc,
                                       ldsReductionWorkspaceByteSecondBuffer);
         Value gemm0SumThreadwiseView =
-            transform(rewriter, gemm0OutBufferSum,
+            transform(rewriter, softmaxBufferSum,
                       invertTransforms(rewriter, loc,
                                        gemm0OutSubTileViewsTr.threadSubTile));
         Value gemm0MaxThreadwiseView =
-            transform(rewriter, gemm0OutBufferMax,
+            transform(rewriter, softmaxBufferMax,
                       invertTransforms(rewriter, loc,
                                        gemm0OutSubTileViewsTr.threadSubTile));
         updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
@@ -2490,10 +2504,10 @@ struct GridwiseAttentionAccelRewritePattern
       // Emit blockwise GEMM 1.
       {
         auto gemm0Out =
-            op.getEnableSoftmax() ? gemm0OutBufferExp : gemm0OutBuffer;
-        if (elemTypeV != elemTypeQxK) {
-          createTypeConversionLaGeneric(rewriter, loc, gemm0Out,
-                                        gemm1RegBufferB);
+            op.getEnableSoftmax() ? softmaxBufferExp : softmaxInputBuffer;
+        if (elemTypeV != elemTypeSoftmax) {
+          createTypeConversionFlatAndStore(rewriter, loc, gemm0Out,
+                                           gemm1RegBufferB);
         } else {
           gemm1RegBufferB = gemm0Out;
         }
@@ -2528,7 +2542,7 @@ struct GridwiseAttentionAccelRewritePattern
           }
           TypedValue<MemRefType> gemm1LDSBufferB =
               viewBufferAs(rewriter, gemm1LDSByteBufferB,
-                           vectorTypeOrSelf(elemTypeQxK, gemm1kpack));
+                           vectorTypeOrSelf(elemTypeV, gemm1kpack));
           wrappedLDSBufferForLoadB = accelEmitterPtrGemm1->wrapLDSBufferForLoad(
               rewriter, loc, gemm1LDSBufferB, op.getBlockSize(),
               gemm1InNPerThread, "n", false);
@@ -2705,9 +2719,11 @@ struct GridwiseAttentionAccelRewritePattern
     }
     Value outAccBuffer =
         op.getEnableSoftmax() ? attentionOutAccBuffer : gemm1OutBuffer;
-    if (elemTypeQxK != elemTypeOut) {
-      createTypeConversionLaGeneric(rewriter, loc, outAccBuffer,
-                                    outAccBufferOutTyped);
+    if (elemTypeSoftmax != elemTypeOut) {
+      // We flatten output buffer in case gemm1MBlocks > 1
+      // where those are iterated.
+      createTypeConversionFlatAndStore(rewriter, loc, outAccBuffer,
+                                       outAccBufferOutTyped);
     }
     if (lse) {
       // it must be guaranteed by the verifier
@@ -2718,22 +2734,9 @@ struct GridwiseAttentionAccelRewritePattern
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
     }
 
-    // We flatten output buffer in case gemm1MBlocks > 1
-    // where those are iterated.
-    Value outAccBufferOutTypedFlat = outAccBufferOutTyped;
     MemRefType outAccBufferOutType =
         cast<MemRefType>(outAccBufferOutTyped.getType());
     int64_t numElementsAttnOut = outAccBufferOutType.getNumElements();
-    if (outAccBufferOutType.getRank() > 1) {
-      Type outAccBufferOutTypedElType = outAccBufferOutType.getElementType();
-      auto outAccBufferOutTypedFlatType =
-          MemRefType::get({numElementsAttnOut}, outAccBufferOutTypedElType,
-                          AffineMap{}, privateMemoryAddressSpace);
-      auto reassociation = getReassociationForFlattening(outAccBufferOutType);
-      outAccBufferOutTypedFlat = rewriter.create<memref::CollapseShapeOp>(
-          loc, outAccBufferOutTypedFlatType, outAccBufferOutTyped,
-          reassociation);
-    }
     // This map will create an upper view [gblock, nblock, flatiter] -> [gblock,
     // miter, nblock, iter]
     TransformMapAttr flatToMiterMap =
@@ -2745,6 +2748,8 @@ struct GridwiseAttentionAccelRewritePattern
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto gridCoordsGemm1 = layout::makeGxNGridLayout(
         rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch);
+    Value outAccBufferOutTypedFlat =
+        getFlattenedMemref(rewriter, outAccBufferOutTyped);
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, outAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
