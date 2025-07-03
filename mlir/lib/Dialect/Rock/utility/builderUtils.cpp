@@ -7,11 +7,13 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -141,10 +143,6 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   return result;
 }
 
-//===----------------------------------------------------------------------===//
-// Utility function to create a linalg generic block to perform cast
-// and copy to another memref.
-//===----------------------------------------------------------------------===//
 void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
                                    Value src, Value dst) {
   MemRefType dstType = cast<MemRefType>(dst.getType());
@@ -159,6 +157,25 @@ void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
                                             dstType.getElementType());
         nestedBuilder.create<linalg::YieldOp>(nestedLoc, cast);
       });
+}
+
+void createTypeConversionFlatAndStore(PatternRewriter &rewriter, Location loc,
+                                      Value src, Value dst) {
+  src = getFlattenedMemref(rewriter, src);
+  dst = getFlattenedMemref(rewriter, dst);
+  auto zeroConstantOp = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+  MemRefType srcMemRefType = cast<MemRefType>(src.getType());
+  MemRefType dstMemRefType = cast<MemRefType>(dst.getType());
+  auto superSrcVecType =
+      VectorType::get(srcMemRefType.getShape(), srcMemRefType.getElementType());
+  auto superDestVecType =
+      VectorType::get(dstMemRefType.getShape(), dstMemRefType.getElementType());
+  SmallVector<Value, 2> zeros{(size_t)srcMemRefType.getRank(), zeroConstantOp};
+  auto vectorSrc =
+      rewriter.create<vector::LoadOp>(loc, superSrcVecType, src, zeros);
+  auto vectorSrcCast =
+      createTypeConversionOp(rewriter, loc, vectorSrc, superDestVecType);
+  rewriter.create<vector::StoreOp>(loc, vectorSrcCast, dst, zeros);
 }
 
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
