@@ -787,6 +787,12 @@ def getAttentionConfigurations(fileName):
                     oneConfig = line.strip()
                     for arg, value in zip(args, test_vector):
                         oneConfig = f"{arg} {value} {oneConfig}"
+                    
+                    # Check for valid dtypes
+                    foundDtype = re.search(r"-t\s+(\w+)", oneConfig)
+                    if not foundDtype or foundDtype.group(1) not in DATA_TYPES_ATTENTION:
+                        continue
+
                     if oneConfig not in configs:
                         configs.append(oneConfig)
 
