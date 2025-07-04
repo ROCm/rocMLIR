@@ -311,14 +311,14 @@ static FlatSymbolRefAttr makeFp8TruncFunction(Location loc, FloatType outType,
   Value cmp = b.create<CmpIOp>(CmpIPredicate::eq, and4, infNanConst);
 
   Block *notInfNan = func.addBlock();
-  Value outNan = b.create<ConstantFloatOp>(APFloat::getQNaN(outSem), outType);
+  Value outNan = b.create<ConstantFloatOp>(outType, APFloat::getQNaN(outSem));
   b.create<cf::CondBranchOp>(cmp, ret, ValueRange{outNan}, notInfNan,
                              ValueRange{});
   b.setInsertionPointToStart(notInfNan);
 
   // A deviation from the MIGraphX: denormals are zero here
   Value cmp5 = b.create<CmpIOp>(CmpIPredicate::eq, and2, i32Const(0));
-  Value outZero = b.create<ConstantFloatOp>(APFloat::getZero(outSem), outType);
+  Value outZero = b.create<ConstantFloatOp>(outType, APFloat::getZero(outSem));
   Block *notZero = func.addBlock();
   b.create<cf::CondBranchOp>(cmp5, ret, ValueRange{outZero}, notZero,
                              ValueRange{});
@@ -366,7 +366,7 @@ static FlatSymbolRefAttr makeFp8TruncFunction(Location loc, FloatType outType,
   Value cmp57 = b.create<CmpIOp>(CmpIPredicate::ne, sub43, i32Const(0));
   Value and58 = b.create<AndIOp>(add56, i32Const(1 << 23));
   Value tobool59Not = b.create<CmpIOp>(CmpIPredicate::eq, and58, i32Const(0));
-  Value trueConst = b.create<ConstantIntOp>(true, 1);
+  Value trueConst = b.create<ConstantIntOp>(b.getI1Type(), true);
   Value brCond133 = b.create<SelectOp>(cmp57, trueConst, tobool59Not);
 
   Block *ifElse61 = func.addBlock();
@@ -392,7 +392,7 @@ static FlatSymbolRefAttr makeFp8TruncFunction(Location loc, FloatType outType,
   b.setInsertionPointToStart(ifThen70);
   Value ir5 = b.create<TruncIOp>(i8, ir1);
   Value conv =
-      b.create<OrIOp>(ir5, b.create<ConstantIntOp>(127, b.getI8Type()));
+      b.create<OrIOp>(ir5, b.create<ConstantIntOp>(b.getI8Type(), 127));
   Value convOut = b.create<BitcastOp>(outType, conv);
   b.create<cf::BranchOp>(ret, convOut);
 
@@ -402,7 +402,7 @@ static FlatSymbolRefAttr makeFp8TruncFunction(Location loc, FloatType outType,
   Value cmp72 = b.create<CmpIOp>(CmpIPredicate::eq, f8Exponent0, i32Const(0));
   Value cmp74 = b.create<CmpIOp>(CmpIPredicate::ult, mantissa1,
                                  i32Const(1 << (16 + eBits)));
-  Value falseConst = b.create<ConstantIntOp>(false, 1);
+  Value falseConst = b.create<ConstantIntOp>(b.getI1Type(), false);
   Value brCond = b.create<SelectOp>(cmp72, cmp74, falseConst);
   b.create<cf::CondBranchOp>(brCond, ret, ValueRange{outZero}, ifEnd76,
                              ValueRange{f8Exponent0, mantissa1});
@@ -735,7 +735,7 @@ void Fp8TruncToCallPattern::rewrite(TruncFOp op, OpAdaptor adaptor,
   Value rets = rewriter.createOrFold<vector::SplatOp>(
       loc,
       rewriter.createOrFold<ConstantFloatOp>(
-          loc, APFloat::getZero(outElemType.getFloatSemantics()), outElemType),
+          loc, outElemType, APFloat::getZero(outElemType.getFloatSemantics())),
       retVecType);
   SmallVector<int64_t> strides = computeStrides(inVecType.getShape());
   for (int64_t i = 0, e = inVecType.getNumElements(); i < e; ++i) {

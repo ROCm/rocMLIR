@@ -11,7 +11,7 @@
 // RUNNER-SAME: convert-mhal-to-gpu,
 // RUNNER-SAME: convert-mhal-to-cpu,
 // RUNNER-SAME: async-parallel-for{async-dispatch=true min-task-size=1000 num-workers=8},
-// RUNNER-SAME: func.func(arith-expand{include-bf16=false include-f8e8m0=false},
+// RUNNER-SAME: func.func(arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=false},
 // RUNNER-SAME: convert-arith-to-llvm{index-bitwidth=0},
 // RUNNER-SAME: convert-math-to-llvm{approximate-log1p=true}),
 // RUNNER-SAME: convert-math-to-libm,

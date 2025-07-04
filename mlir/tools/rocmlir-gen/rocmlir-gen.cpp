@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -1366,8 +1367,8 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
   // Emit device selection
   if (deviceNum.getNumOccurrences() > 0)
     b.create<gpu::SetDefaultDeviceOp>(
-        loc, b.create<arith::ConstantIntOp>(loc, deviceNum.getValue(),
-                                            b.getIntegerType(32)));
+        loc, b.create<arith::ConstantIntOp>(loc, b.getIntegerType(32),
+                                            deviceNum.getValue()));
 
   SmallVector<Value, 4> cpuMem;
   SmallVector<Value, 4> gpuMem;
@@ -1574,7 +1575,7 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
     if (i16vals.find(v) == i16vals.end()) {
       auto i16Type = b.getIntegerType(16);
       i16vals.try_emplace(
-          v, b.createOrFold<arith::ConstantIntOp>(loc, v, i16Type));
+          v, b.createOrFold<arith::ConstantIntOp>(loc, i16Type, v));
     }
     return i16vals[v];
   };
@@ -2920,8 +2921,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     MemRefType resMemRefType =
         MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
                         cast<ShapedType>(qkTensor.getType()).getElementType());
-    Value resMemref =
-        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, qkTensor);
+    Value resMemref = builder.create<bufferization::ToBufferOp>(
+        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+        qkTensor);
     Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3011,8 +3013,9 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     MemRefType resMemRefType =
         MemRefType::get({aShape[0], firstGemmSize.m, firstGemmSize.n},
                         cast<ShapedType>(abTensor.getType()).getElementType());
-    Value resMemref =
-        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, abTensor);
+    Value resMemref = builder.create<bufferization::ToBufferOp>(
+        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+        abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3107,8 +3110,9 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     MemRefType resMemRefType =
         MemRefType::get({aShape[0], gemmM, gemmN},
                         cast<ShapedType>(abTensor.getType()).getElementType());
-    Value resMemref =
-        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, abTensor);
+    Value resMemref = builder.create<bufferization::ToBufferOp>(
+        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+        abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3289,7 +3293,10 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
     Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+        loc,
+        memref::getTensorTypeFromMemRefType(
+            block->getArgument(blockArgIndex).getType()),
+        block->getArgument(blockArgIndex), isRestrict, isWritable);
     ArrayRef<int64_t> origShape =
         cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
@@ -3426,11 +3433,11 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   }
 
   Value output = block->getArguments().back();
-  auto outputType = cast<MemRefType>(output.getType());
+  auto outputType = cast<bufferization::BufferLikeType>(output.getType());
 
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
-  auto shapeValue =
-      tosa::getTosaConstShape(implicitBuilder, outputType.getShape());
+  auto shapeValue = tosa::getTosaConstShape(
+      implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
@@ -3468,7 +3475,10 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
     Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+        loc,
+        memref::getTensorTypeFromMemRefType(
+            block->getArgument(blockArgIndex).getType()),
+        block->getArgument(blockArgIndex), isRestrict, isWritable);
     ArrayRef<int64_t> origShape =
         cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
@@ -3541,11 +3551,11 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   }
 
   Value output = block->getArguments().back();
-  auto outputType = cast<MemRefType>(output.getType());
+  auto outputType = cast<mlir::bufferization::BufferLikeType>(output.getType());
 
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
-  auto shapeValue =
-      tosa::getTosaConstShape(implicitBuilder, outputType.getShape());
+  auto shapeValue = tosa::getTosaConstShape(
+      implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
@@ -3583,7 +3593,10 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
     Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+        loc,
+        memref::getTensorTypeFromMemRefType(
+            block->getArgument(blockArgIndex).getType()),
+        block->getArgument(blockArgIndex), isRestrict, isWritable);
     ArrayRef<int64_t> origShape =
         cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
@@ -3799,10 +3812,10 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   }
 
   Value output = block->getArguments().back();
-  auto outputType = cast<MemRefType>(output.getType());
+  auto outputType = cast<mlir::bufferization::BufferLikeType>(output.getType());
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
-  auto shapeValue =
-      tosa::getTosaConstShape(implicitBuilder, outputType.getShape());
+  auto shapeValue = tosa::getTosaConstShape(
+      implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
@@ -3813,9 +3826,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   // return LSE (log-sum-exp)
   if (returnLSE) {
-    auto lseOutType = cast<MemRefType>(lseOut.getType());
-    auto lseShapeValue =
-        tosa::getTosaConstShape(implicitBuilder, lseOutType.getShape());
+    auto lseOutType = cast<bufferization::BufferLikeType>(lseOut.getType());
+    auto lseShapeValue = tosa::getTosaConstShape(
+        implicitBuilder, cast<ShapedType>(lseOutType).getShape());
     auto flatLseTensor =
         builder.create<tosa::ReshapeOp>(loc, lseTensor, lseShapeValue);
 
@@ -3934,7 +3947,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   auto getF32Val = [&](float val) -> Value {
     llvm::APFloat apVal(val);
-    return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+    return b.create<arith::ConstantFloatOp>(loc, floatType, apVal);
   };
   // Thresholds for different metrics
   // RMS: 0.00003f for all data types
@@ -3945,7 +3958,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   char printDebug = static_cast<char>(printVerifyResults.getValue());
 
   auto printDebugVal =
-      b.create<arith::ConstantIntOp>(loc, printDebug, charType);
+      b.create<arith::ConstantIntOp>(loc, charType, printDebug);
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
@@ -4396,7 +4409,7 @@ static LogicalResult populateHostHarnessLogic(
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
     int seed = getRandomSeed();
-    Value seedConst = b.create<arith::ConstantIntOp>(loc, seed, b.getI32Type());
+    Value seedConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), seed);
     b.create<func::CallOp>(loc, seedFunc, seedConst);
   }
 
@@ -4468,7 +4481,7 @@ static LogicalResult populateHostHarnessLogic(
       for (auto pair : llvm::enumerate(currentSeqLen)) {
         Value index = b.create<arith::ConstantIndexOp>(loc, pair.index());
         Value value =
-            b.create<arith::ConstantIntOp>(loc, pair.value(), b.getI32Type());
+            b.create<arith::ConstantIntOp>(loc, b.getI32Type(), pair.value());
         b.create<memref::StoreOp>(loc, value, lvar, ValueRange{index});
       }
     } else if (!isRandom) {

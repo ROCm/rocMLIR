@@ -49,7 +49,6 @@
 #include "llvm/IR/EHPersonalities.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
-#include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
@@ -3243,10 +3242,8 @@ bool llvm::handleUnreachableTerminator(
   return Changed;
 }
 
-std::pair<unsigned, unsigned>
-llvm::removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB) {
+unsigned llvm::removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB) {
   unsigned NumDeadInst = 0;
-  unsigned NumDeadDbgInst = 0;
   // Delete the instructions backwards, as it has a reduced likelihood of
   // having to update as many def-use and use-def chains.
   Instruction *EndInst = BB->getTerminator(); // Last not to be deleted.
@@ -3265,15 +3262,12 @@ llvm::removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB) {
       EndInst = Inst;
       continue;
     }
-    if (isa<DbgInfoIntrinsic>(Inst))
-      ++NumDeadDbgInst;
-    else
-      ++NumDeadInst;
+    ++NumDeadInst;
     // RemoveDIs: erasing debug-info must be done manually.
     Inst->dropDbgRecords();
     Inst->eraseFromParent();
   }
-  return {NumDeadInst, NumDeadDbgInst};
+  return NumDeadInst;
 }
 
 unsigned llvm::changeToUnreachable(Instruction *I, bool PreserveLCSSA,

@@ -12,7 +12,9 @@
 
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -1196,8 +1198,8 @@ struct ConvElementwiseGemmRewritePattern
       RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
-      Value resMemref =
-          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
+      Value resMemref = rewriter.create<bufferization::ToBufferOp>(
+          loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType), res);
       Value outMemref =
           preSecondGemmElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
@@ -1280,8 +1282,8 @@ struct GemmElementwiseGemmRewritePattern
       RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
-      Value resMemref =
-          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
+      Value resMemref = rewriter.create<bufferization::ToBufferOp>(
+          loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType), res);
       Value outMemref =
           preSecondGemmElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
@@ -1857,8 +1859,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
       MemRefType resMemRefType = MemRefType::get(
           resTensorType.getShape(), resTensorType.getElementType());
-      Value resMemref =
-          rewriter.create<bufferization::ToBufferOp>(loc, resMemRefType, res);
+      Value resMemref = rewriter.create<bufferization::ToBufferOp>(
+          loc, cast<bufferization::BufferLikeType>(resMemRefType), res);
       Value outMemref =
           preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
       rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
