@@ -119,6 +119,7 @@ MLIRGPUUtils
 MLIRIR
 MLIRIndexDialect
 MLIRIndexToLLVM
+MLIRIndexingMapOpInterface
 MLIRInferIntRangeCommon
 MLIRInferIntRangeInterface
 MLIRInferTypeOpInterface

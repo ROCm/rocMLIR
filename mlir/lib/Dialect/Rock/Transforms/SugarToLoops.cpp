@@ -199,7 +199,7 @@ struct TransformingForRewritePattern
       if (!useDiffs || transforms.empty()) {
         AffineResults computed;
         Value isValid =
-            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+            b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
         // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
           computed.push_back(
@@ -227,7 +227,7 @@ struct TransformingForRewritePattern
       } else { // index diff maps
         IndexDiffUpdateOp lastDiff;
         Value isValid =
-            b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+            b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
         for (const auto &[t, lowerInit] : llvm::zip(
                  transforms.getAsRange<TransformMapAttr>(), lowerInits[i])) {
           if (!lastDiff)
@@ -916,7 +916,7 @@ static Value getConstIntOrIndexValue(OpBuilder &b, Location loc, int64_t value,
   if (isa<IndexType>(type)) {
     return b.create<ConstantIndexOp>(loc, value);
   }
-  return b.create<ConstantIntOp>(loc, value, type);
+  return b.create<ConstantIntOp>(loc, type, value);
 }
 
 // Manually flatten a set of coordinates into a single address
