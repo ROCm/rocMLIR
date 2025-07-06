@@ -1107,13 +1107,6 @@ void AsmPrinter::emitFunctionHeader() {
 /// function.  This can be overridden by targets as required to do custom stuff.
 void AsmPrinter::emitFunctionEntryLabel() {
   CurrentFnSym->redefineIfPossible();
-
-  // The function label could have already been emitted if two symbols end up
-  // conflicting due to asm renaming.  Detect this and emit an error.
-  if (CurrentFnSym->isVariable())
-    report_fatal_error("'" + Twine(CurrentFnSym->getName()) +
-                       "' is a protected alias");
-
   OutStreamer->emitLabel(CurrentFnSym);
 
   if (TM.getTargetTriple().isOSBinFormatELF()) {
@@ -1473,9 +1466,12 @@ getBBAddrMapFeature(const MachineFunction &MF, int NumMBBSectionRanges) {
         "BB entries info is required for BBFreq and BrProb "
         "features");
   }
-  return {FuncEntryCountEnabled, BBFreqEnabled, BrProbEnabled,
+  return {FuncEntryCountEnabled,
+          BBFreqEnabled,
+          BrProbEnabled,
           MF.hasBBSections() && NumMBBSectionRanges > 1,
-          static_cast<bool>(BBAddrMapSkipEmitBBEntries)};
+          static_cast<bool>(BBAddrMapSkipEmitBBEntries),
+          false};
 }
 
 void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
@@ -2424,6 +2420,15 @@ void AsmPrinter::emitRemarksSection(remarks::RemarkStreamer &RS) {
   if (!RS.needsSection())
     return;
 
+  MCSection *RemarksSection =
+      OutContext.getObjectFileInfo()->getRemarksSection();
+  if (!RemarksSection) {
+    OutContext.reportWarning(SMLoc(), "Current object file format does not "
+                                      "support remarks sections. Use the yaml "
+                                      "remark format instead.");
+    return;
+  }
+
   remarks::RemarkSerializer &RemarkSerializer = RS.getSerializer();
 
   std::optional<SmallString<128>> Filename;
@@ -2441,10 +2446,7 @@ void AsmPrinter::emitRemarksSection(remarks::RemarkStreamer &RS) {
   MetaSerializer->emit();
 
   // Switch to the remarks section.
-  MCSection *RemarksSection =
-      OutContext.getObjectFileInfo()->getRemarksSection();
   OutStreamer->switchSection(RemarksSection);
-
   OutStreamer->emitBinaryData(Buf);
 }
 
@@ -3242,7 +3244,10 @@ bool AsmPrinter::emitSpecialLLVMGlobal(const GlobalVariable *GV) {
     return true;
   }
 
-  report_fatal_error("unknown special variable with appending linkage");
+  GV->getContext().emitError(
+      "unknown special variable with appending linkage: " +
+      GV->getNameOrAsOperand());
+  return true;
 }
 
 /// EmitLLVMUsedList - For targets that define a MAI::UsedDirective, mark each
@@ -3278,9 +3283,11 @@ void AsmPrinter::preprocessXXStructorList(const DataLayout &DL,
     S.Priority = Priority->getLimitedValue(65535);
     S.Func = CS->getOperand(1);
     if (!CS->getOperand(2)->isNullValue()) {
-      if (TM.getTargetTriple().isOSAIX())
-        llvm::report_fatal_error(
+      if (TM.getTargetTriple().isOSAIX()) {
+        CS->getContext().emitError(
             "associated data of XXStructor list is not yet supported on AIX");
+      }
+
       S.ComdatKey =
           dyn_cast<GlobalValue>(CS->getOperand(2)->stripPointerCasts());
     }
@@ -3638,10 +3645,11 @@ const MCExpr *AsmPrinter::lowerConstant(const Constant *CV,
   // Otherwise report the problem to the user.
   std::string S;
   raw_string_ostream OS(S);
-  OS << "Unsupported expression in static initializer: ";
+  OS << "unsupported expression in static initializer: ";
   CE->printAsOperand(OS, /*PrintType=*/false,
                      !MF ? nullptr : MF->getFunction().getParent());
-  report_fatal_error(Twine(S));
+  CE->getContext().emitError(S);
+  return MCConstantExpr::create(0, Ctx);
 }
 
 static void emitGlobalConstantImpl(const DataLayout &DL, const Constant *C,
