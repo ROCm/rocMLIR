@@ -691,6 +691,14 @@ public:
     auto outputTy = cast<ShapedType>(op.getType());
     auto outputElementTy = outputTy.getElementType();
 
+    auto accTy = outputTy;
+    auto accETy = outputElementTy;
+
+    if (auto attr = op->getAttrOfType<TypeAttr>("acc_type")) {
+      accETy = attr.getValue();
+      accTy = RankedTensorType::get(op.getType().getShape(), accETy);
+    }
+
     SmallVector<Value> dynDims;
     dynDims.resize(cast<ShapedType>(op->getResult(0).getType()).getRank());
 
@@ -708,10 +716,10 @@ public:
 
     SmallVector<Value> filteredDims = condenseValues(dynDims);
 
-    auto zeroAttr = rewriter.getZeroAttr(outputElementTy);
+    auto zeroAttr = rewriter.getZeroAttr(accETy);
     Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
     auto emptyTensor = rewriter.create<tensor::EmptyOp>(
-        loc, outputTy.getShape(), outputTy.getElementType(), filteredDims);
+        loc, accTy.getShape(), accTy.getElementType(), filteredDims);
     Value zeroTensor = rewriter
                            .create<linalg::FillOp>(loc, ValueRange{zero},
                                                    ValueRange{emptyTensor})
@@ -738,9 +746,17 @@ public:
           op, "input b zero point must be zero for non-int8 integer types");
 
     if (aZpVal == 0 && bZpVal == 0) {
-      rewriter.replaceOpWithNewOp<linalg::BatchMatmulOp>(
-          op, TypeRange{op.getType()},
-          ValueRange{adaptor.getA(), adaptor.getB()}, ValueRange{zeroTensor});
+      auto res = rewriter
+                     .create<linalg::BatchMatmulOp>(
+                         loc, TypeRange{accTy},
+                         ValueRange{adaptor.getA(), adaptor.getB()},
+                         ValueRange{zeroTensor})
+                     ->getResult(0);
+      rewriter.replaceOpWithNewOp<tosa::CastOp>(
+          op,
+          RankedTensorType::get(cast<ShapedType>(res.getType()).getShape(),
+                                outputElementTy),
+          res);
       return success();
     }
 
@@ -748,9 +764,17 @@ public:
         loc, rewriter.getI32IntegerAttr(aZpVal));
     auto bZp = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getI32IntegerAttr(bZpVal));
-    rewriter.replaceOpWithNewOp<linalg::QuantizedBatchMatmulOp>(
-        op, TypeRange{op.getType()},
-        ValueRange{adaptor.getA(), adaptor.getB(), aZp, bZp}, zeroTensor);
+    auto res = rewriter
+                   .create<linalg::QuantizedBatchMatmulOp>(
+                       loc, TypeRange{accTy},
+                       ValueRange{adaptor.getA(), adaptor.getB(), aZp, bZp},
+                       zeroTensor)
+                   ->getResult(0);
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(
+        op,
+        RankedTensorType::get(cast<ShapedType>(res.getType()).getShape(),
+                              outputElementTy),
+        res);
 
     return success();
   }

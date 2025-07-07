@@ -20,5 +20,5 @@
 
 // CHECK-LABEL: func.func @host_naive_gemm_gemm
 // CHECK: %[[abTensor:.*]] = tosa.matmul %[[aTensor:.*]], %[[bTensor:.*]], %{{.*}}, %{{.*}} : ([[aShape:tensor<.*>]], [[bShape:tensor<.*>]], tensor<1xf32>, tensor<1xf32>) -> [[squareShape:tensor<.*>]]
-// CHECK-DAG: %[[resultTensor:.*]] = tosa.matmul %[[abTensor]], %[[cTensor:.*]], %{{.*}}, %{{.*}} : ([[squareShape]], [[cShape:tensor<.*>]], tensor<1xf32>, tensor<1xf32>) -> [[cShape]]
+// CHECK-DAG: %[[resultTensor:.*]] = tosa.matmul %[[abTensor]], %[[cTensor:.*]], %{{.*}}, %{{.*}} {acc_type = f32} : ([[squareShape]], [[cShape:tensor<.*>]], tensor<1xf32>, tensor<1xf32>) -> [[cShape]]
 // CHECK: return

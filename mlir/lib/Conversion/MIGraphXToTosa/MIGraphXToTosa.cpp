@@ -365,19 +365,13 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   // Determine the accumulation type based on the output type.
   Type accType;
-  if (isa<FloatType>(elementTy) && elementTy.getIntOrFloatBitWidth() >= 16) {
+  if (isa<FloatType>(elementTy)) {
     accType = rewriter.getF32Type();
     // accType is not used by rocMLIR when converting tosa to rock.
-    // accType for Float8 type is required to be Float16 as per TOSA v1.0 spec
-    // therefore just set it as required, it is being ignored anyways for GPU
-    // lowering using rocMLIR. [Risk]: CPU may generate different results
-    // compared to GPU if accType gets used on CPU lowering path. Currently it
-    // seems none of the TosaToXYZ converter uses this attribute.
-  } else if (isa<FloatType>(elementTy) &&
-             elementTy.getIntOrFloatBitWidth() <= 8) {
-    accType = rewriter.getF16Type();
   } else if (isa<IntegerType>(elementTy)) {
     accType = rewriter.getI32Type();
+  } else {
+    llvm_unreachable("not expected type");
   }
   // convolution config attributes
   if (dims == 1) {
@@ -497,6 +491,17 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   // Construct tosa.matmul.
   auto mop =
       rewriter.create<tosa::MatMulOp>(loc, newOutType, inA, inB, aZp, bZp);
+
+  // Determine the accumulation type based on the output type.
+  Type accType;
+  if (isa<FloatType>(elementTy)) {
+    accType = rewriter.getF32Type();
+  } else if (isa<IntegerType>(elementTy)) {
+    accType = rewriter.getI32Type();
+  } else {
+    llvm_unreachable("not expected type");
+  }
+  mop->setAttr("acc_type", TypeAttr::get(accType));
 
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))

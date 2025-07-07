@@ -213,7 +213,7 @@ module  {
 
   // CHECK-LABEL: func.func @matmul
   // CHECK: tosa.matmul
-  // CHECK-SAME: (tensor<2x256x384xf32>, tensor<2x384x768xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x256x768xf32>
+  // CHECK-SAME: {acc_type = f32} : (tensor<2x256x384xf32>, tensor<2x384x768xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x256x768xf32>
   func.func @matmul(%arg0: !migraphx.shaped<2x256x384xf32, 98304x384x1>, %arg1: !migraphx.shaped<2x384x768xf32, 294912x768x1>) -> !migraphx.shaped<2x256x768xf32, 196608x768x1> {
     %0 = migraphx.dot %arg0, %arg1 : <2x256x384xf32, 98304x384x1>, <2x384x768xf32, 294912x768x1> -> <2x256x768xf32, 196608x768x1>
      return %0 : !migraphx.shaped<2x256x768xf32, 196608x768x1>
@@ -221,6 +221,7 @@ module  {
 
   // CHECK-LABEL: func.func @quant_matmul
   // CHECK: tosa.matmul
+   // CHECK-SAME: {acc_type = i32}
   func.func @quant_matmul(%arg0: !migraphx.shaped<2x256x384xi8, 98304x384x1>, %arg1: !migraphx.shaped<2x384x768xi8, 294912x768x1>) -> !migraphx.shaped<2x256x768xi32, 196608x768x1> {
     %0 = migraphx.quant_dot %arg0, %arg1 : <2x256x384xi8, 98304x384x1>, <2x384x768xi8, 294912x768x1> -> <2x256x768xi32, 196608x768x1>
      return %0 : !migraphx.shaped<2x256x768xi32, 196608x768x1>
@@ -228,6 +229,7 @@ module  {
 
   // CHECK-LABEL: func.func @quant_matmul_fp8
   // CHECK: tosa.matmul
+  // CHECK-SAME: {acc_type = f32}
   func.func @quant_matmul_fp8(%arg0: !migraphx.shaped<1x12x1024x64xf8E4M3FNUZ, 786432x64x768x1>, %arg1: !migraphx.shaped<1x12x64x1024xf8E4M3FNUZ, 786432x64x1x768>) -> !migraphx.shaped<1x12x1024x1024xf32, 12582912x1048576x1024x1> {
     %0 = migraphx.quant_dot %arg0, %arg1 : <1x12x1024x64xf8E4M3FNUZ, 786432x64x768x1>, <1x12x64x1024xf8E4M3FNUZ, 786432x64x1x768> -> <1x12x1024x1024xf32, 12582912x1048576x1024x1>
      return %0 : !migraphx.shaped<1x12x1024x1024xf32, 12582912x1048576x1024x1>
@@ -235,6 +237,7 @@ module  {
 
   // CHECK-LABEL: func.func @quant_matmul_fp8_ocp
   // CHECK: tosa.matmul
+  // CHECK-SAME: {acc_type = f32}
   func.func @quant_matmul_fp8_ocp(%arg0: !migraphx.shaped<1x12x1024x64xf8E4M3FN, 786432x64x768x1>, %arg1: !migraphx.shaped<1x12x64x1024xf8E4M3FN, 786432x64x1x768>) -> !migraphx.shaped<1x12x1024x1024xf32, 12582912x1048576x1024x1> {
     %0 = migraphx.quant_dot %arg0, %arg1 : <1x12x1024x64xf8E4M3FN, 786432x64x768x1>, <1x12x64x1024xf8E4M3FN, 786432x64x1x768> -> <1x12x1024x1024xf32, 12582912x1048576x1024x1>
      return %0 : !migraphx.shaped<1x12x1024x1024xf32, 12582912x1048576x1024x1>
@@ -242,6 +245,7 @@ module  {
 
   // CHECK-LABEL: func.func @matmul_larger_batch
   // CHECK: tosa.matmul
+  // CHECK-SAME: {acc_type = f32}
   func.func @matmul_larger_batch(%arg0: !migraphx.shaped<2x16x256x384xf32, 1572864x98304x384x1>, %arg1: !migraphx.shaped<2x16x384x768xf32, 4718592x294912x768x1>) -> !migraphx.shaped<2x16x256x768xf32, 3145728x196608x768x1> {
     %0 = migraphx.dot %arg0, %arg1 : <2x16x256x384xf32, 1572864x98304x384x1>, <2x16x384x768xf32, 4718592x294912x768x1> -> <2x16x256x768xf32, 3145728x196608x768x1>
      return %0 : !migraphx.shaped<2x16x256x768xf32, 3145728x196608x768x1>
@@ -249,6 +253,7 @@ module  {
 
   // CHECK-LABEL: func.func @matmul_rank2
   // CHECK: tosa.matmul
+  // CHECK-SAME: {acc_type = f32}
   func.func @matmul_rank2(%arg0: !migraphx.shaped<32x72xf32, 72x1>, %arg1: !migraphx.shaped<72x64xf32, 64x1>) -> !migraphx.shaped<32x64xf32, 64x1> {
     %0 = migraphx.dot %arg0, %arg1 : <32x72xf32, 72x1>, <72x64xf32, 64x1> -> <32x64xf32, 64x1>
      return %0 : !migraphx.shaped<32x64xf32, 64x1>
@@ -268,6 +273,7 @@ module  {
     // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[INPUT]]
     %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[ADD]]
+    // CHECK-SAME: {acc_type = f32}
     // CHECK-DAG: %[[BIASED:.*]] = tosa.add %[[MATMUL]], %[[ARG0]]
     // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {values = dense<9437184> : tensor<1xindex>} : () -> !tosa.shape<1>
     // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[BIASED]], %[[constshape5]]
@@ -289,6 +295,7 @@ module  {
     // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[ARG2]]
     %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[ADD]]
+    // CHECK-SAME: {acc_type = f32}
     // CHECK-DAG: %[[BIASED:.*]] = tosa.add %[[MATMUL]], %[[ARG0]]
     // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {values = dense<9437184> : tensor<1xindex>} : () -> !tosa.shape<1>
     // CHECK-DAG: %[[RET:.*]] = tosa.reshape %[[BIASED]], %[[constshape5]]
@@ -314,6 +321,7 @@ module  {
     // CHECK-DAG: %[[RESHAPE1:.*]] = tosa.reshape %[[ADD]], %[[constshape5]]
     %1 = migraphx.dot %arg1, %0 : <2x4x8x64x768xf16, 1572864x393216x49152x768x1>, <2x4x8x768x2304xf16, 0x0x0x2304x1> -> <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[RESHAPE0]], %[[RESHAPE1]]
+    // CHECK-SAME: {acc_type = f32}
     // CHECK: %[[RESHAPE2:.*]] = tosa.reshape %[[MATMUL]], %[[constshape3]]
     %2 = migraphx.add %1, %arg0 : <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>, <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1> -> <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
     return %2 : !migraphx.shaped<2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
@@ -617,6 +625,7 @@ module  {
 
   // CHECK-LABEL: func.func @func_dot_mul
   // CHECK: tosa.matmul
+  // CHECK-SAME: {acc_type = f32}
   // CHECK: tosa.mul
   func.func @func_dot_mul(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x5x3xf32, 15x3x1> attributes{kernel, arch = ""} {
     %0 = migraphx.dot %arg0, %arg1 : <1x5x4xf32, 20x4x1>, <1x4x3xf32, 12x3x1> -> <1x5x3xf32, 15x3x1>

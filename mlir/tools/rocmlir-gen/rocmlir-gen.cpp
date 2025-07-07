@@ -3364,15 +3364,13 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, filterTensor.getType(), 0)
           .value();
 
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   Type convOutElemType = params.types[2];
   // accumulate in 32 bit
   Type firstAccType = getAccType(params.types[0], builder);
   assert(firstAccType == getAccType(params.types[1], builder));
 
   auto biasTy = RankedTensorType::get(
-      cast<ShapedType>(filterTensor.getType()).getShape()[0], firstAccType);
+      cast<ShapedType>(filterTensor.getType()).getShape()[0], convOutElemType);
   auto biasTensor = builder.create<tosa::ConstOp>(
       loc, biasTy, cast<ElementsAttr>(builder.getZeroAttr(biasTy)));
 
@@ -3383,30 +3381,12 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
     pads.push_back(config->paddingRightDims[i]);
   }
 
-  // Determine the accumulation type based on the output type.
-  Type accType;
-  if (isa<FloatType>(params.types[0]) &&
-      params.types[0].getIntOrFloatBitWidth() >= 16) {
-    accType = builder.getF32Type();
-  } else if (isa<FloatType>(params.types[0]) &&
-             params.types[0].getIntOrFloatBitWidth() <= 8) {
-    accType = builder.getF16Type();
-  } else if (isa<IntegerType>(params.types[0])) {
-    accType = builder.getI32Type();
-  }
-
-  Value convOutBeforeConversion = createOpAndInfer<tosa::Conv2DOp>(
-      builder, loc, firstAccType, inputTensor, filterTensor, biasTensor,
+  Value convOut = createOpAndInfer<tosa::Conv2DOp>(
+      builder, loc, convOutElemType, inputTensor, filterTensor, biasTensor,
       inputZp, weightZp, builder.getDenseI64ArrayAttr(pads),
       builder.getDenseI64ArrayAttr(config->strideDims),
-      builder.getDenseI64ArrayAttr(config->dilationDims), accType,
+      builder.getDenseI64ArrayAttr(config->dilationDims), firstAccType,
       builder.getI64IntegerAttr(groupSize));
-
-  Value convOut = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(convOutBeforeConversion.getType())
-          .clone(convOutElemType),
-      convOutBeforeConversion);
 
   // convert conv output to matmul A matrix
   // tensor<bxhxwxkxf16> -> tensor<1x(b*h*w)xkxf16>
@@ -3419,14 +3399,10 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   // accumulate in 32 bit
   Type secondAccType = getAccType(convOutElemType, builder);
   assert(secondAccType == getAccType(params.types[2], builder));
-  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, secondAccType, gemmA, cTensor, abZp, cZp);
-
-  Value resultTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(resultTensorBeforeConversion.getType())
-          .clone(secondGemmOutElemType),
-      resultTensorBeforeConversion);
+  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondGemmOutElemType, gemmA, cTensor, abZp, cZp);
+  resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
+  Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
@@ -3516,19 +3492,14 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   auto bZp =
       tosa::createZeroPointTensor(builder, loc, bTensor.getType(), 0).value();
 
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   Type firstGemmOutElemType = params.types[2];
   // accumulate in 32 bit
   Type firstAccType = getAccType(params.types[0], builder);
   assert(firstAccType == getAccType(params.types[1], builder));
-  Value abTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, firstAccType, aTensor, bTensor, aZp, bZp);
-  Value abTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(abTensorBeforeConversion.getType())
-          .clone(firstGemmOutElemType),
-      abTensorBeforeConversion);
+  auto abTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstGemmOutElemType, aTensor, bTensor, aZp, bZp);
+  abTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
+  Value abTensor = abTensorMatMul.getResult();
 
   auto abZp =
       tosa::createZeroPointTensor(builder, loc, abTensor.getType(), 0).value();
@@ -3538,13 +3509,10 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   // accumulate in 32 bit
   Type secondAccType = getAccType(firstGemmOutElemType, builder);
   assert(secondAccType == getAccType(params.types[2], builder));
-  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, secondAccType, abTensor, cTensor, abZp, cZp);
-  Value resultTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(resultTensorBeforeConversion.getType())
-          .clone(secondGemmOutElemType),
-      resultTensorBeforeConversion);
+  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondGemmOutElemType, abTensor, cTensor, abZp, cZp);
+  resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
+  Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
@@ -3643,18 +3611,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto keysZp =
       tosa::createZeroPointTensor(builder, loc, keysTensor.getType(), 0)
           .value();
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   // accumulate in 32 bit
   Type firstAccType = getAccType(firstGemmOutElemType, builder);
   assert(firstAccType == getAccType(params.types[1], builder));
-  Value qkTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, firstAccType, queriesTensor, keysTensor, queriesZp, keysZp);
-  Value qkTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(qkTensorBeforeConversion.getType())
-          .clone(firstGemmOutElemType),
-      qkTensorBeforeConversion);
+  auto qkTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstGemmOutElemType, queriesTensor, keysTensor, queriesZp,
+      keysZp);
+  qkTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
+  Value qkTensor = qkTensorMatMul.getResult();
 
   // get currentSeqLenTensor
   Value currentSeqLenTensor;
@@ -3794,18 +3758,13 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, valuesTensor.getType(), 0)
           .value();
 
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   // accumulate in 32 bit
   Type secondAccType = getAccType(resultOutElementType, builder);
-  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, secondAccType, softmaxTensor, valuesTensor, softmaxZp,
-      valuesZp);
-  Value resultTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(resultTensorBeforeConversion.getType())
-          .clone(resultOutElementType),
-      resultTensorBeforeConversion);
+  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, resultOutElementType, softmaxTensor, valuesTensor,
+      softmaxZp, valuesZp);
+  resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
+  Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
