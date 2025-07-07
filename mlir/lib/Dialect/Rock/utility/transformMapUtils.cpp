@@ -1075,7 +1075,7 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
                                       TransformMapAttr map,
                                       ValueRange outputs) {
   Value isValid =
-      b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+      b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
   ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
 
   // unsigned < catches both negatives (as all negatives are > the bound)
