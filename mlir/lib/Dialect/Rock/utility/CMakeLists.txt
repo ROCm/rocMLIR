@@ -40,7 +40,7 @@ target_link_libraries(MLIRRockUtility PUBLIC
   LLVMTargetParser
 )
 
-find_package(hip REQUIRED)
+find_package(hip REQUIRED PATHS ${ROCM_PATH})
 # We do need both of these.  One is for linking, to get the HIP
 # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
 target_link_libraries(MLIRRockUtility PUBLIC
