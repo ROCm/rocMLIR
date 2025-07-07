@@ -374,7 +374,7 @@ struct LowerGpuOpsToROCDLOpsPass final
       iface->populateConvertToLLVMConversionPatterns(target, converter,
                                                      llvmPatterns);
     }
-    
+
     // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
     WalkResult walkResult =
         getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
