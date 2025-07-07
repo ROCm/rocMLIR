@@ -468,7 +468,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
                << chipset.majorVersion;
 
       Location loc = op->getLoc();
-      
+
       // HACK for direct to LDS
       if (hackForDirectToLDS) {
         // unsigned vmCnt = std::min(63u, op.getNum());
@@ -1720,7 +1720,8 @@ struct ConvertAMDGPUToROCDLPass
 
     RewritePatternSet patterns(ctx);
     LLVMTypeConverter converter(ctx);
-    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset, hackForDirectToLDS);
+    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset,
+                                            hackForDirectToLDS);
     LLVMConversionTarget target(getContext());
     target.addIllegalDialect<::mlir::amdgpu::AMDGPUDialect>();
     target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
@@ -1770,12 +1771,11 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicUminOp>,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
-           AMDGPUDPPLowering, SchedBarrierOpLowering,
-           MFMAOpLowering, ScaledMFMAOpLowering, WMMAOpLowering,
-           ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
-           PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
-           PackedStochRoundFp8OpLowering, GatherToLDSOpLowering>(converter,
-                                                                 chipset);
+           AMDGPUDPPLowering, SchedBarrierOpLowering, MFMAOpLowering,
+           ScaledMFMAOpLowering, WMMAOpLowering, ExtPackedFp8OpLowering,
+           ScaledExtPackedOpLowering, PackedScaledTruncOpLowering,
+           PackedTrunc2xFp8OpLowering, PackedStochRoundFp8OpLowering,
+           GatherToLDSOpLowering>(converter, chipset);
   patterns.add<LDSBarrierOpLowering>(converter, chipset, hackForDirectToLDS);
   patterns.add<AMDGPUSwizzleBitModeLowering>(converter);
 }
