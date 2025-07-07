@@ -462,7 +462,6 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
-    // TODO (direct_to_lds): set directToLDS correctly
     Value wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
         op.getRotateMWithK(), op.getDirectToLDS(), op.getLdsLayoutKxM());
