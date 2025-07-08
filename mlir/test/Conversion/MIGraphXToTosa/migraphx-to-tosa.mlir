@@ -191,7 +191,7 @@ func.func @conv1d_add(%arg0: !migraphx.shaped<1x64x224xf32, 0x1x0>, %arg1: !migr
 func.func @conv2d_float8(%arg0: !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4x1>, %arg1: !migraphx.shaped<16x16x1x1xf8E5M2, 16x1x1x1>) -> !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4x1> {
   // CHECK-COUNT-2: tosa.transpose
   // CHECK: tosa.conv2d
-  // CHECK-SAME: {acc_type = f16, dilation = array<i64: 1, 1>, group = 1 : i64, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x4x4x16xf8E5M2>, tensor<16x1x1x16xf8E5M2>, tensor<16xf8E5M2>, tensor<1xf8E5M2>, tensor<1xf8E5M2>) -> tensor<1x4x4x16xf8E5M2>
+  // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, group = 1 : i64, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x4x4x16xf8E5M2>, tensor<16x1x1x16xf8E5M2>, tensor<16xf8E5M2>, tensor<1xf8E5M2>, tensor<1xf8E5M2>) -> tensor<1x4x4x16xf8E5M2>
   %0 = migraphx.convolution %arg0, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : <1x16x4x4xf8E5M2, 256x16x4x1>, <16x16x1x1xf8E5M2, 16x1x1x1> -> <1x16x4x4xf8E5M2, 256x16x4x1>
   return %0 : !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4x1>
 }
@@ -201,7 +201,17 @@ func.func @conv2d_float8(%arg0: !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4x1>, %
 func.func @quant_conv2d_float8(%arg0: !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4x1>, %arg1: !migraphx.shaped<16x16x1x1xf8E5M2, 16x1x1x1>) -> !migraphx.shaped<1x16x4x4xf32, 256x16x4x1> {
   // CHECK-COUNT-2: tosa.transpose
   // CHECK: tosa.conv2d
-  // CHECK-SAME: {acc_type = f16, dilation = array<i64: 1, 1>, group = 1 : i64, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x4x4x16xf8E5M2>, tensor<16x1x1x16xf8E5M2>, tensor<16xf32>, tensor<1xf8E5M2>, tensor<1xf8E5M2>) -> tensor<1x4x4x16xf32>
+  // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, group = 1 : i64, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x4x4x16xf8E5M2>, tensor<16x1x1x16xf8E5M2>, tensor<16xf32>, tensor<1xf8E5M2>, tensor<1xf8E5M2>) -> tensor<1x4x4x16xf32>
   %0 = migraphx.quant_convolution %arg0, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1]} : <1x16x4x4xf8E5M2, 256x16x4x1>, <16x16x1x1xf8E5M2, 16x1x1x1> -> <1x16x4x4xf32, 256x16x4x1>
   return %0 : !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>
+}
+
+// -----
+
+// CHECK-LABEL: @dot_f16
+func.func @dot_f16(%arg0: !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>, %arg1: !migraphx.shaped<8x64x320x320xf16, 6553600x102400x320x1>) -> !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>  attributes {kernel = "mixr"} {
+ // CHECK: tosa.matmul
+ // CHECK-SAME: {acc_type = f32, perf_config = "v2:16,16,8,16,16,4,1,1,1"} : (tensor<512x64x320xf16>, tensor<512x320x320xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<512x64x320xf16>
+  %4 = migraphx.dot %arg0, %arg1 {perf_config = "v2:16,16,8,16,16,4,1,1,1"} : <8x64x64x320xf16, 1310720x20480x320x1>, <8x64x320x320xf16, 6553600x102400x320x1> -> <8x64x64x320xf16, 1310720x20480x320x1>
+  return %4 : !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>
 }

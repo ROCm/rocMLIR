@@ -323,6 +323,10 @@ class PerfConfiguration:
 
     EXTERNAL_NAME = "unknown"
 
+    def __repr__(self):
+        attrs = ', '.join(f"{key}={value!r}" for key, value in self.__dict__.items())
+        return f"{self.__class__.__name__}({attrs})"
+
 # convolution configurations.
 def getConvConfigurations(fileName):
     configs = []
@@ -403,12 +407,6 @@ class ConvConfiguration(PerfConfiguration):
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
-
-    def __repr__(self):
-        return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
-                n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
-                convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
-                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, arch={self.arch!r}, numCU={self.numCU!r}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
@@ -818,10 +816,6 @@ class GemmConfiguration(PerfConfiguration):
             result[k] = v
         return result
 
-    def __repr__(self):
-        return f"""GemmConfiguration(dtype={self.dataType!r}, outDataType={self.outDataType!r}, g={self.g!r}, m={self.m!r}, k={self.k!r}, n={self.n!r},
-                transA={self.transA!r}, transB={self.transB!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
-
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
 
@@ -997,10 +991,6 @@ class ConvGemmConfiguration(PerfConfiguration):
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
-
-    def __repr__(self):
-        attrs = ', '.join(f"{key}={repr(value)!r}" for key, value in self.__dict__.items())
-        return f"{self.__class__.__name__}({attrs})"
     
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
@@ -1181,10 +1171,6 @@ class GemmGemmConfiguration(PerfConfiguration):
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
-
-    def __repr__(self):
-        attrs = ', '.join(f"{key}={repr(value)!r}" for key, value in self.__dict__.items())
-        return f"{self.__class__.__name__}({attrs})"
     
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
@@ -1348,10 +1334,6 @@ class AttentionConfiguration(PerfConfiguration):
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
-
-    def __repr__(self):
-        return f"""AttentionConfiguration(dtype={self.dataType!r}, g={self.g!r}, seq_len_q={self.seq_len_q!r}, seq_len_k={self.seq_len_k!r}, num_heads_q={self.num_heads_q!r}, num_heads_kv={self.num_heads_kv!r}, head_dim_qk={self.head_dim_qk!r}, head_dim_v={self.head_dim_v!r}, with_attn_scale={self.with_attn_scale!r}, with_attn_bias={self.with_attn_bias!r},
-                transQ={self.transQ!r}, transK={self.transK!r}, transV={self.transV!r}, transO={self.transO!r}, self.causal={self.causal!r}, self.return_lse={self.return_lse!r}, arch={self.arch!r}, numCU={self.numCU}, perf_config={self.perfConfig})"""
 
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
