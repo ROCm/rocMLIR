@@ -84,7 +84,7 @@
     // CHECK: rock.dealloc %[[ldsG0A]] : memref<4096xi8, #gpu.address_space<workgroup>>
 
     // Emit blockwise gemm0
-    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G0BStore]] * %[[preAccelRegA]] from %[[view2G0AStore]]
+    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB:.+]](%[[preAccelRegB]]) from %[[view2G0BStore]] * %[[preAccelRegA]](%[[preAccelRegA]]) from %[[view2G0AStore]]
     // CHECK-SAME: loadAfromLDS
     // CHECK: rock.dealloc %[[ldsG0B]] : memref<4096xi8, #gpu.address_space<workgroup>>
 

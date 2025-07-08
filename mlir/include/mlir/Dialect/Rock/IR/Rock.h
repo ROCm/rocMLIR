@@ -50,6 +50,11 @@ class FusionRoot : public TraitBase<ConcreteType, FusionRoot> {};
 } // namespace OpTrait
 } // namespace mlir
 
+#define ROCK_SCHEDULE_SINGLE_LDS_BUFFER 1
+#define ROCK_SCHEDULE_DOUBLE_LDS_BUFFER 2
+#define ROCK_SCHEDULE_SINGLE_LDS_BUFFER_DIRECTLDS 3
+#define ROCK_SCHEDULE_DOUBLE_LDS_BUFFER_DIRECTLDS 4
+
 namespace mlir {
 namespace rock {
 //===----------------------------------------------------------------------===//

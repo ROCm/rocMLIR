@@ -296,6 +296,37 @@ static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   return cfg;
 }
 
+/// Allocate the buffers for the compute operation. For direct to LDS, we
+/// buffers used for loading data into LDS will be nx(argType.dtype). When
+/// direct to LDS is disabled, the buffers will be nxargType.
+static std::tuple<Value, Value, Value, Value>
+allocateComputeBuffers(PatternRewriter &b, Location loc, Type argTypeA,
+                       Type argTypeB, int64_t arrayALen, int64_t arrayBLen,
+                       bool directToLDS) {
+  Value arrayAForLoad, arrayBForLoad;
+  Value arrayA, arrayB;
+  if (directToLDS) {
+    auto allocBuffer = [](PatternRewriter &b, Location loc, Type argType,
+                          int64_t arrayLen) {
+      Value arrayBase = gpuAlloc(b, loc, arrayLen * getByteWidth(argType),
+                                 b.getI8Type(), AddressSpace::Private);
+      Value arrayForLoad =
+          viewBufferAs(b, arrayBase, getElementTypeOrSelf(argType));
+      Value array = viewBufferAs(b, arrayBase, argType);
+      return std::make_tuple(arrayForLoad, array);
+    };
+    std::tie(arrayAForLoad, arrayA) = allocBuffer(b, loc, argTypeA, arrayALen);
+    std::tie(arrayBForLoad, arrayB) = allocBuffer(b, loc, argTypeB, arrayBLen);
+  } else {
+    arrayA = gpuAlloc(b, loc, arrayALen, argTypeA, AddressSpace::Private);
+    arrayB = gpuAlloc(b, loc, arrayBLen, argTypeB, AddressSpace::Private);
+    arrayAForLoad = arrayA;
+    arrayBForLoad = arrayB;
+  }
+
+  return std::make_tuple(arrayAForLoad, arrayBForLoad, arrayA, arrayB);
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
@@ -470,11 +501,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     FailureOr<VectorDimInfo> maybeVecDimInfoB =
         getVectorDim(loc, op.getB(), elementTypeB, blockSize, kPerBlock,
                      nPerBlock, kpack, directToLDS);
-    if (failed(maybeVecDimInfoB)) {
-      return failure();
-    }
-    LLVM_DEBUG(llvm::dbgs()
-               << "aCopyPerThread: " << aCopyPerThread << "\n"
                << "bCopyPerThread: " << bCopyPerThread << "\n"
                << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
                << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"

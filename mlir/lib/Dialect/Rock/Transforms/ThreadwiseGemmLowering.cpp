@@ -590,7 +590,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
            "Global to LDS should not have vector buffers, not implemented yet");
 
     auto arch = getArch(op);
-    if (failed(arch))
       return emitError(loc) << "can't get arch\n";
     auto features = rock::lookupArchInfo(arch.value()).defaultFeatures;
     hwDirectToLDS128b =
@@ -602,9 +601,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
                  << "Direct to LDS is not supported by the hardware\n");
       return failure();
     }
-  }
 
-  size_t extraIdxCount = op.getExtraIndices().size();
   // We are vectorizing in the iter dimension, not block ID or thread ID
   auto elementType = sourceViewType.getElementType();
   Type loadType;
@@ -763,8 +760,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         constantNumElements = 32 / dstBufferType.getElementTypeBitWidth();
         directToLDSType = b.getF32Type();
         if (!hwDirectToLDS32b) {
-          LLVM_DEBUG(
-              llvm::dbgs()
               << "32 bits direct to LDS is not supported by the hardware\n");
           return failure();
         }
@@ -794,12 +789,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
       scf::IfOp ifb = scf::IfOp::create(b, loc, loadType, validity,
                                         /*withElseRegion=*/true);
+      scf::IfOp ifb =
+          b.create<scf::IfOp>(loc, loadType, validity, /*withElseRegion=*/true);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded;
-        if (!isSrcVectorBuffer)
-          loaded =
-              InBoundsLoadOp::create(thenb, loc, loadType, buffer,
                                      loadLoop.getLowerCoords(/*domain=*/0));
         else
           loaded =
