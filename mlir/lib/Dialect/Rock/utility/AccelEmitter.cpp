@@ -410,6 +410,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName, bool rotateDWithK,
+                                        bool directToLds, bool ldsLayoutDxK,
                                         bool doSplitKAcrossThreadsFirst) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
@@ -428,6 +429,15 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   bool isKReduction = mfmaAttr.isKReduction;
+  int64_t kIter = kpackPerThread;
+  // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
+  // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
+  // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
+  if (directToLds) {
+    kIter *= kPack;
+    kPerBlock *= kPack;
+    assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
+  }
 
   // Extract relevant derived parameters
   int64_t mWaves = mPerBlock / mPerWave;
@@ -442,7 +452,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   SmallVector<Attribute> transformAttrs;
   if (!isKReduction) {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kpackPerThread});
+                              {blockSize, dRepeats, kIter});
     splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                    {blockSize / waveSize, waveSize});
 
@@ -479,14 +489,17 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+    if (ldsLayoutDxK)
+      offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
+    else
+      offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
 
     TransformMapAttr offsetAttr = offset.get();
     transformAttrs.push_back(offsetAttr);
 
   } else {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kpackPerThread});
+                              {blockSize, dRepeats, kIter});
     splitTid.merge(
         {"wave_id", "blk_id", "blk_td"}, {0, 1, 2}, "tid",
         {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
@@ -514,11 +527,11 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     if (doSplitKAcrossThreadsFirst) {
       // k = blk_id + (waveSize / inputSpanLen) * k_i
       toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
-                          {kpackPerThread, waveSize / inputSpanLen});
+                          {kIter, waveSize / inputSpanLen});
     } else {
       // k = k_i + kpackPerBlock * blk_id
       toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
-                          {waveSize / inputSpanLen, kpackPerThread});
+                          {waveSize / inputSpanLen, kIter});
     }
 
     toLDSRowCol.ignore(otherWaveDim);
@@ -531,7 +544,10 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+    if (ldsLayoutDxK)
+      offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
+    else
+      offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
 
     TransformMapAttr offsetAttr = offset.get();
     transformAttrs.push_back(offsetAttr);
@@ -555,7 +571,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles>
 MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-    int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+    int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
     bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -599,7 +615,7 @@ MfmaEmitter::createAccelGemmOperandTransforms(
         loc);
     {
       splitIter.passThrough({"k_loop", "g_block", "m_block", "n_block", "tid"});
-      if (isKContigousDim) {
+      if (isKContiguousDim) {
         splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {5, 6, 7}, "iter",
                         {dRepeats, kpackPerThread, kPack});
       } else {
@@ -794,6 +810,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName, bool rotateDWithK,
+                                        bool directToLds, bool ldsLayoutDxK,
                                         bool doSplitKAcrossThreadsFirst) const {
 
   // Extract relevant tuning parameters
@@ -803,6 +820,9 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t mPerWave = tuningParams.getMPerWave();
   int64_t nPerWave = tuningParams.getNPerWave();
   int64_t kPack = tuningParams.getKpack();
+  // TODO: gfx10 supports directToLDS. Implement it.
+  assert(!directToLds && "direct to LDS not supported for WMMA");
+  assert(!ldsLayoutDxK && "WMMA only supports LDS layout KxD for now");
 
   // Extract relevant emitter parameters
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
@@ -885,7 +905,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles>
 WmmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-    int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+    int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
     bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -926,7 +946,7 @@ WmmaEmitter::createAccelGemmOperandTransforms(
         loc);
     {
       splitIter.passThrough({"k_loop", "g_block", "m_block", "n_block", "tid"});
-      if (isKContigousDim) {
+      if (isKContiguousDim) {
         splitIter.merge({"drepeat", "kpack_iter", "kpack"}, {5, 6, 7}, "iter",
                         {dRepeats, kpackPerThread, kPack});
       } else {

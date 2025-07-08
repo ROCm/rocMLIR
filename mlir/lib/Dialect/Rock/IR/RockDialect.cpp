@@ -1798,8 +1798,8 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
       dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
   if (dstMemSpaceAttr &&
       (!gpuDstMemSpaceAttr ||
-       gpuDstMemSpaceAttr.getValue() != gpu::AddressSpace::Private))
-    return emitOpError("dest must be private registers");
+       gpuDstMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
+    return emitOpError("dest must be private registers or LDS");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
   if (extraViews.empty())
@@ -1820,15 +1820,15 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   VectorType srcVectorType = dyn_cast<VectorType>(srcType.getElementType());
   VectorType dstVectorType = dyn_cast<VectorType>(destType.getElementType());
   if ((srcVectorType || dstVectorType) &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
     return emitOpError(
         "Vector buffers are not allowed when we read from global memory");
   if (srcVectorType && dstVectorType) {
     int64_t srcVectorLen = srcVectorType.getNumElements();
     int64_t dstVectorLen = dstVectorType.getNumElements();
     if ((srcVectorLen > dstVectorLen && srcVectorLen % dstVectorLen != 0) ||
-        (dstVectorLen > srcVectorLen && dstVectorLen % dstVectorLen != 0))
+        (dstVectorLen > srcVectorLen && dstVectorLen % srcVectorLen != 0))
       return emitOpError(
           "Vector buffers vector's lengths need to be evenly divisible");
   }
