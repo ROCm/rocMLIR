@@ -1,5 +1,5 @@
 // Note: this should be in a post-fusion pass
-// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering --canonicalize %s | FileCheck --enable-var-scope %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering --canonicalize | FileCheck --enable-var-scope %s
 
 // CHECK-DAG: #[[$ON_OP:transform_map[0-9]*]] = #rock.transform_map{{.*}}PassThrough{{.*}}[0, 1, 2]{{.*}}[0, 1, 2]
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2)>
@@ -21,10 +21,15 @@
     <Pad{2, 0} ["z"] at [3] -> ["z"] at [3]>]
   bounds = [3, 2, 64, 32] -> [3, 2, 64, 30]>
 
+#transform_map4 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d1, d2 - 2)>
+by [<PassThrough ["1", "0"] at [0, 1]  -> ["1", "0"] at [0, 1]>,
+  <Pad{2, 0} ["z"] at [2] -> ["z"] at [2]>]
+bounds = [1, 128, 32] -> [1, 128, 30]>
+
 
 // CHECK-LABEL: func @threadwise_read_into
 // CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>
-func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) {
+func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -48,7 +53,7 @@ func.func @threadwise_read_into( %source: memref<2x64x30xf32>, %dest: memref<32x
 
 // CHECK-LABEL: func @threadwise_read_into_scalar
 // CHECK-SAME: [[source:%.+]]: memref<f32>, [[dest:%.+]]: memref<1xf32, #gpu.address_space<private>>
-func.func @threadwise_read_into_scalar(%source: memref<f32>, %dest: memref<1xf32, #gpu.address_space<private>>) {
+func.func @threadwise_read_into_scalar(%source: memref<f32>, %dest: memref<1xf32, #gpu.address_space<private>>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
   // CHECK-SAME: () = [#transform_map{{[0-9]*}}]([[zero]])
@@ -67,7 +72,7 @@ func.func @threadwise_read_into_scalar(%source: memref<f32>, %dest: memref<1xf32
 
 // CHECK-LABEL: func @threadwise_read_into_extra_idx
 // CHECK-SAME: [[source:%.+]]: memref<3x2x64x30xf32>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>
-func.func @threadwise_read_into_extra_idx( %source: memref<3x2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) {
+func.func @threadwise_read_into_extra_idx( %source: memref<3x2x64x30xf32>, %dest: memref<32xf32, #gpu.address_space<private>>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[extra_idx:%.+]] = arith.constant 1
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
@@ -94,7 +99,7 @@ func.func @threadwise_read_into_extra_idx( %source: memref<3x2x64x30xf32>, %dest
 
 // CHECK-LABEL: func @threadwise_write_all
 // CHECK-SAME: [[source:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<2x64x30xf32>
-func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) {
+func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -117,7 +122,7 @@ func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<priva
 
 // CHECK-LABEL: func @threadwise_write_all_scalar
 // CHECK-SAME: [[source:%.+]]: memref<1xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<f32>
-func.func @threadwise_write_all_scalar(%source: memref<1xf32, #gpu.address_space<private>>, %dest: memref<f32>) {
+func.func @threadwise_write_all_scalar(%source: memref<1xf32, #gpu.address_space<private>>, %dest: memref<f32>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
   // CHECK-SAME: ([[i:%.+]]) = []([[zero]])
@@ -135,7 +140,7 @@ func.func @threadwise_write_all_scalar(%source: memref<1xf32, #gpu.address_space
 
 // CHECK-LABEL: func @threadwise_write_all_extra_idx
 // CHECK-SAME: [[source:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<3x2x64x30xf32>
-func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<3x2x64x30xf32>) {
+func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<3x2x64x30xf32>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[extra_idx:%.+]] = arith.constant 2
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
@@ -160,7 +165,7 @@ func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_s
 
 // CHECK-LABEL: func @threadwise_read_into_big_to_small_vec
 // CHECK-SAME: %[[source:.+]]: memref<4xvector<8xf16>, #gpu.address_space<workgroup>>, %[[dest:.+]]: memref<8xvector<4xf16>, #gpu.address_space<private>>
-func.func @threadwise_read_into_big_to_small_vec(%source: memref<4xvector<8xf16>, #gpu.address_space<workgroup>>, %dest: memref<8xvector<4xf16>, #gpu.address_space<private>>) {
+func.func @threadwise_read_into_big_to_small_vec(%source: memref<4xvector<8xf16>, #gpu.address_space<workgroup>>, %dest: memref<8xvector<4xf16>, #gpu.address_space<private>>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [4] strides [1] {
     // CHECK-DAG: %[[ldval:.+]] = scf.if
@@ -179,7 +184,7 @@ func.func @threadwise_read_into_big_to_small_vec(%source: memref<4xvector<8xf16>
 
 // CHECK-LABEL: func @threadwise_read_into_scalar_to_vec
 // CHECK-SAME: %[[source:.+]]: memref<32xf16, #gpu.address_space<workgroup>>, %[[dest:.+]]: memref<8xvector<4xf16>, #gpu.address_space<private>>
-func.func @threadwise_read_into_scalar_to_vec(%source: memref<32xf16, #gpu.address_space<workgroup>>, %dest: memref<8xvector<4xf16>, #gpu.address_space<private>>) {
+func.func @threadwise_read_into_scalar_to_vec(%source: memref<32xf16, #gpu.address_space<workgroup>>, %dest: memref<8xvector<4xf16>, #gpu.address_space<private>>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [32] strides [8] {
     // CHECK-DAG: %[[ldval:.+]] = scf.if
@@ -198,7 +203,7 @@ func.func @threadwise_read_into_scalar_to_vec(%source: memref<32xf16, #gpu.addre
 
 // CHECK-LABEL: func @threadwise_read_into_small_to_big_vec
 // CHECK-SAME: %[[source:.+]]: memref<8xvector<4xf16>, #gpu.address_space<workgroup>>, %[[dest:.+]]: memref<4xvector<8xf16>, #gpu.address_space<private>>
-func.func @threadwise_read_into_small_to_big_vec(%source: memref<8xvector<4xf16>, #gpu.address_space<workgroup>>, %dest: memref<4xvector<8xf16>, #gpu.address_space<private>>) {
+func.func @threadwise_read_into_small_to_big_vec(%source: memref<8xvector<4xf16>, #gpu.address_space<workgroup>>, %dest: memref<4xvector<8xf16>, #gpu.address_space<private>>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [8] strides [1] {
     // CHECK-DAG: %[[ldval:.+]] = scf.if
@@ -220,7 +225,7 @@ func.func @threadwise_read_into_small_to_big_vec(%source: memref<8xvector<4xf16>
 // CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[validIn:%.+]]: vector<32xi1>
 func.func @threadwise_read_into_validities(%source: memref<2x64x30xf32, #gpu.address_space<private>>,
     %dest: memref<32xf32, #gpu.address_space<private>>,
-    %validIn: vector<32xi1>) -> vector<32xi1> {
+    %validIn: vector<32xi1>) -> vector<32xi1> attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[trues:%.+]] = arith.constant dense<true>
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -248,4 +253,32 @@ func.func @threadwise_read_into_validities(%source: memref<2x64x30xf32, #gpu.add
     if [%validIn]
     : memref<2x64x32xf32, #gpu.address_space<private>> -> memref<32xf32, #gpu.address_space<private>>, vector<32xi1>
   func.return %validOut : vector<32xi1>
+}
+
+// Note: We hardcode gfx950 arch to make sure we can use rock.global_load_to_lds
+// CHECK-LABEL: func @threadwise_read_into_lds
+// CHECK-SAME: [[source:%.+]]: memref<1x128x30xf16>, [[dest:%.+]]: memref<8192xi8, #gpu.address_space<workgroup>>
+func.func @threadwise_read_into_lds(%source: memref<1x128x30xf16>, %lds: memref<8192xi8, #gpu.address_space<workgroup>>) attributes {block_size = 128 : i32, arch = "gfx950:sramecc+:xnack-"} {
+  // CHECK-DAG: [[c128:%.+]] = arith.constant 128 : index
+  // CHECK-DAG: [[zero:%.+]] = arith.constant 0 : index
+  // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id : index
+  // CHECK-DAG: [[tid:%.+]] = rock.workitem_id : index
+  // CHECK-DAG: [[ldsView:%.+]] = memref.view {{.*}} memref<8192xi8, #gpu.address_space<workgroup>> to memref<4096xf16, #gpu.address_space<workgroup>>
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
+  // CHECK-SAME: bounds [1, 1, 32]
+  // CHECK-SAME: strides [1, 1, 2]
+  // CHECK-NEXT: [[ldsIndex0:%.+]] = arith.muli %{{.*}}, [[c128]] : index
+  // CHECK-NEXT: [[ldsIndex1:%.+]] = arith.muli %{{.*}}, [[c128]] : index
+  // CHECK-NEXT: [[ldsIndex:%.+]] = arith.addi [[ldsIndex0]], [[ldsIndex1]] : index
+  // CHECK-NEXT: rock.global_load_to_lds [[source]]{{.*}} -> [[ldsView]][[[ldsIndex]]] if {{.*}} {transferType = f32} : memref<1x128x30xf16> -> memref<4096xf16, #gpu.address_space<workgroup>>
+
+  %view = rock.transform %source by #transform_map4 : memref<1x128x30xf16> to memref<1x128x32xf16>
+  %bid = rock.workgroup_id : index
+  %tid = rock.workitem_id : index
+  %c0 = arith.constant 0 : index
+  %view_lds = memref.view %lds[%c0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<4096xf16, #gpu.address_space<workgroup>>
+  %55 = rock.threadwise_read_into {forceUnroll, useIndexDiffs} 
+    [](%view) [%bid, %tid] -> %view_lds 
+    : memref<1x128x32xf16> -> memref<4096xf16, #gpu.address_space<workgroup>>, vector<4096xi1>
+  func.return
 }

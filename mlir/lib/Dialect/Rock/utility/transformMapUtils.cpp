@@ -973,7 +973,7 @@ VectorizationResult mlir::rock::getMaxVectorization(
 }
 
 void mlir::rock::collapseContiguousMerges(Value transformed) {
-  ContiguousMergesMap contigousMerges = findContiguousGroups(transformed);
+  ContiguousMergesMap contiguousMerges = findContiguousGroups(transformed);
   SmallVector<TransformOp> transformOps;
   std::tie(std::ignore, std::ignore) = untransform(transformed, transformOps);
   for (TransformOp trOp : llvm::reverse(transformOps)) {
@@ -989,8 +989,8 @@ void mlir::rock::collapseContiguousMerges(Value transformed) {
         ops.push_back(op);
         continue;
       }
-      auto mergeData = contigousMerges.find({map, op});
-      if (mergeData == contigousMerges.end()) {
+      auto mergeData = contiguousMerges.find({map, op});
+      if (mergeData == contiguousMerges.end()) {
         ops.push_back(op);
         continue;
       }
@@ -1017,7 +1017,7 @@ void mlir::rock::collapseContiguousMerges(Value transformed) {
         continue;
       }
       LLVM_DEBUG({
-        llvm::dbgs() << "[collapseContigousMerges] Updating: " << op << " to ";
+        llvm::dbgs() << "[collapseContiguousMerges] Updating: " << op << " to ";
         llvm::interleaveComma(newLengths, llvm::dbgs());
         llvm::dbgs() << "\n";
       });

@@ -187,8 +187,8 @@ Type mlir::rock::vectorTypeOrSelf(Type elementType, int64_t len) {
 static void makeLoadRegsTidMerge(TopDownTMBuilder &viewBuilder,
                                  StringRef dThreadName, int64_t dThreads,
                                  int64_t kThreads, ArrayRef<unsigned> outDims,
-                                 bool isKContigousDim) {
-  if (isKContigousDim) {
+                                 bool isKContiguousDim) {
+  if (isKContiguousDim) {
     viewBuilder.merge({dThreadName, "k_thread"}, outDims, "tid",
                       {dThreads, kThreads});
   } else {
@@ -201,8 +201,8 @@ static void makeLoadRegsIterMerge(TopDownTMBuilder &viewBuilder,
                                   StringRef dIterName, int64_t dPerThread,
                                   int64_t kPerThread,
                                   ArrayRef<unsigned> outDims,
-                                  bool isKContigousDim) {
-  if (isKContigousDim) {
+                                  bool isKContiguousDim) {
+  if (isKContiguousDim) {
     viewBuilder.merge({dIterName, "k_iter"}, outDims, "iter",
                       {dPerThread, kPerThread});
   } else {
@@ -215,7 +215,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, bool isKContigousDim) {
+    int64_t dPerThread, bool isKContiguousDim, bool directToLDS) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -250,17 +250,30 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     gridwiseSplitId.passThrough(
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
     makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
-                         {4, 5}, isKContigousDim);
+                         {4, 5}, isKContiguousDim);
     makeLoadRegsIterMerge(gridwiseSplitId, dIterName, dPerThread, kPerThread,
-                          {6, 7}, isKContigousDim);
+                          {6, 7}, isKContiguousDim);
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-    toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
-                        {kGlobal / kPerBlock, kThreads, kPerThread});
-
-    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                        {dGlobal / dPerBlock, dThreads, dPerThread});
+    if (directToLDS) {
+      if (isKContiguousDim) {
+        toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
+                            {kGlobal / kPerBlock, kThreads, kPerThread});
+        toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
+                            {dGlobal / dPerBlock, dPerThread, dThreads});
+      } else {
+        toGlobalIdx.unmerge("k", 1, {"k_loop", "k_iter", "k_thread"},
+                            {kGlobal / kPerBlock, kPerThread, kThreads});
+        toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                            {dGlobal / dPerBlock, dThreads, dPerThread});
+      }
+    } else {
+      toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
+                          {kGlobal / kPerBlock, kThreads, kPerThread});
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                          {dGlobal / dPerBlock, dThreads, dPerThread});
+    }
 
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
@@ -295,7 +308,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContigousDim,
+    int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
     bool doSwapThreadIterSubDimsForD) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
@@ -335,7 +348,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     gridwiseSplitId.passThrough(
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
     makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
-                         {4, 5}, isKContigousDim);
+                         {4, 5}, isKContiguousDim);
     gridwiseSplitId.merge({"kouterPerThread", dIterName, "kpackPerThread"},
                           {6, 7, 8}, "iter",
                           {kOuterPerThread, dPerThread, kpackPerThread});
