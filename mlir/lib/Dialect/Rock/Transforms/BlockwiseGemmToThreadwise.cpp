@@ -464,10 +464,10 @@ struct BlockwiseGemmAccelRewritePattern
 
     Value wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-        op.getRotateMWithK());
+        op.getRotateMWithK(), op.getDirectToLDS(), op.getLdsLayoutMxK());
     Value wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-        op.getRotateNWithK());
+        op.getRotateNWithK(), op.getDirectToLDS(), op.getLdsLayoutNxK());
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
@@ -476,9 +476,10 @@ struct BlockwiseGemmAccelRewritePattern
       Value i = mLoop.getInductionVar();
 
       // regsA = read A from LDS
-      b.create<ThreadwiseReadIntoOp>(
-          loc, wrappedLDSBufferForLoadA, op.getBufferA(), b.getArrayAttr({}),
-          ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      b.create<ThreadwiseReadIntoOp>(loc, wrappedLDSBufferForLoadA,
+                                     op.getBufferAForLoad(), b.getArrayAttr({}),
+                                     ValueRange{tid, i}, /*forceUnroll=*/true,
+                                     /*useIndexDiffs=*/true);
 
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
@@ -488,8 +489,9 @@ struct BlockwiseGemmAccelRewritePattern
 
         // regsB = read B from LDS
         b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedLDSBufferForLoadB, op.getBufferB(), b.getArrayAttr({}),
-            ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+            loc, wrappedLDSBufferForLoadB, op.getBufferBForLoad(),
+            b.getArrayAttr({}), ValueRange{tid, j}, /*forceUnroll=*/true,
+            /*useIndexDiffs=*/true);
 
         // regsC += regsA * regsB
         auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
@@ -597,7 +599,7 @@ struct BlockwiseReduceRewritePattern
   }
 
   // This function will append views to target a flat LDS buffer
-  // where non-reduction dims are laid contigously as they are expected
+  // where non-reduction dims are laid contiguously as they are expected
   // function on parallel.
   ArrayAttr createLDSWorkspaceView(
       Location loc, PatternRewriter &rewriter, ArrayAttr regTensorView,
