@@ -273,7 +273,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     opts.optLevel = options.optLevel;
     pm.addPass(createGpuROCDLAttachTarget(opts));
     GpuModuleToBinaryPassOptions binopts;
-    binopts.compilationTarget ="llvm";
+    binopts.compilationTarget ="isa";
     //pm.addPass(mlir::createPrintOpPass(llvm::errs(), "before-gpu-to-binary"));
     //pm.addPass(createGpuModuleToBinaryPass(binopts));
     //pm.addPass(mlir::createPrintOpPass(llvm::errs(), "after-gpu-to-binary"));
