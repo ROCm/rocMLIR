@@ -21,6 +21,8 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRAMDGPUUtils
 )
 
+add_dependencies(MLIRRockUtility AMDGPUCommonTableGen)
+
 target_include_directories(obj.MLIRRockUtility PUBLIC
   ${LLVM_EXTERNAL_SRC_DIR}/llvm/lib/Target/AMDGPU
   ${LLVM_EXTERNAL_BUILD_DIR}/llvm/lib/Target/AMDGPU
