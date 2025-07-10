@@ -56,7 +56,7 @@ using namespace mlir;
 
 void rock::buildBufferizePipeline(OpPassManager &pm,
                                   const rock::BufferizeOptions &options) {
-  bool noRock = true; //options.disableRock;
+  bool noRock = options.disableRock;
 
   auto &funcPm = pm.nest<func::FuncOp>();
   // TOSA conversion to rock and/or linalg with mhal.launch's
