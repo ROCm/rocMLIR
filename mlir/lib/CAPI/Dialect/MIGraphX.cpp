@@ -174,7 +174,6 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   opts.chip = devName.getChip().str();
   opts.features = devName.getFeaturesForBackend();
   opts.optLevel = 3;
-  opts.compile = false;
   mlir::rock::buildBackendPipeline(*passMan, opts);
 
   return true;

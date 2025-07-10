@@ -272,8 +272,8 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     opts.features = options.features;
     opts.optLevel = options.optLevel;
     pm.addPass(createGpuROCDLAttachTarget(opts));
-    pm.addPass(createGpuModuleToBinaryPass());
-    pm.addPass(createRockCheckResidencyPass());
+    //pm.addPass(createGpuModuleToBinaryPass());
+    //pm.addPass(createRockCheckResidencyPass());
   }
   // Quick hack around the fact that our host code runner pipeline can't
   // include our fp8 extf implmenentation becasue of MHAL's organization. That
@@ -283,7 +283,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
 
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
-//===----------------------------------------------------------------------===//
+//===-----------o-----------------------------------------------------------===//
 
 void rock::registerPipelines() {
   PassPipelineRegistration<rock::BufferizeOptions>(
