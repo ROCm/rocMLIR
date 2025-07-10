@@ -265,7 +265,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   llvmFuncPm.addPass(createCanonicalizerPass());
   llvmFuncPm.addPass(createCSEPass());
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
-  if (options.compil) {
+  if (options.compile) {
     GpuROCDLAttachTargetOptions opts;
     opts.triple = options.triple;
     opts.chip = options.chip;
