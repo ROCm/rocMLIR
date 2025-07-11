@@ -466,10 +466,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
 
     auto newOp = b.replaceOpWithNewOp<rock::ConvOp>(
         op, op->getResultTypes(), newFilter, newInput, op.getOutput(),
-        op.getArch(), op.getFeatures(), op.getDerivedBlockSizeAttr(),
+        op.getFeatures(), op.getDerivedBlockSizeAttr(),
         op.getGridSizeAttr(), op.getPadding(), op.getStrides(),
-        op.getDilations(), op.getParams() ? op.getParams().value() : nullptr,
-        op.getNumCUAttr());
+        op.getDilations(), op.getParams() ? op.getParams().value() : nullptr);
 
     if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
       newOp->setAttr("perf_config", attr);
@@ -542,8 +541,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
 
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
-        transposedA, transposedB, op.getCTransposedAttr(), op.getArchAttr(),
-        op.getNumCUAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        transposedA, transposedB, op.getCTransposedAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
@@ -576,8 +575,8 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
         op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
         op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
         op.getLse(), transposedQ, transposedK, transposedV,
-        op.getOTransposedAttr(), op.getCausalAttr(), op.getArchAttr(),
-        op.getFeaturesAttr(), op.getSoftmaxTypeAttr(), op.getNumCUAttr(),
+        op.getOTransposedAttr(), op.getCausalAttr(),
+        op.getFeaturesAttr(), op.getSoftmaxTypeAttr(),
         op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // copy linalg::GenericOp if there's any
@@ -640,8 +639,8 @@ struct ConvElementwiseGemmRewritePattern
     auto newOp = rw.create<rock::ConvElementwiseGemmOp>(
         op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
         op.getElemwiseInputs(), op.getOut(), transposedC,
-        op.getOTransposedAttr(), op.getArchAttr(), op.getFeaturesAttr(),
-        op.getNumCUAttr(), op.getPaddingAttr(), op.getStridesAttr(),
+        op.getOTransposedAttr(), op.getFeaturesAttr(), 
+        op.getPaddingAttr(), op.getStridesAttr(),
         op.getDilationsAttr(), op.getParams0Attr(), op.getParams1Attr(),
         op.getFirstGemmIdxAttr());
 
@@ -686,8 +685,8 @@ struct GemmElementwiseGemmRewritePattern
     auto newOp = rw.create<rock::GemmElementwiseGemmOp>(
         op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
         op.getElemwiseInputs(), op.getOut(), transposedQ, transposedK,
-        transposedV, op.getOTransposedAttr(), op.getArchAttr(),
-        op.getFeaturesAttr(), op.getNumCUAttr(), op.getParams0Attr(),
+        transposedV, op.getOTransposedAttr(),
+        op.getFeaturesAttr(), op.getParams0Attr(),
         op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // copy linalg::GenericOp if there's any

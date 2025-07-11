@@ -208,6 +208,9 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
+// TODO(JR): I'm leaving this for now while we still need 'feature' attributes,
+// but once I figure out a way to work around those I can remove this function
+// in its entirety.
 static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op, Type inputType) {
   auto func = op->getParentOfType<func::FuncOp>();
@@ -246,7 +249,6 @@ struct ConvFields {
   Value inputExp;
   Value filterExp;
   Value outputExp;
-  IntegerAttr numCU;
   ArrayAttr pad;
   ArrayAttr stride;
   ArrayAttr dilation;
@@ -258,7 +260,6 @@ static ConvFields commonConv(PatternRewriter &rw, Operation *op, Value input,
                              Value filter, Value output, DenseI64ArrayAttr pad,
                              DenseI64ArrayAttr stride,
                              DenseI64ArrayAttr dilation, int64_t group,
-                             std::optional<uint32_t> numCU,
                              rock::GemmFeatures features) {
   ConvFields res;
 
@@ -288,7 +289,6 @@ static ConvFields commonConv(PatternRewriter &rw, Operation *op, Value input,
   if (output)
     res.outputExp = expandTensor(rw, op, output, res.outputLayout, "k", group);
 
-  res.numCU = numCU.has_value() ? rw.getI32IntegerAttr(numCU.value()) : nullptr;
   res.pad = rw.getIndexArrayAttr(pad);
   res.stride = rw.getIndexArrayAttr(stride);
   res.dilation = rw.getIndexArrayAttr(dilation);
@@ -336,19 +336,19 @@ static FailureOr<rock::ConvOp>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group, StringAttr arch, std::optional<uint32_t> numCU,
+             int64_t group,
              rock::GemmFeatures features) {
   Location loc = op->getLoc();
 
   ConvFields convFields = commonConv(rw, op, input, filter, output, pad, stride,
-                                     dilation, group, numCU, features);
+                                     dilation, group, features);
 
   auto cop = rw.create<rock::ConvOp>(
       loc, convFields.outputExp.getType(), convFields.filterExp,
-      convFields.inputExp, convFields.outputExp, arch, convFields.features,
+      convFields.inputExp, convFields.outputExp, convFields.features,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
       convFields.stride, convFields.dilation,
-      /*params=*/nullptr, convFields.numCU);
+      /*params=*/nullptr);
 
   addConvAttributes(rw, cop, convFields);
 
@@ -648,7 +648,7 @@ public:
       group = attr.getInt(); // Use op.getGroup() when all OpT have it.
     FailureOr<rock::ConvOp> rockConv = makeRockConv(
         rw, op, input, filter, output, op.getPadAttr(), op.getStrideAttr(),
-        op.getDilationAttr(), group, arch, numCU, features);
+        op.getDilationAttr(), group, features);
     if (failed(rockConv))
       return failure();
 
@@ -783,11 +783,9 @@ public:
     setLastDims(transposeB, bShape, {kDim, nDim});
     Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
 
-    IntegerAttr numCUAttr =
-        numCU.has_value() ? rw.getI32IntegerAttr(numCU.value()) : nullptr;
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
-        arch, numCUAttr, rw.getAttr<rock::GemmFeaturesAttr>(features),
+        rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
         /*params=*/nullptr);
@@ -1176,13 +1174,13 @@ struct ConvElementwiseGemmRewritePattern
     ConvFields convFields =
         commonConv(rewriter, op, firstConv.getInput(), firstConv.getWeight(),
                    output, firstConv.getPadAttr(), firstConv.getStrideAttr(),
-                   firstConv.getDilationAttr(), group, numCu, features);
+                   firstConv.getDilationAttr(), group, features);
 
     auto convElentwiseGemmOp = rewriter.create<rock::ConvElementwiseGemmOp>(
         loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
         elementwiseOtherArgs, output,
         /*cTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, arch, convFields.features, convFields.numCU,
+        /*oTransposed=*/nullptr, convFields.features,
         convFields.pad, convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
@@ -1258,8 +1256,6 @@ struct GemmElementwiseGemmRewritePattern
                                              elementwiseOtherArgs);
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
-    IntegerAttr numCUAttr =
-        numCu.has_value() ? rewriter.getI32IntegerAttr(numCu.value()) : nullptr;
 
     rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
         rewriter.create<rock::GemmElementwiseGemmOp>(
@@ -1268,8 +1264,8 @@ struct GemmElementwiseGemmRewritePattern
             /*qTransposed=*/nullptr,
             /*kTransposed=*/nullptr,
             /*vTransposed=*/nullptr,
-            /*oTransposed=*/nullptr, arch,
-            rewriter.getAttr<rock::GemmFeaturesAttr>(features), numCUAttr,
+            /*oTransposed=*/nullptr,
+            rewriter.getAttr<rock::GemmFeaturesAttr>(features),
             /*params0=*/nullptr, /*params1=*/nullptr,
             /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 
@@ -2012,8 +2008,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     bool isCausal = attentionMatcherValues.isCausal;
     TypeAttr softmaxTypeAttr =
         TypeAttr::get(attentionMatcherValues.softmaxType);
-    IntegerAttr numCUAttr =
-        numCu.has_value() ? rewriter.getI32IntegerAttr(numCu.value()) : nullptr;
 
     // Reshape currentSeqLen {batch, numHeads} -> {batch * numHeads}
     if (currentSeqLen &&
@@ -2029,9 +2023,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, causalAttr, arch,
+        /*oTransposed=*/nullptr, causalAttr,
         rewriter.getAttr<rock::GemmFeaturesAttr>(features), softmaxTypeAttr,
-        numCUAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 

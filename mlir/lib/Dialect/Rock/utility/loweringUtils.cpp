@@ -725,6 +725,14 @@ FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
   return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
 }
 
+StringAttr mlir::rock::getArchValue(Operation *op) {
+  auto maybeArch = rock::getArch(op);
+  if (failed(maybeArch))
+    llvm_unreachable("No 'arch' attribute on kernel");
+
+  return maybeArch.value();
+}
+
 FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
   FailureOr<StringAttr> maybeArch = getArch(op);
   if (failed(maybeArch)) {
@@ -744,6 +752,14 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
                            << archInfo.minNumCU;
   }
   return numCU.getValue().getSExtValue();
+}
+
+int64_t mlir::rock::getNumCUValue(Operation *op) {
+  auto maybeCU = rock::getNumCU(op);
+  if (failed(maybeCU))
+    llvm_unreachable("No 'arch' attribute on kernel");
+
+  return maybeCU.value();
 }
 
 FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {

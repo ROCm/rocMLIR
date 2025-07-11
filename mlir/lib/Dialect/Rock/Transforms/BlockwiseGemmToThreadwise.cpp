@@ -401,7 +401,7 @@ struct BlockwiseGemmAccelRewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    StringAttr arch = op.getArchAttr();
+    StringAttr arch = rock::getArchValue(op);
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
@@ -504,7 +504,7 @@ struct BlockwiseGemmAccelRewritePattern
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
           b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
-                                          ValueRange{i, j, k}, arch,
+                                          ValueRange{i, j, k},
                                           op.getFeaturesAttr(), tuningParams);
         }
       }

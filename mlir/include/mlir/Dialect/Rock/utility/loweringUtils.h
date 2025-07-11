@@ -178,8 +178,14 @@ std::optional<int64_t> computeConstDiff(Value l, Value u);
 // Get the arch from the op
 FailureOr<StringAttr> getArch(Operation *op);
 
+// Get the arch from the op and error out if it cannot be found
+StringAttr getArchValue(Operation *op);
+
 // Get the num_cu from the op
 FailureOr<int64_t> getNumCU(Operation *op);
+
+// Get the num_cu from the op, and error out if it cannot be found
+int64_t getNumCUValue(Operation *op);
 
 // Get whether to reverse the grid
 FailureOr<UnitAttr> getReverseGrid(Operation *op);

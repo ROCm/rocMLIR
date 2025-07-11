@@ -198,7 +198,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
-    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
+    int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
     RockAccelTuningParamAttrInterface gemmParams;
     Attribute gemmParamsAttr =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
@@ -322,7 +322,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   RockAccelTuningParamAttrInterface accelParams1 =
       deriveGemm1TuningParams(builder, op, attnPerfConfig);
   op.setGemm1ParamsAttr(accelParams1);
-  int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
+  int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
@@ -332,13 +332,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
-          cast<MemRefType>(op.getBType()).getElementType(), op.getArch(),
+          cast<MemRefType>(op.getBType()).getElementType(),
+          rock::getArchValue(op),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   LogicalResult isValidBlockwiseGemm1 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
-          cast<MemRefType>(op.getCType()).getElementType(), op.getArch(),
+          cast<MemRefType>(op.getCType()).getElementType(),
+          rock::getArchValue(op),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {

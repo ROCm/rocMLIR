@@ -507,7 +507,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType},
         maybeArch->getValue());
 
     Value storeBufferA = b.create<GpuAllocOp>(loc, loadBufferA.getType());
@@ -1695,7 +1695,7 @@ struct GridwiseAttentionAccelRewritePattern
     Type elemTypeQ =
         cast<MemRefType>(op.getQueries().getType()).getElementType();
     Type elemTypeK = cast<MemRefType>(op.getKeys().getType()).getElementType();
-    StringRef arch = op.getArch();
+    StringRef arch = rock::getArchValue(op);
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
         op.getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
@@ -1840,7 +1840,7 @@ struct GridwiseAttentionAccelRewritePattern
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    StringRef arch = op.getArch();
+    StringRef arch = rock::getArchValue(op);
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
 
@@ -2378,7 +2378,7 @@ struct GridwiseAttentionAccelRewritePattern
               Value ki = kLoop.getInductionVar();
               rewriter.create<ThreadwiseAccelGemmOp>(
                   loc, viewA, viewB, viewC, ValueRange{mi, ni, ki},
-                  op.getArchAttr(), op.getFeaturesAttr(), op.getParams0Attr());
+                  op.getFeaturesAttr(), op.getParams0Attr());
             }
           }
         }
@@ -2666,7 +2666,7 @@ struct GridwiseAttentionAccelRewritePattern
                 // regsC += regsA * regsB
                 rewriter.create<ThreadwiseAccelGemmOp>(
                     loc, viewA, viewB, viewC, ValueRange{mi, ni, ki},
-                    op.getArchAttr(), op.getFeaturesAttr(),
+                    op.getFeaturesAttr(),
                     op.getParams1Attr());
               }
             }
@@ -2866,7 +2866,7 @@ struct GridwiseGemmAccelRewritePattern
               accelEmitterPtr->generateThreadwiseViewBufferC(b, loc, regsC);
           Value k = kLoop.getInductionVar();
           b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
-                                          ValueRange{i, j, k}, arch, features,
+                                          ValueRange{i, j, k}, features,
                                           tuningParams);
         }
       }
@@ -2961,7 +2961,7 @@ struct GridwiseGemmAccelRewritePattern
     int64_t N = bShape[2];
 
     // Obtain critical tuning parameters.
-    StringRef arch = op.getArch();
+    StringRef arch = rock::getArchValue(op);
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
@@ -3059,7 +3059,8 @@ struct GridwiseGemmAccelRewritePattern
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, op.getNumCU(), elementTypeA, destType}, arch);
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA,
+         destType}, arch);
 
     Value storeBufferA =
         gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
@@ -3319,7 +3320,7 @@ struct GridwiseGemmAccelRewritePattern
               b.getI32IntegerAttr(copyNPerThread),
               (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
               (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
-              arrayA, arrayB, regCAllocOp, op.getArchAttr(),
+              arrayA, arrayB, regCAllocOp,
               op.getFeaturesAttr(), op.getBlockSizeAttr(), op.getParamsAttr());
           b.create<rock::YieldOp>(loc);
         }
@@ -3347,7 +3348,7 @@ struct GridwiseGemmAccelRewritePattern
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
-                              regCAllocOp, op.getArchAttr(),
+                              regCAllocOp, rock::getArchValue(op),
                               op.getFeaturesAttr(), tuningParams);
           b.create<rock::YieldOp>(loc);
         }

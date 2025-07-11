@@ -796,7 +796,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
+      /*cTransposed=*/nullptr,
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
 
@@ -1158,7 +1158,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
   auto gemm = b.create<GemmOp>(
       loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
+      /*cTransposed=*/nullptr,
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
@@ -1437,8 +1437,8 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
         loc, op->getResultTypes(), gemmInput, gemmFilter, op.getC(),
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-        op.getCTransposedAttr(), op.getOTransposedAttr(), op.getArchAttr(),
-        op.getFeaturesAttr(), op.getNumCUAttr(), op.getParams0Attr(),
+        op.getCTransposedAttr(), op.getOTransposedAttr(),
+        op.getFeaturesAttr(), op.getParams0Attr(),
         op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // copy linalg::GenericOp if there's any
@@ -1490,8 +1490,8 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                     /*cTransposed=*/nullptr, op.getArchAttr(),
-                     op.getNumCUAttr(), op.getFeaturesAttr(), storeMethod,
+                     /*cTransposed=*/nullptr,
+                     op.getFeaturesAttr(), storeMethod,
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
                      tuningParams);
 

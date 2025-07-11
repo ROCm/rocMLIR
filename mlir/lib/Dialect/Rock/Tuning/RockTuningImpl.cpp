@@ -53,7 +53,8 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
       /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
   GemmFeatures features = attnOp.getGemmFeatures();
-  int64_t numEUPerCU = rock::lookupArchInfo(attnOp.getArch()).numEUPerCU;
+  int64_t numEUPerCU = rock::lookupArchInfo(rock::getArchValue(attnOp))
+                                                                    .numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
   bool isWMMA = false;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
@@ -184,9 +185,9 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return splitKValues;
   }
 
-  uint32_t numCUs = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
-  if (gemmOp.getNumCU().has_value()) {
-    numCUs = gemmOp.getNumCU().value();
+  uint32_t numCUs = rock::lookupArchInfo(rock::getArchValue(gemmOp)).minNumCU;
+  if (succeeded(rock::getNumCU(gemmOp))) {
+    numCUs = rock::getNumCU(gemmOp).value();
   }
 
   return computeOptimalSplitKFactors(info.gemmSize, gemmMPerBlock,
@@ -658,9 +659,9 @@ extractLayouts(Operation *op, llvm::StringMap<unsigned> &fLayoutMap,
 static LogicalResult
 getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
                     SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(gemmGemmOp.getArch()).minNumCU;
-  if (gemmGemmOp.getNumCU().has_value()) {
-    numCU = gemmGemmOp.getNumCU().value();
+  int32_t numCU = rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).minNumCU;
+  if (succeeded(rock::getNumCU(gemmGemmOp))) {
+    numCU = rock::getNumCU(gemmGemmOp).value();
   }
   constexpr char sep = ' ';
   constexpr char tab = '\t';
@@ -670,7 +671,7 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   int64_t seqLenK;
   llvm::raw_svector_ostream problemOS(out);
   // ARCH string
-  problemOS << gemmGemmOp.getArch() << tab;
+  problemOS << rock::getArchValue(gemmGemmOp) << tab;
   // Num of Compute Units
   problemOS << numCU << tab;
 
@@ -830,9 +831,9 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
 
 static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
                                          SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
-  if (gemmIF.getNumCU().has_value())
-    numCU = gemmIF.getNumCU().value();
+  int32_t numCU = rock::lookupArchInfo(rock::getArchValue(gemmIF)).minNumCU;
+  if (succeeded(rock::getNumCU(gemmIF)))
+    numCU = rock::getNumCU(gemmIF).value();
   constexpr char sep = ' ';
   constexpr char tab = '\t';
   llvm::raw_svector_ostream problemOS(out);
@@ -849,7 +850,7 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   };
 
   // ARCH string
-  problemOS << gemmIF.getArch() << tab;
+  problemOS << rock::getArchValue(gemmIF) << tab;
   // Num of Compute Units
   problemOS << numCU << tab;
 

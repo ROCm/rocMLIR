@@ -592,7 +592,28 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType(),
        elemTypeC = gemmOp.getCType();
 
-  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), gemmOp.getArch(),
+  // Instantiate arch. It will get populated with the call to 'getAnyAttr' that
+  // takes place later
+  StringAttr arch;
+
+  // Lambda function to help with parsing 'arch' attributes from funcs
+  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
+    for (StringRef attrName : attrNames) {
+      if (!arch) {
+        arch = op->getAttrOfType<StringAttr>(attrName);
+      } else {
+        return;
+      }
+    }
+  };
+
+  Operation *func = gemmOp->getParentOfType<func::FuncOp>();
+  if (!func) {
+    func = gemmOp->getParentOfType<gpu::GPUFuncOp>();
+  }
+  getAnyAttr({"arch", "mhal.arch"}, func);
+  
+  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), arch,
                          elemTypeA, elemTypeB, elemTypeC);
 }
 

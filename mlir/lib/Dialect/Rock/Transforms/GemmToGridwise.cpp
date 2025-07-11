@@ -214,7 +214,6 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
       loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
-      rw.getStringAttr(op.getArch()),
       rw.getAttr<rock::GemmFeaturesAttr>(op.getGemmFeatures()), blockSizeAttr,
       gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
@@ -349,11 +348,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
-  IntegerAttr numCUAttr = op.getNumCUAttr();
-  if (!numCUAttr) {
-    int64_t minNumCU = rock::lookupArchInfo(op.getArchAttr()).minNumCU;
-    numCUAttr = rw.getI32IntegerAttr(minNumCU);
-  }
 
   bool isAccel = rock::isAccel(op.getFeatures());
 
@@ -366,12 +360,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
+        loc, a, b, accumulator,
         op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
         cast<RockAccelTuningParamAttrInterface>(params));
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
-                              op.getStoreMethodAttr(), numCUAttr, gridSize,
+                              op.getStoreMethodAttr(), gridSize,
                               cast<GeneralGemmParamsAttr>(params));
   }
 

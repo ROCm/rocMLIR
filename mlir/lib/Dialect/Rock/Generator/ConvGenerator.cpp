@@ -883,8 +883,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   }
 
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("arch", archStrAttr),
-
       builder.getNamedAttr(
           "filter_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(),
@@ -896,7 +894,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           "output_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end()))),
-      builder.getNamedAttr("numCU", builder.getI32IntegerAttr(getNumCU())),
   };
 
   // The backwards data kernel needs to know its kernel ID, as there are

@@ -38,16 +38,7 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Return the arch string of this op
-        }],
-        /*retType=*/"StringRef",
-        /*methodName=*/"getArch",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/""
-      >,
+
     InterfaceMethod<
         /*desc=*/[{
           Return the OpOperand that corresponds to the operand argument
@@ -111,16 +102,6 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*defaultImplementation=*/[{
           return $_op.getFeatures();
         }]
-      >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Return the optional number of Compute Units the GPU provides.
-        }],
-        /*retType=*/"std::optional<uint32_t>",
-        /*methodName=*/"getNumCU",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/ ""
       >,
 
     /// Setters for tuning-related data

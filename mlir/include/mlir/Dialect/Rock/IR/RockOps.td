@@ -69,7 +69,6 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], l
     dag commonConvArgs = (ins TensorOrMemRefOf<inputTypes>:$filter,
                               TensorOrMemRefOf<inputTypes>:$input,
                               TensorOrMemRefOf<outputTypes>:$output,
-                              StrAttr:$arch,
                               Rock_GemmFeaturesAttr:$features,
                               OptionalAttr<I32Attr>:$derivedBlockSize,
                               OptionalAttr<I32Attr>:$gridSize,
@@ -86,7 +85,7 @@ defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
 
 def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
-  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCU);
+  dag additionalArgs = (ins);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution forward";
   let description = [{
@@ -101,7 +100,7 @@ def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
 
 def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 {
-  dag additionalArgs = (ins IndexAttr:$kernelId, OptionalAttr<I32Attr>:$numCU);
+  dag additionalArgs = (ins IndexAttr:$kernelId);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution backward data";
   let description = [{
@@ -121,7 +120,7 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefOf<[F32]>>:$workspace,
-                            OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$numCU);
+                            OptionalAttr<IndexAttr>:$kBlocks);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution backward weight";
   let description = [{
@@ -145,8 +144,6 @@ def Rock_GemmOp :
                    UnitAttr:$aTransposed,
                    UnitAttr:$bTransposed,
                    UnitAttr:$cTransposed,
-                   StrAttr:$arch,
-                   OptionalAttr<I32Attr>:$numCU,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    OptionalAttr<I32Attr>:$derivedBlockSize,
@@ -165,11 +162,10 @@ def Rock_GemmOp :
     transposed. For example, if `aTransposed` is set, then the argument A should be
     a [G] x K x M memory.
 
-    Those creating a `rock.gemm` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `derivedBlockSize`, `gridSize`, and `params` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `gemm` is
-    lowered into the `gridwise_gemm` stage of the code generation pipeline.
+    The parameters `derivedBlockSize`, `gridSize`, and `params` are optional as
+    they can be inferred by a tuning process or a heuristic, but they must be
+    set before the `gemm` is lowered into the `gridwise_gemm` stage of the code
+    generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -219,9 +215,8 @@ def Rock_AttentionOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
           UnitAttr:$qTransposed, UnitAttr:$kTransposed, UnitAttr:$vTransposed,
-          UnitAttr:$oTransposed, UnitAttr:$causal, StrAttr:$arch,
+          UnitAttr:$oTransposed, UnitAttr:$causal,
           Rock_GemmFeaturesAttr:$features, OptionalAttr<TypeAttr>:$softmaxType,
-          OptionalAttr<I32Attr>:$numCU,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           I32Attr:$firstGemmIdx)>,
@@ -246,11 +241,10 @@ def Rock_AttentionOp
 
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
 
-    Those creating a `rock.attention` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `gridSize`, and `blockSize` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `attention` is
-    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+    The parameters `gridSize`, and `blockSize` are optional as they can be
+    inferred by a tuning process or a heuristic, but they must be set before
+    the `attention` is lowered into the `gridwise_attention_accel` stage of the
+    code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -285,8 +279,7 @@ def Rock_GemmElementwiseGemmOp
           Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$aTransposed,
           UnitAttr:$bTransposed, UnitAttr:$cTransposed, UnitAttr:$oTransposed,
-          StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
-          OptionalAttr<I32Attr>:$numCU,
+          Rock_GemmFeaturesAttr:$features,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           I32Attr:$firstGemmIdx)>,
@@ -306,11 +299,10 @@ def Rock_GemmElementwiseGemmOp
     transposed. For example, if `aTransposed` is set, then the argument `a` should be
     a [G] x K x M memory.
 
-    Those creating a `rock.gemm_elementwise_gemm` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `gridSize`, and `blockSize` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `gemm_elementwise_gemm` is
-    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+    The parameters `gridSize`, and `blockSize` are optional as they can be
+    inferred by a tuning process or a heuristic, but they must be set before
+    the `gemm_elementwise_gemm` is lowered into the `gridwise_attention_accel`
+    stage of the code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -336,8 +328,8 @@ def Rock_ConvElementwiseGemmOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$c,
           Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$cTransposed,
-          UnitAttr:$oTransposed, StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
-          OptionalAttr<I32Attr>:$numCU, IndexArrayLength<4>:$padding,
+          UnitAttr:$oTransposed, Rock_GemmFeaturesAttr:$features,
+          IndexArrayLength<4>:$padding,
           IndexArrayLength<2>:$strides, IndexArrayLength<2>:$dilations,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
@@ -358,11 +350,10 @@ def Rock_ConvElementwiseGemmOp
     transposed. For example, if `cTransposed` is set, then the argument `c` should be
     a [G] x O x M memory.
 
-    Those creating a `rock.conv_elementwise_gemm` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `gridSize`, and `blockSize` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `conv_elementwise_gemm` is
-    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+    The parameters `gridSize`, and `blockSize` are optional as they can be
+    inferred by a tuning process or a heuristic, but they must be set before
+    the `conv_elementwise_gemm` is lowered into the `gridwise_attention_accel`
+    stage of the code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -517,7 +508,6 @@ def Rock_GridwiseGemmOp :
                    Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
-                   I32Attr:$numCU,
                    I32Attr:$gridSize,
                    Rock_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
@@ -536,8 +526,6 @@ def Rock_GridwiseGemmAccelOp :
     Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
                    Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
                    Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
-                   StrAttr:$arch,
-                   I32Attr:$numCU,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
                    I32Attr:$blockSize,
@@ -565,7 +553,7 @@ def Rock_GridwiseAttentionAccelOp
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
-          StrAttr:$arch, Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
+          Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
           I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
           OptionalAttr<IndexAttr>:$prePadG0M,
           OptionalAttr<IndexAttr>:$prePadG0N,
@@ -1357,7 +1345,6 @@ def Rock_BlockwiseGemmAccelOp:
                    MemRefOf<AccelArgTypes>:$bufferA,
                    MemRefOf<AccelArgTypes>:$bufferB,
                    MemRefOf<AccelResTypes>:$matrixC,
-                   StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    I32Attr:$blockSize,
                    RockAccelTuningParamAttrInterface:$params)>{
@@ -1405,7 +1392,6 @@ def Rock_ThreadwiseAccelGemmOp:
     Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source register view A", [MemRead]>:$matrixA,
                    Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B", [MemRead]>:$matrixB,
                    Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C", [MemRead, MemWrite]>:$matrixC, Variadic<Index>:$computeIndices,
-                   StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
