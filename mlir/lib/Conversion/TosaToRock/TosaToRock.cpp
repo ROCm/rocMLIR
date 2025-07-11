@@ -1608,6 +1608,32 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
+  /*
+  this function skips any collapses/expands and pointwise operations and traces
+  input val to a "cast op" through operands of any of the intermediate
+  operations
+  */
+  FailureOr<Value> traceToConvert(Value val) const {
+    // we want to make sure there was a convert after softmax
+    // because otherwise a castOp could be part of a fusion
+    Value skipBroadcastsVal = getValueNonReshapeOp(val);
+    Value skipPointwiseVal = skipBroadcastsVal;
+    while (skipPointwiseVal.getDefiningOp()
+               ->hasTrait<mlir::OpTrait::tosa::TosaElementwiseOperator>() ||
+           llvm::isa<tosa::MulOp>(skipPointwiseVal.getDefiningOp())) {
+      Operation *op = skipPointwiseVal.getDefiningOp();
+      for (const auto &operand : op->getOperands()) {
+        FailureOr<Value> mayBeCastVal = traceToConvert(operand);
+        if (succeeded(mayBeCastVal)) {
+          return mayBeCastVal.value();
+        }
+      }
+    }
+    if (tosa::CastOp castOp = skipPointwiseVal.getDefiningOp<tosa::CastOp>())
+      return skipPointwiseVal;
+    return failure();
+  }
+
   FailureOr<std::tuple<Value, bool, bool, Value, Value, TypeAttr>>
   maybeSoftmaxNumerator(Value val, Operation *rsum, Type softmaxType) const {
     Value currentSeqLen;
@@ -1640,15 +1666,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // because otherwise a castOp could be part of a fusion
     TypeAttr softmaxTypeAttr = nullptr;
     if (softmaxType) {
-      // the input of reduce_max could be converted from another type
-      auto castOp = getDefiningNonReshapeOp<tosa::CastOp>(result);
-      if (!castOp)
+      FailureOr<Value> maybeCastVal = traceToConvert(result);
+      if (failed(maybeCastVal))
         return failure();
+      tosa::CastOp castOp = maybeCastVal.value().getDefiningOp<tosa::CastOp>();
       result = castOp.getInput();
       // the casts type must match (before and after softmax op)
       if (softmaxType != cast<ShapedType>(castOp.getType()).getElementType())
         return failure();
-
       softmaxTypeAttr = TypeAttr::get(softmaxType);
     }
     // Note that non KV-Cache fusions might have tosa.select
