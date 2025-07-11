@@ -267,7 +267,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile) {
     GpuROCDLAttachTargetOptions opts;
-    opts.triple = "spirv64-amd-amdhsa"; //options.triple;
+    opts.triple = "spirv64-unknown-unknown"; //options.triple;
     opts.chip = options.chip;
     opts.features = options.features;
     opts.optLevel = options.optLevel;
