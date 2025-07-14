@@ -823,10 +823,13 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
   NamedAttribute archAttr = builder.getNamedAttr("mhal.arch", archStrAttr);
+  IntegerAttr numCUIntAttr = builder.getIntegerAttr(builder.getI32Type(),
+                                                    getNumCU());
+  NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(rawKernelId)),
-      archAttr};
+      archAttr, numCUAttr};
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
