@@ -28,7 +28,7 @@
 using namespace mlir;
 
 void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
-  TranslateFromMLIRRegistration registration(
+  static TranslateFromMLIRRegistration gpuModuleRegistration(
       "gpu-module-to-rocdlir", "rocdlir translation in gpu module",
       [](ModuleOp module, raw_ostream &output) {
         // Locate a GPU module within a Module. Use it if we find one.
@@ -58,6 +58,32 @@ void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
       [](DialectRegistry &registry) {
         registry.insert<mlir::gpu::GPUDialect, mlir::DLTIDialect>();
         mlir::registerGPUDialectTranslation(registry);
+        mlir::registerROCDLDialectTranslation(registry);
+        mlir::registerLLVMDialectTranslation(registry);
+      });
+
+  static TranslateFromMLIRRegistration mlirToLLVM(
+      "mlir-to-llvm", "Translate from MLIR with ROCDL dialect to LLVM IR",
+      [](ModuleOp module, raw_ostream &output) {
+        Operation *m = nullptr;
+        auto *block = module.getBody();
+        for (auto op = block->begin(); op != block->end(); ++op)
+          if (auto gpuModule = dyn_cast<gpu::GPUModuleOp>(op)) {
+            m = gpuModule;
+            break;
+          }
+
+        llvm::LLVMContext llvmContext;
+        auto llvmModule = translateModuleToLLVMIR(m, llvmContext);
+        if (!llvmModule)
+          return failure();
+
+        llvmModule->print(output, nullptr);
+        return success();
+      },
+      [](DialectRegistry &registry) {
+        registry.insert<mlir::gpu::GPUDialect, mlir::DLTIDialect>();
+        mlir::registerGPUDialectTranslation(registry);	
         mlir::registerROCDLDialectTranslation(registry);
         mlir::registerLLVMDialectTranslation(registry);
       });
