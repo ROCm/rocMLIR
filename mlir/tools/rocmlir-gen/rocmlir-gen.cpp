@@ -3729,14 +3729,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   // expsSums = sum e^(x-qkMaxs)
   // lse = (log(expsSums) + qkMaxs)
   if (returnLSE) {
-    Value expsSumsForLSE = createOpAndInfer<tosa::CastOp>(
-        builder, loc, resultOutElementType, expsSums);
-    Value qkMaxsForLSE = createOpAndInfer<tosa::CastOp>(
-        builder, loc, resultOutElementType, qkMaxs);
-    lseTensor = createOpAndInfer<tosa::LogOp>(
-        builder, loc, resultOutElementType, expsSumsForLSE);
-    lseTensor = createOpAndInfer<tosa::AddOp>(
-        builder, loc, resultOutElementType, lseTensor, qkMaxsForLSE);
+    Type lseType = cast<ShapedType>(lseOut.getType()).getElementType();
+    Value expsSumsForLSE =
+        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, expsSums);
+    Value qkMaxsForLSE =
+        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, qkMaxs);
+    lseTensor =
+        createOpAndInfer<tosa::LogOp>(builder, loc, lseType, expsSumsForLSE);
+    lseTensor = createOpAndInfer<tosa::AddOp>(builder, loc, lseType, lseTensor,
+                                              qkMaxsForLSE);
   }
 
   auto invExpsSums =
