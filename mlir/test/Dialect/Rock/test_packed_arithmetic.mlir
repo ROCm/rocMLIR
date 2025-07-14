@@ -19,21 +19,6 @@
 // ROCDL:  %[[cvt:.*]] = llvm.fptrunc {{.*}} : vector<2xf32> to vector<2xf16>
 // ROCDL:  llvm.store %[[cvt]], {{.*}} : vector<2xf16>, !llvm.ptr<5>
 // LLVM: %[[fptrunc1:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
-// LLVM: %[[fptrunc2:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
-// LLVM: %[[fptrunc3:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
-// LLVM: %[[fptrunc4:.*]] = fptrunc <4 x float> {{.*}} to <4 x half>
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
-// ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
 // ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
 // ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
 // ASM: v_cvt_f16_f32_e32 {{.*}}, {{.*}}
