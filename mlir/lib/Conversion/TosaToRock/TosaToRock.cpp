@@ -208,9 +208,6 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-// TODO(JR): I'm leaving this for now while we still need 'feature' attributes,
-// but once I figure out a way to work around those I can remove this function
-// in its entirety.
 static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op, Type inputType) {
   auto func = op->getParentOfType<func::FuncOp>();
