@@ -756,10 +756,14 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
 
 int64_t mlir::rock::getNumCUValue(Operation *op) {
   auto maybeCU = rock::getNumCU(op);
-  if (failed(maybeCU))
-    llvm_unreachable("No 'arch' attribute on kernel");
+  if (succeeded(maybeCU)) {
+    return maybeCU.value();
+  }
 
-  return maybeCU.value();
+  // Otherwise, we will need to get the minimum CU value from the architecture
+  auto archStr = rock::getArchValue(op);
+  int64_t minCU = rock::lookupArchInfo(archStr).minNumCU;
+  return minCU;
 }
 
 FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
