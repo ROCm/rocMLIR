@@ -38,7 +38,6 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
-
     InterfaceMethod<
         /*desc=*/[{
           Return the OpOperand that corresponds to the operand argument
