@@ -1189,7 +1189,8 @@ struct GridwiseAttentionAccelRewritePattern
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     Value ln2Const = createConstantFloatOp(
         rewriter, loc, outElemType, outElemType, 0.69314718f,
-        outElemType.isF32() ? APFloat::opOK : APFloat::opInexact);
+        outElemType.getIntOrFloatBitWidth() >= 32 ? APFloat::opOK
+                                                  : APFloat::opInexact);
     auto loop = rewriter.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{rewriter.getArrayAttr({}), lseBufferTrs},
@@ -1418,7 +1419,7 @@ struct GridwiseAttentionAccelRewritePattern
     auto negInfTyped = createConstantFloatOp(
         rewriter, loc, gemm0OutBufferType.getElementType(),
         gemm0OutBufferType.getElementType(),
-        -std::numeric_limits<float>::infinity());
+        -std::numeric_limits<float>::infinity(), APFloat::opOK);
     // Get current workitem ID.
     auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
     int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
@@ -1476,7 +1477,7 @@ struct GridwiseAttentionAccelRewritePattern
         auto negInfTyped = createConstantFloatOp(
             thenb, loc, gemm0OutBufferType.getElementType(),
             gemm0OutBufferType.getElementType(),
-            -std::numeric_limits<float>::infinity());
+            -std::numeric_limits<float>::infinity(), APFloat::opOK);
         // Get current workitem ID.
         auto tid = thenb.create<WorkitemIdOp>(loc, thenb.getIndexType());
         int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
@@ -2123,7 +2124,7 @@ struct GridwiseAttentionAccelRewritePattern
       auto negInfSumTyped = createConstantFloatOp(
           rewriter, loc, reducedBufferType.getElementType(),
           reducedBufferType.getElementType(),
-          -std::numeric_limits<float>::infinity());
+          -std::numeric_limits<float>::infinity(), APFloat::opOK);
       maxRowBuffer = rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
       expMaxDiffRowBuffer =
           rewriter.create<rock::GpuAllocOp>(loc, reducedBufferType);
@@ -2414,7 +2415,8 @@ struct GridwiseAttentionAccelRewritePattern
         // So that we can use exp2 instead of exp.
         Value ln2Recip = createConstantFloatOp(
             rewriter, loc, elemTypeSoftmax, elemTypeSoftmax, 1.44269504f,
-            elemTypeSoftmax.isF32() ? APFloat::opOK : APFloat::opInexact);
+            elemTypeSoftmax.getIntOrFloatBitWidth() >= 32 ? APFloat::opOK
+                                                          : APFloat::opInexact);
         postProcessFirstGemmSplat<ElementwiseMultOp>(
             rewriter, loc, gridCoordsGemm0, softmaxInputBuffer,
             gemm0OutSubTileViews,
