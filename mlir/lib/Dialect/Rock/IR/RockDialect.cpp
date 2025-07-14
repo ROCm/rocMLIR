@@ -612,6 +612,16 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
     func = gemmOp->getParentOfType<gpu::GPUFuncOp>();
   }
   getAnyAttr({"arch", "mhal.arch"}, func);
+
+  // If not available on the func, try looking at the module
+  if (!arch) {
+    auto mod = func->getParentOfType<ModuleOp>();
+    getAnyAttr({"arch", "mhal.arch"}, mod);
+  }
+
+  // If still not available, then we have malformed IR and need to error out
+  if (!arch)
+    llvm_unreachable("GEMM op needs to have an arch attribute");
   
   return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), arch,
                          elemTypeA, elemTypeB, elemTypeC);
