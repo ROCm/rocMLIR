@@ -772,14 +772,24 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
     return features.getValue();  
 
   // In this case, the op does not have a 'Features' attribute, so we can
-  // calculate the default features based on the architecture.
+  // calculate the default features based on the architecture. For all of the
+  // ops in the if statement we can look at the first operand for the type info.
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(rock::getArchValue(op));
-  if (isa<rock::GemmOp>(op) || isa<rock::ConvOp>(op) ||
+  if (isa<rock::GridwiseGemmOp>(op) || isa<rock::GridwiseGemmAccelOp>(op) ||
+      isa<rock::GlobalStoreOp>(op) || isa<rock::ThreadwiseWriteAllOp>(op) ||
+      isa<rock::BlockwiseGemmAccelOp>(op) ||
+      isa<rock::ThreadwiseAccelGemmOp>(op) ||
       isa<RockGemmGemmWrapperInterface>(op) ||
       isa<RockGemmWrapperInterface>(op)) {
     return archInfo.getDefaultFeatures(op->getOperand(0).getType());
+  } else if (auto gwAttnAccelOp =
+                                dyn_cast<rock::GridwiseAttentionAccelOp>(op)) {
+    // For GridwiseAttentionAccelOps we can look to the out parameter for this
+    // (the )
+    return archInfo.getDefaultFeatures(gwAttnAccelOp.getOut().getType());
   } else {
-    llvm_unreachable("Trying to calculate 'Features' for unsupported op");
+    // For all other ops, we can look to the first result
+    return archInfo.getDefaultFeatures(op->getResult(0).getType());
   }
 }
 

@@ -632,7 +632,21 @@ GemmFeatures getFeatureValue(Operation *op) {
 
   auto archString = getArchString(op);
   auto archInfo = rock::lookupArchInfo(archString);
-  return archInfo.getDefaultFeatures(op->getOperand(0).getType());
+  if (isa<rock::GridwiseGemmOp>(op) || isa<rock::GridwiseGemmAccelOp>(op) ||
+      isa<rock::GlobalStoreOp>(op) || isa<rock::ThreadwiseWriteAllOp>(op) ||
+      isa<rock::BlockwiseGemmAccelOp>(op) ||
+      isa<rock::ThreadwiseAccelGemmOp>(op) ||
+      isa<RockGemmGemmWrapperInterface>(op) ||
+      isa<RockGemmWrapperInterface>(op)) {
+    return archInfo.getDefaultFeatures(op->getOperand(0).getType());
+  } else if (auto gwAttnAccelOp =
+                                dyn_cast<rock::GridwiseAttentionAccelOp>(op)) {
+    // For GridwiseAttentionAccelOps we can look to the out parameter for this
+    return archInfo.getDefaultFeatures(gwAttnAccelOp.getOut().getType());
+  } else {
+    // For all other ops, we can look to the first result
+    return archInfo.getDefaultFeatures(op->getResult(0).getType());
+  }
 }
 
 static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
