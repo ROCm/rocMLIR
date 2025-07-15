@@ -1,5 +1,9 @@
 set(LLVM_LINK_COMPONENTS
   Support
+  SPIRV
+  Core
+  Target
+  MC
   )
 
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)

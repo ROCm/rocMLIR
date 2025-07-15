@@ -17,9 +17,15 @@
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Tools/mlir-translate/MlirTranslateMain.h"
 
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Target/TargetMachine.h"
+
 using namespace mlir;
 
 int main(int argc, char **argv) {
+    //llvm::InitializeAllTargetInfos();
+
   registerAllTranslations();
   rock::registerRocMLIRTranslations();
   return failed(mlirTranslateMain(argc, argv, "MLIR Translation Testing Tool"));

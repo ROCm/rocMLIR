@@ -5,6 +5,10 @@ add_mlir_translation_library(GpuModuleToRocdlirTranslation
 
   LINK_COMPONENTS
   Core
+  Target
+  MC
+  Support
+  SPIRV
 
   LINK_LIBS PUBLIC
   MLIRDLTIDialect

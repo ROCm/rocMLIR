@@ -15,6 +15,7 @@
 #define MLIR_INITROCMLIRTRANSLATIONS_H
 
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Translation/GpuModuleToRocdir.h"
 
 namespace mlir {
