@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 using namespace mlir;
@@ -412,6 +413,8 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         StringRef dName, bool rotateDWithK,
                                         bool directToLds, bool ldsLayoutDxK,
                                         bool doSplitKAcrossThreadsFirst) const {
+  bool useShuffles = directToLds;
+
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -450,6 +453,45 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t dPerBlock = (dName == "m" ? mPerBlock : nPerBlock);
 
   SmallVector<Attribute> transformAttrs;
+  if(useShuffles) {
+    int64_t elemTyWidth = cast<ShapedType>(buffer.getType()).getElementType().getIntOrFloatBitWidth();
+    int64_t numElements = 128 / elemTyWidth;
+    numElements = math_util::gcd(dRepeats*kIter, numElements);
+    int64_t repeats = (dRepeats*kIter) / numElements;
+
+    TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
+                              {blockSize, dRepeats, kIter});
+    if (ldsLayoutDxK)
+      splitTid.unmerge("repeat", 1, {"d_iter", "k_iter"},
+                          {dRepeats, kIter});
+    else
+      splitTid.unmerge("repeat", 1, {"k_iter", "d_iter"},
+                          {kIter, dRepeats});
+
+    splitTid.passThrough({"tid"}, {0}, {"tid"});
+    TransformMapAttr splitTidAttr = splitTid.get();
+    transformAttrs.push_back(splitTidAttr);
+
+    TopDownTMBuilder splitWaveId =
+        TopDownTMBuilder::below(splitTid, splitTidAttr);
+    splitWaveId.merge({"repeats", "num_elements"}, {0, 2}, "repeat",
+                      {repeats, numElements});
+    splitWaveId.passThrough({"tid"}, {1}, {"tid"});
+    TransformMapAttr splitWaveIdAttr = splitWaveId.get();
+    transformAttrs.push_back(splitWaveIdAttr);
+
+    TopDownTMBuilder toLDSRowCol =
+        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+
+    toLDSRowCol.unmerge("source_offset", 0, {"repeats", "tid", "num_elements"},
+                        {repeats, blockSize, numElements});
+    TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
+    transformAttrs.push_back(toLDSRowColAttr);
+
+    ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
+    return transform(b, buffer, ldsRead);
+  }
+
   if (!isKReduction) {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
                               {blockSize, dRepeats, kIter});
