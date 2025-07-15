@@ -768,25 +768,8 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
 
 mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // First check to see if the op has a 'Features' attribute.
-  std::optional<rock::GemmFeatures> optionalFeatures;
-  if (auto wrapper = dyn_cast<RockGemmGemmWrapperInterface>(op)) {
-    optionalFeatures = wrapper.getGemmFeatures();
-  } else if (auto wrapper = dyn_cast<RockGemmWrapperInterface>(op)) {
-    optionalFeatures = wrapper.getGemmFeatures();
-  } else if (auto gemmOp = dyn_cast<rock::GemmOp>(op)) {
-    optionalFeatures = gemmOp.getFeatures();
-  } else if (auto convOp = dyn_cast<rock::ConvOp>(op)) {
-    optionalFeatures = convOp.getFeatures();
-  } else if (auto convBwdDataOp = dyn_cast<rock::ConvBwdDataOp>(op)) {
-    optionalFeatures = convBwdDataOp.getFeatures();
-  } else if (auto convBwdWeightOp = dyn_cast<rock::ConvBwdWeightOp>(op)) {
-    optionalFeatures = convBwdWeightOp.getFeatures();
-  } else {
-    llvm_unreachable("Trying to calculate 'Features' for unsupported op");
-  }
-
-  if (optionalFeatures.has_value())
-    return optionalFeatures.value();
+  if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
+    return features.getValue();  
 
   // In this case, the op does not have a 'Features' attribute, so we can
   // calculate the default features based on the architecture.

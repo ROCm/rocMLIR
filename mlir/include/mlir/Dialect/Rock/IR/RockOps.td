@@ -93,7 +93,7 @@ def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
+    `(` operands `)` (`features` `=` $features^)? attr-dict
     `:` type(operands) (`->` type($result)^)?
   }];
 }
@@ -111,7 +111,7 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
+    `(` operands `)` (`features` `=` $features^)? attr-dict
     `:` type(operands) (`->` type($result)^)?
   }];
 }
@@ -128,7 +128,7 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
+    `(` operands `)` (`features` `=` $features^)? attr-dict
     `:` type(operands) (`->` type($result)^)?
   }];
 }
@@ -172,7 +172,7 @@ def Rock_GemmOp :
   let hasVerifier = 1;
   let assemblyFormat = [{
     (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
-    `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
+    (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
     `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
   }];
 }
@@ -195,7 +195,7 @@ def Rock_ReduceOp :
   let summary = "Axes-wide reduction operation";
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $reduceMethod $in `into` $out `features` `=` $features attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
+    $reduceMethod $in `into` $out (`features` `=` $features^)? attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
@@ -389,7 +389,7 @@ def Rock_InitKernelOp :
   }];
 
   let assemblyFormat = [{
-    $buffer `features` `=` $features attr-dict `:` type($buffer) (`->` type($result)^)?
+    $buffer (`features` `=` $features^)? attr-dict `:` type($buffer) (`->` type($result)^)?
   }];
 
   // Declaration to enable the bufferization implementation to work as if this werr
@@ -420,7 +420,7 @@ def Rock_ConvertingCopyKernelOp :
   }];
 
   let assemblyFormat = [{
-    $input `to` $output `features` `=` $features attr-dict
+    $input `to` $output (`features` `=` $features^)? attr-dict
     `:` type($input) `to` type($output) (`->` type($result)^)?
   }];
 
@@ -516,7 +516,7 @@ def Rock_GridwiseGemmOp :
     The `rock.gridwise_gemm` op computes gridwise GEMM.
   }];
   let assemblyFormat = [{
-    $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type($c) `=` type($a) `*` type($b)
+    $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
   let hasVerifier = 1;
 }
@@ -537,7 +537,7 @@ def Rock_GridwiseGemmAccelOp :
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
   }];
   let assemblyFormat = [{
-    `(` operands `)` `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
 }
@@ -568,7 +568,7 @@ def Rock_GridwiseAttentionAccelOp
   }];
   let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
+    `(` operands `)` (`features` `=` $features^)? `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
@@ -1095,7 +1095,7 @@ def Rock_GlobalStoreOp :
   let assemblyFormat = [{
     $storeMethod $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]` `if` $valid
-    `features` `=` `` $features attr-dict
+    (`features` `=` $features^)? attr-dict
     `:` type($source) `->`
     type($dest)
   }];
@@ -1279,7 +1279,7 @@ def Rock_ThreadwiseWriteAllOp :
   }];
 
   let assemblyFormat = [{
-    `features` `=` $features attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
+    (`features` `=` $features^)? attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
@@ -1360,7 +1360,7 @@ def Rock_BlockwiseGemmAccelOp:
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $bufferA `from` $matrixA `*`
-                        $bufferB `from` $matrixB `features` `=` $features attr-dict
+                        $bufferB `from` $matrixB (`features` `=` $features^)? attr-dict
     `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
                                   type($bufferB) `from` type($matrixB)
   }];
@@ -1403,7 +1403,7 @@ def Rock_ThreadwiseAccelGemmOp:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` `features` `=` $features attr-dict
+    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` (`features` `=` $features^)? attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
   let hasVerifier = 1;

@@ -40,7 +40,7 @@ func.func @test_reduce(%a: tensor<2x128x64xf32>, %b: tensor<2x64x256xf32>) -> te
   // CHECK: %[[outBuf:.*]] = bufferization.alloc_tensor() : tensor<2x128x256xf32>
   // CHECK: %[[gemmOut:.*]] = rock.gemm %[[outBuf]] = %arg0 * %arg1 {{.*}} {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<2x128x256xf32> = tensor<2x128x64xf32> * tensor<2x64x256xf32> -> tensor<2x128x256xf32>
   // CHECK: %[[outBuf2:.*]] = bufferization.alloc_tensor() : tensor<2x128x1xf32>
-  // CHECK: rock.reduce  sum %[[gemmOut]] into %[[outBuf2]] {{.*}} {axis = 2 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x128x1xf32> -> tensor<2x128x1xf32>
+  // CHECK: rock.reduce  sum %[[gemmOut]] into %[[outBuf2]] {axis = 2 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x128x1xf32> -> tensor<2x128x1xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %c = "tosa.matmul"(%a, %b, %a_zp, %b_zp) {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : (tensor<2x128x64xf32>, tensor<2x64x256xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x128x256xf32>
@@ -55,9 +55,9 @@ func.func @test_reduce_two_outputs(%a: tensor<2x128x64xf32>, %b: tensor<2x64x256
   // CHECK: %[[outBuf:.*]] = bufferization.alloc_tensor() : tensor<2x128x256xf32>
   // CHECK: %[[outGemm:.*]] = rock.gemm %[[outBuf]] = %arg0 * %arg1 {{.*}} {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<2x128x256xf32> = tensor<2x128x64xf32> * tensor<2x64x256xf32> -> tensor<2x128x256xf32>
   // CHECK: %[[outBuf2:.*]] = bufferization.alloc_tensor() : tensor<2x128x1xf32>
-  // CHECK: rock.reduce  sum %[[outGemm]] into %[[outBuf2]] {{.*}} {axis = 2 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x128x1xf32> -> tensor<2x128x1xf32>
+  // CHECK: rock.reduce  sum %[[outGemm]] into %[[outBuf2]] {axis = 2 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x128x1xf32> -> tensor<2x128x1xf32>
   // CHECK: %[[outBuf3:.*]] = bufferization.alloc_tensor() : tensor<2x1x256xf32>
-  // CHECK: rock.reduce  sum %[[outGemm]] into %[[outBuf3]] {{.*}} {axis = 1 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x1x256xf32> -> tensor<2x1x256xf32>
+  // CHECK: rock.reduce  sum %[[outGemm]] into %[[outBuf3]] {axis = 1 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x1x256xf32> -> tensor<2x1x256xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %c = "tosa.matmul"(%a, %b, %a_zp, %b_zp) {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : (tensor<2x128x64xf32>, tensor<2x64x256xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x128x256xf32>
@@ -73,7 +73,7 @@ func.func @test_reduce_two_outputs2(%a: tensor<2x128x64xf32>, %b: tensor<2x64x25
   // CHECK: %[[outBuf:.*]] = bufferization.alloc_tensor() : tensor<2x128x256xf32>
   // CHECK: %[[outGemm:.*]] = rock.gemm %[[outBuf]] = %arg0 * %arg1 {{.*}} {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<2x128x256xf32> = tensor<2x128x64xf32> * tensor<2x64x256xf32> -> tensor<2x128x256xf32>
   // CHECK: %[[outBuf2:.*]] = bufferization.alloc_tensor() : tensor<2x128x1xf32>
-  // CHECK: rock.reduce  sum %[[outGemm]] into %[[outBuf2]] {{.*}} {axis = 2 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x128x1xf32> -> tensor<2x128x1xf32>
+  // CHECK: rock.reduce  sum %[[outGemm]] into %[[outBuf2]] {axis = 2 : index, blockSize = 256 : i32, gridSize = 256 : i32} : tensor<2x128x256xf32> into tensor<2x128x1xf32> -> tensor<2x128x1xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %c = "tosa.matmul"(%a, %b, %a_zp, %b_zp) {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : (tensor<2x128x64xf32>, tensor<2x64x256xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x128x256xf32>

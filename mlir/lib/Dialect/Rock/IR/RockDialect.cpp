@@ -625,19 +625,10 @@ static StringAttr getArchString(Operation *op) {
 }
 
 GemmFeatures getFeatureValue(Operation *op) {
-  std::optional<GemmFeatures> optionalFeatures;
-  if (auto gemmOp = dyn_cast<RockGemmWrapperInterface>(op)) {
-    optionalFeatures = gemmOp.getGemmFeatures();
-  } else if (auto gemmOp = dyn_cast<rock::GemmOp>(op)) {
-    optionalFeatures = gemmOp.getFeatures();
-  } else {
-    llvm_unreachable("Trying to calculate 'GemmFeatures' for unsupported op");
-  }
-
   // Check to see if the gemmOp has a feature attribute attached to it. If not,
   // we return the default features based on the arch
-  if (optionalFeatures)
-    return optionalFeatures.value();
+  if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
+    return features.getValue();  
 
   auto archString = getArchString(op);
   auto archInfo = rock::lookupArchInfo(archString);

@@ -208,6 +208,21 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
+static rock::GemmFeatures getTosaOpFeatures(Operation *op, Type inputType) {
+  // Start by getting the arch from the Tosa op
+  StringAttr arch = StringAttr::get(op->getContext(), "");
+  FailureOr<StringAttr> maybeArch = rock::getArch(op);
+  if (succeeded(maybeArch)) {
+    arch = maybeArch.value();
+  }
+
+  // Now we can lookup the default features from the arch
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  rock::GemmFeatures features = archInfo.getDefaultFeatures(inputType);
+
+  return features;
+}
+
 struct ConvFields {
   SmallString<8> filterLayout;
   SmallString<8> inputLayout;
@@ -595,7 +610,7 @@ public:
     auto bias = operands[2];
     auto outputType = cast<RankedTensorType>(op.getType());
 
-    rock::GemmFeatures features = rock::getFeatures(op);
+    rock::GemmFeatures features = getTosaOpFeatures(op, input.getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -710,7 +725,8 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
-    rock::GemmFeatures features = rock::getFeatures(op);
+    // TODO: Fix this instance
+    rock::GemmFeatures features = getTosaOpFeatures(op, op.getA().getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
