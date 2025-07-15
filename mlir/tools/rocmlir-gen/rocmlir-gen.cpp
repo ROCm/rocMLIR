@@ -4364,7 +4364,8 @@ static LogicalResult populateHostHarnessLogic(
   bool isSplitK =
       (genParams.perfConfig.empty())
           ? false
-          : rock::isSplitKRequested(genParams.features, genParams.perfConfig);
+          : rock::isSplitKRequested(genParams.features,
+                                    b.getStringAttr(genParams.perfConfig));
 
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});

@@ -74,14 +74,14 @@ class FileWriter():
         elif arch.startswith("gfx1") and datatype != "f32":
             return "Wmma"
         else:
-            return "NonAccel"
+            return "Fma"
 
     def init_inc_file(self, file_path):
         """
         Initialize an .inc file with predefined structure
         """
         instruction_types_to_datatypes = {
-            "NonAccel": ["f32"],
+            "Fma": ["f32"],
             "XDL": ["f32", "f16", "fp8", "i8"],
             "Wmma": ["f16", "fp8", "i8"]
         }
@@ -115,15 +115,12 @@ class FileWriter():
         """
         Generates initialization parameter definitions for a given data type and operation.
         """
-        accel_type = 'Accel' if self.is_accel(arch, dtype) else 'NonAccel'
         instruction_type = self.get_instruction_type(arch, dtype)
         op_cap = op.capitalize()
 
         if dtype == 'f32':
             init_params = f"initParameters{op_cap}"
             n_init_params = f"nInitParameters{op_cap}"
-            if not self.is_accel(arch, dtype):
-                instruction_type = ''
         elif dtype == 'f16':
             init_params = f"initParametersFp16{op_cap}"
             n_init_params = f"nInitParametersFp16{op_cap}"
@@ -142,15 +139,13 @@ class FileWriter():
         else:
             raise ValueError("Unsupported dtype")
 
-        # TODO(fma): fix this
-        return f"const InitParams{accel_type} PopulateParams{instruction_type}::{init_params}[PopulateParams{instruction_type}::{n_init_params}]"
+        return f"const InitParamsAccel PopulateParams{instruction_type}::{init_params}[PopulateParams{instruction_type}::{n_init_params}]"
 
     def get_init_params_declaration(self, arch, dtype, op):
         """
         Generates initialization parameter declarations for a given data type and operation.
         """
         op_cap = op.capitalize()
-        accel_type = 'Accel' if self.is_accel(arch, dtype) else 'NonAccel'
 
         if dtype == 'f32':
             init_params = f"initParameters{op_cap}"
@@ -173,7 +168,7 @@ class FileWriter():
         else:
             raise ValueError("Unsupported dtype")
 
-        return (f"static const InitParams{accel_type} {init_params}[{n_init_params}]",
+        return (f"static const InitParamsAccel {init_params}[{n_init_params}]",
                 f"static constexpr size_t {n_init_params}")
 
 

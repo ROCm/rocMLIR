@@ -14,6 +14,7 @@ include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.td"
+include "mlir/Dialect/Rock/IR/RockAccelAttentionTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
@@ -215,7 +216,11 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
-def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterface]> {
+def Rock_AttnPerfConfig
+    : Rock_Attr<
+          "AttnPerfConfig", [RockTuningParamAttrInterface,
+                             DeclareAttrInterfaceMethods<
+                                 RockAccelAttentionTuningParamAttrInterface>]> {
   let mnemonic = "attn_perf_config";
   let description = [{
     The perf configs for rock.attention operator.
@@ -258,7 +263,47 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
   }];
 }
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
+def Rock_AttnFmaPerfConfig
+    : Rock_Attr<"AttnFmaPerfConfig",
+                [RockTuningParamAttrInterface,
+                 DeclareAttrInterfaceMethods<
+                     RockAccelAttentionTuningParamAttrInterface>]> {
+  let mnemonic = "attn_fma_perf_config";
+  let description = [{
+    The perf configs for rock.attention operator without acceleration.
+  }];
+  let parameters = (ins "int64_t":$blockSize, "int64_t":$mPerBlockG0,
+      "int64_t":$mPerBlockG1, "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock,
+      "int64_t":$kpack, "bool":$forceUnroll);
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+      ("attn_fma:v1:" + Twine(getBlockSize()) + ","
+      + Twine(getMPerBlockG0()) + ","
+      + Twine(getMPerBlockG1()) + ","
+      + Twine(getNPerBlockG0()) + ","
+      + Twine(getKpackPerBlock()) + ","
+      + Twine(getKpack()) + ","
+      + Twine(getForceUnroll())).toVector(perfStr);
+    }
+
+    int64_t getSplitKFactor() { return 1; }
+    int64_t getScheduleVersion() { return 1;}
+    int64_t getOutputSwizzle() { return 2; }
+  }];
+
+  let builders = [AttrBuilderWithInferredContext<(ins
+      "StringAttr":$perfConfigStr)>];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def Rock_XdlopsGemmParamsAttr
+    : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface,
+                                     DeclareAttrInterfaceMethods<
+                                         RockAccelTuningParamAttrInterface>]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
@@ -298,7 +343,11 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   }];
 }
 
-def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+def Rock_XdlopsGemmDerivedParamsAttr
+    : Rock_Attr<
+          "XdlopsGemmDerivedParams",
+          [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface,
+           DeclareAttrInterfaceMethods<RockAccelTuningParamAttrInterface>]> {
   let mnemonic = "xdlops_gemm_derived_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
@@ -367,7 +416,11 @@ def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [Roc
   }];
 }
 
-def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+def Rock_WmmaGemmParamsAttr
+    : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface,
+                                   RockAccelTuningParamAttrInterface,
+                                   DeclareAttrInterfaceMethods<
+                                       RockAccelTuningParamAttrInterface>]> {
   let mnemonic = "wmma_gemm_params";
   let description = [{
     The tuning parameters for an wmma-based matrix multiplication.
@@ -409,23 +462,24 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
 
 def Rock_FmaGemmParamsAttr
     : Rock_Attr<"FmaGemmParams", [RockTuningParamAttrInterface,
-                                  RockAccelTuningParamAttrInterface]> {
+                                  RockAccelTuningParamAttrInterface,
+                                  DeclareAttrInterfaceMethods<
+                                      RockAccelTuningParamAttrInterface>]> {
   let mnemonic = "fma_gemm_params";
   let description = [{
     The tuning parameters for an fma-based matrix multiplication.
   }];
-  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
+  let parameters = (ins "int64_t":$blockSize, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpackPerBlock, "int64_t":$kpack,
+      "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
       "int64_t":$outputSwizzle, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
-        ("v3:" +  Twine(getMPerBlock()) + ","
+        ("fma:v1:" +  Twine(getBlockSize()) + ","
+        + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
-        + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
         + Twine(getScheduleVersion()) + ","
@@ -435,6 +489,9 @@ def Rock_FmaGemmParamsAttr
         .toVector(perfStr);
     }
   }];
+
+  let builders = [AttrBuilderWithInferredContext<(ins
+      "StringAttr":$perfConfigStr)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`

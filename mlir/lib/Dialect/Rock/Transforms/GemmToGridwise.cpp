@@ -100,6 +100,27 @@ struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
                                 ConversionPatternRewriter &rw) const override;
 };
 
+static LogicalResult validMaxLaunchSize(int64_t gridSize, int64_t blockSize) {
+  /* from hipModuleLaunchKernel documentation:
+   * Please note, HIP does not support kernel launch with total work items
+   * defined in dimension with size gridDim x blockDim >= 2^32. So gridDim.x *
+   * blockDim.x, gridDim.y * blockDim.y and gridDim.z * blockDim.z are always
+   * less than 2^32.
+   */
+  constexpr int64_t maxNumThreads = 1ULL << 32;
+  int64_t totalThreads = gridSize * blockSize;
+
+  // Check for invalid inputs
+  if (gridSize <= 0 || blockSize <= 0)
+    return failure();
+
+  // Check for multiplication overflow
+  if (gridSize > maxNumThreads / blockSize)
+    return failure();
+
+  return success(totalThreads < maxNumThreads);
+}
+
 template <typename Op>
 static LogicalResult
 computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
@@ -122,6 +143,13 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
 
   int64_t gridSize =
       ((gemm0Size.n) / accelParams0.getNPerBlock()) * gemm0Size.g;
+
+  FailureOr<IntegerAttr> maybeBlockSize = getBlockSize(op);
+  if (failed(maybeBlockSize))
+    return failure();
+  int64_t blockSize = maybeBlockSize->getInt();
+  if (failed(validMaxLaunchSize(gridSize, blockSize)))
+    return failure();
 
   IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
@@ -545,6 +573,10 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
 
   op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
+
+  auto blockSize = op.getBlockSize();
+  if (failed(validMaxLaunchSize(gridSize, blockSize)))
+    return failure();
 
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
   funcOp->setAttr("grid_size", rw.getI32IntegerAttr(gridSize));

@@ -11,7 +11,7 @@
 #xdlops_gemm_params3 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 64, mnPerXdl = 32, forceUnroll = true, splitKFactor = 3, scheduleVersion = 1, outputSwizzle = 2>
 #xldops_attn_params_g0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 1, mPerBlock = 32, nPerBlock = 32, kpack = 4, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2>
 #xldops_attn_params_g1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 32, kpack = 4, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2>
-#fma_gemm_params0 = #rock.fma_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+#fma_gemm_params0 = #rock.fma_gemm_params<blockSize = 256, mPerBlock = 64, nPerBlock = 64, kpackPerBlock = 8, kpack = 1, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
 
 // CHECK-LABEL: func.func @gemm_splitk
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32> {rock.prefill = {{.*}} : f32})
@@ -362,12 +362,12 @@ func.func @rock_gemmelementwisegemm_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: 
 
 // CHECK-LABEL: func.func @gemm_easy_case_from_conv_fma
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
-func.func @gemm_easy_case_from_conv_fma(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
+func.func @gemm_easy_case_from_conv_fma(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 256 : i32} {
   // CHECK-NEXT: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]])
   rock.gemm %c = tr %a * %b features = none storeMethod = set {
     arch = "amdgcn-amd-amdhsa:gfx908",
     derivedBlockSize = 256 : i32,
-    gridSize = 4 : i32,
+    gridSize = 1024 : i32,
     params = #fma_gemm_params0
   } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
   func.return

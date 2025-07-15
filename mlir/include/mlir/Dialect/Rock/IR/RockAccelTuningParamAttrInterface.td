@@ -63,28 +63,17 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return how many output rows each wave computes.
+          Return block size.
         }],
         /*retType=*/"int64_t",
-        /*methodName=*/"getMPerWave",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/""
-      >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Return how many output columns each wave computes.
-        }],
-        /*retType=*/"int64_t",
-        /*methodName=*/"getNPerWave",
-        /*args=*/(ins),
+        /*methodName=*/"getBlockSize",
+        /*args=*/(ins "int64_t":$waveSize),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >
 
     // TODO: more methods here as needed
   ];
-
 }
 
 #endif // ROCK_ACCEL_TUNING_PARAM_INTERFACE

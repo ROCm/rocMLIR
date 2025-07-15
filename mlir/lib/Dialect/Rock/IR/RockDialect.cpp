@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -2398,6 +2399,54 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
 }
 
 //===-----------------------------------------------------===//
+// AttnFmaPerfConfig Attr
+//===-----------------------------------------------------===//
+
+AttnFmaPerfConfigAttr AttnFmaPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
+  // Here a conventional c++ string split is being
+  // done because MLIR lacks parseSourceString() method
+  // to parse Attributes and its only there for Ops.
+  StringRef perfConfigStrRef = perfConfigStrAttr.strref();
+  StringRef token;
+  StringRef rest;
+  std::tie(token, rest) = perfConfigStrRef.split(':');
+  if (token != "attn_fma") {
+    return {};
+  }
+  std::tie(token, rest) = rest.split(':');
+  if (token.substr(0, 1) != "v") {
+    return {};
+  }
+  int version;
+  if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
+    return {};
+  }
+  if (version != 1) {
+    return {};
+  }
+  SmallVector<StringRef, 7> tokens;
+  rest.split(tokens, ',');
+  if (tokens.size() != 7) {
+    return {};
+  }
+  SmallVector<int64_t, 7> params;
+  llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
+    int param;
+    llvm::to_integer(s, param);
+    return param;
+  });
+
+  return AttnFmaPerfConfigAttr::get(perfConfigStrAttr.getContext(),
+                                    /*blockSize=*/params[0],
+                                    /*mPerBlockG0=*/params[1],
+                                    /*mPerBlockG1=*/params[2],
+                                    /*nPerBlockG0=*/params[3],
+                                    /*kpackPerBlock=*/params[4],
+                                    /*kpack=*/params[5],
+                                    /*forceUnroll=*/params[6] == 1);
+}
+
+//===-----------------------------------------------------===//
 // StageOp
 //===-----------------------------------------------------===//
 
@@ -2423,6 +2472,82 @@ ParseResult StageOp::parse(OpAsmParser &parser, OperationState &result) {
     return failure();
 
   return success();
+}
+
+//===-----------------------------------------------------===//
+// FmaGemmParamsAttr
+//===-----------------------------------------------------===//
+
+FmaGemmParamsAttr FmaGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
+  // Here a conventional c++ string split is being
+  // done because MLIR lacks parseSourceString() method
+  // to parse Attributes and its only there for Ops.
+  StringRef perfConfigStrRef = perfConfigStrAttr.strref();
+  StringRef token;
+  StringRef rest;
+  std::tie(token, rest) = perfConfigStrRef.split(':');
+  if (token != "fma") {
+    return {};
+  }
+  std::tie(token, rest) = rest.split(':');
+  if (token.substr(0, 1) != "v") {
+    return {};
+  }
+  int version;
+  if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
+    return {};
+  }
+  if (version != 1) {
+    return {};
+  }
+  SmallVector<StringRef, 10> tokens;
+  rest.split(tokens, ',');
+  if (tokens.size() != 10) {
+    return {};
+  }
+  SmallVector<int64_t, 10> params;
+  llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
+    int param;
+    llvm::to_integer(s, param);
+    return param;
+  });
+  // ThreadCopyMore is always 1
+  if (params[9] != 1) {
+    return {};
+  }
+  return FmaGemmParamsAttr::get(perfConfigStrAttr.getContext(),
+                                /*blockSize=*/params[0],
+                                /*mPerBlock=*/params[1],
+                                /*nPerBlock=*/params[2],
+                                /*kpackPerBlock=*/params[3],
+                                /*kpack=*/params[4],
+                                /*splitKFactor*/ params[5],
+                                /*scheduleVersion=*/params[6],
+                                /*outputSwizzle=*/params[7],
+                                /*forceUnroll=*/params[8] == 1);
+}
+
+int64_t FmaGemmParamsAttr::getBlockSize(int64_t waveSize) const {
+  return getBlockSize();
+}
+
+//===-----------------------------------------------------===//
+// WmmaGemmParamsAttr, XdlopsGemmDerivedParamsAttr and XdlopsGemmParamsAttr
+//===-----------------------------------------------------===//
+
+int64_t WmmaGemmParamsAttr::getBlockSize(int64_t waveSize) const {
+  return waveSize * (getMPerBlock() / getMPerWave()) *
+         (getNPerBlock() / getNPerWave());
+}
+
+int64_t XdlopsGemmDerivedParamsAttr::getBlockSize(int64_t waveSize) const {
+  return waveSize * (getMPerBlock() / getMPerWave()) *
+         (getNPerBlock() / getNPerWave());
+}
+
+int64_t XdlopsGemmParamsAttr::getBlockSize(int64_t waveSize) const {
+  return waveSize * (getMPerBlock() / getMPerWave()) *
+         (getNPerBlock() / getMnPerXdl());
 }
 
 //===----------------------------------------------------------------------===//
