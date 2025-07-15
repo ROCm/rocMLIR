@@ -25,9 +25,6 @@
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
 
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/MC/TargetRegistry.h"
-
 using namespace mlir;
 
 void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
@@ -76,26 +73,10 @@ void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
             break;
           }
 
-	llvm::LLVMContext llvmContext;
+        llvm::LLVMContext llvmContext;
         auto llvmModule = translateModuleToLLVMIR(m, llvmContext);
         if (!llvmModule)
           return failure();
-
-	auto spirvTriple = llvm::Triple("spirv64-amd-amdhsa");
-        llvmModule->setTargetTriple(spirvTriple);
-
-	std::string error;
-	const llvm::Target *target = llvm::TargetRegistry::lookupTarget(spirvTriple.getTriple(), error);
-	if (!target) {
-	    llvm::errs() << "Cannot find target: " << error << "\n";
-	    return failure();
-	}
-
-	llvm::TargetOptions options;
-	std::unique_ptr<llvm::TargetMachine> targetMachine(
-	    target->createTargetMachine(spirvTriple.getTriple(), "", "", options, std::nullopt));
-	
-	llvmModule->setDataLayout(targetMachine->createDataLayout());
 
         llvmModule->print(output, nullptr);
         return success();
