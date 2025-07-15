@@ -187,6 +187,10 @@ FailureOr<int64_t> getNumCU(Operation *op);
 // Get the num_cu from the op, and error out if it cannot be found
 int64_t getNumCUValue(Operation *op);
 
+// Get the features enabled for the specified op. These will be dependent on
+// the architecture being used, and the type of the op.
+rock::GemmFeatures getFeatures(Operation *op);
+
 // Get whether to reverse the grid
 FailureOr<UnitAttr> getReverseGrid(Operation *op);
 

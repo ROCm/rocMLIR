@@ -256,7 +256,7 @@ struct ThreadwiseAccelGemmRewritePattern
 
     size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, rock::getArchValue(op),
+        rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
         tuningParams);
 
     if (!emitter)
@@ -785,7 +785,9 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     b.setInsertionPointToStart(outLoop.getBody());
     if (dstAddrSpace == gpu::AddressSpace::Global) {
       b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
+                              rock::GemmFeaturesAttr::get(b.getContext(),
+                                                        rock::getFeatures(op)),
+                              op.getStoreMethodAttr(),
                               outLoop.getLowerCoords(
                                   /*domain=*/0)[extraIdxCount],
                               outLoop.getValidity(/*domain=*/1),

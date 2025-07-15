@@ -11,13 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -52,7 +52,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
       /*mPerWave=*/{32, 64},
       /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
-  GemmFeatures features = attnOp.getGemmFeatures();
+  GemmFeatures features = rock::getFeatures(attnOp);
   int64_t numEUPerCU = rock::lookupArchInfo(rock::getArchValue(attnOp))
                                                                     .numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
@@ -254,7 +254,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
-  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     PopulateParamsXDL tuningInfo;
     // XDLOPS
@@ -381,7 +381,7 @@ static void createQuickTuningRange(TuningParamSet *newSpace,
                                    RockGemmWrapperInterface gemmOp) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
-  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     PopulateParamsXDL tuningInfo;
 
@@ -427,7 +427,7 @@ template <typename Op>
 static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
                                        Type elemType) {
   OpBuilder b(attnOp.getContext());
-  GemmFeatures currentFeatures = attnOp.getGemmFeatures();
+  GemmFeatures currentFeatures = rock::getFeatures(attnOp);
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   using PerfConfigVals =
       std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>;
@@ -1090,7 +1090,7 @@ bool isSplitKRequested(rock::GemmFeatures features, StringRef perfConfig) {
 bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
   WalkResult gemmWalkResult =
       mod.walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        if (isSplitKRequested(op.getGemmFeatures(), perfConfig))
+        if (isSplitKRequested(rock::getFeatures(op), perfConfig))
           return WalkResult::interrupt();
 
         return WalkResult::advance();

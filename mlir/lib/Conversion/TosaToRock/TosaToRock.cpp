@@ -17,11 +17,11 @@
 #include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -208,37 +208,6 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
-getArchAttributes(Operation *op, Type inputType) {
-  auto func = op->getParentOfType<func::FuncOp>();
-  // auto mod = func->getParentOfType<ModuleOp>();
-
-  // TODO(sjw): get these from options
-  StringAttr arch = StringAttr::get(op->getContext(), "");
-  FailureOr<StringAttr> maybeArch = rock::getArch(op);
-  if (succeeded(maybeArch)) {
-    arch = maybeArch.value();
-  }
-  std::optional<uint32_t> num_cu = std::nullopt;
-  FailureOr<int64_t> maybeNumCU = rock::getNumCU(op);
-  if (succeeded(maybeNumCU)) {
-    num_cu = (uint32_t)maybeNumCU.value();
-  }
-  std::optional<bool> xdlopsV2 = std::nullopt;
-
-  if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
-    xdlopsV2 = attr.getValue();
-  else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
-    xdlopsV2 = attr.getValue();
-
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  rock::GemmFeatures features = archInfo.getDefaultFeatures(inputType);
-  if (xdlopsV2.has_value())
-    features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
-
-  return {arch, num_cu, features};
-}
-
 struct ConvFields {
   SmallString<8> filterLayout;
   SmallString<8> inputLayout;
@@ -256,8 +225,7 @@ struct ConvFields {
 static ConvFields commonConv(PatternRewriter &rw, Operation *op, Value input,
                              Value filter, Value output, DenseI64ArrayAttr pad,
                              DenseI64ArrayAttr stride,
-                             DenseI64ArrayAttr dilation, int64_t group,
-                             rock::GemmFeatures features) {
+                             DenseI64ArrayAttr dilation, int64_t group) {
   ConvFields res;
 
   res.filterLayout = "kyxc";
@@ -289,7 +257,6 @@ static ConvFields commonConv(PatternRewriter &rw, Operation *op, Value input,
   res.pad = rw.getIndexArrayAttr(pad);
   res.stride = rw.getIndexArrayAttr(stride);
   res.dilation = rw.getIndexArrayAttr(dilation);
-  res.features = rw.getAttr<rock::GemmFeaturesAttr>(features);
   res.perfConfig = op->getAttrOfType<StringAttr>("perf_config");
 
   return res;
@@ -333,16 +300,15 @@ static FailureOr<rock::ConvOp>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group,
-             rock::GemmFeatures features) {
+             int64_t group) {
   Location loc = op->getLoc();
 
   ConvFields convFields = commonConv(rw, op, input, filter, output, pad, stride,
-                                     dilation, group, features);
+                                     dilation, group);
 
   auto cop = rw.create<rock::ConvOp>(
       loc, convFields.outputExp.getType(), convFields.filterExp,
-      convFields.inputExp, convFields.outputExp, convFields.features,
+      convFields.inputExp, convFields.outputExp, /*features*/ nullptr,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
       convFields.stride, convFields.dilation,
       /*params=*/nullptr);
@@ -629,10 +595,7 @@ public:
     auto bias = operands[2];
     auto outputType = cast<RankedTensorType>(op.getType());
 
-    StringAttr arch;
-    std::optional<uint32_t> numCU;
-    rock::GemmFeatures features;
-    std::tie(arch, numCU, features) = getArchAttributes(op, input.getType());
+    rock::GemmFeatures features = rock::getFeatures(op);
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -645,7 +608,7 @@ public:
       group = attr.getInt(); // Use op.getGroup() when all OpT have it.
     FailureOr<rock::ConvOp> rockConv = makeRockConv(
         rw, op, input, filter, output, op.getPadAttr(), op.getStrideAttr(),
-        op.getDilationAttr(), group, features);
+        op.getDilationAttr(), group);
     if (failed(rockConv))
       return failure();
 
@@ -747,11 +710,7 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
-    StringAttr arch;
-    std::optional<uint32_t> numCU;
-    rock::GemmFeatures features;
-    std::tie(arch, numCU, features) =
-        getArchAttributes(op, op.getA().getType());
+    rock::GemmFeatures features = rock::getFeatures(op);
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -782,7 +741,7 @@ public:
 
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
-        rw.getAttr<rock::GemmFeaturesAttr>(features),
+        /*features=*/ nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
         /*params=*/nullptr);
@@ -1146,10 +1105,6 @@ struct ConvElementwiseGemmRewritePattern
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
-    StringAttr arch;
-    std::optional<uint32_t> numCu;
-    rock::GemmFeatures features;
-    std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
     SmallVector<Value> elementwiseOtherArgs;
 
     FailureOr<tosa::Conv2DOp> maybeConv;
@@ -1171,13 +1126,13 @@ struct ConvElementwiseGemmRewritePattern
     ConvFields convFields =
         commonConv(rewriter, op, firstConv.getInput(), firstConv.getWeight(),
                    output, firstConv.getPadAttr(), firstConv.getStrideAttr(),
-                   firstConv.getDilationAttr(), group, features);
+                   firstConv.getDilationAttr(), group);
 
     auto convElentwiseGemmOp = rewriter.create<rock::ConvElementwiseGemmOp>(
         loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
         elementwiseOtherArgs, output,
         /*cTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, convFields.features,
+        /*oTransposed=*/nullptr, /*features=*/ nullptr,
         convFields.pad, convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
@@ -1241,10 +1196,6 @@ struct GemmElementwiseGemmRewritePattern
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
-    StringAttr arch;
-    std::optional<uint32_t> numCu;
-    rock::GemmFeatures features;
-    std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
     SmallVector<Value> elementwiseOtherArgs;
 
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
@@ -1262,7 +1213,7 @@ struct GemmElementwiseGemmRewritePattern
             /*kTransposed=*/nullptr,
             /*vTransposed=*/nullptr,
             /*oTransposed=*/nullptr,
-            rewriter.getAttr<rock::GemmFeaturesAttr>(features),
+            /*features=*/ nullptr,
             /*params0=*/nullptr, /*params1=*/nullptr,
             /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 
@@ -1990,10 +1941,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       lseOut = rewriter.create<bufferization::AllocTensorOp>(loc, lseType,
                                                              ValueRange{});
     }
-    StringAttr arch;
-    std::optional<uint32_t> numCu;
-    rock::GemmFeatures features;
-    std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
     SmallVector<Value> elementwiseOtherArgs =
         attentionMatcherValues.elementwiseOtherArgs;
     // causalMaskInput would be equal to kvCacheInput if there is no causal
@@ -2021,7 +1968,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, causalAttr,
-        rewriter.getAttr<rock::GemmFeaturesAttr>(features), softmaxTypeAttr,
+        /*features=*/nullptr, softmaxTypeAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 
@@ -2090,22 +2037,18 @@ typename std::enable_if_t<
   auto outputType = cast<RankedTensorType>(op.getType());
   Value output =
       rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
-  StringAttr arch;
-  std::optional<uint32_t> numCu;
-  rock::GemmFeatures features;
-  std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
 
   int32_t blockSize = 256;
   auto elementCount =
       cast<ShapedType>(op.getInput().getType()).getNumElements();
   int32_t gridSize = (elementCount + blockSize - 1) / blockSize;
-  if (numCu.has_value()) {
-    gridSize = std::min((int32_t)(20 * numCu.value()), gridSize);
+  auto numCU = rock::getNumCU(op);
+  if (succeeded(numCU)) {
+    gridSize = std::min((int32_t)(20 * numCU.value()), gridSize);
   }
 
   auto rockReduce = rw.create<rock::ReduceOp>(
-      loc, outputType, op.getInput(), output,
-      rw.getAttr<rock::GemmFeaturesAttr>(features),
+      loc, outputType, op.getInput(), output, /*features=*/ nullptr,
       rw.getAttr<rock::ReduceMethodAttr>(rMethod),
       rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
       rw.getI32IntegerAttr(gridSize),

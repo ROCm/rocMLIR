@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
@@ -588,28 +589,25 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
   return success();
 }
 
-static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
-  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType(),
-       elemTypeC = gemmOp.getCType();
-
+static StringAttr getArchString(Operation *op) {
   // Instantiate arch. It will get populated with the call to 'getAnyAttr' that
   // takes place later
   StringAttr arch;
 
   // Lambda function to help with parsing 'arch' attributes from funcs
-  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
+  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *tempOp) {
     for (StringRef attrName : attrNames) {
       if (!arch) {
-        arch = op->getAttrOfType<StringAttr>(attrName);
+        arch = tempOp->getAttrOfType<StringAttr>(attrName);
       } else {
         return;
       }
     }
   };
 
-  Operation *func = gemmOp->getParentOfType<func::FuncOp>();
+  Operation *func = op->getParentOfType<func::FuncOp>();
   if (!func) {
-    func = gemmOp->getParentOfType<gpu::GPUFuncOp>();
+    func = op->getParentOfType<gpu::GPUFuncOp>();
   }
   getAnyAttr({"arch", "mhal.arch"}, func);
 
@@ -622,9 +620,39 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   // If still not available, then we have malformed IR and need to error out
   if (!arch)
     llvm_unreachable("GEMM op needs to have an arch attribute");
+
+  return arch;
+}
+
+GemmFeatures getFeatureValue(Operation *op) {
+  std::optional<GemmFeatures> optionalFeatures;
+  if (auto gemmOp = dyn_cast<RockGemmWrapperInterface>(op)) {
+    optionalFeatures = gemmOp.getGemmFeatures();
+  } else if (auto gemmOp = dyn_cast<rock::GemmOp>(op)) {
+    optionalFeatures = gemmOp.getFeatures();
+  } else {
+    llvm_unreachable("Trying to calculate 'GemmFeatures' for unsupported op");
+  }
+
+  // Check to see if the gemmOp has a feature attribute attached to it. If not,
+  // we return the default features based on the arch
+  if (optionalFeatures)
+    return optionalFeatures.value();
+
+  auto archString = getArchString(op);
+  auto archInfo = rock::lookupArchInfo(archString);
+  return archInfo.getDefaultFeatures(op->getOperand(0).getType());
+}
+
+static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
+  Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType(),
+       elemTypeC = gemmOp.getCType();
+
+  StringAttr arch = getArchString(gemmOp);
+  GemmFeatures features = getFeatureValue(gemmOp);
   
-  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), arch,
-                         elemTypeA, elemTypeB, elemTypeC);
+  return verifyGemmTypes(gemmOp, features, arch, elemTypeA, elemTypeB,
+                         elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -634,7 +662,10 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
 
-  bool isAccel = bitEnumContainsAny(convOp.getFeatures(),
+  auto features = getFeatureValue(gemmOp);
+
+  // Only perform this check for ops that have a feature attribute
+  bool isAccel = bitEnumContainsAny(features,
                                     GemmFeatures::mfma | GemmFeatures::wmma);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
@@ -872,8 +903,10 @@ LogicalResult GemmOp::verify() {
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
 
-  bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
+  bool isXdlops = bitEnumContainsAll(getFeatureValue(this->getOperation()),
+                                     GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(getFeatureValue(this->getOperation()),
+                                   GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops &&
         !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
@@ -934,7 +967,7 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
        cElem = cType.getElementType();
 
   if (failed(
-          verifyGemmTypes(op, op.getFeatures(), "gfx00", aElem, bElem, cElem)))
+          verifyGemmTypes(op, getFeatureValue(op), "gfx00", aElem, bElem, cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
@@ -1746,7 +1779,10 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   // Only one operand supports view
   auto newOp = builder.create<ThreadwiseWriteAllOp>(
       getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      getFeatures(), getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
+      rock::GemmFeaturesAttr::get(builder.getContext(),
+                                  getFeatureValue(getOperation())),
+      getStoreMethod(), getForceUnroll(),
+      getUseIndexDiffs());
   return newOp.getOperation();
 }
 

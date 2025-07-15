@@ -21,11 +21,11 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -2280,7 +2280,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   auto gemm = b.create<rock::GemmOp>(
       loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
-      transposeB, transposeC, params.features,
+      transposeB, transposeC, rock::GemmFeaturesAttr::get(b.getContext(),
+                                                          params.features),
       storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
@@ -2865,7 +2866,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
-      transposeO, causalMasking, params.features, softmaxType,
+      transposeO, causalMasking,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSoftmaxElemwiseBlock =
@@ -2998,7 +3001,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   }
   auto convElntGemm = builder.create<rock::ConvElementwiseGemmOp>(
       loc, TypeRange{}, filter, input, c, elemwiseInputs, output, transposeC,
-      transposeO, params.features,
+      transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
@@ -3100,7 +3104,8 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
 
   auto gemmElntGemm = builder.create<rock::GemmElementwiseGemmOp>(
       loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
-      transposeC, transposeO, params.features,
+      transposeC, transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSecondGemmBlock =

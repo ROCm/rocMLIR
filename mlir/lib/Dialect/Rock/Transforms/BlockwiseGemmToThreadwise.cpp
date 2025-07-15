@@ -21,11 +21,11 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -145,8 +145,9 @@ struct BlockwiseFillRewritePattern
         rewriter.createOrFold<rock::WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, valueReg, op.getMemref(), rewriter.getArrayAttr({unmerge, pad}),
-        /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
-        true, true);
+        /*extraIndices=*/ValueRange{tid}, 
+        rewriter.getAttr<rock::GemmFeaturesAttr>(GemmFeatures::none),
+        StoreMethod::Set, true, true);
     rewriter.eraseOp(op);
     return success();
   }
@@ -418,7 +419,7 @@ struct BlockwiseGemmAccelRewritePattern
       dataTypeB = bufferVecTypeB.getElementType();
 
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, arch, tuningParams);
+        rock::getFeatures(op), dataTypeA, dataTypeB, arch, tuningParams);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
@@ -505,7 +506,10 @@ struct BlockwiseGemmAccelRewritePattern
           Value k = kLoop.getInductionVar();
           b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
                                           ValueRange{i, j, k},
-                                          op.getFeaturesAttr(), tuningParams);
+                                          rock::GemmFeaturesAttr::get(
+                                                      b.getContext(),
+                                                      rock::getFeatures(op)),
+                                          tuningParams);
         }
       }
     }

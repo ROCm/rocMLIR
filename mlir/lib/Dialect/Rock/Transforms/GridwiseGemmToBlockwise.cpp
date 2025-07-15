@@ -19,12 +19,12 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Affine/Analysis/LoopAnalysis.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -646,13 +646,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       op.getFeatures(), StoreMethod::Set,
+                                       rock::GemmFeaturesAttr::get(
+                                                    b.getContext(),
+                                                    rock::getFeatures(op)),
+                                       StoreMethod::Set,
                                        /*forceUnroll=*/true,
                                        /*useIndexDiffs=*/true);
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       op.getFeatures(), StoreMethod::Set,
+                                       rock::GemmFeaturesAttr::get(
+                                                    b.getContext(),
+                                                    rock::getFeatures(op)),
+                                       StoreMethod::Set,
                                        /*forceUnroll=*/true,
                                        /*useIndexDiffs=*/true);
 
@@ -722,7 +728,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                    ValueRange{gridCoords.g_block,
                                               gridCoords.m_block,
                                               gridCoords.n_block, tid},
-                                   op.getFeatures(), op.getStoreMethod(),
+                                   rock::GemmFeaturesAttr::get(b.getContext(),
+                                                         rock::getFeatures(op)),
+                                   op.getStoreMethod(),
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
 
@@ -783,8 +791,9 @@ struct GridwiseAttentionAccelRewritePattern
 
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
-        forceUnroll, true);
+        /*extraIndices=*/ValueRange{tid},
+        rewriter.getAttr<rock::GemmFeaturesAttr>(GemmFeatures::none),
+        StoreMethod::Set, forceUnroll, true);
     return success();
   }
 
@@ -1698,7 +1707,7 @@ struct GridwiseAttentionAccelRewritePattern
     StringRef arch = rock::getArchValue(op);
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
-        op.getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+        rock::getFeatures(op), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (auto mfmaEmitter =
             dyn_cast<accel::MfmaEmitter>(accelEmitterPtrGemm0.get())) {
       if (!mfmaEmitter->isKReduction()) {
@@ -1892,7 +1901,7 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
 
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
-        op.getFeatures(), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+        rock::getFeatures(op), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (!accelEmitterPtrGemm0)
       return op.emitOpError("Unable to emit accelerator code.");
     bool doBypassLDSSecondGemm = canBypassLDSForSecondGemm(op);
@@ -1900,7 +1909,7 @@ struct GridwiseAttentionAccelRewritePattern
     rock::accel::AccelEmitterParams accelParamsGemm0 =
         accelEmitterPtrGemm0->getParams();
     auto accelEmitterPtrGemm1 = accel::AccelEmitter::select(
-        op.getFeatures(), elemTypeV, elemTypeV, arch, gemm1TuningParams);
+        rock::getFeatures(op), elemTypeV, elemTypeV, arch, gemm1TuningParams);
     if (!accelEmitterPtrGemm1)
       return op.emitOpError("Unable to emit accelerator code.");
     rock::accel::AccelEmitterParams accelParamsGemm1 =
@@ -2378,7 +2387,8 @@ struct GridwiseAttentionAccelRewritePattern
               Value ki = kLoop.getInductionVar();
               rewriter.create<ThreadwiseAccelGemmOp>(
                   loc, viewA, viewB, viewC, ValueRange{mi, ni, ki},
-                  op.getFeaturesAttr(), op.getParams0Attr());
+                  rewriter.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
+                  op.getParams0Attr());
             }
           }
         }
@@ -2666,7 +2676,8 @@ struct GridwiseAttentionAccelRewritePattern
                 // regsC += regsA * regsB
                 rewriter.create<ThreadwiseAccelGemmOp>(
                     loc, viewA, viewB, viewC, ValueRange{mi, ni, ki},
-                    op.getFeaturesAttr(),
+                    rewriter.getAttr<rock::GemmFeaturesAttr>(
+                                                        rock::getFeatures(op)),
                     op.getParams1Attr());
               }
             }
@@ -2762,7 +2773,8 @@ struct GridwiseAttentionAccelRewritePattern
         loc, outAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
         ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-        op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
+        rewriter.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
+        rock::StoreMethod::Set, forceUnroll,
         /*useIndexDiffs=*/true);
 
     // store LSE to device memory
@@ -2799,7 +2811,8 @@ struct GridwiseAttentionAccelRewritePattern
           loc, lseBuffer, lse, lseMap,
           /*extraIndices=*/
           ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-          op.getFeatures(), rock::StoreMethod::Set, forceUnroll,
+          rewriter.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
+          rock::StoreMethod::Set, forceUnroll,
           /*useIndexDiffs=*/true);
     }
 
@@ -3117,7 +3130,7 @@ struct GridwiseGemmAccelRewritePattern
     int64_t nPerWave = tuningParams.getNPerWave();
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
-        op.getFeatures(), elementTypeA, elementTypeB, arch, tuningParams);
+        rock::getFeatures(op), elementTypeA, elementTypeB, arch, tuningParams);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
@@ -3295,13 +3308,19 @@ struct GridwiseGemmAccelRewritePattern
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       op.getFeatures(), StoreMethod::Set,
+                                       rock::GemmFeaturesAttr::get(
+                                                      b.getContext(),
+                                                      rock::getFeatures(op)),
+                                       StoreMethod::Set,
                                        /*forceUnroll=*/forceUnroll,
                                        /*useIndexDiffs=*/true);
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       op.getFeatures(), StoreMethod::Set,
+                                       rock::GemmFeaturesAttr::get(
+                                                      b.getContext(),
+                                                      rock::getFeatures(op)),
+                                       StoreMethod::Set,
                                        /*forceUnroll=*/forceUnroll,
                                        /*useIndexDiffs=*/true);
         b.create<rock::YieldOp>(loc);
@@ -3321,7 +3340,9 @@ struct GridwiseGemmAccelRewritePattern
               (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
               (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
               arrayA, arrayB, regCAllocOp,
-              op.getFeaturesAttr(), op.getBlockSizeAttr(), op.getParamsAttr());
+              rock::GemmFeaturesAttr::get(b.getContext(),
+                                          rock::getFeatures(op)),
+              op.getBlockSizeAttr(), op.getParamsAttr());
           b.create<rock::YieldOp>(loc);
         }
       } else {
@@ -3349,7 +3370,9 @@ struct GridwiseGemmAccelRewritePattern
           b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
                               regCAllocOp, rock::getArchValue(op),
-                              op.getFeaturesAttr(), tuningParams);
+                              rock::GemmFeaturesAttr::get(b.getContext(),
+                                                         rock::getFeatures(op)),
+                              tuningParams);
           b.create<rock::YieldOp>(loc);
         }
       }
@@ -3382,7 +3405,8 @@ struct GridwiseGemmAccelRewritePattern
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
                    tid},
-        op.getFeatures(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
+        rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
+        op.getStoreMethod(), forceUnroll, useIndexDiffs);
     b.eraseOp(op);
     return success();
   }

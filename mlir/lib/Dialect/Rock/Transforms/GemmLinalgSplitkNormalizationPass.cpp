@@ -106,7 +106,7 @@ rewriteLinalgForSplitK(func::FuncOp &func,
     GemmOp gemmOp = gemmOps[0];
     auto gemmResult = gemmOp.getOutArgument()->get();
     int64_t splitKFactor = gemmOp.getParams()->getSplitKFactor();
-    GemmFeatures features = gemmOp.getFeatures();
+    GemmFeatures features = rock::getFeatures(gemmOp);
 
     // save all `linalg::GenericOp` that read from a gemm output
     auto genericOpOperands =

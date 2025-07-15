@@ -1,4 +1,5 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -6,7 +7,6 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -147,7 +147,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
                           .getScheduleVersion();
   }
 
-  GemmFeatures features = op.getGemmFeatures();
+  GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
@@ -272,7 +272,7 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmGemmWrapperInterface op) {
   OpBuilder builder(op.getContext());
-  bool isAccel = rock::isAccel(op.getGemmFeatures());
+  bool isAccel = rock::isAccel(rock::getFeatures(op));
   if (!isAccel) {
     op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
                  "supported on GPUs "
@@ -295,7 +295,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
   }
-  GemmFeatures features = op.getGemmFeatures();
+  GemmFeatures features = rock::getFeatures(op);
   RockAccelTuningParamAttrInterface accelParams0;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
     auto xdlopsParams0 = XdlopsGemmParamsAttr::get(

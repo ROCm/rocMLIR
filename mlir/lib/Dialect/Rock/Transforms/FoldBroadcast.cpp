@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
@@ -204,8 +205,9 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     auto gemm = rw.create<rock::GemmOp>(
         op.getLoc(), newC.getType(), newA, newB, newC, op.getATransposed(),
         op.getBTransposed(), op.getCTransposed(),
-        op.getFeatures(), op.getStoreMethod(),
-        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
+        rw.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
+        op.getStoreMethod(), op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+        op.getParamsAttr());
 
     // Convert optional attributes
     if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))

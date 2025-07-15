@@ -354,13 +354,15 @@ struct ZeroInitKernelRewritePattern final
     Value memref = makeGpuAllocContaining(b, initOp);
     Value trueOp =
         b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    GemmFeatures features = op.getFeatures();
+    GemmFeatures features = rock::getFeatures(op);
 
     auto loopBody = [&memref, &initVectorLen, &trueOp, &features, &zeroIndex,
                      &needs64BitIdx](OpBuilder &b, Location loc,
                                      ValueRange collapsed, Value index) {
       b.create<GlobalStoreOp>(loc, memref, collapsed[0],
-                              APInt(64, initVectorLen), features,
+                              APInt(64, initVectorLen),
+                              rock::GemmFeaturesAttr::get(b.getContext(),
+                                                          features),
                               StoreMethod::Set, /*sourceCoord=*/zeroIndex,
                               /*valid=*/trueOp, index, needs64BitIdx,
                               /*canStoreOffEnd=*/true);
@@ -398,7 +400,7 @@ struct ConvertingCopyKernelRewritePattern final
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    GemmFeatures features = op.getFeatures();
+    GemmFeatures features = rock::getFeatures(op);
     bool needs64BitIdx =
         is4GBMemoryType(input.getType()) || is4GBMemoryType(output.getType());
     Value storeMemref = makePrivateGpuAlloc(b, loc, storeType);
@@ -414,7 +416,8 @@ struct ConvertingCopyKernelRewritePattern final
       b.create<InBoundsStoreOp>(loc, converted, storeMemref, zeroIndex);
       b.create<GlobalStoreOp>(
           loc, storeMemref, collapsed[1], APInt(64, conversionVectorLen),
-          features, StoreMethod::Set, /*sourceCoord=*/zeroIndex,
+          rock::GemmFeaturesAttr::get(b.getContext(), features),
+          StoreMethod::Set, /*sourceCoord=*/zeroIndex,
           /*valid=*/trueOp, index, needs64BitIdx, /*canWriteOffEnd=*/true);
     };
     LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},
@@ -585,7 +588,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   ShapedType filterType = op.getFilter().getType();
   auto filterShape = filterType.getShape();
 
-  GemmFeatures features = op.getFeatures();
+  GemmFeatures features = rock::getFeatures(op);
   bool isAccel = rock::isAccel(features);
 
   // Determine whether to use workspace.
@@ -797,7 +800,8 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr,
-      op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
+      rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
+      storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
 
   // Finally, erase the original Conv op.
@@ -1159,7 +1163,8 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
       loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr,
-      op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
+      rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
+      storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", kernelIdAttr);
@@ -1174,7 +1179,7 @@ template <typename T>
 static FailureOr<std::tuple<Value, Value, Value>>
 commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
                   ConvOpType convOpType) {
-  GemmFeatures features = op.getFeatures();
+  GemmFeatures features = rock::getFeatures(op);
 
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
@@ -1438,7 +1443,8 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
         op.getCTransposedAttr(), op.getOTransposedAttr(),
-        op.getFeaturesAttr(), op.getParams0Attr(),
+        rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
+        op.getParams0Attr(),
         op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // copy linalg::GenericOp if there's any
@@ -1491,7 +1497,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                      /*cTransposed=*/nullptr,
-                     op.getFeaturesAttr(), storeMethod,
+                     rock::GemmFeaturesAttr::get(b.getContext(),
+                                                 rock::getFeatures(op)),
+                     storeMethod,
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
                      tuningParams);
 

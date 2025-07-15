@@ -8,7 +8,7 @@
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -764,6 +764,40 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
   auto archStr = rock::getArchValue(op);
   int64_t minCU = rock::lookupArchInfo(archStr).minNumCU;
   return minCU;
+}
+
+mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
+  // First check to see if the op has a 'Features' attribute.
+  std::optional<rock::GemmFeatures> optionalFeatures;
+  if (auto wrapper = dyn_cast<RockGemmGemmWrapperInterface>(op)) {
+    optionalFeatures = wrapper.getGemmFeatures();
+  } else if (auto wrapper = dyn_cast<RockGemmWrapperInterface>(op)) {
+    optionalFeatures = wrapper.getGemmFeatures();
+  } else if (auto gemmOp = dyn_cast<rock::GemmOp>(op)) {
+    optionalFeatures = gemmOp.getFeatures();
+  } else if (auto convOp = dyn_cast<rock::ConvOp>(op)) {
+    optionalFeatures = convOp.getFeatures();
+  } else if (auto convBwdDataOp = dyn_cast<rock::ConvBwdDataOp>(op)) {
+    optionalFeatures = convBwdDataOp.getFeatures();
+  } else if (auto convBwdWeightOp = dyn_cast<rock::ConvBwdWeightOp>(op)) {
+    optionalFeatures = convBwdWeightOp.getFeatures();
+  } else {
+    llvm_unreachable("Trying to calculate 'Features' for unsupported op");
+  }
+
+  if (optionalFeatures.has_value())
+    return optionalFeatures.value();
+
+  // In this case, the op does not have a 'Features' attribute, so we can
+  // calculate the default features based on the architecture.
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(rock::getArchValue(op));
+  if (isa<rock::GemmOp>(op) || isa<rock::ConvOp>(op) ||
+      isa<RockGemmGemmWrapperInterface>(op) ||
+      isa<RockGemmWrapperInterface>(op)) {
+    return archInfo.getDefaultFeatures(op->getOperand(0).getType());
+  } else {
+    llvm_unreachable("Trying to calculate 'Features' for unsupported op");
+  }
 }
 
 FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {

@@ -150,7 +150,7 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
           auto outElementType =
               cast<ShapedType>(blockArg.getType()).getElementType();
           if (failed(validOutputAtomicAdd(outElementType,
-                                          gemmOp.getGemmFeatures())))
+                                          rock::getFeatures(gemmOp))))
             return WalkResult::interrupt();
         }
 
@@ -186,7 +186,7 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
           if (failed(checkValidOutputFusion(
                   cast<linalg::GenericOp>(genericOpOperand->getOwner()),
-                  inputAlloc.value(), gemmOp.getGemmFeatures(), adds)))
+                  inputAlloc.value(), rock::getFeatures(gemmOp), adds)))
             return WalkResult::interrupt();
         }
 
@@ -211,11 +211,12 @@ LogicalResult mlir::rock::testFusionLegalityReduce(func::FuncOp func) {
       if (!isa<Float32Type>(outElemType))
         return WalkResult::interrupt();
 
-      if (!bitEnumContainsAll(reduceOp.getFeatures(),
+      if (!bitEnumContainsAll(rock::getFeatures(reduceOp),
                               GemmFeatures::atomic_fmax_f32))
         return WalkResult::interrupt();
     } else {
-      if (failed(validOutputAtomicAdd(outElemType, reduceOp.getFeatures())))
+      if (failed(validOutputAtomicAdd(outElemType,
+                                      rock::getFeatures(reduceOp))))
         return WalkResult::interrupt();
     }
     return WalkResult::advance();
