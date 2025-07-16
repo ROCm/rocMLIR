@@ -1662,15 +1662,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       hasTosaReduce = false;
       result = sub.getInput1();
     }
-    // we want to make sure there was a convert after softmax
-    // because otherwise a castOp could be part of a fusion
     TypeAttr softmaxTypeAttr = nullptr;
     if (softmaxType) {
+      // check if cast before and after softmax have matching types
       FailureOr<Value> maybeCastVal = traceToConvert(result);
       if (failed(maybeCastVal))
         return failure();
       tosa::CastOp castOp = maybeCastVal.value().getDefiningOp<tosa::CastOp>();
-      result = castOp.getInput();
       // the casts type must match (before and after softmax op)
       if (softmaxType != cast<ShapedType>(castOp.getType()).getElementType())
         return failure();
@@ -1829,6 +1827,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     OpBuilder b{op};
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
+    softmaxInput.dump();
     std::tie(std::ignore, maybeFirstMatMul) =
         getElementwiseRegion<tosa::MatMulOp>(softmaxInput, b, nullptr, vec);
 
