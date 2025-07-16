@@ -24,11 +24,14 @@
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -454,36 +457,40 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
   SmallVector<Attribute> transformAttrs;
   if(useShuffles) {
+    // TODO: not supported yet
+    assert(!doSplitKAcrossThreadsFirst);
+    assert(isKReduction);
+    assert(ldsLayoutDxK);
     int64_t elemTyWidth = cast<ShapedType>(buffer.getType()).getElementType().getIntOrFloatBitWidth();
+    // TODO: use memref with numElementsxdtype!
     int64_t numElements = 128 / elemTyWidth;
-    numElements = math_util::gcd(dRepeats*kIter, numElements);
-    int64_t repeats = (dRepeats*kIter) / numElements;
+    // TODO: dRepeats is not correct here
+    numElements = math_util::gcd(ldsLayoutDxK ? kIter : dRepeats, numElements);
+    int64_t repeats = (ldsLayoutDxK ? kIter : dRepeats) / numElements;
+
 
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
                               {blockSize, dRepeats, kIter});
-    if (ldsLayoutDxK)
-      splitTid.unmerge("repeat", 1, {"d_iter", "k_iter"},
-                          {dRepeats, kIter});
-    else
-      splitTid.unmerge("repeat", 1, {"k_iter", "d_iter"},
-                          {kIter, dRepeats});
+    splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
+                   {blockSize / waveSize, waveSize});
 
-    splitTid.passThrough({"tid"}, {0}, {"tid"});
+    splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
     TransformMapAttr splitTidAttr = splitTid.get();
     transformAttrs.push_back(splitTidAttr);
 
+    // wave_id, lane_id, d_iter, k_iter
     TopDownTMBuilder splitWaveId =
         TopDownTMBuilder::below(splitTid, splitTidAttr);
-    splitWaveId.merge({"repeats", "num_elements"}, {0, 2}, "repeat",
+    splitWaveId.merge({"repeats", "num_elements"}, {3, 4}, "k_iter",
                       {repeats, numElements});
-    splitWaveId.passThrough({"tid"}, {1}, {"tid"});
+    splitWaveId.passThrough({"wave_id", "lane_id", "d_iter"});
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
 
     TopDownTMBuilder toLDSRowCol =
         TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
 
-    toLDSRowCol.unmerge("source_offset", 0, {"repeats", "tid", "num_elements"},
+    toLDSRowCol.unmerge("source_offset", 0, {"d_iter", "wave_id", "repeats", "lane_id", "num_elements"},
                         {repeats, blockSize, numElements});
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
@@ -597,6 +604,105 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
   ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
   return transform(b, buffer, ldsRead);
+}
+
+Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const {
+  if(!directToLds)
+    return buffer; // No swizzling needed if not direct to LDS
+
+  auto memrefType = cast<MemRefType>(buffer.getType());
+  auto shape = memrefType.getShape();
+  auto elementType = memrefType.getElementType();
+  auto vectorType = VectorType::get(shape, elementType);
+  
+  // Create a zero index for loading from the beginning of the memref
+  Value zeroIndex = b.create<arith::ConstantIndexOp>(loc, 0);
+  SmallVector<Value> indices(shape.size(), zeroIndex);
+  
+  // Load the entire memref into a vector
+  Value vectorData = b.create<vector::LoadOp>(loc, vectorType, buffer, indices);
+  Value resultVector = b.create<arith::ConstantOp>(loc, vectorType, b.getZeroAttr(vectorType));
+
+  Value waveSizeConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), waveSize);
+  // We are going to swizzle the data between threads in the wavefront to have the required data for accelerator
+  // operations. The swizzle is done by using a GPU shuffle operation.
+  if (ldsLayoutDxK) {
+    int64_t elemTyWidth = elementType.getIntOrFloatBitWidth();
+    int64_t numElements = 128 / elemTyWidth;
+    numElements = math_util::gcd(shape[0], numElements);
+    int64_t repeats = shape[0] / numElements;
+    Value repeatsConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), repeats);
+    // TODO: hardcoded
+    int64_t numD = 32;
+    Value numDConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), numD);
+    int64_t numColumns = numD / waveSize;
+    Value numColumnsConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), numColumns);
+
+    // TODO: only supported for now
+    assert(repeats > 1);
+
+    // Get current workitem ID.
+    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+    auto laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConst);
+
+    for(int repeat = 0; repeat < repeats; ++repeat) {
+        Value repeatConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), repeat);
+        Value extractedVector = b.create<vector::ExtractStridedSliceOp>(
+          loc, 
+          vectorData,           // source vector<16xf16>
+          ArrayRef<int64_t>{repeat*numElements},  // offsets: start at offset
+          ArrayRef<int64_t>{numElements},       // sizes: extract 8 elements
+          ArrayRef<int64_t>{1}        // strides: step by 1
+        );
+      for(int numShuffle = 0; numShuffle < repeats; ++numShuffle) {
+        Value numShuffleConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), numShuffle);
+        auto laneD = b.create<arith::RemUIOp>(loc, laneId, numDConst);
+        auto laneK = b.create<arith::DivUIOp>(loc, laneId, numDConst);
+
+        // (laneD * repeats * numColumns) % waveSize
+        auto laneDTimesRepeats = b.create<arith::MulIOp>(loc, laneD, repeatsConst);
+        Value firstTerm = b.create<arith::MulIOp>(loc, laneDTimesRepeats, numColumnsConst);
+        Value iterNum = b.create<arith::DivUIOp>(loc, firstTerm, waveSizeConst);
+        firstTerm = b.create<arith::RemUIOp>(loc, firstTerm, waveSizeConst);
+        
+        // laneK * repeats
+        auto secondTerm = b.create<arith::MulIOp>(loc, laneK, repeatsConst);
+        
+        // (laneD * repeats * numColumns) % waveSize + laneK * repeats
+        auto firstPlusSecond = b.create<arith::AddIOp>(loc, firstTerm, secondTerm);
+        
+        // (laneD * repeats * numColumns) % waveSize + laneK * repeats + numShuffle
+        auto shuffleOffset = b.create<arith::AddIOp>(loc, firstPlusSecond, numShuffleConst);
+
+        // Perform the shuffle operation
+        std::array<Type, 2> shuffleType = {extractedVector.getType(), b.getI1Type()};
+        auto shuffleOp = b.create<gpu::ShuffleOp>(
+            loc, shuffleType, extractedVector, shuffleOffset, waveSizeConst, gpu::ShuffleMode::IDX);
+        Value shuffledValue = shuffleOp.getResult(0);
+
+        // only store if iterNum == repeat
+        auto storeVector = b.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::eq, iterNum, repeatConst);
+        scf::IfOp ifb = b.create<scf::IfOp>(loc, storeVector,
+                                                  /*withElseRegion=*/false);
+        {
+          OpBuilder thenb = ifb.getThenBodyBuilder();
+          resultVector = thenb.create<vector::InsertStridedSliceOp>(
+            loc,
+            shuffledValue,           // source vector
+            resultVector,                  // destination vector  
+            ArrayRef<int64_t>{numShuffle*numElements}, // offsets
+            ArrayRef<int64_t>{1}       // strides
+          );
+        }
+      }
+    }
+
+  } else {
+  }
+
+  // after swizzling is done, store to memref
+  b.create<vector::StoreOp>(loc, resultVector, buffer, indices);
 }
 
 bool MfmaEmitter::isKReduction() const {
@@ -941,6 +1047,10 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
   ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
   return transform(b, buffer, ldsRead);
+}
+
+Value WmmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const {
+  return buffer;
 }
 
 llvm::FailureOr<RegsAsMatrixSubTiles>

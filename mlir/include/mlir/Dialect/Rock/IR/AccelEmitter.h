@@ -105,6 +105,9 @@ struct AccelEmitter {
                        bool ldsLayoutDxK,
                        bool doSplitKAcrossThreadsFirst = false) const = 0;
 
+  /// Swizzle the data we loaded from LDS to match the accelerator requirements.
+  virtual Value swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const = 0;
+
   /// This functions creates the subtile views that is :
   /// 1) gridSubTileView :
   /// kloop x gblock x mblock x nblock x tid x iter --> ... --> [G, K, D]
@@ -184,6 +187,8 @@ struct MfmaEmitter : public AccelEmitter {
                        bool ldsLayoutDxK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
+  Value swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const override;
+
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
@@ -231,6 +236,8 @@ struct WmmaEmitter : public AccelEmitter {
                        StringRef dName, bool rotateDWithK, bool directToLds,
                        bool ldsLayoutDxK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
+
+  Value swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
