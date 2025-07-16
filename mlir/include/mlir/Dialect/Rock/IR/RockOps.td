@@ -85,8 +85,7 @@ defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
 
 def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
-  dag additionalArgs = (ins);
-  let arguments = !con(commonConvArgs, additionalArgs);
+  let arguments = commonConvArgs;
   let summary = "N-D convolution forward";
   let description = [{
     The `rock.conv` op computes N-D convolution forward.

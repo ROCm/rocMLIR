@@ -323,7 +323,7 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   auto cop = rw.create<rock::ConvOp>(
       loc, convFields.outputExp.getType(), convFields.filterExp,
-      convFields.inputExp, convFields.outputExp, /*features*/ nullptr,
+      convFields.inputExp, convFields.outputExp, /*features=*/ nullptr,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
       convFields.stride, convFields.dilation,
       /*params=*/nullptr);

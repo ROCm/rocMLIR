@@ -778,7 +778,6 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   if (isa<rock::GridwiseGemmOp>(op) || isa<rock::GridwiseGemmAccelOp>(op) ||
       isa<rock::GlobalStoreOp>(op) || isa<rock::ThreadwiseWriteAllOp>(op) ||
       isa<rock::BlockwiseGemmAccelOp>(op) ||
-      isa<rock::ThreadwiseAccelGemmOp>(op) ||
       isa<RockGemmGemmWrapperInterface>(op) ||
       isa<RockGemmWrapperInterface>(op) || isa<rock::ReduceOp>(op)) {
     return archInfo.getDefaultFeatures(op->getOperand(0).getType());
