@@ -1832,7 +1832,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     OpBuilder b{op};
     SmallVector<Value> vec;
     FailureOr<tosa::MatMulOp> maybeFirstMatMul;
-    softmaxInput.dump();
     std::tie(std::ignore, maybeFirstMatMul) =
         getElementwiseRegion<tosa::MatMulOp>(softmaxInput, b, nullptr, vec);
 
