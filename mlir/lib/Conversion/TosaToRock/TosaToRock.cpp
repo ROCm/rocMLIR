@@ -42,6 +42,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/bit.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 #include <utility>
@@ -1629,8 +1630,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         }
       }
     }
-    if (tosa::CastOp castOp = skipPointwiseVal.getDefiningOp<tosa::CastOp>())
+    if (tosa::CastOp castOp = skipPointwiseVal.getDefiningOp<tosa::CastOp>()) {
+      // skip casts that prepares condition argument for tosa.select for causal mask
+      if(castOp.getOutput().getType().getElementType().isInteger(1)) {
+        return failure();
+      }
       return skipPointwiseVal;
+    }
     return failure();
   }
 
@@ -1638,26 +1644,34 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   maybeSoftmaxNumerator(Value val, Operation *rsum, Type softmaxType) const {
     Value currentSeqLen;
     tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
-    if (!exp)
+    if (!exp) {
+      llvm::dbgs() << "exp not found\n";
       return failure();
+    }
 
     auto sub = getDefiningNonReshapeOp<tosa::SubOp>(exp.getInput1());
-    if (!sub)
+    if (!sub) {
+      llvm::dbgs() << "sub not found\n";
       return failure();
+    }
 
     bool hasTosaReduce = false;
     Value result;
     auto rmax =
         getDefiningNonReshapeOpNonBroadcast<tosa::ReduceMaxOp>(sub.getInput2());
     if (rmax) {
-      if (rmax.getInput() != sub.getInput1())
+      if (rmax.getInput() != sub.getInput1()) {
+        llvm::dbgs() << "reduce max input does not match sub input\n";
         return failure();
+      }
 
       hasTosaReduce = true;
       result = rmax.getInput();
     } else {
-      if (sub.getInput1() != sub.getInput2())
+      if (sub.getInput1() != sub.getInput2()) {
+        llvm::dbgs() << "sub inputs do not match\n";
         return failure();
+      }
 
       hasTosaReduce = false;
       result = sub.getInput1();
@@ -1668,6 +1682,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       FailureOr<Value> maybeCastVal = traceToConvert(result);
       if (failed(maybeCastVal))
         return failure();
+      llvm::dbgs() << "cast val:\n";
+      maybeCastVal.value().dump();
       tosa::CastOp castOp = maybeCastVal.value().getDefiningOp<tosa::CastOp>();
       // the casts type must match (before and after softmax op)
       if (softmaxType != cast<ShapedType>(castOp.getType()).getElementType())
@@ -1695,8 +1711,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   maybeSoftmaxDenominator(Value val, Type softmaxType) const {
     FailureOr<std::tuple<Value, bool, bool, Value, Value, TypeAttr>> result;
     auto rsum = getDefiningNonReshapeOpNonBroadcast<tosa::ReduceSumOp>(val);
-
+    llvm::dbgs() << "rsum: \n";
     if (rsum) {
+      rsum.dump();
       result = maybeSoftmaxNumerator(rsum.getInput(), rsum, softmaxType);
       if (succeeded(result) && !(std::get<1>(result.value()))) {
         // if we see tosa::Reduce Op in the denominator then we expect to see
@@ -1723,9 +1740,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       softmaxType = cast<ShapedType>(val.getType()).getElementType();
     }
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
+    llvm::dbgs() << "mul: \n";
     if (!mul) {
+      llvm::dbgs() << "mul not found\n";
       return failure();
     }
+
+    mul.dump();
     if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
             mul.getInput1())) {
       return maybeSoftmaxDenominator(rec.getInput1(), softmaxType);
