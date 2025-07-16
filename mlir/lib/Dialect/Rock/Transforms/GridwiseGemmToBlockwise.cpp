@@ -3038,6 +3038,8 @@ struct GridwiseGemmAccelRewritePattern
     // should compute the right transform
 
     // Read from LDS buffer for A
+  b.create<rock::LDSBarrierOp>(loc);
+    
     {
       ArrayRef<int64_t> ldsAShape = cast<ShapedType>(ldsA.getType()).getShape();
       assert(ldsAShape.size() == 3);
@@ -3051,7 +3053,7 @@ struct GridwiseGemmAccelRewritePattern
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
 
-      accelEmitterPtr->swizzleDataForAccel(b, loc, regsA, directToLDS, ldsLayoutMxK);
+      accelEmitterPtr->swizzleDataForAccel(b, loc, regsA, ldsAShape[1], ldsAShape[2], directToLDS, ldsLayoutMxK);
     }
 
     // Read from LDS buffer for B
@@ -3068,7 +3070,7 @@ struct GridwiseGemmAccelRewritePattern
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
 
-      accelEmitterPtr->swizzleDataForAccel(b, loc, regsB, directToLDS, ldsLayoutNxK);
+      accelEmitterPtr->swizzleDataForAccel(b, loc, regsB, ldsBShape[1], ldsBShape[2], directToLDS, ldsLayoutNxK);
     }
   }
 
