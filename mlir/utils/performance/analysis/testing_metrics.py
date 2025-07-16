@@ -2,7 +2,7 @@
 # important metrics (Arithmetic Intensity, Occupancy, Work Imbalance) and
 # plots correlation between them with the selected parameters.
 #
-# Usage: python3 ./testing-metrics.py <debug file(s)> [--n <percent>] [--m <metrics>] [--t <method for threshold>] [--o <output directory>] [--c <num_cus>]
+# Usage: python3 ./testing_metrics.py <debug file(s)> [--n <percent>] [--m <metrics>] [--t <method for threshold>] [--o <output directory>] [--c <numCUs>]
 # Arguments:
 #       <debug file(s)>               Input file(s) in .tsv.debug format
 #       --n <percent>                 Percent of the best perfconfigs to be considered (default=5) - doesn't affect analysis when checking only the best perfConfigs
@@ -62,7 +62,7 @@ def analyze_gemm_file(file, n):
     df["ArithmeticIntensity"] = df.apply(
         lambda row: calculate_arithmetic_intensity(row["m"], row["n"], row["k"]), axis=1)
     df["mn_per_wave"] = df.apply(lambda row: (int(row["MPerWave"]) * int(row["NPerWave"])), axis=1)
-    df["Occupancy"] = df.apply(lambda row: calculate_occupancy(int(row["m"]), int(row[
+    df["Occupancy"] = df.apply(lambda row: calculate_gemm_occupancy(int(row["m"]), int(row[
         "n"]), int(row["g"]), int(row["m_per_block"]), int(row[
             "n_per_block"]), int(row["mn_per_wave"]), min_num_waves),
                                axis=1)
@@ -173,14 +173,9 @@ def calculate_arithmetic_intensity(m, n, k):
     return (m * n * k) / (m * n + m * k + n * k)  # opPerByte/bytesLoaded
 
 
-def calculate_occupancy(m,
-                        n,
-                        g,
-                        m_per_block,
-                        n_per_block,
-                        mn_per_wave,
-                        min_num_waves,
-                        split_k_factor=1):
+def calculate_gemm_occupancy(m, n, g, m_per_block, n_per_block, mn_per_wave,
+                             min_num_waves,
+                             split_k_factor=1):
     m_tiles = math.ceil(m / m_per_block)
     n_tiles = math.ceil(n / n_per_block)
 
@@ -188,6 +183,13 @@ def calculate_occupancy(m,
     waves_per_block = m_per_block * n_per_block // mn_per_wave
     waves = workgroups * waves_per_block
 
+    return waves / min_num_waves
+
+
+def calculate_attention_occupancy(n, g, m_per_block, n_per_block, mn_per_wave, min_num_waves):
+    work_groups = math.ceil((n / n_per_block)) * g
+    waves_per_block = (m_per_block * n_per_block) // mn_per_wave
+    waves = work_groups * waves_per_block
     return waves / min_num_waves
 
 
