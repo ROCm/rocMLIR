@@ -1630,8 +1630,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       }
     }
     if (tosa::CastOp castOp = skipPointwiseVal.getDefiningOp<tosa::CastOp>()) {
-      // skip casts that prepares condition argument for tosa.select for causal mask
-      if(castOp.getOutput().getType().getElementType().isInteger(1)) {
+      // skip casts that prepares condition argument for tosa.select for causal
+      // mask
+      if (castOp.getOutput().getType().getElementType().isInteger(1)) {
         return failure();
       }
       return skipPointwiseVal;
