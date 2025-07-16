@@ -637,12 +637,15 @@ GemmFeatures getFeatureValue(Operation *op) {
       isa<rock::BlockwiseGemmAccelOp>(op) ||
       isa<rock::ThreadwiseAccelGemmOp>(op) ||
       isa<RockGemmGemmWrapperInterface>(op) ||
-      isa<RockGemmWrapperInterface>(op)) {
+      isa<RockGemmWrapperInterface>(op) || isa<rock::ReduceOp>(op)) {
     return archInfo.getDefaultFeatures(op->getOperand(0).getType());
   } else if (auto gwAttnAccelOp =
                                 dyn_cast<rock::GridwiseAttentionAccelOp>(op)) {
     // For GridwiseAttentionAccelOps we can look to the out parameter for this
     return archInfo.getDefaultFeatures(gwAttnAccelOp.getOut().getType());
+  } else if (auto twAccelGemmOp = dyn_cast<rock::ThreadwiseAccelGemmOp>(op)) {
+    // For ThreadwiseAccelGemmOps we want to look at the type of matrixA
+    return archInfo.getDefaultFeatures(twAccelGemmOp.getMatrixA().getType());
   } else {
     // For all other ops, we can look to the first result
     return archInfo.getDefaultFeatures(op->getResult(0).getType());
@@ -928,6 +931,8 @@ LogicalResult GemmOp::verify() {
   }
 
   if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
+    llvm::dbgs() << "FEAUTRES: " << getFeatureValue(this->getOperation())
+                 << "\n";
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }

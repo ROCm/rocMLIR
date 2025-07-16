@@ -259,9 +259,11 @@ struct ThreadwiseAccelGemmRewritePattern
         rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
         tuningParams);
 
-    if (!emitter)
+    if (!emitter) {
+      llvm::dbgs() << rock::getFeatures(op) << "\n";
       return emitError(loc)
              << "Failed to select any accelerator instruction.\n";
+    }
 
     // Extract relevant accel emitter parameters
     rock::accel::AccelEmitterParams params = emitter->getParams();
