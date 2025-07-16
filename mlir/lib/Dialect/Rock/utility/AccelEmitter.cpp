@@ -686,18 +686,24 @@ void MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, 
         // only store if iterNum == repeat
         auto storeVector = b.create<arith::CmpIOp>(
             loc, arith::CmpIPredicate::eq, iterNum, repeatConst);
-        scf::IfOp ifb = b.create<scf::IfOp>(loc, storeVector,
-                                                  /*withElseRegion=*/false);
+        scf::IfOp ifb = b.create<scf::IfOp>(loc, resultVector.getType(), storeVector,
+                                                  /*withElseRegion=*/true);
         {
           OpBuilder thenb = ifb.getThenBodyBuilder();
-          thenb.create<vector::InsertStridedSliceOp>(
+          Value newResult = thenb.create<vector::InsertStridedSliceOp>(
             loc,
             shuffledValue,           // source vector
             resultVector,                  // destination vector  
             ArrayRef<int64_t>{numShuffle*numElements}, // offsets
             ArrayRef<int64_t>{1}       // strides
           );
+          thenb.create<scf::YieldOp>(loc, newResult);
         }
+        {
+          OpBuilder elseb = ifb.getElseBodyBuilder();
+          elseb.create<scf::YieldOp>(loc, resultVector);
+        }
+        resultVector = ifb.getResult(0);
       }
     }
 
