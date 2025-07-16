@@ -13,12 +13,12 @@
 // FUSION: fusibile = "no"
 func.func @gemm_test1(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>, %arg2: memref<1x64x64xf16>)
   attributes {
-    arch = "",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     kernel,
     expected = [{alloc_name = "alloc_0", writers = ["rock.gemm"], readers = ["linalg.generic"]},
                 {alloc_name = "alloc_1", writers = ["linalg.generic"], readers = ["memref.copy"]}]} {
   %alloc_0 = memref.alloc() {alignment = 64 : i64, name = "alloc_0"} : memref<1x64x64xf16>
-  rock.gemm %alloc_0 = %arg0 * %arg1 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
+  rock.gemm %alloc_0 = %arg0 * %arg1 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
 
   %0 = rock.transform %alloc_0 by #gemm_transform_map : memref<1x64x64xf16> to memref<64x64xf16>
   %alloc_1 = memref.alloc() {alignment = 64 : i64, name = "alloc_1"} : memref<64x64xf16>
@@ -40,11 +40,11 @@ func.func @gemm_test1(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
 // FUSION: fusibile = "no"
 func.func @gemm_test2(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>, %arg2: memref<1x64x64xf16>)
   attributes {
-    arch = "",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     kernel,
     expected = [{alloc_name = "alloc_0", writers = ["rock.gemm", "linalg.generic"], readers = ["memref.copy"]}]} {
   %alloc = memref.alloc() {alignment = 64 : i64, name = "alloc_0"} : memref<1x64x64xf16>
-  rock.gemm %alloc = %arg0 * %arg1 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
+  rock.gemm %alloc = %arg0 * %arg1 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
 
   %0 = rock.transform %alloc by #gemm_transform_map : memref<1x64x64xf16> to memref<64x64xf16>
   %cst = arith.constant 0.000000e+00 : f16
@@ -65,12 +65,12 @@ func.func @gemm_test2(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
 // FUSION: fusibile = "yes"
 func.func @gemm_test3(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>, %arg2: memref<1x64x64xf16>, %arg3: memref<1x64x64xf16>)
   attributes {
-    arch = "",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     kernel,
     expected = [{alloc_name = "alloc_0", writers = ["rock.gemm"], readers = ["memref.copy"]},
                 {alloc_name = "alloc_1", writers = ["linalg.generic"], readers = ["memref.copy"]}]} {
   %alloc_0 = memref.alloc() {alignment = 64 : i64, name = "alloc_0"} : memref<1x64x64xf16>
-  rock.gemm %alloc_0 = %arg0 * %arg1 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
+  rock.gemm %alloc_0 = %arg0 * %arg1 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
 
   %0 = rock.transform %arg3 by #gemm_transform_map : memref<1x64x64xf16> to memref<64x64xf16>
   %alloc_1 = memref.alloc() {alignment = 64 : i64, name = "alloc_1"} : memref<64x64xf16>

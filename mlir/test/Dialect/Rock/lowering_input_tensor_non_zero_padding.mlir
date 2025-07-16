@@ -8,7 +8,7 @@
 // CHECK-LABEL: func.func @rock_conv_gcyxk_gcnhw_gknhw
 // CHECK: rock.transform %arg1 by #[[$MAP]] : memref<1x8x128x32x32xf32> to memref<1x8x128x34x34xf32>
 func.func @rock_conv_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x32x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
-  rock.conv(%filter, %input, %output) features = none {
+  rock.conv(%filter, %input, %output) {
     filter_layout = ["g", "c", "0", "1", "k"],
     input_layout = ["gi", "ci", "ni", "0i", "1i"],
     output_layout = ["go", "ko", "no", "0o", "1o"],
