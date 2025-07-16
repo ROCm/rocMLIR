@@ -3050,6 +3050,8 @@ struct GridwiseGemmAccelRewritePattern
       b.create<ThreadwiseReadIntoOp>(loc, ldsA, regsA, b.getArrayAttr({}),
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
+
+      accelEmitterPtr->swizzleDataForAccel(b, loc, regsA, directToLDS, ldsLayoutMxK);
     }
 
     // Read from LDS buffer for B
@@ -3065,6 +3067,8 @@ struct GridwiseGemmAccelRewritePattern
       b.create<ThreadwiseReadIntoOp>(loc, ldsB, regsB, b.getArrayAttr({}),
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
+
+      accelEmitterPtr->swizzleDataForAccel(b, loc, regsB, directToLDS, ldsLayoutNxK);
     }
   }
 
@@ -3615,7 +3619,7 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect, linalg::LinalgDialect,
-                         scf::SCFDialect, math::MathDialect>();
+                         scf::SCFDialect, math::MathDialect, gpu::GPUDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);

@@ -491,7 +491,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
 
     toLDSRowCol.unmerge("source_offset", 0, {"d_iter", "wave_id", "repeats", "lane_id", "num_elements"},
-                        {repeats, blockSize, numElements});
+                        {dRepeats, blockSize / waveSize, repeats, waveSize, numElements});
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
 
@@ -606,9 +606,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   return transform(b, buffer, ldsRead);
 }
 
-Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const {
+void MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const {
   if(!directToLds)
-    return buffer; // No swizzling needed if not direct to LDS
+    return; // No swizzling needed if not direct to LDS
 
   auto memrefType = cast<MemRefType>(buffer.getType());
   auto shape = memrefType.getShape();
@@ -623,7 +623,8 @@ Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer,
   Value vectorData = b.create<vector::LoadOp>(loc, vectorType, buffer, indices);
   Value resultVector = b.create<arith::ConstantOp>(loc, vectorType, b.getZeroAttr(vectorType));
 
-  Value waveSizeConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), waveSize);
+  Value waveSizeConst = b.create<arith::ConstantIndexOp>(loc, waveSize);
+  Value waveSizeConstI32 = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), waveSize);
   // We are going to swizzle the data between threads in the wavefront to have the required data for accelerator
   // operations. The swizzle is done by using a GPU shuffle operation.
   if (ldsLayoutDxK) {
@@ -631,12 +632,12 @@ Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer,
     int64_t numElements = 128 / elemTyWidth;
     numElements = math_util::gcd(shape[0], numElements);
     int64_t repeats = shape[0] / numElements;
-    Value repeatsConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), repeats);
+    Value repeatsConst = b.create<arith::ConstantIndexOp>(loc, repeats);
     // TODO: hardcoded
     int64_t numD = 32;
-    Value numDConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), numD);
+    Value numDConst = b.create<arith::ConstantIndexOp>(loc, numD);
     int64_t numColumns = numD / waveSize;
-    Value numColumnsConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), numColumns);
+    Value numColumnsConst = b.create<arith::ConstantIndexOp>(loc, numColumns);
 
     // TODO: only supported for now
     assert(repeats > 1);
@@ -646,7 +647,7 @@ Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer,
     auto laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConst);
 
     for(int repeat = 0; repeat < repeats; ++repeat) {
-        Value repeatConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), repeat);
+        Value repeatConst = b.create<arith::ConstantIndexOp>(loc, repeat);
         Value extractedVector = b.create<vector::ExtractStridedSliceOp>(
           loc, 
           vectorData,           // source vector<16xf16>
@@ -655,7 +656,7 @@ Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer,
           ArrayRef<int64_t>{1}        // strides: step by 1
         );
       for(int numShuffle = 0; numShuffle < repeats; ++numShuffle) {
-        Value numShuffleConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), numShuffle);
+        Value numShuffleConst = b.create<arith::ConstantIndexOp>(loc, numShuffle);
         auto laneD = b.create<arith::RemUIOp>(loc, laneId, numDConst);
         auto laneK = b.create<arith::DivUIOp>(loc, laneId, numDConst);
 
@@ -676,8 +677,10 @@ Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer,
 
         // Perform the shuffle operation
         std::array<Type, 2> shuffleType = {extractedVector.getType(), b.getI1Type()};
+        Value shuffleOffsetI32 =
+            b.create<arith::IndexCastOp>(loc, b.getI32Type(), shuffleOffset);
         auto shuffleOp = b.create<gpu::ShuffleOp>(
-            loc, shuffleType, extractedVector, shuffleOffset, waveSizeConst, gpu::ShuffleMode::IDX);
+            loc, shuffleType, extractedVector, shuffleOffsetI32, waveSizeConstI32, gpu::ShuffleMode::IDX);
         Value shuffledValue = shuffleOp.getResult(0);
 
         // only store if iterNum == repeat
@@ -687,7 +690,7 @@ Value MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer,
                                                   /*withElseRegion=*/false);
         {
           OpBuilder thenb = ifb.getThenBodyBuilder();
-          resultVector = thenb.create<vector::InsertStridedSliceOp>(
+          thenb.create<vector::InsertStridedSliceOp>(
             loc,
             shuffledValue,           // source vector
             resultVector,                  // destination vector  
@@ -1049,8 +1052,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   return transform(b, buffer, ldsRead);
 }
 
-Value WmmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const {
-  return buffer;
+void WmmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, bool directToLds, bool ldsLayoutDxK) const {
 }
 
 llvm::FailureOr<RegsAsMatrixSubTiles>
