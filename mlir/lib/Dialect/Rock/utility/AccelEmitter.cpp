@@ -664,21 +664,21 @@ auto isThreadZero = b.create<arith::CmpIOp>(
   // We are going to swizzle the data between threads in the wavefront to have the required data for accelerator
   // operations. The swizzle is done by using a GPU shuffle operation.
   if (ldsLayoutDxK) {
-    llvm::errs() << "elementType="<<elementType<<"\n";
+    // llvm::errs() << "elementType="<<elementType<<"\n";
     int64_t elemTyWidth = elementType.getIntOrFloatBitWidth();
     int64_t numElements = 128 / elemTyWidth;
     numElements = math_util::gcd(kIterNum, numElements);
-    llvm::errs() << "shape[0]="<<shape[0]<<"\n";
-    llvm::errs() << "kIterNum="<<kIterNum<<"\n";
-    llvm::errs() << "dIterNum="<<dIterNum<<"\n";
-    llvm::errs() << "numElements="<<numElements<<"\n";
+    // llvm::errs() << "shape[0]="<<shape[0]<<"\n";
+    // llvm::errs() << "kIterNum="<<kIterNum<<"\n";
+    // llvm::errs() << "dIterNum="<<dIterNum<<"\n";
+    // llvm::errs() << "numElements="<<numElements<<"\n";
     assert((dIterNum * kIterNum) == shape[0]);
     int64_t kIterRepeat = kIterNum / numElements;
     Value kIterRepeatConst = b.create<arith::ConstantIndexOp>(loc, kIterRepeat);
     int64_t numD = inputSpanLen;
     Value numDConst = b.create<arith::ConstantIndexOp>(loc, numD);
     int64_t numColumns = waveSize / numD;
-    llvm::errs() << "numColumns="<<numColumns<<"\n";
+    // llvm::errs() << "numColumns="<<numColumns<<"\n";
     Value numColumnsConst = b.create<arith::ConstantIndexOp>(loc, numColumns);
 
     // TODO: only supported for now
@@ -686,11 +686,11 @@ auto isThreadZero = b.create<arith::CmpIOp>(
 
     // Get current workitem ID.
     
-    llvm::errs() << "kIterRepeat="<<kIterRepeat<<"\n";
+    // llvm::errs() << "kIterRepeat="<<kIterRepeat<<"\n";
 
     for(int dIter = 0; dIter < dIterNum; ++dIter) {
       int64_t offset = dIter * kIterNum;
-      llvm::errs() << "offset="<<offset<<"\n";
+      // llvm::errs() << "offset="<<offset<<"\n";
 
       for(int kIter = 0; kIter < kIterRepeat; ++kIter) {
           Value kIterConst = b.create<arith::ConstantIndexOp>(loc, kIter);

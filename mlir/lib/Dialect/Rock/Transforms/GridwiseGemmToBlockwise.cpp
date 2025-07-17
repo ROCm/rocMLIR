@@ -3038,8 +3038,6 @@ struct GridwiseGemmAccelRewritePattern
     // should compute the right transform
 
     // Read from LDS buffer for A
-  b.create<rock::LDSBarrierOp>(loc);
-    
     {
       ArrayRef<int64_t> ldsAShape = cast<ShapedType>(ldsA.getType()).getShape();
       assert(ldsAShape.size() == 3);
