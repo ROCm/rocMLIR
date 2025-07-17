@@ -15,10 +15,9 @@ Options:
 import argparse
 import itertools
 import asyncio
-from typing import Iterable, List, TypeVar
+from typing import Iterable, TypeVar
 from datetime import datetime
 import sys
-import csv
 import random
 import os
 
@@ -150,13 +149,6 @@ perfConfigSpaceWMMA = list(itertools.product( # WMMA perfConfig space
         [4, 8, 16],            # kPack
         [0, 1]                 # forceUnroll
     ))
-
-def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
-    with open(filename, mode='w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['CommandLine'])
-        for config in configs:
-            writer.writerow([' '.join(config.generateMlirDriverCommandLine(''))])
             
 def main():
     parser = argparse.ArgumentParser(
@@ -206,8 +198,6 @@ def main():
         print(f"{'Failing Configurations':^80}\n")
         for fail in failing:
             print(multilineRepr(fail))
-        if args.log_failures:
-            logFailingConfigs(failing, LOGFILE)
     
     print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     
