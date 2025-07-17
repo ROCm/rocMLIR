@@ -627,35 +627,37 @@ void MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, 
   auto elementType = memrefType.getElementType();
   auto vectorType = VectorType::get(shape, elementType);
   auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+  Value waveSizeConst = b.create<arith::ConstantIndexOp>(loc, waveSize);
+  auto laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConst);
 
   // Create a zero index for loading from the beginning of the memref
   Value zeroIndex = b.create<arith::ConstantIndexOp>(loc, 0);
   SmallVector<Value> indices(shape.size(), zeroIndex);
-  
-  b.create<rock::LDSBarrierOp>(loc);
+
   // Load the entire memref into a vector
   Value vectorData = b.create<vector::LoadOp>(loc, vectorType, buffer, indices);
+  // Value laneIdCasted = b.create<arith::UIToFPOp>(loc, elementType, laneId);
+  // Value vectorData = b.create<vector::SplatOp>(loc, vectorType, laneIdCasted);
   Value resultVector = b.create<arith::ConstantOp>(loc, vectorType, b.getZeroAttr(vectorType));
-  b.create<rock::LDSBarrierOp>(loc);
 
   Value zeroThread = b.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(0));
 auto isThreadZero = b.create<arith::CmpIOp>(
   loc, arith::CmpIPredicate::eq, tid, zeroThread);
-scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
-  /*withElseRegion=*/false);
-  {
-      OpBuilder thenb = ifthread.getThenBodyBuilder();
-    thenb.create<gpu::PrintfOp>(loc, "input(%d) = ", ValueRange{thenb.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(shape[0]))});
-    for(int i = 0; i < shape[0]; ++i) {
-      auto tmp = thenb.create<vector::ExtractOp>(loc, vectorData, i);
-      thenb.create<gpu::PrintfOp>(loc, " %f", ValueRange{tmp});
-    }
-    thenb.create<gpu::PrintfOp>(loc, "\n", ValueRange{});
-  }
-  return;
+// scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
+//   /*withElseRegion=*/false);
+//   {
+//       OpBuilder thenb = ifthread.getThenBodyBuilder();
+//     Value vectorData2 = thenb.create<vector::LoadOp>(loc, vectorType, buffer, indices);
+//   thenb.create<rock::LDSBarrierOp>(loc);
+//     thenb.create<gpu::PrintfOp>(loc, "input(%d) = ", ValueRange{thenb.create<ConstantOp>(loc, thenb.getIndexType(), thenb.getIndexAttr(shape[0]))});
+//     for(int i = 0; i < shape[0]; ++i) {
+//       auto tmp = thenb.create<vector::ExtractOp>(loc, vectorData2, i);
+//       thenb.create<gpu::PrintfOp>(loc, " %f", ValueRange{tmp});
+//     }
+//     thenb.create<gpu::PrintfOp>(loc, "\n", ValueRange{});
+//   }
 
 
-  Value waveSizeConst = b.create<arith::ConstantIndexOp>(loc, waveSize);
   Value waveSizeConstI32 = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), waveSize);
   // We are going to swizzle the data between threads in the wavefront to have the required data for accelerator
   // operations. The swizzle is done by using a GPU shuffle operation.
@@ -674,19 +676,20 @@ scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
     // TODO: hardcoded
     int64_t numD = 32;
     Value numDConst = b.create<arith::ConstantIndexOp>(loc, numD);
-    int64_t numColumns = numD / waveSize;
+    int64_t numColumns = waveSize / numD;
+    llvm::errs() << "numColumns="<<numColumns<<"\n";
     Value numColumnsConst = b.create<arith::ConstantIndexOp>(loc, numColumns);
 
     // TODO: only supported for now
-    assert(kIterRepeat > 1);
+    assert(kIterRepeat >= 1);
 
     // Get current workitem ID.
-    auto laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConst);
     
     llvm::errs() << "kIterRepeat="<<kIterRepeat<<"\n";
 
     for(int dIter = 0; dIter < dIterNum; ++dIter) {
       int64_t offset = dIter * kIterNum;
+      llvm::errs() << "offset="<<offset<<"\n";
 
       for(int kIter = 0; kIter < kIterRepeat; ++kIter) {
           Value kIterConst = b.create<arith::ConstantIndexOp>(loc, kIter);
@@ -743,7 +746,7 @@ scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
           }
           {
             OpBuilder elseb = ifb.getElseBodyBuilder();
-            elseb.create<scf::YieldOp>(loc, vectorData);
+            elseb.create<scf::YieldOp>(loc, resultVector);
           }
           resultVector = ifb.getResult(0);
         }
@@ -764,7 +767,6 @@ scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
   //     }
   //     thenb.create<gpu::PrintfOp>(loc, "\n", ValueRange{});
   //   }
-  b.create<rock::LDSBarrierOp>(loc);
 
   // after swizzling is done, store to memref
   b.create<vector::StoreOp>(loc, resultVector, buffer, indices);
