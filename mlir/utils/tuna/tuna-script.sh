@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Ensures that the script exits on error and returns the exit status of the last command that failed.
+set -euo pipefail
+
 # For installing mysql 8.0 for testing, or for running with an isolated database.
 function mysql_setup_generic
 {
