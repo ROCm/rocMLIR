@@ -462,12 +462,18 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
+    bool directToLDS = op.getDirectToLDS();
+    auto ldsLayoutMxK = op.getLdsLayoutMxK();
+    auto ldsLayoutNxK = op.getLdsLayoutNxK();
+    int64_t numElementsA = cast<VectorType>(cast<ShapedType>(op.getBufferA().getType()).getElementType()).getNumElements();
+    int64_t numElementsB = cast<VectorType>(cast<ShapedType>(op.getBufferB().getType()).getElementType()).getNumElements();
+
     Value wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-        op.getRotateMWithK(), op.getDirectToLDS(), op.getLdsLayoutMxK());
+        op.getRotateMWithK(), directToLDS, ldsLayoutMxK);
     Value wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-        op.getRotateNWithK(), op.getDirectToLDS(), op.getLdsLayoutNxK());
+        op.getRotateNWithK(), directToLDS, ldsLayoutNxK);
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
@@ -481,6 +487,9 @@ struct BlockwiseGemmAccelRewritePattern
                                      ValueRange{tid, i}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
 
+      // swizzle register data for the accelerator
+      accelEmitterPtr->swizzleDataForAccel(b, loc, op.getBufferAForLoad(), 1, kBasePerThread*numElementsA, directToLDS, ldsLayoutMxK);
+
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
         OpBuilder::InsertionGuard guard(b);
@@ -492,6 +501,9 @@ struct BlockwiseGemmAccelRewritePattern
             loc, wrappedLDSBufferForLoadB, op.getBufferBForLoad(),
             b.getArrayAttr({}), ValueRange{tid, j}, /*forceUnroll=*/true,
             /*useIndexDiffs=*/true);
+
+        // swizzle register data for the accelerator
+        accelEmitterPtr->swizzleDataForAccel(b, loc, op.getBufferBForLoad(), 1, kBasePerThread*numElementsB, directToLDS, ldsLayoutNxK);
 
         // regsC += regsA * regsB
         auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
@@ -1335,10 +1347,11 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
 
   ConversionTarget target(*ctx);
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();
+
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          affine::AffineDialect, vector::VectorDialect,
-                         memref::MemRefDialect>();
-  target.addLegalOp<gpu::PrintfOp>();
+                         memref::MemRefDialect, scf::SCFDialect>();
+  target.addLegalOp<gpu::PrintfOp, gpu::ShuffleOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,

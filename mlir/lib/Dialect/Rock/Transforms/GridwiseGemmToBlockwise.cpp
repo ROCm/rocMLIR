@@ -2959,14 +2959,20 @@ struct GridwiseGemmAccelRewritePattern
   void generateComputeLoop(
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
-      Value regsA, Value regsB, Value regsC, StringAttr arch,
+      Value regsA, Value regsB, Value regsAForSwizzle, Value regsBForSwizzle, Value regsC, StringAttr arch,
       GemmFeaturesAttr features,
-      const RockAccelTuningParamAttrInterface &tuningParams) const {
-
+      const RockAccelTuningParamAttrInterface &tuningParams, bool directToLDS, bool ldsLayoutMxK,
+      bool ldsLayoutNxK) const {
     rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
     int64_t mRepeats = params.mRepeats;
     int64_t nRepeats = params.nRepeats;
     int64_t kBasePerThread = params.kBasePerThread;
+    int64_t numElementsA = cast<VectorType>(cast<ShapedType>(regsA.getType()).getElementType()).getNumElements();
+    int64_t numElementsB = cast<VectorType>(cast<ShapedType>(regsB.getType()).getElementType()).getNumElements();
+
+    // swizzle register data for the accelerator
+    accelEmitterPtr->swizzleDataForAccel(b, loc, regsAForSwizzle, mRepeats, kBasePerThread*numElementsA, directToLDS, ldsLayoutMxK);
+    accelEmitterPtr->swizzleDataForAccel(b, loc, regsBForSwizzle, nRepeats, kBasePerThread*numElementsB, directToLDS, ldsLayoutNxK);
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
@@ -3051,7 +3057,7 @@ struct GridwiseGemmAccelRewritePattern
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
 
-      accelEmitterPtr->swizzleDataForAccel(b, loc, regsA, ldsAShape[1], ldsAShape[2], directToLDS, ldsLayoutMxK);
+      // accelEmitterPtr->swizzleDataForAccel(b, loc, regsA, ldsAShape[1], ldsAShape[2], directToLDS, ldsLayoutMxK);
     }
 
     // Read from LDS buffer for B
@@ -3068,7 +3074,7 @@ struct GridwiseGemmAccelRewritePattern
                                      ValueRange{tid}, /*forceUnroll=*/true,
                                      /*useIndexDiffs=*/true);
 
-      accelEmitterPtr->swizzleDataForAccel(b, loc, regsB, ldsBShape[1], ldsBShape[2], directToLDS, ldsLayoutNxK);
+      // accelEmitterPtr->swizzleDataForAccel(b, loc, regsB, ldsBShape[1], ldsBShape[2], directToLDS, ldsLayoutNxK);
     }
   }
 
@@ -3569,8 +3575,10 @@ struct GridwiseGemmAccelRewritePattern
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
+                              arrayAForLoad, arrayBForLoad,
                               regCAllocOp, op.getArchAttr(),
-                              op.getFeaturesAttr(), tuningParams);
+                              op.getFeaturesAttr(), tuningParams, directToLDS,
+              ldsLayoutConfigA.ldsLayoutDxK, ldsLayoutConfigB.ldsLayoutDxK);
           b.create<rock::YieldOp>(loc);
         }
       }
@@ -3619,8 +3627,8 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect, linalg::LinalgDialect,
-                         scf::SCFDialect, math::MathDialect, gpu::GPUDialect>();
-  target.addLegalOp<gpu::PrintfOp>();
+                         scf::SCFDialect, math::MathDialect>();
+  target.addLegalOp<gpu::PrintfOp, gpu::ShuffleOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GridwiseGemmRewritePattern, GridwiseGemmAccelRewritePattern,
