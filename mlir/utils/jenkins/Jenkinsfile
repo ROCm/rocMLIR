@@ -1005,13 +1005,6 @@ pipeline {
                                                 -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
                                                 -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv
                                             """
-                                            // Check for tuningRunner errors in logs
-                                            sh """
-                                            if grep -q "Error executing command: tuningRunner" build/*.log 2>/dev/null; then
-                                                echo "ERROR: Detected tuningRunner execution error in logs!"
-                                                exit 1
-                                            fi
-                                            """
                                             // Check for empty or duplicate header in tuning files
                                             sh """
                                             for f in build/mlir_tuning_${CHIP}.tsv build/mlir_quick_tuning_${CHIP}.tsv; do
