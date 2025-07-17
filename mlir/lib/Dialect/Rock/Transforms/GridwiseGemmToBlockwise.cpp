@@ -2956,6 +2956,26 @@ struct GridwiseGemmAccelRewritePattern
 
   // Generate only the compute loop, i.e., we assume here that all
   // the data that we need is already in registers
+  void swizzleData(
+      Location loc, PatternRewriter &b,
+      const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
+      Value regsA, Value regsB, Value regsAForSwizzle, Value regsBForSwizzle, 
+      bool directToLDS, bool ldsLayoutMxK,
+      bool ldsLayoutNxK) const {
+    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    int64_t mRepeats = params.mRepeats;
+    int64_t nRepeats = params.nRepeats;
+    int64_t kBasePerThread = params.kBasePerThread;
+    int64_t numElementsA = cast<VectorType>(cast<ShapedType>(regsA.getType()).getElementType()).getNumElements();
+    int64_t numElementsB = cast<VectorType>(cast<ShapedType>(regsB.getType()).getElementType()).getNumElements();
+
+    // swizzle register data for the accelerator
+    accelEmitterPtr->swizzleDataForAccel(b, loc, regsAForSwizzle, mRepeats, kBasePerThread*numElementsA, directToLDS, ldsLayoutMxK);
+    accelEmitterPtr->swizzleDataForAccel(b, loc, regsBForSwizzle, nRepeats, kBasePerThread*numElementsB, directToLDS, ldsLayoutNxK);
+  }
+
+  // Generate only the compute loop, i.e., we assume here that all
+  // the data that we need is already in registers
   void generateComputeLoop(
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
@@ -2971,8 +2991,8 @@ struct GridwiseGemmAccelRewritePattern
     int64_t numElementsB = cast<VectorType>(cast<ShapedType>(regsB.getType()).getElementType()).getNumElements();
 
     // swizzle register data for the accelerator
-    accelEmitterPtr->swizzleDataForAccel(b, loc, regsAForSwizzle, mRepeats, kBasePerThread*numElementsA, directToLDS, ldsLayoutMxK);
-    accelEmitterPtr->swizzleDataForAccel(b, loc, regsBForSwizzle, nRepeats, kBasePerThread*numElementsB, directToLDS, ldsLayoutNxK);
+    // accelEmitterPtr->swizzleDataForAccel(b, loc, regsAForSwizzle, mRepeats, kBasePerThread*numElementsA, directToLDS, ldsLayoutMxK);
+    // accelEmitterPtr->swizzleDataForAccel(b, loc, regsBForSwizzle, nRepeats, kBasePerThread*numElementsB, directToLDS, ldsLayoutNxK);
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
@@ -3569,11 +3589,22 @@ struct GridwiseGemmAccelRewritePattern
               ldsLayoutConfigA.ldsLayoutDxK, ldsLayoutConfigB.ldsLayoutDxK);
           b.create<rock::YieldOp>(loc);
         }
-        auto stage3 = b.create<StageOp>(loc, "MMA");
+        auto stage3 = b.create<StageOp>(loc, "SwizzleData");
+        {
+          // Compute the swizzling of data
+          PatternRewriter::InsertionGuard guard(b);
+          b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
+          swizzleData(loc, b,
+                accelEmitterPtr, arrayA, arrayB, arrayAForLoad, arrayBForLoad, 
+                directToLDS, ldsLayoutConfigA.ldsLayoutDxK, ldsLayoutConfigB.ldsLayoutDxK);
+          b.create<rock::YieldOp>(loc);
+        }
+
+        auto stage4 = b.create<StageOp>(loc, "MMA");
         {
           // Compute the matrix-multiplication
           PatternRewriter::InsertionGuard guard(b);
-          b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
+          b.setInsertionPointToStart(&stage4.getRegion().emplaceBlock());
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
                               arrayAForLoad, arrayBForLoad,
                               regCAllocOp, op.getArchAttr(),
