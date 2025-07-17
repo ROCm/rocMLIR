@@ -69,7 +69,7 @@ func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
 #transform_map7 = #rock.transform_map<#map7 by [<Unmerge{1, 1, 16} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>, <PassThrough ["exp3"] at [3] -> ["dim1"] at [1]>] bounds = [1, 1, 16, 32] -> [16, 32]>
 #transform_map8 = #rock.transform_map<#map8 by [<Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 4, 16, 32] -> [1, 1, 16, 32]>
 #transform_map9 = #rock.transform_map<#map9 by [<Merge{1, 4} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim1", "dim2"] at [1,2] -> ["dim2", "dim3"] at [3,4]>] bounds = [4, 16, 32] -> [1, 4, 16, 32]>
-func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "", kernel} {
+func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
   %0 = rock.transform %arg0 by #transform_map : tensor<8x32x1xf16> to tensor<1x8x32xf16>
   %1 = rock.transform %0 by #transform_map1 : tensor<1x8x32xf16> to tensor<4x8x32xf16>
 
@@ -84,7 +84,7 @@ func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
   // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] {{.*}} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
   // CHECK: %[[untransform:.*]] = rock.tensor_untransform_cast %[[gemmOut]] aka %[[foldC]] : tensor<32x32xf16> to tensor<4x8x32xf16>
-  %5 = rock.gemm %4 = %arg1 * %p features =  none storeMethod =  set : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
+  %5 = rock.gemm %4 = %arg1 * %p storeMethod =  set : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
   %6 = tensor.empty() : tensor<4x8x32xf16>
   // CHECK: linalg.generic {{.*}} ins(%[[untransform]], {{.*}}, {{.*}})
   %7 = linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %1 : tensor<4x8x32xf16>, tensor<4x8x32xf16>) outs(%6 : tensor<4x8x32xf16>) {

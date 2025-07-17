@@ -422,7 +422,7 @@ func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<
   // CHECK-NEXT: rock.in_bounds_store %[[lse]] -> %[[lseBuffer:.+]][{{.*}}] : f32 -> memref<16xf32, #gpu.address_space<private>>, index
   // CHECK-NEXT: rock.yield
   // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf32, #gpu.address_space<private>> -> memref<1x64x384xf32>
-  // CHECK-NEXT: rock.threadwise_write_all features =  mfma|dot|atomic_add|atomic_add_f16 {forceUnroll, useIndexDiffs} %[[lseBuffer]] {{.*}} set : memref<16xf32, #gpu.address_space<private>> -> memref<1x384xf32>
+  // CHECK-NEXT: rock.threadwise_write_all {forceUnroll, useIndexDiffs} %[[lseBuffer]] {{.*}} set : memref<16xf32, #gpu.address_space<private>> -> memref<1x384xf32>
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,

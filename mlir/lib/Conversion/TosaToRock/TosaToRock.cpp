@@ -208,7 +208,7 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static rock::GemmFeatures getTosaOpFeatures(Operation *op, Type inputType) {
+static rock::GemmFeatures getGemmFeaturesFromOp(Operation *op, Type inputType) {
   // Start by getting the arch from the Tosa op
   StringAttr arch = StringAttr::get(op->getContext(), "");
   FailureOr<StringAttr> maybeArch = rock::getArch(op);
@@ -323,7 +323,7 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   auto cop = rw.create<rock::ConvOp>(
       loc, convFields.outputExp.getType(), convFields.filterExp,
-      convFields.inputExp, convFields.outputExp, /*features=*/ nullptr,
+      convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
       convFields.stride, convFields.dilation,
       /*params=*/nullptr);
@@ -610,7 +610,7 @@ public:
     auto bias = operands[2];
     auto outputType = cast<RankedTensorType>(op.getType());
 
-    rock::GemmFeatures features = getTosaOpFeatures(op, input.getType());
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, input.getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -725,8 +725,7 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
-    // TODO: Fix this instance
-    rock::GemmFeatures features = getTosaOpFeatures(op, op.getA().getType());
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, op.getA().getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -757,7 +756,7 @@ public:
 
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
-        /*features=*/ nullptr,
+        /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
         /*params=*/nullptr);
@@ -1148,7 +1147,7 @@ struct ConvElementwiseGemmRewritePattern
         loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
         elementwiseOtherArgs, output,
         /*cTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, /*features=*/ nullptr,
+        /*oTransposed=*/nullptr, /*features=*/nullptr,
         convFields.pad, convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
@@ -1229,7 +1228,7 @@ struct GemmElementwiseGemmRewritePattern
             /*kTransposed=*/nullptr,
             /*vTransposed=*/nullptr,
             /*oTransposed=*/nullptr,
-            /*features=*/ nullptr,
+            /*features=*/nullptr,
             /*params0=*/nullptr, /*params1=*/nullptr,
             /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 
@@ -2064,7 +2063,7 @@ typename std::enable_if_t<
   }
 
   auto rockReduce = rw.create<rock::ReduceOp>(
-      loc, outputType, op.getInput(), output, /*features=*/ nullptr,
+      loc, outputType, op.getInput(), output, /*features=*/nullptr,
       rw.getAttr<rock::ReduceMethodAttr>(rMethod),
       rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
       rw.getI32IntegerAttr(gridSize),

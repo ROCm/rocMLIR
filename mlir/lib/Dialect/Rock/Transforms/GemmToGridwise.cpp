@@ -212,10 +212,14 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (gemm0ExtraPad.n) {
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
+
+  rock::GemmFeaturesAttr featuresAttr = nullptr;
+  if (auto optFeatures = op.getGemmFeatures()) {
+    featuresAttr = rw.getAttr<rock::GemmFeaturesAttr>(*optFeatures);
+  }
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
       loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
-      rw.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)), blockSizeAttr,
-      gridSizeAttr,
+      featuresAttr, blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
       params0, params1, rw.getI32IntegerAttr(op.getFirstGemmIndex()),
       rw.getBoolAttr(enableSoftmax));
@@ -358,16 +362,16 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
+  rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                      ? op.getFeaturesAttr()
+                                      : nullptr;
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, accumulator,
-        rw.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
+        loc, a, b, accumulator, featuresAttr,
         op.getStoreMethodAttr(), blockSize, gridSize,
         cast<RockAccelTuningParamAttrInterface>(params));
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, accumulator,
-                              rw.getAttr<rock::GemmFeaturesAttr>(
-                                                        rock::getFeatures(op)),
+    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, featuresAttr,
                               op.getStoreMethodAttr(), gridSize,
                               cast<GeneralGemmParamsAttr>(params));
   }

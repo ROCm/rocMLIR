@@ -202,10 +202,12 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     }
 
     // Create the new GemmOp
+    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                        ? op.getFeaturesAttr()
+                                        : nullptr;
     auto gemm = rw.create<rock::GemmOp>(
         op.getLoc(), newC.getType(), newA, newB, newC, op.getATransposed(),
-        op.getBTransposed(), op.getCTransposed(),
-        rw.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
+        op.getBTransposed(), op.getCTransposed(), featuresAttr,
         op.getStoreMethod(), op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParamsAttr());
 

@@ -1060,7 +1060,6 @@ def Rock_GlobalStoreOp :
     Arguments<(ins MemRefRankOf<SupportedMemoryElems, [1]>:$source,
                    MemRefOf<SupportedMemoryElems>:$dest,
                    IndexAttr:$length,
-
                    OptionalAttr<Rock_GemmFeaturesAttr>:$features,
                    StoreMethodAttr:$storeMethod,
                    Index:$sourceCoord,

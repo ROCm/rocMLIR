@@ -2245,7 +2245,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
-  SmallVector<NamedAttribute, 3> funcAttrs = {
+  SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
   
@@ -2963,7 +2963,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ?
        builder.getI32IntegerAttr(num_cu) : nullptr);
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
@@ -3072,7 +3072,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ?
        builder.getI32IntegerAttr(num_cu) : nullptr);
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 

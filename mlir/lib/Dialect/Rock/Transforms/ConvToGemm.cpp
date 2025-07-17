@@ -354,15 +354,15 @@ struct ZeroInitKernelRewritePattern final
     Value memref = makeGpuAllocContaining(b, initOp);
     Value trueOp =
         b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    GemmFeatures features = rock::getFeatures(op);
+    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                        ? op.getFeaturesAttr()
+                                        : nullptr;
 
-    auto loopBody = [&memref, &initVectorLen, &trueOp, &features, &zeroIndex,
+    auto loopBody = [&memref, &initVectorLen, &trueOp, &featuresAttr, &zeroIndex,
                      &needs64BitIdx](OpBuilder &b, Location loc,
                                      ValueRange collapsed, Value index) {
       b.create<GlobalStoreOp>(loc, memref, collapsed[0],
-                              APInt(64, initVectorLen),
-                              rock::GemmFeaturesAttr::get(b.getContext(),
-                                                          features),
+                              APInt(64, initVectorLen), featuresAttr,
                               StoreMethod::Set, /*sourceCoord=*/zeroIndex,
                               /*valid=*/trueOp, index, needs64BitIdx,
                               /*canStoreOffEnd=*/true);
@@ -400,13 +400,15 @@ struct ConvertingCopyKernelRewritePattern final
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    GemmFeatures features = rock::getFeatures(op);
+    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                        ? op.getFeaturesAttr()
+                                        : nullptr;
     bool needs64BitIdx =
         is4GBMemoryType(input.getType()) || is4GBMemoryType(output.getType());
     Value storeMemref = makePrivateGpuAlloc(b, loc, storeType);
     Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     auto loopBody = [&loadType, &storeType, &conversionVectorLen, &trueOp,
-                     &storeMemref, &zeroIndex, &features,
+                     &storeMemref, &zeroIndex, &featuresAttr,
                      &needs64BitIdx](OpBuilder &b, Location loc,
                                      ValueRange collapsed, Value index) {
       Value loaded = b.create<GlobalLoadOp>(
@@ -416,8 +418,7 @@ struct ConvertingCopyKernelRewritePattern final
       b.create<InBoundsStoreOp>(loc, converted, storeMemref, zeroIndex);
       b.create<GlobalStoreOp>(
           loc, storeMemref, collapsed[1], APInt(64, conversionVectorLen),
-          rock::GemmFeaturesAttr::get(b.getContext(), features),
-          StoreMethod::Set, /*sourceCoord=*/zeroIndex,
+          featuresAttr, StoreMethod::Set, /*sourceCoord=*/zeroIndex,
           /*valid=*/trueOp, index, needs64BitIdx, /*canWriteOffEnd=*/true);
     };
     LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},
@@ -795,12 +796,14 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   }
 
   // This kernel is not run when there is padding on the GEMM
+  rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                        ? op.getFeaturesAttr()
+                                        : nullptr;
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
   b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr,
-      rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
+      /*cTransposed=*/nullptr, featuresAttr,
       storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
 
@@ -1158,12 +1161,14 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
   }
 
   // Emit rock.gemm op.
+  rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                        ? op.getFeaturesAttr()
+                                        : nullptr;
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
   auto gemm = b.create<GemmOp>(
       loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr,
-      rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
+      /*cTransposed=*/nullptr, featuresAttr,
       storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
@@ -1438,12 +1443,14 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
     Location loc = op.getLoc();
 
     // note that here A = input, B = filter, ConvToGemm is the opposite
+    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                        ? op.getFeaturesAttr()
+                                        : nullptr;
     auto newOp = b.create<rock::GemmElementwiseGemmOp>(
         loc, op->getResultTypes(), gemmInput, gemmFilter, op.getC(),
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-        op.getCTransposedAttr(), op.getOTransposedAttr(),
-        rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
+        op.getCTransposedAttr(), op.getOTransposedAttr(), featuresAttr,
         op.getParams0Attr(),
         op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
@@ -1494,12 +1501,12 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     Location loc = op.getLoc();
     auto tuningParams = op.getParamsAttr();
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
+    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                        ? op.getFeaturesAttr()
+                                        : nullptr;
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                     /*cTransposed=*/nullptr,
-                     rock::GemmFeaturesAttr::get(b.getContext(),
-                                                 rock::getFeatures(op)),
-                     storeMethod,
+                     /*cTransposed=*/nullptr, featuresAttr, storeMethod,
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
                      tuningParams);
 

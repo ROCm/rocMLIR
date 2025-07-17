@@ -619,13 +619,13 @@ static StringAttr getArchString(Operation *op) {
 
   // If still not available, then we have malformed IR and need to error out
   if (!arch)
-    llvm_unreachable("GEMM op needs to have an arch attribute");
+    llvm_unreachable("Rock op needs to have an arch attribute");
 
   return arch;
 }
 
 GemmFeatures getFeatureValue(Operation *op) {
-  // Check to see if the gemmOp has a feature attribute attached to it. If not,
+  // Check to see if the Rock op has a feature attribute attached to it. If not,
   // we return the default features based on the arch
   if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
     return features.getValue();  
@@ -930,8 +930,6 @@ LogicalResult GemmOp::verify() {
   }
 
   if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
-    llvm::dbgs() << "FEAUTRES: " << getFeatureValue(this->getOperation())
-                 << "\n";
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
@@ -1785,12 +1783,14 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   if (!getAcceptingViewOperands().contains(&operand)) {
     return getOperation();
   }
+
+  rock::GemmFeaturesAttr featuresAttr = getFeatures() ? getFeaturesAttr()
+                                                      : nullptr;
+
   // Only one operand supports view
   auto newOp = builder.create<ThreadwiseWriteAllOp>(
       getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      rock::GemmFeaturesAttr::get(builder.getContext(),
-                                  getFeatureValue(getOperation())),
-      getStoreMethod(), getForceUnroll(),
+      featuresAttr, getStoreMethod(), getForceUnroll(),
       getUseIndexDiffs());
   return newOp.getOperation();
 }

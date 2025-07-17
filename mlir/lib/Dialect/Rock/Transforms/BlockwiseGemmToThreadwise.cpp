@@ -145,8 +145,7 @@ struct BlockwiseFillRewritePattern
         rewriter.createOrFold<rock::WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, valueReg, op.getMemref(), rewriter.getArrayAttr({unmerge, pad}),
-        /*extraIndices=*/ValueRange{tid}, 
-        rewriter.getAttr<rock::GemmFeaturesAttr>(GemmFeatures::none),
+        /*extraIndices=*/ValueRange{tid}, /*Features=*/nullptr,
         StoreMethod::Set, true, true);
     rewriter.eraseOp(op);
     return success();
@@ -418,8 +417,9 @@ struct BlockwiseGemmAccelRewritePattern
     if (auto bufferVecTypeB = dyn_cast<VectorType>(bufferElemTypeB))
       dataTypeB = bufferVecTypeB.getElementType();
 
+    auto features = rock::getFeatures(op);
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
-        rock::getFeatures(op), dataTypeA, dataTypeB, arch, tuningParams);
+        features, dataTypeA, dataTypeB, arch, tuningParams);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
@@ -504,12 +504,12 @@ struct BlockwiseGemmAccelRewritePattern
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
+          rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
+                                              ? op.getFeaturesAttr()
+                                              : nullptr;
           b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
                                           ValueRange{i, j, k},
-                                          rock::GemmFeaturesAttr::get(
-                                                      b.getContext(),
-                                                      rock::getFeatures(op)),
-                                          tuningParams);
+                                          featuresAttr, tuningParams);
         }
       }
     }
