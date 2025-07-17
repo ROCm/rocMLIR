@@ -121,7 +121,7 @@ export TUNA_DB_USER_NAME=root
 export TUNA_DB_USER_PASSWORD=
 export TUNA_DB_HOSTNAME=127.0.0.1
 export TUNA_DB_NAME=tuna
-export PYTHONPATH=$TUNA_DIR:$PYTHONPATH
+export PYTHONPATH=$TUNA_DIR:${PYTHONPATH:-}
 
 # If no mysqld running, assume it and Tuna need to be set up.
 # Otherwise, assume the usual setup.
