@@ -620,6 +620,8 @@ void MfmaEmitter::swizzleDataForAccel(OpBuilder &b, Location loc, Value buffer, 
   if(!directToLds)
     return; // No swizzling needed if not direct to LDS
 
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  int64_t inputSpanLen = mfmaAttr.inputSpanLen;
   auto memrefType = cast<MemRefType>(buffer.getType());
   auto shape = memrefType.getShape();
   assert(shape.size() == 1 && "Expected a 1D memref for swizzling data");
@@ -673,8 +675,7 @@ auto isThreadZero = b.create<arith::CmpIOp>(
     assert((dIterNum * kIterNum) == shape[0]);
     int64_t kIterRepeat = kIterNum / numElements;
     Value kIterRepeatConst = b.create<arith::ConstantIndexOp>(loc, kIterRepeat);
-    // TODO: hardcoded
-    int64_t numD = 32;
+    int64_t numD = inputSpanLen;
     Value numDConst = b.create<arith::ConstantIndexOp>(loc, numD);
     int64_t numColumns = waveSize / numD;
     llvm::errs() << "numColumns="<<numColumns<<"\n";
