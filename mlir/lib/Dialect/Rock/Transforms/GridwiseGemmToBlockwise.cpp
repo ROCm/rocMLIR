@@ -2026,9 +2026,8 @@ struct GridwiseAttentionAccelRewritePattern
     }
     Type fusionOutElemType = elemTypeV;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
-      fusionOutElemType = cast<TypedValue<MemRefType>>(genOp.getOutputs()[0])
-                              .getType()
-                              .getElementType();
+      fusionOutElemType =
+          cast<ShapedType>(genOp.getOutputs()[0].getType()).getElementType();
     });
 
     Value gemm0OutBuffer = createBufferForGemmOut(loc, gemmOutElemType,

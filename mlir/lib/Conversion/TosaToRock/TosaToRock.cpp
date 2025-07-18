@@ -42,6 +42,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/bit.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 #include <utility>
@@ -1438,7 +1439,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<Value> getCausal(Value input) const {
-    auto select = getDefiningNonReshapeOp<tosa::SelectOp>(input);
+    auto select = getDefiningNonReshapeOpNonCastOp<tosa::SelectOp>(input);
     if (select) {
       // Check onTrue is -inf
       auto onTrue = select.getInput2();
@@ -1448,25 +1449,37 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
         isConsNegInf = isConstIsNegInf(constOp.getResult());
 
-      if (!isConsNegInf)
+      if (!isConsNegInf) {
+        LLVM_DEBUG(llvm::errs()
+                   << "Causal mask select onTrue is not -inf, but: " << onTrue
+                   << "\n");
         return failure();
+      }
 
       auto pred = select.getInput1();
       if (auto greater =
               getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
-        if (failed(getConstComparison(greater.getInput1(), 0)))
+        if (failed(getConstComparison(greater.getInput1(), 0))) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Causal mask input1 is not a constant with range "
+                        "0..maxSeqLen\n");
           return failure();
+        }
 
         // input2 is a constant with a range from 0 to seqLenQ
-        if (failed(getConstComparison(greater.getInput2(), 1)))
+        if (failed(getConstComparison(greater.getInput2(), 1))) {
+          LLVM_DEBUG(llvm::dbgs() << "Causal mask input2 is not a constant "
+                                     "with range 0..seqLenQ\n");
           return failure();
+        }
 
         Value result = select.getInput3();
 
         return result;
       }
     }
+    LLVM_DEBUG(llvm::errs() << "Causal mask select not found\n");
     return failure();
   }
 
@@ -1547,7 +1560,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
-    auto select = getDefiningNonReshapeOp<tosa::SelectOp>(softmaxInput);
+    auto select =
+        getDefiningNonReshapeOpNonCastOp<tosa::SelectOp>(softmaxInput);
     if (select) {
       // Check onTrue is -inf
       auto onTrue = select.getInput2();
@@ -1614,21 +1628,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   operations
   */
   FailureOr<Value> traceToConvert(Value val) const {
-    // we want to make sure there was a convert after softmax
-    // because otherwise a castOp could be part of a fusion
     Value skipBroadcastsVal = getValueNonReshapeOp(val);
     Value skipPointwiseVal = skipBroadcastsVal;
-    while (skipPointwiseVal.getDefiningOp()
-               ->hasTrait<mlir::OpTrait::tosa::TosaElementwiseOperator>() ||
-           llvm::isa<tosa::MulOp>(skipPointwiseVal.getDefiningOp())) {
-      Operation *op = skipPointwiseVal.getDefiningOp();
-      for (const auto &operand : op->getOperands()) {
-        FailureOr<Value> mayBeCastVal = traceToConvert(operand);
-        if (succeeded(mayBeCastVal)) {
-          return mayBeCastVal.value();
-        }
-      }
-    }
     if (tosa::CastOp castOp = skipPointwiseVal.getDefiningOp<tosa::CastOp>()) {
       // skip casts that prepares condition argument for tosa.select for causal
       // mask
@@ -1636,6 +1637,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
       }
       return skipPointwiseVal;
+    }
+    if (isa<BlockArgument>(skipPointwiseVal)) {
+      return failure();
+    }
+    LLVM_DEBUG(llvm::dbgs()
+               << "Tracing to convert: " << skipPointwiseVal << "\n");
+    if (isElementwiseOp(skipPointwiseVal.getDefiningOp())) {
+      Operation *op = skipPointwiseVal.getDefiningOp();
+      for (const auto &operand : op->getOperands()) {
+        LLVM_DEBUG(llvm::dbgs() << "Operand: " << operand << "\n");
+        FailureOr<Value> mayBeCastVal = traceToConvert(operand);
+        if (succeeded(mayBeCastVal)) {
+          return mayBeCastVal.value();
+        }
+      }
     }
     return failure();
   }
@@ -1668,16 +1684,24 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       hasTosaReduce = false;
       result = sub.getInput1();
     }
+    LLVM_DEBUG(llvm::dbgs() << "result: " << result << "\n");
     TypeAttr softmaxTypeAttr = nullptr;
     if (softmaxType) {
       // check if cast before and after softmax have matching types
       FailureOr<Value> maybeCastVal = traceToConvert(result);
-      if (failed(maybeCastVal))
+      if (failed(maybeCastVal)) {
+        LLVM_DEBUG(llvm::dbgs() << "Failed to trace to convert for softmax\n");
         return failure();
+      }
       tosa::CastOp castOp = maybeCastVal.value().getDefiningOp<tosa::CastOp>();
       // the casts type must match (before and after softmax op)
-      if (softmaxType != cast<ShapedType>(castOp.getType()).getElementType())
+      if (softmaxType != cast<ShapedType>(castOp.getType()).getElementType()) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Softmax type mismatch: " << softmaxType << " vs "
+                   << cast<ShapedType>(castOp.getType()).getElementType()
+                   << "\n");
         return failure();
+      }
       softmaxTypeAttr = TypeAttr::get(softmaxType);
     }
     // Note that non KV-Cache fusions might have tosa.select
@@ -1690,6 +1714,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     bool isCausal = succeeded(causal);
     if (isCausal)
       result = causal.value();
+    else {
+      LLVM_DEBUG(llvm::dbgs() << "Causal mask not found for softmax\n");
+    }
 
     Value lse = getLSE(rsum, rmax ? rmax : sub);
 
@@ -1730,6 +1757,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
     if (!mul) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Softmax input is not a MulOp: " << val << "\n");
       return failure();
     }
     if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
@@ -1807,8 +1836,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     FailureOr<std::tuple<Value, bool, bool, Value, Value, TypeAttr>>
         softmaxInputResult = maybeSoftmax(op.getA());
 
-    if (failed(softmaxInputResult))
+    if (failed(softmaxInputResult)) {
+      LLVM_DEBUG(llvm::dbgs() << "Softmax input not found for matmul: "
+                              << op.getA() << "\n");
       return failure();
+    }
 
     Value softmaxInput, currentSeqLen, lse;
     bool hasReduceOp, isCausal;
