@@ -1449,18 +1449,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
         isConsNegInf = isConstIsNegInf(constOp.getResult());
 
-      if (!isConsNegInf) 
+      if (!isConsNegInf)
         return failure();
 
       auto pred = select.getInput1();
       if (auto greater =
               getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
-        if (failed(getConstComparison(greater.getInput1(), 0))) 
+        if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();
 
         // input2 is a constant with a range from 0 to seqLenQ
-        if (failed(getConstComparison(greater.getInput2(), 1))) 
+        if (failed(getConstComparison(greater.getInput2(), 1)))
           return failure();
 
         Value result = select.getInput3();
@@ -1677,7 +1677,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
       tosa::CastOp castOp = maybeCastVal.value().getDefiningOp<tosa::CastOp>();
       // the casts type must match (before and after softmax op)
-      if (softmaxType != cast<ShapedType>(castOp.getType()).getElementType()) 
+      if (softmaxType != cast<ShapedType>(castOp.getType()).getElementType())
         return failure();
       softmaxTypeAttr = TypeAttr::get(softmaxType);
     }
@@ -1730,17 +1730,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       softmaxType = cast<ShapedType>(val.getType()).getElementType();
     }
     auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
-    if (!mul) 
+    if (!mul)
       return failure();
     if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
             mul.getInput1())) {
       return maybeSoftmaxDenominator(rec.getInput1(), softmaxType);
-    } 
-    if (auto rec =
-                   getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
-                       mul.getInput2())) {
+    }
+    if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
+            mul.getInput2())) {
       return maybeSoftmaxDenominator(rec.getInput1(), softmaxType);
-    }        
+    }
     return failure();
   }
 
@@ -1807,7 +1806,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     FailureOr<std::tuple<Value, bool, bool, Value, Value, TypeAttr>>
         softmaxInputResult = maybeSoftmax(op.getA());
 
-    if (failed(softmaxInputResult)) 
+    if (failed(softmaxInputResult))
       return failure();
 
     Value softmaxInput, currentSeqLen, lse;
