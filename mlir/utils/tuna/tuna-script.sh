@@ -45,6 +45,28 @@ function clear_tables
     mysql --user root --database tuna -e "delete from rocmlir_${tablekind}_config;"
 }
 
+validate_tuning_file() {
+    local f="$1"
+    if [ ! -s "$f" ]; then
+        echo "ERROR: $f is missing or empty!"
+        exit 1
+    fi
+    header=$(head -n1 "$f")
+    # Check for two headers next to each other anywhere in the file
+    if awk -v h="$header" 'prev==h && $0==h {print; exit 1} {prev=$0}' "$f"; then
+        true
+    else
+        echo "ERROR: $f has duplicate header lines next to each other!"
+        exit 1
+    fi
+    # Existing checks
+    data_line=$(awk 'NR>1 && $0 !~ /^\s*$/ && $0 != header {print; exit}' header="$header" "$f")
+    if [ -z "$data_line" ]; then
+        echo "ERROR: $f has no data after header!"
+        exit 1
+    fi
+}
+
 function tuna_run
 {
     kind=$1
@@ -63,9 +85,8 @@ function tuna_run
     fi
     (cd "${ROCMLIR_DIR}"/build/ || exit 1 ; ${TUNA_DIR}/tuna/go_fish.py rocmlir --execute --session_id "$session" $factor)
     ${TUNA_DIR}/tuna/rocmlir/export_configs.py --session_id "$session" --append -f "$OUT_FILE"
+    validate_tuning_file "$OUT_FILE"
 }
-
-
 
 usage() { echo "$0 usage:" && grep " .)\ #" "$0"; exit 0; }
 [ $# -eq 0 ] && usage
