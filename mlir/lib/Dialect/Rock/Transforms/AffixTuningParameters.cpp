@@ -101,7 +101,7 @@ void AffixTuningParameters::runOnOperation() {
   // apply them to the top level func. This precalculation saves us from
   // constantly needing to recompute this value at later points in the pipeline.
   SmallVector<rock::GemmFeatures> allFeatures;
-  func.walk([&](Operation Op) {
+  func.walk([&](Operation *op) {
     if (rock::opHasOptionalFeature(op))
       allFeatures.push_back(rock::getFeatures(op));
   });
@@ -117,8 +117,9 @@ void AffixTuningParameters::runOnOperation() {
     finalFeatures = rock::intersectGemmFeatures(finalFeatures.value(), feature);
   }
 
-  // Set the attribute on the func
-  func.setAttr("features", finalFeatures.value());
+  // Set the 'features' attribute on the func
+  func->setAttr("features", rock::GemmFeaturesAttr::get(&getContext(),
+                                                        finalFeatures.value()));
 }
 
 template <typename T>

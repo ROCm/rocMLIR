@@ -66,7 +66,7 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
   return minCU;
 }
 
-bool opHasOptionalFeature(Operation *op) {
+bool mlir::rock::opHasOptionalFeature(Operation *op) {
   bool hasOptionalFeature = llvm::TypeSwitch<Operation*,
                                              bool>(op)
   .Case<rock::GemmOp, rock::ConvOp, rock::ConvBwdDataOp,
@@ -87,7 +87,8 @@ bool opHasOptionalFeature(Operation *op) {
   return hasOptionalFeature;
 }
 
-GemmFeatures intersectGemmFeatures(GemmFeatures a, GemmFeatures b) {
+mlir::rock::GemmFeatures mlir::rock::intersectGemmFeatures(GemmFeatures a,
+                                                           GemmFeatures b) {
   return static_cast<GemmFeatures>(static_cast<uint32_t>(a) &
                                    static_cast<uint32_t>(b));
 }

@@ -37,6 +37,9 @@ FailureOr<int64_t> getNumCU(Operation *op);
 // Get the num_cu from the op, and error out if it cannot be found
 int64_t getNumCUValue(Operation *op);
 
+rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
+                                         rock::GemmFeatures b);
+
 // Get the features enabled for the specified op. These will be dependent on
 // the architecture being used, and the type of the op.
 rock::GemmFeatures getFeatures(Operation *op);
@@ -44,9 +47,6 @@ rock::GemmFeatures getFeatures(Operation *op);
 // This function returns a boolean value if the underlying op has support for
 // an optional 'GemmFeatures' attribute
 bool opHasOptionalFeature(Operation *op);
-
-rock::GemmFeatures insersectGemmFeatures(rock::GemmFeatures a,
-                                         rock::GemmFeatures b);
 
 // This function returns the func or gpu.func of a given op
 inline Operation *getParentFuncOp(Operation *op) {
