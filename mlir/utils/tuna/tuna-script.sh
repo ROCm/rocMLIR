@@ -133,7 +133,7 @@ else
     TUNA_DB_HOSTNAME=localhost
 fi
 
-if [ "$VIRTUAL_ENV" = "" ]; then
+if [ "${VIRTUAL_ENV:-}" = "" ]; then
     source /tuna-venv/bin/activate
 fi
 
