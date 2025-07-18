@@ -175,22 +175,6 @@ FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 /// Compute, if possible, the constant different between two values.
 std::optional<int64_t> computeConstDiff(Value l, Value u);
 
-// Get the arch from the op
-FailureOr<StringAttr> getArch(Operation *op);
-
-// Get the arch from the op and error out if it cannot be found
-StringAttr getArchValue(Operation *op);
-
-// Get the num_cu from the op
-FailureOr<int64_t> getNumCU(Operation *op);
-
-// Get the num_cu from the op, and error out if it cannot be found
-int64_t getNumCUValue(Operation *op);
-
-// Get the features enabled for the specified op. These will be dependent on
-// the architecture being used, and the type of the op.
-rock::GemmFeatures getFeatures(Operation *op);
-
 // Get whether to reverse the grid
 FailureOr<UnitAttr> getReverseGrid(Operation *op);
 

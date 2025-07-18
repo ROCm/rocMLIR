@@ -19,6 +19,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"

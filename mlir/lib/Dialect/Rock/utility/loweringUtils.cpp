@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -675,123 +676,6 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
                                 rewriter.getArrayAttr(blockSubTileMaps),
                                 rewriter.getArrayAttr(threadSubTileMaps),
                                 std::nullopt};
-  }
-}
-
-template <typename RetAttrType>
-static FailureOr<RetAttrType> getAttrFromOpOrParents(
-    Operation *op, StringRef opAttr,
-    std::optional<StringRef> maybeDialectAttr = std::nullopt) {
-  StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
-  Operation *func;
-  if (isa<func::FuncOp, gpu::GPUFuncOp>(op)) {
-    func = op;
-  } else {
-    func = op->getParentOfType<func::FuncOp>();
-    if (!func) {
-      func = op->getParentOfType<gpu::GPUFuncOp>();
-    }
-  }
-  RetAttrType attr;
-  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
-    for (StringRef attrName : attrNames) {
-      if (!attr) {
-        attr = op->getAttrOfType<RetAttrType>(attrName);
-      } else {
-        return;
-      }
-    }
-  };
-  getAnyAttr({opAttr}, op);
-  if (!attr) {
-    getAnyAttr({opAttr, dialectAttr}, func);
-  }
-  if (!attr) {
-    auto mod = func->getParentOfType<ModuleOp>();
-    getAnyAttr({opAttr, dialectAttr}, mod);
-  }
-  if (!attr) {
-    if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
-      getAnyAttr({opAttr, dialectAttr}, mod);
-    }
-  }
-  if (!attr) {
-    return failure();
-  }
-  return attr;
-}
-
-FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
-  return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
-}
-
-StringAttr mlir::rock::getArchValue(Operation *op) {
-  auto maybeArch = rock::getArch(op);
-  if (failed(maybeArch))
-    llvm_unreachable("No 'arch' attribute on kernel");
-
-  return maybeArch.value();
-}
-
-FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (failed(maybeArch)) {
-    return failure();
-  }
-  StringAttr arch = maybeArch.value();
-  FailureOr<IntegerAttr> maybeNumCU =
-      getAttrFromOpOrParents<IntegerAttr>(op, "num_cu", "numCU");
-  if (failed(maybeNumCU)) {
-    return failure();
-  }
-  IntegerAttr numCU = maybeNumCU.value();
-  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  if (numCU.getValue().getSExtValue() < archInfo.minNumCU) {
-    return op->emitError() << "num_cu=" << numCU
-                           << " cannot be lower than arch minNumCU="
-                           << archInfo.minNumCU;
-  }
-  return numCU.getValue().getSExtValue();
-}
-
-int64_t mlir::rock::getNumCUValue(Operation *op) {
-  auto maybeCU = rock::getNumCU(op);
-  if (succeeded(maybeCU)) {
-    return maybeCU.value();
-  }
-
-  // Otherwise, we will need to get the minimum CU value from the architecture
-  auto archStr = rock::getArchValue(op);
-  int64_t minCU = rock::lookupArchInfo(archStr).minNumCU;
-  return minCU;
-}
-
-mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
-  // First check to see if the op has a 'Features' attribute.
-  if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
-    return features.getValue();  
-
-  // In this case, the op does not have a 'Features' attribute, so we can
-  // calculate the default features based on the architecture. For all of the
-  // ops in the if statement we can look at the first operand for the type info.
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(rock::getArchValue(op));
-  if (isa<rock::GridwiseGemmOp>(op) || isa<rock::GridwiseGemmAccelOp>(op) ||
-      isa<rock::GlobalStoreOp>(op) || isa<rock::ThreadwiseWriteAllOp>(op) ||
-      isa<rock::BlockwiseGemmAccelOp>(op) ||
-      isa<RockGemmGemmWrapperInterface>(op) ||
-      isa<RockGemmWrapperInterface>(op) || isa<rock::ReduceOp>(op)) {
-    return archInfo.getDefaultFeatures(op->getOperand(0).getType());
-  } else if (auto gwAttnAccelOp =
-                                dyn_cast<rock::GridwiseAttentionAccelOp>(op)) {
-    // For GridwiseAttentionAccelOps we can look to the out parameter for this
-    // (the )
-    return archInfo.getDefaultFeatures(gwAttnAccelOp.getOut().getType());
-  } else if (auto twAccelGemmOp = dyn_cast<rock::ThreadwiseAccelGemmOp>(op)) {
-    // For ThreadwiseAccelGemmOps we want to look at the type of matrixA
-    return archInfo.getDefaultFeatures(twAccelGemmOp.getMatrixA().getType());
-  } else {
-    // For all other ops, we can look to the first result
-    return archInfo.getDefaultFeatures(op->getResult(0).getType());
   }
 }
 

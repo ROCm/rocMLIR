@@ -1,5 +1,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -94,6 +95,30 @@ void AffixTuningParameters::runOnOperation() {
         func.setArgAttrs(arg.getArgNumber(), b.getNamedAttr(attrName, zero));
     }
   });
+
+  // For all ops that can take a 'features' attribute, we want to get or
+  // calculate those features and then take the intersection of them and
+  // apply them to the top level func. This precalculation saves us from
+  // constantly needing to recompute this value at later points in the pipeline.
+  SmallVector<rock::GemmFeatures> allFeatures;
+  func.walk([&](Operation Op) {
+    if (rock::opHasOptionalFeature(op))
+      allFeatures.push_back(rock::getFeatures(op));
+  });
+
+  // Calculate the intersection of features
+  std::optional<rock::GemmFeatures> finalFeatures = std::nullopt;
+  for (auto &feature : allFeatures) {
+    if (!finalFeatures.has_value()) {
+      finalFeatures = feature;
+      continue;
+    }
+
+    finalFeatures = rock::intersectGemmFeatures(finalFeatures.value(), feature);
+  }
+
+  // Set the attribute on the func
+  func.setAttr("features", finalFeatures.value());
 }
 
 template <typename T>

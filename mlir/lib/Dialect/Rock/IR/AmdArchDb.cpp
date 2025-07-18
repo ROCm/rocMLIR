@@ -144,7 +144,7 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   // Get the underlying element type of the dataType. We may have to do this
   // recursively if the initial dataType is a nested vector.
   Type elementType = getElementTypeOrSelf(dataType);
-  while (isa<VectorType>(elementType)) {
+  while (isa<ShapedType>(elementType)) {
     elementType = getElementTypeOrSelf(elementType);
   }
 
