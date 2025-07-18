@@ -118,7 +118,8 @@ void AffixTuningParameters::runOnOperation() {
   }
 
   // Set the 'features' attribute on the func
-  func->setAttr("features", rock::GemmFeaturesAttr::get(&getContext(),
+  if (finalFeatures.has_value())
+    func->setAttr("features", rock::GemmFeaturesAttr::get(&getContext(),
                                                         finalFeatures.value()));
 }
 

@@ -96,8 +96,10 @@ mlir::rock::GemmFeatures mlir::rock::intersectGemmFeatures(GemmFeatures a,
 mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // First, check to see if the func has a 'features' attribute.
   auto func = getParentFuncOp(op);
-  if (auto features = func->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
-    return features.getValue();
+  if (func) {
+    if (auto features = func->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
+        return features.getValue();
+  }
 
   // Next, check to see if the op has a 'features' attribute.
   if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
@@ -137,5 +139,12 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
     // For all other types, we need to do a set intersection
     features = intersectGemmFeatures(features.value(), newFeatures);
   }
+
+  // Handle the case where no types were found, and we could not calculate
+  // features
+  if (!features.has_value()) {
+    return rock::GemmFeatures::none;
+  }
+
   return features.value();
 }
