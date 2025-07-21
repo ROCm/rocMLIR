@@ -36,6 +36,7 @@ class Options:
     flags: list
     concurrent_tests: int
     numCu: int
+    logFailures: bool = False
 
 class PerfConfig:
     class Version(enum.Enum):
@@ -299,8 +300,12 @@ async def dropGoodConfig(config, options: Options, paths: Paths):
         if isinstance(config, MLIROnlyConfig):
             print(f"{result.name}: {config!r}")
         else:
+            print("" + "-" * 100)
             print(f"{result.name}: {multilineRepr(config)}")
     if result == TestResult.FAIL:
+        if options.logFailures and not isinstance(config, MLIROnlyConfig):
+            with open("failing_attn_configs.txt", "a") as f:
+                f.write(multilineRepr(config) + "\n")
         return config
     return result
 
