@@ -319,8 +319,8 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              int64_t group) {
   Location loc = op->getLoc();
 
-  ConvFields convFields = commonConv(rw, op, input, filter, output, pad, stride,
-                                     dilation, group);
+  ConvFields convFields =
+      commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
 
   auto cop = rw.create<rock::ConvOp>(
       loc, convFields.outputExp.getType(), convFields.filterExp,
@@ -622,9 +622,9 @@ public:
     int64_t group = 1;
     if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
       group = attr.getInt(); // Use op.getGroup() when all OpT have it.
-    FailureOr<rock::ConvOp> rockConv = makeRockConv(
-        rw, op, input, filter, output, op.getPadAttr(), op.getStrideAttr(),
-        op.getDilationAttr(), group);
+    FailureOr<rock::ConvOp> rockConv =
+        makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
+                     op.getStrideAttr(), op.getDilationAttr(), group);
     if (failed(rockConv))
       return failure();
 
@@ -726,7 +726,8 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
-    rock::GemmFeatures features = getGemmFeaturesFromOp(op, op.getA().getType());
+    rock::GemmFeatures features =
+        getGemmFeaturesFromOp(op, op.getA().getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -1148,8 +1149,8 @@ struct ConvElementwiseGemmRewritePattern
         loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
         elementwiseOtherArgs, output,
         /*cTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, /*features=*/nullptr,
-        convFields.pad, convFields.stride, convFields.dilation,
+        /*oTransposed=*/nullptr, /*features=*/nullptr, convFields.pad,
+        convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
 

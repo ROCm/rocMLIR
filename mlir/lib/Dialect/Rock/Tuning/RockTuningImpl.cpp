@@ -54,8 +54,8 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
       /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
   GemmFeatures features = rock::getFeatures(attnOp);
-  int64_t numEUPerCU = rock::lookupArchInfo(rock::getArchValue(attnOp))
-                                                                    .numEUPerCU;
+  int64_t numEUPerCU =
+      rock::lookupArchInfo(rock::getArchValue(attnOp)).numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
   bool isWMMA = false;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {

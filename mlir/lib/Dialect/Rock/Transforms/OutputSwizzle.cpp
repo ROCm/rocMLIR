@@ -398,9 +398,7 @@ struct ThreadwiseWriteAllRewritePattern
     b.replaceOpWithNewOp<ThreadwiseWriteAllOp>(
         op, finalC, matC, idToMatrixCMaps,
         /*extraIndices=*/
-        op.getExtraIndices(),
-        op.getStoreMethod(),
-        forceUnroll, useIndexDiffs);
+        op.getExtraIndices(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
     return success();
   }
 };

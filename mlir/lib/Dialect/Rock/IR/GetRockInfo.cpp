@@ -67,19 +67,15 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
 }
 
 bool mlir::rock::opHasOptionalFeature(Operation *op) {
-  bool hasOptionalFeature = llvm::TypeSwitch<Operation*,
-                                             bool>(op)
-  .Case<rock::GridwiseGemmOp,
-        rock::GridwiseGemmAccelOp,
-        rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
-        rock::GridwiseAttentionAccelOp, RockGemmGemmWrapperInterface,
-        RockGemmWrapperInterface>([](auto opWithFeatures) {
-    return true;
-  })
-  .Default([](Operation *op) -> bool {
-    return false;
-  });
-  
+  bool hasOptionalFeature =
+      llvm::TypeSwitch<Operation *, bool>(op)
+          .Case<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
+                rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
+                rock::GridwiseAttentionAccelOp, RockGemmGemmWrapperInterface,
+                RockGemmWrapperInterface>(
+              [](auto opWithFeatures) { return true; })
+          .Default([](Operation *op) -> bool { return false; });
+
   return hasOptionalFeature;
 }
 
@@ -87,7 +83,7 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // First, check to see if the func has a 'features' attribute.
   auto func = getParentFuncOp(op);
   if (func) {
-    if (auto features = func->getAttrOfType<rock::GemmFeaturesAttr>("features")) 
+    if (auto features = func->getAttrOfType<rock::GemmFeaturesAttr>("features"))
       return features.getValue();
 
     // If the initial op is a func and there is no `features` attribute, then
@@ -97,25 +93,24 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   }
 
   // Next, check to see if the op has a 'features' attribute.
-  if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
-    return features.getValue(); 
+  if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))
+    return features.getValue();
 
   // In this case, the op does not have a 'Features' attribute, so we can
   // calculate the default features based on the architecture.
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(rock::getArchValue(op));
   // Get the types needed for feature calculation using TypeSwitch
-  SmallVector<Type> typesForFeature = llvm::TypeSwitch<Operation*,
-                                                       SmallVector<Type>>(op)
-    .Case<rock::GridwiseGemmOp,
-          rock::GridwiseGemmAccelOp,
-          rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
-          rock::GridwiseAttentionAccelOp, RockGemmGemmWrapperInterface,
-          RockGemmWrapperInterface>([](auto opWithFeatures) {
-      return opWithFeatures.getTypesForFeature();
-    })
-    .Default([](Operation *op) -> SmallVector<Type> {
-      llvm_unreachable("Trying to get feature type on unsupported op");
-    });
+  SmallVector<Type> typesForFeature =
+      llvm::TypeSwitch<Operation *, SmallVector<Type>>(op)
+          .Case<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
+                rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
+                rock::GridwiseAttentionAccelOp, RockGemmGemmWrapperInterface,
+                RockGemmWrapperInterface>([](auto opWithFeatures) {
+            return opWithFeatures.getTypesForFeature();
+          })
+          .Default([](Operation *op) -> SmallVector<Type> {
+            llvm_unreachable("Trying to get feature type on unsupported op");
+          });
 
   std::optional<rock::GemmFeatures> features = std::nullopt;
   for (auto &ty : typesForFeature) {

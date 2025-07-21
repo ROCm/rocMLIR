@@ -14,15 +14,15 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "mlir/Support/LLVM.h"
 
 namespace mlir {
 class Operation;
 class Type;
- 
+
 namespace rock {
 
 // Get the arch from the op
@@ -38,7 +38,7 @@ FailureOr<int64_t> getNumCU(Operation *op);
 int64_t getNumCUValue(Operation *op);
 
 inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
-                                         rock::GemmFeatures b) {
+                                                rock::GemmFeatures b) {
   return a & b;
 }
 
@@ -95,7 +95,8 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
   if (!attr) {
     if (auto symbolTableOp = func->getParentWithTrait<OpTrait::SymbolTable>()) {
       getAnyAttr({opAttr, dialectAttr}, symbolTableOp);
-      if (attr) return attr;
+      if (attr)
+        return attr;
     }
   }
 
@@ -105,6 +106,6 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
   return attr;
 }
 
-} // End namespace rock 
+} // End namespace rock
 } // End namespace mlir
 #endif // MLIR_DIALECT_ROCK_IR_GETROCKINFO_H

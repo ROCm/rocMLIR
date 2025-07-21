@@ -1,7 +1,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
-#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
@@ -107,10 +107,10 @@ void AffixTuningParameters::runOnOperation() {
   });
 
   assert(allFeatures.size() <= 1 &&
-        "Func should only have a single op that needs to calculate a feature");
+         "Func should only have a single op that needs to calculate a feature");
   if (allFeatures.size() == 1) {
-    func->setAttr("features", rock::GemmFeaturesAttr::get(&getContext(),
-                                                          allFeatures[0]));
+    func->setAttr("features",
+                  rock::GemmFeaturesAttr::get(&getContext(), allFeatures[0]));
   }
 }
 

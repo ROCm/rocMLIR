@@ -784,8 +784,7 @@ struct GridwiseAttentionAccelRewritePattern
 
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
-        /*extraIndices=*/ValueRange{tid},
-        StoreMethod::Set, forceUnroll, true);
+        /*extraIndices=*/ValueRange{tid}, StoreMethod::Set, forceUnroll, true);
     return success();
   }
 
@@ -1847,9 +1846,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Get 'features' from the op
     auto features = rock::getFeatures(op);
-    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
-                                        ? op.getFeaturesAttr()
-                                        : nullptr;
+    rock::GemmFeaturesAttr featuresAttr =
+        op.getFeatures() ? op.getFeaturesAttr() : nullptr;
 
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
@@ -2953,9 +2951,8 @@ struct GridwiseGemmAccelRewritePattern
 
     // Get 'features' from the op
     auto features = rock::getFeatures(op);
-    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
-                                        ? op.getFeaturesAttr()
-                                        : nullptr;
+    rock::GemmFeaturesAttr featuresAttr =
+        op.getFeatures() ? op.getFeaturesAttr() : nullptr;
 
     // Prepare some useful constants.
     Value matA = op.getA();
@@ -3071,8 +3068,8 @@ struct GridwiseGemmAccelRewritePattern
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA,
-         destType}, arch);
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType},
+        arch);
 
     Value storeBufferA =
         gpuAlloc(b, loc, aCopyPerThread, elementTypeA, AddressSpace::Private);
@@ -3332,8 +3329,8 @@ struct GridwiseGemmAccelRewritePattern
               b.getI32IntegerAttr(copyNPerThread),
               (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
               (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
-              arrayA, arrayB, regCAllocOp, featuresAttr,
-              op.getBlockSizeAttr(), op.getParamsAttr());
+              arrayA, arrayB, regCAllocOp, featuresAttr, op.getBlockSizeAttr(),
+              op.getParamsAttr());
           b.create<rock::YieldOp>(loc);
         }
       } else {
@@ -3360,8 +3357,8 @@ struct GridwiseGemmAccelRewritePattern
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stage3.getRegion().emplaceBlock());
           generateComputeLoop(loc, b, accelEmitterPtr, arrayA, arrayB,
-                              regCAllocOp, rock::getArchValue(op),
-                              featuresAttr, tuningParams);
+                              regCAllocOp, rock::getArchValue(op), featuresAttr,
+                              tuningParams);
           b.create<rock::YieldOp>(loc);
         }
       }

@@ -468,9 +468,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     auto newOp = b.replaceOpWithNewOp<rock::ConvOp>(
         op, op->getResultTypes(), newFilter, newInput, op.getOutput(),
         rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
-        op.getDerivedBlockSizeAttr(),
-        op.getGridSizeAttr(), op.getPadding(), op.getStrides(),
-        op.getDilations(), op.getParams() ? op.getParams().value() : nullptr);
+        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getPadding(),
+        op.getStrides(), op.getDilations(),
+        op.getParams() ? op.getParams().value() : nullptr);
 
     if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
       newOp->setAttr("perf_config", attr);
@@ -545,8 +545,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
         op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
         transposedA, transposedB, op.getCTransposedAttr(),
         rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
-        op.getStoreMethodAttr(),
-        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+        op.getStoreMethodAttr(), op.getDerivedBlockSizeAttr(),
+        op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
@@ -580,8 +580,8 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
         op.getLse(), transposedQ, transposedK, transposedV,
         op.getOTransposedAttr(), op.getCausalAttr(),
         rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
-        op.getSoftmaxTypeAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
+        op.getSoftmaxTypeAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIdxAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -644,10 +644,9 @@ struct ConvElementwiseGemmRewritePattern
         op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
         op.getElemwiseInputs(), op.getOut(), transposedC,
         op.getOTransposedAttr(),
-        rw.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)), 
-        op.getPaddingAttr(), op.getStridesAttr(),
-        op.getDilationsAttr(), op.getParams0Attr(), op.getParams1Attr(),
-        op.getFirstGemmIdxAttr());
+        rw.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
+        op.getPaddingAttr(), op.getStridesAttr(), op.getDilationsAttr(),
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // set attributes
     newOp->setAttr("filter_layout", newFilterLayout);
@@ -692,8 +691,7 @@ struct GemmElementwiseGemmRewritePattern
         op.getElemwiseInputs(), op.getOut(), transposedQ, transposedK,
         transposedV, op.getOTransposedAttr(),
         rw.getAttr<rock::GemmFeaturesAttr>(rock::getFeatures(op)),
-        op.getParams0Attr(),
-        op.getParams1Attr(), op.getFirstGemmIdxAttr());
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;

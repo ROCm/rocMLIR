@@ -23,8 +23,8 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
-#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -363,14 +363,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
-  rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
-                                      ? op.getFeaturesAttr()
-                                      : nullptr;
+  rock::GemmFeaturesAttr featuresAttr =
+      op.getFeatures() ? op.getFeaturesAttr() : nullptr;
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, accumulator, featuresAttr,
-        op.getStoreMethodAttr(), blockSize, gridSize,
-        cast<RockAccelTuningParamAttrInterface>(params));
+        loc, a, b, accumulator, featuresAttr, op.getStoreMethodAttr(),
+        blockSize, gridSize, cast<RockAccelTuningParamAttrInterface>(params));
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, accumulator, featuresAttr,
                               op.getStoreMethodAttr(), gridSize,

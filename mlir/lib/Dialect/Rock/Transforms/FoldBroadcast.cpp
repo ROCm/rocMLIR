@@ -21,8 +21,8 @@
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
@@ -202,9 +202,8 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     }
 
     // Create the new GemmOp
-    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
-                                        ? op.getFeaturesAttr()
-                                        : nullptr;
+    rock::GemmFeaturesAttr featuresAttr =
+        op.getFeatures() ? op.getFeaturesAttr() : nullptr;
     auto gemm = rw.create<rock::GemmOp>(
         op.getLoc(), newC.getType(), newA, newB, newC, op.getATransposed(),
         op.getBTransposed(), op.getCTransposed(), featuresAttr,

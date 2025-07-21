@@ -16,9 +16,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -596,7 +596,7 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
 
   StringAttr arch = rock::getArchValue(gemmOp);
   GemmFeatures features = rock::getFeatures(gemmOp);
-  
+
   return verifyGemmTypes(gemmOp, features, arch, elemTypeA, elemTypeB,
                          elemTypeC);
 }
@@ -611,8 +611,8 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   auto features = rock::getFeatures(gemmOp);
 
   // Only perform this check for ops that have a feature attribute
-  bool isAccel = bitEnumContainsAny(features,
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
+  bool isAccel =
+      bitEnumContainsAny(features, GemmFeatures::mfma | GemmFeatures::wmma);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -911,8 +911,8 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
 
-  if (failed(
-          verifyGemmTypes(op, rock::getFeatures(op), "gfx00", aElem, bElem, cElem)))
+  if (failed(verifyGemmTypes(op, rock::getFeatures(op), "gfx00", aElem, bElem,
+                             cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
@@ -1725,8 +1725,7 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   // Only one operand supports view
   auto newOp = builder.create<ThreadwiseWriteAllOp>(
       getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      getStoreMethod(), getForceUnroll(),
-      getUseIndexDiffs());
+      getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
 
