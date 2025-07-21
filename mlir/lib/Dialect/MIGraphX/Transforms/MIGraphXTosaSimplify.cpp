@@ -50,8 +50,7 @@ public:
     Type outputType = op.getOutput().getType();
     if (inputType == outputType) {
       // If we find a cast that leads to the same type, we can eliminate it.
-      b.replaceAllOpUsesWith(op, input);
-      b.eraseOp(op);
+      b.replaceOp(op, input);
       return success();
     }
     while (input.getDefiningOp<tosa::CastOp>()) {
@@ -59,8 +58,7 @@ public:
       inputType = input.getType();
       if (inputType == outputType) {
         // If we find a cast that leads to the same type, we can eliminate it.
-        b.replaceAllOpUsesWith(op, input);
-        b.eraseOp(op);
+        b.replaceOp(op, input);
         return success();
       }
     }

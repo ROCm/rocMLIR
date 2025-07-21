@@ -134,3 +134,19 @@ func.func @cast_multiple_uses(%arg0: tensor<4xf32>) -> (tensor<4xf32>, tensor<4x
   return %0, %0 : tensor<4xf32>, tensor<4xf32>
 }
 
+// ----
+
+// Test 11: Complex cast chain with multiple uses
+// CHECK-LABEL: @complex_cast_chain_multiple_uses
+// CHECK-SAME: (%[[ARG0:.*]]: tensor<4xf32>) -> (tensor<4xf32>, tensor<4xf16>)
+// CHECK: %[[CAST0:.*]] = tosa.cast %[[ARG0]] : (tensor<4xf32>) -> tensor<4xf16>
+// CHECK-NOT: tosa.cast %[[CAST0]]
+// CHECK: %[[ABS:.*]] = tosa.abs %[[CAST0]] : (tensor<4xf16>) -> tensor<4xf16>
+// CHECK: return %[[ARG0]], %[[ABS]] : tensor<4xf32>, tensor<4xf16>
+func.func @complex_cast_chain_multiple_uses(%arg0: tensor<4xf32>) -> (tensor<4xf32>, tensor<4xf16>) {
+  %0 = tosa.cast %arg0 : (tensor<4xf32>) -> tensor<4xf16>
+  %1 = tosa.cast %0 : (tensor<4xf16>) -> tensor<4xf32>
+  %2 = tosa.cast %1 : (tensor<4xf32>) -> tensor<4xf32>
+  %3 = tosa.abs %0 : (tensor<4xf16>) -> tensor<4xf16>
+  return %2, %3: tensor<4xf32>, tensor<4xf16>
+}
