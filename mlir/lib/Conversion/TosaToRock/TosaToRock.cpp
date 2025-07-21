@@ -2064,7 +2064,7 @@ typename std::enable_if_t<
   }
 
   auto rockReduce = rw.create<rock::ReduceOp>(
-      loc, outputType, op.getInput(), output, /*features=*/nullptr,
+      loc, outputType, op.getInput(), output,
       rw.getAttr<rock::ReduceMethodAttr>(rMethod),
       rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
       rw.getI32IntegerAttr(gridSize),

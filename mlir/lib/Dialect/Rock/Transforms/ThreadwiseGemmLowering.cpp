@@ -788,8 +788,6 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     b.setInsertionPointToStart(outLoop.getBody());
     if (dstAddrSpace == gpu::AddressSpace::Global) {
       b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                              rock::GemmFeaturesAttr::get(b.getContext(),
-                                                        rock::getFeatures(op)),
                               op.getStoreMethodAttr(),
                               outLoop.getLowerCoords(
                                   /*domain=*/0)[extraIdxCount],

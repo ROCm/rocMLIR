@@ -37,8 +37,10 @@ FailureOr<int64_t> getNumCU(Operation *op);
 // Get the num_cu from the op, and error out if it cannot be found
 int64_t getNumCUValue(Operation *op);
 
-rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
-                                         rock::GemmFeatures b);
+inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
+                                         rock::GemmFeatures b) {
+  return a & b;
+}
 
 // Get the features enabled for the specified op. These will be dependent on
 // the architecture being used, and the type of the op.
@@ -80,19 +82,23 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
       }
     }
   };
+
+  // First check for the attribute on the op
   getAnyAttr({opAttr}, op);
   if (!attr) {
+    // If that fails then try checking for the attribute on the func
     getAnyAttr({opAttr, dialectAttr}, func);
   }
+
+  // If there is no desired attribute on the func, then check the nearest parent
+  // with a symbol table (covers both ModuleOp and gpu::GPUModuleOp)
   if (!attr) {
-    auto mod = func->getParentOfType<ModuleOp>();
-    getAnyAttr({opAttr, dialectAttr}, mod);
-  }
-  if (!attr) {
-    if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
-      getAnyAttr({opAttr, dialectAttr}, mod);
+    if (auto symbolTableOp = func->getParentWithTrait<OpTrait::SymbolTable>()) {
+      getAnyAttr({opAttr, dialectAttr}, symbolTableOp);
+      if (attr) return attr;
     }
   }
+
   if (!attr) {
     return failure();
   }

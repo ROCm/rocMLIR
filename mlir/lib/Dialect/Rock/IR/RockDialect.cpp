@@ -1722,13 +1722,10 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
     return getOperation();
   }
 
-  rock::GemmFeaturesAttr featuresAttr = getFeatures() ? getFeaturesAttr()
-                                                      : nullptr;
-
   // Only one operand supports view
   auto newOp = builder.create<ThreadwiseWriteAllOp>(
       getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      featuresAttr, getStoreMethod(), getForceUnroll(),
+      getStoreMethod(), getForceUnroll(),
       getUseIndexDiffs());
   return newOp.getOperation();
 }

@@ -339,11 +339,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
              << " B[2] = " << N << " C[2] = " << cShape[2];
     }
 
-    // Get 'features' from the op
-    rock::GemmFeaturesAttr features = op.getFeatures()
-                                    ? op.getFeaturesAttr()
-                                    : nullptr;
-
     // Obtain critical tuning parameters.
     uint32_t gridSize = op.getGridSize();
     GeneralGemmParamsAttr tuningParams = op.getParams();
@@ -652,13 +647,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       features, StoreMethod::Set,
+                                       StoreMethod::Set,
                                        /*forceUnroll=*/true,
                                        /*useIndexDiffs=*/true);
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       features, StoreMethod::Set,
+                                       StoreMethod::Set,
                                        /*forceUnroll=*/true,
                                        /*useIndexDiffs=*/true);
 
@@ -728,7 +723,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                    ValueRange{gridCoords.g_block,
                                               gridCoords.m_block,
                                               gridCoords.n_block, tid},
-                                   features, op.getStoreMethod(),
+                                   op.getStoreMethod(),
                                    /*forceUnroll=*/true, useIndexDiffs);
     b.eraseOp(op);
 
@@ -790,7 +785,6 @@ struct GridwiseAttentionAccelRewritePattern
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, storeBuffer, wrappedLds, /*extraViews=*/rewriter.getArrayAttr({}),
         /*extraIndices=*/ValueRange{tid},
-        rewriter.getAttr<rock::GemmFeaturesAttr>(GemmFeatures::none),
         StoreMethod::Set, forceUnroll, true);
     return success();
   }
@@ -2774,7 +2768,7 @@ struct GridwiseAttentionAccelRewritePattern
         loc, outAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
         ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-        featuresAttr, rock::StoreMethod::Set, forceUnroll,
+        rock::StoreMethod::Set, forceUnroll,
         /*useIndexDiffs=*/true);
 
     // store LSE to device memory
@@ -2811,7 +2805,7 @@ struct GridwiseAttentionAccelRewritePattern
           loc, lseBuffer, lse, lseMap,
           /*extraIndices=*/
           ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-          featuresAttr, rock::StoreMethod::Set, forceUnroll,
+          rock::StoreMethod::Set, forceUnroll,
           /*useIndexDiffs=*/true);
     }
 
@@ -3313,14 +3307,12 @@ struct GridwiseGemmAccelRewritePattern
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferA, wrappedLdsA,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       featuresAttr,
                                        StoreMethod::Set,
                                        /*forceUnroll=*/forceUnroll,
                                        /*useIndexDiffs=*/true);
         b.create<ThreadwiseWriteAllOp>(loc, storeBufferB, wrappedLdsB,
                                        /*extraViews=*/b.getArrayAttr({}),
                                        /*extraIndices=*/ValueRange{tid},
-                                       featuresAttr,
                                        StoreMethod::Set,
                                        /*forceUnroll=*/forceUnroll,
                                        /*useIndexDiffs=*/true);
@@ -3402,7 +3394,7 @@ struct GridwiseGemmAccelRewritePattern
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
                    tid},
-        featuresAttr, op.getStoreMethod(), forceUnroll, useIndexDiffs);
+        op.getStoreMethod(), forceUnroll, useIndexDiffs);
     b.eraseOp(op);
     return success();
   }

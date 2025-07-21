@@ -260,8 +260,6 @@ struct ThreadwiseWriteAllRewritePattern
     b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
                                    /*extraViews=*/idToLDS,
                                    /*extraIndices=*/ValueRange{tid},
-                                   rock::GemmFeaturesAttr::get(b.getContext(),
-                                                        rock::getFeatures(op)),
                                    StoreMethod::Set,
                                    /*forceUnroll=*/forceUnroll,
                                    /*useIndexDiffs=*/useIndexDiffs);
@@ -401,7 +399,6 @@ struct ThreadwiseWriteAllRewritePattern
         op, finalC, matC, idToMatrixCMaps,
         /*extraIndices=*/
         op.getExtraIndices(),
-        rock::GemmFeaturesAttr::get(b.getContext(), rock::getFeatures(op)),
         op.getStoreMethod(),
         forceUnroll, useIndexDiffs);
     return success();

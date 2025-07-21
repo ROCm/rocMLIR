@@ -146,8 +146,7 @@ struct BlockwiseFillRewritePattern
         rewriter.createOrFold<rock::WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, valueReg, op.getMemref(), rewriter.getArrayAttr({unmerge, pad}),
-        /*extraIndices=*/ValueRange{tid}, /*Features=*/nullptr,
-        StoreMethod::Set, true, true);
+        /*extraIndices=*/ValueRange{tid}, StoreMethod::Set, true, true);
     rewriter.eraseOp(op);
     return success();
   }

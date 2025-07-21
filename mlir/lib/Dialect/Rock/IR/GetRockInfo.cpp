@@ -69,15 +69,11 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
 bool mlir::rock::opHasOptionalFeature(Operation *op) {
   bool hasOptionalFeature = llvm::TypeSwitch<Operation*,
                                              bool>(op)
-  .Case<rock::GemmOp, rock::ConvOp, rock::ConvBwdDataOp,
-        rock::ConvBwdWeightOp,  rock::GridwiseGemmOp,
-        rock::GridwiseGemmAccelOp, rock::AttentionOp, rock::ReduceOp,
-        rock::GlobalStoreOp, rock::GemmElementwiseGemmOp,
-        rock::ConvElementwiseGemmOp, rock::ThreadwiseWriteAllOp,
+  .Case<rock::GridwiseGemmOp,
+        rock::GridwiseGemmAccelOp,
         rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
-        rock::ConvertingCopyKernelOp,
-        rock::GridwiseAttentionAccelOp>([](auto opWithFeatures) {
-
+        rock::GridwiseAttentionAccelOp, RockGemmGemmWrapperInterface,
+        RockGemmWrapperInterface>([](auto opWithFeatures) {
     return true;
   })
   .Default([](Operation *op) -> bool {
@@ -87,18 +83,17 @@ bool mlir::rock::opHasOptionalFeature(Operation *op) {
   return hasOptionalFeature;
 }
 
-mlir::rock::GemmFeatures mlir::rock::intersectGemmFeatures(GemmFeatures a,
-                                                           GemmFeatures b) {
-  return static_cast<GemmFeatures>(static_cast<uint32_t>(a) &
-                                   static_cast<uint32_t>(b));
-}
-
 mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // First, check to see if the func has a 'features' attribute.
   auto func = getParentFuncOp(op);
   if (func) {
-    if (auto features = func->getAttrOfType<rock::GemmFeaturesAttr>("features"))  
-        return features.getValue();
+    if (auto features = func->getAttrOfType<rock::GemmFeaturesAttr>("features")) 
+      return features.getValue();
+
+    // If the initial op is a func and there is no `features` attribute, then
+    // we cannot proceed
+    if (isa<func::FuncOp>(op) || isa<gpu::GPUFuncOp>(op))
+      llvm_unreachable("Trying to get 'features' for an invalid func op");
   }
 
   // Next, check to see if the op has a 'features' attribute.
@@ -111,15 +106,11 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // Get the types needed for feature calculation using TypeSwitch
   SmallVector<Type> typesForFeature = llvm::TypeSwitch<Operation*,
                                                        SmallVector<Type>>(op)
-    .Case<rock::GemmOp, rock::ConvOp, rock::ConvBwdDataOp,
-          rock::ConvBwdWeightOp,  rock::GridwiseGemmOp,
-          rock::GridwiseGemmAccelOp, rock::AttentionOp, rock::ReduceOp,
-          rock::GlobalStoreOp, rock::GemmElementwiseGemmOp,
-          rock::ConvElementwiseGemmOp, rock::ThreadwiseWriteAllOp,
+    .Case<rock::GridwiseGemmOp,
+          rock::GridwiseGemmAccelOp,
           rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
-          rock::ConvertingCopyKernelOp,
-          rock::GridwiseAttentionAccelOp>([](auto opWithFeatures) {
-
+          rock::GridwiseAttentionAccelOp, RockGemmGemmWrapperInterface,
+          RockGemmWrapperInterface>([](auto opWithFeatures) {
       return opWithFeatures.getTypesForFeature();
     })
     .Default([](Operation *op) -> SmallVector<Type> {

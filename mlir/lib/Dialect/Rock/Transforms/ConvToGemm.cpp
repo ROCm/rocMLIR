@@ -355,15 +355,12 @@ struct ZeroInitKernelRewritePattern final
     Value memref = makeGpuAllocContaining(b, initOp);
     Value trueOp =
         b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
-                                        ? op.getFeaturesAttr()
-                                        : nullptr;
 
-    auto loopBody = [&memref, &initVectorLen, &trueOp, &featuresAttr, &zeroIndex,
+    auto loopBody = [&memref, &initVectorLen, &trueOp, &zeroIndex,
                      &needs64BitIdx](OpBuilder &b, Location loc,
                                      ValueRange collapsed, Value index) {
       b.create<GlobalStoreOp>(loc, memref, collapsed[0],
-                              APInt(64, initVectorLen), featuresAttr,
+                              APInt(64, initVectorLen),
                               StoreMethod::Set, /*sourceCoord=*/zeroIndex,
                               /*valid=*/trueOp, index, needs64BitIdx,
                               /*canStoreOffEnd=*/true);
@@ -401,15 +398,12 @@ struct ConvertingCopyKernelRewritePattern final
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
     Value trueOp = b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    rock::GemmFeaturesAttr featuresAttr = op.getFeatures()
-                                        ? op.getFeaturesAttr()
-                                        : nullptr;
     bool needs64BitIdx =
         is4GBMemoryType(input.getType()) || is4GBMemoryType(output.getType());
     Value storeMemref = makePrivateGpuAlloc(b, loc, storeType);
     Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     auto loopBody = [&loadType, &storeType, &conversionVectorLen, &trueOp,
-                     &storeMemref, &zeroIndex, &featuresAttr,
+                     &storeMemref, &zeroIndex,
                      &needs64BitIdx](OpBuilder &b, Location loc,
                                      ValueRange collapsed, Value index) {
       Value loaded = b.create<GlobalLoadOp>(
@@ -419,7 +413,7 @@ struct ConvertingCopyKernelRewritePattern final
       b.create<InBoundsStoreOp>(loc, converted, storeMemref, zeroIndex);
       b.create<GlobalStoreOp>(
           loc, storeMemref, collapsed[1], APInt(64, conversionVectorLen),
-          featuresAttr, StoreMethod::Set, /*sourceCoord=*/zeroIndex,
+          StoreMethod::Set, /*sourceCoord=*/zeroIndex,
           /*valid=*/trueOp, index, needs64BitIdx, /*canWriteOffEnd=*/true);
     };
     LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},

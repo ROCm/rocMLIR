@@ -77,14 +77,6 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], l
                               IndexArrayLength<2>:$dilations,
                               OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
-
-    // Return the type from this op that is needed to calculate GemmFeatures
-    let extraClassDeclaration = [{
-      SmallVector<::mlir::Type> getTypesForFeature() {
-        SmallVector<::mlir::Type> types = {getInput().getType()};
-        return types;
-      }
-    }];
 }
 
 defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
@@ -182,14 +174,6 @@ def Rock_GemmOp :
     (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
     `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
   }];
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getA().getType()};
-      return types;
-    }
-  }];
 }
 
 
@@ -198,7 +182,6 @@ def Rock_ReduceOp :
   Arguments<(ins
     Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input", [MemRead]>:$in,
     Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "output", [MemRead, MemWrite]>:$out,
-    OptionalAttr<Rock_GemmFeaturesAttr>:$features,
     ReduceMethodAttr:$reduceMethod,
     IndexAttr:$axis,
     I32Attr:$blockSize,
@@ -210,16 +193,10 @@ def Rock_ReduceOp :
   let summary = "Axes-wide reduction operation";
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $reduceMethod $in `into` $out (`features` `=` $features^)? attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
+    $reduceMethod $in `into` $out attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
-
-    // Return the type from this op that is needed to calculate GemmFeatures
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getIn().getType()};
-      return types;
-    }
   }];
 }
 def Rock_AttentionOp
@@ -286,13 +263,6 @@ def Rock_AttentionOp
   // Return operand of LSE if it exists.
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutLseArgument() { return getLse() ? &(*this)->getOpOperand(getNumOperands() - 1) : nullptr; }
-
-    // Return the types from this op that is needed to calculate GemmFeatures
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getKeys().getType(),
-                                         getValues().getType()};
-      return types;
-    }
   }];
 }
 
@@ -344,14 +314,6 @@ def Rock_GemmElementwiseGemmOp
         (`tr` $oTransposed^)? $out `=` `ab` `*` (`tr` $cTransposed^)? $c `:` type($c) `->` type($out) `\n`
     `}` attr-dict (`->` type($result)^)?
   }];
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getA().getType()};
-      return types;
-    }
-  }];
 }
 
 def Rock_ConvElementwiseGemmOp
@@ -402,14 +364,6 @@ def Rock_ConvElementwiseGemmOp
         (`ab` `=` `elementwise` (`otherIns` `(` $elemwiseInputs^ `:` type($elemwiseInputs) `)`)? $preSecondGemmBody^ `\n`)?
         (`tr` $oTransposed^)? $out `=` `ab` `*` (`tr` $cTransposed^)? $c `:` type($c) `->` type($out) `\n`
     `}` attr-dict (`->` type($result)^)?
-  }];
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getInput().getType()};
-      return types;
-    }
   }];
 }
 
@@ -472,12 +426,6 @@ def Rock_ConvertingCopyKernelOp :
   // a gemm wrapper kernel
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
-
-    // Return the type from this op that is needed to calculate GemmFeatures
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getInput().getType()};
-      return types;
-    }
   }];
 
 }
@@ -1134,7 +1082,6 @@ def Rock_GlobalStoreOp :
     Arguments<(ins MemRefRankOf<SupportedMemoryElems, [1]>:$source,
                    MemRefOf<SupportedMemoryElems>:$dest,
                    IndexAttr:$length,
-                   OptionalAttr<Rock_GemmFeaturesAttr>:$features,
                    StoreMethodAttr:$storeMethod,
                    Index:$sourceCoord,
                    I1:$valid,
@@ -1167,19 +1114,11 @@ def Rock_GlobalStoreOp :
   let assemblyFormat = [{
     $storeMethod $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]` `if` $valid
-    (`features` `=` $features^)? attr-dict
+    attr-dict
     `:` type($source) `->`
     type($dest)
   }];
   let hasVerifier = 1;
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getDest().getType()};
-      return types;
-    }
-  }];
 }
 
 defvar SameShapeVectorOfI1 = [{
@@ -1299,7 +1238,6 @@ def Rock_ThreadwiseWriteAllOp :
       Arg<MemRefOf<NativeMemoryOpTypes>, "detination view", [MemWrite]>:$dest,
       TransformMapArrayAttr:$extraViews,
       Variadic<Index>:$extraIndices,
-      OptionalAttr<Rock_GemmFeaturesAttr>:$features,
       StoreMethodAttr:$storeMethod,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs
@@ -1359,18 +1297,10 @@ def Rock_ThreadwiseWriteAllOp :
   }];
 
   let assemblyFormat = [{
-    (`features` `=` $features^)? attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
+    attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getSource().getType()};
-      return types;
-    }
-  }];
 }
 
 defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputTypes>];

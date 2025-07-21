@@ -106,21 +106,12 @@ void AffixTuningParameters::runOnOperation() {
       allFeatures.push_back(rock::getFeatures(op));
   });
 
-  // Calculate the intersection of features
-  std::optional<rock::GemmFeatures> finalFeatures = std::nullopt;
-  for (auto &feature : allFeatures) {
-    if (!finalFeatures.has_value()) {
-      finalFeatures = feature;
-      continue;
-    }
-
-    finalFeatures = rock::intersectGemmFeatures(finalFeatures.value(), feature);
-  }
-
-  // Set the 'features' attribute on the func
-  if (finalFeatures.has_value())
+  assert(allFeatures.size() <= 1 &&
+        "Func should only have a single op that needs to calculate a feature");
+  if (allFeatures.size() == 1) {
     func->setAttr("features", rock::GemmFeaturesAttr::get(&getContext(),
-                                                        finalFeatures.value()));
+                                                          allFeatures[0]));
+  }
 }
 
 template <typename T>
