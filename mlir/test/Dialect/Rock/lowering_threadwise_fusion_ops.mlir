@@ -152,7 +152,7 @@ func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_s
   %extra_idx = arith.constant 2 : index
   %bid = rock.workgroup_id : index
   %tid = rock.workitem_id : index
-  rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
+  rock.threadwise_write_all {forceUnroll, useIndexDiffs}
     %source -> [#transform_map2](%view)[%extra_idx, %bid, %tid] by set
     : memref<32xf32, #gpu.address_space<private>> -> memref<3x2x64x32xf32>
   func.return
