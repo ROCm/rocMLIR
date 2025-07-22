@@ -1633,32 +1633,28 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   /*
   return true if there is path from `fromVal` to `toVal`
   */
-  void areConnected(Value fromVal, Value toVal,
+  bool areConnected(Value fromVal, Value toVal,
                     llvm::SmallDenseMap<Value, bool> &pathMap) const {
     if (fromVal == toVal) {
       pathMap[fromVal] = true;
-      return;
     }
     if (pathMap.contains(fromVal))
-      return;
+      return pathMap[fromVal];
+    pathMap[fromVal] = false;
     for (Operation *user : fromVal.getUsers()) {
       for (Value userResultVal : user->getResults()) {
-        areConnected(userResultVal, toVal, pathMap);
-        if (pathMap.contains(userResultVal) && pathMap[userResultVal]) {
+        if (areConnected(userResultVal, toVal, pathMap))
           pathMap[fromVal] = true;
-        }
       }
     }
-    if (!pathMap.contains(fromVal)) {
-      pathMap[fromVal] = false;
-    }
+    return pathMap[fromVal];
   }
 
   /*
-  if softmax happens in higher precision than the first gemm output,
-  then first gemm output type would have a cast operation that converts input to
-  softmax. This function traces from first gemm output to cast operation and
-  then traces path from cast to softmax input.
+  if softmax happens in a different datatype/precision compared to the first
+  gemm output, then first gemm output type would have a cast operation that
+  converts input to softmax data type. This function traces from first gemm
+  output to cast operation and then traces path from cast to softmax input.
   Later during `match()` types of the casts on both softmax input and outputs
   are compared to ensure that cast op is indeed to change type of the softmax
   and it is not part of the fusion.
@@ -1668,7 +1664,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     llvm::SmallDenseSet<Operation *> visited;
     llvm::SmallVector<Operation *> worklist = {
         firstGemmOutput.getUsers().begin(), firstGemmOutput.getUsers().end()};
-    Type softmaxType = nullptr;
+    Type softmaxInputType =
+        cast<ShapedType>(softmaxInput.getType()).getElementType();
     while (!worklist.empty()) {
       Operation *user = worklist.pop_back_val();
       if (visited.contains(user))
@@ -1678,10 +1675,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         // trace cast op to softmax input
         llvm::SmallDenseMap<Value, bool> pathMap;
         Value castOutput = user->getResult(0);
-        areConnected(castOutput, softmaxInput, pathMap);
-        if (pathMap.contains(castOutput) && pathMap[castOutput]) {
-          softmaxType = cast<ShapedType>(castOutput.getType()).getElementType();
-          return softmaxType;
+        Type castOutputType =
+            cast<ShapedType>(castOutput.getType()).getElementType();
+        if (areConnected(castOutput, softmaxInput, pathMap) &&
+            castOutputType == softmaxInputType) {
+          return castOutputType;
         }
       } else {
         worklist.insert(worklist.end(), user->getUsers().begin(),
@@ -1872,11 +1870,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto causal = getCausal(kvCacheInput);
     bool isCausal = succeeded(causal);
-    Value causalMaskInput;
-    if (isCausal)
-      causalMaskInput = causal.value();
-    else
-      causalMaskInput = kvCacheInput;
+    Value causalMaskInput = isCausal ? causal.value() : kvCacheInput;
 
     OpBuilder b{op};
     SmallVector<Value> elementwiseOtherArgs;
