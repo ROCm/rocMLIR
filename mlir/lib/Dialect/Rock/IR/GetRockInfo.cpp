@@ -71,8 +71,8 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
   auto archStr = rock::getArchValue(op);
   int64_t minCU = rock::lookupArchInfo(archStr).minNumCU;
   LLVM_DEBUG(llvm::dbgs() << "Could not find num_cu, defaulting to minimum "
-                          << "CU value for " << archStr << ": "
-                          << minCU << "\n");
+                          << "CU value for " << archStr << ": " << minCU
+                          << "\n");
   return minCU;
 }
 

@@ -2244,10 +2244,11 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-  IntegerAttr numCUAttr = (num_cu.getNumOccurrences() > 0 ?
-                           b.getI64IntegerAttr(num_cu) :
-                           b.getI64IntegerAttr(rock::lookupArchInfo(
-                                                archAttr.getValue()).minNumCU));
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0
+           ? b.getI64IntegerAttr(num_cu)
+           : b.getI64IntegerAttr(
+                 rock::lookupArchInfo(archAttr.getValue()).minNumCU));
   SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};

@@ -542,9 +542,9 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
 
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
-        transposedA, transposedB, op.getCTransposedAttr(),
-        op.getFeaturesAttr(), op.getStoreMethodAttr(),
-        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+        transposedA, transposedB, op.getCTransposedAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), op.getDerivedBlockSizeAttr(),
+        op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
@@ -640,9 +640,9 @@ struct ConvElementwiseGemmRewritePattern
     auto newOp = rw.create<rock::ConvElementwiseGemmOp>(
         op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
         op.getElemwiseInputs(), op.getOut(), transposedC,
-        op.getOTransposedAttr(), op.getFeaturesAttr(),
-        op.getPaddingAttr(), op.getStridesAttr(), op.getDilationsAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
+        op.getOTransposedAttr(), op.getFeaturesAttr(), op.getPaddingAttr(),
+        op.getStridesAttr(), op.getDilationsAttr(), op.getParams0Attr(),
+        op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // set attributes
     newOp->setAttr("filter_layout", newFilterLayout);
