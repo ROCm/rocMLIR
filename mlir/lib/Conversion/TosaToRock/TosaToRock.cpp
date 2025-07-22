@@ -1307,10 +1307,10 @@ struct GemmElementwiseGemmRewritePattern
 
 struct SoftmaxMatcherValues {
   Value softmaxInput;
-  tosa::SubOp subOp;
+  Operation *subOp;
   Value exp;
-  tosa::ReduceMaxOp reduceMaxOp;
-  tosa::ReduceSumOp reduceSumOp;
+  Operation *reduceMaxOp;
+  Operation *reduceSumOp;
   bool hasReduceOp;
 };
 
@@ -1688,8 +1688,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
-  FailureOr<SoftmaxMatcherValues>
-  maybeSoftmaxNumerator(Value val, tosa::ReduceSumOp rsum) const {
+  FailureOr<SoftmaxMatcherValues> maybeSoftmaxNumerator(Value val,
+                                                        Operation *rsum) const {
     tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
     if (!exp)
       return failure();
@@ -1709,6 +1709,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       hasTosaReduce = true;
       result = rmax.getInput();
     } else {
+      // this case happens when we have seq_len=1. in that case reduction size
+      // would be one and both reduceMax and reduceSum would have been
+      // const-folded
       if (sub.getInput1() != sub.getInput2())
         return failure();
 
@@ -1729,7 +1732,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
       }
     } else {
-      result = maybeSoftmaxNumerator(val, nullptr);
+      result = maybeSoftmaxNumerator(val, val.getDefiningOp());
       if (succeeded(result) && result.value().hasReduceOp) {
         // if we don't see tosa::Reduce Op in the denominator then we expect to
         // not see any tosa::Reduce Op in the numerator as well
@@ -1836,21 +1839,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     Value softmaxInput = softmaxMatcherValues.softmaxInput;
     bool hasReduceOp = softmaxMatcherValues.hasReduceOp;
-    tosa::SubOp sub = softmaxMatcherValues.subOp;
-    tosa::ReduceMaxOp rmax = softmaxMatcherValues.reduceMaxOp;
-    tosa::ReduceSumOp rsum = softmaxMatcherValues.reduceSumOp;
-    Value lse;
-    if (rsum) {
-      lse = getLSE(rsum, rmax ? rmax : sub);
-      // lse has three or four dimensions
-      if (lse) {
-        auto type = cast<ShapedType>(lse.getType());
-        if (type.getRank() != 4 && type.getRank() != 3)
-          return failure();
-        // last dimension must be 1: {B, NUM_HEADS, SEQ_LEN_Q, 1}
-        if (type.getRank() == 4 && type.getDimSize(type.getRank() - 1) != 1)
-          return failure();
-      }
+    Operation *sub = softmaxMatcherValues.subOp;
+    Operation *rmax = softmaxMatcherValues.reduceMaxOp;
+    Operation *rsum = softmaxMatcherValues.reduceSumOp;
+    Value lse = getLSE(rsum, rmax ? rmax : sub);
+    // lse has three or four dimensions
+    if (lse) {
+      auto type = cast<ShapedType>(lse.getType());
+      if (type.getRank() != 4 && type.getRank() != 3)
+        return failure();
+      // last dimension must be 1: {B, NUM_HEADS, SEQ_LEN_Q, 1}
+      if (type.getRank() == 4 && type.getDimSize(type.getRank() - 1) != 1)
+        return failure();
     }
 
     // Note that non KV-Cache fusions might have tosa.select
