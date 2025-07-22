@@ -47,8 +47,7 @@ def MIGraphXTosaSimplifyPass : Pass<"migraphx-tosa-simplify", "func::FuncOp"> {
     This pass simplifies TOSA operations after converting migraphx ops to tosa, optimizing
     the representation of operations for better performance and clarity.
   }];
-  let dependentDialects = ["tosa::TosaDialect",
-                           "func::FuncDialect"];
+  let dependentDialects = ["tosa::TosaDialect", "func::FuncDialect"];
 }
 
 #endif // MLIR_DIALECT_MIGRAPHX_PASSES
