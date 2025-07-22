@@ -1597,490 +1597,485 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return nullptr;
   }
 
-    FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
-      auto select =
-          getDefiningNonReshapeOpNonCastOp<tosa::SelectOp>(softmaxInput);
-      if (select) {
-        // Check onTrue is -inf
-        auto onTrue = select.getInput2();
-        bool isConsNegInf = false;
-        if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
-          isConsNegInf = isConstIsNegInf(constOp.getResult());
-        else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
-          isConsNegInf = isConstIsNegInf(constOp.getResult());
+  FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
+    auto select =
+        getDefiningNonReshapeOpNonCastOp<tosa::SelectOp>(softmaxInput);
+    if (select) {
+      // Check onTrue is -inf
+      auto onTrue = select.getInput2();
+      bool isConsNegInf = false;
+      if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
+        isConsNegInf = isConstIsNegInf(constOp.getResult());
+      else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
+        isConsNegInf = isConstIsNegInf(constOp.getResult());
 
-        if (!isConsNegInf)
+      if (!isConsNegInf)
+        return failure();
+
+      auto pred = select.getInput1();
+      if (auto greater =
+              getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
+        // input1 is a constant with a range from 0 to maxSeqLen
+        if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();
 
-        auto pred = select.getInput1();
-        if (auto greater =
-                getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
-          // input1 is a constant with a range from 0 to maxSeqLen
-          if (failed(getConstComparison(greater.getInput1(), 0)))
+        // input2 comes from argument: currentSeqLen
+        auto input2 = greater.getInput2();
+        FailureOr<Value> maybeNonZero2 = addBroadcast(input2);
+        if (failed(maybeNonZero2))
+          return failure();
+
+        // check that the right dimensions are broadcasted
+        auto beforeBroadcastShape =
+            dyn_cast<ShapedType>(maybeNonZero2->getType());
+        if (beforeBroadcastShape) {
+          auto shape = beforeBroadcastShape.getShape();
+          if (beforeBroadcastShape.getRank() > 2 &&
+              !llvm::all_of(shape.slice(2), [](int32_t v) { return v == 1; }))
             return failure();
-
-          // input2 comes from argument: currentSeqLen
-          auto input2 = greater.getInput2();
-          FailureOr<Value> maybeNonZero2 = addBroadcast(input2);
-          if (failed(maybeNonZero2))
-            return failure();
-
-          // check that the right dimensions are broadcasted
-          auto beforeBroadcastShape =
-              dyn_cast<ShapedType>(maybeNonZero2->getType());
-          if (beforeBroadcastShape) {
-            auto shape = beforeBroadcastShape.getShape();
-            if (beforeBroadcastShape.getRank() > 2 &&
-                !llvm::all_of(shape.slice(2), [](int32_t v) { return v == 1; }))
-              return failure();
-          } else {
-            return failure();
-          }
-
-          Value currentSeqLen = getValueNonReshapeOp(maybeNonZero2.value());
-          Value result = select.getInput3();
-
-          // currentSeqLen must be of i32 type
-          auto currentSeqLenShape =
-              dyn_cast<ShapedType>(currentSeqLen.getType());
-          if (!currentSeqLenShape ||
-              !currentSeqLenShape.getElementType().isInteger(32))
-            return failure();
-
-          // we'll check now if currentSeqLen comes from a block argument
-          FailureOr<Value> mustBeBlockArg =
-              getValueNonReshapeOpNonBroadcastNonTranspose(currentSeqLen);
-
-          if (failed(mustBeBlockArg) ||
-              !isa<BlockArgument>(mustBeBlockArg.value()))
-            return failure();
-
-          return std::make_pair(result, currentSeqLen);
+        } else {
+          return failure();
         }
+
+        Value currentSeqLen = getValueNonReshapeOp(maybeNonZero2.value());
+        Value result = select.getInput3();
+
+        // currentSeqLen must be of i32 type
+        auto currentSeqLenShape = dyn_cast<ShapedType>(currentSeqLen.getType());
+        if (!currentSeqLenShape ||
+            !currentSeqLenShape.getElementType().isInteger(32))
+          return failure();
+
+        // we'll check now if currentSeqLen comes from a block argument
+        FailureOr<Value> mustBeBlockArg =
+            getValueNonReshapeOpNonBroadcastNonTranspose(currentSeqLen);
+
+        if (failed(mustBeBlockArg) ||
+            !isa<BlockArgument>(mustBeBlockArg.value()))
+          return failure();
+
+        return std::make_pair(result, currentSeqLen);
       }
-      return failure();
     }
+    return failure();
+  }
 
-    /*
-    return true if there is path from `fromVal` to `toVal`
-    */
-    bool areConnected(Value fromVal, Value toVal,
-                      llvm::SmallDenseMap<Value, bool> &pathMap) const {
-      if (fromVal == toVal) {
-        pathMap[fromVal] = true;
-      }
-      if (pathMap.contains(fromVal))
-        return pathMap[fromVal];
-      pathMap[fromVal] = false;
-      for (Operation *user : fromVal.getUsers()) {
-        for (Value userResultVal : user->getResults()) {
-          if (areConnected(userResultVal, toVal, pathMap))
-            pathMap[fromVal] = true;
-        }
-      }
+  /*
+  return true if there is path from `fromVal` to `toVal`
+  */
+  bool areConnected(Value fromVal, Value toVal,
+                    llvm::SmallDenseMap<Value, bool> &pathMap) const {
+    if (fromVal == toVal) {
+      pathMap[fromVal] = true;
+    }
+    if (pathMap.contains(fromVal))
       return pathMap[fromVal];
-    }
-
-    /*
-    if softmax happens in a different datatype/precision compared to the first
-    gemm output, then first gemm output type would have a cast operation that
-    converts input to softmax data type. This function traces from first gemm
-    output to cast operation and then traces path from cast to softmax input.
-    Later during `match()` types of the casts on both softmax input and outputs
-    are compared to ensure that cast op is indeed to change type of the softmax
-    and it is not part of the fusion.
-    */
-    FailureOr<Type> getSoftmaxType(Value firstGemmOutput,
-                                   Value softmaxInput) const {
-      llvm::SmallDenseSet<Operation *> visited;
-      llvm::SmallVector<Operation *> worklist = {
-          firstGemmOutput.getUsers().begin(), firstGemmOutput.getUsers().end()};
-      Type softmaxInputType =
-          cast<ShapedType>(softmaxInput.getType()).getElementType();
-      while (!worklist.empty()) {
-        Operation *user = worklist.pop_back_val();
-        if (visited.contains(user))
-          continue;
-        visited.insert(user);
-        if (isa<tosa::CastOp>(user)) {
-          // trace cast op to softmax input
-          llvm::SmallDenseMap<Value, bool> pathMap;
-          Value castOutput = user->getResult(0);
-          Type castOutputType =
-              cast<ShapedType>(castOutput.getType()).getElementType();
-          if (areConnected(castOutput, softmaxInput, pathMap) &&
-              castOutputType == softmaxInputType) {
-            return castOutputType;
-          }
-        }
-        worklist.insert(worklist.end(), user->getUsers().begin(),
-                        user->getUsers().end());
+    pathMap[fromVal] = false;
+    for (Operation *user : fromVal.getUsers()) {
+      for (Value userResultVal : user->getResults()) {
+        if (areConnected(userResultVal, toVal, pathMap))
+          pathMap[fromVal] = true;
       }
+    }
+    return pathMap[fromVal];
+  }
+
+  /*
+  if softmax happens in a different datatype/precision compared to the first
+  gemm output, then first gemm output type would have a cast operation that
+  converts input to softmax data type. This function traces from first gemm
+  output to cast operation and then traces path from cast to softmax input.
+  Later during `match()` types of the casts on both softmax input and outputs
+  are compared to ensure that cast op is indeed to change type of the softmax
+  and it is not part of the fusion.
+  */
+  FailureOr<Type> getSoftmaxType(Value firstGemmOutput,
+                                 Value softmaxInput) const {
+    llvm::SmallDenseSet<Operation *> visited;
+    llvm::SmallVector<Operation *> worklist = {
+        firstGemmOutput.getUsers().begin(), firstGemmOutput.getUsers().end()};
+    Type softmaxInputType =
+        cast<ShapedType>(softmaxInput.getType()).getElementType();
+    while (!worklist.empty()) {
+      Operation *user = worklist.pop_back_val();
+      if (visited.contains(user))
+        continue;
+      visited.insert(user);
+      if (isa<tosa::CastOp>(user)) {
+        // trace cast op to softmax input
+        llvm::SmallDenseMap<Value, bool> pathMap;
+        Value castOutput = user->getResult(0);
+        Type castOutputType =
+            cast<ShapedType>(castOutput.getType()).getElementType();
+        if (areConnected(castOutput, softmaxInput, pathMap) &&
+            castOutputType == softmaxInputType) {
+          return castOutputType;
+        }
+      }
+      worklist.insert(worklist.end(), user->getUsers().begin(),
+                      user->getUsers().end());
+    }
+    return failure();
+  }
+
+  FailureOr<SoftmaxMatcherValues> maybeSoftmaxNumerator(Value val,
+                                                        Operation *rsum) const {
+    tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
+    if (!exp)
       return failure();
-    }
 
-    FailureOr<SoftmaxMatcherValues>
-    maybeSoftmaxNumerator(Value val, Operation *rsum) const {
-      tosa::ExpOp exp = getDefiningNonReshapeOp<tosa::ExpOp>(val);
-      if (!exp)
-        return failure();
-
-      tosa::SubOp sub = getDefiningNonReshapeOp<tosa::SubOp>(exp.getInput1());
-      if (!sub)
-        return failure();
-
-      bool hasTosaReduce = false;
-      Value result;
-      tosa::ReduceMaxOp rmax =
-          getDefiningNonReshapeOpNonBroadcast<tosa::ReduceMaxOp>(
-              sub.getInput2());
-      if (rmax) {
-        if (rmax.getInput() != sub.getInput1())
-          return failure();
-
-        hasTosaReduce = true;
-        result = rmax.getInput();
-      } else {
-        // this case happens when we have seq_len=1. in that case reduction size
-        // would be one and both reduceMax and reduceSum would have been
-        // const-folded
-        if (sub.getInput1() != sub.getInput2())
-          return failure();
-
-        hasTosaReduce = false;
-        result = sub.getInput1();
-      }
-      return SoftmaxMatcherValues{result, sub, exp, rmax, rsum, hasTosaReduce};
-    }
-
-    FailureOr<SoftmaxMatcherValues> maybeSoftmaxDenominator(Value val) const {
-      FailureOr<SoftmaxMatcherValues> result;
-      auto rsum = getDefiningNonReshapeOpNonBroadcast<tosa::ReduceSumOp>(val);
-      if (rsum) {
-        result = maybeSoftmaxNumerator(rsum.getInput(), rsum);
-        if (succeeded(result) && !result.value().hasReduceOp) {
-          // if we see tosa::Reduce Op in the denominator then we expect to see
-          // tosa::Reduce Op in the numerator as well
-          return failure();
-        }
-      } else {
-        result = maybeSoftmaxNumerator(val, val.getDefiningOp());
-        if (succeeded(result) && result.value().hasReduceOp) {
-          // if we don't see tosa::Reduce Op in the denominator then we expect
-          // to not see any tosa::Reduce Op in the numerator as well
-          return failure();
-        }
-      }
-      return result;
-    }
-
-    FailureOr<SoftmaxMatcherValues> maybeSoftmax(Value val) const {
-      auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
-      if (!mul)
-        return failure();
-      if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
-              mul.getInput1())) {
-        return maybeSoftmaxDenominator(rec.getInput1());
-      }
-      if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
-              mul.getInput2())) {
-        return maybeSoftmaxDenominator(rec.getInput1());
-      }
+    tosa::SubOp sub = getDefiningNonReshapeOp<tosa::SubOp>(exp.getInput1());
+    if (!sub)
       return failure();
+
+    bool hasTosaReduce = false;
+    Value result;
+    tosa::ReduceMaxOp rmax =
+        getDefiningNonReshapeOpNonBroadcast<tosa::ReduceMaxOp>(sub.getInput2());
+    if (rmax) {
+      if (rmax.getInput() != sub.getInput1())
+        return failure();
+
+      hasTosaReduce = true;
+      result = rmax.getInput();
+    } else {
+      // this case happens when we have seq_len=1. in that case reduction size
+      // would be one and both reduceMax and reduceSum would have been
+      // const-folded
+      if (sub.getInput1() != sub.getInput2())
+        return failure();
+
+      hasTosaReduce = false;
+      result = sub.getInput1();
+    }
+    return SoftmaxMatcherValues{result, sub, exp, rmax, rsum, hasTosaReduce};
+  }
+
+  FailureOr<SoftmaxMatcherValues> maybeSoftmaxDenominator(Value val) const {
+    FailureOr<SoftmaxMatcherValues> result;
+    auto rsum = getDefiningNonReshapeOpNonBroadcast<tosa::ReduceSumOp>(val);
+    if (rsum) {
+      result = maybeSoftmaxNumerator(rsum.getInput(), rsum);
+      if (succeeded(result) && !result.value().hasReduceOp) {
+        // if we see tosa::Reduce Op in the denominator then we expect to see
+        // tosa::Reduce Op in the numerator as well
+        return failure();
+      }
+    } else {
+      result = maybeSoftmaxNumerator(val, val.getDefiningOp());
+      if (succeeded(result) && result.value().hasReduceOp) {
+        // if we don't see tosa::Reduce Op in the denominator then we expect
+        // to not see any tosa::Reduce Op in the numerator as well
+        return failure();
+      }
+    }
+    return result;
+  }
+
+  FailureOr<SoftmaxMatcherValues> maybeSoftmax(Value val) const {
+    auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val);
+    if (!mul)
+      return failure();
+    if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
+            mul.getInput1())) {
+      return maybeSoftmaxDenominator(rec.getInput1());
+    }
+    if (auto rec = getDefiningNonReshapeOpNonBroadcast<tosa::ReciprocalOp>(
+            mul.getInput2())) {
+      return maybeSoftmaxDenominator(rec.getInput1());
+    }
+    return failure();
+  }
+
+  Value normalizeInputTensor(PatternRewriter &rewriter, Location loc,
+                             TypedValue<TensorType> inputTensor) const {
+    if (!inputTensor) {
+      return inputTensor;
+    }
+    ArrayRef<int64_t> shape = inputTensor.getType().getShape();
+    SmallVector<int64_t, 4> reverseInputShape =
+        llvm::to_vector<4>(llvm::reverse(shape));
+    SmallVector<int64_t, 4> normalizedShape;
+    int collapsedBatchLen = 1;
+    for (int64_t dimLen : ArrayRef<int64_t>{reverseInputShape}.slice(2)) {
+      collapsedBatchLen *= dimLen;
+    }
+    normalizedShape.push_back(collapsedBatchLen);
+    normalizedShape.push_back(reverseInputShape[1]);
+    normalizedShape.push_back(reverseInputShape[0]);
+    auto normalizedType = RankedTensorType::get(
+        normalizedShape, inputTensor.getType().getElementType());
+    auto normalizedShapeValue =
+        tosa::getTosaConstShape(rewriter, loc, normalizedShape);
+    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
+        loc, normalizedType, inputTensor, normalizedShapeValue);
+    return reshapeOp;
+  }
+
+  void moveUsersAfterExpandShape(PatternRewriter &rewriter, Location loc,
+                                 Operation *expandedOutLse,
+                                 tosa::AddOp addOp) const {
+    llvm::SmallVector<Operation *> toMove;
+    llvm::SmallDenseSet<Operation *> visited;
+    llvm::SmallVector<Operation *> worklist;
+
+    // Seed the worklist with direct users
+    for (Operation *user : addOp->getUsers()) {
+      if (!isa<func::ReturnOp>(user))
+        worklist.push_back(user);
     }
 
-    Value normalizeInputTensor(PatternRewriter &rewriter, Location loc,
-                               TypedValue<TensorType> inputTensor) const {
-      if (!inputTensor) {
-        return inputTensor;
-      }
-      ArrayRef<int64_t> shape = inputTensor.getType().getShape();
-      SmallVector<int64_t, 4> reverseInputShape =
-          llvm::to_vector<4>(llvm::reverse(shape));
-      SmallVector<int64_t, 4> normalizedShape;
-      int collapsedBatchLen = 1;
-      for (int64_t dimLen : ArrayRef<int64_t>{reverseInputShape}.slice(2)) {
-        collapsedBatchLen *= dimLen;
-      }
-      normalizedShape.push_back(collapsedBatchLen);
-      normalizedShape.push_back(reverseInputShape[1]);
-      normalizedShape.push_back(reverseInputShape[0]);
-      auto normalizedType = RankedTensorType::get(
-          normalizedShape, inputTensor.getType().getElementType());
-      auto normalizedShapeValue =
-          tosa::getTosaConstShape(rewriter, loc, normalizedShape);
-      auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
-          loc, normalizedType, inputTensor, normalizedShapeValue);
-      return reshapeOp;
-    }
-
-    void moveUsersAfterExpandShape(PatternRewriter &rewriter, Location loc,
-                                   Operation *expandedOutLse,
-                                   tosa::AddOp addOp) const {
-      llvm::SmallVector<Operation *> toMove;
-      llvm::SmallDenseSet<Operation *> visited;
-      llvm::SmallVector<Operation *> worklist;
-
-      // Seed the worklist with direct users
-      for (Operation *user : addOp->getUsers()) {
+    // Collect all transitive users (BFS)
+    while (!worklist.empty()) {
+      Operation *op = worklist.pop_back_val();
+      if (!visited.insert(op).second)
+        continue;
+      toMove.push_back(op);
+      for (Operation *user : op->getUsers()) {
         if (!isa<func::ReturnOp>(user))
           worklist.push_back(user);
       }
+    }
+    // Sort by IR order
+    llvm::sort(toMove, [](Operation *a, Operation *b) {
+      return a->isBeforeInBlock(b);
+    });
 
-      // Collect all transitive users (BFS)
-      while (!worklist.empty()) {
-        Operation *op = worklist.pop_back_val();
-        if (!visited.insert(op).second)
-          continue;
-        toMove.push_back(op);
-        for (Operation *user : op->getUsers()) {
-          if (!isa<func::ReturnOp>(user))
-            worklist.push_back(user);
-        }
-      }
-      // Sort by IR order
-      llvm::sort(toMove, [](Operation *a, Operation *b) {
-        return a->isBeforeInBlock(b);
-      });
+    // Move in reverse order to preserve dependencies
+    for (Operation *op : llvm::reverse(toMove))
+      op->moveAfter(expandedOutLse);
+  }
 
-      // Move in reverse order to preserve dependencies
-      for (Operation *op : llvm::reverse(toMove))
-        op->moveAfter(expandedOutLse);
+  FailureOr<AttentionMatcherValues> match(tosa::MatMulOp op) const {
+    Value softmaxOutput = op.getA();
+
+    // check if the softmax is done in different precision compared to GEMMs
+    Type softmaxType =
+        cast<ShapedType>(softmaxOutput.getType()).getElementType();
+    auto softmaxOutputCastOp =
+        getDefiningNonReshapeOp<tosa::CastOp>(softmaxOutput);
+    if (softmaxOutputCastOp) {
+      softmaxOutput = softmaxOutputCastOp.getInput();
+      softmaxType = cast<ShapedType>(softmaxOutput.getType()).getElementType();
     }
 
-    FailureOr<AttentionMatcherValues> match(tosa::MatMulOp op) const {
-      Value softmaxOutput = op.getA();
+    // pattern match for softmax operation
+    FailureOr<SoftmaxMatcherValues> softmaxMatcherResults =
+        maybeSoftmax(softmaxOutput);
 
-      // check if the softmax is done in different precision compared to GEMMs
-      Type softmaxType =
-          cast<ShapedType>(softmaxOutput.getType()).getElementType();
-      auto softmaxOutputCastOp =
-          getDefiningNonReshapeOp<tosa::CastOp>(softmaxOutput);
-      if (softmaxOutputCastOp) {
-        softmaxOutput = softmaxOutputCastOp.getInput();
-        softmaxType =
-            cast<ShapedType>(softmaxOutput.getType()).getElementType();
-      }
+    if (failed(softmaxMatcherResults))
+      return failure();
+    SoftmaxMatcherValues softmaxMatcherValues = softmaxMatcherResults.value();
 
-      // pattern match for softmax operation
-      FailureOr<SoftmaxMatcherValues> softmaxMatcherResults =
-          maybeSoftmax(softmaxOutput);
-
-      if (failed(softmaxMatcherResults))
+    Value softmaxInput = softmaxMatcherValues.softmaxInput;
+    bool hasReduceOp = softmaxMatcherValues.hasReduceOp;
+    Operation *sub = softmaxMatcherValues.subOp;
+    Operation *rmax = softmaxMatcherValues.reduceMaxOp;
+    Operation *rsum = softmaxMatcherValues.reduceSumOp;
+    Value lse;
+    if (hasReduceOp) {
+      lse = getLSE(rsum, rmax);
+    } else {
+      // if there is no reduce op, then we have seq_len=1 and lse is just
+      // sub(x, x) + x
+      lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
+    }
+    // lse has three or four dimensions
+    if (lse) {
+      auto type = cast<ShapedType>(lse.getType());
+      if (type.getRank() != 4 && type.getRank() != 3)
         return failure();
-      SoftmaxMatcherValues softmaxMatcherValues = softmaxMatcherResults.value();
-
-      Value softmaxInput = softmaxMatcherValues.softmaxInput;
-      bool hasReduceOp = softmaxMatcherValues.hasReduceOp;
-      Operation *sub = softmaxMatcherValues.subOp;
-      Operation *rmax = softmaxMatcherValues.reduceMaxOp;
-      Operation *rsum = softmaxMatcherValues.reduceSumOp;
-      Value lse;
-      if (hasReduceOp) {
-        lse = getLSE(rsum, rmax);
-      } else {
-        // if there is no reduce op, then we have seq_len=1 and lse is just
-        // sub(x, x) + x
-        lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
-      }
-      // lse has three or four dimensions
-      if (lse) {
-        auto type = cast<ShapedType>(lse.getType());
-        if (type.getRank() != 4 && type.getRank() != 3)
-          return failure();
-        // last dimension must be 1: {B, NUM_HEADS, SEQ_LEN_Q, 1}
-        if (type.getRank() == 4 && type.getDimSize(type.getRank() - 1) != 1)
-          return failure();
-      }
-
-      // Note that non KV-Cache fusions might have tosa.select
-      // so, if the checks for kv-cache fail, we just keep going
-      Value kvCacheInput, currentSeqLen;
-      auto maybeKVCache = getKVCache(softmaxInput);
-      if (succeeded(maybeKVCache))
-        std::tie(kvCacheInput, currentSeqLen) = maybeKVCache.value();
-      else
-        kvCacheInput = softmaxInput;
-
-      // currentSeqLen needs one or two dimensions
-      if (currentSeqLen &&
-          cast<ShapedType>(currentSeqLen.getType()).getRank() > 2)
+      // last dimension must be 1: {B, NUM_HEADS, SEQ_LEN_Q, 1}
+      if (type.getRank() == 4 && type.getDimSize(type.getRank() - 1) != 1)
         return failure();
-
-      auto causal = getCausal(kvCacheInput);
-      bool isCausal = succeeded(causal);
-      Value causalMaskInput = isCausal ? causal.value() : kvCacheInput;
-
-      OpBuilder b{op};
-      SmallVector<Value> elementwiseOtherArgs;
-      FailureOr<tosa::MatMulOp> maybeFirstMatMul;
-      std::tie(std::ignore, maybeFirstMatMul) =
-          getElementwiseRegion<tosa::MatMulOp>(causalMaskInput, b, nullptr,
-                                               elementwiseOtherArgs);
-      if (failed(maybeFirstMatMul)) {
-        LLVM_DEBUG(llvm::dbgs() << "first matmul not found\n");
-        return failure();
-      }
-
-      TypedValue<TensorType> matC = maybeFirstMatMul.value().getOutput();
-      ArrayRef<int64_t> shapeC = matC.getType().getShape();
-      bool isDotProduct = *(std::prev(shapeC.end(), 1)) == 1;
-      isDotProduct &= *(std::prev(shapeC.end(), 2)) == 1;
-
-      LLVM_DEBUG(llvm::dbgs()
-                 << "first matmul = " << maybeFirstMatMul.value() << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
-      if (isDotProduct && hasReduceOp)
-        return failure();
-      if (!isDotProduct && !hasReduceOp)
-        return failure();
-
-      // if softmax is done in different precision than GEMMs then there must be
-      // cast operation on one of the uses of first GEMM
-      if (softmaxOutputCastOp) {
-        FailureOr<Type> softmaxInputCast = getSoftmaxType(matC, softmaxInput);
-        if (failed(softmaxInputCast)) {
-          LLVM_DEBUG(llvm::dbgs() << "softmax input cast not found\n");
-          return failure();
-        }
-        if (softmaxInputCast.value() != softmaxType) {
-          LLVM_DEBUG(
-              llvm::dbgs()
-              << "softmax type on input cast and output cast does not match\n");
-          return failure();
-        }
-      }
-
-      // populate struct to aggregate attention matcher values and pass it to
-      // rewriter
-      AttentionMatcherValues attentionMatcherValues;
-      attentionMatcherValues.isCausal = isCausal;
-      attentionMatcherValues.softmaxType = softmaxType;
-      attentionMatcherValues.softmaxValues = softmaxMatcherValues;
-      attentionMatcherValues.lse = lse;
-      attentionMatcherValues.causalMaskInput = causalMaskInput;
-      attentionMatcherValues.currentSeqLen = currentSeqLen;
-      attentionMatcherValues.firstMatmulOp = maybeFirstMatMul.value();
-      attentionMatcherValues.elementwiseOtherArgs = elementwiseOtherArgs;
-      return attentionMatcherValues;
     }
 
-    void rewrite(tosa::MatMulOp op,
-                 const AttentionMatcherValues &attentionMatcherValues,
-                 PatternRewriter &rewriter) const {
-      Location loc = op.getLoc();
-      auto outputType = cast<RankedTensorType>(op.getType());
-      Value output = rewriter.create<bufferization::AllocTensorOp>(
-          loc, outputType, ValueRange{});
-      RankedTensorType lseType;
-      Value lse = attentionMatcherValues.lse;
-      Value lseOut, lseOrig;
-      SmallVector<ReassociationIndices> reassocIndicesLSE = {{0, 1}, {2, 3}};
-      if (lse) {
-        // {{0, 1}, {2, 3}} for 4D tensor, {{0}, {1, 2}} for 3D tensor
-        if (cast<ShapedType>(lse.getType()).getRank() == 3)
-          reassocIndicesLSE = {{0}, {1, 2}};
+    // Note that non KV-Cache fusions might have tosa.select
+    // so, if the checks for kv-cache fail, we just keep going
+    Value kvCacheInput, currentSeqLen;
+    auto maybeKVCache = getKVCache(softmaxInput);
+    if (succeeded(maybeKVCache))
+      std::tie(kvCacheInput, currentSeqLen) = maybeKVCache.value();
+    else
+      kvCacheInput = softmaxInput;
 
-        // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
-        lseOrig = lse;
-        lse = rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), lse,
-                                                       reassocIndicesLSE);
+    // currentSeqLen needs one or two dimensions
+    if (currentSeqLen &&
+        cast<ShapedType>(currentSeqLen.getType()).getRank() > 2)
+      return failure();
 
-        lseType = cast<RankedTensorType>(lse.getType());
-        lseOut = rewriter.create<bufferization::AllocTensorOp>(loc, lseType,
-                                                               ValueRange{});
+    auto causal = getCausal(kvCacheInput);
+    bool isCausal = succeeded(causal);
+    Value causalMaskInput = isCausal ? causal.value() : kvCacheInput;
+
+    OpBuilder b{op};
+    SmallVector<Value> elementwiseOtherArgs;
+    FailureOr<tosa::MatMulOp> maybeFirstMatMul;
+    std::tie(std::ignore, maybeFirstMatMul) =
+        getElementwiseRegion<tosa::MatMulOp>(causalMaskInput, b, nullptr,
+                                             elementwiseOtherArgs);
+    if (failed(maybeFirstMatMul)) {
+      LLVM_DEBUG(llvm::dbgs() << "first matmul not found\n");
+      return failure();
+    }
+
+    TypedValue<TensorType> matC = maybeFirstMatMul.value().getOutput();
+    ArrayRef<int64_t> shapeC = matC.getType().getShape();
+    bool isDotProduct = *(std::prev(shapeC.end(), 1)) == 1;
+    isDotProduct &= *(std::prev(shapeC.end(), 2)) == 1;
+
+    LLVM_DEBUG(llvm::dbgs()
+               << "first matmul = " << maybeFirstMatMul.value() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
+    if (isDotProduct && hasReduceOp)
+      return failure();
+    if (!isDotProduct && !hasReduceOp)
+      return failure();
+
+    // if softmax is done in different precision than GEMMs then there must be
+    // cast operation on one of the uses of first GEMM
+    if (softmaxOutputCastOp) {
+      FailureOr<Type> softmaxInputCast = getSoftmaxType(matC, softmaxInput);
+      if (failed(softmaxInputCast)) {
+        LLVM_DEBUG(llvm::dbgs() << "softmax input cast not found\n");
+        return failure();
       }
-      StringAttr arch;
-      std::optional<uint32_t> numCu;
-      rock::GemmFeatures features;
-      std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
-      SmallVector<Value> elementwiseOtherArgs =
-          attentionMatcherValues.elementwiseOtherArgs;
-      // causalMaskInput would be equal to kvCacheInput if there is no causal
-      // mask and kvCacheInput would be same as softmaxInput if there is no
-      // kv-cache. see match() for details
-      Value causalMaskInput = attentionMatcherValues.causalMaskInput;
-      tosa::MatMulOp firstMatMulOp = attentionMatcherValues.firstMatmulOp;
-      Value currentSeqLen = attentionMatcherValues.currentSeqLen;
-      bool isCausal = attentionMatcherValues.isCausal;
-      TypeAttr softmaxTypeAttr =
-          TypeAttr::get(attentionMatcherValues.softmaxType);
-      IntegerAttr numCUAttr = numCu.has_value()
-                                  ? rewriter.getI32IntegerAttr(numCu.value())
-                                  : nullptr;
-
-      // Reshape currentSeqLen {batch, numHeads} -> {batch * numHeads}
-      if (currentSeqLen &&
-          cast<ShapedType>(currentSeqLen.getType()).getRank() == 2) {
-        SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
-        currentSeqLen = rewriter.create<tensor::CollapseShapeOp>(
-            op.getLoc(), currentSeqLen, reassocIndices);
-      }
-      UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
-      rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
-          loc, outputType, lseType, firstMatMulOp.getA(), firstMatMulOp.getB(),
-          op.getB(), elementwiseOtherArgs, currentSeqLen, output, lseOut,
-          /*qTransposed=*/nullptr,
-          /*kTransposed=*/nullptr,
-          /*vTransposed=*/nullptr,
-          /*oTransposed=*/nullptr, causalAttr, arch,
-          rewriter.getAttr<rock::GemmFeaturesAttr>(features), softmaxTypeAttr,
-          numCUAttr,
-          /*params0=*/nullptr, /*params1=*/nullptr,
-          /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
-
-      Block *preSoftmaxElemwiseBlock =
-          &attnOp.getPreSoftmaxBody().emplaceBlock();
-      {
-        PatternRewriter::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
-        Value res;
-        std::tie(res, std::ignore) = getElementwiseRegion<tosa::MatMulOp>(
-            causalMaskInput, rewriter, preSoftmaxElemwiseBlock,
-            elementwiseOtherArgs, loc, true);
-        RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
-        MemRefType resMemRefType = MemRefType::get(
-            resTensorType.getShape(), resTensorType.getElementType());
-        Value resMemref = rewriter.create<bufferization::ToBufferOp>(
-            loc, cast<bufferization::BufferLikeType>(resMemRefType), res);
-        Value outMemref =
-            preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
-        rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
-        rewriter.create<rock::YieldOp>(loc);
-      }
-      tosa::AddOp addOp;
-      Value expandedOutLse;
-      if (lse) {
-        // Reverse the collapse operation
-        expandedOutLse = rewriter.create<tensor::ExpandShapeOp>(
-            op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
-            reassocIndicesLSE);
-
-        // collecting AddOp before the first replace
-        addOp = lseOrig.getDefiningOp<tosa::AddOp>();
-
-        // all users have to be moved after the expand shape
-        moveUsersAfterExpandShape(rewriter, op.getLoc(),
-                                  expandedOutLse.getDefiningOp(), addOp);
-      }
-      rewriter.replaceOp(op, attnOp->getResult(0));
-      if (lse) {
-        rewriter.replaceOp(addOp, expandedOutLse);
+      if (softmaxInputCast.value() != softmaxType) {
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << "softmax type on input cast and output cast does not match\n");
+        return failure();
       }
     }
 
-    LogicalResult matchAndRewrite(tosa::MatMulOp op,
-                                  PatternRewriter &rewriter) const override {
-      FailureOr<AttentionMatcherValues> attentionMatcherResult = match(op);
-      if (failed(attentionMatcherResult)) {
-        return failure();
-      }
-      AttentionMatcherValues attentionMatcherValues =
-          attentionMatcherResult.value();
-      rewrite(op, attentionMatcherValues, rewriter);
-      return success();
+    // populate struct to aggregate attention matcher values and pass it to
+    // rewriter
+    AttentionMatcherValues attentionMatcherValues;
+    attentionMatcherValues.isCausal = isCausal;
+    attentionMatcherValues.softmaxType = softmaxType;
+    attentionMatcherValues.softmaxValues = softmaxMatcherValues;
+    attentionMatcherValues.lse = lse;
+    attentionMatcherValues.causalMaskInput = causalMaskInput;
+    attentionMatcherValues.currentSeqLen = currentSeqLen;
+    attentionMatcherValues.firstMatmulOp = maybeFirstMatMul.value();
+    attentionMatcherValues.elementwiseOtherArgs = elementwiseOtherArgs;
+    return attentionMatcherValues;
+  }
+
+  void rewrite(tosa::MatMulOp op,
+               const AttentionMatcherValues &attentionMatcherValues,
+               PatternRewriter &rewriter) const {
+    Location loc = op.getLoc();
+    auto outputType = cast<RankedTensorType>(op.getType());
+    Value output = rewriter.create<bufferization::AllocTensorOp>(
+        loc, outputType, ValueRange{});
+    RankedTensorType lseType;
+    Value lse = attentionMatcherValues.lse;
+    Value lseOut, lseOrig;
+    SmallVector<ReassociationIndices> reassocIndicesLSE = {{0, 1}, {2, 3}};
+    if (lse) {
+      // {{0, 1}, {2, 3}} for 4D tensor, {{0}, {1, 2}} for 3D tensor
+      if (cast<ShapedType>(lse.getType()).getRank() == 3)
+        reassocIndicesLSE = {{0}, {1, 2}};
+
+      // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
+      lseOrig = lse;
+      lse = rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), lse,
+                                                     reassocIndicesLSE);
+
+      lseType = cast<RankedTensorType>(lse.getType());
+      lseOut = rewriter.create<bufferization::AllocTensorOp>(loc, lseType,
+                                                             ValueRange{});
     }
+    StringAttr arch;
+    std::optional<uint32_t> numCu;
+    rock::GemmFeatures features;
+    std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
+    SmallVector<Value> elementwiseOtherArgs =
+        attentionMatcherValues.elementwiseOtherArgs;
+    // causalMaskInput would be equal to kvCacheInput if there is no causal
+    // mask and kvCacheInput would be same as softmaxInput if there is no
+    // kv-cache. see match() for details
+    Value causalMaskInput = attentionMatcherValues.causalMaskInput;
+    tosa::MatMulOp firstMatMulOp = attentionMatcherValues.firstMatmulOp;
+    Value currentSeqLen = attentionMatcherValues.currentSeqLen;
+    bool isCausal = attentionMatcherValues.isCausal;
+    TypeAttr softmaxTypeAttr =
+        TypeAttr::get(attentionMatcherValues.softmaxType);
+    IntegerAttr numCUAttr =
+        numCu.has_value() ? rewriter.getI32IntegerAttr(numCu.value()) : nullptr;
+
+    // Reshape currentSeqLen {batch, numHeads} -> {batch * numHeads}
+    if (currentSeqLen &&
+        cast<ShapedType>(currentSeqLen.getType()).getRank() == 2) {
+      SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
+      currentSeqLen = rewriter.create<tensor::CollapseShapeOp>(
+          op.getLoc(), currentSeqLen, reassocIndices);
+    }
+    UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
+    rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
+        loc, outputType, lseType, firstMatMulOp.getA(), firstMatMulOp.getB(),
+        op.getB(), elementwiseOtherArgs, currentSeqLen, output, lseOut,
+        /*qTransposed=*/nullptr,
+        /*kTransposed=*/nullptr,
+        /*vTransposed=*/nullptr,
+        /*oTransposed=*/nullptr, causalAttr, arch,
+        rewriter.getAttr<rock::GemmFeaturesAttr>(features), softmaxTypeAttr,
+        numCUAttr,
+        /*params0=*/nullptr, /*params1=*/nullptr,
+        /*firstGemmIdx=*/rewriter.getI32IntegerAttr(0));
+
+    Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
+    {
+      PatternRewriter::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
+      Value res;
+      std::tie(res, std::ignore) = getElementwiseRegion<tosa::MatMulOp>(
+          causalMaskInput, rewriter, preSoftmaxElemwiseBlock,
+          elementwiseOtherArgs, loc, true);
+      RankedTensorType resTensorType = cast<RankedTensorType>(res.getType());
+      MemRefType resMemRefType = MemRefType::get(
+          resTensorType.getShape(), resTensorType.getElementType());
+      Value resMemref = rewriter.create<bufferization::ToBufferOp>(
+          loc, cast<bufferization::BufferLikeType>(resMemRefType), res);
+      Value outMemref =
+          preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
+      rewriter.create<memref::CopyOp>(loc, resMemref, outMemref);
+      rewriter.create<rock::YieldOp>(loc);
+    }
+    tosa::AddOp addOp;
+    Value expandedOutLse;
+    if (lse) {
+      // Reverse the collapse operation
+      expandedOutLse = rewriter.create<tensor::ExpandShapeOp>(
+          op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
+          reassocIndicesLSE);
+
+      // collecting AddOp before the first replace
+      addOp = lseOrig.getDefiningOp<tosa::AddOp>();
+
+      // all users have to be moved after the expand shape
+      moveUsersAfterExpandShape(rewriter, op.getLoc(),
+                                expandedOutLse.getDefiningOp(), addOp);
+    }
+    rewriter.replaceOp(op, attnOp->getResult(0));
+    if (lse) {
+      rewriter.replaceOp(addOp, expandedOutLse);
+    }
+  }
+
+  LogicalResult matchAndRewrite(tosa::MatMulOp op,
+                                PatternRewriter &rewriter) const override {
+    FailureOr<AttentionMatcherValues> attentionMatcherResult = match(op);
+    if (failed(attentionMatcherResult)) {
+      return failure();
+    }
+    AttentionMatcherValues attentionMatcherValues =
+        attentionMatcherResult.value();
+    rewrite(op, attentionMatcherValues, rewriter);
+    return success();
+  }
 };
 
 template <typename TosaReduceOp>
