@@ -1681,10 +1681,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
             castOutputType == softmaxInputType) {
           return castOutputType;
         }
-      } else {
-        worklist.insert(worklist.end(), user->getUsers().begin(),
-                        user->getUsers().end());
       }
+      worklist.insert(worklist.end(), user->getUsers().begin(),
+                      user->getUsers().end());
     }
     return failure();
   }
