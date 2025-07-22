@@ -32,7 +32,6 @@ from parameterSweeps import Options, sweepParameters, multilineRepr
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initializeDataTypesAttention()
 BOOLS = [True, False]
-LOGFILE = 'failing_attn_configs.csv'
 
 # Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
@@ -156,7 +155,7 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
-            writer.writerow([' '.join(config.generateMlirDriverCommandLine(''))])
+            writer.writerow([config.generateMlirDriverCommandLine('', kernel_repeats=None)])
             
 def main():
     parser = argparse.ArgumentParser(
@@ -207,8 +206,6 @@ def main():
         print(f"{'Failing Configurations':^80}\n")
         for fail in failing:
             print(multilineRepr(fail))
-        if args.log_failures:
-            logFailingConfigs(failing, LOGFILE)
     
     print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     
