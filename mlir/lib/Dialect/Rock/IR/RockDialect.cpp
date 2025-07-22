@@ -611,8 +611,7 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   auto features = rock::getFeatures(gemmOp);
 
   // Only perform this check for ops that have a feature attribute
-  bool isAccel =
-      bitEnumContainsAny(features, GemmFeatures::mfma | GemmFeatures::wmma);
+  bool isAccel = rock::isAccel(features);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");

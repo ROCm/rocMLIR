@@ -269,6 +269,6 @@ func.func @init_kernel(%arg0 : memref<2x4xf32>) {
 // CHECK: rock.init_kernel
 
 func.func @converting_copy_kernel(%arg0 : memref<2x4xf32>, %arg1: memref<2x4xf16>) {
-  rock.converting_copy_kernel %arg0 to %arg1 features = none : memref<2x4xf32> to memref<2x4xf16>
+  rock.converting_copy_kernel %arg0 to %arg1 : memref<2x4xf32> to memref<2x4xf16>
   func.return
 }

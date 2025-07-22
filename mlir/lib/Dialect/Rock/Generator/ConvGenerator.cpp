@@ -3,6 +3,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
@@ -985,7 +986,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       // Workspace -> filter tensor
       builder.create<ConvertingCopyKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          func.getArgument(3), func.getArgument(0), features,
+          func.getArgument(3), func.getArgument(0),
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
     } else {

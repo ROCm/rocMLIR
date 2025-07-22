@@ -43,10 +43,6 @@ bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
 }
 
-bool mlir::rock::isAccel(GemmFeatures features) {
-  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
-}
-
 bool mlir::rock::is4GBMemoryType(ShapedType type) {
   if (!type.hasStaticShape())
     return true;

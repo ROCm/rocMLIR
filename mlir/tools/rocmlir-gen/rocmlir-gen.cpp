@@ -2244,8 +2244,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
+  IntegerAttr numCUAttr = (num_cu.getNumOccurrences() > 0 ?
+                           b.getI64IntegerAttr(num_cu) :
+                           b.getI64IntegerAttr(rock::lookupArchInfo(
+                                                archAttr.getValue()).minNumCU));
   SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
@@ -5060,8 +5062,7 @@ int main(int argc, char **argv) {
 
   if (emitSplitKSelectionLikelihood) {
     module->walk([](rock::RockGemmWrapperInterface gemmOp) {
-      const int32_t numCU =
-          rock::lookupArchInfo(rock::getArchValue(gemmOp)).minNumCU;
+      const int32_t numCU = rock::getNumCUValue(gemmOp);
       const rock::GemmSize gemmSize = gemmOp.getGemmSize();
       const auto likelihood = rock::isSplitKFaster(
           gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);

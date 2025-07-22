@@ -84,8 +84,6 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
-bool isAccel(GemmFeatures features);
-
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
 bool is4GBMemoryType(ShapedType type);

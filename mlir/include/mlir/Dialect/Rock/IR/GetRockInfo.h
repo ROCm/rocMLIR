@@ -25,6 +25,9 @@ class Type;
 
 namespace rock {
 
+// Return a boolean if the features contain accel properties
+bool isAccel(rock::GemmFeatures features);
+
 // Get the arch from the op
 FailureOr<StringAttr> getArch(Operation *op);
 

@@ -1846,8 +1846,7 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Get 'features' from the op
     auto features = rock::getFeatures(op);
-    rock::GemmFeaturesAttr featuresAttr =
-        op.getFeatures() ? op.getFeaturesAttr() : nullptr;
+    auto featuresAttr = op.getFeaturesAttr();
 
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
@@ -2951,8 +2950,7 @@ struct GridwiseGemmAccelRewritePattern
 
     // Get 'features' from the op
     auto features = rock::getFeatures(op);
-    rock::GemmFeaturesAttr featuresAttr =
-        op.getFeatures() ? op.getFeaturesAttr() : nullptr;
+    auto featuresAttr = op.getFeaturesAttr();
 
     // Prepare some useful constants.
     Value matA = op.getA();

@@ -672,7 +672,7 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   int64_t seqLenK;
   llvm::raw_svector_ostream problemOS(out);
   // ARCH string
-  problemOS << StringRef(rock::getArchValue(gemmGemmOp)).trim("\"") << tab;
+  problemOS << StringRef(rock::getArchValue(gemmGemmOp)) << tab;
   // Num of Compute Units
   problemOS << numCU << tab;
 

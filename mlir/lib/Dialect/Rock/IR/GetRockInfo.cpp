@@ -16,10 +16,17 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+
+#define DEBUG_TYPE "rock-info-utils"
 
 using namespace mlir;
 using namespace mlir::rock;
+
+bool mlir::rock::isAccel(rock::GemmFeatures features) {
+  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+}
 
 FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
   return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
@@ -63,6 +70,9 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
   // Otherwise, we will need to get the minimum CU value from the architecture
   auto archStr = rock::getArchValue(op);
   int64_t minCU = rock::lookupArchInfo(archStr).minNumCU;
+  LLVM_DEBUG(llvm::dbgs() << "Could not find num_cu, defaulting to minimum "
+                          << "CU value for " << archStr << ": "
+                          << minCU << "\n");
   return minCU;
 }
 
@@ -129,7 +139,7 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // Handle the case where no types were found, and we could not calculate
   // features
   if (!features.has_value()) {
-    return rock::GemmFeatures::none;
+    llvm_unreachable("Unable to calculate features for the operation");
   }
 
   return features.value();

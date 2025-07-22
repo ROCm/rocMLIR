@@ -791,13 +791,11 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   }
 
   // This kernel is not run when there is padding on the GEMM
-  rock::GemmFeaturesAttr featuresAttr =
-      op.getFeatures() ? op.getFeaturesAttr() : nullptr;
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
   b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, featuresAttr, storeMethod,
+      /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
 
   // Finally, erase the original Conv op.
@@ -1154,13 +1152,11 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
   }
 
   // Emit rock.gemm op.
-  rock::GemmFeaturesAttr featuresAttr =
-      op.getFeatures() ? op.getFeaturesAttr() : nullptr;
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
   auto gemm = b.create<GemmOp>(
       loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, featuresAttr, storeMethod,
+      /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", kernelIdAttr);
@@ -1434,13 +1430,11 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
     Location loc = op.getLoc();
 
     // note that here A = input, B = filter, ConvToGemm is the opposite
-    rock::GemmFeaturesAttr featuresAttr =
-        op.getFeatures() ? op.getFeaturesAttr() : nullptr;
     auto newOp = b.create<rock::GemmElementwiseGemmOp>(
         loc, op->getResultTypes(), gemmInput, gemmFilter, op.getC(),
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-        op.getCTransposedAttr(), op.getOTransposedAttr(), featuresAttr,
+        op.getCTransposedAttr(), op.getOTransposedAttr(), op.getFeaturesAttr(),
         op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
 
     // copy linalg::GenericOp if there's any
@@ -1490,11 +1484,9 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     Location loc = op.getLoc();
     auto tuningParams = op.getParamsAttr();
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
-    rock::GemmFeaturesAttr featuresAttr =
-        op.getFeatures() ? op.getFeaturesAttr() : nullptr;
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                     /*cTransposed=*/nullptr, featuresAttr, storeMethod,
+                     /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
                      tuningParams);
 

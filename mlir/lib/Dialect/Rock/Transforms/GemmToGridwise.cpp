@@ -363,14 +363,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
-  rock::GemmFeaturesAttr featuresAttr =
-      op.getFeatures() ? op.getFeaturesAttr() : nullptr;
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, accumulator, featuresAttr, op.getStoreMethodAttr(),
+        loc, a, b, accumulator, op.getFeaturesAttr(), op.getStoreMethodAttr(),
         blockSize, gridSize, cast<RockAccelTuningParamAttrInterface>(params));
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, featuresAttr,
+    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
                               op.getStoreMethodAttr(), gridSize,
                               cast<GeneralGemmParamsAttr>(params));
   }
