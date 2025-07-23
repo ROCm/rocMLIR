@@ -1696,7 +1696,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         firstGemmOutput.getUsers().begin(), firstGemmOutput.getUsers().end()};
     Type softmaxInputType =
         cast<ShapedType>(softmaxInput.getType()).getElementType();
-    Type lastCastOutputType;
+    Type lastCastOutputType = nullptr;
     while (!worklist.empty()) {
       Operation *user = worklist.pop_back_val();
       if (visited.contains(user))
@@ -1716,7 +1716,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       worklist.insert(worklist.end(), user->getUsers().begin(),
                       user->getUsers().end());
     }
-    if (lastCastOutputType == Type())
+    if (lastCastOutputType == nullptr)
       return failure();
     return lastCastOutputType;
   }
