@@ -108,10 +108,10 @@ void AffixTuningParameters::runOnOperation() {
 
   if (allFeatures.size() >= 1) {
     assert(std::all_of(allFeatures.begin() + 1, allFeatures.end(),
-                     [&](const rock::GemmFeatures& features) {
-                       return features == allFeatures[0];
-                     }) &&
-       "All features in func should be identical");
+                       [&](const rock::GemmFeatures &features) {
+                         return features == allFeatures[0];
+                       }) &&
+           "All features in func should be identical");
     func->setAttr("features",
                   rock::GemmFeaturesAttr::get(&getContext(), allFeatures[0]));
   }
