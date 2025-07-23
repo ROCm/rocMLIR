@@ -462,10 +462,10 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     assert(!doSplitKAcrossThreadsFirst);
     assert(isKReduction);
     assert(ldsLayoutDxK);
-    // int64_t elemTyWidth = cast<ShapedType>(buffer.getType()).getElementType().getIntOrFloatBitWidth();
+    int64_t elemTyWidth = cast<ShapedType>(buffer.getType()).getElementType().getIntOrFloatBitWidth();
     // TODO: use memref with numElementsxdtype!
-    //int64_t numElements = 128 / elemTyWidth;
-    int64_t numElements = kIter;
+    int64_t numElements = 128 / elemTyWidth;
+    // int64_t numElements = kIter;
     // TODO: dRepeats is not correct here
     numElements = math_util::gcd(ldsLayoutDxK ? kIter : dRepeats, numElements);
     int64_t repeats = (ldsLayoutDxK ? kIter : dRepeats) / numElements;
@@ -666,9 +666,9 @@ auto isThreadZero = b.create<arith::CmpIOp>(
   // operations. The swizzle is done by using a GPU shuffle operation.
   if (ldsLayoutDxK) {
     // llvm::errs() << "elementType="<<elementType<<"\n";
-    // int64_t elemTyWidth = elementType.getIntOrFloatBitWidth();
-    //int64_t numElements = 128 / elemTyWidth;
-    int64_t numElements = kIterNum;
+    int64_t elemTyWidth = elementType.getIntOrFloatBitWidth();
+    int64_t numElements = 128 / elemTyWidth;
+    // int64_t numElements = kIterNum;
     numElements = math_util::gcd(kIterNum, numElements);
     // llvm::errs() << "shape[0]="<<shape[0]<<"\n";
     // llvm::errs() << "kIterNum="<<kIterNum<<"\n";

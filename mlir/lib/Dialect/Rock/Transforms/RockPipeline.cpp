@@ -325,46 +325,46 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
     // stages, they don't care because they belong to different iterations. In
     // theory this could be applied to any buffer, but for LDS memory this
     // can be more expensive (i.e., you need barriers)
-    DenseMap<unsigned, SmallVector<unsigned>> swapCandidates;
-    DenseMap<unsigned, SmallVector<unsigned>> swapCandidatesR;
+    // DenseMap<unsigned, SmallVector<unsigned>> swapCandidates;
+    // DenseMap<unsigned, SmallVector<unsigned>> swapCandidatesR;
 
-    // Go through the stages and take note of the possible swap candidates
-    for (size_t i = 0; i < parallelStages.size(); i++) {
-      for (size_t j = i + 1; j < parallelStages.size(); j++) {
-        auto dependencies =
-            getDependencies(parallelStages[i], parallelStages[j], dag);
-        // Select all register dependencies
-        SmallVector<DependencyType> privateDependencyTypes;
-        for (auto [res, type] : dependencies)
-          if (getAddressSpace(res) == AddressSpace::Private)
-            privateDependencyTypes.push_back(type);
-        // If there are no register dependencies, don't bother
-        if (privateDependencyTypes.empty())
-          continue;
-        // See if they are all swappable
-        bool canSwap = llvm::all_of(privateDependencyTypes,
-                                    [&](auto type) { return (type == RAW); });
-        // Add to the list of swap candidates
-        if (canSwap) {
-          swapCandidates[i].push_back(j);
-          swapCandidatesR[j].push_back(i);
-        }
-      }
-    }
+    // // Go through the stages and take note of the possible swap candidates
+    // for (size_t i = 0; i < parallelStages.size(); i++) {
+    //   for (size_t j = i + 1; j < parallelStages.size(); j++) {
+    //     auto dependencies =
+    //         getDependencies(parallelStages[i], parallelStages[j], dag);
+    //     // Select all register dependencies
+    //     SmallVector<DependencyType> privateDependencyTypes;
+    //     for (auto [res, type] : dependencies)
+    //       if (getAddressSpace(res) == AddressSpace::Private)
+    //         privateDependencyTypes.push_back(type);
+    //     // If there are no register dependencies, don't bother
+    //     if (privateDependencyTypes.empty())
+    //       continue;
+    //     // See if they are all swappable
+    //     bool canSwap = llvm::all_of(privateDependencyTypes,
+    //                                 [&](auto type) { return (type == RAW); });
+    //     // Add to the list of swap candidates
+    //     if (canSwap) {
+    //       swapCandidates[i].push_back(j);
+    //       swapCandidatesR[j].push_back(i);
+    //     }
+    //   }
+    // }
 
-    // Swap only pairs. If there are more intricate dependency
-    // patterns just use multibuffers, since it is safer.
-    for (auto [source, sinks] : swapCandidates) {
-      bool singleSink = (sinks.size() == 1);
-      bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
-      // Found a pair, now swap it
-      if (singleSink && singleSource) {
-        int sink = sinks.back();
-        auto t = parallelStages[source];
-        parallelStages[source] = parallelStages[sink];
-        parallelStages[sink] = t;
-      }
-    }
+    // // Swap only pairs. If there are more intricate dependency
+    // // patterns just use multibuffers, since it is safer.
+    // for (auto [source, sinks] : swapCandidates) {
+    //   bool singleSink = (sinks.size() == 1);
+    //   bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
+    //   // Found a pair, now swap it
+    //   if (singleSink && singleSource) {
+    //     int sink = sinks.back();
+    //     auto t = parallelStages[source];
+    //     parallelStages[source] = parallelStages[sink];
+    //     parallelStages[sink] = t;
+    //   }
+    // }
 
     // Whatever resource is shared, we need to select among multiple buffers.
     for (size_t i = 0; i < parallelStages.size(); i++) {

@@ -345,31 +345,34 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
         {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2],
          blockSize, dataPerThread},
         loc);
-    gridwiseSplitId.passThrough(
-        {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
-    makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
-                         {4, 5}, isKContiguousDim);
-    gridwiseSplitId.merge({"kouterPerThread", dIterName, "kpackPerThread"},
-                          {6, 7, 8}, "iter",
-                          {kOuterPerThread, dPerThread, kpackPerThread});
-    TransformMapAttr splitIdAttr = gridwiseSplitId.get();
-    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
-    toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-    toGlobalIdx.unmerge(
-        "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
-        {kGlobal / kPerBlock, kThreads, kOuterPerThread, kpackPerThread});
-    // if the matrix is KxD swap the iter/thread dimension. This is so that
-    // each thread writes in LDS contiguously, minimizing bank conflicts
-    if (!doSwapThreadIterSubDimsForD)
-      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                          {dGlobal / dPerBlock, dThreads, dPerThread});
-    else
-      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
-                          {dGlobal / dPerBlock, dPerThread, dThreads});
+        gridwiseSplitId.ignore("k_loop");
+        gridwiseSplitId.ignore(bidGridOrder[0]);
+        gridwiseSplitId.ignore(bidGridOrder[1]);
+        gridwiseSplitId.ignore(bidGridOrder[2]);
+    // makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
+    //                      {4, 5}, isKContiguousDim);
+    gridwiseSplitId.unmerge("raw", 0, {"tid", "iter"},
+                        {blockSize, dataPerThread});
 
-    toGlobalIdx.ignore(otherBlockDim);
-    TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+
+    TransformMapAttr splitIdAttr = gridwiseSplitId.get();
+    // auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
+    // toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
+    // toGlobalIdx.unmerge(
+    //     "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
+    //     {kGlobal / kPerBlock, kThreads, kOuterPerThread, kpackPerThread});
+    // // if the matrix is KxD swap the iter/thread dimension. This is so that
+    // // each thread writes in LDS contiguously, minimizing bank conflicts
+    // if (!doSwapThreadIterSubDimsForD)
+    //   toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+    //                       {dGlobal / dPerBlock, dThreads, dPerThread});
+    // else
+    //   toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
+    //                       {dGlobal / dPerBlock, dPerThread, dThreads});
+
+    // toGlobalIdx.ignore(otherBlockDim);
+    // TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
+    gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr});
   }
   {
     StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
