@@ -106,9 +106,12 @@ void AffixTuningParameters::runOnOperation() {
       allFeatures.push_back(rock::getFeatures(op));
   });
 
-  assert(allFeatures.size() <= 1 &&
-         "Func should only have a single op that needs to calculate a feature");
-  if (allFeatures.size() == 1) {
+  if (allFeatures.size() >= 1) {
+    assert(std::all_of(allFeatures.begin() + 1, allFeatures.end(),
+                     [&](const rock::GemmFeatures& features) {
+                       return features == allFeatures[0];
+                     }) &&
+       "All features in func should be identical");
     func->setAttr("features",
                   rock::GemmFeaturesAttr::get(&getContext(), allFeatures[0]));
   }
