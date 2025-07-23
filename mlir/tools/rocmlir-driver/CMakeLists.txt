@@ -13,6 +13,7 @@ set(LIBS
   MLIRMHAL
   MLIRMHALTransforms
   MLIRMHALPipeline
+  MLIRBytecodeWriter
   )
 
 if (MLIR_ENABLE_EXECUTION_ENGINE)

@@ -65,6 +65,11 @@ def TosaToRockPass : Pass<"tosa-to-rock", "::mlir::func::FuncOp"> {
     "rock::RockDialect",
     "tensor::TensorDialect"
   ];
+  /*  let options = [
+    Option<"portable", "portable", "bool",
+           /*default=*/"false",
+           "Use Wave64 mode.">
+  ];*/
 }
 
 //===----------------------------------------------------------------------===//

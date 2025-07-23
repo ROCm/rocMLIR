@@ -80,7 +80,13 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1);
+              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+    migxInfo(GemmFeatures::none,
+              /*waveSize=*/0, /*maxWavesPerEU*/ 0, /*totalSGPRPerEU*/ 0,
+              /*totalVGPRPerEU*/ 0, /*totalSharedMemPerCU*/ 0,
+              /*maxSharedMemPerWG*/ 0, /*numEUPerCU=*/0, /*minNumCU=*/0,
+              /*hasFp8ConversionInstrs=*/false,
+              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/0);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
@@ -133,6 +139,9 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         bitEnumSet(gfx12Info.defaultFeatures, GemmFeatures::atomic_add_bf16);
 
     return gfx12Info;
+  }
+  if(chip == "migx") {
+    return migxInfo;
   }
   llvm_unreachable("unknown architecture");
 }
