@@ -112,6 +112,18 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
           return $_op.getFeatures();
         }]
       >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return the features attribute of this op.
+        }],
+        /*retType=*/"::mlir::rock::GemmFeaturesAttr",
+        /*methodName=*/"getGemmFeaturesAttr",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          return $_op.getFeaturesAttr();
+        }]
+      >,
 
     /// Setters for tuning-related data
     InterfaceMethod<

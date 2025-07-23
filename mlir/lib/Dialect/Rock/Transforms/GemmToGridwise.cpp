@@ -214,13 +214,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
 
-  rock::GemmFeaturesAttr featuresAttr = nullptr;
-  if (auto optFeatures = op.getGemmFeatures()) {
-    featuresAttr = rw.getAttr<rock::GemmFeaturesAttr>(*optFeatures);
-  }
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
       loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
-      featuresAttr, blockSizeAttr, gridSizeAttr,
+      op.getGemmFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
       params0, params1, rw.getI32IntegerAttr(op.getFirstGemmIndex()),
       rw.getBoolAttr(enableSoftmax));
