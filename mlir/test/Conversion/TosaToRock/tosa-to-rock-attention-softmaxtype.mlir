@@ -167,6 +167,58 @@ func.func @mlir_softmaxf32_attention_with_scaling(%arg0: tensor<48225280xf16>, %
   %11 = tosa.cast %9 : (tensor<1x5x75352x75352xf16>) -> tensor<1x5x75352x75352xf32>
   %12 = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
   %13 = tosa.mul %10, %11, %12 : (tensor<1x5x75352x75352xf32>, tensor<1x5x75352x75352xf32>, tensor<1xi8>) -> tensor<1x5x75352x75352xf32>
+  %scaled_cast1 = tosa.cast %13 : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf16>
+  %scaled_cast2 = tosa.cast %scaled_cast1 : (tensor<1x5x75352x75352xf16>) -> tensor<1x5x75352x75352xf32>
+  %14 = tosa.reduce_max %13 {axis = 3 : i32} : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x1xf32>
+  %15 = tosa.const_shape  {values = dense<[1, 5, 75352, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %16 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x5x75352x75352xf32>}> : () -> tensor<1x5x75352x75352xf32>
+  %17 = tosa.add %14, %16 : (tensor<1x5x75352x1xf32>, tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
+  %18 = tosa.sub %13, %17 : (tensor<1x5x75352x75352xf32>, tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
+  %19 = tosa.exp %18 : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
+  %20 = tosa.reduce_sum %19 {axis = 3 : i32} : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x1xf32>
+  %21 = tosa.add %20, %16 : (tensor<1x5x75352x1xf32>, tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
+  %22 = tosa.reciprocal %21 : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
+  %23 = tosa.mul %19, %22, %12 : (tensor<1x5x75352x75352xf32>, tensor<1x5x75352x75352xf32>, tensor<1xi8>) -> tensor<1x5x75352x75352xf32>
+  %24 = tosa.cast %23 : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf16>
+  %25 = tosa.const_shape  {values = dense<[5, 75352, 75352]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %collapsed_4 = tensor.collapse_shape %24 [[0, 1], [2], [3]] : tensor<1x5x75352x75352xf16> into tensor<5x75352x75352xf16>
+  %collapsed_5 = tensor.collapse_shape %3 [[0, 1], [2], [3]] : tensor<1x5x75352x128xf16> into tensor<5x75352x128xf16>
+  %26 = tosa.matmul %collapsed_4, %collapsed_5, %6, %6 {acc_type = f32} : (tensor<5x75352x75352xf16>, tensor<5x75352x128xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<5x75352x128xf16>
+  %27 = tosa.const_shape  {values = dense<[1, 5, 75352, 128]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %expanded_6 = tensor.expand_shape %26 [[0, 1], [2], [3]] output_shape [1, 5, 75352, 128] : tensor<5x75352x128xf16> into tensor<1x5x75352x128xf16>
+  %28 = tosa.const_shape  {values = dense<48225280> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %collapsed_7 = tensor.collapse_shape %26 [[0, 1, 2]] : tensor<5x75352x128xf16> into tensor<48225280xf16>
+  return %collapsed_7 : tensor<48225280xf16>
+}
+
+// CHECK-LABEL: func @mlir_softmaxf32_attention_with_scaling_multiple_converts
+// CHECK: rock.attention
+// CHECK: softmaxType = f32
+func.func @mlir_softmaxf32_attention_with_scaling_multiple_converts(%arg0: tensor<48225280xf16>, %arg1: tensor<48225280xf16>, %arg2: tensor<48225280xf16>) -> tensor<48225280xf16> attributes {arch = "gfx942", kernel = "mixr", num_cu = 304 : i64} {
+  %0 = tosa.const_shape  {values = dense<[1, 75352, 5, 128]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 75352, 5, 128] : tensor<48225280xf16> into tensor<1x75352x5x128xf16>
+  %expanded_0 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 75352, 5, 128] : tensor<48225280xf16> into tensor<1x75352x5x128xf16>
+  %expanded_1 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 75352, 5, 128] : tensor<48225280xf16> into tensor<1x75352x5x128xf16>
+  %1 = tosa.transpose %expanded_1 {perms = array<i32: 0, 2, 1, 3>} : (tensor<1x75352x5x128xf16>) -> tensor<1x5x75352x128xf16>
+  %2 = tosa.transpose %expanded_0 {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x75352x5x128xf16>) -> tensor<1x5x128x75352xf16>
+  %3 = tosa.transpose %expanded {perms = array<i32: 0, 2, 1, 3>} : (tensor<1x75352x5x128xf16>) -> tensor<1x5x75352x128xf16>
+  %4 = tosa.const_shape  {values = dense<[5, 75352, 128]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %collapsed = tensor.collapse_shape %1 [[0, 1], [2], [3]] : tensor<1x5x75352x128xf16> into tensor<5x75352x128xf16>
+  %5 = tosa.const_shape  {values = dense<[5, 128, 75352]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %collapsed_2 = tensor.collapse_shape %2 [[0, 1], [2], [3]] : tensor<1x5x128x75352xf16> into tensor<5x128x75352xf16>
+  %6 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf16>}> : () -> tensor<1xf16>
+  %7 = tosa.matmul %collapsed, %collapsed_2, %6, %6 {acc_type = f32} : (tensor<5x75352x128xf16>, tensor<5x128x75352xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<5x75352x75352xf16>
+  %matmaul_cast1 = tosa.cast %7 : (tensor<5x75352x75352xf16>) -> tensor<5x75352x75352xf32>
+  %bias = "tosa.const"() <{values = dense<8.837890e-02> : tensor<5x75352x75352xf32>}> : () -> tensor<5x75352x75352xf32> 
+  %bias_add_f32 = tosa.add %matmaul_cast1, %bias : (tensor<5x75352x75352xf32>, tensor<5x75352x75352xf32>) -> tensor<5x75352x75352xf32>
+  %matmul_cast2 = tosa.cast %bias_add_f32 : (tensor<5x75352x75352xf32>) -> tensor<5x75352x75352xf16>
+  %8 = tosa.const_shape  {values = dense<[1, 5, 75352, 75352]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %expanded_3 = tensor.expand_shape %matmul_cast2 [[0, 1], [2], [3]] output_shape [1, 5, 75352, 75352] : tensor<5x75352x75352xf16> into tensor<1x5x75352x75352xf16>
+  %9 = "tosa.const"() <{values = dense<8.837890e-02> : tensor<1x5x75352x75352xf16>}> : () -> tensor<1x5x75352x75352xf16>
+  %10 = tosa.cast %expanded_3 : (tensor<1x5x75352x75352xf16>) -> tensor<1x5x75352x75352xf32>
+  %11 = tosa.cast %9 : (tensor<1x5x75352x75352xf16>) -> tensor<1x5x75352x75352xf32>
+  %12 = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %13 = tosa.mul %10, %11, %12 : (tensor<1x5x75352x75352xf32>, tensor<1x5x75352x75352xf32>, tensor<1xi8>) -> tensor<1x5x75352x75352xf32>
   %14 = tosa.reduce_max %13 {axis = 3 : i32} : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x1xf32>
   %15 = tosa.const_shape  {values = dense<[1, 5, 75352, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
   %16 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x5x75352x75352xf32>}> : () -> tensor<1x5x75352x75352xf32>

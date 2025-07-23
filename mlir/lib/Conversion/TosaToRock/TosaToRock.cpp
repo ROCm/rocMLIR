@@ -1696,6 +1696,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         firstGemmOutput.getUsers().begin(), firstGemmOutput.getUsers().end()};
     Type softmaxInputType =
         cast<ShapedType>(softmaxInput.getType()).getElementType();
+    Type lastCastOutputType;
     while (!worklist.empty()) {
       Operation *user = worklist.pop_back_val();
       if (visited.contains(user))
@@ -1709,13 +1710,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
             cast<ShapedType>(castOutput.getType()).getElementType();
         if (areConnected(castOutput, softmaxInput, pathMap) &&
             castOutputType == softmaxInputType) {
-          return castOutputType;
+          lastCastOutputType = castOutputType;
         }
       }
       worklist.insert(worklist.end(), user->getUsers().begin(),
                       user->getUsers().end());
     }
-    return failure();
+    if (lastCastOutputType == Type())
+      return failure();
+    return lastCastOutputType;
   }
 
   FailureOr<SoftmaxMatcherValues> maybeSoftmaxNumerator(Value val,
@@ -1856,6 +1859,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         getDefiningNonReshapeOp<tosa::CastOp>(softmaxOutput);
     if (softmaxOutputCastOp) {
       softmaxOutput = softmaxOutputCastOp.getInput();
+      if (getDefiningNonReshapeOp<tosa::CastOp>(softmaxOutput)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "softmax output has multiple casts. rocMLIR only allows "
+                      "one cast between softmax and gemm2\n");
+        return failure();
+      }
       softmaxType = cast<ShapedType>(softmaxOutput.getType()).getElementType();
     }
 
