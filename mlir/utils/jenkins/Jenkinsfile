@@ -1000,9 +1000,8 @@ pipeline {
                                                 def errors = tuneLog.findAll { it =~ /(?i)\berror\b/ }
 
                                                 if (errors) {
-                                                    echo "Detected errors in tuning log:"
-                                                    echo errors.join('\n')
-                                                    echo "Tuning failed"
+                                                    echo "Detected errors in tuning log:\n${errors.join('\n')}"
+                                                    error("Tuning failed")
                                                     currentBuild.result = 'FAILURE'
                                                 } else {
                                                     echo "No errors found in tuning log"
