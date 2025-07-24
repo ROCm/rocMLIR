@@ -3,7 +3,7 @@
 // CHECK-NEXT: [1 1 1]
 
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1> {mhal.read_access}, %arg1: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1> {mhal.read_access}, %arg2: !migraphx.shaped<12x256x256xsi8, 65536x256x1> {mhal.read_access}, %arg3: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1> {mhal.read_access}, %arg4: !migraphx.shaped<12x256x256xf16, 65536x256x1> {mhal.read_access}) -> (!migraphx.shaped<12x256x256xf16, 65536x256x1> {mhal.write_access}, !migraphx.shaped<12x256x1xf32, 256x1x1> {mhal.write_access}) {
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg1: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg2: !migraphx.shaped<12x256x256xsi8, 65536x256x1>, %arg3: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg4: !migraphx.shaped<12x256x256xf16, 65536x256x1>) -> (!migraphx.shaped<12x256x256xf16, 65536x256x1>, !migraphx.shaped<12x256x1xf32, 256x1x1>) {
     %0 = migraphx.literal(dense<1.000000e+01> : tensor<12x256x256xf16>) : <12x256x256xf16, 65536x256x1>
     %1 = migraphx.literal(dense<1.250000e-01> : tensor<12x256x256xf16>) : <12x256x256xf16, 65536x256x1>
     %2 = migraphx.transpose %arg1 {permutation = [0, 1, 3, 2]} : <1x12x256x256xf16, 786432x65536x256x1> -> <1x12x256x256xf16, 786432x65536x1x256>

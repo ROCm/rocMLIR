@@ -1,0 +1,21 @@
+// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -fut mlir_attention_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// CHECK: [1 1 1]
+
+module {
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x64x32xi8, 2048x32x1>,
+                                    %arg1: !migraphx.shaped<1x32x64xi8, 2048x64x1>,
+                                    %arg2: !migraphx.shaped<1x64x32xf16, 2048x32x1>,
+                                    %arg3: !migraphx.shaped<1x64x64xf16, 4096x64x1>,
+                                    %qscale: !migraphx.shaped<1x1x1xf16, 1x1x1>) 
+                                    -> (!migraphx.shaped<1x64x32xf16, 2048x32x1>)
+                                    {
+    %0 = migraphx.quant_dot %arg0, %arg1: <1x64x32xi8, 2048x32x1>, <1x32x64xi8, 2048x64x1> -> <1x64x64xi32, 4096x64x1>
+    %1 = migraphx.dequantizelinear %0, %qscale : <1x64x64xi32, 4096x64x1>, <1x1x1xf16, 1x1x1> -> <1x64x64xf16, 4096x64x1>
+    %biased = migraphx.add %1, %arg3 : <1x64x64xf16, 4096x64x1>, <1x64x64xf16, 4096x64x1> -> <1x64x64xf16, 4096x64x1>
+    %biased_cvt = migraphx.convert %biased {target_type = 2 : i64} : <1x64x64xf16, 4096x64x1> to <1x64x64xf32, 4096x64x1>
+    %2 = migraphx.softmax %biased_cvt{axis = 2 : i64} : <1x64x64xf32, 4096x64x1> -> <1x64x64xf32, 4096x64x1>
+    %softmax_cvt = migraphx.convert %2 {target_type = 1 : i64} : <1x64x64xf32, 4096x64x1> to <1x64x64xf16, 4096x64x1>
+    %3 = migraphx.dot %softmax_cvt, %arg2: <1x64x64xf16, 4096x64x1>, <1x64x32xf16, 2048x32x1> -> <1x64x32xf16, 2048x32x1>
+    return %3 : !migraphx.shaped<1x64x32xf16, 2048x32x1>
+  }
+}
