@@ -41,4 +41,13 @@ def MIGraphXRealizeInt4Pass : Pass<"migraphx-realize-int4", "func::FuncOp"> {
   }];
 }
 
+def MIGraphXTosaSimplifyPass : Pass<"migraphx-tosa-simplify", "func::FuncOp"> {
+  let summary = "Simplify TOSA operations after MIGraphX to TOSA conversion";
+  let description = [{
+    This pass simplifies TOSA operations after converting migraphx ops to tosa, optimizing
+    the representation of operations for better performance and clarity.
+  }];
+  let dependentDialects = ["tosa::TosaDialect", "func::FuncDialect"];
+}
+
 #endif // MLIR_DIALECT_MIGRAPHX_PASSES
