@@ -48,7 +48,3 @@ void migraphx::addHighLevelPipeline(PassManager &pm) {
   funcPm.addPass(createMIGraphXToTosaPass());
   funcPm.addPass(migraphx::createMIGraphXTosaSimplifyPass());
 }
-
-void migraphx::addBackendPipeline(PassManager &pm) {
-  pm.addPass(createGPUToMIGraphXPass());
-}
