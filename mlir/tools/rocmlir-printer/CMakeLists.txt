@@ -1,0 +1,35 @@
+set(LLVM_LINK_COMPONENTS
+  Support
+  )
+
+get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
+get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
+get_property(rocmlir_test_libs GLOBAL PROPERTY ROCMLIR_TEST_LIBS)
+
+set(LIBS
+  ${rocmlir_dialect_libs}
+  ${rocmlir_conversion_libs}
+  ${rocmlir_test_libs}
+  MLIRMHAL
+  MLIRMHALTransforms
+  MLIRMHALPipeline
+  MLIRBytecodeWriter
+  )
+
+if (MLIR_ENABLE_EXECUTION_ENGINE)
+  list(APPEND LIBS MLIRExecutionEngine)
+endif()
+
+add_rocmlir_tool(rocmlir-printer
+  PARTIAL_SOURCES_INTENDED
+
+  rocmlir-printer.cpp
+
+  DEPENDS
+  ${LIBS}
+)
+
+
+target_link_libraries(rocmlir-printer PRIVATE ${LIBS})
+llvm_update_compile_flags(rocmlir-printer)
+mlir_check_link_libraries(rocmlir-printer)
