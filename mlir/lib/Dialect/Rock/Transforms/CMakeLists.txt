@@ -25,6 +25,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   RockPrepareLLVM.cpp
   VectorizeFusions.cpp
   OutputSwizzle.cpp
+  RemoveRedundantCasts.cpp
   ReuseLDS.cpp
   ShuffleGemmForReductions.cpp
   GemmLinalgSplitkNormalizationPass.cpp

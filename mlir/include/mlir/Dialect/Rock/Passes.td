@@ -158,6 +158,11 @@ def RockOutputSwizzlePass : Pass<"rock-output-swizzle", "::mlir::func::FuncOp"> 
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
+def RockRemoveRedundantCastsPass : Pass<"rock-remove-redundant-casts", "::mlir::func::FuncOp"> {
+  let summary = "Remove redundant casts between ops";
+  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect"];
+}
+
 def RockReuseLDSPass : Pass<"rock-reuse-lds", "::mlir::func::FuncOp"> {
   let summary = "This pass re-uses LDS memory by using the lifetime annotations (rock.dealloc)";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
