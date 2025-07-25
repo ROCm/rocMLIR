@@ -52,6 +52,7 @@
 
 #include "GridLayoutEmitter.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <optional>
@@ -1586,28 +1587,52 @@ struct GridwiseAttentionAccelRewritePattern
       ArrayAttr linalgGridSubTileMaps = gemm0OutViews.gridSubTile;
       ArrayAttr gemmOutToLinalgMaps =
           invertTransforms(rewriter, loc, linalgToGemmOutMaps);
+
+      if (!gemmOutToLinalgMaps) {
+        res = rewriter.notifyMatchFailure(
+            genOp, "we can't invert linalg input to gemmOutput maps");
+        return;
+      }
+
       if (!gemmOutToLinalgMaps.empty()) {
         linalgGridSubTileMaps = prependUpperViews(
             rewriter, linalgGridSubTileMaps, gemmOutToLinalgMaps);
       }
 
-      for (auto [idx, otherInput] :
-           llvm::enumerate(op.getPreSoftmaxElemWiseInputs())) {
-        if (idx >= op.getFirstGemmIdx())
-          idx++;
+      for (auto [idx, genOpInput] : llvm::enumerate(genOp.getInputs())) {
+        if (idx == op.getFirstGemmIdx())
+          continue;
+
+        Value otherInput;
+        ArrayAttr linalgToOtherInputMaps;
+        std::tie(otherInput, linalgToOtherInputMaps, std::ignore) =
+            untransform(rewriter, genOpInput);
+
         MemRefType otherInputBufType = cast<MemRefType>(otherInput.getType());
         MemRefType tileBufType = MemRefType::get(
             srcBufType.getShape(), otherInputBufType.getElementType(),
             AffineMap{}, privateMemoryAddressSpace);
         auto tileBuffer = rewriter.create<rock::GpuAllocOp>(loc, tileBufType);
-        auto genOpInput = genOp.getInputs()[idx];
-        ArrayAttr linalgToOtherInputMaps;
-        std::tie(std::ignore, linalgToOtherInputMaps, std::ignore) =
-            untransform(rewriter, genOpInput);
+
         ArrayAttr gemmOutToOtherInputMaps = linalgGridSubTileMaps;
         if (!linalgToOtherInputMaps.empty()) {
           gemmOutToOtherInputMaps = prependUpperViews(
               rewriter, linalgGridSubTileMaps, linalgToOtherInputMaps);
+        }
+        // If other input is a block argument of the attention op fusion
+        if (auto blockArg = dyn_cast<BlockArgument>(otherInput)) {
+          // trace it back to block input
+          Block &block = op.getPreSoftmaxBody().getBlocks().front();
+          if (blockArg.getOwner() == &block) {
+            int64_t blockArgNum = blockArg.getArgNumber();
+            assert(blockArgNum != op.getFirstGemmIdx());
+
+            // if the gemm index is smaller, we need to substract one from the
+            // index
+            if (blockArgNum > op.getFirstGemmIdx())
+              --blockArgNum;
+            otherInput = op.getPreSoftmaxElemWiseInputs()[blockArgNum];
+          }
         }
         rewriter.create<ThreadwiseReadIntoOp>(
             loc, otherInput, tileBuffer, gemmOutToOtherInputMaps,

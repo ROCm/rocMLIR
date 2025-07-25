@@ -243,6 +243,16 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
         /*methodBody=*/"",
         /*defaultImplementation=*/ ""
       >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return the region corresponding to the fusion between first and second GEMM.
+        }],
+        /*retType=*/"Region&",
+        /*methodName=*/"getPreSecondGemmRegion",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/ ""
+      >,
 
     // TODO: more methods here as needed
   ];
