@@ -41,6 +41,7 @@
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Value.h"
@@ -2020,10 +2021,15 @@ struct GridwiseAttentionAccelRewritePattern
     // Currently, there is a working assumption that this kernel is meant
     // support fp32/fp16/bf16. This should be guaranteed by op verifiers.
     Type gemmOutElemType = elemTypeV;
-    Type fusionOutElemType = elemTypeV;
     if (elemTypeQ == rewriter.getI8Type()) {
       gemmOutElemType = rewriter.getI32Type();
     }
+    Type fusionOutElemType = elemTypeV;
+    op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
+      fusionOutElemType =
+          cast<ShapedType>(genOp.getOutputs()[0].getType()).getElementType();
+    });
+
     Value gemm0OutBuffer = createBufferForGemmOut(loc, gemmOutElemType,
                                                   accelParamsGemm0, rewriter);
     Value softmaxInputBuffer;
