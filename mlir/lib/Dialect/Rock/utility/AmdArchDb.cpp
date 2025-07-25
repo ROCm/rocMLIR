@@ -140,7 +140,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 
     return gfx12Info;
   }
-  if(chip == "migx") {
+  if(chip == "gfxMIGX" || chip == "gfxmigx") {
     return migxInfo;
   }
   llvm_unreachable("unknown architecture");
