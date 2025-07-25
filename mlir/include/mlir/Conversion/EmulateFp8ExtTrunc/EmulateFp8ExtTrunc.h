@@ -36,4 +36,4 @@ void addEmulateFp8ExtTruncPatterns(RewritePatternSet &patterns,
 
 } // namespace mlir
 
-#endif // MLIR_CONVERSION_GPUTOMIGRAPHX_GPUTOMIGRAPHX_H
+#endif // MLIR_CONVERSION_EMULATEFP8EXTTRUNC_EMULATEFP8EXTTRUNC_H

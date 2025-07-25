@@ -107,7 +107,8 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
         reference to a symbol, via SymbolRefAttr, or a reference to a defined
         SSA value. If the reference is an SSA value, the SSA value corresponds
         to a region of a lambda-like operation.
-      }], "::mlir::CallInterfaceCallable", "getCallableForCallee"
+      }],
+      "::mlir::CallInterfaceCallable", "getCallableForCallee"
     >,
     InterfaceMethod<[{
         Sets the callee of this call-like operation. A `callee` is either a

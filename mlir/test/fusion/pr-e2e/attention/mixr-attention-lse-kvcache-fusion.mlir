@@ -6,9 +6,9 @@ module {
                             %arg1: !migraphx.shaped<1x32x1024x128xf16, 4194304x131072x128x1>,
                             %arg2: !migraphx.shaped<1x32x1024x128xf16, 4194304x131072x128x1>, 
                             %arg3: !migraphx.shaped<1x32xsi32, 1x0>,
-                            %presoftmax_fusion: !migraphx.shaped<1x32x1x1024xf16, 0x0x0x1> {mhal.read_access},
-                            %lse_add_tensor: !migraphx.shaped<1x32x1x1xf16, 0x0x0x1> {mhal.read_access},
-                            %res_add_tensor: !migraphx.shaped<1x1x4096xf16, 0x0x1> {mhal.read_access}) 
+                            %presoftmax_fusion: !migraphx.shaped<1x32x1x1024xf16, 0x0x0x1>,
+                            %lse_add_tensor: !migraphx.shaped<1x32x1x1xf16, 0x0x0x1>,
+                            %res_add_tensor: !migraphx.shaped<1x1x4096xf16, 0x0x1>) 
                             -> (!migraphx.shaped<1x1x4096xf16, 4096x4096x1>, !migraphx.shaped<1x32x1x1xf16, 32x1x1x1>) {
     %0 = migraphx.literal(dense<8.837890e-02> : tensor<1xf16>) : <1xf16, 1>
     %1 = migraphx.literal(dense<0xFC00> : tensor<1xf16>) : <1xf16, 1>

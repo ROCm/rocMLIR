@@ -353,7 +353,7 @@ struct ZeroInitKernelRewritePattern final
     Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     Value memref = makeGpuAllocContaining(b, initOp);
     Value trueOp =
-        b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+        b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
     GemmFeatures features = op.getFeatures();
 
     auto loopBody = [&memref, &initVectorLen, &trueOp, &features, &zeroIndex,
@@ -397,7 +397,7 @@ struct ConvertingCopyKernelRewritePattern final
 
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
-    Value trueOp = b.create<arith::ConstantIntOp>(loc, true, b.getI1Type());
+    Value trueOp = b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
     GemmFeatures features = op.getFeatures();
     bool needs64BitIdx =
         is4GBMemoryType(input.getType()) || is4GBMemoryType(output.getType());

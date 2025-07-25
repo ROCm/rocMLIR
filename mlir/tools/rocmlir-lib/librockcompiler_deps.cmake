@@ -119,6 +119,7 @@ MLIRGPUUtils
 MLIRIR
 MLIRIndexDialect
 MLIRIndexToLLVM
+MLIRIndexingMapOpInterface
 MLIRInferIntRangeCommon
 MLIRInferIntRangeInterface
 MLIRInferTypeOpInterface
@@ -219,7 +220,6 @@ set(__rocmlir_libs
 MLIRCAPIMIGraphX
 MLIRCAPIRegisterRocMLIR
 MLIRCAPIRock
-MLIRGPUToMIGraphX
 MLIRMHAL
 MLIRMHALPipeline
 MLIRMHALSupport
