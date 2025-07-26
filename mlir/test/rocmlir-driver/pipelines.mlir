@@ -11,7 +11,8 @@
 // MIGRAPHX-NEXT:builtin.module(func.func(migraphx-realize-int4,
 // MIGRAPHX-NEXT:migraphx-transform,
 // MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
-// MIGRAPHX-NEXT:migraphx-to-tosa))
+// MIGRAPHX-NEXT:migraphx-to-tosa,
+// MIGRAPHX-NEXT:migraphx-tosa-simplify))
 
 // GPU:Kernel pipeline:
 // GPU-NEXT:builtin.module(func.func(rock-affix-params{fallback=false},
