@@ -151,6 +151,9 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
+  if(options.portable) {
+      funcPm.addPass(createPopulateArchFeaturesPass());
+  }
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
   funcPm.addPass(rock::createRockConvToGemmPass());
@@ -228,6 +231,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
+llvm::errs() << options.triple << ":" << options.chip << " opt: " << options.optLevel << "\n";    
   pm.addPass(createStripDebugInfoPass());
   AmdArchInfo archInfo = lookupArchInfo(options.chip);
   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
@@ -271,6 +275,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     opts.chip = options.chip;
     opts.features = options.features;
     opts.optLevel = options.optLevel;
+    
     pm.addPass(createGpuROCDLAttachTarget(opts));
     pm.addPass(createGpuModuleToBinaryPass());
     pm.addPass(createRockCheckResidencyPass());

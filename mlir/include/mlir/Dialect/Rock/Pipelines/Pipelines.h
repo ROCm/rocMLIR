@@ -32,6 +32,9 @@ struct BufferizeOptions : public PassPipelineOptions<BufferizeOptions> {
   PassOptions::Option<bool> disableRock{
       *this, "disable-rock",
       desc("Disable Rock dialect targeting when bufferizing"), init(false)};
+  PassOptions::Option<bool> portable{
+      *this, "portable",
+      desc("Enable partially compiled "), init(false)};    
 };
 
 /// Adds the `bufferize` pipeline to the `OpPassManager`.
@@ -51,6 +54,9 @@ struct KernelOptions : public PassPipelineOptions<KernelOptions> {
   PassOptions::Option<bool> tuningFallback{
       *this, "tuningFallback",
       desc("Falls back default if invalid config is given"), init(false)};
+  PassOptions::Option<bool> portable{
+      *this, "portable",
+      desc("Set true if arch and tuning params must be filled"), init(false)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.

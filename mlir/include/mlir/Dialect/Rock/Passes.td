@@ -178,4 +178,19 @@ def RockSortDimensionsMemoryLayoutPass : Pass<"rock-sort-dimensions-memory-layou
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "arith::ArithDialect", "linalg::LinalgDialect"];
 }
 
+def PopulateArchFeaturesPass : Pass<"populate-arch-features-pass", "::mlir::func::FuncOp"> {
+  let summary = "Populate architecture and perf attributes on Rock kernel ops";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+  let options = [
+    Option<"arch", "arch", "std::string", "\"\"",
+      "Arch for target ISA">,
+    Option<"num_cu", "num_cu", "int", "0",
+      "Number of compute units">,
+    Option<"xdlopsV2", "xdlopsV2", "bool", "false",
+      "xdlops on or off">,
+    Option<"perf_config", "perf-config", "std::string", "", "Optional tuning config string"> 
+  ];
+}
+
+
 #endif // MLIR_DIALECT_ROCK_PASSES
