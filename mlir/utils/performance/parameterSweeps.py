@@ -296,7 +296,7 @@ async def dropGoodConfig(config, options: Options, paths: Paths):
             print("-" * 100)
             print(f"{result.name}: {multilineRepr(config)}")
     if result == TestResult.FAIL:
-        if options.logFailures and not isinstance(config, MLIROnlyConfig):
+        if options.logFailures:
             with open("failing_attn_configs.txt", "a") as f:
                 f.write(multilineRepr(config) + "\n")
         return config
