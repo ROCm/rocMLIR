@@ -300,7 +300,7 @@ async def dropGoodConfig(config, options: Options, paths: Paths):
         if isinstance(config, MLIROnlyConfig):
             print(f"{result.name}: {config!r}")
         else:
-            print("" + "-" * 100)
+            print("-" * 100)
             print(f"{result.name}: {multilineRepr(config)}")
     if result == TestResult.FAIL:
         if options.logFailures and not isinstance(config, MLIROnlyConfig):
