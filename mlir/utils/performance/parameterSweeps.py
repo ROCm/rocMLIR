@@ -265,7 +265,7 @@ Errors = {runnerErrs.decode('utf-8')}
 Return code = {runner.returncode}""", file=sys.stderr)
         return TestResult.FAIL
 
-    output_lines = [line.strip() for line in runnerOut.splitlines() if line.strip()]
+    output_lines = [line.strip() for line in runnerOut.splitlines() if len(line.strip()) > 0]
     expected_output = "[1 1 1]"
     all_correct = all(line == expected_output for line in output_lines)
     if not all_correct:
