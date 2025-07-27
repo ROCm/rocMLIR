@@ -265,23 +265,16 @@ Errors = {runnerErrs.decode('utf-8')}
 Return code = {runner.returncode}""", file=sys.stderr)
         return TestResult.FAIL
 
-    if isinstance(config, perfRunner.AttentionConfiguration):
-        output_lines = [line.strip() for line in runnerOut.splitlines() if line.strip()]
-        expected_output = "[1 1 1]"
-        all_correct = all(line == expected_output for line in output_lines)
-        if not all_correct:
-            print(f"""Config returned incorrect result
+    output_lines = [line.strip() for line in runnerOut.splitlines() if line.strip()]
+    expected_output = "[1 1 1]"
+    all_correct = all(line == expected_output for line in output_lines)
+    if not all_correct:
+        print(f"""Config returned incorrect result
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}""", file=sys.stderr)
-            return TestResult.FAIL
-        return TestResult.PASS
-    else:
-        if not CORRECT_RESULT_RE.search(runnerOut):
-            print(f"""Config returned incorrect result
-Output = {runnerOut}
-Errors = {runnerErrs.decode('utf-8')}""", file=sys.stderr)
-            return TestResult.FAIL
-        return TestResult.PASS
+        return TestResult.FAIL
+    return TestResult.PASS
+
 
 IterType = TypeVar('IterType')
 def grouper(iterable: Iterable[IterType], n: int):
