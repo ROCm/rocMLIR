@@ -152,7 +152,12 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   if(options.portable) {
-      funcPm.addPass(createPopulateArchFeaturesPass());
+      PopulateArchFeaturesPassOptions popOpts;
+      popOpts.triple = options.triple;
+      popOpts.arch = options.chip;
+      popOpts.num_cu = options.numCU;
+      popOpts.perf_config = options.perfConfig;
+      funcPm.addPass(createPopulateArchFeaturesPass(popOpts));
   }
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));

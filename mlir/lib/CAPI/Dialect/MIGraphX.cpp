@@ -155,26 +155,70 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
 }
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
-                                                       const char *arch) {
+                                                       const char *arch,
+						       bool portable = false) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
-  mlir::rock::KernelOptions kOpts;
-  kOpts.tuningFallback = false;
-  mlir::rock::buildKernelPipeline(*passMan, kOpts);
   llvm::StringRef archStr(arch);
   mlir::RocmDeviceName devName;
   if (archStr.empty() || mlir::failed(devName.parse(archStr))) {
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }
+  auto triple   = devName.getTriple().str();      
+  auto chip 	= devName.getChip().str();	       
+  auto features	= devName.getFeaturesForBackend();      
+  mlir::rock::KernelOptions kOpts;
+  kOpts.tuningFallback = false;
+  if(portable) {
+      kOpts.triple   = triple;
+      kOpts.chip     = chip;
+      kOpts.features = features;
+  }
+  mlir::rock::buildKernelPipeline(*passMan, kOpts);
   mlir::rock::BackendOptions opts;
-  opts.triple = devName.getTriple().str();
-  opts.chip = devName.getChip().str();
-  opts.features = devName.getFeaturesForBackend();
+  opts.triple = triple;
+  opts.chip = chip;
+  opts.features = features;
   opts.optLevel = 3;
   mlir::rock::buildBackendPipeline(*passMan, opts);
 
   return true;
 }
+
+/*
+MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm,
+							       const char *arch,
+							       bool portable = false) {
+  auto *passMan = unwrap(pm);
+  if (failed(applyPassManagerCLOptions(*passMan)))
+    return false;
+  passMan->setNesting(mlir::PassManager::Nesting::Implicit);
+  llvm::StringRef archStr(arch);
+  mlir::RocmDeviceName devName;
+  if (archStr.empty() || mlir::failed(devName.parse(archStr))) {
+    llvm::errs() << "Invalid architecture: " << archStr << "\n";
+    return false;
+  }
+  auto triple   = devName.getTriple().str();      
+  auto chip 	= devName.getChip().str();	       
+  mlir::rock::KernelOptions kOpts;
+  kOpts.tuningFallback = false;
+  if(portable) {
+      kOpts.triple   = triple;
+      kOpts.chip     = chip;
+      kOpts.features = features;
+  }
+  mlir::rock::buildKernelPipeline(*passMan, kOpts);
+  mlir::rock::BackendOptions opts;
+  opts.triple = triple;
+  opts.chip = chip;
+  opts.features = features;
+  opts.optLevel = 3;
+  mlir::rock::buildBackendPipeline(*passMan, opts);
+
+  return true;
+}
+*/

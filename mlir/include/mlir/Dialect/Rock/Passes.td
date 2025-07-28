@@ -184,11 +184,14 @@ def PopulateArchFeaturesPass : Pass<"populate-arch-features-pass", "::mlir::func
   let options = [
     Option<"arch", "arch", "std::string", "\"\"",
       "Arch for target ISA">,
-    Option<"num_cu", "num_cu", "int", "0",
+    Option<"triple", "triple", "std::string", "\"\"",
+      "Triple for target ISA">,  
+    Option<"num_cu", "num_cu", "std::size_t", "0",
       "Number of compute units">,
     Option<"xdlopsV2", "xdlopsV2", "bool", "false",
       "xdlops on or off">,
-    Option<"perf_config", "perf-config", "std::string", "", "Optional tuning config string"> 
+    Option<"perf_config", "perf-config", "std::string", "", "Optional tuning config string">,
+    Option<"debug", "debug", "bool", "false", "Debug info">
   ];
 }
 

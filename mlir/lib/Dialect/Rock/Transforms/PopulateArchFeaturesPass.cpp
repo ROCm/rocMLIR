@@ -63,12 +63,12 @@ class PopulateArchFeaturesPass
 	PopulateArchFeaturesPass>::PopulateArchFeaturesPassBase;
   void runOnOperation() override;
   void PopulateArchFeaturesImpl(func::FuncOp &func);
-  rock::GemmFeatures getArchAttributes(Operation *op, Type inputType);
+    rock::GemmFeatures getArchFeatures(StringAttr archAttr, Type inputType);
 };
 } // end namespace
 
 rock::GemmFeatures
-PopulateArchFeaturesPass::getArchFeatures(Type inputType) {
+PopulateArchFeaturesPass::getArchFeatures(StringAttr archAttr, Type inputType) {    
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(archAttr);
   rock::GemmFeatures features = archInfo.getDefaultFeatures(inputType);
   if (xdlopsV2)
@@ -78,37 +78,52 @@ PopulateArchFeaturesPass::getArchFeatures(Type inputType) {
 
 void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
     auto context = func.getContext();
-    rock::GemmFeatures features = getArchFeatures();
     // repopulate the function
-
-    StringAttr archAttr = arch.empty() ? StringAttr(), StringAttr::get(context, arch);
-    IntegerAttr numCUAttr = num_cu.has_value() ? IntegerAttr::get(IntegerAttr::get(context, 32), *num_cu) : IntegerAttr();
+    StringAttr archAttr = StringAttr::get(context, arch);
+    IntegerAttr numCUAttr = IntegerAttr::get(IntegerType::get(context, 64), num_cu);
     BoolAttr xdlopsAttr = BoolAttr::get(context, xdlopsV2);
-    StringAttr perfConfigAttr = (!perf_config.empty()) ? StringAttr::get(context, perf_config) : StringAttr::get();
+    StringAttr perfConfigAttr = StringAttr::get(context, perf_config);
     
     if(!arch.empty()) {
-	func.setAttr("arch", 
+	func->setAttr("arch", archAttr);
     }
 
     if(num_cu > 0) {
-	func.setAttr("num_cu", IntegerAttr::get(
-			 IntegerAttr::get(context, 32), *num_cu));
+	func->setAttr("num_cu", numCUAttr);
     }
 
     if(xdlopsV2) {
-	func.setAttr("xdlopsV2", BoolAttr::get(context, xdlopsV2));
+	func->setAttr("xdlopsV2", xdlopsAttr);
     }
 
-    func.walk([&](GemmOp gemmOp) {	
-	gemmOp.print(llvm::outs());	
-	llvm::outs() << "\n";
+    if(debug) {
+	func.walk([&](mlir::Operation *op) {
+	    llvm::outs() << op->getName() << "\n";
+	});
+    }
+
+    // handle updating gemm ops
+    func.walk([&](GemmOp gemmOp) {
+	if(debug) {
+	    llvm::outs() << "Printing gemm before: ";
+	    gemmOp.print(llvm::outs());	
+	    llvm::outs() << "\n";
+	}
+	
 	// get inputType
-	rock::GemmFeatures features = getArchFeatures(gemmOp.a.getType());       
-	gemmOp.setAttr("arch", arch);
-	gemmOp.setAttr("num_cu", num_cu);
-	gemmOp.setAttr("xdlopsV2", xdlopsAttr);
-	gemmOp.setAttr("perf_config", perfConfigAttr);
-	gemmOp.setAttr("features", features);
+	auto inputType = gemmOp.getA().getType();
+	auto features = getArchFeatures(archAttr, inputType);
+	auto featuresAttr = rock::GemmFeaturesAttr::get(gemmOp.getContext(), features);
+	gemmOp->setAttr("arch", archAttr);
+	gemmOp->setAttr("num_cu", numCUAttr);
+	gemmOp->setAttr("xdlopsV2", xdlopsAttr);
+	gemmOp->setAttr("perf_config", perfConfigAttr);
+	gemmOp->setAttr("features", featuresAttr);
+	if(debug) {
+	    llvm::outs() << "Printing gemm after: ";
+	    gemmOp.print(llvm::outs());	
+	    llvm::outs() << "\n";
+	}
     });
 
     // repeat for every other rock::Op

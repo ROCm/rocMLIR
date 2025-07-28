@@ -57,6 +57,17 @@ struct KernelOptions : public PassPipelineOptions<KernelOptions> {
   PassOptions::Option<bool> portable{
       *this, "portable",
       desc("Set true if arch and tuning params must be filled"), init(false)};
+  PassOptions::Option<std::string> triple{
+      *this, "triple", desc("AMDGPU target triple: amdgcn-amd-amdhsa"),
+      init("")};
+  PassOptions::Option<std::string> chip{
+      *this, "chip", desc("AMDGPU ISA version: e.g. gfx908"), init("")};
+  PassOptions::Option<std::string> features{
+      *this, "features", desc("AMDGPU target features"), init("")};
+  PassOptions::Option<std::string> perfConfig{
+      *this, "perfConfig", desc("Problem perf config"), init("")};
+  PassOptions::Option<std::size_t> numCU{
+      *this, "numCU", desc("Number of Compute Units available"), init(0)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.
