@@ -19,7 +19,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
-#include "mlir/IR/Bytecode.h"
+#include "mlir/Bytecode/BytecodeReader.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -162,6 +162,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
 MLIR_CAPI_EXPORTED bool mlirReadBytecode(MlirModule module, size_t *size,
                                       char *bin) {
   // args will change, this is to convert bytecode back to MLIR module
+    return false;
 }
 
 // pipelines
@@ -204,9 +205,6 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   auto features	= devName.getFeaturesForBackend();      
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;
-  kOpts.triple   = triple;
-  kOpts.chip     = chip;
-  kOpts.features = features;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   mlir::rock::BackendOptions opts;
   opts.triple = triple;
@@ -232,15 +230,15 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager p
     return false;
   }
   auto triple   = devName.getTriple().str();      
-  auto chip 	= devName.getChip().str();  
+  auto chip 	= devName.getChip().str();
+  auto features	= devName.getFeaturesForBackend();      
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;
-  if(portable) {
-      kOpts.triple   = triple;
-      kOpts.chip     = chip;
-      kOpts.features = features;
-      kOpts.num_cu   = num_cu;
-  }
+  kOpts.portable = true;
+  kOpts.triple   = triple;
+  kOpts.chip     = chip;
+  kOpts.features = features;
+  kOpts.numCU   = num_cu;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   mlir::rock::BackendOptions opts;
   opts.triple = triple;
