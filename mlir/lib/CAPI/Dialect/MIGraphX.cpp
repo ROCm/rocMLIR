@@ -188,8 +188,7 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
 }
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
-                                                       const char *arch,
-						       bool portable = false) {
+                                                       const char *arch) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
@@ -205,11 +204,9 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   auto features	= devName.getFeaturesForBackend();      
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;
-  if(portable) {
-      kOpts.triple   = triple;
-      kOpts.chip     = chip;
-      kOpts.features = features;
-  }
+  kOpts.triple   = triple;
+  kOpts.chip     = chip;
+  kOpts.features = features;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   mlir::rock::BackendOptions opts;
   opts.triple = triple;
@@ -223,8 +220,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm,
 							       const char *arch,
-							       std::size_t num_cu,
-							       bool portable = false) {
+							       std::size_t num_cu) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
