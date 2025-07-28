@@ -102,7 +102,7 @@ struct AccelEmitter {
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
                        StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
+                       GemmLDSLayout ldsLayout,
                        bool doSplitKAcrossThreadsFirst = false) const = 0;
 
   /// This functions creates the subtile views that is :
@@ -181,7 +181,7 @@ struct MfmaEmitter : public AccelEmitter {
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
                        StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
+                       GemmLDSLayout ldsLayout,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
@@ -229,7 +229,7 @@ struct WmmaEmitter : public AccelEmitter {
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
                        StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
+                       GemmLDSLayout ldsLayout,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(

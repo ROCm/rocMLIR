@@ -492,6 +492,22 @@ def Rock_GemmFeatures
 
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
+// GEMM Layouts
+def Rock_GemmLDSLayoutDxK : I32EnumAttrCase<"DxK", 0>;
+def Rock_GemmLDSLayoutKxD : I32EnumAttrCase<"KxD", 1>;
+def Rock_GemmLDSLayoutKxDxkpack : I32EnumAttrCase<"KxDxkpack", 2>;
+
+def Rock_GemmLDSLayout
+    : Rock_I32Enum<"GemmLDSLayout", "GEMM LDS layout type",
+                   [Rock_GemmLDSLayoutDxK, Rock_GemmLDSLayoutKxD,
+                    Rock_GemmLDSLayoutKxDxkpack]> {
+  let cppNamespace = "::mlir::rock";
+  let genSpecializedAttr = 0;
+}
+
+def Rock_GemmLDSLayoutAttr
+    : EnumAttr<Rock_Dialect, Rock_GemmLDSLayout, "GemmLDSLayout">;
+
 // Misc Attrs
 def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
   let mnemonic = "pipeline";

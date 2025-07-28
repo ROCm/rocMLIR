@@ -796,7 +796,8 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
+      /*cTransposed=*/nullptr, /*accelLayoutA=*/nullptr,
+      /*accelLayoutB=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
 
@@ -1158,7 +1159,8 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
   auto gemm = b.create<GemmOp>(
       loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
+      /*cTransposed=*/nullptr, /*accelLayoutA=*/nullptr,
+      /*accelLayoutB=*/nullptr, op.getArchAttr(), op.getNumCUAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
@@ -1490,7 +1492,8 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
     b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                     /*cTransposed=*/nullptr, op.getArchAttr(),
+                     /*cTransposed=*/nullptr, /*accelLayoutA=*/nullptr,
+                     /*accelLayoutB=*/nullptr, op.getArchAttr(),
                      op.getNumCUAttr(), op.getFeaturesAttr(), storeMethod,
                      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
                      tuningParams);

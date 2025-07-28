@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 
+import reportUtils
 import pulp
 import numpy as np
 import re
@@ -278,26 +279,20 @@ class PerfConfigsFinder():
         unique_data_types = self.df['DataType'].unique()
 
         targetColumns = []
+        # make a copy so we do not modify the original list
         if self.op == "gemm":
-            targetColumns = ['Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N']
+            targetColumns = list(reportUtils.GEMM_TEST_PARAMETERS)
         else:
-            targetColumns = [
-                'Chip',
-                'Direction',
-                'InputLayout',
-                'N',
-                'C',
-                'H',
-                'W',
-                'K',
-                'Y',
-                'X',
-                'DilationH',
-                'DilationW',
-                'StrideH',
-                'StrideW',
-                'PaddingH',
-                'PaddingW']
+            targetColumns = list(reportUtils.CONV_TEST_PARAMETERS)
+            
+        # we remove the columns that are not needed for this.
+        # this makes sure any new columns added to 
+        # GEMM_TEST_PARAMETERS/CONV_TEST_PARAMETERS will be used here.
+        targetColumns.remove('DataType')
+        if 'OutDataType' in targetColumns:
+            targetColumns.remove('OutDataType')
+        targetColumns.remove('numCU')
+        targetColumns.remove('PerfConfig')
 
         for data_type in unique_data_types:
             df_typed = self.df[self.df['DataType'] == data_type]

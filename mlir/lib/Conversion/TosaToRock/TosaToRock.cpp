@@ -787,7 +787,8 @@ public:
         numCU.has_value() ? rw.getI32IntegerAttr(numCU.value()) : nullptr;
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
-        arch, numCUAttr, rw.getAttr<rock::GemmFeaturesAttr>(features),
+        /*accelLayoutA=*/nullptr, /*accelLayoutB=*/nullptr, arch, numCUAttr,
+        rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
         /*params=*/nullptr);

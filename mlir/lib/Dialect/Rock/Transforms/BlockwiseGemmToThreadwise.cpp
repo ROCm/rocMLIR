@@ -464,10 +464,10 @@ struct BlockwiseGemmAccelRewritePattern
 
     Value wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-        op.getRotateMWithK(), op.getDirectToLDS(), op.getLdsLayoutMxK());
+        op.getRotateMWithK(), op.getDirectToLDS(), op.getLdsLayoutA());
     Value wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
         b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-        op.getRotateNWithK(), op.getDirectToLDS(), op.getLdsLayoutNxK());
+        op.getRotateNWithK(), op.getDirectToLDS(), op.getLdsLayoutB());
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {

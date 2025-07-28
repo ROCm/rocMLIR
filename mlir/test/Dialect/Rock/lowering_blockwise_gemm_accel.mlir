@@ -13,6 +13,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
     blockSize= 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    ldsLayoutA = #rock<GemmLDSLayout KxDxkpack>, 
+    ldsLayoutB = #rock<GemmLDSLayout KxDxkpack>,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,
@@ -39,6 +41,8 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<128xvector<8xi
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    ldsLayoutA = #rock<GemmLDSLayout KxDxkpack>, 
+    ldsLayoutB = #rock<GemmLDSLayout KxDxkpack>,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 8,
@@ -67,6 +71,8 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8(%matrixA : memref<1024xvector<8xf8E
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    ldsLayoutA = #rock<GemmLDSLayout KxDxkpack>, 
+    ldsLayoutB = #rock<GemmLDSLayout KxDxkpack>,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
@@ -95,6 +101,8 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp(%matrixA : memref<1024xvector<8
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    ldsLayoutA = #rock<GemmLDSLayout KxDxkpack>, 
+    ldsLayoutB = #rock<GemmLDSLayout KxDxkpack>,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
@@ -128,8 +136,8 @@ func.func @rock_blockwise_gemm_accel_direct_to_lds(%matrixA : memref<256xvector<
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     directToLDS,
-    ldsLayoutMxK,
-    ldsLayoutNxK,
+    ldsLayoutA = #rock<GemmLDSLayout DxK>, 
+    ldsLayoutB = #rock<GemmLDSLayout DxK>,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,

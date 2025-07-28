@@ -201,6 +201,8 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>,
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    ldsLayoutA = #rock<GemmLDSLayout KxDxkpack>, 
+    ldsLayoutB = #rock<GemmLDSLayout KxDxkpack>,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -230,6 +232,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<12288xf32, 3>
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    ldsLayoutA = #rock<GemmLDSLayout KxDxkpack>, 
+    ldsLayoutB = #rock<GemmLDSLayout KxDxkpack>,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,

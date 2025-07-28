@@ -16,6 +16,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import argparse
 import math
+import reportUtils
 import os
 from hip import hip
 
@@ -46,7 +47,17 @@ def assignNumCu():
 def analyzeGemmFile(file, n):
     df = pd.read_csv(file, sep='\t')
 
-    gemmKeys = ['TransA', 'TransB', 'G', 'M', 'K', 'N']
+    # make a copy so we do not modify the original list
+    gemmKeys = list(reportUtils.GEMM_TEST_PARAMETERS)
+        
+    # we remove the columns that are not needed for this.
+    # this makes sure any new columns added to 
+    # GEMM_TEST_PARAMETERS/CONV_TEST_PARAMETERS will be used here.
+    gemmKeys.remove('DataType')
+    gemmKeys.remove('OutDataType')
+    gemmKeys.remove('Chip')
+    gemmKeys.remove('numCU')
+    gemmKeys.remove('PerfConfig')
     perfConfigParams = ['MPerBlock', 'NPerBlock', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack', 'splitKFactor', 'forceUnroll', 'ThreadCopyMore']
 
     assert df["PerfConfig"].str.startswith("v2:").all(), "PerfConfig that doesn't start with v2: found"
@@ -72,21 +83,9 @@ def analyzeGemmFile(file, n):
 
     list = pd.concat(topList)
 
-    df[['Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-       'TransB', 'G', 'M', 'K', 'N', 'PerfConfig', 'LDSBankConflict', 'TFlops',
-       'MPerBlock', 'NPerBlock', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack',
-       'splitKFactor', 'forceUnroll', 'ThreadCopyMore', 'ArithmeticIntensity', 'Occupancy', 'WorkImbalance']] = df[['Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-       'TransB', 'G', 'M', 'K', 'N', 'PerfConfig', 'LDSBankConflict', 'TFlops',
-       'MPerBlock', 'NPerBlock', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack',
-       'splitKFactor', 'forceUnroll', 'ThreadCopyMore', 'ArithmeticIntensity', 'Occupancy', 'WorkImbalance']].apply(pd.to_numeric, errors='coerce')
+    df = df.apply(pd.to_numeric, errors='coerce')
 
-    list[['Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-       'TransB', 'G', 'M', 'K', 'N', 'PerfConfig', 'LDSBankConflict', 'TFlops',
-       'MPerBlock', 'NPerBlock', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack',
-       'splitKFactor', 'forceUnroll', 'ThreadCopyMore', 'ArithmeticIntensity', 'Occupancy', 'WorkImbalance']] = list[['Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-       'TransB', 'G', 'M', 'K', 'N', 'PerfConfig', 'LDSBankConflict', 'TFlops',
-       'MPerBlock', 'NPerBlock', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack',
-       'splitKFactor', 'forceUnroll', 'ThreadCopyMore', 'ArithmeticIntensity', 'Occupancy', 'WorkImbalance']].apply(pd.to_numeric, errors='coerce')   
+    list = list.apply(pd.to_numeric, errors='coerce')   
 
     params = ['MPerBlock', 'NPerBlock', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack', 'splitKFactor']
 

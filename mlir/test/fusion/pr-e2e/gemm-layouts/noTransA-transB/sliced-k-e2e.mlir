@@ -4,7 +4,7 @@
 
 // CLONE: [1 1 1]
 
-// EMITKEY: -t f16 -out_datatype f16 -transA false -transB true -g 2 -m 4096 -n 640 -k 320
+// EMITKEY: -t f16 -out_datatype f16 -transA false -transB true -accelLayoutA false -accelLayoutB false -g 2 -m 4096 -n 640 -k 320
 
 // VECTORIZATION: aVectorDim: GemmDimension::K
 // VECTORIZATION-NEXT: aVectorLen: 8

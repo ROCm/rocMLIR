@@ -16,6 +16,7 @@
 
 // GPU:Kernel pipeline:
 // GPU-NEXT:builtin.module(func.func(rock-affix-params{fallback=false},
+// GPU-NEXT:rock-expand-accel-layout-transform,
 // GPU-NEXT:rock-conv-to-gemm,
 // GPU-NEXT:rock-gemm-linalg-splitk-normalization,
 // GPU-NEXT:rock-gemm-to-gridwise,

@@ -809,7 +809,7 @@ class GemmConfiguration(PerfConfiguration):
         bankConflict = getBankConflict(getProfilerOutputPath(self.arch, BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
         values = [self.dataType, self.outDataType, self.chip, self.numCU, self.transA, self.transB, \
-                   self.g, self.m, self.k, self.n, self.perfConfig, bankConflict, self.computeTFlops(nanoSeconds)]
+                   self.accelLayoutA, self.accelLayoutB, self.g, self.m, self.k, self.n, self.perfConfig, bankConflict, self.computeTFlops(nanoSeconds)]
         assert(len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
@@ -831,6 +831,8 @@ class GemmConfiguration(PerfConfiguration):
                            '-n', str(self.n),
                            f"-transA={self.transA}",
                            f"-transB={self.transB}",
+                           f"-accelLayoutA={self.accelLayoutA}",
+                           f"-accelLayoutB={self.accelLayoutB}",
                            '--kernel-repeats', str(MLIR_N_REPEATS),
                            f"--perf_config={self.perfConfig}"])
 
@@ -849,6 +851,8 @@ class GemmConfiguration(PerfConfiguration):
         n = None
         transA = None
         transB = None
+        accelLayoutA = False
+        accelLayoutB = False
         outDataType = None
         perf_config = ''
         for i in range(0, len(argv), 2):
@@ -868,6 +872,10 @@ class GemmConfiguration(PerfConfiguration):
                 transA = (val.lower() in ["1", "true"])
             elif opt.endswith("-transB"):
                 transB = (val.lower() in ["1", "true"])
+            elif opt.endswith("-accelLayoutA"):
+                accelLayoutA = (val.lower() in ["1", "true"])
+            elif opt.endswith("-accelLayoutB"):
+                accelLayoutB = (val.lower() in ["1", "true"])
             elif opt.endswith("-out_datatype"):
                 outDataType = val.lower()
             elif opt.endswith("-perf_config"):
@@ -878,15 +886,16 @@ class GemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, outDataType, g, m, k, n, transA, transB, arch, numCU, perf_config)
+        return cls(dtype, outDataType, g, m, k, n, transA, transB, accelLayoutA, accelLayoutB, arch, numCU, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} -out_datatype {self.outDataType} "
                 + f"-transA {str(self.transA).lower()} -transB {str(self.transB).lower()} "
+                + f"-accelLayoutA {str(self.accelLayoutA).lower()} -accelLayoutB {str(self.accelLayoutB).lower()} "
                 + f"-g {self.g} -m {self.m} -n {self.n} -k {self.k}")
 
     def __init__(self, dtype: str, outDataType: str, g: int, m: int, k: int, n: int,
-                 transA: bool, transB: bool, arch: str, numCU: int, perf_config: str = ''):
+                 transA: bool, transB: bool, accelLayoutA: bool, accelLayoutB: bool, arch: str, numCU: int, perf_config: str = ''):
         if dtype not in DATA_TYPES_GEMM:
             raise ValueError(f"Invalid datatype: {dtype}")
         
@@ -898,6 +907,8 @@ class GemmConfiguration(PerfConfiguration):
         self.n = n
         self.transA = transA
         self.transB = transB
+        self.accelLayoutA = accelLayoutA
+        self.accelLayoutB = accelLayoutB
         self.perfConfig = perf_config
 
         self.arch = arch
@@ -1495,7 +1506,6 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF] + getMetricArgsForRocprof(arch) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME, '--' ,paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
-
     runPipeline([rocmlirGenCommand.split(), rocmlirDriverCommand, profilerCommand])
 
 # Benchmarking function.

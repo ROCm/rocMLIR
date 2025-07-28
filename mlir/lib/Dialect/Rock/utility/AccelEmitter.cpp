@@ -410,7 +410,8 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName, bool rotateDWithK,
-                                        bool directToLds, bool ldsLayoutDxK,
+                                        bool directToLds,
+                                        GemmLDSLayout ldsLayout,
                                         bool doSplitKAcrossThreadsFirst) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
@@ -433,7 +434,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
   // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
   // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
-  if (directToLds) {
+  if (directToLds && ldsLayout != GemmLDSLayout::KxDxkpack) {
     kIter *= kPack;
     kPerBlock *= kPack;
     assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
@@ -489,7 +490,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    if (ldsLayoutDxK)
+    if (ldsLayout == GemmLDSLayout::DxK)
       offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
     else
       offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
@@ -544,7 +545,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    if (ldsLayoutDxK)
+    if (ldsLayout == GemmLDSLayout::DxK)
       offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
     else
       offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
@@ -810,7 +811,8 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                                         Value buffer, int64_t blockSize,
                                         int64_t dInCopyPerThread,
                                         StringRef dName, bool rotateDWithK,
-                                        bool directToLds, bool ldsLayoutDxK,
+                                        bool directToLds,
+                                        GemmLDSLayout ldsLayout,
                                         bool doSplitKAcrossThreadsFirst) const {
 
   // Extract relevant tuning parameters
@@ -822,7 +824,8 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t kPack = tuningParams.getKpack();
   // TODO: gfx10 supports directToLDS. Implement it.
   assert(!directToLds && "direct to LDS not supported for WMMA");
-  assert(!ldsLayoutDxK && "WMMA only supports LDS layout KxD for now");
+  assert(ldsLayout == GemmLDSLayout::KxDxkpack &&
+         "WMMA only supports LDS layout KxDxkpack for now");
 
   // Extract relevant emitter parameters
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;

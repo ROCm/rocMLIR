@@ -542,7 +542,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
 
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
-        transposedA, transposedB, op.getCTransposedAttr(), op.getArchAttr(),
+        transposedA, transposedB, op.getCTransposedAttr(),
+        op.getAAccelLayoutAttr(), op.getBAccelLayoutAttr(), op.getArchAttr(),
         op.getNumCUAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
