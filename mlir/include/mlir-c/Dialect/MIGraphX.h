@@ -55,7 +55,12 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs);
 // and return the compiled binary when buffer is provided
 MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
                                       char *bin);
-
+    
+// Returns the size of MLIR bytecode if called with null ptr
+// and return the MLIR byte when buffer is provided
+MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
+                                      char *bin)
+    
 // pipelines
 
 /// Add the high-level pipeline that creates something that can be tuned.
@@ -76,6 +81,16 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm);
 /// receive the results of the high-level or applicability pipelines.
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *arch);
+
+    
+/// Adds a full compile pipeline to the pass manager. This pipeline may either
+/// receive the results of the high-level or applicability pipelines.
+/// Accepts arch and num_cu to fill in additional arch details as needed
+MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm,
+							       const char *arch,
+							       std::size_t num_cu);
+
+
 #ifdef __cplusplus
 }
 #endif
