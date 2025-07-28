@@ -19,8 +19,11 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
+#include "mlir/IR/Bytecode.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/raw_ostream.h"
 #include <mutex>
 #include <vector>
 
@@ -131,6 +134,36 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
   return success;
 }
 
+// Returns the size of MLIR bytecode if called with null ptr
+// and return the MLIR byte when buffer is provided
+MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
+                                      char *bin) {
+  if (bin == nullptr && size == nullptr)
+    return false;
+  auto mod = unwrap(module);
+
+ llvm::SmallVector<char, 128> buffer;
+  llvm::raw_svector_ostream os(buffer);
+
+  if (failed(mlir::writeBytecodeToFile(mod.getOperation(), os))) {
+    return false;
+  }
+
+  if (bin == nullptr) {
+    *size = buffer.size();
+  } else { // copy data (buffer) to user input (bin)
+    std::memcpy(bin, buffer.data(), buffer.size());
+    if (size) 
+      *size = buffer.size();
+  }
+  return true;
+}
+
+MLIR_CAPI_EXPORTED bool mlirReadBytecode(MlirModule module, size_t *size,
+                                      char *bin) {
+  // args will change, this is to convert bytecode back to MLIR module
+}
+
 // pipelines
 
 MLIR_CAPI_EXPORTED
@@ -188,9 +221,9 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   return true;
 }
 
-/*
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm,
 							       const char *arch,
+							       std::size_t num_cu,
 							       bool portable = false) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
@@ -203,13 +236,14 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager p
     return false;
   }
   auto triple   = devName.getTriple().str();      
-  auto chip 	= devName.getChip().str();	       
+  auto chip 	= devName.getChip().str();  
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;
   if(portable) {
       kOpts.triple   = triple;
       kOpts.chip     = chip;
       kOpts.features = features;
+      kOpts.num_cu   = num_cu;
   }
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   mlir::rock::BackendOptions opts;
@@ -221,4 +255,3 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager p
 
   return true;
 }
-*/
