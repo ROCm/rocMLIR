@@ -1071,7 +1071,7 @@ public:
     }
     auto rockGemm = rock::GemmOp::create(
         rw, loc, outputType, brA, brB, output, brAScale, brBScale, transposeA,
-        transposeB, transposeC, nullptr, nullptr,
+        transposeB, transposeC, /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr, /*accelLayoutA=*/nullptr, /*accelLayoutB=*/nullptr,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,

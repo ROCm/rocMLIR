@@ -295,7 +295,8 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
 
 static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
                                                 const VectorDimInfo &vecDimInfo,
-                                                bool directToLDS) {
+                                                bool directToLDS,
+                                                bool accelLayout) {
   LDSLayoutConfigDim cfg;
   int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
   int64_t copyDPerThread = vecDimInfo.inDPerThread;
@@ -307,21 +308,24 @@ static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   bool isPossibleToVectorizeD = (kpack < maxVlen && copyDPerThread > 1);
   cfg.doRotateWithK = isKContiguousDim && !isPossibleToVectorizeD;
   cfg.doSwapThreadIterSubDims = !isKContiguousDim && !isPossibleToVectorizeD;
-  cfg.ldsLayoutDxK = false;
+  cfg.ldsLayout = GemmLDSLayout::KxDxkpack;
 
   // For direct to LDS, we can't use rotateWithK or swapThreadIterSubDims
   // because we there's no LDS write instruction.
-  // Also, we use the same memory layout as the global memory layout (KxD or
-  // DxK).
-  if (directToLDS) {
+  // Also, we use the same memory layout as the global memory layout (KxD,
+  // DxK or KxDxkpack if accelLayout).
+  if (directToLDS || accelLayout) {
     cfg.doRotateWithK = false;
     cfg.doSwapThreadIterSubDims = false;
-    cfg.ldsLayoutDxK = isKContiguousDim;
+
+    if (directToLDS)
+      cfg.ldsLayout =
+          isKContiguousDim ? GemmLDSLayout::DxK : GemmLDSLayout::KxD;
   }
   LLVM_DEBUG(llvm::dbgs() << "rotateWithK: " << cfg.doRotateWithK << "\n"
                           << "doSwapThreadIterSubDimsForM: "
                           << cfg.doSwapThreadIterSubDims << "\n"
-                          << "ldsLayoutDxK: " << cfg.ldsLayoutDxK << "\n");
+                          << "ldsLayout: " << cfg.ldsLayout << "\n");
   return cfg;
 }
 
@@ -489,16 +493,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // direct to LDS not supported for non-accel GEMM
     bool directToLDS = false;
+    bool accelLayout = false;
 
     FailureOr<VectorDimInfo> maybeVecDimInfoA =
         getVectorDim(loc, op.getA(), elementTypeA, blockSize, kPerBlock,
-                     mPerBlock, kpack, directToLDS);
+                     mPerBlock, kpack, directToLDS, accelLayout);
     if (failed(maybeVecDimInfoA)) {
       return failure();
     }
     FailureOr<VectorDimInfo> maybeVecDimInfoB =
         getVectorDim(loc, op.getB(), elementTypeB, blockSize, kPerBlock,
-                     nPerBlock, kpack, directToLDS);
+                     nPerBlock, kpack, directToLDS, accelLayout);
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
@@ -516,8 +521,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     FailureOr<RegsAsMatrixSubTiles> maybeABufferViews = getLoadRegsAsTileViews(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-        maybeVecDimInfoA->inDPerThread,
-        maybeVecDimInfoA->vectorDim == GemmDimension::K, directToLDS);
+        maybeVecDimInfoA->inDPerThread, maybeVecDimInfoA->repeatKPerThread,
+        maybeVecDimInfoA->vectorDim == GemmDimension::K, directToLDS,
+        accelLayout);
     if (failed(maybeABufferViews)) {
       return failure();
     }
@@ -525,8 +531,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     FailureOr<RegsAsMatrixSubTiles> maybeBBufferViews = getLoadRegsAsTileViews(
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-        maybeVecDimInfoB->inDPerThread,
-        maybeVecDimInfoB->vectorDim == GemmDimension::K, false);
+        maybeVecDimInfoB->inDPerThread, maybeVecDimInfoB->repeatKPerThread,
+        maybeVecDimInfoB->vectorDim == GemmDimension::K, directToLDS,
+        accelLayout);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -554,25 +561,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value storeBufferB = GpuAllocOp::create(b, loc, loadBufferB.getType());
 
     LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
-        elementTypeA, kpack, maybeVecDimInfoA.value(), false);
+        elementTypeA, kpack, maybeVecDimInfoA.value(), false, false);
     LDSLayoutConfigDim ldsLayoutConfigB = getLDSLayoutConfigDim(
-        elementTypeB, kpack, maybeVecDimInfoB.value(), false);
+        elementTypeB, kpack, maybeVecDimInfoB.value(), false, false);
 
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
     ArrayAttr loadBufferAViews =
         invertTransforms(b, loc, maybeABufferViews->threadSubTile);
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
-    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
-    // vectorization Hence, creating the view w.r.t global that correspond to
+    // Prior to LDS store, we need re-arrange register buffer to maximize LDS
+    // vectorization. Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeALdsStoreViews =
         getPackedRegsAsTileViews(
             b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, mPerBlock, maybeVecDimInfoA->inKPerThread,
-            maybeVecDimInfoA->inDPerThread, kpack,
-            maybeVecDimInfoA->vectorDim == GemmDimension::K,
-            ldsLayoutConfigA.doSwapThreadIterSubDims);
+            maybeVecDimInfoA->inDPerThread, maybeVecDimInfoA->repeatKPerThread,
+            kpack, maybeVecDimInfoA->vectorDim == GemmDimension::K,
+            ldsLayoutConfigA.doSwapThreadIterSubDims, false);
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
@@ -582,16 +589,16 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     ArrayAttr loadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
-    // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
-    // vectorization Hence, creating the view w.r.t global that correspond to
+    // Prior to LDS store, we need re-arrange register buffer to maximize LDS
+    // vectorization. Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
     FailureOr<RegsAsMatrixSubTiles> maybeBLdsStoreViews =
         getPackedRegsAsTileViews(
             b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
-            maybeVecDimInfoB->inDPerThread, kpack,
-            maybeVecDimInfoB->vectorDim == GemmDimension::K,
-            ldsLayoutConfigB.doSwapThreadIterSubDims);
+            maybeVecDimInfoB->inDPerThread, maybeVecDimInfoB->repeatKPerThread,
+            kpack, maybeVecDimInfoB->vectorDim == GemmDimension::K,
+            ldsLayoutConfigB.doSwapThreadIterSubDims, false);
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }
@@ -1961,12 +1968,12 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm0NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoQ =
         getVectorDim(loc, inQ, elemTypeQLoad, blockSize, gemm0KPerBlock,
-                     gemm0NPerBlock, gemm0kpack, false);
+                     gemm0NPerBlock, gemm0kpack, false, false);
     if (failed(maybeVectorDimInfoQ)) {
       return failure();
     }
     LDSLayoutConfigDim ldsLayoutCfgNG0 = getLDSLayoutConfigDim(
-        elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value(), false);
+        elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value(), false, false);
     if (doBypassLDSForQ) {
       ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
     }
@@ -1980,7 +1987,7 @@ struct GridwiseAttentionAccelRewritePattern
     }
     FailureOr<VectorDimInfo> maybeVectorDimInfoK =
         getVectorDim(loc, inK, elemTypeKLoad, blockSize, gemm0KPerBlock,
-                     gemm0MPerBlock, gemm0kpack, false);
+                     gemm0MPerBlock, gemm0kpack, false, false);
     if (failed(maybeVectorDimInfoK)) {
       return failure();
     }
@@ -1993,7 +2000,7 @@ struct GridwiseAttentionAccelRewritePattern
                << "kVectorDim: " << maybeVectorDimInfoK->vectorDim << "\n"
                << "kVectorLen: " << maybeVectorDimInfoK->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG0 = getLDSLayoutConfigDim(
-        elemTypeK, gemm0kpack, maybeVectorDimInfoK.value(), false);
+        elemTypeK, gemm0kpack, maybeVectorDimInfoK.value(), false, false);
     ldsLayoutCfgMG0.doRotateWithK = false;
     if (doBypassLDSSecondGemm) {
       ldsLayoutCfgMG0.doSwapThreadIterSubDims = false;
@@ -2105,7 +2112,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm1NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoV =
         getVectorDim(loc, inV, elemTypeVLoad, blockSize, gemm1KPerBlock,
-                     gemm1MPerBlock, gemm1kpack, false);
+                     gemm1MPerBlock, gemm1kpack, false, false);
     if (failed(maybeVectorDimInfoV)) {
       return failure();
     }
@@ -2113,7 +2120,7 @@ struct GridwiseAttentionAccelRewritePattern
                << "vVectorDim: " << maybeVectorDimInfoV->vectorDim << "\n"
                << "vVectorLen: " << maybeVectorDimInfoV->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG1 = getLDSLayoutConfigDim(
-        elemTypeV, gemm1kpack, maybeVectorDimInfoV.value(), false);
+        elemTypeV, gemm1kpack, maybeVectorDimInfoV.value(), false, false);
     int64_t gemm1InMPerThread = maybeVectorDimInfoV->inDPerThread;
     FailureOr<RegsAsMatrixSubTiles> maybeGemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
@@ -2205,26 +2212,28 @@ struct GridwiseAttentionAccelRewritePattern
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeK, elemTypeKLoad,
         ldsLayoutCfgMG0.doRotateWithK, ldsLayoutCfgMG0.doSwapThreadIterSubDims,
-        ldsLayoutCfgMG0.ldsLayoutDxK, /*directToLDS=*/false,
-        /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0M, gemm0InMPerThread);
+        ldsLayoutCfgMG0.ldsLayout, /*directToLDS=*/false,
+        /*splitKAcrossThreadsFirst=*/false, /*accelLayout*/ false, gemm0G,
+        gemm0M, gemm0InMPerThread);
 
     BlockwiseMatrixParamsAttr matrixParamsQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeQ, elemTypeQLoad,
         ldsLayoutCfgNG0.doRotateWithK, ldsLayoutCfgNG0.doSwapThreadIterSubDims,
-        ldsLayoutCfgNG0.ldsLayoutDxK, /*directToLDS=*/false,
-        /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0N, gemm0InNPerThread);
+        ldsLayoutCfgNG0.ldsLayout, /*directToLDS=*/false,
+        /*splitKAcrossThreadsFirst=*/false, /*accelLayout*/ false, gemm0G,
+        gemm0N, gemm0InNPerThread);
 
     BlockwiseMatrixParamsAttr matrixParamsV = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad,
         ldsLayoutCfgMG1.doRotateWithK, ldsLayoutCfgMG1.doSwapThreadIterSubDims,
-        ldsLayoutCfgMG1.ldsLayoutDxK, /*directToLDS=*/false,
-        doBypassLDSSecondGemm, gemm0G, gemm1M, gemm1InMPerThread);
+        ldsLayoutCfgMG1.ldsLayout, /*directToLDS=*/false, doBypassLDSSecondGemm,
+        /*accelLayout*/ false, gemm0G, gemm1M, gemm1InMPerThread);
 
     BlockwiseMatrixParamsAttr matrixParamsKxQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad, /*rotateDWithK=*/false,
-        /*swapThreadIterSubDims=*/false, /*LDSLayoutDxK=*/false,
-        /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false, gemm0G,
-        gemm1N, gemm1InMPerThread);
+        /*swapThreadIterSubDims=*/false, /*LDSLayout=*/GemmLDSLayout::KxDxkpack,
+        /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false,
+        /*accelLayout*/ false, gemm0G, gemm1N, gemm1InMPerThread);
 
     // If gemm0K is equal to gemm0KPerBlock that means
     // effectively there is no K loop. Therefore, we
@@ -2801,6 +2810,10 @@ struct GridwiseGemmAccelRewritePattern
     int64_t M = aShape[2];
     int64_t N = bShape[2];
 
+    // Obtain whether we will load tensors directly in accel layout
+    bool accelLayoutA = op.getAAccelLayout();
+    bool accelLayoutB = op.getBAccelLayout();
+
     // Obtain critical tuning parameters.
     StringRef arch = rock::getArchValue(op);
     uint32_t blockSize = op.getBlockSize();
@@ -2850,16 +2863,17 @@ struct GridwiseGemmAccelRewritePattern
     // Get the vector copy layout for A and B
     FailureOr<VectorDimInfo> maybeVecDimInfoA =
         getVectorDim(loc, matA, elementTypeALoad, blockSize, kPerBlock,
-                     mPerBlock, kpack, directToLDS);
+                     mPerBlock, kpack, directToLDS, accelLayoutA);
     if (failed(maybeVecDimInfoA)) {
       return failure();
     }
     FailureOr<VectorDimInfo> maybeVecDimInfoB =
         getVectorDim(loc, matB, elementTypeBLoad, blockSize, kPerBlock,
-                     nPerBlock, kpack, directToLDS);
+                     nPerBlock, kpack, directToLDS, accelLayoutB);
     if (failed(maybeVecDimInfoB)) {
       return failure();
     }
+
     auto copyMPerThread = maybeVecDimInfoA->inDPerThread;
     auto copyNPerThread = maybeVecDimInfoB->inDPerThread;
     LLVM_DEBUG(llvm::dbgs()
@@ -2884,7 +2898,13 @@ struct GridwiseGemmAccelRewritePattern
                << "bCopyKPerThread: " << maybeVecDimInfoB->inKPerThread << "\n"
                << "copyMPerThread: " << copyMPerThread << "\n"
                << "copyNPerThread: " << copyNPerThread << "\n"
-               << "directToLDS: " << directToLDS << "\n");
+               << "aRepeatKPerThread: " << maybeVecDimInfoA->repeatKPerThread
+               << "\n"
+               << "bRepeatKPerThread: " << maybeVecDimInfoB->repeatKPerThread
+               << "\n"
+               << "directToLDS: " << directToLDS << "\n"
+               << "accelLayoutA: " << accelLayoutA << "\n"
+               << "accelLayoutB: " << accelLayoutB << "\n");
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
 
     // Get current workgroup ID.
@@ -2899,10 +2919,12 @@ struct GridwiseGemmAccelRewritePattern
         {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType},
         arch);
 
-    LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
-        elementTypeA, kpack, maybeVecDimInfoA.value(), directToLDS);
-    LDSLayoutConfigDim ldsLayoutConfigB = getLDSLayoutConfigDim(
-        elementTypeB, kpack, maybeVecDimInfoB.value(), directToLDS);
+    LDSLayoutConfigDim ldsLayoutConfigA =
+        getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value(),
+                              directToLDS, accelLayoutA);
+    LDSLayoutConfigDim ldsLayoutConfigB =
+        getLDSLayoutConfigDim(elementTypeB, kpack, maybeVecDimInfoB.value(),
+                              directToLDS, accelLayoutA);
 
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
@@ -2962,14 +2984,16 @@ struct GridwiseGemmAccelRewritePattern
     BlockwiseMatrixParamsAttr matrixParamsA = BlockwiseMatrixParamsAttr::get(
         b.getContext(), elementTypeA, elementTypeALoad,
         ldsLayoutConfigA.doRotateWithK,
-        ldsLayoutConfigA.doSwapThreadIterSubDims, ldsLayoutConfigA.ldsLayoutDxK,
-        directToLDS, /*splitKAcrossThreadsFirst=*/false, G, M, copyMPerThread);
+        ldsLayoutConfigA.doSwapThreadIterSubDims, ldsLayoutConfigA.ldsLayout,
+        directToLDS, /*splitKAcrossThreadsFirst=*/false, accelLayoutA, G, M,
+        copyMPerThread);
 
     BlockwiseMatrixParamsAttr matrixParamsB = BlockwiseMatrixParamsAttr::get(
         b.getContext(), elementTypeB, elementTypeBLoad,
         ldsLayoutConfigB.doRotateWithK,
-        ldsLayoutConfigB.doSwapThreadIterSubDims, ldsLayoutConfigB.ldsLayoutDxK,
-        directToLDS, /*splitKAcrossThreadsFirst=*/false, G, N, copyNPerThread);
+        ldsLayoutConfigB.doSwapThreadIterSubDims, ldsLayoutConfigB.ldsLayout,
+        directToLDS, /*splitKAcrossThreadsFirst=*/false, accelLayoutB, G, N,
+        copyNPerThread);
 
     // Allocate LDS.
     Value ldsByteBufferA = createLDSByteBuffer(

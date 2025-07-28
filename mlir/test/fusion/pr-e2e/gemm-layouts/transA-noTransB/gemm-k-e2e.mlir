@@ -3,7 +3,7 @@
 // RUN: rocmlir-gen --clone-harness -arch gfx1200 -fut test %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -host-pipeline migraphx,highlevel -targets gfx1200 | rocmlir-gen -ph -verifier clone -fut test_wrapper - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full --debug-only=rock-gridwise-to-blockwise -o /dev/null 2>&1 | FileCheck %s --check-prefix=VECTORIZATION
 
 // CLONE: [1 1 1]
-// EMITKEY: -t f16 -out_datatype f16 -transA true -transB false -g 2 -m 4096 -n 640 -k 320
+// EMITKEY: -t f16 -out_datatype f16 -transA true -transB false -accelLayoutA false -accelLayoutB false -g 2 -m 4096 -n 640 -k 320
 
 // VECTORIZATION: aVectorDim: GemmDimension::MorN
 // VECTORIZATION-NEXT: aVectorLen: 2

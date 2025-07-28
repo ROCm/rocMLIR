@@ -81,6 +81,64 @@ func.func @gemm_in_standard_form(%a: memref<128x72xf32>, %b: memref<72x512xf32>,
   func.return
 }
 
+// CHECK-LABEL: func.func @gemm_accel_layout_both
+// CHECK-SAME: (%[[a:.*]]: memref<128x72xf32>, %[[b:.*]]: memref<72x512xf32>, %[[c:.*]]: memref<128x512xf32>)
+func.func @gemm_accel_layout_both(%a: memref<128x72xf32>, %b: memref<72x512xf32>, %c: memref<128x512xf32>) {
+  // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[a]] by {{.*}} : memref<128x72xf32> to memref<1x72x128xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<72x512xf32> to memref<1x72x512xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] by {{.*}} : memref<128x512xf32> to memref<1x128x512xf32{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]])
+  // CHECK-SAME: aAccelLayout
+  // CHECK-SAME: bAccelLayout
+  rock.gemm %c = %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx908",
+    derivedBlockSize = 256 : i32,
+    aAccelLayout,
+    bAccelLayout,
+    gridSize = 4 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<128x512xf32> = memref<128x72xf32> * memref<72x512xf32>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_accel_layout_A
+// CHECK-SAME: (%[[a:.*]]: memref<128x72xf32>, %[[b:.*]]: memref<72x512xf32>, %[[c:.*]]: memref<128x512xf32>)
+func.func @gemm_accel_layout_A(%a: memref<128x72xf32>, %b: memref<72x512xf32>, %c: memref<128x512xf32>) {
+  // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[a]] by {{.*}} : memref<128x72xf32> to memref<1x72x128xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<72x512xf32> to memref<1x72x512xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] by {{.*}} : memref<128x512xf32> to memref<1x128x512xf32{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]])
+  // CHECK-SAME: aAccelLayout
+  // CHECK-NOT: bAccelLayout
+  rock.gemm %c = %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx908",
+    derivedBlockSize = 256 : i32,
+    aAccelLayout,
+    gridSize = 4 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<128x512xf32> = memref<128x72xf32> * memref<72x512xf32>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_accel_layout_B
+// CHECK-SAME: (%[[a:.*]]: memref<128x72xf32>, %[[b:.*]]: memref<72x512xf32>, %[[c:.*]]: memref<128x512xf32>)
+func.func @gemm_accel_layout_B(%a: memref<128x72xf32>, %b: memref<72x512xf32>, %c: memref<128x512xf32>) {
+  // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[a]] by {{.*}} : memref<128x72xf32> to memref<1x72x128xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<72x512xf32> to memref<1x72x512xf32{{.*}}>
+  // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] by {{.*}} : memref<128x512xf32> to memref<1x128x512xf32{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]])
+  // CHECK-SAME: bAccelLayout
+  // CHECK-NOT: aAccelLayout
+  rock.gemm %c = %a * %b features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set {
+    arch = "amdgcn-amd-amdhsa:gfx908",
+    derivedBlockSize = 256 : i32,
+    bAccelLayout,
+    gridSize = 4 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<128x512xf32> = memref<128x72xf32> * memref<72x512xf32>
+  func.return
+}
+
 // CHECK-LABEL: func.func @gemm_transposed_from_gridwise
 // CHECK-SAME: (%[[a:.*]]: memref<1x128x72xf32>, %[[b:.*]]: memref<1x512x72xf32>, %[[c:.*]]: memref<1x512x128xf32>)
 // CHECK-SAME: grid_size = 4

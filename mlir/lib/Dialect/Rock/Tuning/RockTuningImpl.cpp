@@ -1110,6 +1110,19 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
         problemOS << "false" << sep;
       }
     }
+    // AccelLayoutA
+    problemOS << "-accelLayoutA ";
+    if (rGemmOp.getAAccelLayout())
+      problemOS << "true ";
+    else
+      problemOS << "false ";
+
+    // AccelLayoutB
+    problemOS << "-accelLayoutB ";
+    if (rGemmOp.getBAccelLayout())
+      problemOS << "true ";
+    else
+      problemOS << "false ";
 
     // Gemmsize G/M/N/K
     problemOS << "-g " << gemmIF.getGemmSize().g << sep;

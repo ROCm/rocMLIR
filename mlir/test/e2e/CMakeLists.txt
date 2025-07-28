@@ -49,6 +49,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmBF16SplitK
     PrGemmDirectToLDS
     PrConvDirectToLDS
+    PrGemmAccelLayout
   )
   set(GEN_MODE "")
 endif()
@@ -57,6 +58,7 @@ if (ROCK_E2E_TEST_ENABLED)
   GemmVariants
   GemmScaled
   GemmScaledF32
+  GemmVariantsAccelLayout
   MixedConvLayouts
   )
   list(APPEND CONFIGS
