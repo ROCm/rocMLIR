@@ -88,7 +88,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 /// Accepts arch and num_cu to fill in additional arch details as needed
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm,
 							       const char *arch,
-							       std::size_t num_cu);
+							       size_t num_cu);
 
 
 #ifdef __cplusplus
