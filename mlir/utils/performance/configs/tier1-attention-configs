@@ -4,7 +4,7 @@
 # bert_large_uncased_1_fp16_gpu.onnx and bert_large_mlperf
 -t f16 -transQ false -transK true -transV false -transO false -g 16 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 
-#distilgpt2_1
+# distilgpt2_1
 -t f32 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 
 # stable-diffusion-2-onnx-unet
@@ -57,7 +57,7 @@
 -t f16 -transQ false -transK true -transV false -transO false -causal false -return_lse false -g 32 -seq_len_q 1 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
 
 # llama3_8b_kv_cache_prefill
--t f32 -transQ false -transK true -transV false -transO false -causal false -return_lse false -g 32 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
+-t f32 -transQ false -transK true -transV false -transO false -causal true -return_lse false -g 32 -seq_len_q 4096 -seq_len_k 4096 -head_dim_qk 128 -head_dim_v 128
 
 # mistral_8b_kv_cache_decode
 -t f32 -transQ false -transK true -transV false -transO false -g 32 -seq_len_q 1 -seq_len_k 4097 -head_dim_qk 128 -head_dim_v 128
