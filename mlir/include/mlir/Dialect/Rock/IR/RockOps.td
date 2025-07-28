@@ -150,6 +150,7 @@ def Rock_GemmOp
           Optional<TensorOrMemRefOf<[F8E8M0FNU, F32]>>:$scaleB,
           UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
           UnitAttr:$aScaleTransposed, UnitAttr:$bScaleTransposed,
+          UnitAttr:$aAccelLayout, UnitAttr:$bAccelLayout,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, OptionalAttr<I32Attr>:$derivedBlockSize,
           OptionalAttr<I32Attr>:$gridSize,
@@ -430,7 +431,7 @@ def Rock_TransformOp :
     Results<(outs AnyShaped:$output)> {
   let summary = "Tensor transformation";
   let description = [{
-    Create a viee `output` of the tensor `input` with the same element type
+    Create a view `output` of the tensor `input` with the same element type
     such that, when the coordinates used to index into `output` are passed through
     the coordinate transformations `transforms` from left to right,
     they become coordinates into the `input` tensor.
@@ -526,6 +527,7 @@ def Rock_GridwiseGemmAccelOp
           Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
           Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleA,
           Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleB,
+          UnitAttr:$aAccelLayout, UnitAttr:$bAccelLayout,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
           RockAccelTuningParamAttrInterface:$params)> {
@@ -1674,6 +1676,25 @@ def Rock_StageOp :
     let summary = "Operation whose region represents a single scheduling unit";
     let regions = (region AnyRegion:$region);
     let hasCustomAssemblyFormat = 1;
+  }
+
+  def Rock_AccelLayoutTransformOp
+      : Rock_Op<"accel_layout_transform", [Pure, ViewLikeOpInterface]>,
+        Arguments<(ins AnyShaped:$input, UnitAttr:$isA, UnitAttr:$transposed,
+            OptionalAttr<RockTuningParamAttrInterface>:$params)>,
+        Results<(outs AnyShaped:$output)> {
+    let summary = "Tensor transformation";
+    let description = [{
+    This operation represents a transformation of a tensor to an accelerator-specific layout.
+    The layout is [G x m x k x kpackperblock x mperblock x kpack] or [G x k x m x kpackperblock x mperblock x kpack].
+  }];
+    let assemblyFormat = [{
+    $input attr-dict `:` type($input) `to` type($output)
+  }];
+
+    let extraClassDeclaration = [{
+    Value getViewSource() { return getInput(); }
+  }];
   }
 
 #endif // ROCK_OPS

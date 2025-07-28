@@ -1065,6 +1065,7 @@ LogicalResult GemmOp::verify() {
              typeC = getC().getType();
 
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
+
   // The integer gemm will produce i32 and then truncate/extend to the requested
   // iN e.g. i8.
   if (isa<FloatType>(inElems) && !isa<FloatType>(outElems))

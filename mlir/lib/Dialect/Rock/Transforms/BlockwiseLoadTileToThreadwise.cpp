@@ -165,9 +165,10 @@ class LoweringBlockwiseLoadTileOp final
 
     bool doRotateWithK = matrixParams.getRotateDWithK();
     bool doSwapThreadIterSubDims = matrixParams.getSwapThreadIterSubDims();
-    bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
+    GemmLDSLayout ldsLayout = matrixParams.getLDSLayout();
     LDSLayoutConfigDim ldsLayoutConfig{doRotateWithK, doSwapThreadIterSubDims,
-                                       ldsLayoutDxK};
+                                       ldsLayout};
+    bool accelLayout = matrixParams.getAccelLayout();
 
     Type elementTypeA = matrixParamsA.getElementType();
     Type elementTypeB = matrixParamsB.getElementType();
@@ -225,7 +226,7 @@ class LoweringBlockwiseLoadTileOp final
 
     FailureOr<VectorDimInfo> maybeVecDimInfo =
         getVectorDim(loc, source, elementTypeLoad, blockSize, kPerBlock,
-                     dPerBlock, kpack, directToLDS);
+                     dPerBlock, kpack, directToLDS, accelLayout);
     if (failed(maybeVecDimInfo)) {
       return failure();
     }
@@ -281,7 +282,8 @@ class LoweringBlockwiseLoadTileOp final
         maybeBufferViews = getLoadRegsAsTileViews(
             b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-            vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+            vecDimInfo.inDPerThread, vecDimInfo.repeatKPerThread,
+            isKContiguousDim, directToLDS, accelLayout);
       }
       if (failed(maybeBufferViews))
         return failure();
@@ -357,7 +359,8 @@ class LoweringBlockwiseLoadTileOp final
               getLoadRegsAsTileViews(
                   b, loc, source, dName, bidGridOrder, bidGridLengths,
                   blockSize, kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-                  vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+                  vecDimInfo.inDPerThread, vecDimInfo.repeatKPerThread,
+                  isKContiguousDim, directToLDS, accelLayout);
           if (failed(maybeBufferViews))
             return failure();
           // We invert the transforms that are iter --> K x D slice of the
@@ -370,8 +373,9 @@ class LoweringBlockwiseLoadTileOp final
               getPackedRegsAsTileViews(
                   b, loc, source, dName, bidGridOrder, bidGridLengths,
                   blockSize, kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-                  vecDimInfo.inDPerThread, kpack, isKContiguousDim,
-                  ldsLayoutConfig.doSwapThreadIterSubDims);
+                  vecDimInfo.inDPerThread, vecDimInfo.repeatKPerThread, kpack,
+                  isKContiguousDim, ldsLayoutConfig.doSwapThreadIterSubDims,
+                  accelLayout);
           if (failed(maybeLdsStoreViews))
             return failure();
 

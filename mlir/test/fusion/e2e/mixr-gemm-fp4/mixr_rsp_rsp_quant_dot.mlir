@@ -1,5 +1,5 @@
 // RUN: rocmlir-gen --clone-harness -arch %arch -fut mlir_quant_dot_fp4 %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -host-pipeline migraphx,highlevel -targets %arch | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=EMITKEY
-// EMITKEY: -t f4E2M1FN -out_datatype f32 -transA false -transB false -scaledGemm -scale_a_dtype f8E8M0FNU -scale_b_dtype f8E8M0FNU -transScaleA false -transScaleB false -g 1 -m 256 -n 50272 -k 768 
+// EMITKEY: -t f4E2M1FN -out_datatype f32 -transA false -transB false -scaledGemm -scale_a_dtype f8E8M0FNU -scale_b_dtype f8E8M0FNU -transScaleA false -transScaleB false -accelLayoutA false -accelLayoutB false -g 1 -m 256 -n 50272 -k 768 
 
 // RUN: rocmlir-gen --clone-harness -arch %arch -fut mlir_quant_dot_fp4 %s | rocmlir-driver --kernel-pipeline=migraphx,highlevel,gpu,binary --arch %arch --mlir-print-ir-after=rock-threadwise-gemm-lowering -o /dev/null 2>&1 | FileCheck %s --check-prefixes=ASSEMBLY
 // ASSEMBLY: amdgpu.scaled_mfma

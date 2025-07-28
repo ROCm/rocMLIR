@@ -912,6 +912,7 @@ class GemmConfiguration(PerfConfiguration):
         result = OrderedDict()
         values = [
             self.datatype, self.out_dtype, self.chip, self.num_cu, self.trans_a, self.trans_b,
+            self.accel_layout_a, self.accel_layout_b,
             self.g, self.m, self.k, self.n, self.scaled_gemm, self.scale_a_dtype,
             self.scale_b_dtype, self.trans_scale_a, self.trans_scale_b, self.perfconfig,
             bank_conflict,
@@ -935,6 +936,8 @@ class GemmConfiguration(PerfConfiguration):
             str(self.m), '-k',
             str(self.k), '-n',
             str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}",
+            f"-accelLayoutA={self.accel_layout_a}",
+            f"-accelLayoutB={self.accel_layout_b}",
             *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
             f"--perf_config={self.perfconfig}"
         ])
@@ -965,6 +968,8 @@ class GemmConfiguration(PerfConfiguration):
         n = None
         trans_a = None
         trans_b = None
+        accel_layout_a = False
+        accel_layout_b = False
         out_dtype = None
         perf_config = ''
         scaled_gemm = False
@@ -998,6 +1003,10 @@ class GemmConfiguration(PerfConfiguration):
                 trans_a = (val.lower() in ["1", "true"])
             elif opt.endswith("-transB"):
                 trans_b = (val.lower() in ["1", "true"])
+            elif opt.endswith("-accelLayoutA"):
+                accel_layout_a = (val.lower() in ["1", "true"])
+            elif opt.endswith("-accelLayoutB"):
+                accel_layout_b = (val.lower() in ["1", "true"])
             elif opt.endswith("-out_datatype"):
                 out_dtype = val.lower()
             elif opt.endswith("-perf_config"):
@@ -1017,13 +1026,14 @@ class GemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, scaled_gemm, scale_a_dtype,
+        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, accel_layout_a, accel_layout_b, scaled_gemm, scale_a_dtype,
                    scale_b_dtype, trans_scale_a, trans_scale_b, arch, num_cu, perf_config)
 
     def to_command_line(self):
         result = (f"-t {self.datatype} -out_datatype {self.out_dtype} " +
                   f"-transA {str(self.trans_a).lower()} -transB {str(self.trans_b).lower()} " +
-                  f"-g {self.g} -m {self.m} -n {self.n} -k {self.k}")
+                  f"-g {self.g} -m {self.m} -n {self.n} -k {self.k} "
+                + f"-accelLayoutA {str(self.accel_layout_a).lower()} -accelLayoutB {str(self.accel_layout_b).lower()}")
         if self.scaled_gemm:
             result += " -scaledGemm"
         if self.scale_a_dtype:
@@ -1045,6 +1055,8 @@ class GemmConfiguration(PerfConfiguration):
                  n: int,
                  trans_a: bool,
                  trans_b: bool,
+                 accel_layout_a: bool, 
+                 accel_layout_b: bool,
                  scaled_gemm: bool = False,
                  scale_a_dtype: str = None,
                  scale_b_dtype: str = None,
@@ -1072,6 +1084,8 @@ class GemmConfiguration(PerfConfiguration):
         self.n = n
         self.trans_a = trans_a
         self.trans_b = trans_b
+        self.accel_layout_a = accel_layout_a
+        self.accel_layout_b = accel_layout_b
         self.perfconfig = perf_config
         self.scaled_gemm = scaled_gemm
         self.scale_a_dtype = scale_a_dtype
