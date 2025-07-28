@@ -59,7 +59,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 // Returns the size of MLIR bytecode if called with null ptr
 // and return the MLIR byte when buffer is provided
 MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
-                                      char *bin)
+					char *bin);
     
 // pipelines
 
