@@ -2134,6 +2134,10 @@ void GemmElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
   setFirstGemmIdx(index);
 }
 
+Region &GemmElementwiseGemmOp::getPreSecondGemmRegion() {
+  return getPreSecondGemmBody();
+}
+
 GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
@@ -2306,6 +2310,10 @@ void ConvElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
   setFirstGemmIdx(index);
 }
 
+Region &ConvElementwiseGemmOp::getPreSecondGemmRegion() {
+  return getPreSecondGemmBody();
+}
+
 GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
   auto strideVal = extractFromIntegerArrayAttr<int64_t>(getStrides());
   auto dilationVal = extractFromIntegerArrayAttr<int64_t>(getDilations());
@@ -2380,6 +2388,8 @@ KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
 uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
 
 void AttentionOp::setFirstGemmIndex(uint32_t index) { setFirstGemmIdx(index); }
+
+Region &AttentionOp::getPreSecondGemmRegion() { return getPreSoftmaxBody(); }
 
 GemmGemmSize AttentionOp::getGemmGemmSize() {
   ShapedType typeA = getQueries().getType(), typeB = getKeys().getType(),
