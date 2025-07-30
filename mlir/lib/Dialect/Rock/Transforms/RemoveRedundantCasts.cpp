@@ -63,17 +63,91 @@ struct RemoveRedundantTruncExtfPattern
       return failure();
     }
 
-    // Find the corresponding extf that uses this truncf's result
+    // Find the corresponding extf(s) that uses this truncf's result
+    // TODO: We still need to handle cases where the truncf is the only op in
+    // the linalg.generic
     bool changed = false;
     for (auto &extfInfo : findCorrespondingExtfs(truncf)) {
-      // Replace the user of the extf operation with the original f32 memref
-      // value and clean up the extf operation
-      LLVM_DEBUG(llvm::dbgs()
-                 << "\tReplacing extf: " << extfInfo.extfOp
-                 << " with source memref: " << extfInfo.srcMemref << "\n");
-      extfInfo.extfOp.replaceAllUsesWith(extfInfo.srcMemref);
-      extfInfo.extfOp.erase();
-      changed |= true;
+      auto extfOp = extfInfo.extfOp;
+      auto srcMemref = extfInfo.srcMemref;
+      LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfOp << " with: " << srcMemref << "\n");
+
+      auto genericOp = extfOp->getParentOfType<linalg::GenericOp>();
+      if (!genericOp) {
+        extfOp.replaceAllUsesWith(srcMemref);
+        extfOp.erase();
+        changed = true;
+        continue;
+      }
+
+      Block &bodyBlock = genericOp.getRegion().front();
+      Value extfArg = extfOp.getIn();
+      unsigned extfArgIdx = 0;
+      for (; extfArgIdx < bodyBlock.getNumArguments(); ++extfArgIdx) {
+        if (bodyBlock.getArgument(extfArgIdx) == extfArg)
+          break;
+      }
+
+      bool onlyUsedByExtf = true;
+      for (auto &use : extfArg.getUses()) {
+        if (use.getOwner() != extfOp) {
+          onlyUsedByExtf = false;
+          break;
+        }
+      }
+
+      SmallVector<Value> newInputs = genericOp.getInputs();
+      if (onlyUsedByExtf) {
+        newInputs[extfArgIdx] = srcMemref;
+      } else {
+        newInputs.push_back(srcMemref);
+      }
+
+      // Prepare new block arguments
+      SmallVector<Type> newBlockArgTypes;
+      for (Value v : newInputs)
+        newBlockArgTypes.push_back(v.getType());
+      for (unsigned i = 0; i < genericOp.getOutputs().size(); ++i)
+        newBlockArgTypes.push_back(bodyBlock.getArgument(genericOp.getInputs().size() + i).getType());
+
+      // Create a new block and IRMapping
+      Block *newBlock = new Block();
+      IRMapping mapping;
+      for (unsigned i = 0; i < newBlockArgTypes.size(); ++i)
+        newBlock->addArgument(newBlockArgTypes[i], bodyBlock.getArgument(i).getLoc());
+      for (unsigned i = 0; i < bodyBlock.getNumArguments(); ++i)
+        mapping.map(bodyBlock.getArgument(i), newBlock->getArgument(i));
+
+      // Clone all ops except extfOp, replacing uses of extfOp with the correct block argument
+      for (auto &op : bodyBlock) {
+        if (&op == extfOp) {
+          // Replace extfOp with the correct block argument
+          if (onlyUsedByExtf)
+            extfOp.replaceAllUsesWith(newBlock->getArgument(extfArgIdx));
+          else
+            extfOp.replaceAllUsesWith(newBlock->getArgument(newInputs.size() - 1));
+          continue;
+        }
+        rewriter.clone(op, mapping);
+      }
+
+      // Create the new linalg.generic op
+      auto newGenericOp = rewriter.create<linalg::GenericOp>(
+          genericOp.getLoc(),
+          genericOp.getResultTypes(),
+          newInputs,
+          genericOp.getOutputs(),
+          genericOp.getIndexingMaps(),
+          genericOp.getIteratorTypes(),
+          genericOp.getDocAttr(),
+          genericOp.getLibraryCallAttr());
+
+      // Move the new block into the new region
+      newGenericOp.getRegion().push_back(newBlock);
+
+      // Replace the old linalg.generic with the new one
+      rewriter.replaceOp(genericOp, newGenericOp->getResults());
+      changed = true;
     }
 
     return changed ? success() : failure();
@@ -187,29 +261,31 @@ private:
   }
 
   std::optional<StoreInfo> findStoreOp(arith::TruncFOp truncfOp) const {
-    // We have already asserted that there is exactly one use of the truncfOp
-    auto *userOp = truncfOp->getUses().begin()->getOwner();
-
     // Collect the input memref to the truncfOp
     auto srcMemref = getSourceMemref(truncfOp.getIn());
 
-    // Check for different types of store operations
-    if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(userOp)) {
-      return StoreInfo{storeOp, getRootMemref(storeOp.getDest()), srcMemref};
-    } else if (auto storeOp = dyn_cast<memref::StoreOp>(userOp)) {
-      return StoreInfo{storeOp, getRootMemref(storeOp.getMemref()), srcMemref};
-    } else if (auto yieldOp = dyn_cast<linalg::YieldOp>(userOp)) {
-      // The parent op of the yield should be a linalg::GenericOp
-      Operation *parentOp = yieldOp->getParentOp();
-      if (auto genericOp = dyn_cast<linalg::GenericOp>(parentOp)) {
-        // Find which yield value is the result of truncfOp
-        for (unsigned i = 0; i < yieldOp.getValues().size(); ++i) {
-          if (yieldOp.getValues()[i] == truncfOp.getResult()) {
-            // Map yield value index to output memref
-            if (i < genericOp.getOutputs().size()) {
-              return StoreInfo{genericOp,
-                               getRootMemref(genericOp.getOutputs()[i]),
-                               srcMemref};
+    // Right now we assume that there is only going to be a single store of the
+    // truncated value, so we return the first one that we come across.
+    for (auto &use : truncfOp->getUses()) {
+      auto *userOp = use.getOwner();
+      // Check for different types of store operations
+      if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(userOp)) {
+        return StoreInfo{storeOp, getRootMemref(storeOp.getDest()), srcMemref};
+      } else if (auto storeOp = dyn_cast<memref::StoreOp>(userOp)) {
+        return StoreInfo{storeOp, getRootMemref(storeOp.getMemref()), srcMemref};
+      } else if (auto yieldOp = dyn_cast<linalg::YieldOp>(userOp)) {
+        // The parent op of the yield should be a linalg::GenericOp
+        Operation *parentOp = yieldOp->getParentOp();
+        if (auto genericOp = dyn_cast<linalg::GenericOp>(parentOp)) {
+          // Find which yield value is the result of truncfOp
+          for (unsigned i = 0; i < yieldOp.getValues().size(); ++i) {
+            if (yieldOp.getValues()[i] == truncfOp.getResult()) {
+              // Map yield value index to output memref
+              if (i < genericOp.getOutputs().size()) {
+                return StoreInfo{genericOp,
+                                getRootMemref(genericOp.getOutputs()[i]),
+                                srcMemref};
+              }
             }
           }
         }
@@ -314,7 +390,7 @@ private:
         auto *userOp = load->getUses().begin()->getOwner();
         if (auto extfOp = dyn_cast<arith::ExtFOp>(userOp)) {
           // Check if extf is extending from the loaded value
-          if (extfOp.getIn() == memref)
+          if (getRootMemref(extfOp.getIn()) == memref)
             return extfOp;
         }
       }
@@ -332,7 +408,7 @@ private:
             unsigned idx = arg.getArgNumber();
             // Check if this block argument corresponds to the memref input
             if (idx < genericOp.getInputs().size() &&
-                genericOp.getInputs()[idx] == memref) {
+                getRootMemref(genericOp.getInputs()[idx]) == memref) {
               if (extfOp.getIn() == arg)
                 return extfOp;
             }
@@ -340,7 +416,7 @@ private:
           // Case 2: extf on result of memref.load from the memref
           if (auto load =
                   dyn_cast<memref::LoadOp>(extfOp.getIn().getDefiningOp())) {
-            if (load.getMemref() == memref)
+            if (getRootMemref(load.getMemref()) == memref)
               return extfOp;
           }
         }
