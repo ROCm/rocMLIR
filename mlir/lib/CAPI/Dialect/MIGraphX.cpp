@@ -183,9 +183,12 @@ MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data
     if (!llvm::isa<mlir::ModuleOp>(op))
         return MlirModule{nullptr};
 
-    auto mod = mlir::cast<mlir::ModuleOp>(op);
-    mlir::OwningOpRef<mlir::ModuleOp> rootMod(mod);
-    return wrap(rootMod.release());
+
+    auto mod = llvm::cast<mlir::ModuleOp>(op);
+   
+    mlir::OwningOpRef<mlir::ModuleOp> clonedMod = mlir::cast<mlir::ModuleOp>(mod.clone());
+
+    return wrap(clonedMod.release());        
 }
 
 
