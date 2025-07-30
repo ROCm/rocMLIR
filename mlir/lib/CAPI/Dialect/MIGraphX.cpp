@@ -142,7 +142,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
     return false;
   auto mod = unwrap(module);
 
- llvm::SmallVector<char, 128> buffer;
+  llvm::SmallVector<char, 128> buffer;
   llvm::raw_svector_ostream os(buffer);
 
   if (failed(mlir::writeBytecodeToFile(mod.getOperation(), os))) {
@@ -159,11 +159,39 @@ MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
   return true;
 }
 
-MLIR_CAPI_EXPORTED bool mlirReadBytecode(MlirModule module, size_t *size,
-                                      char *bin) {
-  // args will change, this is to convert bytecode back to MLIR module
-    return false;
+// Reads mlir bytecode in data/size, returning an MlirModule of it
+MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data, size_t size)
+{
+    if (data == nullptr || size == 0)
+        return MlirModule{nullptr}; 
+
+    auto memBuffer = llvm::MemoryBuffer::getMemBufferCopy(
+        llvm::StringRef(data, size), "<mlir.bytecode>");
+
+    mlir::MLIRContext *context = unwrap(ctx);
+    mlir::ParserConfig config(context);
+    mlir::Block block;
+    llvm::MemoryBufferRef bufferRef = memBuffer->getMemBufferRef();
+
+    if (mlir::failed(mlir::readBytecodeFile(bufferRef, &block, config)))
+        return MlirModule{nullptr};
+
+    if (block.empty())
+        return MlirModule{nullptr};
+
+    mlir::Operation *op = &block.front();
+    if (!llvm::isa<mlir::ModuleOp>(op))
+        return MlirModule{nullptr};
+
+    auto mod = llvm::cast<mlir::ModuleOp>(op);
+
+    mlir::OwningOpRef<mlir::ModuleOp> ownedMod = mlir::ModuleOp::create(mod.getLoc());
+    ownedMod->getBody()->getOperations().splice(
+        ownedMod->getBody()->end(), block.getOperations());
+
+    return wrap(ownedMod.release());
 }
+
 
 // pipelines
 
@@ -218,7 +246,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm,
 							       const char *arch,
-							       std::size_t num_cu) {
+							       size_t num_cu) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
