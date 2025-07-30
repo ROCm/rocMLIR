@@ -712,7 +712,7 @@ pipeline {
                                         buildProject('ci-performance-scripts', '')
                                         // How to check out into specific directory, according to stackoverflow.
                                         dir('MITuna') {
-                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                            git branch: "merge-from-develop", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                         }
                                         dir('build') {
                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -963,7 +963,7 @@ pipeline {
                                     ]) {
                                         buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                         dir('MITuna') {
-                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                            git branch: "merge-from-develop", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                         }
                                         dir('build') {
                                             // Tune gemms with default datatypes, fail if the DB is not created
