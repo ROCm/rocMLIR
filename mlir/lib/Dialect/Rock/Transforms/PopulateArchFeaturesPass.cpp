@@ -77,10 +77,11 @@ PopulateArchFeaturesPass::getArchFeatures(StringAttr archAttr, Type inputType) {
 }
 
 void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
+    llvm::outs() << "Running PopulateArchFeaturesPass\n";
     auto context = func.getContext();
     // repopulate the function
     StringAttr archAttr = StringAttr::get(context, arch);
-    IntegerAttr numCUAttr = IntegerAttr::get(IntegerType::get(context, 64), num_cu);
+    IntegerAttr numCUAttr = IntegerAttr::get(IntegerType::get(context, 32), num_cu);
     BoolAttr xdlopsAttr = BoolAttr::get(context, xdlopsV2);
     StringAttr perfConfigAttr = StringAttr::get(context, perf_config);
     
@@ -97,6 +98,7 @@ void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
     }
 
     if(debug) {
+    llvm::outs() << "Printing module\n";
 	func.walk([&](mlir::Operation *op) {
 	    llvm::outs() << op->getName() << "\n";
 	});
@@ -115,7 +117,7 @@ void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
 	auto features = getArchFeatures(archAttr, inputType);
 	auto featuresAttr = rock::GemmFeaturesAttr::get(gemmOp.getContext(), features);
 	gemmOp->setAttr("arch", archAttr);
-	gemmOp->setAttr("num_cu", numCUAttr);
+	gemmOp->setAttr("numCU", numCUAttr);
 	gemmOp->setAttr("xdlopsV2", xdlopsAttr);
 	gemmOp->setAttr("perf_config", perfConfigAttr);
 	gemmOp->setAttr("features", featuresAttr);

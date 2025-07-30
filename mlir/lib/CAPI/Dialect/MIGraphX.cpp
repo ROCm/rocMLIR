@@ -185,11 +185,11 @@ MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data
 
     auto mod = llvm::cast<mlir::ModuleOp>(op);
 
-    mlir::OwningOpRef<mlir::ModuleOp> ownedMod = mlir::ModuleOp::create(mod.getLoc());
-    ownedMod->getBody()->getOperations().splice(
-        ownedMod->getBody()->end(), block.getOperations());
+    //mlir::OwningOpRef<mlir::ModuleOp> ownedMod = mlir::ModuleOp::create(mod.getLoc());
+    //ownedMod->getBody()->getOperations().splice(
+    //    ownedMod->getBody()->end(), block.getOperations());
 
-    return wrap(ownedMod.release());
+    return wrap(mod);
 }
 
 

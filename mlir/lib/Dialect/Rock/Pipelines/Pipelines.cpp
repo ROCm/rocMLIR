@@ -157,6 +157,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       popOpts.arch = options.chip;
       popOpts.num_cu = options.numCU;
       popOpts.perf_config = options.perfConfig;
+      popOpts.debug = true;
       funcPm.addPass(createPopulateArchFeaturesPass(popOpts));
   }
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
