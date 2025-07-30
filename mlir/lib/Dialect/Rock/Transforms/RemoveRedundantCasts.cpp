@@ -15,7 +15,7 @@
 // limitations under the License.
 // ============================================================
 //
-// This pass removes any redundant casts that exist in the IR. 
+// This pass removes any redundant casts that exist in the IR.
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -45,7 +45,8 @@ using namespace mlir::rock;
 namespace {
 
 // Pattern to remove redundant f32 -> dtype -> f32 cast chains
-struct RemoveRedundantTruncExtfPattern : public OpRewritePattern<arith::TruncFOp> {
+struct RemoveRedundantTruncExtfPattern
+    : public OpRewritePattern<arith::TruncFOp> {
   func::FuncOp func;
 
   RemoveRedundantTruncExtfPattern(MLIRContext *context, func::FuncOp func)
@@ -54,11 +55,12 @@ struct RemoveRedundantTruncExtfPattern : public OpRewritePattern<arith::TruncFOp
   LogicalResult matchAndRewrite(arith::TruncFOp truncf,
                                 PatternRewriter &rewriter) const override {
     LLVM_DEBUG(llvm::dbgs() << "Running RemoveRedundantTruncExtfPattern on "
-                              << truncf << "\n");
-    
+                            << truncf << "\n");
+
     // Ensure that the truncf operation cast down from f32
     if (!isF32ToSmallerType(truncf)) {
-      LLVM_DEBUG(llvm::dbgs() << "\tNot a f32 to smaller type truncf, skipping\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tNot a f32 to smaller type truncf, skipping\n");
       return failure();
     }
 
@@ -69,13 +71,13 @@ struct RemoveRedundantTruncExtfPattern : public OpRewritePattern<arith::TruncFOp
     // operations.
     if (auto extfInfo = findCorrespondingExtf(truncf)) {
       LLVM_DEBUG(llvm::dbgs() << "\tFound redundant cast pattern\n");
-      
+
       // Replace the extf operation with the original f32 value
       // TODO: How we do this may need to be adjusted since we are working
       // with inputs to a linalg.generic
       // rewriter.replaceOp(extfInfo->extfOp, truncfOp.getIn());
     }
-    
+
     // TODO: Update this to return success once the rest of the logic is
     // implemented
     return failure();
@@ -98,16 +100,17 @@ private:
   bool isF32ToSmallerType(arith::TruncFOp truncfOp) const {
     Type inputType = truncfOp.getIn().getType();
     Type elementType = inputType;
-  
+
     // If it's a vector type, get the element type
     if (auto vectorType = dyn_cast<VectorType>(inputType)) {
       elementType = vectorType.getElementType();
     }
-      
+
     return elementType.isF32();
   }
 
-  std::optional<ExtfInfo> findCorrespondingExtf(arith::TruncFOp truncfOp) const {
+  std::optional<ExtfInfo>
+  findCorrespondingExtf(arith::TruncFOp truncfOp) const {
     // Check that the truncf operation has exactly one use
     if (!truncfOp->hasOneUse()) {
       return std::nullopt;
@@ -139,21 +142,24 @@ private:
     return nullptr;
   }
 
-  std::optional<ExtfInfo> findStoredMemoryExtfUse(arith::TruncFOp truncfOp) const {
+  std::optional<ExtfInfo>
+  findStoredMemoryExtfUse(arith::TruncFOp truncfOp) const {
     // Check if truncf is stored to memory
     auto storeInfo = findStoreOp(truncfOp);
     if (!storeInfo) {
       return std::nullopt;
     }
 
-    LLVM_DEBUG(llvm::dbgs() << "\tTruncf's single use is a store to a memref\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "\tTruncf's single use is a store to a memref\n");
 
     // Find loads from the same memory location
     auto loads = findLoadsFromMemref(storeInfo->memref, storeInfo->storeOp);
-    
+
     // Check if any load is used by an extf that extends back to f32
     for (auto &loadOp : loads) {
-      LLVM_DEBUG(llvm::dbgs() << "\tFound load from memref: " << loadOp.getLoc() << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tFound load from memref: " << loadOp.getLoc() << "\n");
       if (auto extfOp = findExtfUseOfLoad(loadOp, storeInfo->memref)) {
         if (extendsToF32(extfOp)) {
           LLVM_DEBUG(llvm::dbgs() << "\tFound extf use through memory\n");
@@ -168,14 +174,14 @@ private:
   std::optional<StoreInfo> findStoreOp(arith::TruncFOp truncfOp) const {
     // We have already asserted that there is exactly one use of the truncfOp
     auto *userOp = truncfOp->getUses().begin()->getOwner();
-    
+
     // Check for different types of store operations
     if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(userOp)) {
       return StoreInfo{storeOp, storeOp.getDest()};
     } else if (auto storeOp = dyn_cast<memref::StoreOp>(userOp)) {
       return StoreInfo{storeOp, storeOp.getMemref()};
     }
-    // TODO: 
+    // TODO:
     // } else if (auto genericOp = dyn_cast<linalg::GenericOp>(userOp)) {
     //   // Check if this is a linalg.generic that just stores the truncf result
     //   if (isSimpleStoreGeneric(genericOp, truncfOp.getResult())) {
@@ -184,17 +190,18 @@ private:
     //       return StoreInfo{genericOp, genericOp.getOutputs()[0]};
     //     }
     //   }
-   //}
+    //}
 
     return std::nullopt;
   }
 
-  SmallVector<Operation*> findLoadsFromMemref(Value memref, Operation *storeOp) const {
-    SmallVector<Operation*> validLoads;
+  SmallVector<Operation *> findLoadsFromMemref(Value memref,
+                                               Operation *storeOp) const {
+    SmallVector<Operation *> validLoads;
     DominanceInfo domInfo(func);
 
     // Gather all store ops to this memref
-    SmallVector<Operation*> allStores;
+    SmallVector<Operation *> allStores;
     for (auto &use : memref.getUses()) {
       Operation *user = use.getOwner();
       if (isStoreToMemref(user, memref))
@@ -268,13 +275,15 @@ private:
             // Find the index of this block argument in the block argument list
             unsigned idx = arg.getArgNumber();
             // Check if this block argument corresponds to the memref input
-            if (idx < genericOp.getInputs().size() && genericOp.getInputs()[idx] == memref) {
+            if (idx < genericOp.getInputs().size() &&
+                genericOp.getInputs()[idx] == memref) {
               if (extfOp.getIn() == arg)
                 return extfOp;
             }
           }
           // Case 2: extf on result of memref.load from the memref
-          if (auto load = dyn_cast<memref::LoadOp>(extfOp.getIn().getDefiningOp())) {
+          if (auto load =
+                  dyn_cast<memref::LoadOp>(extfOp.getIn().getDefiningOp())) {
             if (load.getMemref() == memref)
               return extfOp;
           }
@@ -288,11 +297,11 @@ private:
   bool extendsToF32(arith::ExtFOp extfOp) const {
     Type outputType = extfOp.getOut().getType();
     Type elementType = outputType;
-    
+
     if (auto vectorType = dyn_cast<VectorType>(outputType)) {
       elementType = vectorType.getElementType();
     }
-    
+
     return elementType.isF32();
   }
 
@@ -319,18 +328,18 @@ private:
     // Add more cases here if needed for other ops
     return false;
   }
-  
 };
 
 struct RockRemoveRedundantCastsPass
-    : public rock::impl::RockRemoveRedundantCastsPassBase<RockRemoveRedundantCastsPass> {
+    : public rock::impl::RockRemoveRedundantCastsPassBase<
+          RockRemoveRedundantCastsPass> {
   void runOnOperation() override {
     LLVM_DEBUG(llvm::dbgs() << "Running RemoveRedundantCasts\n");
 
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
     patterns.add<RemoveRedundantTruncExtfPattern>(&getContext(), func);
-    
+
     if (failed(applyPatternsGreedily(func, std::move(patterns)))) {
       signalPassFailure();
     }
