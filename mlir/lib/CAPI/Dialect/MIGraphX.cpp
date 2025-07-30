@@ -166,7 +166,7 @@ MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data
         return MlirModule{nullptr}; 
 
     auto memBuffer = llvm::MemoryBuffer::getMemBufferCopy(
-        llvm::StringRef(data, size), "<mlir.bytecode>");
+        llvm::StringRef(data, size), "<mlirbc>");
 
     mlir::MLIRContext *context = unwrap(ctx);
     mlir::ParserConfig config(context);
@@ -183,8 +183,7 @@ MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data
     if (!llvm::isa<mlir::ModuleOp>(op))
         return MlirModule{nullptr};
 
-
-    auto mod = llvm::cast<mlir::ModuleOp>(op);
+    auto mod = mlir::cast<mlir::ModuleOp>(op);
    
     mlir::OwningOpRef<mlir::ModuleOp> clonedMod = mlir::cast<mlir::ModuleOp>(mod.clone());
 
