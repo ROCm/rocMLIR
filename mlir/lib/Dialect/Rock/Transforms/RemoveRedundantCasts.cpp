@@ -54,8 +54,7 @@ struct RemoveRedundantTruncExtfPattern
 
   LogicalResult matchAndRewrite(arith::TruncFOp truncf,
                                 PatternRewriter &rewriter) const override {
-    LLVM_DEBUG(llvm::dbgs() << "Looking at truncf: "
-                            << truncf << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "Looking at truncf: " << truncf << "\n");
 
     // Ensure that the truncf operation cast down from f32
     if (!isF32ToSmallerType(truncf)) {
@@ -69,9 +68,9 @@ struct RemoveRedundantTruncExtfPattern
     for (auto &extfInfo : findCorrespondingExtfs(truncf)) {
       // Replace the user of the extf operation with the original f32 memref
       // value and clean up the extf operation
-      LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfInfo.extfOp
-                              << " with source memref: "
-                              << extfInfo.srcMemref << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tReplacing extf: " << extfInfo.extfOp
+                 << " with source memref: " << extfInfo.srcMemref << "\n");
       extfInfo.extfOp.replaceAllUsesWith(extfInfo.srcMemref);
       extfInfo.extfOp.erase();
       changed |= true;
@@ -105,8 +104,7 @@ private:
     return elementType.isF32();
   }
 
-  SmallVector<ExtfInfo>
-  findCorrespondingExtfs(arith::TruncFOp truncfOp) const {
+  SmallVector<ExtfInfo> findCorrespondingExtfs(arith::TruncFOp truncfOp) const {
     SmallVector<ExtfInfo> extfInfos;
 
     // Pattern 1: Direct use - truncf -> extf
@@ -129,7 +127,8 @@ private:
       Operation *userOp = use.getOwner();
       if (auto extfOp = dyn_cast<arith::ExtFOp>(userOp)) {
         if (extendsToF32(extfOp)) {
-          LLVM_DEBUG(llvm::dbgs() << "\tDirect extf use back to f32 found: " << extfOp.getLoc() << "\n");
+          LLVM_DEBUG(llvm::dbgs() << "\tDirect extf use back to f32 found: "
+                                  << extfOp.getLoc() << "\n");
           return extfOp;
         }
       }
@@ -154,8 +153,10 @@ private:
     for (auto &loadOp : loads) {
       if (auto extfOp = findExtfUseOfLoad(loadOp, storeInfo->memref)) {
         if (extendsToF32(extfOp)) {
-          LLVM_DEBUG(llvm::dbgs() << "\tFound redundant extf: " << extfOp.getLoc() << "\n");
-          extfInfos.push_back({extfOp, storeInfo->memref, storeInfo->srcMemref});
+          LLVM_DEBUG(llvm::dbgs()
+                     << "\tFound redundant extf: " << extfOp.getLoc() << "\n");
+          extfInfos.push_back(
+              {extfOp, storeInfo->memref, storeInfo->srcMemref});
         }
       }
     }
@@ -206,7 +207,9 @@ private:
           if (yieldOp.getValues()[i] == truncfOp.getResult()) {
             // Map yield value index to output memref
             if (i < genericOp.getOutputs().size()) {
-              return StoreInfo{genericOp, getRootMemref(genericOp.getOutputs()[i]), srcMemref};
+              return StoreInfo{genericOp,
+                               getRootMemref(genericOp.getOutputs()[i]),
+                               srcMemref};
             }
           }
         }
@@ -261,41 +264,43 @@ private:
           continue;
         }
 
-      if (!(isLoadFromMemref(user, memref) || isDirectMemrefUse(user, memref)))
-        continue;
-
-      // Dominance check: storeOp must dominate this use
-      // Note: We can only perform dominance checks between two ops in the same
-      // region. Since the store ops will likely be in linalg.generic or
-      // rock::TransformingForOp we should also check to see if the storeOp and
-      // user are in the same region, and if they aren't then we should get the
-      // parent region of the storeOp and check if it dominates the user.
-      if (storeOp->getParentRegion() != user->getParentRegion()) {
-        auto *storeParentOp = storeOp->getParentRegion()->getParentOp();
-        if (!domInfo.dominates(storeParentOp, user))
-          continue;
-      } else {
-        if (!domInfo.dominates(storeOp, user))
-          continue;
-      }
-
-      // Check for intervening store
-      bool hasInterveningStore = false;
-      for (Operation *otherStore : allStores) {
-        if (otherStore == storeOp)
+        if (!(isLoadFromMemref(user, memref) ||
+              isDirectMemrefUse(user, memref)))
           continue;
 
-        // TODO: For correctness we want to handle all of the scenarios where
-        // stores can be in different regions
-        if (domInfo.dominates(storeOp, otherStore) &&
-            domInfo.dominates(otherStore, user)) {
-          hasInterveningStore = true;
-          break;
+        // Dominance check: storeOp must dominate this use
+        // Note: We can only perform dominance checks between two ops in the
+        // same region. Since the store ops will likely be in linalg.generic or
+        // rock::TransformingForOp we should also check to see if the storeOp
+        // and user are in the same region, and if they aren't then we should
+        // get the parent region of the storeOp and check if it dominates the
+        // user.
+        if (storeOp->getParentRegion() != user->getParentRegion()) {
+          auto *storeParentOp = storeOp->getParentRegion()->getParentOp();
+          if (!domInfo.dominates(storeParentOp, user))
+            continue;
+        } else {
+          if (!domInfo.dominates(storeOp, user))
+            continue;
         }
-      }
 
-      if (!hasInterveningStore)
-        validLoads.push_back(user);
+        // Check for intervening store
+        bool hasInterveningStore = false;
+        for (Operation *otherStore : allStores) {
+          if (otherStore == storeOp)
+            continue;
+
+          // TODO: For correctness we want to handle all of the scenarios where
+          // stores can be in different regions
+          if (domInfo.dominates(storeOp, otherStore) &&
+              domInfo.dominates(otherStore, user)) {
+            hasInterveningStore = true;
+            break;
+          }
+        }
+
+        if (!hasInterveningStore)
+          validLoads.push_back(user);
       }
     }
 
@@ -382,7 +387,8 @@ private:
 
   Value getRootMemref(Value memref) const {
     Value current = memref;
-    while (auto transformOp = dyn_cast_or_null<rock::TransformOp>(current.getDefiningOp())) {
+    while (auto transformOp =
+               dyn_cast_or_null<rock::TransformOp>(current.getDefiningOp())) {
       current = transformOp.getInput();
     }
     return current;
