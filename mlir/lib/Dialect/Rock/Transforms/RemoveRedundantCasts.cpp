@@ -54,7 +54,7 @@ struct RemoveRedundantTruncExtfPattern
 
   LogicalResult matchAndRewrite(arith::TruncFOp truncf,
                                 PatternRewriter &rewriter) const override {
-    LLVM_DEBUG(llvm::dbgs() << "Running RemoveRedundantTruncExtfPattern on "
+    LLVM_DEBUG(llvm::dbgs() << "Looking at truncf: "
                             << truncf << "\n");
 
     // Ensure that the truncf operation cast down from f32
@@ -65,36 +65,32 @@ struct RemoveRedundantTruncExtfPattern
     }
 
     // Find the corresponding extf that uses this truncf's result
-    // TODO: In line with the changes to ExtfInfo, should we make this function
-    // return a list of ExtfInfo instead? That way we can replace the extf
-    // where necessary, but keep the truncf if it is still needed by other
-    // operations.
-    if (auto extfInfo = findCorrespondingExtf(truncf)) {
-      LLVM_DEBUG(llvm::dbgs() << "\tFound redundant cast pattern\n");
-
-      // Replace the extf operation with the original f32 value
-      // TODO: How we do this may need to be adjusted since we are working
-      // with inputs to a linalg.generic
-      // rewriter.replaceOp(extfInfo->extfOp, truncfOp.getIn());
+    bool changed = false;
+    for (auto &extfInfo : findCorrespondingExtfs(truncf)) {
+      // Replace the user of the extf operation with the original f32 memref
+      // value and clean up the extf operation
+      LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfInfo.extfOp
+                              << " with source memref: "
+                              << extfInfo.srcMemref << "\n");
+      extfInfo.extfOp.replaceAllUsesWith(extfInfo.srcMemref);
+      extfInfo.extfOp.erase();
+      changed |= true;
     }
 
-    // TODO: Update this to return success once the rest of the logic is
-    // implemented
-    return failure();
+    return changed ? success() : failure();
   }
 
 private:
   struct ExtfInfo {
     arith::ExtFOp extfOp;
     Value memref; // Optional: if the pattern goes through memory
-    // TODO: Do we also need to keep track of the input TruncfOp here? Also,
-    // we should likely keep track of a boolean value denoting if we can
-    // remove both the trunc and the extf, or just the extf
+    Value srcMemref;
   };
 
   struct StoreInfo {
     Operation *storeOp;
     Value memref;
+    Value srcMemref;
   };
 
   bool isF32ToSmallerType(arith::TruncFOp truncfOp) const {
@@ -109,61 +105,110 @@ private:
     return elementType.isF32();
   }
 
-  std::optional<ExtfInfo>
-  findCorrespondingExtf(arith::TruncFOp truncfOp) const {
-    // Check that the truncf operation has exactly one use
-    if (!truncfOp->hasOneUse()) {
-      return std::nullopt;
-    }
+  SmallVector<ExtfInfo>
+  findCorrespondingExtfs(arith::TruncFOp truncfOp) const {
+    SmallVector<ExtfInfo> extfInfos;
 
     // Pattern 1: Direct use - truncf -> extf
     if (auto directExtf = findDirectExtfUse(truncfOp)) {
-      return ExtfInfo{directExtf, nullptr};
+      extfInfos.push_back({directExtf, nullptr, truncfOp.getIn()});
     }
 
     // Pattern 2: Through memory
     // * truncf -> store -> load -> extf
     // * linalg.generic that yields the truncf result as a memref
-    if (auto memoryExtf = findStoredMemoryExtfUse(truncfOp))
-      return memoryExtf;
+    auto memoryExtfs = findStoredMemoryExtfUse(truncfOp);
+    if (!memoryExtfs.empty())
+      extfInfos.append(memoryExtfs.begin(), memoryExtfs.end());
 
-    return std::nullopt;
+    return extfInfos;
   }
 
   arith::ExtFOp findDirectExtfUse(arith::TruncFOp truncfOp) const {
-    auto *userOp = truncfOp->getUses().begin()->getOwner();
-    if (auto extfOp = dyn_cast<arith::ExtFOp>(userOp)) {
-      if (extendsToF32(extfOp)) {
-        LLVM_DEBUG(llvm::dbgs() << "\tDirect extf use back to f32 found\n");
-        return extfOp;
+    for (auto &use : truncfOp->getUses()) {
+      Operation *userOp = use.getOwner();
+      if (auto extfOp = dyn_cast<arith::ExtFOp>(userOp)) {
+        if (extendsToF32(extfOp)) {
+          LLVM_DEBUG(llvm::dbgs() << "\tDirect extf use back to f32 found: " << extfOp.getLoc() << "\n");
+          return extfOp;
+        }
       }
     }
 
     return nullptr;
   }
 
-  std::optional<ExtfInfo>
+  SmallVector<ExtfInfo>
   findStoredMemoryExtfUse(arith::TruncFOp truncfOp) const {
+    SmallVector<ExtfInfo> extfInfos;
+
     // Check if truncf is stored to memory
     auto storeInfo = findStoreOp(truncfOp);
-    if (!storeInfo) {
-      return std::nullopt;
-    }
-
-    LLVM_DEBUG(llvm::dbgs()
-               << "\tTruncf's single use is a store to a memref\n");
+    if (!storeInfo)
+      return extfInfos;
 
     // Find loads from the same memory location
     auto loads = findLoadsFromMemref(storeInfo->memref, storeInfo->storeOp);
 
     // Check if any load is used by an extf that extends back to f32
     for (auto &loadOp : loads) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "\tFound load from memref: " << loadOp.getLoc() << "\n");
       if (auto extfOp = findExtfUseOfLoad(loadOp, storeInfo->memref)) {
         if (extendsToF32(extfOp)) {
-          LLVM_DEBUG(llvm::dbgs() << "\tFound extf use through memory\n");
-          return ExtfInfo{extfOp, storeInfo->memref};
+          LLVM_DEBUG(llvm::dbgs() << "\tFound redundant extf: " << extfOp.getLoc() << "\n");
+          extfInfos.push_back({extfOp, storeInfo->memref, storeInfo->srcMemref});
+        }
+      }
+    }
+
+    return extfInfos;
+  }
+
+  Value getSourceMemref(Value val) const {
+    // If it's a block argument, it may be a memref directly
+    if (isa<BlockArgument>(val)) {
+      BlockArgument blockArg = cast<BlockArgument>(val);
+      Operation *parentOp = blockArg.getOwner()->getParentOp();
+      if (auto genericOp = dyn_cast<linalg::GenericOp>(parentOp)) {
+        unsigned idx = blockArg.getArgNumber();
+        if (idx < genericOp.getInputs().size())
+          return genericOp.getInputs()[idx];
+      }
+      return val;
+    }
+
+    // If it's the result of a memref.load, get the memref operand
+    if (auto loadOp = dyn_cast_or_null<memref::LoadOp>(val.getDefiningOp())) {
+      return loadOp.getMemref();
+    }
+
+    // Otherwise, return null (or handle other cases as needed)
+    return Value();
+  }
+
+  std::optional<StoreInfo> findStoreOp(arith::TruncFOp truncfOp) const {
+    // We have already asserted that there is exactly one use of the truncfOp
+    auto *userOp = truncfOp->getUses().begin()->getOwner();
+
+    // Collect the input memref to the truncfOp
+    auto srcMemref = getSourceMemref(truncfOp.getIn());
+
+    // Check for different types of store operations
+    if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(userOp)) {
+      return StoreInfo{storeOp, getRootMemref(storeOp.getDest()), srcMemref};
+    } else if (auto storeOp = dyn_cast<memref::StoreOp>(userOp)) {
+      return StoreInfo{storeOp, getRootMemref(storeOp.getMemref()), srcMemref};
+    } else if (auto yieldOp = dyn_cast<linalg::YieldOp>(userOp)) {
+      // The parent op of the yield should be a linalg::GenericOp
+      Operation *parentOp = yieldOp->getParentOp();
+      if (auto genericOp = dyn_cast<linalg::GenericOp>(parentOp)) {
+        // Find which yield value is the result of truncfOp
+        for (unsigned i = 0; i < yieldOp.getValues().size(); ++i) {
+          if (yieldOp.getValues()[i] == truncfOp.getResult()) {
+            // Map yield value index to output memref
+            if (i < genericOp.getOutputs().size()) {
+              return StoreInfo{genericOp, getRootMemref(genericOp.getOutputs()[i]), srcMemref};
+            }
+          }
         }
       }
     }
@@ -171,28 +216,27 @@ private:
     return std::nullopt;
   }
 
-  std::optional<StoreInfo> findStoreOp(arith::TruncFOp truncfOp) const {
-    // We have already asserted that there is exactly one use of the truncfOp
-    auto *userOp = truncfOp->getUses().begin()->getOwner();
+  SmallVector<Operation *> findStoresFromMemref(Value memref) const {
+    SmallVector<Operation *> allStores;
+    llvm::SmallPtrSet<Value, 8> visited;
+    SmallVector<Value> worklist{memref};
 
-    // Check for different types of store operations
-    if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(userOp)) {
-      return StoreInfo{storeOp, storeOp.getDest()};
-    } else if (auto storeOp = dyn_cast<memref::StoreOp>(userOp)) {
-      return StoreInfo{storeOp, storeOp.getMemref()};
+    while (!worklist.empty()) {
+      Value current = worklist.pop_back_val();
+      if (!visited.insert(current).second)
+        continue;
+      for (auto &use : current.getUses()) {
+        Operation *user = use.getOwner();
+        if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
+          for (Value result : transformOp->getResults())
+            worklist.push_back(result);
+          continue;
+        }
+        if (isStoreToMemref(user, current))
+          allStores.push_back(user);
+      }
     }
-    // TODO:
-    // } else if (auto genericOp = dyn_cast<linalg::GenericOp>(userOp)) {
-    //   // Check if this is a linalg.generic that just stores the truncf result
-    //   if (isSimpleStoreGeneric(genericOp, truncfOp.getResult())) {
-    //     // Get the output memref from the generic op
-    //     if (!genericOp.getOutputs().empty()) {
-    //       return StoreInfo{genericOp, genericOp.getOutputs()[0]};
-    //     }
-    //   }
-    //}
-
-    return std::nullopt;
+    return allStores;
   }
 
   SmallVector<Operation *> findLoadsFromMemref(Value memref,
@@ -201,16 +245,22 @@ private:
     DominanceInfo domInfo(func);
 
     // Gather all store ops to this memref
-    SmallVector<Operation *> allStores;
-    for (auto &use : memref.getUses()) {
-      Operation *user = use.getOwner();
-      if (isStoreToMemref(user, memref))
-        allStores.push_back(user);
-    }
+    auto allStores = findStoresFromMemref(memref);
 
-    // Now iterate over all uses of the memref for loads and direct uses
-    for (auto &use : memref.getUses()) {
-      Operation *user = use.getOwner();
+    llvm::SmallPtrSet<Value, 8> visited;
+    SmallVector<Value> worklist{memref};
+    while (!worklist.empty()) {
+      Value current = worklist.pop_back_val();
+      if (!visited.insert(current).second)
+        continue;
+      for (auto &use : current.getUses()) {
+        Operation *user = use.getOwner();
+        if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
+          for (Value result : transformOp->getResults())
+            worklist.push_back(result);
+          continue;
+        }
+
       if (!(isLoadFromMemref(user, memref) || isDirectMemrefUse(user, memref)))
         continue;
 
@@ -246,6 +296,7 @@ private:
 
       if (!hasInterveningStore)
         validLoads.push_back(user);
+      }
     }
 
     return validLoads;
@@ -322,11 +373,19 @@ private:
   }
 
   bool isDirectMemrefUse(Operation *op, Value memref) const {
-    // For ops that take memref as input (e.g., linalg.generic)
+    // For ops that take memref as input. Right now we are only checking for
+    // linalg.generic ops
     if (auto genericOp = dyn_cast<linalg::GenericOp>(op))
       return llvm::is_contained(genericOp.getInputs(), memref);
-    // Add more cases here if needed for other ops
     return false;
+  }
+
+  Value getRootMemref(Value memref) const {
+    Value current = memref;
+    while (auto transformOp = dyn_cast_or_null<rock::TransformOp>(current.getDefiningOp())) {
+      current = transformOp.getInput();
+    }
+    return current;
   }
 };
 
