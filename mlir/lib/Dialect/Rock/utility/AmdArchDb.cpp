@@ -49,7 +49,7 @@ static constexpr AmdArchInfo
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16,
               /*waveSize=*/64, /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
-              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/228,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
               /*hasFp8ConversionInstrs=*/true,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
     cdna35Info(GemmFeatures::mfma | GemmFeatures::dot |
