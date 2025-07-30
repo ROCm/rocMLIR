@@ -1367,14 +1367,16 @@ def Rock_BlockwiseGemmAccelOp
       Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
           MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
-          MemRefOf<AccelArgTypes>:$bufferA, MemRefOf<AccelArgTypes>:$bufferB,
-          MemRefOf<AccelResTypes>:$matrixC,
+          UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
+          UnitAttr:$splitKAcrossThreadsFirstA,
+          UnitAttr:$splitKAcrossThreadsFirstB, MemRefOf<AccelArgTypes>:$bufferA,
+          MemRefOf<AccelArgTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
-    The `rock.block_gemm_v2` op does GEMM at workgroup (block) level.
-    - Matrix A and Matrix B shall reside on LDS (naive tensor).
+    The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.
+    - Matrix A and Matrix B shall reside on LDS or registers (depending on loadAfromLDS and loadBfromLDS).
     - Matrix C shall be vectors.
 
     The elements of matrices A and B should be vectors of length kpack, or

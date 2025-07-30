@@ -406,6 +406,8 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
+    bool loadAFromLDS = adaptor.getLoadAfromLDS();
+    bool loadBFromLDS = adaptor.getLoadBfromLDS();
 
     Type bufferElemTypeA =
         cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
@@ -445,6 +447,9 @@ struct BlockwiseGemmAccelRewritePattern
                << "nRepeat: " << nRepeats << "\n"
                << "kBasePerThread: " << kBasePerThread << "\n"
                << "kpackPerBlock: " << kpackPerBlock << "\n"
+               << "loadAFromLDS: " << loadAFromLDS << "\n"
+               << "loadBFromLDS: " << loadBFromLDS << "\n"
+               << "rotateMWithK: " << op.getRotateMWithK() << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
 
@@ -463,12 +468,17 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
-    Value wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-        op.getRotateMWithK());
-    Value wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-        op.getRotateNWithK());
+    Value wrappedLDSBufferForLoadA, wrappedLDSBufferForLoadB;
+    if (loadAFromLDS) {
+      wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
+          b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
+          op.getRotateMWithK(), op.getSplitKAcrossThreadsFirstA());
+    }
+    if (loadBFromLDS) {
+      wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
+          b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
+          op.getRotateNWithK(), op.getSplitKAcrossThreadsFirstA());
+    }
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
@@ -476,10 +486,25 @@ struct BlockwiseGemmAccelRewritePattern
       b.setInsertionPointToStart(mLoop.getBody());
       Value i = mLoop.getInductionVar();
 
-      // regsA = read A from LDS
-      b.create<ThreadwiseReadIntoOp>(
-          loc, wrappedLDSBufferForLoadA, op.getBufferA(), b.getArrayAttr({}),
-          ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      Value bufferA = adaptor.getBufferA();
+      if (loadAFromLDS) {
+        // regsA = read A from LDS
+        b.create<ThreadwiseReadIntoOp>(
+            loc, wrappedLDSBufferForLoadA, bufferA, b.getArrayAttr({}),
+            ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      } else {
+        if (cast<ShapedType>(bufferA.getType()).getRank() == 1) {
+          BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
+                                        loc);
+          regsBuilder.unmerge({"iidx", "k"}, {0, 1}, "mk",
+                              {mRepeats, kBasePerThread});
+          bufferA =
+              rock::transform(b, bufferA, b.getArrayAttr({regsBuilder.get()}));
+        }
+        bufferA = rock::createSliceOfFirstDim(b, loc, bufferA, i);
+      }
+      Value viewA =
+          accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
 
       auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
       {
@@ -487,20 +512,31 @@ struct BlockwiseGemmAccelRewritePattern
         b.setInsertionPointToStart(nLoop.getBody());
         Value j = nLoop.getInductionVar();
 
-        // regsB = read B from LDS
-        b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedLDSBufferForLoadB, op.getBufferB(), b.getArrayAttr({}),
-            ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+        Value bufferB = adaptor.getBufferB();
+        if (loadBFromLDS) {
+          // regsB = read B from LDS
+          b.create<ThreadwiseReadIntoOp>(
+              loc, wrappedLDSBufferForLoadB, bufferB, b.getArrayAttr({}),
+              ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+        } else {
+          if (cast<ShapedType>(bufferB.getType()).getRank() == 1) {
+            BottomUpTMBuilder regsBBuilder(b, {"nk"},
+                                           {nRepeats * kBasePerThread}, loc);
+            regsBBuilder.unmerge({"jidx", "k"}, {0, 1}, "nk",
+                                 {nRepeats, kBasePerThread});
+            bufferB = rock::transform(b, bufferB,
+                                      b.getArrayAttr({regsBBuilder.get()}));
+          }
+          bufferB = rock::createSliceOfFirstDim(b, loc, bufferB, j);
+        }
+        Value viewB =
+            accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
 
         // regsC += regsA * regsB
         auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
         {
           OpBuilder::InsertionGuard guard(b);
           b.setInsertionPointToStart(kLoop.getBody());
-          Value viewA = accelEmitterPtr->generateThreadwiseViewBufferA(
-              b, loc, adaptor.getBufferA());
-          Value viewB = accelEmitterPtr->generateThreadwiseViewBufferB(
-              b, loc, adaptor.getBufferB());
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();

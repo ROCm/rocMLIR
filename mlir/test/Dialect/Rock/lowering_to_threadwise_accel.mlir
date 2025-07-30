@@ -80,16 +80,16 @@ func.func @rock_gemm_schedulev1(%arg0: memref<1x128x128xf16>, %arg1: memref<1x12
     // CHECK-SAME: 0 to 1
     // CHECK: rock.threadwise_read_into 
     // CHECK-SAME: memref<8xvector<4xf16>, #gpu.address_space<private>>
+    // CHECK: %[[AReg:.*]] = rock.transform 
+    // CHECK-SAME: memref<1x8xvector<4xf16>, #gpu.address_space<private>>
     // CHECK: affine.for 
     // CHECK-SAME: 0 to 1
     // CHECK: rock.threadwise_read_into 
     // CHECK-SAME: memref<8xvector<4xf16>, #gpu.address_space<private>>
-    // CHECK: affine.for
-    // CHECK-SAME: 0 to 8
-    // CHECK: %[[AReg:.*]] = rock.transform 
-    // CHECK-SAME: memref<1x8xvector<4xf16>, #gpu.address_space<private>>
     // CHECK: %[[BReg:.*]] = rock.transform 
     // CHECK-SAME: memref<1x8xvector<4xf16>, #gpu.address_space<private>>
+    // CHECK: affine.for
+    // CHECK-SAME: 0 to 8
     // CHECK: %[[outReg:.*]] = rock.transform 
     // CHECK-SAME: memref<1x1xvector<16xf32>, #gpu.address_space<private>>
     // CHECK: rock.threadwise_accel_gemm %[[outReg]] +=  %[[AReg]] * %[[BReg]]
@@ -181,16 +181,16 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev1(%arg0: memref<1x32x32xf16>, 
     // CHECK-SAME: 0 to 2
     // CHECK: rock.threadwise_read_into 
     // CHECK-SAME: memref<2xvector<4xf16>, #gpu.address_space<private>>
+    // CHECK: %[[AReg:.*]] = rock.transform 
+    // CHECK-SAME: memref<1x2xvector<4xf16>, #gpu.address_space<private>>
     // CHECK: affine.for 
     // CHECK-SAME: 0 to 1
     // CHECK: rock.threadwise_read_into 
     // CHECK-SAME: memref<2xvector<4xf16>, #gpu.address_space<private>>
-    // CHECK: affine.for
-    // CHECK-SAME: 0 to 2
-    // CHECK: %[[AReg:.*]] = rock.transform 
-    // CHECK-SAME: memref<1x2xvector<4xf16>, #gpu.address_space<private>>
     // CHECK: %[[BReg:.*]] = rock.transform 
     // CHECK-SAME: memref<1x2xvector<4xf16>, #gpu.address_space<private>>
+    // CHECK: affine.for
+    // CHECK-SAME: 0 to 2
     // CHECK: %[[outReg:.*]] = rock.transform 
     // CHECK-SAME: memref<2x1xvector<4xf32>, #gpu.address_space<private>>
     // CHECK: rock.threadwise_accel_gemm %[[outReg]] +=  %[[AReg]] * %[[BReg]]
