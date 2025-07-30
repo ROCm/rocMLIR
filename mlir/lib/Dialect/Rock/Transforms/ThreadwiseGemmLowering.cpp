@@ -44,6 +44,7 @@
 #include <iterator>
 #include <memory>
 #include <numeric>
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -167,10 +168,10 @@ struct ThreadwiseGemmRewritePattern
       // These are vector::TransferRead ops so they always return a vector
       // result so that FMA doesn't complain
       Value aVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
+          loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0), std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       Value bVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
+          loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1), std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
       Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
@@ -196,6 +197,9 @@ struct ThreadwiseGemmRewritePattern
 
       b.create<InBoundsStoreOp>(loc, result, bufferC, cCoords);
     }
+    LLVM_DEBUG(llvm::dbgs() << "debug before\n");
+    b.eraseOp(op);
+    LLVM_DEBUG(llvm::dbgs() << "debug 202\n");
     return success();
   }
 };
@@ -840,10 +844,11 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
+  target.addIllegalOp<rock::ThreadwiseAccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
-                         memref::MemRefDialect, vector::VectorDialect>();
+                         memref::MemRefDialect, vector::VectorDialect,
+                         scf::SCFDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
