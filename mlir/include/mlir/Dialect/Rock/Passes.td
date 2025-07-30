@@ -191,7 +191,7 @@ def PopulateArchFeaturesPass : Pass<"populate-arch-features-pass", "::mlir::func
     Option<"xdlopsV2", "xdlopsV2", "bool", "false",
       "xdlops on or off">,
     Option<"perf_config", "perf-config", "std::string", "", "Optional tuning config string">,
-    Option<"debug", "debug", "bool", "false", "Debug info">
+    Option<"debug", "debug", "bool", "true", "Debug info">
   ];
 }
 
