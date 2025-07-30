@@ -468,10 +468,7 @@ async def runConfig(paramIter: Iterable[IterType],
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            if isinstance(c, perfRunner.AttentionConfiguration):
-                print(' '.join(c.generateMlirDriverCommandLine(options.flags, kernel_repeats=None)))
-            else:
-                print(' '.join(c.generateMlirDriverCommandLine(options.flags)))
+            print(' '.join(c.generateMlirDriverCommandLine(options.flags, kernel_repeats=None)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
 
