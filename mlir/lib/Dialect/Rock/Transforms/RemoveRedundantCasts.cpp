@@ -67,88 +67,88 @@ struct RemoveRedundantTruncExtfPattern
     // TODO: We still need to handle cases where the truncf is the only op in
     // the linalg.generic
     bool changed = false;
-    for (auto &extfInfo : findCorrespondingExtfs(truncf)) {
-      auto extfOp = extfInfo.extfOp;
-      auto srcMemref = extfInfo.srcMemref;
-      LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfOp << " with: " << srcMemref << "\n");
+    // for (auto &extfInfo : findCorrespondingExtfs(truncf)) {
+    //   auto extfOp = extfInfo.extfOp;
+    //   auto srcMemref = extfInfo.srcMemref;
+    //   LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfOp << " with: " << srcMemref << "\n");
 
-      auto genericOp = extfOp->getParentOfType<linalg::GenericOp>();
-      if (!genericOp) {
-        extfOp.replaceAllUsesWith(srcMemref);
-        extfOp.erase();
-        changed = true;
-        continue;
-      }
+    //   auto genericOp = extfOp->getParentOfType<linalg::GenericOp>();
+    //   if (!genericOp) {
+    //     extfOp.replaceAllUsesWith(srcMemref);
+    //     extfOp.erase();
+    //     changed = true;
+    //     continue;
+    //   }
 
-      Block &bodyBlock = genericOp.getRegion().front();
-      Value extfArg = extfOp.getIn();
-      unsigned extfArgIdx = 0;
-      for (; extfArgIdx < bodyBlock.getNumArguments(); ++extfArgIdx) {
-        if (bodyBlock.getArgument(extfArgIdx) == extfArg)
-          break;
-      }
+    //   Block &bodyBlock = genericOp.getRegion().front();
+    //   Value extfArg = extfOp.getIn();
+    //   unsigned extfArgIdx = 0;
+    //   for (; extfArgIdx < bodyBlock.getNumArguments(); ++extfArgIdx) {
+    //     if (bodyBlock.getArgument(extfArgIdx) == extfArg)
+    //       break;
+    //   }
 
-      bool onlyUsedByExtf = true;
-      for (auto &use : extfArg.getUses()) {
-        if (use.getOwner() != extfOp) {
-          onlyUsedByExtf = false;
-          break;
-        }
-      }
+    //   bool onlyUsedByExtf = true;
+    //   for (auto &use : extfArg.getUses()) {
+    //     if (use.getOwner() != extfOp) {
+    //       onlyUsedByExtf = false;
+    //       break;
+    //     }
+    //   }
 
-      SmallVector<Value> newInputs = genericOp.getInputs();
-      if (onlyUsedByExtf) {
-        newInputs[extfArgIdx] = srcMemref;
-      } else {
-        newInputs.push_back(srcMemref);
-      }
+    //   SmallVector<Value> newInputs = genericOp.getInputs();
+    //   if (onlyUsedByExtf) {
+    //     newInputs[extfArgIdx] = srcMemref;
+    //   } else {
+    //     newInputs.push_back(srcMemref);
+    //   }
 
-      // Prepare new block arguments
-      SmallVector<Type> newBlockArgTypes;
-      for (Value v : newInputs)
-        newBlockArgTypes.push_back(v.getType());
-      for (unsigned i = 0; i < genericOp.getOutputs().size(); ++i)
-        newBlockArgTypes.push_back(bodyBlock.getArgument(genericOp.getInputs().size() + i).getType());
+    //   // Prepare new block arguments
+    //   SmallVector<Type> newBlockArgTypes;
+    //   for (Value v : newInputs)
+    //     newBlockArgTypes.push_back(v.getType());
+    //   for (unsigned i = 0; i < genericOp.getOutputs().size(); ++i)
+    //     newBlockArgTypes.push_back(bodyBlock.getArgument(genericOp.getInputs().size() + i).getType());
 
-      // Create a new block and IRMapping
-      Block *newBlock = new Block();
-      IRMapping mapping;
-      for (unsigned i = 0; i < newBlockArgTypes.size(); ++i)
-        newBlock->addArgument(newBlockArgTypes[i], bodyBlock.getArgument(i).getLoc());
-      for (unsigned i = 0; i < bodyBlock.getNumArguments(); ++i)
-        mapping.map(bodyBlock.getArgument(i), newBlock->getArgument(i));
+    //   // Create a new block and IRMapping
+    //   Block *newBlock = new Block();
+    //   IRMapping mapping;
+    //   for (unsigned i = 0; i < newBlockArgTypes.size(); ++i)
+    //     newBlock->addArgument(newBlockArgTypes[i], bodyBlock.getArgument(i).getLoc());
+    //   for (unsigned i = 0; i < bodyBlock.getNumArguments(); ++i)
+    //     mapping.map(bodyBlock.getArgument(i), newBlock->getArgument(i));
 
-      // Clone all ops except extfOp, replacing uses of extfOp with the correct block argument
-      for (auto &op : bodyBlock) {
-        if (&op == extfOp) {
-          // Replace extfOp with the correct block argument
-          if (onlyUsedByExtf)
-            extfOp.replaceAllUsesWith(newBlock->getArgument(extfArgIdx));
-          else
-            extfOp.replaceAllUsesWith(newBlock->getArgument(newInputs.size() - 1));
-          continue;
-        }
-        rewriter.clone(op, mapping);
-      }
+    //   // Clone all ops except extfOp, replacing uses of extfOp with the correct block argument
+    //   for (auto &op : bodyBlock) {
+    //     if (&op == extfOp) {
+    //       // Replace extfOp with the correct block argument
+    //       if (onlyUsedByExtf)
+    //         extfOp.replaceAllUsesWith(newBlock->getArgument(extfArgIdx));
+    //       else
+    //         extfOp.replaceAllUsesWith(newBlock->getArgument(newInputs.size() - 1));
+    //       continue;
+    //     }
+    //     rewriter.clone(op, mapping);
+    //   }
 
-      // Create the new linalg.generic op
-      auto newGenericOp = rewriter.create<linalg::GenericOp>(
-          genericOp.getLoc(),
-          genericOp.getResultTypes(),
-          newInputs,
-          genericOp.getOutputs(),
-          genericOp.getIndexingMaps(),
-          genericOp.getIteratorTypes(),
-          genericOp.getDocAttr(),
-          genericOp.getLibraryCallAttr());
+    //   // Create the new linalg.generic op
+    //   auto newGenericOp = rewriter.create<linalg::GenericOp>(
+    //       genericOp.getLoc(),
+    //       genericOp.getResultTypes(),
+    //       newInputs,
+    //       genericOp.getOutputs(),
+    //       genericOp.getIndexingMaps(),
+    //       genericOp.getIteratorTypes(),
+    //       genericOp.getDocAttr(),
+    //       genericOp.getLibraryCallAttr());
 
-      // Move the new block into the new region
-      newGenericOp.getRegion().push_back(newBlock);
+    //   // Move the new block into the new region
+    //   newGenericOp.getRegion().push_back(newBlock);
 
-      // Replace the old linalg.generic with the new one
-      rewriter.replaceOp(genericOp, newGenericOp->getResults());
-      changed = true;
-    }
+    //   // Replace the old linalg.generic with the new one
+    //   rewriter.replaceOp(genericOp, newGenericOp->getResults());
+    //   changed = true;
+    // }
 
     return changed ? success() : failure();
   }
