@@ -24,7 +24,7 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-Operation *getParentFuncOp(Operation *op) {
+Operation *mlir::rock::getParentFuncOp(Operation *op) {
   Operation *func;
   if (isa<func::FuncOp, gpu::GPUFuncOp>(op)) {
     func = op;
