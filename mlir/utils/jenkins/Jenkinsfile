@@ -355,8 +355,10 @@ def rebootNode() {
 int setLitWorkerCount() {
     int limit_lit_workers = 8
     def gpu_arch = get_gpu_architecture()
-    if (gpu_arch.contains('gfx942') || gpu_arch.contains('gfx950')) {
-        limit_lit_workers = 40
+    if (gpu_arch.contains('gfx908') || gpu_arch.contains('gfx90a')) {
+        limit_lit_workers = 20
+    } else if (gpu_arch.contains('gfx942') || gpu_arch.contains('gfx950')) {
+        limit_lit_workers = 64
     }
     return limit_lit_workers
 }

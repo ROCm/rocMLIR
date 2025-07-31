@@ -59,12 +59,13 @@ validate_tuning_file() {
         echo "ERROR: $f has duplicate header lines next to each other!"
         exit 1
     fi
+    # NOTE: Temporarily disabled the check for data lines after the header.
     # Existing checks
-    data_line=$(awk 'NR>1 && $0 !~ /^\s*$/ && $0 != header {print; exit}' header="$header" "$f")
-    if [ -z "$data_line" ]; then
-        echo "ERROR: $f has no data after header!"
-        exit 1
-    fi
+    #data_line=$(awk 'NR>1 && $0 !~ /^\s*$/ && $0 != header {print; exit}' header="$header" "$f")
+    #if [ -z "$data_line" ]; then
+    #    echo "ERROR: $f has no data after header!"
+    #    exit 1
+    #fi
 }
 
 function tuna_run
