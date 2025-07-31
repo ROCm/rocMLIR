@@ -401,7 +401,8 @@ def main(args=None):
 
     if winners is None:
         # Tuning aborted, bail
-        return
+        print("Tuning aborted")
+        return 1
 
     if parsed_args.debug:
         print(allData, file=sys.stderr)
