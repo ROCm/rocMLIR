@@ -169,17 +169,26 @@ struct TransformMapSimplifyPattern
   LogicalResult matchAndRewrite(rock::TransformOp transformOp,
                                 PatternRewriter &rewriter) const final {
     // Simplify the transform map if possible.
+    Location loc = transformOp.getLoc();
     Value inputArg = transformOp.getInput();
-    ShapedType inputTy = cast<ShapedType>(inputArg.getType());
+    rock::TransformMapAttr transformMap = transformOp.getTransformAttr();
+    rock::TransformMapAttr invertedTransformMap =
+        rock::invertTransformMap(rewriter, transformMap, loc);
+    ShapedType resultTy = cast<ShapedType>(transformOp.getOutput().getType());
     if(rock::TransformOp inputArgTransformOp = inputArg.getDefiningOp<rock::TransformOp>()) { 
       Value inputArgInput = inputArgTransformOp.getInput(); 
       ShapedType inputArgInputTy = cast<ShapedType>(inputArgInput.getType());
-      if(inputArgInputTy.getShape() == inputTy.getShape()) { 
+      rock::TransformMapAttr inputArgTransformMap =
+          inputArgTransformOp.getTransformAttr();
+      if (inputArgTransformMap == invertedTransformMap &&
+          inputArgInputTy.getShape() == resultTy.getShape()) {
         rewriter.replaceOp(transformOp, inputArgInput);
+        return success();
       }
     }
-    return success();
+    return failure();
   };
+};
 
   struct RockViewToTransform
       : public rock::impl::RockViewToTransformPassBase<RockViewToTransform> {
@@ -205,10 +214,10 @@ struct TransformMapSimplifyPattern
         signalPassFailure();
 
       RewritePatternSet simplifyTransformsPatterns(ctx);
-      patterns.add<rock::TransformMapSimplifyPattern>(ctx);
+      patterns.add<TransformMapSimplifyPattern>(ctx);
       if (failed(applyPatternsGreedily(func,
                                        std::move(simplifyTransformsPatterns))))
         signalPassFailure();
-    }
+    };
   };
 } // namespace
