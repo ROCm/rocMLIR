@@ -82,8 +82,9 @@ struct RemoveRedundantTruncExtfPattern
                                 << " with: " << extfInfo.srcMemref << "\n");
       }
 
-      // TODO: If after the removal of the extfOps, the truncfOp no longer has
-      // any uses, we can also remote it.
+      // TODO: If after the removal of the extfOps, the truncfOp (or its store)
+      // no longer has any uses, we can also remove it. Note, DCE will not do
+      // this removal for us
 
       changed |= res;
     }
@@ -124,9 +125,23 @@ private:
       // expect that it would have been handled by the direct replacement case
       // above. So we can safely assume that the extfOp is in a separate
       // linalg.generic.
-      LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf in linalg.generic: "
-                              << genericOp.getLoc() << "\n");
-      // TODO: Still need to implement this logic
+      LLVM_DEBUG(llvm::dbgs() << "\tEXTFOP: " << extfOp << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "\tMEMREF: " << memref << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "\tSRC MEMREF: " << srcMemref << "\n");
+
+      // Step 1: Create new rock.alloc op to hold the result from before the
+      // truncf operation. This is only for the case where the input to the
+      // truncf operation is not a memref<shapexf32>, but is instead something
+      // like memref<vector<shapexf32>>
+
+      // Step 2: Transform the rock.alloc if necessary to match the expected
+      // output type
+
+      // Step 3: Create a clone of the linalg.generic operation with the extf op
+      // with the new (potentially transformed rock.alloc) as the input
+
+      // Step 4: Remove the original linalg.generic operation
+
     }
     
     // We have reached an unsupported case, so we do not make any changes
@@ -158,8 +173,7 @@ private:
     }
 
     // Pattern 2: Through memory
-    // * truncf -> store -> load -> extf
-    // * linalg.generic that yields the truncf result as a memref
+    // truncf -> store -> linalg.generic -> extf
     auto memoryExtfs = findStoredMemoryExtfUse(truncfOp);
     if (!memoryExtfs.empty())
       extfInfos.append(memoryExtfs.begin(), memoryExtfs.end());
@@ -184,24 +198,24 @@ private:
   }
 
   // This function will find any ExtfOp uses of the original truncfOp that are
-  // stored to memory and then loaded back, potentially through a linalg.generic
-  // operation. It returns a vector of ExtfInfo structs that contain the ExtfOp
-  // and the corresponding memref.
+  // stored to memory and then loaded back through a linalg.generic operation.
   SmallVector<ExtfInfo>
   findStoredMemoryExtfUse(arith::TruncFOp truncfOp) const {
     SmallVector<ExtfInfo> extfInfos;
 
-    // Check if truncf is stored to memory
+    // Check if truncf value is stored (this can be a rock.in_bounds_store
+    // or a linalg.generic yield)
     auto storeInfo = findStoreOp(truncfOp);
     if (!storeInfo)
       return extfInfos;
 
-    // Find loads from the same memory location
-    auto loads = findLoadsFromMemref(storeInfo->memref, storeInfo->storeOp);
+    // Find valid linalg.generic uses from the same memory location
+    auto loads = findLinalgGenericUsesFromMemref(storeInfo->memref,
+                                                 storeInfo->storeOp);
 
     // Check if any load is used by an extf that extends back to f32
     for (auto &loadOp : loads) {
-      if (auto extfOp = findExtfUseOfLoad(loadOp, storeInfo->memref)) {
+      if (auto extfOp = findExtfUseInGeneric(loadOp, storeInfo->memref)) {
         if (extendsToF32(extfOp)) {
           LLVM_DEBUG(llvm::dbgs()
                      << "\tFound redundant extf: " << extfOp.getLoc() << "\n");
@@ -253,29 +267,32 @@ private:
     auto srcMemref = getSourceMemref(truncfOp.getIn());
 
     // Right now we assume that there is only going to be a single store of the
-    // truncated value, so we return the first one that we come across.
-    for (auto &use : truncfOp->getUses()) {
-      auto *userOp = use.getOwner();
-      // Check for different types of store operations
-      if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(userOp)) {
-        return StoreInfo{storeOp, getRootMemref(storeOp.getDest()), srcMemref};
-      } else if (auto storeOp = dyn_cast<memref::StoreOp>(userOp)) {
-        return StoreInfo{storeOp, getRootMemref(storeOp.getMemref()), srcMemref};
-      } else if (auto yieldOp = dyn_cast<linalg::YieldOp>(userOp)) {
-        // The parent op of the yield should be a linalg::GenericOp
-        Operation *parentOp = yieldOp->getParentOp();
-        if (auto genericOp = dyn_cast<linalg::GenericOp>(parentOp)) {
-          // Find which yield value is the result of truncfOp
-          for (unsigned i = 0; i < yieldOp.getValues().size(); ++i) {
-            if (yieldOp.getValues()[i] == truncfOp.getResult()) {
-              // Map yield value index to output memref
-              if (i < genericOp.getOutputs().size()) {
-                return StoreInfo{genericOp,
-                                getRootMemref(genericOp.getOutputs()[i]),
-                                srcMemref};
-              }
-            }
-          }
+    // truncated value
+    if (!llvm::hasSingleElement(truncfOp->getUses())) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\ttruncf has multiple uses, skipping\n");
+      return std::nullopt;
+    }
+
+    auto *userOp = truncfOp->getUses().begin()->getOwner();
+
+    // Check for different types of store operations
+    if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(userOp)) {
+      return StoreInfo{storeOp, getRootMemref(storeOp.getDest()), srcMemref};
+    } else if (auto yieldOp = dyn_cast<linalg::YieldOp>(userOp)) {
+      // The parent op of the yield should be a linalg::GenericOp
+      Operation *parentOp = yieldOp->getParentOp();
+      if (!isa<linalg::GenericOp>(parentOp))
+        return std::nullopt;
+
+      // Find which yield value is the result of truncfOp
+      auto genericOp = cast<linalg::GenericOp>(parentOp);
+      for (unsigned i = 0; i < yieldOp.getValues().size(); ++i) {
+        if (yieldOp.getValues()[i] == truncfOp.getResult()) {
+          // Map yield value index to output memref
+          return StoreInfo{genericOp,
+                           getRootMemref(genericOp.getOutputs()[i]),
+                           srcMemref};
         }
       }
     }
@@ -311,12 +328,13 @@ private:
     return allStores;
   }
 
-  // This function finds all valid loads from a given memref. Valid loads are
-  // those that are dominated by a specific store operation (the store of the
-  // truncated value) and do not have any intervening stores to the same memref.
-  SmallVector<Operation *> findLoadsFromMemref(Value memref,
-                                               Operation *storeOp) const {
-    SmallVector<Operation *> validLoads;
+  // This function finds all valid linalg.generic uses from a given memref. 
+  // Valid uses are those that are dominated by a specific store operation
+  // (the store of the truncated value) and do not have any intervening stores
+  // to the same memref.
+  SmallVector<Operation *> findLinalgGenericUsesFromMemref(Value memref,
+                                                           Operation *storeOp) const {
+    SmallVector<Operation *> validGenerics;
     DominanceInfo domInfo(func);
 
     // Gather all store ops to this memref
@@ -336,8 +354,7 @@ private:
           continue;
         }
 
-        if (!(isLoadFromMemref(user, memref) ||
-              isDirectMemrefUse(user, memref)))
+        if (!isDirectGenericMemrefUse(user, memref))
           continue;
 
         // Dominance check: storeOp must dominate this use
@@ -374,53 +391,55 @@ private:
         }
 
         if (!hasInterveningStore)
-          validLoads.push_back(user);
+          validGenerics.push_back(user);
       }
     }
 
-    return validLoads;
+    return validGenerics;
   }
 
   // Finds an arith::ExtFOp that uses the result of a load operation from the
   // given memref. Returns the matching ExtFOp if found, otherwise returns
   // nullptr.
-  arith::ExtFOp findExtfUseOfLoad(Operation *loadOp, Value memref) const {
-    // For memref::LoadOp
-    if (auto load = dyn_cast<memref::LoadOp>(loadOp)) {
-      if (load->hasOneUse()) {
-        auto *userOp = load->getUses().begin()->getOwner();
-        if (auto extfOp = dyn_cast<arith::ExtFOp>(userOp)) {
-          // Check if extf is extending from the loaded value
-          if (getRootMemref(extfOp.getIn()) == memref)
-            return extfOp;
-        }
+  // TODO: We might be able to simplify this logic and only handle the case
+  // where the load is a linalg.generic op that directly uses the memref value
+  arith::ExtFOp findExtfUseInGeneric(Operation *loadOp, Value memref) const {
+    if (!isa<linalg::GenericOp>(loadOp))
+      return nullptr; // Skip if the use is not in a linalg.generic
+
+    auto genericOp = cast<linalg::GenericOp>(loadOp);
+    Block &body = genericOp.getRegion().front();
+
+    // Get the index of the block argument that corresponds to the memref
+    Value inputArg = nullptr;
+    unsigned idx = 0;
+    for (auto ins : genericOp.getInputs()) {
+      // Check if this input corresponds to the memref input
+      if (getRootMemref(ins) == memref) {
+        // The block argument index matches the input index
+        inputArg = body.getArgument(idx);
+        break;
       }
+      idx++;
     }
 
-    // For linalg::GenericOp that operates on memref
-    if (auto genericOp = dyn_cast<linalg::GenericOp>(loadOp)) {
-      auto &bodyBlock = genericOp.getRegion().front();
-      // The block arguments correspond to the inputs/outputs of the generic
-      for (auto &op : bodyBlock) {
-        if (auto extfOp = dyn_cast<arith::ExtFOp>(&op)) {
-          // Case 1: extf directly on block argument (memref input)
-          for (auto arg : bodyBlock.getArguments()) {
-            // Find the index of this block argument in the block argument list
-            unsigned idx = arg.getArgNumber();
-            // Check if this block argument corresponds to the memref input
-            if (idx < genericOp.getInputs().size() &&
-                getRootMemref(genericOp.getInputs()[idx]) == memref) {
-              if (extfOp.getIn() == arg)
-                return extfOp;
-            }
-          }
-          // Case 2: extf on result of memref.load from the memref
-          if (auto load =
-                  dyn_cast<memref::LoadOp>(extfOp.getIn().getDefiningOp())) {
-            if (getRootMemref(load.getMemref()) == memref)
-              return extfOp;
-          }
-        }
+    // Check that the first, and only, use of the inputArg is an ExtfOp
+    if (!inputArg)
+      return nullptr;
+
+    if (!llvm::hasSingleElement(inputArg.getUses())) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tInput argument has multiple uses, skipping\n");
+      return nullptr;
+    }
+
+    Operation *userOp = inputArg.getUses().begin()->getOwner();
+    if (auto extfOp = dyn_cast<arith::ExtFOp>(userOp)) {
+      // Check if the ExtfOp extends to f32
+      if (extendsToF32(extfOp)) {
+        LLVM_DEBUG(llvm::dbgs() << "\tFound extf in generic: "
+                                << extfOp.getLoc() << "\n");
+        return extfOp;
       }
     }
 
@@ -441,22 +460,15 @@ private:
   }
 
   bool isStoreToMemref(Operation *op, Value memref) const {
-    if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(op))
+    if (auto storeOp = dyn_cast<rock::InBoundsStoreOp>(op)) {
       return storeOp.getDest() == memref;
-    if (auto storeOp = dyn_cast<memref::StoreOp>(op))
-      return storeOp.getMemref() == memref;
-    if (auto genericOp = dyn_cast<linalg::GenericOp>(op))
+    } else if (auto genericOp = dyn_cast<linalg::GenericOp>(op))
       return llvm::is_contained(genericOp.getOutputs(), memref);
     return false;
   }
 
-  bool isLoadFromMemref(Operation *op, Value memref) const {
-    if (auto loadOp = dyn_cast<memref::LoadOp>(op))
-      return loadOp.getMemref() == memref;
-    return false;
-  }
 
-  bool isDirectMemrefUse(Operation *op, Value memref) const {
+  bool isDirectGenericMemrefUse(Operation *op, Value memref) const {
     // For ops that take memref as input. Right now we are only checking for
     // linalg.generic ops
     if (auto genericOp = dyn_cast<linalg::GenericOp>(op))
