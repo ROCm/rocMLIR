@@ -84,7 +84,9 @@ struct RemoveRedundantTruncExtfPattern
 
       // TODO: If after the removal of the extfOps, the truncfOp (or its store)
       // no longer has any uses, we can also remove it. Note, DCE will not do
-      // this removal for us
+      // this removal for us.
+      // We will have to check and see if all uses of the stored memref are
+      // no longer used (if there are any left)
 
       changed |= res;
     }
@@ -95,9 +97,11 @@ struct RemoveRedundantTruncExtfPattern
 private:
   struct ExtfInfo {
     arith::ExtFOp extfOp;
-    // Will be set to nullptr if the pattern is a direct truncf -> extf use
-    Value memref;
     Value srcMemref;
+    // The two params below will be set to nullptr if the pattern is a direct
+    // truncf -> extf use
+    Value memref;
+    Operation *storeOp;
   };
 
   struct StoreInfo {
@@ -133,6 +137,7 @@ private:
       // truncf operation. This is only for the case where the input to the
       // truncf operation is not a memref<shapexf32>, but is instead something
       // like memref<vector<shapexf32>>
+      
 
       // Step 2: Transform the rock.alloc if necessary to match the expected
       // output type
@@ -169,7 +174,7 @@ private:
 
     // Pattern 1: Direct use - truncf -> extf
     if (auto directExtf = findDirectExtfUse(truncfOp)) {
-      extfInfos.push_back({directExtf, nullptr, truncfOp.getIn()});
+      extfInfos.push_back({directExtf, nullptr, truncfOp.getIn(), nullptr});
     }
 
     // Pattern 2: Through memory
@@ -220,7 +225,7 @@ private:
           LLVM_DEBUG(llvm::dbgs()
                      << "\tFound redundant extf: " << extfOp.getLoc() << "\n");
           extfInfos.push_back(
-              {extfOp, storeInfo->memref, storeInfo->srcMemref});
+              {extfOp, storeInfo->memref, storeInfo->srcMemref, storeInfo->storeOp});
         }
       }
     }
