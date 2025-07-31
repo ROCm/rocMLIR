@@ -20,9 +20,12 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir {
 namespace rock {
@@ -160,28 +163,52 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   }
 };
 
-struct RockViewToTransform
-    : public rock::impl::RockViewToTransformPassBase<RockViewToTransform> {
-public:
-  void runOnOperation() override {
-    auto func = getOperation();
-    if (!func->hasAttr("kernel")) {
-      return;
+struct TransformMapSimplifyPattern
+    : public OpRewritePattern<rock::TransformOp> {
+  using OpRewritePattern<rock::TransformOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(rock::TransformOp transformOp,
+                                PatternRewriter &rewriter) const final {
+    // Simplify the transform map if possible.
+    Value inputArg = transformOp.getInput();
+    ShapedType inputTy = cast<ShapedType>(inputArg.getType());
+    if(rock::TransformOp inputArgTransformOp = inputArg.getDefiningOp<rock::TransformOp>()) { 
+      Value inputArgInput = inputArgTransformOp.getInput(); 
+      ShapedType inputArgInputTy = cast<ShapedType>(inputArgInput.getType());
+      if(inputArgInputTy.getShape() == inputTy.getShape()) { 
+        rewriter.replaceOp(transformOp, inputArgInput);
+      }
     }
-    MLIRContext *ctx = &getContext();
-    // Split patterns into two stages by bufferization
-    RewritePatternSet patterns(ctx);
-    ConversionTarget target(*ctx);
+    return success();
+  };
 
-    target.addLegalDialect<rock::RockDialect, tosa::TosaDialect>();
-    target.addIllegalOp<tensor::ExpandShapeOp, tensor::CollapseShapeOp,
-                        tensor::ExtractSliceOp, tosa::TransposeOp>();
+  struct RockViewToTransform
+      : public rock::impl::RockViewToTransformPassBase<RockViewToTransform> {
+  public:
+    void runOnOperation() override {
+      auto func = getOperation();
+      if (!func->hasAttr("kernel")) {
+        return;
+      }
+      MLIRContext *ctx = &getContext();
+      // Split patterns into two stages by bufferization
+      RewritePatternSet patterns(ctx);
+      ConversionTarget target(*ctx);
 
-    patterns.add<TransposeRewritePattern, CollapseShapeRewritePattern,
-                 ExpandShapeRewritePattern, ExtractSliceRewritePattern>(ctx);
+      target.addLegalDialect<rock::RockDialect, tosa::TosaDialect>();
+      target.addIllegalOp<tensor::ExpandShapeOp, tensor::CollapseShapeOp,
+                          tensor::ExtractSliceOp, tosa::TransposeOp>();
 
-    if (failed(applyPartialConversion(func, target, std::move(patterns))))
-      signalPassFailure();
-  }
-};
+      patterns.add<TransposeRewritePattern, CollapseShapeRewritePattern,
+                   ExpandShapeRewritePattern, ExtractSliceRewritePattern>(ctx);
+
+      if (failed(applyPartialConversion(func, target, std::move(patterns))))
+        signalPassFailure();
+
+      RewritePatternSet simplifyTransformsPatterns(ctx);
+      patterns.add<rock::TransformMapSimplifyPattern>(ctx);
+      if (failed(applyPatternsGreedily(func,
+                                       std::move(simplifyTransformsPatterns))))
+        signalPassFailure();
+    }
+  };
 } // namespace
