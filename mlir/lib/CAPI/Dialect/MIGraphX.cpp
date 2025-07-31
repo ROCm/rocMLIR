@@ -214,6 +214,32 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
   mlir::rock::buildKernelPipeline(*passMan, opts);
 }
 
+MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPopulateParamsPipeline(MlirPassManager pm,
+							       const char *arch,
+							       size_t num_cu) {
+  auto *passMan = unwrap(pm);
+  if (failed(applyPassManagerCLOptions(*passMan)))
+    return false;
+  passMan->setNesting(mlir::PassManager::Nesting::Implicit);
+  llvm::StringRef archStr(arch);
+  mlir::RocmDeviceName devName;
+  if (archStr.empty() || mlir::failed(devName.parse(archStr))) {
+    llvm::errs() << "Invalid architecture: " << archStr << "\n";
+    return false;
+  }
+  auto triple   = devName.getTriple().str();      
+  auto chip 	= devName.getChip().str();
+  auto features	= devName.getFeaturesForBackend();
+  mlir::rock::PopulateParamsOptions ppOpts;
+  ppOpts.portable = true;
+  ppOpts.triple   = triple;
+  ppOpts.chip     = chip;
+  ppOpts.numCU   = num_cu;
+  mlir::rock::buildPopulateParamsPipeline(*passMan, ppOpts);
+
+  return true;
+}
+
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *arch) {
   auto *passMan = unwrap(pm);
@@ -228,7 +254,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   }
   auto triple   = devName.getTriple().str();      
   auto chip 	= devName.getChip().str();	       
-  auto features	= devName.getFeaturesForBackend();      
+  auto features	= devName.getFeaturesForBackend();    
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
@@ -258,13 +284,14 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager p
   auto triple   = devName.getTriple().str();      
   auto chip 	= devName.getChip().str();
   auto features	= devName.getFeaturesForBackend();      
+  mlir::rock::PopulateParamsOptions ppOpts;
+  ppOpts.portable = true;
+  ppOpts.triple   = triple;
+  ppOpts.chip     = chip;
+  ppOpts.numCU   = num_cu;
+  mlir::rock::buildPopulateParamsPipeline(*passMan, ppOpts);
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;
-  kOpts.portable = true;
-  kOpts.triple   = triple;
-  kOpts.chip     = chip;
-  kOpts.features = features;
-  kOpts.numCU   = num_cu;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   mlir::rock::BackendOptions opts;
   opts.triple = triple;

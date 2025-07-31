@@ -143,6 +143,18 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   }
 }
 
+void rock::buildPopulateParamsPipeline(OpPassManager &pm, const rock::PopulateParamsOptions &options) {
+    auto &funcPm = pm.nest<func::FuncOp>();
+    if(options.portable) {
+        PopulateArchFeaturesPassOptions popOpts;
+        popOpts.triple = options.triple;
+        popOpts.arch = options.chip;
+        popOpts.num_cu = options.numCU;
+        popOpts.debug = true;
+        funcPm.addPass(createPopulateArchFeaturesPass(popOpts));
+  }
+}
+
 void rock::buildKernelPipeline(OpPassManager &pm,
                                const rock::KernelOptions &options) {
   // rock lowering (tuning, global to block)
@@ -151,15 +163,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
-  if(options.portable) {
-      PopulateArchFeaturesPassOptions popOpts;
-      popOpts.triple = options.triple;
-      popOpts.arch = options.chip;
-      popOpts.num_cu = options.numCU;
-      popOpts.perf_config = options.perfConfig;
-      popOpts.debug = true;
-      funcPm.addPass(createPopulateArchFeaturesPass(popOpts));
-  }
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
       rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
   funcPm.addPass(rock::createRockConvToGemmPass());
@@ -301,6 +304,10 @@ void rock::registerPipelines() {
       "rock-bufferize-pipeline",
       " representations and algorithms for sparse tensors.",
       buildBufferizePipeline);
+  PassPipelineRegistration<rock::PopulateParamsOptions>(
+      "populate-params-pipeline",
+      " representations and algorithms for sparse tensors.",
+      buildPopulateParamsPipeline);
   PassPipelineRegistration<rock::KernelOptions>(
       "rock-kernel-pipeline",
       " representations and algorithms for sparse tensors.",

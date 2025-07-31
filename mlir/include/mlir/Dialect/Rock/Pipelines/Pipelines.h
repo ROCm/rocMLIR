@@ -41,6 +41,24 @@ struct BufferizeOptions : public PassPipelineOptions<BufferizeOptions> {
 void buildBufferizePipeline(OpPassManager &pm,
                             const BufferizeOptions &options = {});
 
+
+//===--- PopulateParams Pipeline --------------------------------------------------===//
+struct PopulateParamsOptions : public PassPipelineOptions<PopulateParamsOptions> {
+  PassOptions::Option<bool> portable{
+      *this, "portable",
+      desc("Set true if arch and tuning params must be filled"), init(false)};
+  PassOptions::Option<std::string> triple{
+      *this, "triple", desc("AMDGPU target triple: amdgcn-amd-amdhsa"),
+      init("")};
+  PassOptions::Option<std::string> chip{
+      *this, "chip", desc("AMDGPU ISA version: e.g. gfx908"), init("")};
+  PassOptions::Option<std::size_t> numCU{
+      *this, "numCU", desc("Number of Compute Units available"), init(0)};
+};
+
+/// Adds the `PopulateParams` pipeline to the `OpPassManager`.
+void buildPopulateParamsPipeline(OpPassManager &pm, const PopulateParamsOptions &options = {});                            
+
 //===--- Kernel Pipeline --------------------------------------------------===//
 struct KernelOptions : public PassPipelineOptions<KernelOptions> {
 
@@ -54,20 +72,6 @@ struct KernelOptions : public PassPipelineOptions<KernelOptions> {
   PassOptions::Option<bool> tuningFallback{
       *this, "tuningFallback",
       desc("Falls back default if invalid config is given"), init(false)};
-  PassOptions::Option<bool> portable{
-      *this, "portable",
-      desc("Set true if arch and tuning params must be filled"), init(false)};
-  PassOptions::Option<std::string> triple{
-      *this, "triple", desc("AMDGPU target triple: amdgcn-amd-amdhsa"),
-      init("")};
-  PassOptions::Option<std::string> chip{
-      *this, "chip", desc("AMDGPU ISA version: e.g. gfx908"), init("")};
-  PassOptions::Option<std::string> features{
-      *this, "features", desc("AMDGPU target features"), init("")};
-  PassOptions::Option<std::string> perfConfig{
-      *this, "perfConfig", desc("Problem perf config"), init("")};
-  PassOptions::Option<std::size_t> numCU{
-      *this, "numCU", desc("Number of Compute Units available"), init(0)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.
@@ -93,7 +97,7 @@ struct BackendOptions : public PassPipelineOptions<BackendOptions> {
       desc("should we suppress diagnostic messages"), init(false)};
 };
 
-/// Adds the `kernel` pipeline to the `OpPassManager`.
+/// Adds the `backend` pipeline to the `OpPassManager`.
 void buildBackendPipeline(OpPassManager &pm,
                           const BackendOptions &options = {});
 
