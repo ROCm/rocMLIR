@@ -15,7 +15,13 @@
 // limitations under the License.
 // ============================================================
 //
-// This pass removes any redundant casts that exist in the IR.
+// This pass identifies and removes redundant floating-point cast chains in the
+// IR, specifically patterns where a value is converted from f32 to a smaller
+// type (e.g., f16) and then immediately extended back to f32. It also handles
+// cases where such casts are stored and loaded through memory or passed through
+// linalg.generic operations. By eliminating these unnecessary conversions, the
+// pass simplifies the IR and can improve performance by reducing superfluous
+// operations and memory traffic.
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -64,91 +70,23 @@ struct RemoveRedundantTruncExtfPattern
     }
 
     // Find the corresponding extf(s) that uses this truncf's result
-    // TODO: We still need to handle cases where the truncf is the only op in
-    // the linalg.generic
     bool changed = false;
-    // for (auto &extfInfo : findCorrespondingExtfs(truncf)) {
-    //   auto extfOp = extfInfo.extfOp;
-    //   auto srcMemref = extfInfo.srcMemref;
-    //   LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfOp << " with: " << srcMemref << "\n");
+    for (auto &extfInfo : findCorrespondingExtfs(truncf)) {
+      // Try to replace the extf with the memref input to the original truncf
+      // if possible. We do not touch the original truncf operation here, as we
+      // allow for it to get cleaned up by DCE if applicable.
+      auto res = replaceExtfWithMemref(extfInfo.extfOp, extfInfo.memref,
+                                       extfInfo.srcMemref, rewriter);
+      if (res) {
+        LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfInfo.extfOp
+                                << " with: " << extfInfo.srcMemref << "\n");
+      }
 
-    //   auto genericOp = extfOp->getParentOfType<linalg::GenericOp>();
-    //   if (!genericOp) {
-    //     extfOp.replaceAllUsesWith(srcMemref);
-    //     extfOp.erase();
-    //     changed = true;
-    //     continue;
-    //   }
+      // TODO: If after the removal of the extfOps, the truncfOp no longer has
+      // any uses, we can also remote it.
 
-    //   Block &bodyBlock = genericOp.getRegion().front();
-    //   Value extfArg = extfOp.getIn();
-    //   unsigned extfArgIdx = 0;
-    //   for (; extfArgIdx < bodyBlock.getNumArguments(); ++extfArgIdx) {
-    //     if (bodyBlock.getArgument(extfArgIdx) == extfArg)
-    //       break;
-    //   }
-
-    //   bool onlyUsedByExtf = true;
-    //   for (auto &use : extfArg.getUses()) {
-    //     if (use.getOwner() != extfOp) {
-    //       onlyUsedByExtf = false;
-    //       break;
-    //     }
-    //   }
-
-    //   SmallVector<Value> newInputs = genericOp.getInputs();
-    //   if (onlyUsedByExtf) {
-    //     newInputs[extfArgIdx] = srcMemref;
-    //   } else {
-    //     newInputs.push_back(srcMemref);
-    //   }
-
-    //   // Prepare new block arguments
-    //   SmallVector<Type> newBlockArgTypes;
-    //   for (Value v : newInputs)
-    //     newBlockArgTypes.push_back(v.getType());
-    //   for (unsigned i = 0; i < genericOp.getOutputs().size(); ++i)
-    //     newBlockArgTypes.push_back(bodyBlock.getArgument(genericOp.getInputs().size() + i).getType());
-
-    //   // Create a new block and IRMapping
-    //   Block *newBlock = new Block();
-    //   IRMapping mapping;
-    //   for (unsigned i = 0; i < newBlockArgTypes.size(); ++i)
-    //     newBlock->addArgument(newBlockArgTypes[i], bodyBlock.getArgument(i).getLoc());
-    //   for (unsigned i = 0; i < bodyBlock.getNumArguments(); ++i)
-    //     mapping.map(bodyBlock.getArgument(i), newBlock->getArgument(i));
-
-    //   // Clone all ops except extfOp, replacing uses of extfOp with the correct block argument
-    //   for (auto &op : bodyBlock) {
-    //     if (&op == extfOp) {
-    //       // Replace extfOp with the correct block argument
-    //       if (onlyUsedByExtf)
-    //         extfOp.replaceAllUsesWith(newBlock->getArgument(extfArgIdx));
-    //       else
-    //         extfOp.replaceAllUsesWith(newBlock->getArgument(newInputs.size() - 1));
-    //       continue;
-    //     }
-    //     rewriter.clone(op, mapping);
-    //   }
-
-    //   // Create the new linalg.generic op
-    //   auto newGenericOp = rewriter.create<linalg::GenericOp>(
-    //       genericOp.getLoc(),
-    //       genericOp.getResultTypes(),
-    //       newInputs,
-    //       genericOp.getOutputs(),
-    //       genericOp.getIndexingMaps(),
-    //       genericOp.getIteratorTypes(),
-    //       genericOp.getDocAttr(),
-    //       genericOp.getLibraryCallAttr());
-
-    //   // Move the new block into the new region
-    //   newGenericOp.getRegion().push_back(newBlock);
-
-    //   // Replace the old linalg.generic with the new one
-    //   rewriter.replaceOp(genericOp, newGenericOp->getResults());
-    //   changed = true;
-    // }
+      changed |= res;
+    }
 
     return changed ? success() : failure();
   }
@@ -156,7 +94,8 @@ struct RemoveRedundantTruncExtfPattern
 private:
   struct ExtfInfo {
     arith::ExtFOp extfOp;
-    Value memref; // Optional: if the pattern goes through memory
+    // Will be set to nullptr if the pattern is a direct truncf -> extf use
+    Value memref;
     Value srcMemref;
   };
 
@@ -166,6 +105,36 @@ private:
     Value srcMemref;
   };
 
+  // This function will try to replace the extfOp with the srcMemref (the
+  // orignal input to the truncfOp) if possible.
+  bool replaceExtfWithMemref(arith::ExtFOp extfOp, Value memref,
+                             Value srcMemref, PatternRewriter &rewriter) const {
+    // If the optional memref value of the ExtfInfo struct is not set, then
+    // this directly corresponds to the direct truncf -> extf case and we do
+    // not need to do any additional handling work (e.g., for linalg.generic)
+    if (!memref) {
+      extfOp.replaceAllUsesWith(srcMemref);
+      extfOp.erase();
+      return true;
+    }
+
+    // If the extfOp is in a linalg.generic, then we need special handling
+    if (auto genericOp = extfOp->getParentOfType<linalg::GenericOp>()) {
+      // If the truncf op was in the same linalg.generic as the extfOp, then we
+      // expect that it would have been handled by the direct replacement case
+      // above. So we can safely assume that the extfOp is in a separate
+      // linalg.generic.
+      LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf in linalg.generic: "
+                              << genericOp.getLoc() << "\n");
+      // TODO: Still need to implement this logic
+    }
+    
+    // We have reached an unsupported case, so we do not make any changes
+    return false; 
+  }
+
+  // Helper function that checks if the truncf operation is converting from f32
+  // to a smaller type (e.g., f16).
   bool isF32ToSmallerType(arith::TruncFOp truncfOp) const {
     Type inputType = truncfOp.getIn().getType();
     Type elementType = inputType;
@@ -178,6 +147,8 @@ private:
     return elementType.isF32();
   }
 
+  // This function will find all valid ExtfOps that correspond to uses of the 
+  // orignal truncfOp.
   SmallVector<ExtfInfo> findCorrespondingExtfs(arith::TruncFOp truncfOp) const {
     SmallVector<ExtfInfo> extfInfos;
 
@@ -196,6 +167,7 @@ private:
     return extfInfos;
   }
 
+  // This function will find any direct ExtfOp uses of the original truncfOp
   arith::ExtFOp findDirectExtfUse(arith::TruncFOp truncfOp) const {
     for (auto &use : truncfOp->getUses()) {
       Operation *userOp = use.getOwner();
@@ -211,6 +183,10 @@ private:
     return nullptr;
   }
 
+  // This function will find any ExtfOp uses of the original truncfOp that are
+  // stored to memory and then loaded back, potentially through a linalg.generic
+  // operation. It returns a vector of ExtfInfo structs that contain the ExtfOp
+  // and the corresponding memref.
   SmallVector<ExtfInfo>
   findStoredMemoryExtfUse(arith::TruncFOp truncfOp) const {
     SmallVector<ExtfInfo> extfInfos;
@@ -238,6 +214,13 @@ private:
     return extfInfos;
   }
 
+  // Returns the source memref associated with the given value.
+  // - If the value is a block argument, attempts to resolve it to the
+  //   corresponding input of a parent linalg::GenericOp, if applicable;
+  //   otherwise returns the block argument itself.
+  // - If the value is the result of a memref::LoadOp, returns the memref
+  //   operand of the load.
+  // - For other cases, returns a null Value.
   Value getSourceMemref(Value val) const {
     // If it's a block argument, it may be a memref directly
     if (isa<BlockArgument>(val)) {
@@ -260,6 +243,11 @@ private:
     return Value();
   }
 
+  // Finds the first store operation that writes the result of the given
+  // truncfOp to memory. Handles different store patterns, including direct
+  // memref stores, rock::InBoundsStoreOp, and linalg::GenericOp yields.
+  // Returns a StoreInfo struct containing the store operation, the destination
+  // memref, and the original source memref.
   std::optional<StoreInfo> findStoreOp(arith::TruncFOp truncfOp) const {
     // Collect the input memref to the truncfOp
     auto srcMemref = getSourceMemref(truncfOp.getIn());
@@ -295,6 +283,11 @@ private:
     return std::nullopt;
   }
 
+  /// Finds all store operations that write to the given memref value.
+  /// Traverses the use-def chain starting from the provided memref, following
+  /// any rock::TransformOp results, and collects all operations that store to
+  /// the memref (including memref::StoreOp, rock::InBoundsStoreOp, and
+  /// linalg::GenericOp outputs).
   SmallVector<Operation *> findStoresFromMemref(Value memref) const {
     SmallVector<Operation *> allStores;
     llvm::SmallPtrSet<Value, 8> visited;
@@ -318,6 +311,9 @@ private:
     return allStores;
   }
 
+  // This function finds all valid loads from a given memref. Valid loads are
+  // those that are dominated by a specific store operation (the store of the
+  // truncated value) and do not have any intervening stores to the same memref.
   SmallVector<Operation *> findLoadsFromMemref(Value memref,
                                                Operation *storeOp) const {
     SmallVector<Operation *> validLoads;
@@ -367,7 +363,9 @@ private:
             continue;
 
           // TODO: For correctness we want to handle all of the scenarios where
-          // stores can be in different regions
+          // stores can be in different regions. If a store or load is in a
+          // rock.transformingFor or linalg generic we should get the parent
+          // region. We should make this change above as well
           if (domInfo.dominates(storeOp, otherStore) &&
               domInfo.dominates(otherStore, user)) {
             hasInterveningStore = true;
@@ -383,6 +381,9 @@ private:
     return validLoads;
   }
 
+  // Finds an arith::ExtFOp that uses the result of a load operation from the
+  // given memref. Returns the matching ExtFOp if found, otherwise returns
+  // nullptr.
   arith::ExtFOp findExtfUseOfLoad(Operation *loadOp, Value memref) const {
     // For memref::LoadOp
     if (auto load = dyn_cast<memref::LoadOp>(loadOp)) {
@@ -426,6 +427,8 @@ private:
     return nullptr;
   }
 
+  // Helper function that checks if the ExtfOp is converting to f32 from a
+  // smaller type (e.g., f16).
   bool extendsToF32(arith::ExtFOp extfOp) const {
     Type outputType = extfOp.getOut().getType();
     Type elementType = outputType;
@@ -464,7 +467,7 @@ private:
   Value getRootMemref(Value memref) const {
     Value current = memref;
     while (auto transformOp =
-               dyn_cast_or_null<rock::TransformOp>(current.getDefiningOp())) {
+               dyn_cast<rock::TransformOp>(current.getDefiningOp())) {
       current = transformOp.getInput();
     }
     return current;
