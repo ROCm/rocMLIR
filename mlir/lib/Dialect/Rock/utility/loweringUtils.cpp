@@ -9,7 +9,6 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
-#include "mlir/Dialect/Rock/IR/GetRockAttrInfo.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -674,6 +673,47 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
                                 rewriter.getArrayAttr(threadSubTileMaps),
                                 std::nullopt};
   }
+}
+
+// Helper function to get attributes from parents
+template <typename RetAttrType>
+FailureOr<RetAttrType> getAttrFromOpOrParents(
+    Operation *op, StringRef opAttr,
+    std::optional<StringRef> maybeDialectAttr = std::nullopt) {
+  StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
+  Operation *func = getParentFuncOp(op);
+  RetAttrType attr;
+  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
+    for (StringRef attrName : attrNames) {
+      if (!attr) {
+        attr = op->getAttrOfType<RetAttrType>(attrName);
+      } else {
+        return;
+      }
+    }
+  };
+
+  // First check for the attribute on the op
+  getAnyAttr({opAttr}, op);
+  if (!attr) {
+    // If that fails then try checking for the attribute on the func
+    getAnyAttr({opAttr, dialectAttr}, func);
+  }
+
+  // If there is no desired attribute on the func, then check the nearest parent
+  // with a symbol table (covers both ModuleOp and gpu::GPUModuleOp)
+  if (!attr) {
+    if (auto symbolTableOp = func->getParentWithTrait<OpTrait::SymbolTable>()) {
+      getAnyAttr({opAttr, dialectAttr}, symbolTableOp);
+      if (attr)
+        return attr;
+    }
+  }
+
+  if (!attr) {
+    return failure();
+  }
+  return attr;
 }
 
 FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {

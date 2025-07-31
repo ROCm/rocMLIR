@@ -10,7 +10,6 @@
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
-#include "mlir/Dialect/Rock/IR/GetRockAttrInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
@@ -24,6 +23,61 @@
 
 using namespace mlir;
 using namespace mlir::rock;
+
+Operation *getParentFuncOp(Operation *op) {
+  Operation *func;
+  if (isa<func::FuncOp, gpu::GPUFuncOp>(op)) {
+    func = op;
+  } else {
+    func = op->getParentOfType<func::FuncOp>();
+    if (!func) {
+      func = op->getParentOfType<gpu::GPUFuncOp>();
+    }
+  }
+
+  return func;
+}
+
+// Helper function to get attributes from parents
+template <typename RetAttrType>
+FailureOr<RetAttrType> getAttrFromOpOrParents(
+    Operation *op, StringRef opAttr,
+    std::optional<StringRef> maybeDialectAttr = std::nullopt) {
+  StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
+  Operation *func = getParentFuncOp(op);
+  RetAttrType attr;
+  auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
+    for (StringRef attrName : attrNames) {
+      if (!attr) {
+        attr = op->getAttrOfType<RetAttrType>(attrName);
+      } else {
+        return;
+      }
+    }
+  };
+
+  // First check for the attribute on the op
+  getAnyAttr({opAttr}, op);
+  if (!attr) {
+    // If that fails then try checking for the attribute on the func
+    getAnyAttr({opAttr, dialectAttr}, func);
+  }
+
+  // If there is no desired attribute on the func, then check the nearest parent
+  // with a symbol table (covers both ModuleOp and gpu::GPUModuleOp)
+  if (!attr) {
+    if (auto symbolTableOp = func->getParentWithTrait<OpTrait::SymbolTable>()) {
+      getAnyAttr({opAttr, dialectAttr}, symbolTableOp);
+      if (attr)
+        return attr;
+    }
+  }
+
+  if (!attr) {
+    return failure();
+  }
+  return attr;
+}
 
 bool mlir::rock::isAccel(rock::GemmFeatures features) {
   return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
