@@ -146,11 +146,8 @@ RUN wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2
 
 # python setup for tuna
 # --ignore-installed because of problems upgrading PyYAML.  See also -U.
-ADD "https://raw.githubusercontent.com/ROCm/MITuna/pf-tuna-rocmlir-3/requirements.txt" tuna-requirements.txt
-ADD "https://raw.githubusercontent.com/ROCm/MITuna/develop/requirements.txt" temp-tuna-requirements.txt
+ADD "https://raw.githubusercontent.com/ROCm/MITuna/merge-from-develop/requirements.txt" tuna-requirements.txt
 RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
     python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
     python3 -m pip install -r llvm-requirements.txt --ignore-installed && \
     python3 -m pip install -r requirements.txt --ignore-installed
-    python3 -m pip install -r temp-tuna-requirements.txt --ignore-installed
-    # temp-tuna-requirements is added temporarily until mergeing develop to pf-tuna... is not done
