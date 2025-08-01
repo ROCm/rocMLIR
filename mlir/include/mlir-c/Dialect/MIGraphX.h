@@ -95,7 +95,8 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager p
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPopulateParamsPipeline(MlirPassManager pm,
 							       const char *arch,
-							       size_t num_cu);                                   
+							       size_t num_cu,
+                                   bool debug);                                   
 
 #ifdef __cplusplus
 }
