@@ -162,8 +162,16 @@ MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
 // Reads mlir bytecode in data/size, returning an MlirModule of it
 MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data, size_t size)
 {
-    if (data == nullptr || size == 0)
+    if (data == nullptr) {
+        llvm::errs() << "Data is null\n";
         return MlirModule{nullptr}; 
+    }
+
+    if(size == 0) {
+        llvm::errs() << "Size if zero\n";
+        return MlirModule{nullptr}; 
+    }
+
 
     auto memBuffer = llvm::MemoryBuffer::getMemBufferCopy(
         llvm::StringRef(data, size), "<mlirbc>");
@@ -173,15 +181,21 @@ MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data
     mlir::Block block;
     llvm::MemoryBufferRef bufferRef = memBuffer->getMemBufferRef();
 
-    if (mlir::failed(mlir::readBytecodeFile(bufferRef, &block, config)))
+    if (mlir::failed(mlir::readBytecodeFile(bufferRef, &block, config))) {
+        llvm::errs() << "Failed to read bytecode\n";
         return MlirModule{nullptr};
+    }
 
-    if (block.empty())
+    if (block.empty()) {
+        llvm::errs() << "Block is empty\n";
         return MlirModule{nullptr};
+    }
 
     mlir::Operation *op = &block.front();
-    if (!llvm::isa<mlir::ModuleOp>(op))
+    if (!llvm::isa<mlir::ModuleOp>(op)) {
+        llvm::errs() << "Block is not a module op\n";
         return MlirModule{nullptr};
+    }
 
     auto mod = mlir::cast<mlir::ModuleOp>(op);
    
