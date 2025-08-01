@@ -54,6 +54,8 @@ struct PopulateParamsOptions : public PassPipelineOptions<PopulateParamsOptions>
       *this, "chip", desc("AMDGPU ISA version: e.g. gfx908"), init("")};
   PassOptions::Option<std::size_t> numCU{
       *this, "numCU", desc("Number of Compute Units available"), init(0)};
+  PassOptions::Option<bool> debug{
+      *this, "debug", desc("Debug info for pass"), init(false)};
 };
 
 /// Adds the `PopulateParams` pipeline to the `OpPassManager`.

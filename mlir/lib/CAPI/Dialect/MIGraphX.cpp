@@ -216,7 +216,8 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPopulateParamsPipeline(MlirPassManager pm,
 							       const char *arch,
-							       size_t num_cu) {
+							       size_t num_cu,
+                                   bool debug) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
@@ -235,6 +236,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPopulateParamsPipeline(MlirPassManager pm
   ppOpts.triple   = triple;
   ppOpts.chip     = chip;
   ppOpts.numCU   = num_cu;
+  ppOpts.debug    = debug;
   mlir::rock::buildPopulateParamsPipeline(*passMan, ppOpts);
 
   return true;

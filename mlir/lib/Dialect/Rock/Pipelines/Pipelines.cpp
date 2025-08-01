@@ -150,7 +150,7 @@ void rock::buildPopulateParamsPipeline(OpPassManager &pm, const rock::PopulatePa
         popOpts.triple = options.triple;
         popOpts.arch = options.chip;
         popOpts.num_cu = options.numCU;
-        popOpts.debug = true;
+        popOpts.debug = options.debug;
         funcPm.addPass(createPopulateArchFeaturesPass(popOpts));
   }
 }
