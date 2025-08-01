@@ -94,11 +94,8 @@ def GPUToMIGraphXPass : Pass<"gpu-to-migraphx", "::mlir::func::FuncOp"> {
     Pass that converts func operations with gpu.launch to MIGraphX operation.
   }];
 
-  let dependentDialects = [
-    "migraphx::MIGraphXDialect",
-    "func::FuncDialect",
-    "gpu::GPUDialect"
-  ];
+  let dependentDialects = ["migraphx::MIGraphXDialect", "func::FuncDialect",
+                           "gpu::GPUDialect"];
 }
 
 //===----------------------------------------------------------------------===//
