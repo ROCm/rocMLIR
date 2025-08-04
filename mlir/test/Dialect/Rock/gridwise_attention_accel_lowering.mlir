@@ -478,6 +478,62 @@ func.func @gridwise_attn_softmaxtype(%arg0: memref<1x384x64xf16>, %arg1: memref<
 
 // -----
 
+// CHECK-LABEL: @gridwise_attn_softmaxtype_with_scaling
+func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %arg1: memref<1x64x384xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>, %arg5: memref<1x384xf16>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  %cst = arith.constant 0.125 : f32
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf16> to memref<1x64x384xf16>
+  // CHECK-DAG: %[[log2:.+]] = arith.constant 6.933590e-01 : f16
+  // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
+  // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
+  // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
+  // CHECK-DAG: %[[cst:.+]] = arith.constant 1.250000e-01 : f32
+  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
+  // CHECK: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+  // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
+  // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
+  // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
+  // CHECK: rock.transforming_for 
+  // CHECK: rock.in_bounds_store {{.*}} -> {{.*}} : vector<16xf16> -> memref<16xf16, #gpu.address_space<private>>, index
+  // CHECK: linalg.generic
+  // CHECK: %[[EXTF:.+]] =  arith.extf
+  // CHECK: %[[MULF:.+]] = arith.mulf %[[EXTF]], %[[cst]] : f32
+  // CHECK: linalg.yield %[[MULF]] : f32
+  // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
+  // CHECK-NEXT: scf.if %[[comparison]] {
+  // CHECK: rock.blockwise_broadcast_reduce max {{.*}} memref<16xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
+  // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} memref<16xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
+  // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf16, #gpu.address_space<private>> -> memref<1x64x384xf16>
+  // CHECK-NEXT: rock.threadwise_write_all {{.*}} by  set : memref<16xf16, #gpu.address_space<private>> -> memref<1x384xf16>
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
+ ^bb0(%arg6: memref<1x384x384xf16>, %arg7: memref<1x384x384xf32>):
+    %alloc_0 = memref.alloc() : memref<1x384x384xf32>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%arg6 : memref<1x384x384xf16>) outs(%alloc_0 : memref<1x384x384xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %out: f32):
+      %25 = arith.extf %in : f16 to f32
+      %26 = arith.mulf %25, %cst : f32
+      linalg.yield %26 : f32
+    }
+    memref.copy %alloc_0, %arg7 : memref<1x384x384xf32> to memref<1x384x384xf32>
+    rock.yield
+  } {
+    arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
+    blockSize = 64 : i32,
+    gridSize = 24 : i32,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
+    params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    firstGemmIdx = 0 : i32,
+    softmaxType = f32
+  } : memref<1x64x384xf16>, memref<1x64x384xf16>, memref<1x384x64xf16>, memref<1xi32>, memref<1x384x64xf16>, memref<1x384xf16>
+  return
+}
+
+// -----
+
 // CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_issue_1811
 func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096xi8>, %arg1: memref<4096xi8>, %arg2: memref<4096xf16>, %arg3: memref<1xi8>, %arg4: memref<1xf16>, %arg5: memref<4096xf16>) attributes {block_size = 64 : i32, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // CHECK: affine.for %{{.*}} = 0 to 2

@@ -24,9 +24,6 @@ namespace migraphx {
 // Compilation pipeline from MIXR to TOSA
 void addHighLevelPipeline(PassManager &pm);
 
-// Compilation pipeline from GPU to MIXR code object
-void addBackendPipeline(PassManager &pm);
-
 } // namespace migraphx
 } // namespace mlir
 

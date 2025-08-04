@@ -1710,7 +1710,7 @@ ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
     auto trMap = cast<TransformMapAttr>(tr);
     TransformMapAttr invertedTrMap = invertTransformMap(b, trMap, loc);
     if (!invertedTrMap)
-      return {};
+      return nullptr;
     invertedTrs.push_back(invertedTrMap);
   }
   return b.getArrayAttr(invertedTrs);
