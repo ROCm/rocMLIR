@@ -240,7 +240,6 @@ void rock::buildBackendPipeline(OpPassManager &pm,
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
-llvm::errs() << options.triple << ":" << options.chip << " opt: " << options.optLevel << "\n";    
   pm.addPass(createStripDebugInfoPass());
   AmdArchInfo archInfo = lookupArchInfo(options.chip);
   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();

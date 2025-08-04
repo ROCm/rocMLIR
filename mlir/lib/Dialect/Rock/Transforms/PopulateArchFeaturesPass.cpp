@@ -77,17 +77,13 @@ PopulateArchFeaturesPass::getArchFeatures(StringAttr archAttr, Type inputType) {
 }
 
 void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
-    //llvm::outs() << "Running PopulateArchFeaturesPass\n";
     auto context = func.getContext();
     // repopulate the function
     StringAttr archAttr = StringAttr::get(context, arch);
     IntegerAttr numCUAttr = IntegerAttr::get(IntegerType::get(context, 32), num_cu);
     BoolAttr xdlopsAttr = BoolAttr::get(context, xdlopsV2);
     StringAttr perfConfigAttr = StringAttr::get(context, perf_config);
-    
-    //llvm::outs() << "Printing func before: ";
-	//func->print(llvm::outs());	
-	//llvm::outs() << "\n";
+
     if(!arch.empty()) {
 	func->setAttr("arch", archAttr);
     }
@@ -100,30 +96,8 @@ void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
 	func->setAttr("xdlopsV2", xdlopsAttr);
     }
 
-    //llvm::outs() << "Printing func after: ";
-	//func->print(llvm::outs());	
-	//llvm::outs() << "\n";    
-
-    if(debug) {
-        /*
-    llvm::outs() << "Printing module\n";
-	func.walk([&](mlir::Operation *op) {
-	    llvm::outs() << op->getName() << "\n";
-	});
-    */
-    }
-
-
     // handle updating gemm ops
     func.walk([&](GemmOp gemmOp) {
-        /*
-	if(debug) {
-	    llvm::outs() << "Printing gemm before: ";
-	    gemmOp.print(llvm::outs());	
-	    llvm::outs() << "\n";
-	}
-        */
-	
 	    // get inputType
 	    auto inputType = gemmOp.getA().getType();
 	    auto features = getArchFeatures(archAttr, inputType);
@@ -133,25 +107,11 @@ void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
 	    gemmOp->setAttr("xdlopsV2", xdlopsAttr);
 	    gemmOp->setAttr("perf_config", perfConfigAttr);
 	    gemmOp->setAttr("features", featuresAttr);
-        /*
-	    if(debug) {
-	        llvm::outs() << "Printing gemm after: ";
-	        gemmOp.print(llvm::outs());	
-	        llvm::outs() << "\n";
-	    }
-            */
     });
 
 
     // handle updating gemm ops
     func.walk([&](ConvOp convOp) {
-        /*
-	if(debug) {
-	    llvm::outs() << "Printing conv before: ";
-	    convOp.print(llvm::outs());	
-	    llvm::outs() << "\n";
-	}
-        */
 	
 	    // get inputType
 	    auto inputType = convOp.getInput().getType();
@@ -160,12 +120,6 @@ void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
 	    convOp->setAttr("arch", archAttr);
 	    convOp->setAttr("numCU", numCUAttr);
 	    convOp->setAttr("features", featuresAttr);
-        /*
-	    if(debug) {
-	        llvm::outs() << "Printing conv after: ";
-	        convOp.print(llvm::outs());	
-	        llvm::outs() << "\n";
-	    }*/
     });
 
     // repeat for every other rock::Op
