@@ -204,8 +204,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
     math::MathExtendToSupportedTypesOptions extendToLLVMTypesOptions;
-    SmallVector<std::string, 1> supportedFloats = {"f16"};
-    extendToLLVMTypesOptions.extraTypeStrs = supportedFloats;
+    extendToLLVMTypesOptions.extraTypeStrs = {"f16"};
     extendToLLVMTypesOptions.targetTypeStr = "f32";
     funcPm.addPass(
         math::createMathExtendToSupportedTypes(extendToLLVMTypesOptions));
