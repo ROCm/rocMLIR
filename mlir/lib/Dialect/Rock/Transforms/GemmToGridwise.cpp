@@ -15,7 +15,7 @@
 // limitations under the License.
 // ============================================================
 //
-// This pass converts rock.gemm into the appropriate rock.gridwise_gemm
+// This pass converts rock.gemm into the appropriate rock.gridwise_gemm_accel
 // adding padding and group dimensions if needed.
 //
 //===-----------------------------------------------------===//
@@ -139,11 +139,6 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (!isa<MemRefType>(op.getAType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
-  bool isAccel = rock::isAccel(op.getGemmFeatures());
-  if (!isAccel) {
-    return op.emitError("Currently, op is only supported on GPUs "
-                        "with matrix accelerator extensions");
-  }
   if (!op.getGemm0Params().has_value()) {
     return op.emitError("gemm0 params is missing and it should've been "
                         "assigned by affix-tuning-params");
@@ -355,25 +350,17 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     numCUAttr = rw.getI32IntegerAttr(minNumCU);
   }
 
-  bool isAccel = rock::isAccel(op.getFeatures());
-
-  if (isAccel && !blockSize)
+  if (!blockSize)
     return op.emitOpError("block size must be set at lowering");
   IntegerAttr gridSize = op.getGridSizeAttr();
   if (!gridSize)
     return op.emitOpError("grid size must be set at lowering");
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
-  if (isAccel) {
-    rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
-        cast<RockAccelTuningParamAttrInterface>(params));
-  } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
-                              op.getStoreMethodAttr(), numCUAttr, gridSize,
-                              cast<GeneralGemmParamsAttr>(params));
-  }
+  rw.create<GridwiseGemmAccelOp>(
+      loc, a, b, accumulator, op.getArchAttr(), numCUAttr, op.getFeaturesAttr(),
+      op.getStoreMethodAttr(), blockSize, gridSize,
+      cast<RockAccelTuningParamAttrInterface>(params));
 
   if (accumulator != c) {
     auto map = rw.getMultiDimIdentityMap(3);
@@ -543,7 +530,6 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                                                   GemmOp op, Value a,
                                                   Value b) const {
-  GemmFeatures features = op.getGemmFeatures();
   Attribute params = op.getParams().value();
 
   const auto aShape = cast<MemRefType>(a.getType()).getShape();
@@ -553,18 +539,9 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   const int64_t M = aShape[2];
   const int64_t N = bShape[2];
 
-  auto mPerBlock{0};
-  auto nPerBlock{0};
-
-  if (isAccel(features)) {
-    auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
-    mPerBlock = tuningParams.getMPerBlock();
-    nPerBlock = tuningParams.getNPerBlock();
-  } else {
-    auto tuningParams = cast<GeneralGemmParamsAttr>(params);
-    mPerBlock = tuningParams.getMPerBlock();
-    nPerBlock = tuningParams.getNPerBlock();
-  }
+  auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
+  auto mPerBlock = tuningParams.getMPerBlock();
+  auto nPerBlock = tuningParams.getNPerBlock();
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
 
   op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
@@ -603,10 +580,10 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp,
                       rock::GemmElementwiseGemmOp>();
-  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
-                    rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp,
-                    memref::AllocOp, linalg::GenericOp, arith::TruncIOp,
-                    arith::ExtFOp, arith::ExtSIOp, arith::TruncFOp>();
+  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmAccelOp,
+                    rock::GridwiseAttentionAccelOp, memref::AllocOp,
+                    linalg::GenericOp, arith::TruncIOp, arith::ExtFOp,
+                    arith::ExtSIOp, arith::TruncFOp>();
 
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect>();
 

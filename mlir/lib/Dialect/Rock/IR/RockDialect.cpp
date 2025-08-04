@@ -75,10 +75,6 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "transform_map";
       return AliasResult::OverridableAlias;
     }
-    if (isa<GeneralGemmParamsAttr>(attr)) {
-      os << "general_gemm_params";
-      return AliasResult::OverridableAlias;
-    }
     if (isa<XdlopsGemmParamsAttr>(attr)) {
       os << "xldops_gemm_params";
       return AliasResult::OverridableAlias;
@@ -597,18 +593,9 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
-  Operation *op = convOp.getOperation();
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
-
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
-
-  bool isAccel = bitEnumContainsAny(convOp.getFeatures(),
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
-  if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
-    return op->emitOpError(
-        "general kernels shouldn't have derived block size.");
-  }
 
   return success();
 }
@@ -847,20 +834,11 @@ LogicalResult GemmOp::verify() {
     if (isXdlops &&
         !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
-    if (getFeatures() == GemmFeatures::none &&
-        !isa<GeneralGemmParamsAttr>(params))
-      return emitOpError("an all-hardware gemm must used the general gemm "
+    if (isWmma && !isa<WmmaGemmParamsAttr>(params))
+      return emitOpError("an wmma GEMM has non-wmma tuning parameters");
+    if (getFeatures() == GemmFeatures::none && !isa<FmaGemmParamsAttr>(params))
+      return emitOpError("an all-hardware gemm must used the fma gemm "
                          "tuning parameters");
-    if (getDerivedBlockSize().has_value() &&
-        isa<GeneralGemmParamsAttr>(params)) {
-      return emitOpError(
-          "cannot have derivedBlockSize when gemm has generalGemmParams");
-    }
-  }
-
-  if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
-    return emitOpError(
-        "general gemm kernels shouldn't have derived block size.");
   }
 
   RockGemmWrapperInterface gemmIfaceOp =
@@ -893,7 +871,7 @@ GemmSize GemmOp::getGemmSize() {
 }
 
 //===-----------------------------------------------------===//
-// GridwiseGemmOp and GridwiseGemmAccel Op
+// GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
 template <typename GridOp>
 static LogicalResult verifyGridwiseGemm(GridOp op) {
@@ -944,8 +922,6 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
 
   return success();
 }
-
-LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
 LogicalResult GridwiseGemmAccelOp::verify() {
   return verifyGridwiseGemm(*this);
@@ -1795,47 +1771,6 @@ LogicalResult ThreadwiseCopyOp::verify() {
     return emitOpError(
         "Un-extended source and dest buffers need to have the same shape.");
 
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// BlockwiseGemmOp
-//===----------------------------------------------------------------------===//
-
-Value BlockwiseGemmOp::getDest() { return getMatrixC(); }
-
-LogicalResult BlockwiseGemmOp::verify() {
-  MemRefType blockAType = getMatrixA().getType(),
-             blockBType = getMatrixB().getType();
-
-  int64_t k = blockAType.getShape()[0];
-  int64_t kPack = blockAType.getShape()[2];
-
-  if (k != blockBType.getShape()[0]) {
-    return emitOpError("Mismatched k dimensions between A and B");
-  }
-  if (kPack != blockBType.getShape()[2]) {
-    return emitOpError("Mismatched kPack between A and B");
-  }
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// ThreadwiseGemmOp
-//===----------------------------------------------------------------------===//
-LogicalResult ThreadwiseGemmOp::verify() {
-  ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape(),
-                    cShape = getMatrixC().getType().getShape();
-
-  if (aShape[0] != bShape[0])
-    return emitOpError("K dimensions don't match");
-  if (aShape[1] != cShape[0])
-    return emitOpError("M dimensions don't match");
-  if (bShape[1] != cShape[1])
-    return emitOpError("N dimensions don't match");
-  if (aShape[2] != bShape[2])
-    return emitOpError("KPack dimensions don't match");
   return success();
 }
 

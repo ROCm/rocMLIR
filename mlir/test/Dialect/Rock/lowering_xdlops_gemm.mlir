@@ -5,7 +5,7 @@
 
 func.func @rock_accel_gemm_reduction_nokpack(%matrixA : memref<1x2xf32, 5>,
                                                  %matrixB : memref<1x2xf32, 5>,
-                                                 %matrixC : memref<2xvector<16xf32>, 5>) {
+                                                 %matrixC : memref<2xvector<16xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @rock_accel_gemm_reduction_nokpack
   // CHECK-SAME: ([[ABuf:%.+]]: memref<1x2xf32, 5>, [[BBuf:%.+]]: memref<1x2xf32, 5>, [[CBuf:%.+]]: memref<2xvector<16xf32>, 5>)
   // CHECK: rock.transforming_for
@@ -36,7 +36,7 @@ func.func @rock_accel_gemm_reduction_nokpack(%matrixA : memref<1x2xf32, 5>,
 
 func.func @rock_accel_gemm_reduction_kpack_f32(%matrixA : memref<1x2xf32, 5>,
                                                    %matrixB : memref<1x2xf32, 5>,
-                                                   %matrixC : memref<4xvector<16xf32>, 5>) {
+                                                   %matrixC : memref<4xvector<16xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @rock_accel_gemm_reduction_kpack_f32
   // CHECK-SAME: ([[ABuf:%.+]]: memref<1x2xf32, 5>, [[BBuf:%.+]]: memref<1x2xf32, 5>, [[CBuf:%.+]]: memref<4xvector<16xf32>, 5>)
   // CHECK: rock.transforming_for
@@ -67,7 +67,7 @@ func.func @rock_accel_gemm_reduction_kpack_f32(%matrixA : memref<1x2xf32, 5>,
 
 func.func @rock_accel_gemm_reduction_kpack_i8(%matrixA : memref<1x4xvector<4xi8>, 5>,
                                                  %matrixB : memref<1x4xvector<4xi8>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @rock_accel_gemm_reduction_kpack_i8
   // CHECK-SAME: ([[ABuf:%.+]]: memref<1x4xvector<4xi8>, 5>, [[BBuf:%.+]]: memref<1x4xvector<4xi8>, 5>, [[CBuf:%.+]]: memref<1x1xvector<16xi32>, 5>)
   // CHECK: rock.transforming_for
@@ -101,7 +101,7 @@ func.func @rock_accel_gemm_reduction_kpack_i8(%matrixA : memref<1x4xvector<4xi8>
 
 func.func @accel_gemm_gfx90a_i8(%matrixA : memref<1x4xvector<4xi8>, 5>,
                                                  %matrixB : memref<1x4xvector<4xi8>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL  func.func @accel_gemm_gfx90a_i8
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -129,7 +129,7 @@ func.func @accel_gemm_gfx90a_i8(%matrixA : memref<1x4xvector<4xi8>, 5>,
 
 func.func @accel_gemm_gfx942_i8(%matrixA : memref<1x4xvector<8xi8>, 5>,
                                                  %matrixB : memref<1x4xvector<8xi8>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx942_i8
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -157,7 +157,7 @@ func.func @accel_gemm_gfx942_i8(%matrixA : memref<1x4xvector<8xi8>, 5>,
 
 func.func @accel_gemm_gfx908_bf16(%matrixA : memref<1x4xvector<2xbf16>, 5>,
                                                  %matrixB : memref<1x4xvector<2xbf16>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx908_bf16
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -185,7 +185,7 @@ func.func @accel_gemm_gfx908_bf16(%matrixA : memref<1x4xvector<2xbf16>, 5>,
 
 func.func @accel_gemm_gfx90a_bf16(%matrixA : memref<1x4xvector<4xbf16>, 5>,
                                                  %matrixB : memref<1x4xvector<4xbf16>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx90a_bf16
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -213,7 +213,7 @@ func.func @accel_gemm_gfx90a_bf16(%matrixA : memref<1x4xvector<4xbf16>, 5>,
 
 func.func @accel_gemm_fp8_bf8(%matrixA : memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>>,
                                %matrixB : memref<1x4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>,
-                               %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+                               %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_fp8_bf8
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -243,7 +243,7 @@ func.func @accel_gemm_fp8_bf8(%matrixA : memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.a
 
 func.func @accel_gemm_fp8_bf8_ocp(%matrixA : memref<1x4xvector<8xf8E4M3FN>, #gpu.address_space<private>>,
                                   %matrixB : memref<1x4xvector<8xf8E5M2>, #gpu.address_space<private>>,
-                                  %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+                                  %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_fp8_bf8_ocp
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -273,7 +273,7 @@ func.func @accel_gemm_fp8_bf8_ocp(%matrixA : memref<1x4xvector<8xf8E4M3FN>, #gpu
 
 func.func @accel_gemm_gfx950_f16_16x16x32(%matrixA : memref<1x2xvector<8xf16>, 5>,
                                                  %matrixB : memref<1x2xvector<8xf16>, 5>,
-                                                 %matrixC : memref<1x1xvector<4xf32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<4xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx950_f16_16x16x32
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -301,7 +301,7 @@ func.func @accel_gemm_gfx950_f16_16x16x32(%matrixA : memref<1x2xvector<8xf16>, 5
 
 func.func @accel_gemm_gfx950_bf16_16x16x32(%matrixA : memref<1x2xvector<8xbf16>, 5>,
                                                  %matrixB : memref<1x2xvector<8xbf16>, 5>,
-                                                 %matrixC : memref<1x1xvector<4xf32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<4xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx950_bf16_16x16x32
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -329,7 +329,7 @@ func.func @accel_gemm_gfx950_bf16_16x16x32(%matrixA : memref<1x2xvector<8xbf16>,
 
 func.func @accel_gemm_gfx950_f16_32x32x16(%matrixA : memref<1x2xvector<8xf16>, 5>,
                                                  %matrixB : memref<1x2xvector<8xf16>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx950_f16_32x32x16
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -357,7 +357,7 @@ func.func @accel_gemm_gfx950_f16_32x32x16(%matrixA : memref<1x2xvector<8xf16>, 5
 
 func.func @accel_gemm_gfx950_bf16_32x32x16(%matrixA : memref<1x2xvector<8xbf16>, 5>,
                                                  %matrixB : memref<1x2xvector<8xbf16>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx950_bf16_32x32x16
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -385,7 +385,7 @@ func.func @accel_gemm_gfx950_bf16_32x32x16(%matrixA : memref<1x2xvector<8xbf16>,
 
 func.func @accel_gemm_gfx950_i8_32x32x32(%matrixA : memref<1x4xvector<16xi8>, 5>,
                                                  %matrixB : memref<1x4xvector<16xi8>, 5>,
-                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<16xi32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx950_i8_32x32x32
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
@@ -413,7 +413,7 @@ func.func @accel_gemm_gfx950_i8_32x32x32(%matrixA : memref<1x4xvector<16xi8>, 5>
 
 func.func @accel_gemm_gfx950_i8_16x16x64(%matrixA : memref<1x2xvector<16xi8>, 5>,
                                                  %matrixB : memref<1x2xvector<16xi8>, 5>,
-                                                 %matrixC : memref<1x1xvector<4xi32>, 5>) {
+                                                 %matrixC : memref<1x1xvector<4xi32>, 5>) attributes {block_size = 256 : i32} {
   // CHECK-LABEL: func.func @accel_gemm_gfx950_i8_16x16x64
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]

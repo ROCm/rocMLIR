@@ -198,9 +198,6 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{
-          if (auto generalParams = dyn_cast_or_null<GeneralGemmParamsAttr>($_op.getParamsAttr())) {
-            return generalParams.getBlockSize();
-          }
           return $_op.getDerivedBlockSize().value_or(0);
         }]
       >

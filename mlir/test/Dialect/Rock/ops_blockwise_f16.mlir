@@ -2,31 +2,6 @@
 // RUN: rocmlir-opt %s | rocmlir-opt | FileCheck %s
 // Run: rocmlir-opt -mlir-print-op-generic %s | rocmlir-opt | FileCheck %s
 
-func.func @rock_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x128x1xf16, 3>, %C : memref<8x8xf16, 5>){
-  rock.blockwise_gemm %C += %A * %B {
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    params = #rock.general_gemm_params<
-      blockSize = 256,
-      kPerBlock = 8,
-      mPerBlock = 256,
-      nPerBlock = 256,
-      kPerThread = 1,
-      mPerThread = 4,
-      nPerThread = 4,
-      splitKFactor = 1, 
-      scheduleVersion = 1, 
-      outputSwizzle = 2,
-      kpack = 1>
-  } : memref<8x8xf16, 5> += memref<8x128x1xf16, 3> * memref<8x128x1xf16, 3>
-  return
-}
-
-// CHECK-LABEL: func.func @rock_blockwise_gemm_f16
-//  CHECK: rock.blockwise_gemm
-
-// ----
-
 func.func @rock_xdlops_gemm_accel_one_result_f16(%matrixA : memref<1x4xvector<4xf16>, 5>,
                                                 %matrixB : memref<1x4xvector<4xf16>, 5>,
                                                 %matrixC : memref<1x1xvector<32xf32>, 5>) {

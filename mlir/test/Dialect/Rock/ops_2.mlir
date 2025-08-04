@@ -64,25 +64,6 @@ func.func @rock_indexing() {
 //   CHECK-NEXT: rock.workgroup_id
 //   CHECK-NEXT: rock.workitem_id
 
-func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>, %B : memref<8x128x1xf32, 3>, %C : memref<8x8xf32, 5>) {
-  rock.blockwise_gemm %C += %A * %B {
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    params = #rock.general_gemm_params<
-    blockSize = 256,
-    kPerBlock = 8,
-    mPerBlock = 128,
-    nPerBlock = 128,
-    kpack = 1,
-    kPerThread = 1,
-    mPerThread = 4,
-    nPerThread = 4,
-    splitKFactor = 1, 
-    scheduleVersion = 1, 
-    outputSwizzle = 2>
-  } :  memref<8x8xf32, 5> += memref<8x128x1xf32, 3> * memref<8x128x1xf32, 3>
-  return
-}
 
 // --------------------------
 // global_load tests.
@@ -122,15 +103,6 @@ func.func @rock_global_store(%source : memref<32xf32, #gpu.address_space<private
 
 // CHECK-LABEL: func.func @rock_global_store
 // CHECK: rock.global_store
-
-func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>, %rhs : memref<4x8x1xf32, 5>, %output : memref<8x8xf32, 5>) {
-  rock.threadwise_gemm %output += %lhs * %rhs
-  : memref<8x8xf32, 5> += memref<4x8x1xf32, 5> * memref<4x8x1xf32, 5>
-  return
-}
-
-// CHECK-LABEL: func.func @rock_threadwise_gemm
-// CHECK: rock.threadwise_gemm
 
 // ----
 

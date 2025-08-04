@@ -142,6 +142,7 @@ class FileWriter():
         else:
             raise ValueError("Unsupported dtype")
 
+        # TODO(fma): fix this
         return f"const InitParams{accel_type} PopulateParams{instruction_type}::{init_params}[PopulateParams{instruction_type}::{n_init_params}]"
 
     def get_init_params_declaration(self, arch, dtype, op):
