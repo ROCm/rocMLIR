@@ -195,7 +195,6 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     }
     rewriter.create<GlobalStoreOp>(
         loc, loadedReg, op.getOut(), rewriter.getIndexAttr(vectorLength),
-        op.getFeaturesAttr(),
         StoreMethodAttr::get(rewriter.getContext(), stMethod), zeroConstantOp,
         isValid, storeCoords, needs64BitIdx ? rewriter.getUnitAttr() : nullptr,
         /*canStoreOffEnd=*/nullptr, /*nontemporal=*/nullptr);

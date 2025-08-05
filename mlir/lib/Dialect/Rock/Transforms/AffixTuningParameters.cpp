@@ -1,12 +1,13 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -94,6 +95,26 @@ void AffixTuningParameters::runOnOperation() {
         func.setArgAttrs(arg.getArgNumber(), b.getNamedAttr(attrName, zero));
     }
   });
+
+  // For all ops that can take a 'features' attribute, we want to get or
+  // calculate those features and then take the intersection of them and
+  // apply them to the top level func. This precalculation saves us from
+  // constantly needing to recompute this value at later points in the pipeline.
+  SmallVector<rock::GemmFeatures> allFeatures;
+  func.walk([&](Operation *op) {
+    if (rock::opHasOptionalFeature(op))
+      allFeatures.push_back(rock::getFeatures(op));
+  });
+
+  if (allFeatures.size() >= 1) {
+    assert(std::all_of(allFeatures.begin() + 1, allFeatures.end(),
+                       [&](const rock::GemmFeatures &features) {
+                         return features == allFeatures[0];
+                       }) &&
+           "All features in func should be identical");
+    func->setAttr("features",
+                  rock::GemmFeaturesAttr::get(&getContext(), allFeatures[0]));
+  }
 }
 
 template <typename T>
@@ -147,7 +168,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
                           .getScheduleVersion();
   }
 
-  GemmFeatures features = op.getGemmFeatures();
+  GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     InitParamsAccel validParams;
@@ -198,7 +219,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
-    int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
+    int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
     RockAccelTuningParamAttrInterface gemmParams;
     Attribute gemmParamsAttr =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
@@ -272,7 +293,7 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmGemmWrapperInterface op) {
   OpBuilder builder(op.getContext());
-  bool isAccel = rock::isAccel(op.getGemmFeatures());
+  bool isAccel = rock::isAccel(rock::getFeatures(op));
   if (!isAccel) {
     op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
                  "supported on GPUs "
@@ -295,7 +316,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
   }
-  GemmFeatures features = op.getGemmFeatures();
+  GemmFeatures features = rock::getFeatures(op);
   RockAccelTuningParamAttrInterface accelParams0;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
     auto xdlopsParams0 = XdlopsGemmParamsAttr::get(
@@ -322,7 +343,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   RockAccelTuningParamAttrInterface accelParams1 =
       deriveGemm1TuningParams(builder, op, attnPerfConfig);
   op.setGemm1ParamsAttr(accelParams1);
-  int64_t waveSize = rock::lookupArchInfo(op.getArch()).waveSize;
+  int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
@@ -332,13 +353,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
-          cast<MemRefType>(op.getBType()).getElementType(), op.getArch(),
+          cast<MemRefType>(op.getBType()).getElementType(),
+          rock::getArchValue(op),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   LogicalResult isValidBlockwiseGemm1 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
-          cast<MemRefType>(op.getCType()).getElementType(), op.getArch(),
+          cast<MemRefType>(op.getCType()).getElementType(),
+          rock::getArchValue(op),
           /*enableBlockSizeUpperLimit=*/false,
           /*enableDPerWaveFiltering=*/false);
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {

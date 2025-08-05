@@ -7,7 +7,7 @@ func.func @test_conv_with_cast(
     %input: tensor<1x8x8x4xi8>,
     %filter: tensor<8x1x1x4xi8>,
     %scale: tensor<8xf32>,
-    %bias: tensor<8xi32>) -> tensor<1x8x8x8xf32> attributes {kernel}
+    %bias: tensor<8xi32>) -> tensor<1x8x8x8xf32> attributes {kernel, arch = "gfx906"}
 {
     %zero = arith.constant dense<0> : tensor<8xi8>
     %input_zp = "tosa.const"() {values = dense<0> : tensor<1xi8>} : () -> tensor<1xi8>
@@ -23,7 +23,7 @@ func.func @test_dequantization_migraphx(
     %input: tensor<1x8x8x4xi8>,
     %filter: tensor<8x1x1x4xi8>,
     %scale: tensor<8xf32>,
-    %bias: tensor<8xi32>) -> tensor<1x8x8x8xf32> attributes {kernel}
+    %bias: tensor<8xi32>) -> tensor<1x8x8x8xf32> attributes {kernel, arch = "gfx906"}
 {
     %zero = arith.constant dense<0> : tensor<8xi8>
     %input_zp = "tosa.const"() {values = dense<0> : tensor<1xi8>} : () -> tensor<1xi8>

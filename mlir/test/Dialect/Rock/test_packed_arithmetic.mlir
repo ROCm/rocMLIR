@@ -42,7 +42,7 @@
 module {
   func.func @test_fusion(%arg0: memref<1x128x128xf16> {mhal.read_access}, %arg1: memref<1x128x128xf16> {mhal.read_access}, %arg2: memref<1x128x128xf16> {mhal.read_access}, %arg3: memref<1x128x128xf16> {mhal.write_access}) attributes {arch = "gfx942", kernel} {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x128xf16>
-    rock.gemm %alloc = %arg0 * %arg1 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {arch = "gfx942"} : memref<1x128x128xf16> = memref<1x128x128xf16> * memref<1x128x128xf16>
+    rock.gemm %alloc = %arg0 * %arg1 storeMethod =  set : memref<1x128x128xf16> = memref<1x128x128xf16> * memref<1x128x128xf16>
     %0 = rock.transform %alloc by #transform_map : memref<1x128x128xf16> to memref<128x128xf16>
     %1 = rock.transform %arg2 by #transform_map : memref<1x128x128xf16> to memref<128x128xf16>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<128x128xf16>

@@ -14,7 +14,7 @@
 // CHECK-SAME: ins(%[[globalIn]] : memref<{{[^>]+}}>>)
 // CHECK-SAME: outs(%[[unmaskedOut:.+]] : memref<{{[^>]+}}>>)
 // CHECK: rock.threadwise_read_into [](%[[unmaskedOut]]) -> %[[maskedOut:.+]] if [%[[validity]]]
-// CHECK: rock.threadwise_write_all features = none %[[maskedOut]]
+// CHECK: rock.threadwise_write_all %[[maskedOut]]
 func.func @must_reapply_padding(%arg0: !in_global, %arg1: !out_global) attributes {kernel} {
   %cst = arith.constant 4.0 : f16
   %alloc = memref.alloc() : !in_global
@@ -26,7 +26,7 @@ func.func @must_reapply_padding(%arg0: !in_global, %arg1: !out_global) attribute
   %1 = rock.transform %alloc by #transform_map : !in_global to !out_global
   %buf = rock.alloc() : !tile
   %2 = rock.threadwise_read_into [](%1) -> %buf : !out_global -> !tile, vector<16xi1>
-  rock.threadwise_write_all features = none %buf -> [](%arg1) by set : !tile -> !out_global
+  rock.threadwise_write_all %buf -> [](%arg1) by set : !tile -> !out_global
   return
 }
 
@@ -37,7 +37,7 @@ func.func @must_reapply_padding(%arg0: !in_global, %arg1: !out_global) attribute
 // CHECK: linalg.generic
 // CHECK-SAME: ins(%[[globalIn]] : memref<{{[^>]+}}>>)
 // CHECK-SAME: outs(%[[unmaskedOut:.+]] : memref<{{[^>]+}}>>)
-// CHECK: rock.threadwise_write_all features = none %[[unmaskedOut]]
+// CHECK: rock.threadwise_write_all %[[unmaskedOut]]
 func.func @doesnt_reapply_padding(%arg0: !in_global, %arg1: !out_global) attributes {kernel} {
   %cst = arith.constant 4.0 : f16
   %alloc = memref.alloc() : !in_global
@@ -49,6 +49,6 @@ func.func @doesnt_reapply_padding(%arg0: !in_global, %arg1: !out_global) attribu
   %1 = rock.transform %alloc by #transform_map : !in_global to !out_global
   %buf = rock.alloc() : !tile
   %2 = rock.threadwise_read_into [](%1) -> %buf : !out_global -> !tile, vector<16xi1>
-  rock.threadwise_write_all features = none %buf -> [](%arg1) by set : !tile -> !out_global
+  rock.threadwise_write_all %buf -> [](%arg1) by set : !tile -> !out_global
   return
 }
