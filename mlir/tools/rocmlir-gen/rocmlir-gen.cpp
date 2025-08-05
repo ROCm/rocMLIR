@@ -943,35 +943,34 @@ namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
+static bool isConv(rock::KernelType kernelType) {
+  return kernelType == rock::KernelType::Conv ||
+         kernelType == rock::KernelType::ConvBwdData ||
+         kernelType == rock::KernelType::ConvBwdWeight ||
+         kernelType == rock::KernelType::ConvElementwiseGemm;
+}
+
 static void correctConvParameters() {
-  std::string filterLayoutValue = filterLayout.getValue();
-
-  // yxcgk not implement yet
-  if (filterLayoutValue.find('g') == std::string::npos &&
-      (filterLayoutValue.substr(0, 2) == "kc" ||
-       (filterLayoutValue[0] == 'k' && filterLayoutValue.back() == 'c') ||
-       filterLayoutValue.substr(filterLayoutValue.size() - 2) == "ck"))
-    filterLayout = "g" + filterLayoutValue;
-
-  auto addGToLayout = [&](std::string ch,
-                          std::string &layoutValue) -> std::string {
+  auto addGToLayout = [](std::string &layoutValue) -> std::string {
     std::string layout;
     if (layoutValue.find('g') == std::string::npos) {
-      if (layoutValue.substr(0, 2) == "n" + ch)
-        layout = "ng" + ch + layoutValue.substr(2);
-      else if (layoutValue[0] == 'n' && layoutValue.back() == ch[0])
-        layout = layoutValue.substr(0, layoutValue.size() - 1) + "g" + ch;
-      else
-        layout = "g" + layoutValue;
-    } else
+      // Always add 'g' after 'n' when it's missing
+      size_t nPos = layoutValue.find('n');
+      assert(nPos != std::string::npos);
+      layout =
+          layoutValue.substr(0, nPos + 1) + "g" + layoutValue.substr(nPos + 1);
+    } else {
       layout = layoutValue;
+    }
     return layout;
   };
 
-  inputLayout = addGToLayout("c", inputLayout.getValue());
-  outputLayout = addGToLayout("k", outputLayout.getValue());
+  if (filterLayout.getValue().find('g') == std::string::npos)
+    filterLayout = "g" + filterLayout.getValue();
+  inputLayout = addGToLayout(inputLayout.getValue());
+  outputLayout = addGToLayout(outputLayout.getValue());
 
-  // +++pf:  update old key names.
+  // update old key names.
   std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
                'y', '0');
   std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
@@ -1078,28 +1077,6 @@ static void correctConvParameters() {
   // successfully.
   if (di_minimum > di_specified)
     paddingDepthRight = in_right_pad_d + (di_minimum - di_specified);
-}
-
-static void verifyConvLayout() {
-  std::string filterLayoutValue = filterLayout.getValue();
-  std::string inputLayoutValue = inputLayout.getValue();
-
-  if (filterLayoutValue.find("yx") == std::string::npos &&
-      filterLayoutValue.find("xy") == std::string::npos &&
-      filterLayoutValue.find("01") == std::string::npos &&
-      filterLayoutValue.find("10") == std::string::npos) {
-    llvm::errs() << "Unsupported filter layout: disjointed yx!\n";
-    exit(1);
-  }
-
-  if (inputLayoutValue.find("hw") == std::string::npos &&
-      inputLayoutValue.find("wh") == std::string::npos &&
-      inputLayoutValue.find("01") == std::string::npos &&
-      inputLayoutValue.find("10") == std::string::npos) {
-
-    llvm::errs() << "Unsupported input layout: disjointed hw!\n";
-    exit(1);
-  }
 }
 
 static void populateDefaults() {
@@ -5033,10 +5010,9 @@ int main(int argc, char **argv) {
     outputDataType = canonicaliseF8Type(outputDataType);
   }
 
-  if (operation != rock::KernelType::Gemm) {
-    verifyConvLayout();
+  if (isConv(operation))
     correctConvParameters();
-  }
+
   populateDefaults();
 
   bool hasUserKernel = !testFuncName.empty();
