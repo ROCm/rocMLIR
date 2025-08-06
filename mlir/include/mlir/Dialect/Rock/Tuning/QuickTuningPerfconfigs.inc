@@ -257,7 +257,9 @@ const InitParamsAccel PopulateParamsXDL::initParametersConvGfx90a[PopulateParams
     {32,64,4,32,16,4,1,1,2,true,true},
     {64,64,2,64,32,1,1,2,2,true,true},
     {32,16,4,32,16,1,1,1,2,true,true},
-    {128,256,8,128,32,1,1,1,2,true,true}
+    {128,256,8,128,32,1,1,1,2,true,true},
+    {32,64,2,32,32,4,1,1,2,true,true},
+    {32,32,4,32,16,1,1,2,2,true,true}
 };
 // END_CONV_XDL_f32_gfx90a_DEFS
 
@@ -432,7 +434,8 @@ const InitParamsAccel PopulateParamsXDL::initParametersFp16ConvGfx90a[PopulatePa
     {16,64,4,16,16,4,1,1,2,true,true},
     {32,128,8,32,32,4,1,1,2,true,true},
     {16,128,4,16,16,4,1,1,2,true,true},
-    {64,256,2,64,32,4,1,2,2,true,true}
+    {64,256,2,64,32,4,1,2,2,true,true},
+    {128,64,2,128,32,4,1,1,2,true,true}
 };
 // END_CONV_XDL_f16_gfx90a_DEFS
 
@@ -778,7 +781,9 @@ const InitParamsAccel PopulateParamsXDL::initParametersForwardI8ConvGfx90a[Popul
     {64,16,8,16,16,16,1,1,2,true,true},
     {32,32,8,16,16,8,1,2,2,true,true},
     {64,64,8,32,32,1,1,1,2,true,true},
-    {64,32,32,32,16,8,1,2,2,true,true}
+    {64,32,32,32,16,8,1,2,2,true,true},
+    {16,256,4,16,16,4,1,1,2,true,true},
+    {32,64,16,32,16,1,1,1,2,true,true}
 };
 // END_CONV_XDL_i8_gfx90a_DEFS
 
@@ -840,7 +845,7 @@ static const InitParamsAccel initParametersConvGfx908[nInitParametersConvGfx908]
 // END_CONV_XDL_f32_gfx908_DECS
 
 // BEGIN_CONV_XDL_f32_gfx90a_DECS
-static constexpr size_t nInitParametersConvGfx90a = 16;
+static constexpr size_t nInitParametersConvGfx90a = 18;
 static const InitParamsAccel initParametersConvGfx90a[nInitParametersConvGfx90a];
 // END_CONV_XDL_f32_gfx90a_DECS
 
@@ -880,7 +885,7 @@ static const InitParamsAccel initParametersFp16ConvGfx908[nInitParametersFp16Con
 // END_CONV_XDL_f16_gfx908_DECS
 
 // BEGIN_CONV_XDL_f16_gfx90a_DECS
-static constexpr size_t nInitParametersFp16ConvGfx90a = 14;
+static constexpr size_t nInitParametersFp16ConvGfx90a = 16;
 static const InitParamsAccel initParametersFp16ConvGfx90a[nInitParametersFp16ConvGfx90a];
 // END_CONV_XDL_f16_gfx90a_DECS
 
@@ -960,7 +965,7 @@ static const InitParamsAccel initParametersForwardI8ConvGfx908[nInitParametersFo
 // END_CONV_XDL_i8_gfx908_DECS
 
 // BEGIN_CONV_XDL_i8_gfx90a_DECS
-static constexpr size_t nInitParametersForwardI8ConvGfx90a = 7;
+static constexpr size_t nInitParametersForwardI8ConvGfx90a = 9;
 static const InitParamsAccel initParametersForwardI8ConvGfx90a[nInitParametersForwardI8ConvGfx90a];
 // END_CONV_XDL_i8_gfx90a_DECS
 
