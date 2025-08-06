@@ -206,6 +206,20 @@ func.func @quant_conv2d_float8(%arg0: !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4
   return %0 : !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>
 }
 
+// CHECK-LABEL: @bwd_data_conv
+// TODO: Need to add in proper checks once I've confirmed what this is supposed to look like
+func.func @bwd_data_conv(%arg0: !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>, %arg1: !migraphx.shaped<16x16x1x1xf32, 16x1x1x1>, %arg2: !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>) -> !migraphx.shaped<1x16x4x4xf32, 256x16x4x1> {  
+  %0 = migraphx.backwards_data_convolution %arg1, %arg0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1], kernelId = 0 : i64} : <16x16x1x1xf32, 16x1x1x1>, <1x16x4x4xf32, 256x16x4x1> -> <1x16x4x4xf32, 256x16x4x1>  
+  return %0 : !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>  
+}
+
+// CHECK-LABEL: @bwd_weight_conv
+// TODO: Need to add in proper checks once I've confirmed what this is supposed to look like
+func.func @bwd_weight_conv(%arg0: !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>, %arg1: !migraphx.shaped<16x16x1x1xf32, 16x1x1x1>, %arg2: !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>) -> !migraphx.shaped<1x16x4x4xf32, 256x16x4x1> {  
+  %0 = migraphx.backwards_weight_convolution %arg1, %arg0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1], kernelId = 0 : i64} : <16x16x1x1xf32, 16x1x1x1>, <1x16x4x4xf32, 256x16x4x1> -> <1x16x4x4xf32, 256x16x4x1>  
+  return %0 : !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>  
+}
+
 // -----
 
 // CHECK-LABEL: @dot_f16

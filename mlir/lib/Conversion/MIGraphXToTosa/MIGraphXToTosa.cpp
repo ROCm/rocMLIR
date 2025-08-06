@@ -245,6 +245,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto outputTy = cast<MIXRShapedType>(results[0].getType());
   Type outElementTy = outputTy.getElementType();
   Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
+  bool isBwdConvOp = isa<migraphx::BwdDataConvolutionOp>(op) ||
+                     isa<migraphx::BwdWeightConvolutionOp>(op);
 
   if (outElementTy.isUnsignedInteger())
     return op.emitError("No support for unsigned convolution.\n");
@@ -270,8 +272,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, newOutElementTy);
 
-  // There is no tosa.conv1d, so instead we'll add a dummy x1 dimension
-  // to the input tensors, and make a tosa.conv2d.
+  // There is no tosa.conv1d or tosa.transpose_conv1d, so instead we'll add a
+  // dummy x1 dimension to the input tensors, and make a tosa.conv2d.
   auto expandTo2D = [&rewriter, loc](mlir::Value value) {
     ArrayRef<int64_t> origShape = cast<ShapedType>(value.getType()).getShape();
     SmallVector<int64_t> expShape(origShape.drop_back());
@@ -283,13 +285,14 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     return reshaped;
   };
 
-  // Construct a new Conv2DOp.
+  // Construct a new Conv2DOp/TransposeConv2DOp.
   Operation *cop;
   Type new1DOutTy;
   Value inputZp, weightZp;
   switch (dims) {
   case 1:
-    // Expand to do a conv2d, because there's no conv1d op.
+    // Expand to do a conv2d/transpose_conv2d, because there's no 1d version of
+    // the ops.
     newShape.insert(std::prev(newShape.end()), 1);
     new1DOutTy = RankedTensorType::get(newShape, newOutElementTy);
     input = expandTo2D(input);
@@ -299,7 +302,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
 
-    cop = rewriter.create<tosa::Conv2DOp>(
+    if (isBwdConvOp) {
+      cop = rewriter.create<tosa::TransposeConv2DOp>(
         loc, new1DOutTy,
         ValueRange{
             input, filter,
@@ -307,6 +311,16 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                           cast<ShapedType>(filter.getType()).getShape()[0],
                           rewriter),
             inputZp, weightZp});
+    } else {
+      cop = rewriter.create<tosa::Conv2DOp>(
+        loc, new1DOutTy,
+        ValueRange{
+            input, filter,
+            getZeroTensor(loc, newOutElementTy,
+                          cast<ShapedType>(filter.getType()).getShape()[0],
+                          rewriter),
+            inputZp, weightZp});
+    }
     break;
 
   case 2:
@@ -314,7 +328,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
-    cop = rewriter.create<tosa::Conv2DOp>(
+    if (isBwdConvOp) {
+      cop = rewriter.create<tosa::TransposeConv2DOp>(
         loc, newOutTy,
         ValueRange{
             input, filter,
@@ -322,8 +337,21 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                           cast<ShapedType>(filter.getType()).getShape()[0],
                           rewriter),
             inputZp, weightZp});
+    } else {
+      cop = rewriter.create<tosa::Conv2DOp>(
+        loc, newOutTy,
+        ValueRange{
+            input, filter,
+            getZeroTensor(loc, newOutElementTy,
+                          cast<ShapedType>(filter.getType()).getShape()[0],
+                          rewriter),
+            inputZp, weightZp}); 
+    }
     break;
   case 3:
+    if (isBwdConvOp)
+      op->emitError("Only 1-D and 2-D backwards convulation ops are supported");
+
     inputZp =
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
@@ -345,9 +373,10 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // translate attributes
   auto padAttr = cast<ArrayAttr>(op->getAttr("padding"));
   auto strideAttr = cast<ArrayAttr>(op->getAttr("stride"));
-  auto dilationAttr = cast<ArrayAttr>(op->getAttr("dilation"));
   // MIGraphX padAttr is [hlow, wlow, hhigh, whigh] while TOSA padAttr
-  // is [hlow, hhigh, wlow, whigh].
+  // is [hlow, hhigh, wlow, whigh]. The padding attribute on the MIGraphX ops
+  // represents input padding for forwards convolutions, and output padding for
+  // backwards convolutions
   SmallVector<int64_t> pads;
   for (int i = 0; i < dims; i++) {
     pads.push_back(dyn_cast<IntegerAttr>(padAttr[i]).getInt());
@@ -356,12 +385,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   SmallVector<int64_t> strides;
   SmallVector<int64_t> dilations;
-  for (size_t i = 0; i < strideAttr.size(); i++) {
+  for (size_t i = 0; i < strideAttr.size(); i++)
     strides.push_back(dyn_cast<IntegerAttr>(strideAttr[i]).getInt());
-    dilations.push_back(dyn_cast<IntegerAttr>(dilationAttr[i]).getInt());
-  }
-
-  int64_t group = op.getGroup();
 
   // Determine the accumulation type based on the output type.
   Type accType;
@@ -375,22 +400,49 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   }
   // convolution config attributes
   if (dims == 1) {
-    if ((dilations.size() != 1) || (strides.size() != 1) ||
+    if ((strides.size() != 1) ||
         (pads.size() != 2)) {
       return op->emitError(
-          "1-D convolution has improper dilation, stride, or pad.");
+          "1-D convolution has improper stride, or pad.");
     }
-    dilations.push_back(1);
     strides.push_back(1);
     pads.push_back(0);
     pads.push_back(0);
   }
 
-  cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
+  // Set attributes common to both forwards and backwards conv
   cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
-  cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
-  cop->setAttr("group", rewriter.getI64IntegerAttr(group));
   cop->setAttr("acc_type", TypeAttr::get(accType));
+
+  // Backwards convolution does not need dilation or group
+  if (!isBwdConvOp) {
+    auto dilationAttr = cast<ArrayAttr>(op->getAttr("dilation"));
+    SmallVector<int64_t> dilations;
+
+    for (size_t i = 0; i < strideAttr.size(); i++) {
+      dilations.push_back(dyn_cast<IntegerAttr>(dilationAttr[i]).getInt());
+    }
+
+    if (dims == 1) {
+      if (dilations.size() != 1) {
+        return op->emitError(
+            "1-D convolution has improper dilation");
+      }
+      dilations.push_back(1);
+    }
+
+    int64_t group = op.getGroup();
+    cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
+    cop->setAttr("group", rewriter.getI64IntegerAttr(group));
+  }
+
+  // Set input padding for forwards convolution, and output padding for
+  // backwards convolution
+  if (isBwdConvOp) {
+    cop->setAttr("out_pad", rewriter.getDenseI64ArrayAttr(pads));
+  } else {
+    cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
+  }
 
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
@@ -1499,7 +1551,9 @@ LogicalResult MHALLaunchConverter::matchAndRewrite(
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
-  patterns.add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
+  patterns.add<ConvConverter<BwdDataConvolutionOp>,
+               ConvConverter<BwdWeightConvolutionOp>,
+               ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
                DotConverter<DotOp>, DotConverter<QuantDotOp>,
                BroadcastConverter, MultiBroadcastConverter, TransposeConverter,
                ReshapeConverter, SliceConverter, ReduceMeanConverter,

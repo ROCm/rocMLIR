@@ -340,6 +340,26 @@ def MIGraphX_ConvolutionOp :
   }];
 }
 
+def MIGraphX_BwdDataConvolutionOp :
+    MIGraphX_ConvOpBase<"backwards_data_convolution", [F32, F16, BF16],
+                        [F32, F16, BF16]> {
+  let summary = "Backwards data convolution";
+  let description = [{
+    The `migraphx.backwards_data_convolution op computes gradients with
+    respect to the input tensor during back propagation
+  }];
+}
+
+def MIGraphX_BwdWeightConvolutionOp :
+    MIGraphX_ConvOpBase<"backwards_weight_convolution", [F32, F16, BF16],
+                        [F32, F16, BF16]> {
+  let summary = "Backwards weight convolution";
+  let description = [{
+    The `migraphx.backwards_weight_convolution op computes gradients with
+    respect to the filter weights
+  }];
+}
+
 def MIGraphX_BatchNormOp :
     MIGraphX_Op<"batch_norm_inference">,
     Arguments<(ins AnyMIXRShaped:$input,
