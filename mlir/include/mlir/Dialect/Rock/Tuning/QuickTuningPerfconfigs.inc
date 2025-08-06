@@ -236,7 +236,9 @@ const InitParamsAccel PopulateParamsXDL::initParametersConvGfx908[PopulateParams
     {128,64,4,64,32,4,1,2,2,true,true},
     {128,128,2,128,32,1,1,2,2,true,true},
     {64,32,2,64,32,1,1,1,2,true,true},
-    {32,128,4,16,16,4,1,2,2,true,true}
+    {32,128,4,16,16,4,1,2,2,true,true},
+    {64,64,2,64,32,1,1,2,2,true,true},
+    {64,64,4,64,16,4,1,2,2,true,true}
 };
 // END_CONV_XDL_f32_gfx908_DEFS
 
@@ -418,7 +420,9 @@ const InitParamsAccel PopulateParamsXDL::initParametersFp16ConvGfx908[PopulatePa
     {128,128,4,64,32,8,1,2,2,true,true},
     {16,16,8,16,16,8,1,1,2,true,true},
     {16,64,4,16,16,8,1,1,2,true,true},
-    {32,256,2,32,32,4,1,2,2,true,true}
+    {32,256,2,32,32,4,1,2,2,true,true},
+    {128,256,2,128,32,4,1,1,2,true,true},
+    {64,32,2,64,32,4,1,1,2,true,true}
 };
 // END_CONV_XDL_f16_gfx908_DEFS
 
@@ -776,7 +780,9 @@ const InitParamsAccel PopulateParamsXDL::initParametersForwardI8ConvGfx908[Popul
     {16,16,8,16,16,16,1,2,2,true,true},
     {64,32,16,16,16,4,1,1,2,true,true},
     {64,16,16,16,16,8,1,1,2,true,true},
-    {64,64,4,16,16,4,1,1,2,true,true}
+    {64,64,4,16,16,4,1,1,2,true,true},
+    {32,256,4,32,16,4,1,2,2,true,true},
+    {128,32,8,128,32,1,1,1,2,true,true}
 };
 // END_CONV_XDL_i8_gfx908_DEFS
 
@@ -850,7 +856,7 @@ static const InitParamsAccel initParametersGemmGfx950[nInitParametersGemmGfx950]
 // END_GEMM_XDL_f32_gfx950_DECS
 
 // BEGIN_CONV_XDL_f32_gfx908_DECS
-static constexpr size_t nInitParametersConvGfx908 = 16;
+static constexpr size_t nInitParametersConvGfx908 = 18;
 static const InitParamsAccel initParametersConvGfx908[nInitParametersConvGfx908];
 // END_CONV_XDL_f32_gfx908_DECS
 
@@ -890,7 +896,7 @@ static const InitParamsAccel initParametersFp16GemmGfx950[nInitParametersFp16Gem
 // END_GEMM_XDL_f16_gfx950_DECS
 
 // BEGIN_CONV_XDL_f16_gfx908_DECS
-static constexpr size_t nInitParametersFp16ConvGfx908 = 12;
+static constexpr size_t nInitParametersFp16ConvGfx908 = 14;
 static const InitParamsAccel initParametersFp16ConvGfx908[nInitParametersFp16ConvGfx908];
 // END_CONV_XDL_f16_gfx908_DECS
 
@@ -970,7 +976,7 @@ static const InitParamsAccel initParametersI8GemmGfx950[nInitParametersI8GemmGfx
 // END_GEMM_XDL_i8_gfx950_DECS
 
 // BEGIN_CONV_XDL_i8_gfx908_DECS
-static constexpr size_t nInitParametersForwardI8ConvGfx908 = 6;
+static constexpr size_t nInitParametersForwardI8ConvGfx908 = 8;
 static const InitParamsAccel initParametersForwardI8ConvGfx908[nInitParametersForwardI8ConvGfx908];
 // END_CONV_XDL_i8_gfx908_DECS
 
