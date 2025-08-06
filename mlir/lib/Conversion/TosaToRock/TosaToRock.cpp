@@ -205,10 +205,9 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-
 static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op, Type inputType) {
- auto func = op->getParentOfType<func::FuncOp>();
+  auto func = op->getParentOfType<func::FuncOp>();
   // auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
@@ -240,7 +239,8 @@ getArchAttributes(Operation *op, Type inputType) {
 /*
 static std::tuple<StringAttr, std::optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op, Type inputType) {
-  StringAttr arch = StringAttr::get(op->getContext(), "amdgcn-amd-amdhsa:gfxMIGX");
+  StringAttr arch = StringAttr::get(op->getContext(),
+"amdgcn-amd-amdhsa:gfxMIGX");
 
   std::optional<uint32_t> num_cu = std::nullopt;
 
@@ -250,7 +250,6 @@ getArchAttributes(Operation *op, Type inputType) {
   return {arch, num_cu, features};
 }
 */
-
 
 struct ConvFields {
   SmallString<8> filterLayout;

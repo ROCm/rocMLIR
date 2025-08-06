@@ -4986,8 +4986,8 @@ int main(int argc, char **argv) {
 
   amdgpu::Chipset chipset;
   if (!arch.getValue().empty()) {
-            llvm::errs() << arch.getValue() << "\n";
-      
+    llvm::errs() << arch.getValue() << "\n";
+
     FailureOr<amdgpu::Chipset> maybeChipset =
         amdgpu::Chipset::parse(archChip());
     if (failed(maybeChipset)) {

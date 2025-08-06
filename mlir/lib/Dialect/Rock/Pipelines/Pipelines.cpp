@@ -143,15 +143,16 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   }
 }
 
-void rock::buildPopulateParamsPipeline(OpPassManager &pm, const rock::PopulateParamsOptions &options) {
-    auto &funcPm = pm.nest<func::FuncOp>();
-    if(options.portable) {
-        PopulateArchFeaturesPassOptions popOpts;
-        popOpts.triple = options.triple;
-        popOpts.arch = options.chip;
-        popOpts.num_cu = options.numCU;
-        popOpts.debug = options.debug;
-        funcPm.addPass(createPopulateArchFeaturesPass(popOpts));
+void rock::buildPopulateParamsPipeline(
+    OpPassManager &pm, const rock::PopulateParamsOptions &options) {
+  auto &funcPm = pm.nest<func::FuncOp>();
+  if (options.portable) {
+    PopulateArchFeaturesPassOptions popOpts;
+    popOpts.triple = options.triple;
+    popOpts.arch = options.chip;
+    popOpts.num_cu = options.numCU;
+    popOpts.debug = options.debug;
+    funcPm.addPass(createPopulateArchFeaturesPass(popOpts));
   }
 }
 
@@ -283,7 +284,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     opts.chip = options.chip;
     opts.features = options.features;
     opts.optLevel = options.optLevel;
-    
+
     pm.addPass(createGpuROCDLAttachTarget(opts));
     pm.addPass(createGpuModuleToBinaryPass());
     pm.addPass(createRockCheckResidencyPass());

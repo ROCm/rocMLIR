@@ -33,17 +33,17 @@ struct BufferizeOptions : public PassPipelineOptions<BufferizeOptions> {
       *this, "disable-rock",
       desc("Disable Rock dialect targeting when bufferizing"), init(false)};
   PassOptions::Option<bool> portable{
-      *this, "portable",
-      desc("Enable partially compiled "), init(false)};    
+      *this, "portable", desc("Enable partially compiled "), init(false)};
 };
 
 /// Adds the `bufferize` pipeline to the `OpPassManager`.
 void buildBufferizePipeline(OpPassManager &pm,
                             const BufferizeOptions &options = {});
 
-
-//===--- PopulateParams Pipeline --------------------------------------------------===//
-struct PopulateParamsOptions : public PassPipelineOptions<PopulateParamsOptions> {
+//===--- PopulateParams Pipeline
+//--------------------------------------------------===//
+struct PopulateParamsOptions
+    : public PassPipelineOptions<PopulateParamsOptions> {
   PassOptions::Option<bool> portable{
       *this, "portable",
       desc("Set true if arch and tuning params must be filled"), init(false)};
@@ -54,12 +54,13 @@ struct PopulateParamsOptions : public PassPipelineOptions<PopulateParamsOptions>
       *this, "chip", desc("AMDGPU ISA version: e.g. gfx908"), init("")};
   PassOptions::Option<std::size_t> numCU{
       *this, "numCU", desc("Number of Compute Units available"), init(0)};
-  PassOptions::Option<bool> debug{
-      *this, "debug", desc("Debug info for pass"), init(false)};
+  PassOptions::Option<bool> debug{*this, "debug", desc("Debug info for pass"),
+                                  init(false)};
 };
 
 /// Adds the `PopulateParams` pipeline to the `OpPassManager`.
-void buildPopulateParamsPipeline(OpPassManager &pm, const PopulateParamsOptions &options = {});                            
+void buildPopulateParamsPipeline(OpPassManager &pm,
+                                 const PopulateParamsOptions &options = {});
 
 //===--- Kernel Pipeline --------------------------------------------------===//
 struct KernelOptions : public PassPipelineOptions<KernelOptions> {

@@ -22,22 +22,22 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
 #include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
-#include "mlir/Dialect/Rock/utility/builderUtils.h"
-#include "mlir/Dialect/Rock/utility/fusionUtils.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Pass/Pass.h"
 
 #include "llvm/Support/Debug.h"
@@ -59,16 +59,16 @@ namespace {
 class PopulateArchFeaturesPass
     : public rock::impl::PopulateArchFeaturesPassBase<
           PopulateArchFeaturesPass> {
-    using rock::impl::PopulateArchFeaturesPassBase<
-	PopulateArchFeaturesPass>::PopulateArchFeaturesPassBase;
+  using rock::impl::PopulateArchFeaturesPassBase<
+      PopulateArchFeaturesPass>::PopulateArchFeaturesPassBase;
   void runOnOperation() override;
   void PopulateArchFeaturesImpl(func::FuncOp &func);
-    rock::GemmFeatures getArchFeatures(StringAttr archAttr, Type inputType);
+  rock::GemmFeatures getArchFeatures(StringAttr archAttr, Type inputType);
 };
 } // end namespace
 
 rock::GemmFeatures
-PopulateArchFeaturesPass::getArchFeatures(StringAttr archAttr, Type inputType) {    
+PopulateArchFeaturesPass::getArchFeatures(StringAttr archAttr, Type inputType) {
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(archAttr);
   rock::GemmFeatures features = archInfo.getDefaultFeatures(inputType);
   if (xdlopsV2)
@@ -77,54 +77,55 @@ PopulateArchFeaturesPass::getArchFeatures(StringAttr archAttr, Type inputType) {
 }
 
 void PopulateArchFeaturesPass::PopulateArchFeaturesImpl(func::FuncOp &func) {
-    auto context = func.getContext();
-    // repopulate the function
-    StringAttr archAttr = StringAttr::get(context, arch);
-    IntegerAttr numCUAttr = IntegerAttr::get(IntegerType::get(context, 32), num_cu);
-    BoolAttr xdlopsAttr = BoolAttr::get(context, xdlopsV2);
-    StringAttr perfConfigAttr = StringAttr::get(context, perf_config);
+  auto context = func.getContext();
+  // repopulate the function
+  StringAttr archAttr = StringAttr::get(context, arch);
+  IntegerAttr numCUAttr =
+      IntegerAttr::get(IntegerType::get(context, 32), num_cu);
+  BoolAttr xdlopsAttr = BoolAttr::get(context, xdlopsV2);
+  StringAttr perfConfigAttr = StringAttr::get(context, perf_config);
 
-    if(!arch.empty()) {
-	func->setAttr("arch", archAttr);
-    }
+  if (!arch.empty()) {
+    func->setAttr("arch", archAttr);
+  }
 
-    if(num_cu > 0) {
-	func->setAttr("num_cu", numCUAttr);
-    }
+  if (num_cu > 0) {
+    func->setAttr("num_cu", numCUAttr);
+  }
 
-    if(xdlopsV2) {
-	func->setAttr("xdlopsV2", xdlopsAttr);
-    }
+  if (xdlopsV2) {
+    func->setAttr("xdlopsV2", xdlopsAttr);
+  }
 
-    // handle updating gemm ops
-    func.walk([&](GemmOp gemmOp) {
-	    // get inputType
-	    auto inputType = gemmOp.getA().getType();
-	    auto features = getArchFeatures(archAttr, inputType);
-	    auto featuresAttr = rock::GemmFeaturesAttr::get(gemmOp.getContext(), features);
-	    gemmOp->setAttr("arch", archAttr);
-	    gemmOp->setAttr("numCU", numCUAttr);
-	    gemmOp->setAttr("xdlopsV2", xdlopsAttr);
-	    gemmOp->setAttr("perf_config", perfConfigAttr);
-	    gemmOp->setAttr("features", featuresAttr);
-    });
+  // handle updating gemm ops
+  func.walk([&](GemmOp gemmOp) {
+    // get inputType
+    auto inputType = gemmOp.getA().getType();
+    auto features = getArchFeatures(archAttr, inputType);
+    auto featuresAttr =
+        rock::GemmFeaturesAttr::get(gemmOp.getContext(), features);
+    gemmOp->setAttr("arch", archAttr);
+    gemmOp->setAttr("numCU", numCUAttr);
+    gemmOp->setAttr("xdlopsV2", xdlopsAttr);
+    gemmOp->setAttr("perf_config", perfConfigAttr);
+    gemmOp->setAttr("features", featuresAttr);
+  });
 
+  // handle updating gemm ops
+  func.walk([&](ConvOp convOp) {
+    // get inputType
+    auto inputType = convOp.getInput().getType();
+    auto features = getArchFeatures(archAttr, inputType);
+    auto featuresAttr =
+        rock::GemmFeaturesAttr::get(convOp.getContext(), features);
+    convOp->setAttr("arch", archAttr);
+    convOp->setAttr("numCU", numCUAttr);
+    convOp->setAttr("features", featuresAttr);
+  });
 
-    // handle updating gemm ops
-    func.walk([&](ConvOp convOp) {
-	
-	    // get inputType
-	    auto inputType = convOp.getInput().getType();
-	    auto features = getArchFeatures(archAttr, inputType);
-	    auto featuresAttr = rock::GemmFeaturesAttr::get(convOp.getContext(), features);
-	    convOp->setAttr("arch", archAttr);
-	    convOp->setAttr("numCU", numCUAttr);
-	    convOp->setAttr("features", featuresAttr);
-    });
-
-    // repeat for every other rock::Op
+  // repeat for every other rock::Op
 }
-	
+
 void PopulateArchFeaturesPass::runOnOperation() {
   func::FuncOp func = getOperation();
   PopulateArchFeaturesImpl(func);

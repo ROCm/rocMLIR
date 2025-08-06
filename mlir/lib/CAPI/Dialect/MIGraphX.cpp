@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir-c/Dialect/MIGraphX.h"
+#include "mlir/Bytecode/BytecodeReader.h"
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -19,10 +20,9 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
-#include "mlir/Bytecode/BytecodeReader.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include <mutex>
 #include <vector>
@@ -137,7 +137,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 // Returns the size of MLIR bytecode if called with null ptr
 // and return the MLIR byte when buffer is provided
 MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
-                                      char *bin) {
+                                        char *bin) {
   if (bin == nullptr && size == nullptr)
     return false;
   auto mod = unwrap(module);
@@ -153,57 +153,56 @@ MLIR_CAPI_EXPORTED bool mlirGetBytecode(MlirModule module, size_t *size,
     *size = buffer.size();
   } else { // copy data (buffer) to user input (bin)
     std::memcpy(bin, buffer.data(), buffer.size());
-    if (size) 
+    if (size)
       *size = buffer.size();
   }
   return true;
 }
 
 // Reads mlir bytecode in data/size, returning an MlirModule of it
-MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx, const char* data, size_t size)
-{
-    if (data == nullptr) {
-        llvm::errs() << "Data is null\n";
-        return MlirModule{nullptr}; 
-    }
+MLIR_CAPI_EXPORTED MlirModule mlirLoadBytecode(MlirContext ctx,
+                                               const char *data, size_t size) {
+  if (data == nullptr) {
+    llvm::errs() << "Data is null\n";
+    return MlirModule{nullptr};
+  }
 
-    if(size == 0) {
-        llvm::errs() << "Size if zero\n";
-        return MlirModule{nullptr}; 
-    }
+  if (size == 0) {
+    llvm::errs() << "Size if zero\n";
+    return MlirModule{nullptr};
+  }
 
+  auto memBuffer = llvm::MemoryBuffer::getMemBufferCopy(
+      llvm::StringRef(data, size), "<mlirbc>");
 
-    auto memBuffer = llvm::MemoryBuffer::getMemBufferCopy(
-        llvm::StringRef(data, size), "<mlirbc>");
+  mlir::MLIRContext *context = unwrap(ctx);
+  mlir::ParserConfig config(context);
+  mlir::Block block;
+  llvm::MemoryBufferRef bufferRef = memBuffer->getMemBufferRef();
 
-    mlir::MLIRContext *context = unwrap(ctx);
-    mlir::ParserConfig config(context);
-    mlir::Block block;
-    llvm::MemoryBufferRef bufferRef = memBuffer->getMemBufferRef();
+  if (mlir::failed(mlir::readBytecodeFile(bufferRef, &block, config))) {
+    llvm::errs() << "Failed to read bytecode\n";
+    return MlirModule{nullptr};
+  }
 
-    if (mlir::failed(mlir::readBytecodeFile(bufferRef, &block, config))) {
-        llvm::errs() << "Failed to read bytecode\n";
-        return MlirModule{nullptr};
-    }
+  if (block.empty()) {
+    llvm::errs() << "Block is empty\n";
+    return MlirModule{nullptr};
+  }
 
-    if (block.empty()) {
-        llvm::errs() << "Block is empty\n";
-        return MlirModule{nullptr};
-    }
+  mlir::Operation *op = &block.front();
+  if (!llvm::isa<mlir::ModuleOp>(op)) {
+    llvm::errs() << "Block is not a module op\n";
+    return MlirModule{nullptr};
+  }
 
-    mlir::Operation *op = &block.front();
-    if (!llvm::isa<mlir::ModuleOp>(op)) {
-        llvm::errs() << "Block is not a module op\n";
-        return MlirModule{nullptr};
-    }
+  auto mod = mlir::cast<mlir::ModuleOp>(op);
 
-    auto mod = mlir::cast<mlir::ModuleOp>(op);
-   
-    mlir::OwningOpRef<mlir::ModuleOp> clonedMod = mlir::cast<mlir::ModuleOp>(mod.clone());
+  mlir::OwningOpRef<mlir::ModuleOp> clonedMod =
+      mlir::cast<mlir::ModuleOp>(mod.clone());
 
-    return wrap(clonedMod.release());        
+  return wrap(clonedMod.release());
 }
-
 
 // pipelines
 
@@ -228,10 +227,9 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
   mlir::rock::buildKernelPipeline(*passMan, opts);
 }
 
-MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPopulateParamsPipeline(MlirPassManager pm,
-							       const char *arch,
-							       size_t num_cu,
-                                   bool debug) {
+MLIR_CAPI_EXPORTED bool
+mlirMIGraphXAddPopulateParamsPipeline(MlirPassManager pm, const char *arch,
+                                      size_t num_cu, bool debug) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
@@ -242,15 +240,15 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPopulateParamsPipeline(MlirPassManager pm
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }
-  auto triple   = devName.getTriple().str();      
-  auto chip 	= devName.getChip().str();
-  auto features	= devName.getFeaturesForBackend();
+  auto triple = devName.getTriple().str();
+  auto chip = devName.getChip().str();
+  auto features = devName.getFeaturesForBackend();
   mlir::rock::PopulateParamsOptions ppOpts;
   ppOpts.portable = true;
-  ppOpts.triple   = triple;
-  ppOpts.chip     = chip;
-  ppOpts.numCU   = num_cu;
-  ppOpts.debug    = debug;
+  ppOpts.triple = triple;
+  ppOpts.chip = chip;
+  ppOpts.numCU = num_cu;
+  ppOpts.debug = debug;
   mlir::rock::buildPopulateParamsPipeline(*passMan, ppOpts);
 
   return true;
@@ -268,9 +266,9 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }
-  auto triple   = devName.getTriple().str();      
-  auto chip 	= devName.getChip().str();	       
-  auto features	= devName.getFeaturesForBackend();    
+  auto triple = devName.getTriple().str();
+  auto chip = devName.getChip().str();
+  auto features = devName.getFeaturesForBackend();
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
@@ -284,9 +282,9 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   return true;
 }
 
-MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm,
-							       const char *arch,
-							       size_t num_cu) {
+MLIR_CAPI_EXPORTED bool
+mlirMIGraphXAddPortableBackendPipeline(MlirPassManager pm, const char *arch,
+                                       size_t num_cu) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
@@ -297,14 +295,14 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddPortableBackendPipeline(MlirPassManager p
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }
-  auto triple   = devName.getTriple().str();      
-  auto chip 	= devName.getChip().str();
-  auto features	= devName.getFeaturesForBackend();      
+  auto triple = devName.getTriple().str();
+  auto chip = devName.getChip().str();
+  auto features = devName.getFeaturesForBackend();
   mlir::rock::PopulateParamsOptions ppOpts;
   ppOpts.portable = true;
-  ppOpts.triple   = triple;
-  ppOpts.chip     = chip;
-  ppOpts.numCU   = num_cu;
+  ppOpts.triple = triple;
+  ppOpts.chip = chip;
+  ppOpts.numCU = num_cu;
   mlir::rock::buildPopulateParamsPipeline(*passMan, ppOpts);
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = false;

@@ -30,14 +30,14 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "mlir/Bytecode/BytecodeWriter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
-#include "mlir/Bytecode/BytecodeWriter.h"
-#include "llvm/Support/FileSystem.h"
 
 #include <unordered_map>
 
@@ -49,8 +49,8 @@ static cl::opt<std::string> inputFilename(llvm::cl::Positional,
                                           llvm::cl::init("-"));
 
 static cl::opt<std::string> bcFilename("bc", cl::desc("Bytcode filename"),
-                                           cl::value_desc("filename"),
-                                           cl::init("-"));
+                                       cl::value_desc("filename"),
+                                       cl::init("-"));
 
 static cl::opt<std::string> kernelPipeline(
     "kernel-pipeline", cl::desc("rocmlir-driver kernel pipeline list"),
@@ -112,7 +112,7 @@ namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
-void dumpToBytecode(ModuleOp module, llvm::raw_fd_ostream& os) {
+void dumpToBytecode(ModuleOp module, llvm::raw_fd_ostream &os) {
   if (failed(writeBytecodeToFile(module.getOperation(), os))) {
     llvm::errs() << "Failed to write bytecode\n";
   }
@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
                       bufferization::BufferizationDialect>();
   mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
-  
+
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR Rock Dialect printer\n");
   OpBuilder builder(&context);
@@ -156,15 +156,14 @@ int main(int argc, char **argv) {
   module = moduleRef.get();
   // Set up the output file.
 
-  
   auto output = openOutputFile(bcFilename, &errorMessage);
   if (!output) {
     llvm::errs() << errorMessage << "\n";
     exit(1);
   }
-  
+
   dumpToBytecode(module, output->os());
-  
+
   output->keep();
   return 0;
 }

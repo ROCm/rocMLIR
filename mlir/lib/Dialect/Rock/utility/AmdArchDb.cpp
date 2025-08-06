@@ -82,11 +82,11 @@ static constexpr AmdArchInfo
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     migxInfo(GemmFeatures::none,
-              /*waveSize=*/0, /*maxWavesPerEU*/ 0, /*totalSGPRPerEU*/ 0,
-              /*totalVGPRPerEU*/ 0, /*totalSharedMemPerCU*/ 0,
-              /*maxSharedMemPerWG*/ 0, /*numEUPerCU=*/0, /*minNumCU=*/0,
-              /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/0);
+             /*waveSize=*/0, /*maxWavesPerEU*/ 0, /*totalSGPRPerEU*/ 0,
+             /*totalVGPRPerEU*/ 0, /*totalSharedMemPerCU*/ 0,
+             /*maxSharedMemPerWG*/ 0, /*numEUPerCU=*/0, /*minNumCU=*/0,
+             /*hasFp8ConversionInstrs=*/false,
+             /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/0);
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
@@ -140,7 +140,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 
     return gfx12Info;
   }
-  if(chip == "gfxMIGX" || chip == "gfxmigx") {
+  if (chip == "gfxMIGX" || chip == "gfxmigx") {
     return migxInfo;
   }
   llvm_unreachable("unknown architecture");

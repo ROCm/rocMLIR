@@ -30,14 +30,14 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "mlir/Bytecode/BytecodeWriter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
-#include "mlir/Bytecode/BytecodeWriter.h"
-#include "llvm/Support/FileSystem.h"
 
 #include <unordered_map>
 
@@ -52,8 +52,8 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 static cl::opt<std::string> bcFilename("bc", cl::desc("Bytcode filename"),
-                                           cl::value_desc("filename"),
-                                           cl::init(""));
+                                       cl::value_desc("filename"),
+                                       cl::init(""));
 
 static cl::opt<std::string> kernelPipeline(
     "kernel-pipeline", cl::desc("rocmlir-driver kernel pipeline list"),
@@ -413,11 +413,12 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 void dumpToBytecode(ModuleOp module, StringRef outputPath) {
   std::error_code ec;
   llvm::raw_fd_ostream os(outputPath, ec, llvm::sys::fs::OF_None);
-  if(ec) {
-    llvm::errs() << "Failed to open" << outputPath << ": " << ec.message() << "\n";
+  if (ec) {
+    llvm::errs() << "Failed to open" << outputPath << ": " << ec.message()
+                 << "\n";
     return;
   }
-  
+
   if (failed(writeBytecodeToFile(module.getOperation(), os))) {
     llvm::errs() << "Failed to write bytecode\n";
   }
@@ -470,7 +471,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  if(!bcFilename.empty()) 
+  if (!bcFilename.empty())
     dumpToBytecode(module, bcFilename);
 
   // Set up the output file.
